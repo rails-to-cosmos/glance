@@ -2,6 +2,6 @@
 
 The goal of this project is to allow users to manage their org-mode files interactively.
 
-Browse bookmarks, encrypt/extract credentials, search through the graph of entities through custom dimension types.
+Browse bookmarks, encrypt or extract credentials, and search the graph of entities using custom dimension types.
 
-I am experimenting with interactive graph management design, making underlying data structures git-friendly and applying handy functional semantics (such as Type Classes) to an everyday life of power user.
+I am experimenting with the design of interactive graph management, making the underlying data structures git-friendly and applying functional semantics like Type Classes to enhance the daily experience of power users.
