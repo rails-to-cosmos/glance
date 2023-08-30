@@ -1,5 +1,3 @@
-# Glance: Stateful Org-mode REPL
-
 **Glance** is a stateful org-mode repl for power users.
 
 The goal of this project is to allow users to manage their org-mode files interactively.
