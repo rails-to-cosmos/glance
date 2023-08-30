@@ -1,11 +1,9 @@
 # Glance: Stateful Org-mode REPL
 
-**Glance** is a stateful REPL (Read-Eval-Print Loop) that supports org-mode syntax, providing comprehensive CRUD (Create, Read, Update, and Delete) functionality for org-mode files. It parses org-mode syntax line by line while preserving state, such as the current category and available TODO states.
+**Glance** is a stateful org-mode repl for power users.
 
-The REPL supports various org-mode elements, such as:
+The goal of this project is to allow users to manage their org-mode files interactively.
 
-- Headings
-- Timestamps
-- TODO items
+Browse bookmarks, encrypt/extract credentials, search through the graph of entities through custom dimension types.
 
-Stateful parsing allows Glance to maintain context while processing org-mode files, making it easy to manage org-mode files programmatically. Whether you're looking to integrate org-mode functionality into your own applications, automate your org-mode workflows, or benefit from state-aware parsing in an interactive REPL environment, Glance has you covered.
+I am experimenting with interactive graph management design, making underlying data structures git-friendly and applying handy functional semantics (such as Type Classes) to an everyday life of power user.
