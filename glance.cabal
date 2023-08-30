@@ -1,0 +1,135 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.35.2.
+--
+-- see: https://github.com/sol/hpack
+
+name:           glance
+version:        0.1.0.0
+description:    Please see the README on GitHub at <https://github.com/rails-to-cosmos/glance#readme>
+homepage:       https://github.com/rails-to-cosmos/glance#readme
+bug-reports:    https://github.com/rails-to-cosmos/glance/issues
+author:         Dmitry Akatov
+maintainer:     dmitry.akatov@protonmail.com
+copyright:      Dmitry Akatov
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    README.md
+    CHANGELOG.md
+
+source-repository head
+  type: git
+  location: https://github.com/rails-to-cosmos/glance
+
+library
+  exposed-modules:
+      Data.Org.Base
+      Data.Org.Context
+      Data.Org.Generic
+      Data.Org.Headline
+      Data.Org.Indent
+      Data.Org.Keyword
+      Data.Org.PlainText
+      Data.Org.Pragma
+      Data.Org.Priority
+      Data.Org.Properties
+      Data.Org.Property
+      Data.Org.Tags
+      Data.Org.Timestamp
+      Data.Org.Title
+      Data.Org.Todo
+      Persist.Org
+      Repl.Org
+      Repl.State
+  other-modules:
+      Paths_glance
+  hs-source-dirs:
+      src
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
+  build-depends:
+      base >=4.7 && <5
+    , bytestring
+    , containers
+    , directory
+    , exceptions
+    , filepath
+    , haskeline
+    , megaparsec
+    , monad-logger
+    , mtl
+    , persistent
+    , persistent-mtl
+    , persistent-sqlite
+    , persistent-template
+    , resource-pool
+    , text
+    , text-show
+    , time
+    , unliftio
+  default-language: Haskell2010
+
+executable glance-exe
+  main-is: Main.hs
+  other-modules:
+      Sandbox
+      Paths_glance
+  hs-source-dirs:
+      app
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base >=4.7 && <5
+    , bytestring
+    , containers
+    , directory
+    , exceptions
+    , filepath
+    , glance
+    , haskeline
+    , megaparsec
+    , monad-logger
+    , mtl
+    , persistent
+    , persistent-mtl
+    , persistent-sqlite
+    , persistent-template
+    , resource-pool
+    , text
+    , text-show
+    , time
+    , unliftio
+  default-language: Haskell2010
+
+test-suite glance-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Paths_glance
+  hs-source-dirs:
+      test
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base >=4.7 && <5
+    , bytestring
+    , containers
+    , directory
+    , exceptions
+    , filepath
+    , glance
+    , haskeline
+    , megaparsec
+    , monad-logger
+    , mtl
+    , persistent
+    , persistent-mtl
+    , persistent-sqlite
+    , persistent-template
+    , resource-pool
+    , tasty
+    , tasty-hunit
+    , text
+    , text-show
+    , time
+    , unliftio
+  default-language: Haskell2010

@@ -1,23 +1,20 @@
-dist
-dist-*
-cabal-dev
-*.o
-*.hi
-*.hie
-*.chi
-*.chs.h
-*.dyn_o
-*.dyn_hi
-.hpc
-.hsenv
-.cabal-sandbox/
-cabal.sandbox.config
-*.prof
-*.aux
-*.hp
-*.eventlog
 .stack-work/
-cabal.project.local
-cabal.project.local~
-.HTF/
-.ghc.environment.*
+*~
+/.direnv/
+/.history
+/.org-repl-history
+/dist-newstyle/
+*.sqlite
+
+# Devenv
+.devenv*
+devenv.local.nix
+
+# direnv
+.direnv
+
+# pre-commit
+.pre-commit-config.yaml
+/TAGS
+*.hs#
+*.imports
