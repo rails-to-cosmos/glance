@@ -5,7 +5,7 @@ CLOSED: [2023-07-15 Sat 15:14]
 :LOGBOOK:
 - State "DONE"       from "TODO"       [2023-07-15 Sat 15:14]
 :END:
-* STARTED Parser [14/21]
+* STARTED Parser [15/21]
 :LOGBOOK:
 - State "STARTED"    from "TODO"       [2023-08-05 Sat 10:08]
 :END:
@@ -82,12 +82,13 @@ CLOSED: [2023-08-15 Tue 14:16]
 - State "DONE"       from "STARTED"    [2023-08-15 Tue 14:16]
 - State "STARTED"    from "TODO"       [2023-08-13 Sun 10:35]
 :END:
-** STARTED Multiline parser
+** DONE Multiline property block parser
+CLOSED: [2023-08-31 Thu 10:12]
 :LOGBOOK:
+- State "DONE"       from "STARTED"    [2023-08-31 Thu 10:12]
 - State "STARTED"    from "TODO"       [2023-08-30 Wed 17:11]
 :END:
 
-** TODO Property stack
 ** TODO Parse links (meta: list of links)
 ** TODO Parse commented/archived headlines (type: ordinary/commented/archived)
 ** TODO Parse encrypted headlines (meta: encrypted regions)
