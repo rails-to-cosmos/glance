@@ -22,6 +22,8 @@ import Data.Org.Context
 import Data.Org.Generic
 import Data.Org.Pragma
 import Data.Org.PlainText
+import Data.Org.Property
+import Data.Org.PropertyBlock
 -- import Data.Org.Elements
 
 import Data.Text.Lazy.Builder
@@ -42,7 +44,7 @@ showcase = do
   let
     ctx = mempty::OrgContext
     p = runStateT apply ctx :: Parser (OrgGeneric, OrgContext)
-    input = T.pack "#+TODO: A | B\n#+TODO: D E F | G H I"
+    input = T.pack ":PROPERTIES:\n:CATEGORY: VAL\n:HELLO: WORLD\n:END:"
 
   case parse p "" input of
     Left err -> putStrLn $ errorBundlePretty err

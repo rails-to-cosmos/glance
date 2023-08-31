@@ -12,7 +12,7 @@ import Data.Org.Todo
 import Data.Org.Priority
 import Data.Org.Title
 import Data.Org.Tags
-import Data.Org.Properties
+import Data.Org.PropertyBlock
 
 import TextShow
 
@@ -24,7 +24,7 @@ data OrgHeadline = OrgHeadline
     priority :: OrgPriority,
     title :: OrgTitle,
     tags :: OrgTags,
-    properties :: OrgProperties
+    properties :: OrgPropertyBlock
   } deriving (Show, Eq)
 
 instance Semigroup OrgHeadline where
@@ -44,7 +44,7 @@ instance Monoid OrgHeadline where
     , priority = mempty :: OrgPriority
     , title = mempty :: OrgTitle
     , tags = mempty :: OrgTags
-    , properties = mempty :: OrgProperties
+    , properties = mempty :: OrgPropertyBlock
     }
 
 instance TextShow OrgHeadline where
@@ -64,7 +64,7 @@ instance OrgElement OrgHeadline where
                        , priority = p
                        , title = s
                        , tags = mempty :: OrgTags
-                       , properties = mempty :: OrgProperties
+                       , properties = mempty :: OrgPropertyBlock
                        }
 
   modifier (OrgHeadline {title=t}) = modifier t
