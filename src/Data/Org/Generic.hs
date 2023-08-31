@@ -11,7 +11,6 @@ import Data.Org.PlainText
 import Data.Org.Headline
 import Data.Org.Property
 import Data.Org.Pragma
-import Control.Monad
 import TextShow (TextShow, showb)
 
 import Text.Megaparsec

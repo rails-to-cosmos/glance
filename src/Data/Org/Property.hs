@@ -9,6 +9,7 @@ import Data.Org.Keyword
 import Data.Org.PlainText
 import Data.Text (Text)
 
+import Text.Megaparsec
 import Text.Megaparsec.Char
 
 import TextShow
@@ -24,8 +25,7 @@ instance OrgElement OrgProperty where
   type StateType OrgProperty = OrgContext
 
   parser ctx = do
-    void $ string ":"
-    k <- parser ctx :: Parser OrgKeyword
+    k <- between (char ':') (char ':') (parser ctx :: Parser OrgKeyword)
     PlainText v <- parser ctx :: Parser PlainText
     return $ OrgProperty k v
 
