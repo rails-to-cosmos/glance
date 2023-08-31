@@ -34,8 +34,8 @@ library
       Data.Org.PlainText
       Data.Org.Pragma
       Data.Org.Priority
-      Data.Org.Properties
       Data.Org.Property
+      Data.Org.PropertyBlock
       Data.Org.Tags
       Data.Org.Timestamp
       Data.Org.Title

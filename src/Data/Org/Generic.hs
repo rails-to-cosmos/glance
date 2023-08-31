@@ -9,7 +9,7 @@ import Data.Org.Tags
 import Data.Org.Timestamp
 import Data.Org.PlainText
 import Data.Org.Headline
-import Data.Org.Property
+import Data.Org.PropertyBlock
 import Data.Org.Pragma
 import TextShow (TextShow, showb)
 
@@ -21,7 +21,7 @@ newtype OrgGeneric = OrgGeneric [OrgGenericElement]
 
 data OrgGenericElement = OrgGenericHeadline OrgHeadline
                        | OrgGenericPragma OrgPragma
-                       | OrgGenericProperty OrgProperty
+                       | OrgGenericPropertyBlock OrgPropertyBlock
                        | OrgGenericTags OrgTags
                        | OrgGenericTimestamp OrgTimestamp
                        | OrgGenericText PlainText
@@ -29,12 +29,12 @@ data OrgGenericElement = OrgGenericHeadline OrgHeadline
 
 instance TextShow OrgGenericElement where
   showb = \case
-    OrgGenericTags t         -> showb t
-    OrgGenericTimestamp t    -> showb t
-    OrgGenericText t         -> showb t
-    OrgGenericPragma t       -> showb t
-    OrgGenericProperty t     -> showb t
-    OrgGenericHeadline t     -> showb t
+    OrgGenericTags t          -> showb t
+    OrgGenericTimestamp t     -> showb t
+    OrgGenericText t          -> showb t
+    OrgGenericPragma t        -> showb t
+    OrgGenericPropertyBlock t -> showb t
+    OrgGenericHeadline t      -> showb t
 
 instance OrgElement OrgGeneric where
   type StateType OrgGeneric = OrgContext
@@ -43,7 +43,7 @@ instance OrgElement OrgGeneric where
     let elements = [ OrgGenericTags      <$> (try (parser ctx) :: Parser OrgTags)
                    , OrgGenericTimestamp <$> (try (parser ctx) :: Parser OrgTimestamp)
                    , OrgGenericHeadline  <$> (try (parser ctx) :: Parser OrgHeadline)
-                   , OrgGenericProperty  <$> (try (parser ctx) :: Parser OrgProperty)
+                   , OrgGenericPropertyBlock  <$> (try (parser ctx) :: Parser OrgPropertyBlock)
                    , OrgGenericPragma    <$> (try (parser ctx) :: Parser OrgPragma)
                    , OrgGenericText      <$> (parser ctx       :: Parser PlainText)
                    ]
@@ -56,6 +56,6 @@ instance OrgElement OrgGeneric where
               OrgGenericTimestamp x  -> modifier x ctx
               OrgGenericText x       -> modifier x ctx
               OrgGenericPragma x     -> modifier x ctx
-              OrgGenericProperty x   -> modifier x ctx
+              OrgGenericPropertyBlock x -> modifier x ctx
               OrgGenericHeadline x   -> modifier x ctx
     OrgGeneric [] -> ctx
