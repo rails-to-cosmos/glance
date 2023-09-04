@@ -2,6 +2,7 @@
 
 module Data.Org.Title (OrgTitle (..)) where
 
+import Control.Monad
 import Data.Text (concat)
 
 import Data.Org.Base
@@ -13,6 +14,7 @@ import Data.Org.Timestamp
 import TextShow (TextShow, showb, showt, fromText)
 
 import Text.Megaparsec
+import Text.Megaparsec.Char
 
 import Prelude hiding (concat)
 
@@ -42,12 +44,13 @@ instance OrgElement OrgTitle where
   type StateType OrgTitle = OrgContext
 
   parser ctx = do
+    let stop = lookAhead $ void eol <|> eof
     elements <- manyTill ( choice
                          [ OrgTitleTags <$> (try (parser ctx) :: Parser OrgTags)
                          , OrgTitleTimestamp <$> (try (parser ctx) :: Parser OrgTimestamp)
                          , OrgTitleText <$> (parser ctx :: Parser PlainText)
                          ]
-                         ) (lookAhead eof)
+                         ) stop
     return $ OrgTitle elements
 
   modifier (OrgTitle ((OrgTitleTags x) : xs)) ctx = modifier (OrgTitle xs) (modifier x ctx)
