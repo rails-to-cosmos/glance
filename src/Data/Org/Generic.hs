@@ -40,17 +40,16 @@ instance OrgElement OrgGeneric where
   type StateType OrgGeneric = OrgContext
 
   parser ctx = do
-    let elements = [ OrgGenericTags      <$> (try (parser ctx) :: Parser OrgTags)
-                   , OrgGenericTimestamp <$> (try (parser ctx) :: Parser OrgTimestamp)
-                   , OrgGenericHeadline  <$> (try (parser ctx) :: Parser OrgHeadline)
-                   , OrgGenericPropertyBlock  <$> (try (parser ctx) :: Parser OrgPropertyBlock)
+    let elements = [ OrgGenericHeadline  <$> (try (parser ctx) :: Parser OrgHeadline)
+                   , OrgGenericPropertyBlock <$> (try (parser ctx) :: Parser OrgPropertyBlock)
                    , OrgGenericPragma    <$> (try (parser ctx) :: Parser OrgPragma)
+                   , OrgGenericTimestamp <$> (try (parser ctx) :: Parser OrgTimestamp)
+                   , OrgGenericTags      <$> (try (parser ctx) :: Parser OrgTags)
                    , OrgGenericText      <$> (parser ctx       :: Parser PlainText)
                    ]
     OrgGeneric <$> choice elements `sepEndBy` eol
 
-  modifier og ctx = case og of
-    OrgGeneric (e:xs) -> modifier (OrgGeneric xs) newCtx
+  modifier (OrgGeneric (e : xs)) ctx = modifier (OrgGeneric xs) newCtx
       where newCtx = case e of
               OrgGenericTags x       -> modifier x ctx
               OrgGenericTimestamp x  -> modifier x ctx
@@ -58,4 +57,5 @@ instance OrgElement OrgGeneric where
               OrgGenericPragma x     -> modifier x ctx
               OrgGenericPropertyBlock x -> modifier x ctx
               OrgGenericHeadline x   -> modifier x ctx
-    OrgGeneric [] -> ctx
+
+  modifier (OrgGeneric []) ctx = ctx

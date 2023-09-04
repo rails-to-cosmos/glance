@@ -40,9 +40,8 @@ repl fn = do
   input <- getInput
   case input of
     ":q" -> return ()
-    ":!" -> do
-      let cmd = metaCommand ctx
-      State.modify $ flip fn $ intercalate "\n" cmd
+    ":END:" -> do
+      State.modify $ flip fn $ intercalate "\n" $ metaCommand ctx ++ [":END:"]
       repl fn
     line -> do
       State.modify $ \c -> c { metaCommand = metaCommand c ++ [line] }
