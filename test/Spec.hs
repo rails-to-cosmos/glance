@@ -30,16 +30,16 @@ testCases =
           ":END:"
         ]
         (mempty :: OrgContext) { metaCategory = "New category" }
-    ),
-    TestCase
+    )
+  , TestCase
       { description = "Category pragma affects context",
         inputs =
           [ "#+CATEGORY: Category 1"
           , "#+CATEGORY: Category 2"
           ],
         expected = (mempty :: OrgContext) { metaCategory = "Category 2" }
-      },
-    TestCase
+      }
+  , TestCase
       { description = "Todo pragma affects context",
         inputs =
           [ "#+TODO: PENDING | CANCELLED",
@@ -47,6 +47,17 @@ testCases =
           ],
         expected = (mempty :: OrgContext) { metaTodo = (["TODO", "PENDING", "STARTED"], ["DONE", "CANCELLED"]) }
       }
+  , TestCase
+      { description = "Multiline headline parsing",
+        inputs =
+          [ "* TODO I'm the new headline"
+          , ":PROPERTIES:"
+          , ":CATEGORY: New category"
+          , ":END:"
+          ],
+        expected = (mempty :: OrgContext) { metaCategory = "New category" }
+      }
+
   -- , TestCase
   --     { description = "Parse basic headline",
   --       inputs = ["** TODO [#A] This is a simple headline :a:b:c:"],

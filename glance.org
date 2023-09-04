@@ -5,7 +5,7 @@ CLOSED: [2023-07-15 Sat 15:14]
 :LOGBOOK:
 - State "DONE"       from "TODO"       [2023-07-15 Sat 15:14]
 :END:
-* STARTED Parser [15/21]
+* STARTED Parser [16/20]
 :LOGBOOK:
 - State "STARTED"    from "TODO"       [2023-08-05 Sat 10:08]
 :END:
@@ -93,7 +93,13 @@ CLOSED: [2023-08-31 Thu 10:12]
 ** TODO Parse commented/archived headlines (type: ordinary/commented/archived)
 ** TODO Parse encrypted headlines (meta: encrypted regions)
 ** TODO Parse closed headlines
-** TODO Multiline parsing
+** DONE Fix multiline parsing
+CLOSED: [2023-09-04 Mon 23:54]
+:LOGBOOK:
+- State "DONE"       from "STARTED"    [2023-09-04 Mon 23:54]
+- State "STARTED"    from "TODO"       [2023-09-04 Mon 23:29]
+CLOCK: [2023-09-04 Mon 23:29]--[2023-09-04 Mon 23:54] =>  0:25
+:END:
 #+begin_quote
  * TODO Hello there\n:PROPERTIES:\n:CATEGORY: Hello\n:END:
 #+end_quote
