@@ -36,19 +36,16 @@ getInput = do
 repl :: CommandProcessor -> Repl ()
 repl fn = do
   ctx <- State.get
-  shout ctx
+  liftIO (print ctx)
   input <- getInput
   case input of
-    ":q" -> return ()
-    ":END:" -> do
-      State.modify $ flip fn $ intercalate "\n" $ metaCommand ctx ++ [":END:"]
-      repl fn
-    line -> do
-      State.modify $ \c -> c { metaCommand = metaCommand c ++ [line] }
-      repl fn
-  where
-    shout :: (Show a) => a -> Repl ()
-    shout msg = liftIO $ print msg
+    _ | input `elem` ["", ":END:"] -> do
+          State.modify $ flip fn $ intercalate "\n" $ metaCommand ctx ++ [input]
+          repl fn
+      | input == ":q" -> return ()
+      | otherwise -> do
+          State.modify $ \c -> c { metaCommand = metaCommand c ++ [input] }
+          repl fn
 
 runRepl :: Text -> Int -> OrgContext -> CommandProcessor -> IO ()
 runRepl connectionString poolSize initialState fn = do
