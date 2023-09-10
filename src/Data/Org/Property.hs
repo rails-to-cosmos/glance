@@ -21,11 +21,11 @@ import Prelude hiding (unwords, concat, replicate, concatMap)
 data OrgProperty = OrgProperty OrgKeyword Text
   deriving (Show, Eq)
 
-reservedKeywords :: [Text]
-reservedKeywords = ["PROPERTIES", "END"]
+propertyStackKeywords :: [Text]
+propertyStackKeywords = ["PROPERTIES", "END"]
 
-reservedPropertyKeyword :: OrgKeyword -> Bool
-reservedPropertyKeyword (OrgKeyword k) = k `elem` reservedKeywords
+isPropertyStackKeyword :: OrgKeyword -> Bool
+isPropertyStackKeyword (OrgKeyword k) = k `elem` propertyStackKeywords
 
 instance OrgElement OrgProperty where
   type StateType OrgProperty = OrgContext
@@ -33,7 +33,7 @@ instance OrgElement OrgProperty where
   parser ctx = do
     k <- between (char ':') (char ':') (parser ctx :: Parser OrgKeyword)
     space
-    guard $ not (reservedPropertyKeyword k)
+    guard $ not (isPropertyStackKeyword k)
     PlainText v <- parser ctx :: Parser PlainText
     return $ OrgProperty k v
 

@@ -1,10 +1,16 @@
 Glance
 →
-* DONE REPL
-CLOSED: [2023-07-15 Sat 15:14]
+* TODO REPL
 :LOGBOOK:
 - State "DONE"       from "TODO"       [2023-07-15 Sat 15:14]
 :END:
+
+** DONE Some commands (like pragmas) should apply on \n
+CLOSED: [2023-09-10 Sun 23:26]
+:LOGBOOK:
+- State "DONE"       from "TODO"       [2023-09-10 Sun 23:26]
+:END:
+
 * STARTED Parser [16/20]
 :LOGBOOK:
 - State "STARTED"    from "TODO"       [2023-08-05 Sat 10:08]

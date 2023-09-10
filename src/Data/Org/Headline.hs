@@ -48,7 +48,10 @@ instance Monoid OrgHeadline where
     }
 
 instance TextShow OrgHeadline where
-    showb h = showb (replicate i "*") <> showb (title h) <> showbSpace <> showb (tags h)
+    showb h = showb (replicate i "*")
+      <> showb (title h)
+      <> showbSpace
+      <> showb (tags h)
       where OrgIndent i = indent h
 
 instance OrgElement OrgHeadline where
