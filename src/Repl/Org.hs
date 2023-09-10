@@ -3,7 +3,7 @@
 
 module Repl.Org (runRepl) where
 
-import           Data.Text (Text, pack, intercalate)
+import           Data.Text (Text, pack, intercalate, isPrefixOf)
 import           Control.Monad.IO.Class ( MonadIO(..) )
 import           Control.Monad.Logger ( runStderrLoggingT )
 import           Control.Monad.State ( StateT )
@@ -39,12 +39,38 @@ repl fn = do
   liftIO (print ctx)
   input <- getInput
   case input of
-    _ | input `elem` ["", ":END:"] -> do
-          State.modify $ flip fn $ intercalate "\n" $ metaCommand ctx ++ [input]
+    _ | input `elem` [":q", "exit", "quit"] -> return ()
+      | input `elem` [":PROPERTIES:", ":LOGBOOK:"] -> do  -- open drawer stack
+          case metaStack ctx of
+            OrgDrawer xs -> State.modify $ \c -> c { metaStack = OrgDrawer (xs ++ [input]) }
+            EmptyStack -> State.modify $ \c -> c { metaStack = OrgDrawer [input] }
+            OrgBabel _ -> return ()
           repl fn
-      | input == ":q" -> return ()
+      | input == ":END:" -> do  -- close and apply stack instructions to drawer
+          case metaStack ctx of
+            OrgDrawer xs -> do
+              let stack = xs ++ [input]
+              State.modify $ flip fn $ intercalate "\n" stack
+            _ -> return ()
+          repl fn
+      | "#+begin_src" `isPrefixOf` input -> do  -- open babel stack
+          case metaStack ctx of
+            OrgBabel xs -> State.modify $ \c -> c { metaStack = OrgBabel (xs ++ [input]) }
+            EmptyStack -> State.modify $ \c -> c { metaStack = OrgBabel [input] }
+            OrgDrawer _ -> return ()
+          repl fn
+      | input == "#+end_src" -> do  -- close and apply stack instructions to babel code block
+          case metaStack ctx of
+            OrgBabel xs -> do
+              let stack = xs ++ [input]
+              State.modify $ flip fn $ intercalate "\n" stack
+            _ -> return ()
+          repl fn
       | otherwise -> do
-          State.modify $ \c -> c { metaCommand = metaCommand c ++ [input] }
+          case metaStack ctx of
+            EmptyStack -> State.modify $ flip fn input
+            OrgDrawer xs -> State.modify $ \c -> c { metaStack = OrgDrawer (xs ++ [input]) }
+            OrgBabel xs -> State.modify $ \c -> c { metaStack = OrgBabel (xs ++ [input]) }
           repl fn
 
 runRepl :: Text -> Int -> OrgContext -> CommandProcessor -> IO ()

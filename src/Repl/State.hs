@@ -18,5 +18,5 @@ generic ctx = runStateT apply ctx :: Parser (OrgGeneric, OrgContext)
 
 applyCommand :: OrgContext -> Text -> OrgContext
 applyCommand ctx cmd = case parse (generic ctx) "" cmd of
-  Right (_, c) -> c {metaCommand = []}
+  Right (_, c) -> c {metaStack = EmptyStack}
   Left _ -> ctx

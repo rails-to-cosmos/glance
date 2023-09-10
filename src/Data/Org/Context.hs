@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Data.Org.Context (OrgContext (..), registeredTodoStates) where
+module Data.Org.Context (OrgContext (..), OrgStack(..), registeredTodoStates) where
 
 import Data.Text (Text)
 import Data.Time (UTCTime)
@@ -14,12 +14,15 @@ data Role = Parent | Child | Custom Text
 data Relation = Relation Role HeadlineId
   deriving (Show, Eq)
 
+data OrgStack = OrgDrawer [Text] | OrgBabel [Text] | EmptyStack
+  deriving (Show, Eq)
+
 data OrgContext = OrgContext
   { metaTodo :: ([Text], [Text])
   , metaCategory :: Text
   , metaTime :: [UTCTime]
   , metaRelations :: [Relation]
-  , metaCommand :: [Text]
+  , metaStack :: OrgStack
   } deriving (Show, Eq)
 
 instance Semigroup OrgContext where
@@ -39,7 +42,7 @@ instance Monoid OrgContext where
     , metaCategory = mempty :: Text
     , metaTime = mempty :: [UTCTime]
     , metaRelations = mempty :: [Relation]
-    , metaCommand = mempty :: [Text]
+    , metaStack = EmptyStack
     }
 
 registeredTodoStates :: OrgContext -> [Text]

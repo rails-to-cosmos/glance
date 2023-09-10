@@ -4,9 +4,9 @@
 module Data.Org.Base (Parser, StatefulParser, OrgElement (..)) where
 
 import Data.Text (Text)
-import Data.Void
+import Data.Void ( Void )
 import Data.Kind (Type)
-import Text.Megaparsec
+import Text.Megaparsec ( Parsec, MonadParsec(try) )
 
 import Control.Monad.State qualified as S
 

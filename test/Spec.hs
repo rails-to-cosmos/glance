@@ -25,9 +25,9 @@ testCases :: [TestCase]
 testCases =
   [ ( TestCase
         "Category property affects context"
-        [ ":PROPERTIES:",
-          ":CATEGORY: New category",
-          ":END:"
+        [ ":PROPERTIES:"
+        , ":CATEGORY: New category"
+        , ":END:"
         ]
         (mempty :: OrgContext) { metaCategory = "New category" }
     )
