@@ -3,11 +3,9 @@
 
 module Main (main) where
 
-import Data.List qualified as List
 import Data.Org.Context
-import Data.Text (Text, intercalate, unpack)
-import Data.Time
-import Repl.Org
+import Data.Text (Text, intercalate)
+
 import Repl.State
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertEqual, testCase)
@@ -18,8 +16,8 @@ data TestCase = TestCase
     expected :: OrgContext
   }
 
-strptime :: Text -> UTCTime
-strptime t = parseTimeOrError True defaultTimeLocale "%Y-%m-%d %H:%M:%S" (unpack t) :: UTCTime
+-- strptime :: Text -> UTCTime
+-- strptime t = parseTimeOrError True defaultTimeLocale "%Y-%m-%d %H:%M:%S" (unpack t) :: UTCTime
 
 testCases :: [TestCase]
 testCases =
