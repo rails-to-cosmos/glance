@@ -4,8 +4,9 @@
 module Main (main) where
 
 import Data.Org.Context
+import Data.Org.Generic
+import Data.Org.PlainText
 import Data.Text (Text, intercalate)
-
 import Repl.State
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertEqual, testCase)
@@ -13,7 +14,7 @@ import Test.Tasty.HUnit (assertEqual, testCase)
 data TestCase = TestCase
   { description :: String,
     inputs :: [Text],
-    expected :: OrgContext
+    expected :: (OrgGenericElement, OrgContext)
   }
 
 -- strptime :: Text -> UTCTime
@@ -21,72 +22,69 @@ data TestCase = TestCase
 
 testCases :: [TestCase]
 testCases =
-  [
-    -- ( TestCase
-    --       "Category property affects context"
-    --       [ ":PROPERTIES:"
-    --       , ":CATEGORY: New category"
-    --       , ":END:"
-    --       ]
-    --       (mempty :: OrgContext) { metaCategory = "New category" }
-    --   )
-    -- , TestCase
-    --     { description = "Category pragma affects context",
-    --       inputs =
-    --         [ "#+CATEGORY: Category 1"
-    --         , "#+CATEGORY: Category 2"
-    --         ],
-    --       expected = (mempty :: OrgContext) { metaCategory = "Category 2" }
-    --     }
-    -- , TestCase
-    --     { description = "Todo pragma affects context",
-    --       inputs =
-    --         [ "#+TODO: PENDING | CANCELLED",
-    --           "#+TODO: STARTED(s!) | CANCELLED(c!)"
-    --         ],
-    --       expected = (mempty :: OrgContext) { metaTodo = (["TODO", "PENDING", "STARTED"], ["DONE", "CANCELLED"]) }
-    --     }
-
-    TestCase
+  [ TestCase
       { description = "Multiline headline parsing",
         inputs =
-          [ "* TODO I'm the new headline",
-            ":PROPERTIES:",
-            ":CATEGORY: New category",
-            ":END:"
+          [ "* TODO I'm the new headline"
+          -- ":PROPERTIES:",
+          -- ":CATEGORY: New category",
+          -- ":END:"
           ],
-        expected = (mempty :: OrgContext) {metaCategory = "New category"}
+        expected = (OrgGenericText (PlainText "Hello"), (mempty :: OrgContext) {metaCategory = "New category"})
       }
-
-  -- , TestCase
-  --     { description = "Parse basic headline",
-  --       inputs = ["** TODO [#A] This is a simple headline :a:b:c:"],
-  --       expected = mempty :: OrgContext
-  --     },
-  --   TestCase
-  --     { description = "Timestamp affects context",
-  --       inputs =
-  --         [ "[2021-08-22 Sun 10:18]"
-  --         ],
-  --       expected =
-  --         (mempty :: OrgContext)
-  --           { metaTime =
-  --               [ strptime "2021-08-22 10:18:00"
-  --               ]
-  --           }
-  --     },
-  --   TestCase
-  --     { description = "Headline title affects context",
-  --       inputs =
-  --         [ "* Headline with a timestamp in it [2021-08-22 Sun 11:37]"
-  --         ],
-  --       expected =
-  --         (mempty :: OrgContext)
-  --           { metaTime =
-  --               [ strptime "2021-08-22 11:37:00"
-  --               ]
-  --           }
-  --     }
+      -- ( TestCase
+      --       "Category property affects context"
+      --       [ ":PROPERTIES:"
+      --       , ":CATEGORY: New category"
+      --       , ":END:"
+      --       ]
+      --       (mempty :: OrgContext) { metaCategory = "New category" }
+      --   )
+      -- , TestCase
+      --     { description = "Category pragma affects context",
+      --       inputs =
+      --         [ "#+CATEGORY: Category 1"
+      --         , "#+CATEGORY: Category 2"
+      --         ],
+      --       expected = (mempty :: OrgContext) { metaCategory = "Category 2" }
+      --     }
+      -- , TestCase
+      --     { description = "Todo pragma affects context",
+      --       inputs =
+      --         [ "#+TODO: PENDING | CANCELLED",
+      --           "#+TODO: STARTED(s!) | CANCELLED(c!)"
+      --         ],
+      --       expected = (mempty :: OrgContext) { metaTodo = (["TODO", "PENDING", "STARTED"], ["DONE", "CANCELLED"]) }
+      --     }
+      -- , TestCase
+      --     { description = "Parse basic headline",
+      --       inputs = ["** TODO [#A] This is a simple headline :a:b:c:"],
+      --       expected = mempty :: OrgContext
+      --     },
+      --   TestCase
+      --     { description = "Timestamp affects context",
+      --       inputs =
+      --         [ "[2021-08-22 Sun 10:18]"
+      --         ],
+      --       expected =
+      --         (mempty :: OrgContext)
+      --           { metaTime =
+      --               [ strptime "2021-08-22 10:18:00"
+      --               ]
+      --           }
+      --     },
+      --   TestCase
+      --     { description = "Headline title affects context",
+      --       inputs =
+      --         [ "* Headline with a timestamp in it [2021-08-22 Sun 11:37]"
+      --         ],
+      --       expected =
+      --         (mempty :: OrgContext)
+      --           { metaTime =
+      --               [ strptime "2021-08-22 11:37:00"
+      --               ]
+      --           }
+      --     }
       -- , TestCase
       --     { description = "Parse minimal headline",
       --       inputs = ["* Hello"],
@@ -248,4 +246,5 @@ main = do
     testGroup
       "Org-mode parsers"
       [testCase (description tc) $ assertEqual [] (expected tc) (actual tc) | tc <- testCases]
-    where actual tc = applyCommand (mempty :: OrgContext) (intercalate "\n" (inputs tc))
+  where
+    actual tc = applyCommand (mempty :: OrgContext) (intercalate "\n" (inputs tc))

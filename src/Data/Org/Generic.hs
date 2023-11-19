@@ -1,7 +1,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE LambdaCase #-}
 
-module Data.Org.Generic (OrgGeneric (..)) where
+module Data.Org.Generic (OrgGenericElement (..)) where
 
 import Data.Org.Base
 import Data.Org.Context
@@ -14,10 +14,6 @@ import Data.Org.Pragma
 import TextShow (TextShow, showb)
 
 import Text.Megaparsec
-import Text.Megaparsec.Char
-
-newtype OrgGeneric = OrgGeneric [OrgGenericElement]
-  deriving (Show, Eq)
 
 data OrgGenericElement = OrgGenericHeadline OrgHeadline
                        | OrgGenericPragma OrgPragma
@@ -36,8 +32,8 @@ instance TextShow OrgGenericElement where
     OrgGenericPropertyBlock t -> showb t
     OrgGenericHeadline t      -> showb t
 
-instance OrgElement OrgGeneric where
-  type StateType OrgGeneric = OrgContext
+instance OrgElement OrgGenericElement where
+  type StateType OrgGenericElement = OrgContext
 
   parser ctx = do
     let elements = [ OrgGenericHeadline      <$> (try (parser ctx) :: Parser OrgHeadline)
@@ -47,15 +43,11 @@ instance OrgElement OrgGeneric where
                    , OrgGenericTags          <$> (try (parser ctx) :: Parser OrgTags)
                    , OrgGenericText          <$> (parser ctx       :: Parser PlainText)
                    ]
-    OrgGeneric <$> choice elements `sepEndBy` eol
+    choice elements
 
-  modifyState (OrgGeneric (e : xs)) ctx = modifyState (OrgGeneric xs) ctx'
-      where ctx' = case e of
-              OrgGenericTags x          -> modifyState x ctx
-              OrgGenericTimestamp x     -> modifyState x ctx
-              OrgGenericText x          -> modifyState x ctx
-              OrgGenericPragma x        -> modifyState x ctx
-              OrgGenericPropertyBlock x -> modifyState x ctx
-              OrgGenericHeadline x      -> modifyState x ctx
-
-  modifyState (OrgGeneric []) ctx = ctx
+  modifyState (OrgGenericTags x) ctx = modifyState x ctx
+  modifyState (OrgGenericTimestamp x) ctx = modifyState x ctx
+  modifyState (OrgGenericText x) ctx = modifyState x ctx
+  modifyState (OrgGenericPragma x) ctx = modifyState x ctx
+  modifyState (OrgGenericPropertyBlock x) ctx = modifyState x ctx
+  modifyState (OrgGenericHeadline x) ctx = modifyState x ctx
