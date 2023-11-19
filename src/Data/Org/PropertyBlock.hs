@@ -27,8 +27,10 @@ instance OrgElement OrgPropertyBlock where
   type StateType OrgPropertyBlock = OrgContext
 
   parser ctx = do
-    void $ string ":PROPERTIES:" <> eol
-    properties <- manyTill (try (parser ctx :: Parser OrgProperty) <* eol) (string ":END:")
+    void (string ":PROPERTIES:")
+    void (many newline)
+    properties <- manyTill ((parser ctx :: Parser OrgProperty) <* many newline) (string ":END:")
+
     return (OrgPropertyBlock properties)
 
   modifyState (OrgPropertyBlock properties) ctx = foldl (flip modifyState) ctx properties

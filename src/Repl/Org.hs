@@ -56,6 +56,7 @@ repl fn = do
     cmd -> do
       let (el, ctx') = applyCommand ctx cmd
       liftIO $ printTextShow el
+      liftIO $ print el
       State.put ctx'
       repl fn
 

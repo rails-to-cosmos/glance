@@ -53,7 +53,8 @@ instance Monoid OrgHeadline where
     }
 
 instance TextShow OrgHeadline where
-    showb h = showb (replicate i "*")
+    showb h = fromText (replicate i "*")
+      <> showbSpace
       <> showb (title h)
       <> showbSpace
       <> showb (tags h)

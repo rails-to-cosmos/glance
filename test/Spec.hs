@@ -6,9 +6,13 @@ module Main (main) where
 import Data.Org.Context
 import Data.Org.Generic
 import Data.Org.PlainText
+import Data.Org.Keyword
+import Data.Org.Property
+import Data.Org.PropertyBlock
+
 import Data.Text (Text, intercalate)
 import Repl.State
-import Test.Tasty (defaultMain, testGroup)
+import Test.Tasty (defaultMain, testGroup, TestTree)
 import Test.Tasty.HUnit (assertEqual, testCase)
 
 data TestCase = TestCase
@@ -22,16 +26,31 @@ data TestCase = TestCase
 
 testCases :: [TestCase]
 testCases =
-  [ TestCase
-      { description = "Multiline headline parsing",
+  [
+
+    TestCase
+      { description = "Parse property block",
         inputs =
-          [ "* TODO I'm the new headline"
-          -- ":PROPERTIES:",
-          -- ":CATEGORY: New category",
-          -- ":END:"
+          [ ":PROPERTIES:"
+          , ":CATEGORY: New category"
+          , ":END:"
           ],
-        expected = (OrgGenericText (PlainText "Hello"), (mempty :: OrgContext) {metaCategory = "New category"})
+        expected = (OrgGenericPropertyBlock (OrgPropertyBlock [OrgProperty (OrgKeyword "CATEGORY") "New category"]),
+                    (mempty :: OrgContext) {metaCategory="New category"})
       }
+
+    -- TestCase
+    --   { description = "Multiline headline parsing",
+    --     inputs =
+    --       [ "* TODO I'm the new headline"
+    --       , ":PROPERTIES:"
+    --       , ":CATEGORY: New category"
+    --       , ":END:"
+    --       ],
+    --     expected = (OrgGenericText (PlainText "Hello"), (mempty :: OrgContext) {metaCategory = "New category"})
+    --   }
+
+
       -- ( TestCase
       --       "Category property affects context"
       --       [ ":PROPERTIES:"
@@ -241,10 +260,13 @@ testCases =
   ]
 
 main :: IO ()
-main = do
-  defaultMain $
-    testGroup
-      "Org-mode parsers"
-      [testCase (description tc) $ assertEqual [] (expected tc) (actual tc) | tc <- testCases]
-  where
-    actual tc = applyCommand (mempty :: OrgContext) (intercalate "\n" (inputs tc))
+main = defaultMain (testGroup "Org-mode parsers" assertAll)
+
+assertOne :: TestCase -> TestTree
+assertOne tc = testCase (description tc) (assertEqual [] (expected tc) (actual tc))
+
+assertAll :: [TestTree]
+assertAll = map assertOne testCases
+
+actual :: TestCase -> (OrgGenericElement, OrgContext)
+actual tc = applyCommand (mempty :: OrgContext) (intercalate "\n" (inputs tc))
