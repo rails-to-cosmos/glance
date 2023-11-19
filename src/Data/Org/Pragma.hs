@@ -50,10 +50,10 @@ instance OrgElement OrgPragma where
         PlainText v <- plaintext
         return $ OrgPragma kw v
 
-  modifier (OrgCategoryPragma category) ctx = ctx {metaCategory = category}
-  modifier (OrgTodoPragma active inactive) ctx = ctx {metaTodo = newTodo}
+  modifyState (OrgCategoryPragma category) ctx = ctx {metaCategory = category}
+  modifyState (OrgTodoPragma active inactive) ctx = ctx {metaTodo = newTodo}
     where newTodo = ( nub $ fst (metaTodo ctx) ++ active, nub $ snd (metaTodo ctx) ++ inactive )
-  modifier _ ctx = ctx
+  modifyState _ ctx = ctx
 
 instance TextShow OrgPragma where
   showb (OrgPragma k v) = "#+" <> showb k <> ": " <> fromText v

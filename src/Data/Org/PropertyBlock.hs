@@ -31,7 +31,7 @@ instance OrgElement OrgPropertyBlock where
     properties <- manyTill (try (parser ctx :: Parser OrgProperty) <* eol) (string ":END:")
     return (OrgPropertyBlock properties)
 
-  modifier (OrgPropertyBlock properties) ctx = foldl (flip modifier) ctx properties
+  modifyState (OrgPropertyBlock properties) ctx = foldl (flip modifyState) ctx properties
 
 instance TextShow OrgPropertyBlock where
   showb (OrgPropertyBlock ps) = ":PROPERTIES:\n" <> showb ps <> ":END:\n"

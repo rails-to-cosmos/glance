@@ -126,7 +126,7 @@ instance OrgElement OrgTimestamp where
                    Nothing -> Time.UTCTime tsDay' (Time.timeOfDayToTime (Time.TimeOfDay 0 0 0))
       }
 
-  modifier (OrgTimestamp {tsTime = t}) ctx = ctx {metaTime = metaTime ctx ++ [t]}
+  modifyState (OrgTimestamp {tsTime = t}) ctx = ctx -- {metaTime = metaTime ctx ++ [t]}
 
 formatTimestamp :: Time.UTCTime -> Text
 formatTimestamp ts = pack (Time.formatTime Time.defaultTimeLocale timeFormat ts)

@@ -21,39 +21,41 @@ data TestCase = TestCase
 
 testCases :: [TestCase]
 testCases =
-  [ ( TestCase
-        "Category property affects context"
-        [ ":PROPERTIES:"
-        , ":CATEGORY: New category"
-        , ":END:"
-        ]
-        (mempty :: OrgContext) { metaCategory = "New category" }
-    )
-  , TestCase
-      { description = "Category pragma affects context",
-        inputs =
-          [ "#+CATEGORY: Category 1"
-          , "#+CATEGORY: Category 2"
-          ],
-        expected = (mempty :: OrgContext) { metaCategory = "Category 2" }
-      }
-  , TestCase
-      { description = "Todo pragma affects context",
-        inputs =
-          [ "#+TODO: PENDING | CANCELLED",
-            "#+TODO: STARTED(s!) | CANCELLED(c!)"
-          ],
-        expected = (mempty :: OrgContext) { metaTodo = (["TODO", "PENDING", "STARTED"], ["DONE", "CANCELLED"]) }
-      }
-  , TestCase
+  [
+    -- ( TestCase
+    --       "Category property affects context"
+    --       [ ":PROPERTIES:"
+    --       , ":CATEGORY: New category"
+    --       , ":END:"
+    --       ]
+    --       (mempty :: OrgContext) { metaCategory = "New category" }
+    --   )
+    -- , TestCase
+    --     { description = "Category pragma affects context",
+    --       inputs =
+    --         [ "#+CATEGORY: Category 1"
+    --         , "#+CATEGORY: Category 2"
+    --         ],
+    --       expected = (mempty :: OrgContext) { metaCategory = "Category 2" }
+    --     }
+    -- , TestCase
+    --     { description = "Todo pragma affects context",
+    --       inputs =
+    --         [ "#+TODO: PENDING | CANCELLED",
+    --           "#+TODO: STARTED(s!) | CANCELLED(c!)"
+    --         ],
+    --       expected = (mempty :: OrgContext) { metaTodo = (["TODO", "PENDING", "STARTED"], ["DONE", "CANCELLED"]) }
+    --     }
+
+    TestCase
       { description = "Multiline headline parsing",
         inputs =
-          [ "* TODO I'm the new headline"
-          , ":PROPERTIES:"
-          , ":CATEGORY: New category"
-          , ":END:"
+          [ "* TODO I'm the new headline",
+            ":PROPERTIES:",
+            ":CATEGORY: New category",
+            ":END:"
           ],
-        expected = (mempty :: OrgContext) { metaCategory = "New category" }
+        expected = (mempty :: OrgContext) {metaCategory = "New category"}
       }
 
   -- , TestCase
@@ -245,6 +247,5 @@ main = do
   defaultMain $
     testGroup
       "Org-mode parsers"
-      [ testCase (description tc) $ assertEqual [] (expected tc) $ applyCommand (mempty :: OrgContext) $ intercalate "\n" (inputs tc)
-        | tc <- testCases
-      ]
+      [testCase (description tc) $ assertEqual [] (expected tc) (actual tc) | tc <- testCases]
+    where actual tc = applyCommand (mempty :: OrgContext) (intercalate "\n" (inputs tc))

@@ -1,22 +1,24 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Repl.State (applyCommand) where
+module Repl.State (applyCommand, parseStateful) where
 
 import Control.Monad.State (runStateT)
+import Data.Void (Void)
 import Data.Text (Text)
 import Data.Text.Lazy.Builder ()
 import UnliftIO ()
 
-import Data.Org.Base
-import Data.Org.Context
-import Data.Org.Generic
+import Data.Org.Base (Parser, OrgElement(apply))
+import Data.Org.Context (OrgContext)
+import Data.Org.Generic (OrgGeneric)
 
-import Text.Megaparsec
+import Text.Megaparsec (parse, ParseErrorBundle)
 
-generic :: OrgContext -> Parser (OrgGeneric, OrgContext)
-generic ctx = runStateT apply ctx :: Parser (OrgGeneric, OrgContext)
+parseStateful :: OrgContext -> Text -> Either (ParseErrorBundle Text Void) (OrgGeneric, OrgContext)
+parseStateful ctx = parse parser ""
+  where parser = runStateT apply ctx :: Parser (OrgGeneric, OrgContext)
 
-applyCommand :: OrgContext -> Text -> OrgContext
-applyCommand ctx cmd = case parse (generic ctx) "" cmd of
-  Right (_, c) -> c {metaStack = EmptyStack}
-  Left _ -> ctx
+applyCommand :: OrgContext -> Text -> (Maybe OrgGeneric, OrgContext)
+applyCommand ctx cmd = case parseStateful ctx cmd of
+  Right (el, ctx') -> (Just el, ctx')
+  Left _ -> (Nothing, ctx)

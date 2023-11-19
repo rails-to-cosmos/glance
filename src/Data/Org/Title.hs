@@ -53,7 +53,7 @@ instance OrgElement OrgTitle where
                          ) stop
     return $ OrgTitle elements
 
-  modifier (OrgTitle ((OrgTitleTags x) : xs)) ctx = modifier (OrgTitle xs) (modifier x ctx)
-  modifier (OrgTitle ((OrgTitleTimestamp x) : xs)) ctx = modifier (OrgTitle xs) (modifier x ctx)
-  modifier (OrgTitle ((OrgTitleText x) : xs)) ctx = modifier (OrgTitle xs) (modifier x ctx)
-  modifier (OrgTitle []) ctx = ctx
+  modifyState (OrgTitle ((OrgTitleTags x) : xs)) ctx = modifyState (OrgTitle xs) (modifyState x ctx)
+  modifyState (OrgTitle ((OrgTitleTimestamp x) : xs)) ctx = modifyState (OrgTitle xs) (modifyState x ctx)
+  modifyState (OrgTitle ((OrgTitleText x) : xs)) ctx = modifyState (OrgTitle xs) (modifyState x ctx)
+  modifyState (OrgTitle []) ctx = ctx

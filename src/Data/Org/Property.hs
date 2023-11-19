@@ -37,8 +37,8 @@ instance OrgElement OrgProperty where
     PlainText v <- parser ctx :: Parser PlainText
     return $ OrgProperty k v
 
-  modifier (OrgProperty (OrgKeyword "CATEGORY") category) ctx = ctx {metaCategory = category}
-  modifier _ ctx = ctx
+  modifyState (OrgProperty (OrgKeyword "CATEGORY") category) ctx = ctx {metaCategory = category}
+  modifyState _ ctx = ctx
 
 instance TextShow OrgProperty where
   showb (OrgProperty k v) = ":" <> showb k <> ": " <> fromText v

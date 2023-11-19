@@ -14,6 +14,11 @@ import Data.Org.Title
 import Data.Org.Tags
 import Data.Org.PropertyBlock
 
+import Control.Monad
+
+import Text.Megaparsec
+import Text.Megaparsec.Char
+
 import TextShow
 
 import Prelude hiding (replicate)
@@ -62,6 +67,12 @@ instance OrgElement OrgHeadline where
     t <- parser ctx :: Parser OrgTodo
     p <- parser ctx :: Parser OrgPriority
     s <- parser ctx :: Parser OrgTitle
+
+    void (many eol)
+
+    -- properties <- parser ctx :: Parser OrgPropertyBlock
+    -- properties <- option (mempty :: OrgPropertyBlock) (many newline *> (parser ctx :: Parser OrgPropertyBlock))
+
     return OrgHeadline { indent = i
                        , todo = t
                        , priority = p
@@ -70,4 +81,4 @@ instance OrgElement OrgHeadline where
                        , properties = mempty :: OrgPropertyBlock
                        }
 
-  modifier (OrgHeadline {title=t}) = modifier t
+  modifyState (OrgHeadline {title=t}) = modifyState t

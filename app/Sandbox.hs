@@ -23,6 +23,7 @@ import Data.Org.Generic
 import Data.Org.Pragma
 import Data.Org.PlainText
 import Data.Org.Property
+import Data.Org.Headline
 import Data.Org.PropertyBlock
 -- import Data.Org.Elements
 
@@ -43,8 +44,9 @@ showcase :: IO ()
 showcase = do
   let
     ctx = mempty::OrgContext
-    p = runStateT apply ctx :: Parser (OrgGeneric, OrgContext)
-    input = T.pack ":PROPERTIES:\n:CATEGORY: VAL\n:HELLO: WORLD\n:END:"
+    p = runStateT apply ctx :: Parser (OrgHeadline, OrgContext)
+    -- input = T.pack ":PROPERTIES:\n:CATEGORY: VAL\n:HELLO: WORLD\n:END:"
+    input = T.pack "* Hello :a:b:c:"
 
   case parse p "" input of
     Left err -> putStrLn $ errorBundlePretty err

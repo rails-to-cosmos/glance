@@ -24,4 +24,4 @@ instance OrgElement OrgKeyword where
 
   parser _ = OrgKeyword <$> toUpper <$> pack <$> some (satisfy (\c -> isAlpha c || c == '_'))
 
-  modifier _ ctx = ctx
+  modifyState _ ctx = ctx

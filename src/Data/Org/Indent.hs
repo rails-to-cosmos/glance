@@ -26,4 +26,4 @@ instance OrgElement OrgIndent where
     stars <- some (char '*') <* space
     return $ OrgIndent $ length stars
 
-  modifier _ ctx = ctx
+  modifyState _ ctx = ctx

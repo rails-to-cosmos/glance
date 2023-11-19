@@ -40,22 +40,22 @@ instance OrgElement OrgGeneric where
   type StateType OrgGeneric = OrgContext
 
   parser ctx = do
-    let elements = [ OrgGenericHeadline  <$> (try (parser ctx) :: Parser OrgHeadline)
+    let elements = [ OrgGenericHeadline      <$> (try (parser ctx) :: Parser OrgHeadline)
                    , OrgGenericPropertyBlock <$> (try (parser ctx) :: Parser OrgPropertyBlock)
-                   , OrgGenericPragma    <$> (try (parser ctx) :: Parser OrgPragma)
-                   , OrgGenericTimestamp <$> (try (parser ctx) :: Parser OrgTimestamp)
-                   , OrgGenericTags      <$> (try (parser ctx) :: Parser OrgTags)
-                   , OrgGenericText      <$> (parser ctx       :: Parser PlainText)
+                   , OrgGenericPragma        <$> (try (parser ctx) :: Parser OrgPragma)
+                   , OrgGenericTimestamp     <$> (try (parser ctx) :: Parser OrgTimestamp)
+                   , OrgGenericTags          <$> (try (parser ctx) :: Parser OrgTags)
+                   , OrgGenericText          <$> (parser ctx       :: Parser PlainText)
                    ]
     OrgGeneric <$> choice elements `sepEndBy` eol
 
-  modifier (OrgGeneric (e : xs)) ctx = modifier (OrgGeneric xs) newCtx
-      where newCtx = case e of
-              OrgGenericTags x       -> modifier x ctx
-              OrgGenericTimestamp x  -> modifier x ctx
-              OrgGenericText x       -> modifier x ctx
-              OrgGenericPragma x     -> modifier x ctx
-              OrgGenericPropertyBlock x -> modifier x ctx
-              OrgGenericHeadline x   -> modifier x ctx
+  modifyState (OrgGeneric (e : xs)) ctx = modifyState (OrgGeneric xs) ctx'
+      where ctx' = case e of
+              OrgGenericTags x          -> modifyState x ctx
+              OrgGenericTimestamp x     -> modifyState x ctx
+              OrgGenericText x          -> modifyState x ctx
+              OrgGenericPragma x        -> modifyState x ctx
+              OrgGenericPropertyBlock x -> modifyState x ctx
+              OrgGenericHeadline x      -> modifyState x ctx
 
-  modifier (OrgGeneric []) ctx = ctx
+  modifyState (OrgGeneric []) ctx = ctx
