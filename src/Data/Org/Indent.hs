@@ -17,7 +17,7 @@ instance Semigroup OrgIndent where
   (<>) (OrgIndent lhs) (OrgIndent rhs) = OrgIndent (lhs + rhs)
 
 instance Monoid OrgIndent where
-  mempty = OrgIndent 0
+  mempty = OrgIndent 1
 
 instance OrgElement OrgIndent where
   type StateType OrgIndent = OrgContext
@@ -26,4 +26,4 @@ instance OrgElement OrgIndent where
     stars <- some (char '*') <* space
     return $ OrgIndent $ length stars
 
-  modifier _ ctx = ctx
+  modifyState _ ctx = ctx

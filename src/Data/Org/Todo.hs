@@ -24,10 +24,10 @@ instance OrgElement OrgTodo where
 
   parser ctx = OrgTodo <$> optional (try $ todo ctx)
 
-  modifier _ ctx = ctx
+  modifyState _ ctx = ctx
 
 todo :: OrgContext -> Parser Text
 todo ctx = do
   OrgKeyword result <- (parser ctx :: Parser OrgKeyword)
-  guard $ result `elem` registeredTodoStates ctx
+  guard $ result `elem` allTodoStates ctx
   return result

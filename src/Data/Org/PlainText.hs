@@ -33,4 +33,4 @@ instance OrgElement PlainText where
     let stop = lookAhead $ void tagCtrl <|> void timestampCtrl <|> void eol <|> eof
     PlainText <$> pack <$> manyTill anySingle stop
 
-  modifier _ ctx = ctx
+  modifyState _ ctx = ctx

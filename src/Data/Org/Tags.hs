@@ -36,18 +36,18 @@ instance OrgElement OrgTags where
     void tagCtrl
     OrgTags <$> manyTill tagParser eof
 
-  modifier _ ctx = ctx
+  modifyState _ ctx = ctx
 
-  -- modifier xs ctx = ctx {headline = h'}
+  -- modifyState xs ctx = ctx {headline = h'}
   --   where h = headline ctx
   --         h' = h {tags = tags h <> xs}
 
--- modifier :: OrgElement -> OrgContext -> OrgContext
--- modifier (ETags tags') ctx = ctx {headline = h'}
+-- modifyState :: OrgElement -> OrgContext -> OrgContext
+-- modifyState (ETags tags') ctx = ctx {headline = h'}
 --   where h = headline ctx
 --         t' = tags h
 --         h' = h {tags = L.nub (t' ++ tags')}
--- modifier _ ctx = ctx
+-- modifyState _ ctx = ctx
 
 tagCtrl :: Parser Char
 tagCtrl = char ':'

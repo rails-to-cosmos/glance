@@ -31,7 +31,7 @@ instance OrgElement OrgPriority where
     priority <- optional . try $ char '[' *> char '#' *> letterChar <* char ']' <* space
     return $ OrgPriority priority
 
-  modifier _ ctx = ctx
-  -- modifier (OrgPriority p') ctx = ctx {headline = h'}
+  modifyState _ ctx = ctx
+  -- modifyState (OrgPriority p') ctx = ctx {headline = h'}
   --   where h = headline ctx
   --         h' = h {priority = OrgPriority p'}
