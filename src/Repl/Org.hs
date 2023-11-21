@@ -55,8 +55,9 @@ repl fn = do
     "quit" -> return ()
     cmd -> do
       let (el, ctx') = applyCommand ctx cmd
-      liftIO $ printTextShow el
-      liftIO $ print el
+      liftIO $ do
+        TIO.putStrLn $ "Repr: " <> pack (show el)
+        TIO.putStrLn $ "Str: \"" <> showt el <> "\""
       State.put ctx'
       repl fn
 
