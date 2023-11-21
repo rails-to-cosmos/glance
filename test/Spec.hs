@@ -46,7 +46,7 @@ testCases =
             ((mempty :: OrgHeadline) { title = OrgTitle [OrgTitleText (PlainText "Hello")]
                                      , properties = OrgPropertyBlock [ OrgProperty (OrgKeyword "CATEGORY") "New category" ]
                                      })
-          , mempty :: OrgContext
+          , (mempty :: OrgContext) { metaCategory = "New category" }
           )
       }
 

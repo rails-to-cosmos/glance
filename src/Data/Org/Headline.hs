@@ -1,26 +1,21 @@
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Data.Org.Headline (OrgHeadline (..)) where
 
-import Data.Text (replicate)
-
+import Control.Monad
 import Data.Org.Base
 import Data.Org.Context
 import Data.Org.Indent
-import Data.Org.Todo
 import Data.Org.Priority
-import Data.Org.Title
-import Data.Org.Tags
 import Data.Org.PropertyBlock
-
-import Control.Monad
-
+import Data.Org.Tags
+import Data.Org.Title
+import Data.Org.Todo
+import Data.Text (replicate)
 import Text.Megaparsec
 import Text.Megaparsec.Char
-
 import TextShow
-
 import Prelude hiding (replicate)
 
 data OrgHeadline = OrgHeadline
@@ -30,35 +25,40 @@ data OrgHeadline = OrgHeadline
     title :: OrgTitle,
     tags :: OrgTags,
     properties :: OrgPropertyBlock
-  } deriving (Show, Eq)
+  }
+  deriving (Show, Eq)
 
 instance Semigroup OrgHeadline where
-  (<>) lhs rhs = OrgHeadline
-    { indent = indent lhs <> indent rhs
-    , todo = todo lhs <> todo rhs
-    , priority = priority lhs <> priority rhs
-    , title = title lhs <> title rhs
-    , tags = tags lhs <> tags rhs
-    , properties = properties lhs <> properties rhs
-    }
+  (<>) lhs rhs =
+    OrgHeadline
+      { indent = indent lhs <> indent rhs,
+        todo = todo lhs <> todo rhs,
+        priority = priority lhs <> priority rhs,
+        title = title lhs <> title rhs,
+        tags = tags lhs <> tags rhs,
+        properties = properties lhs <> properties rhs
+      }
 
 instance Monoid OrgHeadline where
-  mempty = OrgHeadline
-    { indent = mempty :: OrgIndent
-    , todo = mempty :: OrgTodo
-    , priority = mempty :: OrgPriority
-    , title = mempty :: OrgTitle
-    , tags = mempty :: OrgTags
-    , properties = mempty :: OrgPropertyBlock
-    }
+  mempty =
+    OrgHeadline
+      { indent = mempty :: OrgIndent,
+        todo = mempty :: OrgTodo,
+        priority = mempty :: OrgPriority,
+        title = mempty :: OrgTitle,
+        tags = mempty :: OrgTags,
+        properties = mempty :: OrgPropertyBlock
+      }
 
 instance TextShow OrgHeadline where
-    showb h = fromText (replicate i "*")
+  showb h =
+    fromText (replicate i "*")
       <> showbSpace
       <> showb (title h)
       <> showbSpace
       <> showb (tags h)
-      where OrgIndent i = indent h
+    where
+      OrgIndent i = indent h
 
 instance OrgElement OrgHeadline where
   type StateType OrgHeadline = OrgContext
@@ -73,12 +73,19 @@ instance OrgElement OrgHeadline where
 
     properties <- option (mempty :: OrgPropertyBlock) (parser ctx :: Parser OrgPropertyBlock)
 
-    return OrgHeadline { indent = indent'
-                       , todo = todo'
-                       , priority = priority'
-                       , title = title'
-                       , tags = mempty :: OrgTags
-                       , properties = properties
-                       }
+    return
+      OrgHeadline
+        { indent = indent',
+          todo = todo',
+          priority = priority',
+          title = title',
+          tags = mempty :: OrgTags,
+          properties = properties
+        }
 
-  modifyState (OrgHeadline {title=t}) = modifyState t
+  modifyState
+    ( OrgHeadline
+        { title = title,
+          properties = properties
+        }
+      ) = modifyState properties . modifyState title
