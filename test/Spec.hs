@@ -39,7 +39,7 @@ testCases =
                     priority = OrgPriority Nothing,
                     title = OrgTitle [OrgTitleText (PlainText "Hello")],
                     tags = OrgTags [],
-                    properties = OrgPropertyBlock []
+                    properties = OrgPropertyBlock [ OrgProperty (OrgKeyword "CATEGORY") "New category" ]
                   }
               ),
             OrgContext {metaTodo = (["TODO"], ["DONE"]), metaCategory = ""}

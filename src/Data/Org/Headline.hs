@@ -64,22 +64,21 @@ instance OrgElement OrgHeadline where
   type StateType OrgHeadline = OrgContext
 
   parser ctx = do
-    i <- parser ctx :: Parser OrgIndent
-    t <- parser ctx :: Parser OrgTodo
-    p <- parser ctx :: Parser OrgPriority
-    s <- parser ctx :: Parser OrgTitle
+    indent' <- parser ctx :: Parser OrgIndent
+    todo' <- parser ctx :: Parser OrgTodo
+    priority' <- parser ctx :: Parser OrgPriority
+    title' <- parser ctx :: Parser OrgTitle
 
-    void (many eol)
+    void (many newline)
 
-    -- properties <- parser ctx :: Parser OrgPropertyBlock
-    -- properties <- option (mempty :: OrgPropertyBlock) (many newline *> (parser ctx :: Parser OrgPropertyBlock))
+    properties <- option (mempty :: OrgPropertyBlock) (parser ctx :: Parser OrgPropertyBlock)
 
-    return OrgHeadline { indent = i
-                       , todo = t
-                       , priority = p
-                       , title = s
+    return OrgHeadline { indent = indent'
+                       , todo = todo'
+                       , priority = priority'
+                       , title = title'
                        , tags = mempty :: OrgTags
-                       , properties = mempty :: OrgPropertyBlock
+                       , properties = properties
                        }
 
   modifyState (OrgHeadline {title=t}) = modifyState t
