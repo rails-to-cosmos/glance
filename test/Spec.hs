@@ -22,9 +22,19 @@ data TestCase = TestCase
 testCases :: [TestCase]
 testCases =
   [
-
     TestCase
-      { description = "Parse property block",
+      { description = "Parse simple headline",
+        inputs =
+          [ "* Hello"
+          ],
+        expected =
+          ( OrgGenericHeadline
+            ((mempty :: OrgHeadline) {title = OrgTitle [OrgTitleText (PlainText "Hello")]})
+          , mempty :: OrgContext
+          )
+      }
+    , TestCase
+      { description = "Parse headline with a property block",
         inputs =
           [ "* Hello"
           , ":PROPERTIES:"
@@ -33,30 +43,12 @@ testCases =
           ],
         expected =
           ( OrgGenericHeadline
-              ( OrgHeadline
-                  { indent = OrgIndent 1,
-                    todo = OrgTodo Nothing,
-                    priority = OrgPriority Nothing,
-                    title = OrgTitle [OrgTitleText (PlainText "Hello")],
-                    tags = OrgTags [],
-                    properties = OrgPropertyBlock [ OrgProperty (OrgKeyword "CATEGORY") "New category" ]
-                  }
-              ),
-            OrgContext {metaTodo = (["TODO"], ["DONE"]), metaCategory = ""}
+            ((mempty :: OrgHeadline) { title = OrgTitle [OrgTitleText (PlainText "Hello")]
+                                     , properties = OrgPropertyBlock [ OrgProperty (OrgKeyword "CATEGORY") "New category" ]
+                                     })
+          , mempty :: OrgContext
           )
       }
-
-    -- TestCase
-    --   { description = "Multiline headline parsing",
-    --     inputs =
-    --       [ "* TODO I'm the new headline"
-    --       , ":PROPERTIES:"
-    --       , ":CATEGORY: New category"
-    --       , ":END:"
-    --       ],
-    --     expected = (OrgGenericText (PlainText "Hello"), (mempty :: OrgContext) {metaCategory = "New category"})
-    --   }
-
 
       -- ( TestCase
       --       "Category property affects context"

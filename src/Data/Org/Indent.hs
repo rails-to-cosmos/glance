@@ -17,7 +17,7 @@ instance Semigroup OrgIndent where
   (<>) (OrgIndent lhs) (OrgIndent rhs) = OrgIndent (lhs + rhs)
 
 instance Monoid OrgIndent where
-  mempty = OrgIndent 0
+  mempty = OrgIndent 1
 
 instance OrgElement OrgIndent where
   type StateType OrgIndent = OrgContext
