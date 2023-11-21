@@ -3,12 +3,7 @@
 
 module Main (main) where
 
-import Data.Org.Context
-import Data.Org.Generic
-import Data.Org.PlainText
-import Data.Org.Keyword
-import Data.Org.Property
-import Data.Org.PropertyBlock
+import Data.Org
 
 import Data.Text (Text, intercalate)
 import Repl.State
@@ -31,12 +26,24 @@ testCases =
     TestCase
       { description = "Parse property block",
         inputs =
-          [ ":PROPERTIES:"
+          [ "* Hello"
+          , ":PROPERTIES:"
           , ":CATEGORY: New category"
           , ":END:"
           ],
-        expected = (OrgGenericPropertyBlock (OrgPropertyBlock [OrgProperty (OrgKeyword "CATEGORY") "New category"]),
-                    (mempty :: OrgContext) {metaCategory="New category"})
+        expected =
+          ( OrgGenericHeadline
+              ( OrgHeadline
+                  { indent = OrgIndent 1,
+                    todo = OrgTodo Nothing,
+                    priority = OrgPriority Nothing,
+                    title = OrgTitle [OrgTitleText (PlainText "Hello")],
+                    tags = OrgTags [],
+                    properties = OrgPropertyBlock []
+                  }
+              ),
+            OrgContext {metaTodo = (["TODO"], ["DONE"]), metaCategory = ""}
+          )
       }
 
     -- TestCase

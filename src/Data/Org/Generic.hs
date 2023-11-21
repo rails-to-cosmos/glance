@@ -38,10 +38,10 @@ instance OrgElement OrgGenericElement where
   parser ctx = do
     choice
       [ OrgGenericHeadline <$> (try (parser ctx) :: Parser OrgHeadline),
-        OrgGenericPropertyBlock <$> (try (parser ctx) :: Parser OrgPropertyBlock),
+        -- OrgGenericPropertyBlock <$> (try (parser ctx) :: Parser OrgPropertyBlock),
         OrgGenericPragma <$> (try (parser ctx) :: Parser OrgPragma),
         OrgGenericTimestamp <$> (try (parser ctx) :: Parser OrgTimestamp),
-        OrgGenericTags <$> (try (parser ctx) :: Parser OrgTags),
+        -- OrgGenericTags <$> (try (parser ctx) :: Parser OrgTags),
         OrgGenericText <$> (parser ctx :: Parser PlainText)
       ]
 

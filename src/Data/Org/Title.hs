@@ -1,6 +1,6 @@
 {-# LANGUAGE TypeFamilies #-}
 
-module Data.Org.Title (OrgTitle (..)) where
+module Data.Org.Title (OrgTitle (..), OrgTitleElement (..)) where
 
 import Control.Monad
 import Data.Text (concat)

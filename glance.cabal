@@ -25,6 +25,7 @@ source-repository head
 
 library
   exposed-modules:
+      Data.Org
       Data.Org.Base
       Data.Org.Context
       Data.Org.Generic
