@@ -1,9 +1,8 @@
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Data.Org.PropertyBlock (OrgPropertyBlock (..)) where
 
-import Data.Org.Base
+import Data.Org.Element
 import Data.Org.Context
 import Data.Org.Property
 
@@ -24,7 +23,6 @@ instance Monoid OrgPropertyBlock where
   mempty = OrgPropertyBlock []
 
 instance OrgElement OrgPropertyBlock where
-  type StateType OrgPropertyBlock = OrgContext
 
   parser ctx = do
     void (string ":PROPERTIES:")

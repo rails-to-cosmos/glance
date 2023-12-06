@@ -1,4 +1,3 @@
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -10,7 +9,7 @@ module Data.Org.Timestamp ( OrgTimestamp (..)
                           , OrgTimestampRepeaterType (..)
   ) where
 
-import Data.Org.Base
+import Data.Org.Element
 import Data.Org.Context
 
 import Data.Text (Text, pack)
@@ -101,7 +100,6 @@ instance TextShow OrgTimestamp where
         _ -> " "
 
 instance OrgElement OrgTimestamp where
-  type StateType OrgTimestamp = OrgContext
 
   parser _ = do
     tsType' <- optional . try $ timestampTypeParser

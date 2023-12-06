@@ -1,24 +1,22 @@
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Data.Org.Title (OrgTitle (..), OrgTitleElement (..)) where
 
 import Control.Monad
-import Data.Text (concat)
+import Data.Text (Text, pack, strip)
 
-import Data.Org.Base
-import Data.Org.Context
+import Data.Org.Element
 import Data.Org.PlainText
 import Data.Org.Tags
 import Data.Org.Timestamp
 
-import TextShow (TextShow, showb, showt, fromText)
+import TextShow (TextShow, showb, fromText)
 
 import Text.Megaparsec
-import Text.Megaparsec.Char
 
 import Prelude hiding (concat)
 
-newtype OrgTitle = OrgTitle [OrgTitleElement]
+newtype OrgTitle = OrgTitle Text
   deriving (Show, Eq)
 
 data OrgTitleElement = OrgTitleTags OrgTags
@@ -35,25 +33,24 @@ instance Semigroup OrgTitle where
   (<>) (OrgTitle lhs) (OrgTitle rhs) = OrgTitle (lhs <> rhs)
 
 instance Monoid OrgTitle where
-  mempty = OrgTitle []
+  mempty = OrgTitle ""
 
 instance TextShow OrgTitle where
-  showb (OrgTitle xs) = fromText (concat (map showt xs))
+  showb (OrgTitle x) = fromText x
 
 instance OrgElement OrgTitle where
-  type StateType OrgTitle = OrgContext
 
   parser ctx = do
-    let stop = lookAhead $ void eol <|> eof
-    elements <- manyTill ( choice
-                         [ OrgTitleTags <$> (try (parser ctx) :: Parser OrgTags)
-                         , OrgTitleTimestamp <$> (try (parser ctx) :: Parser OrgTimestamp)
-                         , OrgTitleText <$> (parser ctx :: Parser PlainText)
-                         ]
-                         ) stop
-    return $ OrgTitle elements
+    let end = lookAhead $ void (parser ctx :: Parser OrgTags) <|> eof
+    elements <- manyTill anySingle end -- manyTill ( choice
+                -- [ OrgTitleTimestamp <$> (try (parser ctx) :: Parser OrgTimestamp)
+                -- , OrgTitleText <$> (parser ctx :: Parser PlainText)
+                -- ]
+                -- ) end
+    return $ OrgTitle $ strip $ pack elements
 
-  modifyState (OrgTitle ((OrgTitleTags x) : xs)) ctx = modifyState (OrgTitle xs) (modifyState x ctx)
-  modifyState (OrgTitle ((OrgTitleTimestamp x) : xs)) ctx = modifyState (OrgTitle xs) (modifyState x ctx)
-  modifyState (OrgTitle ((OrgTitleText x) : xs)) ctx = modifyState (OrgTitle xs) (modifyState x ctx)
-  modifyState (OrgTitle []) ctx = ctx
+  -- modifyState (OrgTitle ((OrgTitleTags x) : xs)) ctx = modifyState (OrgTitle xs) (modifyState x ctx)
+  -- modifyState (OrgTitle ((OrgTitleTimestamp x) : xs)) ctx = modifyState (OrgTitle xs) (modifyState x ctx)
+  -- modifyState (OrgTitle ((OrgTitleText x) : xs)) ctx = modifyState (OrgTitle xs) (modifyState x ctx)
+  modifyState (OrgTitle _) ctx = ctx
+  -- modifyState (OrgTitle []) ctx = ctx

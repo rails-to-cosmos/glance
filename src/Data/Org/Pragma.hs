@@ -1,9 +1,8 @@
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Data.Org.Pragma (OrgPragma (..)) where
 
-import Data.Org.Base
+import Data.Org.Element
 import Data.Org.Context
 import Data.Org.Keyword
 import Data.Org.PlainText
@@ -25,8 +24,6 @@ data OrgPragma = OrgPragma OrgKeyword Text
   deriving (Show, Eq)
 
 instance OrgElement OrgPragma where
-  type StateType OrgPragma = OrgContext
-
   parser ctx = do
     let keyword = parser ctx :: Parser OrgKeyword
         plaintext = parser ctx :: Parser PlainText

@@ -3,7 +3,7 @@
 
 module Sandbox () where
 
-import Data.Org.Base
+import Data.Org.Element
 
 import Data.Void
 import Data.Either
@@ -16,15 +16,15 @@ import Text.Megaparsec.Char
 import Control.Monad.State
 import Control.Monad
 import TextShow
-
-import Data.Org.Base
-import Data.Org.Context
-import Data.Org.Generic
-import Data.Org.Pragma
-import Data.Org.PlainText
-import Data.Org.Property
-import Data.Org.Headline
-import Data.Org.PropertyBlock
+import Data.Org
+-- import Data.Org.Element
+-- import Data.Org.Context
+-- import Data.Org.Generic
+-- import Data.Org.Pragma
+-- import Data.Org.PlainText
+-- import Data.Org.Property
+-- import Data.Org.Headline
+-- import Data.Org.PropertyBlock
 -- import Data.Org.Elements
 
 import Data.Text.Lazy.Builder
@@ -40,13 +40,11 @@ import Data.Time.Format
 -- parseCategory :: Text -> Either (ParseErrorBundle Text Void) (OrgContext, OrgCategory)
 -- parseCategory = runParser (runStateT apply defaultContext) ""
 
-showcase :: IO ()
-showcase = do
-  let
-    ctx = mempty::OrgContext
-    p = runStateT apply ctx :: Parser (OrgHeadline, OrgContext)
-    -- input = T.pack ":PROPERTIES:\n:CATEGORY: VAL\n:HELLO: WORLD\n:END:"
-    input = T.pack "* Hello :a:b:c:"
+showcase :: String -> IO ()
+showcase what = do
+  let ctx = mempty::OrgContext
+      p = runStateT apply ctx :: Parser (OrgHeadline, OrgContext)
+      input = T.pack what
 
   case parse p "" input of
     Left err -> putStrLn $ errorBundlePretty err

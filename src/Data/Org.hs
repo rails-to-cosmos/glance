@@ -17,7 +17,7 @@ module Data.Org
   , OrgPragma (..)
   ) where
 
-import Data.Org.Base
+import Data.Org.Element
 import Data.Org.Context
 import Data.Org.Generic
 import Data.Org.Headline

@@ -1,9 +1,8 @@
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Data.Org.Property (OrgProperty (..)) where
 
-import Data.Org.Base
+import Data.Org.Element
 import Data.Org.Context
 import Data.Org.Keyword
 import Data.Org.PlainText
@@ -28,7 +27,6 @@ isPropertyStackKeyword :: OrgKeyword -> Bool
 isPropertyStackKeyword (OrgKeyword k) = k `elem` propertyStackKeywords
 
 instance OrgElement OrgProperty where
-  type StateType OrgProperty = OrgContext
 
   parser ctx = do
     k <- between (char ':') (char ':') (parser ctx :: Parser OrgKeyword)

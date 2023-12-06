@@ -1,11 +1,9 @@
-{-# LANGUAGE TypeFamilies #-}
-
 module Data.Org.Todo (OrgTodo (..)) where
 
 import Control.Monad (guard)
 
 import Data.Text (Text)
-import Data.Org.Base
+import Data.Org.Element
 import Data.Org.Context
 import Data.Org.Keyword
 import Text.Megaparsec
@@ -20,8 +18,6 @@ instance Monoid OrgTodo where
   mempty = OrgTodo Nothing
 
 instance OrgElement OrgTodo where
-  type StateType OrgTodo = OrgContext
-
   parser ctx = OrgTodo <$> optional (try $ todo ctx)
 
   modifyState _ ctx = ctx
