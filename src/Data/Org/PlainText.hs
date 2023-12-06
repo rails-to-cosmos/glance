@@ -1,9 +1,7 @@
-{-# LANGUAGE TypeFamilies #-}
-
 module Data.Org.PlainText (PlainText (..)) where
 
 import Data.Text (Text, pack)
-import Data.Org.Base
+import Data.Org.Element
 import Data.Org.Context
 import Data.Org.Timestamp (timestampCtrl)
 import Data.Org.Tags (tagCtrl)
@@ -27,7 +25,6 @@ instance TextShow PlainText where
   showb (PlainText t) = fromText t
 
 instance OrgElement PlainText where
-  type StateType PlainText = OrgContext
 
   parser _ = do
     let stop = lookAhead $ void tagCtrl <|> void timestampCtrl <|> void eol <|> eof

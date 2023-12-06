@@ -1,9 +1,8 @@
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE TypeFamilies #-}
 
 module Data.Org.Generic (OrgGenericElement (..)) where
 
-import Data.Org.Base
+import Data.Org.Element
 import Data.Org.Context
 import Data.Org.Headline
 import Data.Org.PlainText
@@ -33,8 +32,6 @@ instance TextShow OrgGenericElement where
     OrgGenericHeadline t -> showb t
 
 instance OrgElement OrgGenericElement where
-  type StateType OrgGenericElement = OrgContext
-
   parser ctx = do
     choice
       [ OrgGenericHeadline <$> (try (parser ctx) :: Parser OrgHeadline),

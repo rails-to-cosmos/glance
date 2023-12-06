@@ -1,10 +1,7 @@
-{-# LANGUAGE TypeFamilies #-}
-
 module Data.Org.Priority (OrgPriority (..)) where
 
 import Data.Char (ord)
-import Data.Org.Base
-import Data.Org.Context
+import Data.Org.Element
 
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -25,8 +22,6 @@ instance Monoid OrgPriority where
   mempty = OrgPriority Nothing
 
 instance OrgElement OrgPriority where
-  type StateType OrgPriority = OrgContext
-
   parser _ = do
     priority <- optional . try $ char '[' *> char '#' *> letterChar <* char ']' <* space
     return $ OrgPriority priority

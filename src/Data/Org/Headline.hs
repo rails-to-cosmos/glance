@@ -1,10 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeFamilies #-}
 
 module Data.Org.Headline (OrgHeadline (..)) where
 
 import Control.Monad
-import Data.Org.Base
+import Data.Org.Element
 import Data.Org.Context
 import Data.Org.Indent
 import Data.Org.Priority
@@ -61,15 +60,14 @@ instance TextShow OrgHeadline where
       OrgIndent i = indent h
 
 instance OrgElement OrgHeadline where
-  type StateType OrgHeadline = OrgContext
-
   parser ctx = do
     indent' <- parser ctx :: Parser OrgIndent
     todo' <- parser ctx :: Parser OrgTodo
     priority' <- parser ctx :: Parser OrgPriority
     title' <- parser ctx :: Parser OrgTitle
+    tags' <- option (mempty :: OrgTags) (parser ctx :: Parser OrgTags)
 
-    void (many newline)
+    void (optional newline)
 
     properties <- option (mempty :: OrgPropertyBlock) (parser ctx :: Parser OrgPropertyBlock)
 
@@ -79,7 +77,7 @@ instance OrgElement OrgHeadline where
           todo = todo',
           priority = priority',
           title = title',
-          tags = mempty :: OrgTags,
+          tags = tags',
           properties = properties
         }
 

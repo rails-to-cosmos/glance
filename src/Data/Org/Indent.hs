@@ -1,10 +1,6 @@
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ImportQualifiedPost #-}
-{-# LANGUAGE OverloadedStrings #-}
-
 module Data.Org.Indent (OrgIndent (..)) where
 
-import Data.Org.Base
+import Data.Org.Element
 import Data.Org.Context
 
 import Text.Megaparsec
@@ -20,8 +16,6 @@ instance Monoid OrgIndent where
   mempty = OrgIndent 1
 
 instance OrgElement OrgIndent where
-  type StateType OrgIndent = OrgContext
-
   parser _ = do
     stars <- some (char '*') <* space
     return $ OrgIndent $ length stars

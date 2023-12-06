@@ -8,7 +8,7 @@ import Data.Text (Text, pack)
 import Data.Text.Lazy.Builder ()
 import UnliftIO ()
 
-import Data.Org.Base (Parser, OrgElement(apply))
+import Data.Org.Element (Parser, OrgElement(apply))
 import Data.Org.Context (OrgContext)
 import Data.Org.Generic
 import Data.Org.PlainText

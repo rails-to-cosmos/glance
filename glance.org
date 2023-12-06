@@ -131,6 +131,24 @@ title + tags + timestamps
 * TODO Relations
 ** TODO Inherit properties only from parents (implement headline stack, vertical inheritance)
 ** TODO @-relations
-* TODO Integrations [0/2]
+* TODO Integrations [0/3]
 ** TODO Emacs
 ** TODO Browser
+* TODO Design & scenarios (org-glance)
+** TODO Init: store directory structure
+- Root directory
+  - Resources
+    - {headline_created_date}-{headline_id}
+      - ...
+  - Headlines
+    - {headline_created_date}-{headline_id}.org
+  - Views
+    - {view_id}+{view_state}.org
+  - Metastore
+** TODO Store: CRUD
+** TODO View: CRUD
+** TODO View: get headlines from the specific view
+** TODO Move headline to the different view / views
+** TODO Headline: CRUD
+** TODO Import / Export headlines
+** TODO Overview

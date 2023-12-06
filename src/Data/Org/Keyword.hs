@@ -1,9 +1,6 @@
-{-# LANGUAGE TypeFamilies #-}
-
 module Data.Org.Keyword (OrgKeyword (..)) where
 
-import Data.Org.Base
-import Data.Org.Context
+import Data.Org.Element
 import Data.Text (Text, pack, toUpper)
 import Data.Char (isAlpha)
 
@@ -20,8 +17,6 @@ instance TextShow OrgKeyword where
   showb (OrgKeyword k) = fromText k
 
 instance OrgElement OrgKeyword where
-  type StateType OrgKeyword = OrgContext
-
   parser _ = OrgKeyword <$> toUpper <$> pack <$> some (satisfy (\c -> isAlpha c || c == '_'))
 
   modifyState _ ctx = ctx
