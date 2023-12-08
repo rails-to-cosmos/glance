@@ -4,7 +4,6 @@ module Data.Org.Headline (OrgHeadline (..)) where
 
 import Control.Monad
 import Data.Org.Element
-import Data.Org.Context
 import Data.Org.Indent
 import Data.Org.Priority
 import Data.Org.PropertyBlock
