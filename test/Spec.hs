@@ -1,13 +1,12 @@
-{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main (main) where
 
-import Data.Org
-import Data.Text (Text, intercalate)
-import Repl.State
-import Test.Tasty (TestTree, defaultMain, testGroup)
-import Test.Tasty.HUnit (assertEqual, testCase)
+import           Data.Org
+import           Data.Text (Text, intercalate)
+import           Repl.State
+import           Test.Tasty (TestTree, defaultMain, testGroup)
+import           Test.Tasty.HUnit (assertEqual, testCase)
 
 data TestCase = TestCase { description :: String
                          , inputs :: [Text]
@@ -16,7 +15,6 @@ data TestCase = TestCase { description :: String
 
 -- strptime :: Text -> UTCTime
 -- strptime t = parseTimeOrError True defaultTimeLocale "%Y-%m-%d %H:%M:%S" (unpack t) :: UTCTime
-
 defaultHeadline :: OrgHeadline
 defaultHeadline = mempty
 
@@ -35,11 +33,12 @@ testCases =
              }
   , TestCase { description = "Corrupted tag string"
              , inputs = ["* Hello world :a:b:c"]
-             , expected = ( OrgGenericHeadline
-                              defaultHeadline { title = OrgTitle "Hello world :a:b:c"
-                                              }
-                          , defaultContext)
-             }
+             , expected =
+                 ( OrgGenericHeadline
+                     defaultHeadline { title = OrgTitle "Hello world :a:b:c" }
+                 , defaultContext)
+             }]
+
     -- TestCase
     --   { description = "Parse headline with properties",
     --     inputs =
@@ -264,16 +263,15 @@ testCases =
     --             }
     --           }
     --     }
-  ]
-
 main :: IO ()
 main = defaultMain (testGroup "Org-mode parsers" assertAll)
 
 assertOne :: TestCase -> TestTree
-assertOne tc = testCase (description tc) (assertEqual [] (expected tc) (actual tc))
+assertOne tc =
+  testCase (description tc) (assertEqual [] (expected tc) (actual tc))
 
 assertAll :: [TestTree]
 assertAll = map assertOne testCases
 
 actual :: TestCase -> (OrgGenericElement, OrgContext)
-actual tc = applyCommand (defaultContext) (intercalate "\n" (inputs tc))
+actual tc = applyCommand defaultContext (intercalate "\n" (inputs tc))
