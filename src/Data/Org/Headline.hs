@@ -49,14 +49,16 @@ instance Monoid OrgHeadline where
       }
 
 instance TextShow OrgHeadline where
-  showb h =
+  showb headline =
     fromText (replicate i "*")
       <> showbSpace
-      <> showb (title h)
-      <> showbSpace
-      <> showb (tags h)
+      <> showb (title headline)
+      <> tagString
     where
-      OrgIndent i = indent h
+      OrgIndent i = indent headline
+      tagString = case tags headline of
+        OrgTags [] -> fromText ""
+        t -> showbSpace <> showb t
 
 instance OrgElement OrgHeadline where
   parser ctx = do
