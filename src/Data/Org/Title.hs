@@ -13,6 +13,7 @@ import Data.Org.Timestamp
 import TextShow (TextShow, showb, fromText)
 
 import Text.Megaparsec
+import Text.Megaparsec.Char
 
 import Prelude hiding (concat)
 
@@ -42,6 +43,7 @@ instance OrgElement OrgTitle where
   parser ctx = do
     let end = lookAhead
           $ choice [ try (void (parser ctx :: Parser OrgTags))
+                   , void eol
                    , eof
                    ]
 

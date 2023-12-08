@@ -5,7 +5,7 @@ module TestParser (orgModeParserUnitTests) where
 import           Data.Org
 import           Data.Text (Text, intercalate)
 import           Repl.State
-import           Test.Tasty (TestTree, defaultMain, testGroup)
+import           Test.Tasty (TestTree, testGroup)
 import           Test.Tasty.HUnit (assertEqual, testCase)
 import           TestDefaults
 
@@ -16,7 +16,7 @@ data TestCase = TestCase { description :: String
 
 testCases :: [TestCase]
 testCases =
-  [ TestCase { description = "Parse simple headline with tags"
+  [ TestCase { description = "Parse headline with tags"
              , inputs = ["* Hello world :a:b:c:"]
              , expected = ( OrgGenericHeadline
                               defaultHeadline { title = OrgTitle "Hello world"
@@ -24,32 +24,29 @@ testCases =
                                               }
                           , defaultContext)
              }
-  , TestCase { description = "Corrupted tag string"
+  , TestCase { description = "Parse headline with tags (corrupted)"
              , inputs = ["* Hello world :a:b:c"]
              , expected =
                  ( OrgGenericHeadline
                      defaultHeadline { title = OrgTitle "Hello world :a:b:c" }
                  , defaultContext)
+             }
+  , TestCase { description = "Parse headline with properties"
+             , inputs = [ "* Hello"
+                        , ":PROPERTIES:"
+                        , ":CATEGORY: New category"
+                        , ":END:"
+                        ]
+             , expected = ( OrgGenericHeadline
+                              (defaultHeadline { title = OrgTitle "Hello"
+                                               , properties = OrgPropertyBlock
+                                                   [ OrgProperty
+                                                       (OrgKeyword "CATEGORY")
+                                                       "New category"]
+                                               })
+                          , defaultContext { metaCategory = "New category" })
              }]
 
-    -- TestCase
-    --   { description = "Parse headline with properties",
-    --     inputs =
-    --       [ "* Hello",
-    --         ":PROPERTIES:",
-    --         ":CATEGORY: New category",
-    --         ":END:"
-    --       ],
-    --     expected =
-    --       ( OrgGenericHeadline
-    --           ( defaultHeadline
-    --               { title = OrgTitle [OrgTitleText (PlainText "Hello")],
-    --                 properties = OrgPropertyBlock [OrgProperty (OrgKeyword "CATEGORY") "New category"]
-    --               }
-    --           ),
-    --         defaultContext {metaCategory = "New category"}
-    --       )
-    --   }
     -- ( TestCase
     --       "Category property affects context"
     --       [ ":PROPERTIES:"
@@ -256,14 +253,15 @@ testCases =
     --             }
     --           }
     --     }
-
 orgModeParserUnitTests :: TestTree
 orgModeParserUnitTests = testGroup "Org-mode parser spec" assertAll
   where
     assertOne tc = testCase descr $ assertEqual [] expectation result
       where
         descr = description tc
+
         expectation = expected tc
+
         result = actual tc
 
     assertAll = map assertOne testCases

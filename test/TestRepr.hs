@@ -15,7 +15,7 @@ data TestCase = TestCase { description :: String
                          }
 
 testCases :: [TestCase]
-testCases = [ TestCase { description = "Headline string representation"
+testCases = [ TestCase { description = "Org-mode headline representation"
                        , element = OrgGenericHeadline
                            defaultHeadline { indent = OrgIndent 1
                                            , todo = mempty :: OrgTodo
@@ -36,4 +36,4 @@ assertAll :: [TestTree]
 assertAll = map assertOne testCases
 
 orgElementReprUnitTests :: TestTree
-orgElementReprUnitTests = testGroup "Org-mode element representation" assertAll
+orgElementReprUnitTests = testGroup "Org-mode elements representations" assertAll
