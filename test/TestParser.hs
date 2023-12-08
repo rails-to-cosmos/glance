@@ -24,7 +24,7 @@ testCases =
                                               }
                           , defaultContext)
              }
-  , TestCase { description = "Parse corrupted tag string"
+  , TestCase { description = "Parse headline with corrupted tag string"
              , inputs = ["* Hello world :a:b:c"]
              , expected =
                  ( OrgGenericHeadline
@@ -35,7 +35,8 @@ testCases =
              , inputs = [ "* Hello"
                         , ":PROPERTIES:"
                         , ":CATEGORY: New category"
-                        , ":END:"]
+                        , ":END:"
+                        ]
              , expected = ( OrgGenericHeadline
                               (defaultHeadline { title = OrgTitle "Hello"
                                                , properties = OrgPropertyBlock
