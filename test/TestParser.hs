@@ -45,7 +45,13 @@ testCases =
                                                        "New category"]
                                                })
                           , defaultContext { metaCategory = "New category" })
-             }]
+             }
+  , TestCase { description = "Parse drawer"
+             , inputs = [ ":DRAWER:"]
+             , expected = ( OrgGenericText (PlainText ":DRAWER:")
+                          , defaultContext)
+             }
+  ]
 
     -- ( TestCase
     --       "Category property affects context"
