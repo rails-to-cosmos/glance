@@ -5,7 +5,7 @@ module TestParser (orgModeParserUnitTests) where
 import           Data.Org
 import           Data.Text (Text, intercalate)
 import           Repl.State
-import           Test.Tasty (TestTree, defaultMain, testGroup)
+import           Test.Tasty (TestTree, testGroup)
 import           Test.Tasty.HUnit (assertEqual, testCase)
 import           TestDefaults
 
@@ -24,7 +24,7 @@ testCases =
                                               }
                           , defaultContext)
              }
-  , TestCase { description = "Parse headline with corrupted tag string"
+  , TestCase { description = "Parse headline with tags (corrupted)"
              , inputs = ["* Hello world :a:b:c"]
              , expected =
                  ( OrgGenericHeadline
