@@ -43,7 +43,7 @@ import Data.Time.Format
 showcase :: String -> IO ()
 showcase what = do
   let ctx = mempty::OrgContext
-      p = runStateT apply ctx :: Parser (OrgHeadline, OrgContext)
+      p = runStateT apply ctx :: Parser (PlainText, OrgContext)
       input = T.pack what
 
   case parse p "" input of

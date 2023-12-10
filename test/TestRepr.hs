@@ -29,11 +29,14 @@ assertOne :: TestCase -> TestTree
 assertOne tc = testCase descr $ assertEqual [] (showb el) (fromText repr)
   where
     descr = description tc
+
     repr = representation tc
+
     el = element tc
 
 assertAll :: [TestTree]
 assertAll = map assertOne testCases
 
 orgElementReprUnitTests :: TestTree
-orgElementReprUnitTests = testGroup "Org-mode elements representations" assertAll
+orgElementReprUnitTests =
+  testGroup "Org-mode elements representations" assertAll
