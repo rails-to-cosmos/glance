@@ -3,7 +3,6 @@
 module Data.Org.Generic (OrgGenericElement (..)) where
 
 import Data.Org.Element
-import Data.Org.Context
 import Data.Org.Headline
 import Data.Org.PlainText
 import Data.Org.Pragma
