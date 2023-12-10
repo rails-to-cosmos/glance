@@ -31,57 +31,87 @@ testCases =
                      defaultHeadline { title = OrgTitle "Hello world :a:b:c" }
                  , defaultContext)
              }
-  , TestCase { description = "Parse headline with properties"
-             , inputs = [ "* Hello"
-                        , ":PROPERTIES:"
-                        , ":CATEGORY: New category"
-                        , ":END:"
-                        ]
+  , TestCase { description = "Parse property block"
+             , inputs =
+                 ["* Hello", ":PROPERTIES:", ":TITLE: New title", ":END:"]
              , expected = ( OrgGenericHeadline
                               (defaultHeadline { title = OrgTitle "Hello"
                                                , properties = OrgPropertyBlock
                                                    [ OrgProperty
-                                                       (OrgKeyword "CATEGORY")
-                                                       "New category"]
+                                                       (OrgKeyword "TITLE")
+                                                       "New title"]
                                                })
-                          , defaultContext { metaCategory = "New category" })
-             }
-  , TestCase { description = "Parse drawer"
-             , inputs = [ ":DRAWER:"]
-             , expected = ( OrgGenericText (PlainText ":DRAWER:")
                           , defaultContext)
              }
-  ]
+  , TestCase { description = "Parse drawer"
+             , inputs = [":DRAWER:"]
+             , expected =
+                 (OrgGenericText (PlainText ":DRAWER:"), defaultContext)
+             }
+  , TestCase { description = "Category pragma affects context"
+             , inputs = ["#+CATEGORY: Category 1"]
+             , expected = ( OrgGenericPragma (OrgCategoryPragma "Category 1")
+                          , defaultContext { metaCategory = "Category 1" })
+             }
+  , TestCase { description = "Category property affects context"
+             , inputs = [ "* Hello"
+                        , ":PROPERTIES:"
+                        , ":CATEGORY: Updated category"
+                        , ":END:"]
+             , expected =
+                 ( OrgGenericHeadline
+                     (defaultHeadline { title = OrgTitle "Hello"
+                                      , properties = OrgPropertyBlock
+                                          [ OrgProperty
+                                              (OrgKeyword "CATEGORY")
+                                              "Updated category"]
+                                      })
+                 , defaultContext { metaCategory = "Updated category" })
+             }
+  , TestCase { description = "Parse complete headline"
+             , inputs = ["** TODO [#A] This is a simple headline :a:b:c:"]
+             , expected =
+                 ( OrgGenericHeadline
+                     (defaultHeadline { indent = OrgIndent 2
+                                      , todo = OrgTodo (Just "TODO")
+                                      , priority = OrgPriority (Just 'A')
+                                      , title =
+                                          OrgTitle "This is a simple headline"
+                                      , tags = OrgTags ["a", "b", "c"]
+                                      })
+                 , defaultContext)
+             }
+  , TestCase { description = "Parse custom todo"
+             , inputs = ["#+TODO: TODO | CANCELLED", "* CANCELLED Mess"]
+             , expected =
+                 ( OrgGenericHeadline
+                     (defaultHeadline { todo = OrgTodo (Just "CANCELLED")
+                                      , title = OrgTitle "Mess"
+                                      })
+                 , defaultContext)
+             }]
 
-    -- ( TestCase
-    --       "Category property affects context"
-    --       [ ":PROPERTIES:"
-    --       , ":CATEGORY: New category"
-    --       , ":END:"
-    --       ]
-    --       (defaultContext) { metaCategory = "New category" }
-    --   )
     -- , TestCase
-    --     { description = "Category pragma affects context",
+    --     { description = "Parse custom todo state",
     --       inputs =
-    --         [ "#+CATEGORY: Category 1"
-    --         , "#+CATEGORY: Category 2"
+    --         [ "#+TODO: TODO | CANCELLED",
+    --           "* CANCELLED Mess"
     --         ],
-    --       expected = (defaultContext) { metaCategory = "Category 2" }
+    --       expected =
+    --         OrgContext
+    --           { headline =
+    --               OrgHeadline
+    --                 { indent = EIndent 1
+    --                 , todo = ETodo "CANCELLED"
+    --                 , priority = EPriority Nothing
+    --                 , title = "Mess"
+    --                 , tags = []
+    --                 , properties = defaultProperties
+    --                 , meta = defaultMeta { metaTodo = (["TODO"], ["DONE", "CANCELLED"])
+    --                                      }
+    --                 }
+    --           }
     --     }
-    -- , TestCase
-    --     { description = "Todo pragma affects context",
-    --       inputs =
-    --         [ "#+TODO: PENDING | CANCELLED",
-    --           "#+TODO: STARTED(s!) | CANCELLED(c!)"
-    --         ],
-    --       expected = (defaultContext) { metaTodo = (["TODO", "PENDING", "STARTED"], ["DONE", "CANCELLED"]) }
-    --     }
-    -- , TestCase
-    --     { description = "Parse basic headline",
-    --       inputs = ["** TODO [#A] This is a simple headline :a:b:c:"],
-    --       expected = defaultContext
-    --     },
     --   TestCase
     --     { description = "Timestamp affects context",
     --       inputs =
@@ -137,27 +167,6 @@ testCases =
     --                   tags = [],
     --                   properties = defaultProperties,
     --                   meta = defaultMeta
-    --                 }
-    --           }
-    --     }
-    -- , TestCase
-    --     { description = "Parse custom todo state",
-    --       inputs =
-    --         [ "#+TODO: TODO | CANCELLED",
-    --           "* CANCELLED Mess"
-    --         ],
-    --       expected =
-    --         OrgContext
-    --           { headline =
-    --               OrgHeadline
-    --                 { indent = EIndent 1
-    --                 , todo = ETodo "CANCELLED"
-    --                 , priority = EPriority Nothing
-    --                 , title = "Mess"
-    --                 , tags = []
-    --                 , properties = defaultProperties
-    --                 , meta = defaultMeta { metaTodo = (["TODO"], ["DONE", "CANCELLED"])
-    --                                      }
     --                 }
     --           }
     --     }
@@ -259,6 +268,7 @@ testCases =
     --             }
     --           }
     --     }
+
 orgModeParserUnitTests :: TestTree
 orgModeParserUnitTests = testGroup "Org-mode parser spec" assertAll
   where

@@ -17,7 +17,7 @@ instance Monoid OrgIndent where
 
 instance OrgElement OrgIndent where
   parser _ = do
-    stars <- some (char '*') <* space
+    stars <- some (char '*')
     return $ OrgIndent $ length stars
 
   modifyState _ ctx = ctx
