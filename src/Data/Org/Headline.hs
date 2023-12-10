@@ -63,14 +63,18 @@ instance TextShow OrgHeadline where
 instance OrgElement OrgHeadline where
   parser ctx = do
     indent' <- parser ctx :: Parser OrgIndent
+    void space
+
     todo' <- parser ctx :: Parser OrgTodo
+    void space
+
     priority' <- parser ctx :: Parser OrgPriority
+    void space
+
     title' <- parser ctx :: Parser OrgTitle
     tags' <- option (mempty :: OrgTags) (parser ctx :: Parser OrgTags)
 
-    void (optional newline)
-
-    properties <- option (mempty :: OrgPropertyBlock) (parser ctx :: Parser OrgPropertyBlock)
+    properties <- option (mempty :: OrgPropertyBlock) (newline *> (parser ctx :: Parser OrgPropertyBlock))
 
     return
       OrgHeadline
