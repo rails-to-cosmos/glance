@@ -86,9 +86,5 @@ instance OrgElement OrgHeadline where
           properties = properties
         }
 
-  modifyState
-    ( OrgHeadline
-        { title = title,
-          properties = properties
-        }
-      ) = modifyState properties . modifyState title
+  modifyState (OrgHeadline { title = title, properties = properties }) =
+    modifyState properties . modifyState title
