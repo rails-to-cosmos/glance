@@ -17,6 +17,8 @@ instance TextShow OrgKeyword where
   showb (OrgKeyword k) = fromText k
 
 instance OrgElement OrgKeyword where
-  parser _ = OrgKeyword <$> toUpper <$> pack <$> some (satisfy (\c -> isAlpha c || c == '_'))
+  parser _ = do
+    let keyword = some (satisfy (\c -> isAlpha c || c == '_'))
+    OrgKeyword . toUpper . pack <$> keyword
 
   modifyState _ ctx = ctx
