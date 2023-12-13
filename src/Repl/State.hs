@@ -19,7 +19,9 @@ parseStateful :: OrgContext
 parseStateful ctx = parse parser ""
   where parser = runStateT apply ctx :: Parser (OrgGenericElement, OrgContext)
 
-applyCommand :: OrgContext -> Text -> (OrgGenericElement, OrgContext)
+applyCommand :: OrgContext
+             -> Text
+             -> (OrgGenericElement, OrgContext)
 applyCommand ctx cmd = case parseStateful ctx cmd of
-  Right (els, ctx') -> (els, ctx')
+  Right val -> val
   Left err -> (OrgGenericText (PlainText (pack (errorBundlePretty err))), ctx)
