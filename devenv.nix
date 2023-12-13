@@ -11,16 +11,20 @@
     stack
     haskellPackages.hoogle
     haskellPackages.hasktags
+    haskellPackages.haskdogs
     haskell.compiler.ghc945
     haskell.packages.ghc945.haskell-language-server
     haskell.packages.ghc945.hlint
   ];
 
   # https://devenv.sh/scripts/
-  scripts.hello.exec = "echo hello from $GREET";
+  scripts.run-tests.exec = ''
+    hlint src --report
+    stack test
+  '';
 
   enterShell = ''
-    Hello fellow hacker
+    echo "Hello fellow hacker"
     ghc --version
   '';
 

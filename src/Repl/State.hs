@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Repl.State (applyCommand, parseStateful) where
 
 import Control.Monad.State (runStateT)
@@ -15,7 +13,9 @@ import Data.Org.PlainText
 
 import Text.Megaparsec (parse, ParseErrorBundle, errorBundlePretty)
 
-parseStateful :: OrgContext -> Text -> Either (ParseErrorBundle Text Void) (OrgGenericElement, OrgContext)
+parseStateful :: OrgContext
+              -> Text
+              -> Either (ParseErrorBundle Text Void) (OrgGenericElement, OrgContext)
 parseStateful ctx = parse parser ""
   where parser = runStateT apply ctx :: Parser (OrgGenericElement, OrgContext)
 

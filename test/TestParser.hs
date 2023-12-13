@@ -4,7 +4,7 @@ module TestParser (orgModeParserUnitTests) where
 
 import           Data.Org
 import           Data.Text (Text, intercalate)
-import           Repl.State
+import           Repl.State (applyCommand)
 import           Test.Tasty (TestTree, testGroup)
 import           Test.Tasty.HUnit (assertEqual, testCase)
 import           TestDefaults
@@ -88,7 +88,8 @@ testCases =
                      (defaultHeadline { todo = OrgTodo (Just "CANCELLED")
                                       , title = OrgTitle "Mess"
                                       })
-                 , defaultContext)
+                 , defaultContext
+                 )
              }]
 
     -- , TestCase
@@ -273,12 +274,9 @@ orgModeParserUnitTests :: TestTree
 orgModeParserUnitTests = testGroup "Org-mode parser spec" assertAll
   where
     assertOne tc = testCase descr $ assertEqual [] expectation result
-      where
-        descr = description tc
-
-        expectation = expected tc
-
-        result = actual tc
+      where descr = description tc
+            expectation = expected tc
+            result = actual tc
 
     assertAll = map assertOne testCases
 

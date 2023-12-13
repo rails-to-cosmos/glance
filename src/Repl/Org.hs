@@ -40,8 +40,8 @@ getInput = do
     Nothing -> return ""
     Just cmd -> return (pack cmd)
 
-printTextShow :: (TextShow a) => a -> IO ()
-printTextShow = TIO.putStrLn . toStrict . toLazyText . showb
+-- printTextShow :: (TextShow a) => a -> IO ()
+-- printTextShow = TIO.putStrLn . toStrict . toLazyText . showb
 
 repl :: CommandProcessor -> Repl ()
 repl fn = do

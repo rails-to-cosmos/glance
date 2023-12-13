@@ -27,21 +27,20 @@ instance OrgElement OrgPragma where
   parser ctx = do
     let keyword = parser ctx :: Parser OrgKeyword
         plaintext = parser ctx :: Parser PlainText
-        whitespaces = skipMany (char ' ')
-        todoList = some (todo <* whitespaces)
+        todoList = some (todo <* space)
         todoShort = pack <$> between (char '(') (char ')') (many (noneOf ['(', ')', '\n']))
         todo = do
           OrgKeyword result <- keyword <* skipMany todoShort
           return result
 
-    kw <- string "#+" *> keyword <* string ":" <* whitespaces
+    kw <- string "#+" *> keyword <* string ":" <* space
     case kw of
       OrgKeyword "CATEGORY" -> do
         PlainText category <- plaintext
         return $ OrgCategoryPragma category
       OrgKeyword "TODO" -> do
         active <- todoList
-        inactive <- char '|' *> whitespaces *> option [] todoList
+        inactive <- char '|' *> space *> option [] todoList
         return $ OrgTodoPragma active inactive
       _ -> do
         PlainText v <- plaintext
