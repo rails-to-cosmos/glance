@@ -19,3 +19,4 @@ devenv.local.nix
 *.hs#
 *.imports
 /report.html
+/.haskdogs/

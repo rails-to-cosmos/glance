@@ -1,6 +1,9 @@
 resolver: ghc-9.4.5
 system-ghc: true
 recommend-stack-upgrade: false
+ghc-options:
+  '$everything': -haddock
+
 packages:
   - .
 
