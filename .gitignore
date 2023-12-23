@@ -20,3 +20,4 @@ devenv.local.nix
 *.imports
 /report.html
 /.haskdogs/
+/tags
