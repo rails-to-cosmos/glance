@@ -13,6 +13,7 @@ type StatefulParser s a = State.StateT s Parser a
 class OrgElement a where
   parser :: OrgContext -> Parser a
   modifyState :: a -> OrgContext -> OrgContext
+
   apply :: StatefulParser OrgContext a
   apply = do
     ctx <- State.get

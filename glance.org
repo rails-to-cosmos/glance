@@ -119,7 +119,7 @@ CLOSED: [2023-08-01 Tue 11:09]
 :LOGBOOK:
 - State "DONE"       from "TODO"       [2023-08-01 Tue 11:09]
 :END:
-* TODO Store [1/2]
+* TODO Store (Persistent layer) [1/3]
 ** DONE Understand ID/UUIDs
 CLOSED: [2023-07-25 Tue 09:16]
 :LOGBOOK:
@@ -128,6 +128,7 @@ CLOSED: [2023-07-25 Tue 09:16]
 
 title + tags + timestamps
 ** TODO Implement simple CRUD for metadata
+** TODO Kuzu
 * TODO Relations
 ** TODO Inherit properties only from parents (implement headline stack, vertical inheritance)
 ** TODO @-relations
