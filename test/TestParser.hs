@@ -72,11 +72,11 @@ testCases =
              , inputs = [ "#+TODO: TODO | CANCELLED"
                         , "* CANCELLED Mess"
                         ]
-             , expected = [( OrgGenericHeadline (defaultHeadline { todo = OrgTodo (Just "CANCELLED")
+             , expected = ([ OrgGenericPragma (OrgTodoPragma ["TODO"] ["CANCELLED"])
+                           , OrgGenericHeadline (defaultHeadline { todo = OrgTodo (Just "CANCELLED")
                                                                  , title = OrgTitle "Mess"
-                                                                 })
-                           , defaultContext)
-                          ]
+                                                                 })]
+                          , defaultContext {metaTodo = (["TODO"], ["DONE", "CANCELLED"])})
              }
   ]
 
