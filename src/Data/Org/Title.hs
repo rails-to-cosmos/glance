@@ -40,19 +40,12 @@ instance TextShow OrgTitle where
   showb (OrgTitle x) = fromText x
 
 instance OrgElement OrgTitle where
-  parser ctx = do
-    let end = lookAhead
-          $ choice [ try (void (parser ctx :: Parser OrgTags))
-                   , void eol
-                   , eof
-                   ]
+  parser = do
+    let end = lookAhead $ choice [ try (void (parser :: OrgParser OrgTags))
+                                 , void eol
+                                 , eof
+                                 ]
 
     elements <- manyTill anySingle end
 
     return $ OrgTitle $ strip $ pack elements
-
-  -- modifyState (OrgTitle ((OrgTitleTags x) : xs)) ctx = modifyState (OrgTitle xs) (modifyState x ctx)
-  -- modifyState (OrgTitle ((OrgTitleTimestamp x) : xs)) ctx = modifyState (OrgTitle xs) (modifyState x ctx)
-  -- modifyState (OrgTitle ((OrgTitleText x) : xs)) ctx = modifyState (OrgTitle xs) (modifyState x ctx)
-  modifyState (OrgTitle _) ctx = ctx
-  -- modifyState (OrgTitle []) ctx = ctx

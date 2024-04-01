@@ -15,8 +15,9 @@ import Text.Megaparsec.Char
 import TextShow
 
 import Control.Monad
-
+import qualified Control.Monad.State as State
 import Prelude hiding (unwords, concat, replicate, concatMap)
+
 
 data OrgPragma = OrgPragma OrgKeyword Text
                | OrgTodoPragma [Text] [Text]
@@ -24,32 +25,29 @@ data OrgPragma = OrgPragma OrgKeyword Text
   deriving (Show, Eq)
 
 instance OrgElement OrgPragma where
-  parser ctx = do
-    let keyword = parser ctx :: Parser OrgKeyword
-        plaintext = parser ctx :: Parser PlainText
+  parser = do
+    let keyword = parser :: OrgParser OrgKeyword
+        plaintext = parser :: OrgParser PlainText
         todoList = some (todo <* space)
         todoShort = pack <$> between (char '(') (char ')') (many (noneOf ['(', ')', '\n']))
         todo = do
           OrgKeyword result <- keyword <* skipMany todoShort
           return result
 
-    kw <- string "#+" *> keyword <* string ":" <* space
-    case kw of
+    key <- string "#+" *> keyword <* string ":" <* space
+    case key of
       OrgKeyword "CATEGORY" -> do
         PlainText category <- plaintext
+        State.modify (\ctx -> ctx {metaCategory = category})
         return $ OrgCategoryPragma category
       OrgKeyword "TODO" -> do
         active <- todoList
         inactive <- char '|' *> space *> option [] todoList
+        State.modify (\ctx -> ctx {metaTodo = (nub (fst (metaTodo ctx) ++ active), nub (snd (metaTodo ctx) ++ inactive))})
         return $ OrgTodoPragma active inactive
       _ -> do
-        PlainText v <- plaintext
-        return $ OrgPragma kw v
-
-  modifyState (OrgCategoryPragma category) ctx = ctx {metaCategory = category}
-  modifyState (OrgTodoPragma active inactive) ctx = ctx {metaTodo = newTodo}
-    where newTodo = ( nub $ fst (metaTodo ctx) ++ active, nub $ snd (metaTodo ctx) ++ inactive )
-  modifyState _ ctx = ctx
+        PlainText value <- plaintext
+        return $ OrgPragma key value
 
 instance TextShow OrgPragma where
   showb (OrgPragma k v) = "#+" <> showb k <> ": " <> fromText v

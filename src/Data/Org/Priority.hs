@@ -22,11 +22,6 @@ instance Monoid OrgPriority where
   mempty = OrgPriority Nothing
 
 instance OrgElement OrgPriority where
-  parser _ = do
+  parser = do
     priority <- optional . try $ char '[' *> char '#' *> letterChar <* char ']' <* space
     return $ OrgPriority priority
-
-  modifyState _ ctx = ctx
-  -- modifyState (OrgPriority p') ctx = ctx {headline = h'}
-  --   where h = headline ctx
-  --         h' = h {priority = OrgPriority p'}

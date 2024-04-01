@@ -45,21 +45,26 @@ import Text.Megaparsec (Parsec, MonadParsec(try), ParsecT, runParserT, getParser
 
 type OrgModeParser = ParsecT Void Text (State.StateT OrgContext Parser)
 
-p :: OrgModeParser Text
-p  = pack <$> manyTill anySingle eof
+-- p :: OrgModeParser Text
+-- p  = do
+--   text <- pack <$> manyTill anySingle eof
+--   modify (\ctx -> ctx { metaCategory = "Hello" })
+--   return text
+
+-- pt what = parseTest (runStateT (runParserT p "" (pack what)) ctx) (pack what)
 
 -- parseCategory :: Text -> Either (ParseErrorBundle Text Void) (OrgContext, OrgCategory)
 -- parseCategory = runParser (runStateT apply defaultContext) ""
 
-ctx = mempty :: OrgContext
+-- ctx = mempty :: OrgContext
 
-showcase :: String -> IO ()
-showcase what = do
-  let ctx = mempty :: OrgContext
-      parser = runStateT apply ctx :: Parser (OrgGenericElement, OrgContext)
-      input = T.pack what
+-- showcase :: String -> IO ()
+-- showcase what = do
+--   let ctx = mempty :: OrgContext
+--       parser = runStateT apply ctx :: Parser (OrgGenericElement, OrgContext)
+--       input = T.pack what
 
-  parseTest (manyTill parser eof) input
+--   parseTest (manyTill parser eof) input
 
   -- case  of
   --   Left err -> putStrLn $ errorBundlePretty err

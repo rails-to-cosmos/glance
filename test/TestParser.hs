@@ -11,86 +11,74 @@ import           TestDefaults
 
 data TestCase = TestCase { description :: String
                          , inputs :: [Text]
-                         , expected :: (OrgGenericElement, OrgContext)
+                         , expected :: ([OrgGenericElement], OrgContext)
                          }
 
 testCases :: [TestCase]
 testCases =
   [ TestCase { description = "Parse headline with tags"
              , inputs = ["* Hello world :a:b:c:"]
-             , expected = ( OrgGenericHeadline
-                              defaultHeadline { title = OrgTitle "Hello world"
-                                              , tags = OrgTags ["a", "b", "c"]
-                                              }
+             , expected = ([OrgGenericHeadline defaultHeadline {title = OrgTitle "Hello world", tags = OrgTags ["a", "b", "c"]}]
                           , defaultContext)
              }
   , TestCase { description = "Parse headline with tags (corrupted)"
-             , inputs = ["* Hello world :a:b:c"]
+             , inputs = [ "* Hello world :a:b:c"]
              , expected =
-                 ( OrgGenericHeadline
-                     defaultHeadline { title = OrgTitle "Hello world :a:b:c" }
+                 ([OrgGenericHeadline defaultHeadline {title = OrgTitle "Hello world :a:b:c"}]
                  , defaultContext)
              }
   , TestCase { description = "Parse property block"
              , inputs =
-                 ["* Hello", ":PROPERTIES:", ":TITLE: New title", ":END:"]
-             , expected = ( OrgGenericHeadline
-                              (defaultHeadline { title = OrgTitle "Hello"
-                                               , properties = OrgPropertyBlock
-                                                   [ OrgProperty
-                                                       (OrgKeyword "TITLE")
-                                                       "New title"]
-                                               })
+                 [ "* Hello"
+                 , ":PROPERTIES:"
+                 , ":TITLE: New title"
+                 , ":END:"
+                 ]
+             , expected = ([OrgGenericHeadline (defaultHeadline {title = OrgTitle "Hello", properties = OrgPropertyBlock [OrgProperty (OrgKeyword "TITLE") "New title"]})]
                           , defaultContext)
              }
   , TestCase { description = "Parse drawer"
-             , inputs = [":DRAWER:"]
-             , expected =
-                 (OrgGenericText (PlainText ":DRAWER:"), defaultContext)
+             , inputs = [ ":DRAWER:" ]
+             , expected = ([OrgGenericText (PlainText ":DRAWER:")], defaultContext)
              }
   , TestCase { description = "Category pragma affects context"
              , inputs = ["#+CATEGORY: Category 1"]
-             , expected = ( OrgGenericPragma (OrgCategoryPragma "Category 1")
-                          , defaultContext { metaCategory = "Category 1" })
+             , expected = ([OrgGenericPragma (OrgCategoryPragma "Category 1")], defaultContext { metaCategory = "Category 1" })
              }
   , TestCase { description = "Category property affects context"
              , inputs = [ "* Hello"
                         , ":PROPERTIES:"
                         , ":CATEGORY: Updated category"
-                        , ":END:"]
+                        , ":END:"
+                        ]
              , expected =
-                 ( OrgGenericHeadline
-                     (defaultHeadline { title = OrgTitle "Hello"
-                                      , properties = OrgPropertyBlock
-                                          [ OrgProperty
-                                              (OrgKeyword "CATEGORY")
-                                              "Updated category"]
-                                      })
+                 ( [OrgGenericHeadline (defaultHeadline {title = OrgTitle "Hello", properties = OrgPropertyBlock [OrgProperty (OrgKeyword "CATEGORY") "Updated category"]})]
                  , defaultContext { metaCategory = "Updated category" })
              }
   , TestCase { description = "Parse complete headline"
-             , inputs = ["** TODO [#A] This is a simple headline :a:b:c:"]
+             , inputs = ["** TODO [#A] This is a simple headline :a:b:c:"
+                        ]
              , expected =
-                 ( OrgGenericHeadline
-                     (defaultHeadline { indent = OrgIndent 2
-                                      , todo = OrgTodo (Just "TODO")
-                                      , priority = OrgPriority (Just 'A')
-                                      , title =
-                                          OrgTitle "This is a simple headline"
-                                      , tags = OrgTags ["a", "b", "c"]
-                                      })
+                 ([ OrgGenericHeadline (defaultHeadline { indent = OrgIndent 2
+                                                        , todo = OrgTodo (Just "TODO")
+                                                        , priority = OrgPriority (Just 'A')
+                                                        , title = OrgTitle "This is a simple headline"
+                                                        , tags = OrgTags ["a", "b", "c"]
+                                                        })
+                  ]
                  , defaultContext)
              }
   , TestCase { description = "Parse custom todo"
-             , inputs = ["#+TODO: TODO | CANCELLED", "* CANCELLED Mess"]
-             , expected =
-                 ( OrgGenericHeadline
-                     (defaultHeadline { todo = OrgTodo (Just "CANCELLED")
-                                      , title = OrgTitle "Mess"
-                                      })
-                 , defaultContext
-                 )
-             }]
+             , inputs = [ "#+TODO: TODO | CANCELLED"
+                        , "* CANCELLED Mess"
+                        ]
+             , expected = [( OrgGenericHeadline (defaultHeadline { todo = OrgTodo (Just "CANCELLED")
+                                                                 , title = OrgTitle "Mess"
+                                                                 })
+                           , defaultContext)
+                          ]
+             }
+  ]
 
     -- , TestCase
     --     { description = "Parse custom todo state",
@@ -271,13 +259,7 @@ testCases =
     --     }
 
 orgModeParserUnitTests :: TestTree
-orgModeParserUnitTests = testGroup "Org-mode parser spec" assertAll
-  where
-    assertOne tc = testCase descr $ assertEqual [] expectation result
-      where descr = description tc
-            expectation = expected tc
-            result = actual tc
-
-    assertAll = map assertOne testCases
-
-    actual tc = applyCommand defaultContext (intercalate "\n" (inputs tc))
+orgModeParserUnitTests = testGroup "Org-mode parser spec" assertMany
+  where assert tc = testCase (description tc) $ assertEqual [] (expected tc) (actual tc)
+        actual tc = applyCommand defaultContext (intercalate "\n" (inputs tc))
+        assertMany = map assert testCases

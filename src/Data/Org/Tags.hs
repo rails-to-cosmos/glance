@@ -12,6 +12,8 @@ import TextShow (TextShow, fromText, showb)
 import Text.Megaparsec
 import Text.Megaparsec.Char
 
+import qualified Control.Monad.State as State
+
 import Prelude hiding (unwords, concat, replicate, concatMap)
 
 newtype OrgTags = OrgTags [Text]
@@ -37,6 +39,4 @@ tagCtrl :: Parser Char
 tagCtrl = char ':'
 
 instance OrgElement OrgTags where
-  parser _ = OrgTags <$> (tagCtrl *> many tag)
-
-  modifyState _ ctx = ctx
+  parser = OrgTags <$> State.lift (tagCtrl *> many tag)

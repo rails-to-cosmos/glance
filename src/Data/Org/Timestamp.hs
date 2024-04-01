@@ -1,20 +1,21 @@
-{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Data.Org.Timestamp ( OrgTimestamp (..)
-                          , timestampCtrl
-                          , OrgTimestampType (..)
-                          , OrgTimestampStatus (..)
-                          , OrgTimestampRepeaterInterval (..)
-                          , OrgTimestampRepeaterType (..)
+module Data.Org.Timestamp
+  ( OrgTimestamp (..)
+  , timestampCtrl
+  , OrgTimestampType (..)
+  , OrgTimestampStatus (..)
+  , OrgTimestampRepeaterInterval (..)
+  , OrgTimestampRepeaterType (..)
   ) where
 
 import Data.Org.Element
-import Data.Org.Context
 
 import Data.Text (Text, pack)
-import Data.Time qualified as Time
+import qualified Data.Time as Time
 import Data.Maybe (fromMaybe)
+
+import qualified Control.Monad.State as State
 
 import TextShow
 
@@ -100,17 +101,16 @@ instance TextShow OrgTimestamp where
         _ -> " "
 
 instance OrgElement OrgTimestamp where
-
-  parser _ = do
-    tsType' <- optional . try $ timestampTypeParser
-    tsStatus' <- timestampStatusParser
-    tsDay' <- timestampDayParser
+  parser = do
+    tsType' <- State.lift $ optional . try $ timestampTypeParser
+    tsStatus' <- State.lift $ timestampStatusParser
+    tsDay' <- State.lift $ timestampDayParser
     space
-    void $ optional timestampWeekdayParser -- weekday
+    void $ State.lift $ optional timestampWeekdayParser -- weekday
     space
-    tsTime' <- optional . try $ timestampTimeParser
+    tsTime' <- optional . try $ State.lift $ timestampTimeParser
     space
-    tsRepeaterInterval' <- optional . try $ timestampRepeaterParser
+    tsRepeaterInterval' <- optional . try $ State.lift $ timestampRepeaterParser
     void $ char $ case tsStatus' of
       TsActive -> '>'
       TsInactive -> ']'
@@ -123,8 +123,6 @@ instance OrgElement OrgTimestamp where
                    Just t -> Time.UTCTime tsDay' (Time.timeOfDayToTime t)
                    Nothing -> Time.UTCTime tsDay' (Time.timeOfDayToTime (Time.TimeOfDay 0 0 0))
       }
-
-  modifyState (OrgTimestamp {tsTime = t}) ctx = ctx -- {metaTime = metaTime ctx ++ [t]}
 
 formatTimestamp :: Time.UTCTime -> Text
 formatTimestamp ts = pack (Time.formatTime Time.defaultTimeLocale timeFormat ts)

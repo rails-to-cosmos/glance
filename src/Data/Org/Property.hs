@@ -8,9 +8,10 @@ import Data.Org.Keyword
 import Data.Org.PlainText
 import Data.Text (Text)
 
+import qualified Control.Monad.State as State
+
 import Text.Megaparsec
 import Text.Megaparsec.Char
-
 import TextShow
 
 import Control.Monad
@@ -27,16 +28,18 @@ isPropertyStackKeyword :: OrgKeyword -> Bool
 isPropertyStackKeyword (OrgKeyword k) = k `elem` propertyStackKeywords
 
 instance OrgElement OrgProperty where
-
-  parser ctx = do
-    k <- between (char ':') (char ':') (parser ctx :: Parser OrgKeyword)
+  parser = do
+    key <- between (char ':') (char ':') (parser :: OrgParser OrgKeyword)
     space
-    guard $ not (isPropertyStackKeyword k)
-    PlainText v <- parser ctx :: Parser PlainText
-    return $ OrgProperty k v
+    guard $ not (isPropertyStackKeyword key)
 
-  modifyState (OrgProperty (OrgKeyword "CATEGORY") category) ctx = ctx {metaCategory = category}
-  modifyState _ ctx = ctx
+    PlainText value <- parser :: OrgParser PlainText
+
+    case key of
+      OrgKeyword "CATEGORY" -> State.modify (\ctx -> ctx {metaCategory = value})
+      _ -> State.modify id
+
+    return $ OrgProperty key value
 
 instance TextShow OrgProperty where
   showb (OrgProperty k v) = ":" <> showb k <> ": " <> fromText v

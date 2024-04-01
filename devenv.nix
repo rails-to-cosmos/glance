@@ -28,8 +28,6 @@
     haskdogs --deps-dir ".haskdogs" --use-stack ON
   '';
 
-  #  --hasktags-args "-x -e"
-
   enterShell = ''
     echo "Hello fellow hacker"
     ghc --version

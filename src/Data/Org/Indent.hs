@@ -1,7 +1,6 @@
 module Data.Org.Indent (OrgIndent (..)) where
 
 import Data.Org.Element
-import Data.Org.Context
 
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -16,8 +15,6 @@ instance Monoid OrgIndent where
   mempty = OrgIndent 1
 
 instance OrgElement OrgIndent where
-  parser _ = do
+  parser = do
     stars <- some (char '*')
     return $ OrgIndent $ length stars
-
-  modifyState _ ctx = ctx
