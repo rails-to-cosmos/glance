@@ -12,14 +12,13 @@ import Data.Org.Timestamp
 import Text.Megaparsec
 import TextShow (TextShow, showb)
 
-data OrgGenericElement
-  = OrgGenericHeadline OrgHeadline
-  | OrgGenericPragma OrgPragma
-  | OrgGenericPropertyBlock OrgPropertyBlock
-  | OrgGenericTags OrgTags
-  | OrgGenericTimestamp OrgTimestamp
-  | OrgGenericText PlainText
-  deriving (Show, Eq)
+data OrgGenericElement = OrgGenericHeadline OrgHeadline
+                       | OrgGenericPragma OrgPragma
+                       | OrgGenericPropertyBlock OrgPropertyBlock
+                       | OrgGenericTags OrgTags
+                       | OrgGenericTimestamp OrgTimestamp
+                       | OrgGenericText PlainText
+                       deriving (Show, Eq)
 
 instance TextShow OrgGenericElement where
   showb = \case
@@ -31,19 +30,8 @@ instance TextShow OrgGenericElement where
     OrgGenericHeadline t -> showb t
 
 instance OrgElement OrgGenericElement where
-  parser = do
-    choice
-      [ OrgGenericHeadline <$> (try parser :: OrgParser OrgHeadline),
-        -- OrgGenericPropertyBlock <$> (try (parser ctx) :: OrgParser OrgPropertyBlock),
-        OrgGenericPragma <$> (try parser :: OrgParser OrgPragma),
-        OrgGenericTimestamp <$> (try parser :: OrgParser OrgTimestamp),
-        -- OrgGenericTags <$> (try (parser ctx) :: OrgParser OrgTags),
-        OrgGenericText <$> (parser :: OrgParser PlainText)
-      ]
-
-  -- modifyState (OrgGenericTags x) ctx = modifyState x ctx
-  -- modifyState (OrgGenericTimestamp x) ctx = modifyState x ctx
-  -- modifyState (OrgGenericText x) ctx = modifyState x ctx
-  -- modifyState (OrgGenericPragma x) ctx = modifyState x ctx
-  -- modifyState (OrgGenericPropertyBlock x) ctx = modifyState x ctx
-  -- modifyState (OrgGenericHeadline x) ctx = modifyState x ctx
+  parser = choice [ OrgGenericHeadline <$> try parser
+                  , OrgGenericPragma <$> try parser
+                  , OrgGenericTimestamp <$> try parser
+                  , OrgGenericText <$> parser
+                  ]
