@@ -23,8 +23,7 @@ data OrgHeadline = OrgHeadline
     title :: OrgTitle,
     tags :: OrgTags,
     properties :: OrgPropertyBlock
-  }
-  deriving (Show, Eq)
+  } deriving (Show, Eq)
 
 instance Semigroup OrgHeadline where
   (<>) lhs rhs =
@@ -63,15 +62,9 @@ instance TextShow OrgHeadline where
 instance OrgElement OrgHeadline where
   parser = do
     indent' <- parser :: OrgParser OrgIndent
-    void space
-
-    todo' <- parser :: OrgParser OrgTodo
-    void space
-
-    priority' <- parser :: OrgParser OrgPriority
-    void space
-
-    title' <- parser :: OrgParser OrgTitle
+    todo' <- option (mempty :: OrgTodo) (parser :: OrgParser OrgTodo)
+    priority' <- option (mempty :: OrgPriority) (parser :: OrgParser OrgPriority)
+    title' <- option (mempty :: OrgTitle) (parser :: OrgParser OrgTitle)
     tags' <- option (mempty :: OrgTags) (parser :: OrgParser OrgTags)
 
     properties <- option (mempty :: OrgPropertyBlock) (newline *> (parser :: OrgParser OrgPropertyBlock))
