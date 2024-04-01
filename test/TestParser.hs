@@ -4,7 +4,7 @@ module TestParser (orgModeParserUnitTests) where
 
 import           Data.Org
 import           Data.Text (Text, intercalate)
-import           Repl.State (applyCommand)
+import           Repl.State (parseOrgElements)
 import           Test.Tasty (TestTree, testGroup)
 import           Test.Tasty.HUnit (assertEqual, testCase)
 import           TestDefaults
@@ -301,6 +301,6 @@ testCases = [ TestCase { description = "Parse single tagged headline"
 orgModeParserUnitTests :: TestTree
 orgModeParserUnitTests = testGroup "Org-mode parser spec" assertMany
   where assert tc = testCase (description tc) $ assertEqual [] (expected tc) (result tc)
-        result tc = case applyCommand defaultContext (intercalate "\n" (inputs tc)) of
+        result tc = case parseOrgElements defaultContext (intercalate "\n" (inputs tc)) of
           (headlines, context) -> ParsingResult headlines context
         assertMany = map assert testCases
