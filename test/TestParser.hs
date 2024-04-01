@@ -78,14 +78,14 @@ testCases =
                                                                  })]
                           , defaultContext {metaTodo = (["TODO"], ["DONE", "CANCELLED"])})
              }
-  -- , TestCase { description = "Parse several headlines"
-  --            , inputs = [ "* foo"
-  --                       , "* bar"
-  --                       ]
-  --            , expected = ([ OrgGenericHeadline (defaultHeadline { title = OrgTitle "foo" })
-  --                          , OrgGenericHeadline (defaultHeadline { title = OrgTitle "bar" })]
-  --                         , defaultContext)
-  --            }
+  , TestCase { description = "Parse several headlines"
+             , inputs = [ "* foo"
+                        , "* bar"
+                        ]
+             , expected = ([ OrgGenericHeadline (defaultHeadline { title = OrgTitle "foo" })
+                           , OrgGenericHeadline (defaultHeadline { title = OrgTitle "bar" })]
+                          , defaultContext)
+             }
   ]
 
     -- , TestCase

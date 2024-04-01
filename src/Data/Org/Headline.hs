@@ -66,13 +66,13 @@ instance OrgElement OrgHeadline where
     priority' <- option (mempty :: OrgPriority) (parser :: OrgParser OrgPriority)
     title' <- option (mempty :: OrgTitle) (parser :: OrgParser OrgTitle)
     tags' <- option (mempty :: OrgTags) (parser :: OrgParser OrgTags)
-
-    properties <- option (mempty :: OrgPropertyBlock) (newline *> (parser :: OrgParser OrgPropertyBlock))
+    void eol <|> eof
+    properties' <- option (mempty :: OrgPropertyBlock) (try parser :: OrgParser OrgPropertyBlock)
 
     return OrgHeadline { indent = indent'
                        , todo = todo'
                        , priority = priority'
                        , title = title'
                        , tags = tags'
-                       , properties = properties
+                       , properties = properties'
                        }

@@ -38,5 +38,5 @@ keyword = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ "-_"
 
 instance OrgElement OrgTags where
   parser = do
-    let stop = lookAhead (choice [void eol, eof])
+    let stop = lookAhead (try (choice [void eol, eof]))
     OrgTags <$> State.lift (char ':' *> manyTill tag stop)
