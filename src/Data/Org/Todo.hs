@@ -7,6 +7,7 @@ import Data.Org.Element
 import Data.Org.Context
 import Data.Org.Keyword
 import Text.Megaparsec
+import qualified Control.Monad.State as State
 
 newtype OrgTodo = OrgTodo (Maybe Text)
   deriving (Show, Eq)
@@ -18,12 +19,11 @@ instance Monoid OrgTodo where
   mempty = OrgTodo Nothing
 
 instance OrgElement OrgTodo where
-  parser ctx = OrgTodo <$> optional (try $ todo ctx)
+  parser = OrgTodo <$> optional (try todo)
 
-  modifyState _ ctx = ctx
-
-todo :: OrgContext -> Parser Text
-todo ctx = do
-  OrgKeyword result <- (parser ctx :: Parser OrgKeyword)
+todo :: OrgParser Text
+todo = do
+  ctx <- State.get
+  OrgKeyword result <- (parser :: OrgParser OrgKeyword)
   guard $ result `elem` allTodoStates ctx
   return result

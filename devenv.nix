@@ -2,35 +2,35 @@
 
 {
   # https://devenv.sh/basics/
-  env.GREET = "devenv";
+
+  env.LSP_USE_PLISTS="true";
 
   packages = with pkgs; [
     git
     zlib
     hpack
     stack
+    universal-ctags
     haskellPackages.hoogle
     haskellPackages.hasktags
+    haskellPackages.haskdogs
     haskell.compiler.ghc945
     haskell.packages.ghc945.haskell-language-server
+    haskell.packages.ghc945.hlint
   ];
 
-  # https://devenv.sh/scripts/
-  scripts.hello.exec = "echo hello from $GREET";
+  scripts.run-tests.exec = ''
+    hlint src --report
+    stack test
+  '';
+
+  scripts.wake.exec = ''
+    haskdogs --deps-dir ".haskdogs" --use-stack ON
+  '';
 
   enterShell = ''
-    Hello fellow hacker
+    echo "Hello fellow hacker"
     ghc --version
   '';
 
-  # https://devenv.sh/languages/
-  # languages.nix.enable = true;
-
-  # https://devenv.sh/pre-commit-hooks/
-  pre-commit.hooks.shellcheck.enable = true;
-
-  # https://devenv.sh/processes/
-  # processes.ping.exec = "ping example.com";
-
-  # See full reference at https://devenv.sh/reference/options/
 }

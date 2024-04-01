@@ -31,19 +31,19 @@ instance TextShow OrgGenericElement where
     OrgGenericHeadline t -> showb t
 
 instance OrgElement OrgGenericElement where
-  parser ctx = do
+  parser = do
     choice
-      [ OrgGenericHeadline <$> (try (parser ctx) :: Parser OrgHeadline),
-        -- OrgGenericPropertyBlock <$> (try (parser ctx) :: Parser OrgPropertyBlock),
-        OrgGenericPragma <$> (try (parser ctx) :: Parser OrgPragma),
-        OrgGenericTimestamp <$> (try (parser ctx) :: Parser OrgTimestamp),
-        -- OrgGenericTags <$> (try (parser ctx) :: Parser OrgTags),
-        OrgGenericText <$> (parser ctx :: Parser PlainText)
+      [ OrgGenericHeadline <$> (try parser :: OrgParser OrgHeadline),
+        -- OrgGenericPropertyBlock <$> (try (parser ctx) :: OrgParser OrgPropertyBlock),
+        OrgGenericPragma <$> (try parser :: OrgParser OrgPragma),
+        OrgGenericTimestamp <$> (try parser :: OrgParser OrgTimestamp),
+        -- OrgGenericTags <$> (try (parser ctx) :: OrgParser OrgTags),
+        OrgGenericText <$> (parser :: OrgParser PlainText)
       ]
 
-  modifyState (OrgGenericTags x) ctx = modifyState x ctx
-  modifyState (OrgGenericTimestamp x) ctx = modifyState x ctx
-  modifyState (OrgGenericText x) ctx = modifyState x ctx
-  modifyState (OrgGenericPragma x) ctx = modifyState x ctx
-  modifyState (OrgGenericPropertyBlock x) ctx = modifyState x ctx
-  modifyState (OrgGenericHeadline x) ctx = modifyState x ctx
+  -- modifyState (OrgGenericTags x) ctx = modifyState x ctx
+  -- modifyState (OrgGenericTimestamp x) ctx = modifyState x ctx
+  -- modifyState (OrgGenericText x) ctx = modifyState x ctx
+  -- modifyState (OrgGenericPragma x) ctx = modifyState x ctx
+  -- modifyState (OrgGenericPropertyBlock x) ctx = modifyState x ctx
+  -- modifyState (OrgGenericHeadline x) ctx = modifyState x ctx

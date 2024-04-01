@@ -61,30 +61,25 @@ instance TextShow OrgHeadline where
         t -> showbSpace <> showb t
 
 instance OrgElement OrgHeadline where
-  parser ctx = do
-    indent' <- parser ctx :: Parser OrgIndent
-    todo' <- parser ctx :: Parser OrgTodo
-    priority' <- parser ctx :: Parser OrgPriority
-    title' <- parser ctx :: Parser OrgTitle
-    tags' <- option (mempty :: OrgTags) (parser ctx :: Parser OrgTags)
+  parser = do
+    indent' <- parser :: OrgParser OrgIndent
+    void space
 
-    void (optional newline)
+    todo' <- parser :: OrgParser OrgTodo
+    void space
 
-    properties <- option (mempty :: OrgPropertyBlock) (parser ctx :: Parser OrgPropertyBlock)
+    priority' <- parser :: OrgParser OrgPriority
+    void space
 
-    return
-      OrgHeadline
-        { indent = indent',
-          todo = todo',
-          priority = priority',
-          title = title',
-          tags = tags',
-          properties = properties
-        }
+    title' <- parser :: OrgParser OrgTitle
+    tags' <- option (mempty :: OrgTags) (parser :: OrgParser OrgTags)
 
-  modifyState
-    ( OrgHeadline
-        { title = title,
-          properties = properties
-        }
-      ) = modifyState properties . modifyState title
+    properties <- option (mempty :: OrgPropertyBlock) (newline *> (parser :: OrgParser OrgPropertyBlock))
+
+    return OrgHeadline { indent = indent'
+                       , todo = todo'
+                       , priority = priority'
+                       , title = title'
+                       , tags = tags'
+                       , properties = properties
+                       }

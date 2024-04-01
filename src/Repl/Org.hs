@@ -22,7 +22,7 @@ import System.Console.Haskeline (InputT, Settings (autoAddHistory, historyFile),
 import TextShow
 import UnliftIO ()
 
-type CommandProcessor = OrgContext -> Text -> (OrgGenericElement, OrgContext)
+type CommandProcessor = OrgContext -> Text -> ([OrgGenericElement], OrgContext)
 
 type Repl a = StateT OrgContext (SqlQueryT (InputT IO)) a
 
@@ -40,8 +40,8 @@ getInput = do
     Nothing -> return ""
     Just cmd -> return (pack cmd)
 
-printTextShow :: (TextShow a) => a -> IO ()
-printTextShow = TIO.putStrLn . toStrict . toLazyText . showb
+-- printTextShow :: (TextShow a) => a -> IO ()
+-- printTextShow = TIO.putStrLn . toStrict . toLazyText . showb
 
 repl :: CommandProcessor -> Repl ()
 repl fn = do
@@ -54,10 +54,10 @@ repl fn = do
     "exit" -> return ()
     "quit" -> return ()
     cmd -> do
-      let (el, ctx') = applyCommand ctx cmd
+      let (els, ctx') = applyCommand ctx cmd
       liftIO $ do
-        TIO.putStrLn $ "Repr: " <> pack (show el)
-        TIO.putStrLn $ "Str: \"" <> showt el <> "\""
+        TIO.putStrLn $ "Repr: " <> pack (show els)
+        TIO.putStrLn $ "Str: \"" <> showt els <> "\""
       State.put ctx'
       repl fn
 

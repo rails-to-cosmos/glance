@@ -3,7 +3,6 @@
 module Data.Org.PropertyBlock (OrgPropertyBlock (..)) where
 
 import Data.Org.Element
-import Data.Org.Context
 import Data.Org.Property
 
 import Text.Megaparsec
@@ -23,15 +22,11 @@ instance Monoid OrgPropertyBlock where
   mempty = OrgPropertyBlock []
 
 instance OrgElement OrgPropertyBlock where
-
-  parser ctx = do
+  parser = do
     void (string ":PROPERTIES:")
     void (many newline)
-    properties <- manyTill ((parser ctx :: Parser OrgProperty) <* many newline) (string ":END:")
-
+    properties <- manyTill ((parser :: OrgParser OrgProperty) <* many newline) (string ":END:")
     return (OrgPropertyBlock properties)
-
-  modifyState (OrgPropertyBlock properties) ctx = foldl (flip modifyState) ctx properties
 
 instance TextShow OrgPropertyBlock where
   showb (OrgPropertyBlock ps) = ":PROPERTIES:\n" <> showb ps <> ":END:\n"

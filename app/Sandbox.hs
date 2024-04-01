@@ -34,21 +34,41 @@ import Data.Text (Text)
 
 import Control.Monad.State qualified as S
 
+import           Data.Text (Text, pack)
+import           Data.Void (Void)
+import           Data.Org.Context (OrgContext)
+import           Text.Megaparsec (Parsec, MonadParsec(try), ParsecT)
+import qualified Control.Monad.State as State
 import Data.Time
 import Data.Time.Format
+import Text.Megaparsec (Parsec, MonadParsec(try), ParsecT, runParserT, getParserState)
+
+type OrgModeParser = ParsecT Void Text (State.StateT OrgContext Parser)
+
+-- p :: OrgModeParser Text
+-- p  = do
+--   text <- pack <$> manyTill anySingle eof
+--   modify (\ctx -> ctx { metaCategory = "Hello" })
+--   return text
+
+-- pt what = parseTest (runStateT (runParserT p "" (pack what)) ctx) (pack what)
 
 -- parseCategory :: Text -> Either (ParseErrorBundle Text Void) (OrgContext, OrgCategory)
 -- parseCategory = runParser (runStateT apply defaultContext) ""
 
-showcase :: String -> IO ()
-showcase what = do
-  let ctx = mempty::OrgContext
-      p = runStateT apply ctx :: Parser (PlainText, OrgContext)
-      input = T.pack what
+-- ctx = mempty :: OrgContext
 
-  case parse p "" input of
-    Left err -> putStrLn $ errorBundlePretty err
-    Right x -> print x
+-- showcase :: String -> IO ()
+-- showcase what = do
+--   let ctx = mempty :: OrgContext
+--       parser = runStateT apply ctx :: Parser (OrgGenericElement, OrgContext)
+--       input = T.pack what
+
+--   parseTest (manyTill parser eof) input
+
+  -- case  of
+  --   Left err -> putStrLn $ errorBundlePretty err
+  --   Right x -> print x
 
 -- testParse :: IO OrgElement
 -- testParse = do
