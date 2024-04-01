@@ -41,11 +41,11 @@ instance TextShow OrgTitle where
 
 instance OrgElement OrgTitle where
   parser = do
-    let end = lookAhead $ choice [ try (void (parser :: OrgParser OrgTags))
-                                 , void eol
-                                 , eof
-                                 ]
+    let stop = lookAhead $ try $ choice [ void (parser :: OrgParser OrgTags)
+                                        , void eol
+                                        , eof
+                                        ]
 
-    elements <- manyTill anySingle end
+    elements <- manyTill anySingle stop
 
     return $ OrgTitle $ strip $ pack elements

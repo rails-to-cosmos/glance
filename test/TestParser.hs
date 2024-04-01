@@ -68,7 +68,7 @@ testCases =
                   ]
                  , defaultContext)
              }
-  , TestCase { description = "Parse custom todo"
+  , TestCase { description = "Parse headline with custom todo state"
              , inputs = [ "#+TODO: TODO | CANCELLED"
                         , "* CANCELLED Mess"
                         ]
@@ -77,6 +77,14 @@ testCases =
                                                                  , title = OrgTitle "Mess"
                                                                  })]
                           , defaultContext {metaTodo = (["TODO"], ["DONE", "CANCELLED"])})
+             }
+  , TestCase { description = "Parse several headlines"
+             , inputs = [ "* foo"
+                        , "* bar"
+                        ]
+             , expected = ([ OrgGenericHeadline (defaultHeadline { title = OrgTitle "foo" })
+                           , OrgGenericHeadline (defaultHeadline { title = OrgTitle "bar" })]
+                          , defaultContext)
              }
   ]
 

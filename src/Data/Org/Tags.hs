@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Data.Org.Tags (OrgTags (..), tagCtrl) where
+module Data.Org.Tags (OrgTags (..)) where
 
 import Data.Text (Text, intercalate)
 import Data.List (nub)
@@ -12,6 +12,7 @@ import TextShow (TextShow, fromText, showb)
 import Text.Megaparsec
 import Text.Megaparsec.Char
 
+import Control.Monad
 import qualified Control.Monad.State as State
 
 import Prelude hiding (unwords, concat, replicate, concatMap)
@@ -30,13 +31,12 @@ instance Monoid OrgTags where
   mempty = OrgTags []
 
 tag :: Parser Text
-tag = takeWhile1P (Just "tag character") (`elem` keyword) <* tagCtrl
+tag = takeWhile1P (Just "tag character") (`elem` keyword) <* char ':'
 
 keyword :: [Char]
 keyword = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ "-_"
 
-tagCtrl :: Parser Char
-tagCtrl = char ':'
-
 instance OrgElement OrgTags where
-  parser = OrgTags <$> State.lift (tagCtrl *> many tag)
+  parser = do
+    let stop = lookAhead (try (choice [void eol, eof]))
+    OrgTags <$> State.lift (char ':' *> manyTill tag stop)

@@ -1,12 +1,14 @@
 module Data.Org.Todo (OrgTodo (..)) where
 
-import Control.Monad (guard)
-
 import Data.Text (Text)
 import Data.Org.Element
 import Data.Org.Context
 import Data.Org.Keyword
+
 import Text.Megaparsec
+import Text.Megaparsec.Char
+
+import Control.Monad
 import qualified Control.Monad.State as State
 
 newtype OrgTodo = OrgTodo (Maybe Text)
@@ -24,6 +26,6 @@ instance OrgElement OrgTodo where
 todo :: OrgParser Text
 todo = do
   ctx <- State.get
-  OrgKeyword result <- (parser :: OrgParser OrgKeyword)
+  OrgKeyword result <- (parser :: OrgParser OrgKeyword) <* space
   guard $ result `elem` allTodoStates ctx
   return result

@@ -16,5 +16,5 @@ instance Monoid OrgIndent where
 
 instance OrgElement OrgIndent where
   parser = do
-    stars <- some (char '*')
-    return $ OrgIndent $ length stars
+    stars <- some (char '*') <* space
+    return $ OrgIndent (length stars)

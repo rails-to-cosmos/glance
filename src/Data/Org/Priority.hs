@@ -23,5 +23,5 @@ instance Monoid OrgPriority where
 
 instance OrgElement OrgPriority where
   parser = do
-    priority <- optional . try $ char '[' *> char '#' *> letterChar <* char ']' <* space
-    return $ OrgPriority priority
+    priority <- optional (char '[' *> char '#' *> letterChar <* char ']' <* space)
+    return (OrgPriority priority)
