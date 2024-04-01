@@ -1,22 +1,18 @@
 {-# LANGUAGE ImportQualifiedPost #-}
 
-module Repl.State (applyCommand) where
+module Repl.State (parseOrgElements) where
 
-import           Control.Monad.State (runStateT)
-import           Data.Void (Void)
-import           Data.Text (Text, pack)
-import           Data.Text.Lazy.Builder ()
-import           UnliftIO ()
+import Control.Monad.State (runStateT)
+import Data.Org.Context (OrgContext)
 import Data.Org.Element qualified as OrgElement
-import           Data.Org.Context (OrgContext)
-import           Data.Org.Generic
-import           Data.Org.PlainText
-import           Text.Megaparsec
+import Data.Org.Generic
+import Data.Org.PlainText
+import Data.Text (Text, pack)
+import Data.Text.Lazy.Builder ()
+import Text.Megaparsec
+import UnliftIO ()
 
-parse' :: OrgContext -> Text -> Either (ParseErrorBundle Text Void) ([OrgGenericElement], OrgContext)
-parse' ctx = parse (runStateT (manyTill OrgElement.parser eof) ctx) ""
-
-applyCommand :: OrgContext -> Text -> ([OrgGenericElement], OrgContext)
-applyCommand ctx cmd = case parse' ctx cmd of
+parseOrgElements :: OrgContext -> Text -> ([OrgGenericElement], OrgContext)
+parseOrgElements ctx cmd = case parse (runStateT (manyTill OrgElement.parser eof) ctx) "" cmd of
   Right val -> val
   Left err  -> ([OrgGenericText (PlainText (pack (errorBundlePretty err)))], ctx)

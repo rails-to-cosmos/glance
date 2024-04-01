@@ -7,4 +7,4 @@ import Repl.Org
 import Repl.State
 
 main :: IO ()
-main = runRepl "mydatabase.sqlite" 10 (mempty::OrgContext) applyCommand
+main = runRepl "mydatabase.sqlite" 10 (mempty::OrgContext) parseOrgElements
