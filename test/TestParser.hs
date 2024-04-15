@@ -19,7 +19,7 @@ data TestCase = TestCase { description :: String
                          }
 
 testCases :: [TestCase]
-testCases = [ TestCase { description = "Parse single tagged headline"
+testCases = [ TestCase { description = "Parse headline with tags"
                        , inputs = [ "* Hello world :a:b:c:"
                                   ]
                        , expected = ParsingResult { elements = [ OrgGenericHeadline defaultHeadline { title = OrgTitle "Hello world"
@@ -29,7 +29,7 @@ testCases = [ TestCase { description = "Parse single tagged headline"
                                                   , context = defaultContext}
              }
 
-  , TestCase { description = "Parse single headline with corrupted tag string"
+  , TestCase { description = "Parse headline with corrupted tag string"
              , inputs = [ "* Hello world :a:b:c"
                         ]
              , expected = ParsingResult { elements = [ OrgGenericHeadline defaultHeadline {title = OrgTitle "Hello world :a:b:c"}
