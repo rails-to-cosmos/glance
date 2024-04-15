@@ -8,7 +8,7 @@ import           Repl.State (parseOrgElements)
 import           Test.Tasty (TestTree, testGroup)
 import           Test.Tasty.HUnit (assertEqual, testCase)
 import           TestDefaults
-import Data.Org (PlainText(PlainText))
+import Data.Org (PlainText(PlainText), OrgGenericElement (OrgGenericText))
 
 data ParsingResult = ParsingResult { elements :: [OrgGenericElement]
                                    , context :: OrgContext
@@ -117,9 +117,17 @@ testCases = [ TestCase { description = "Parse headline with tags"
                                         , context = defaultContext
                                         }
              }
-  , TestCase { description = "Restrict infinite parsing of eol / eof"
-             , inputs = ["", ""]
+  , TestCase { description = "Empty text parsing"
+             , inputs = [""]
              , expected = ParsingResult { elements = []
+                                        , context = defaultContext
+                                        }
+             }
+  , TestCase { description = "Restrict infinite parsing of eol / eof"
+             , inputs = ["", "", ""]
+             , expected = ParsingResult { elements = [ OrgGenericText (PlainText "")
+                                                     , OrgGenericText (PlainText "")
+                                                     ]
                                         , context = defaultContext
                                         }
              }
