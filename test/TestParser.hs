@@ -8,6 +8,7 @@ import           Repl.State (parseOrgElements)
 import           Test.Tasty (TestTree, testGroup)
 import           Test.Tasty.HUnit (assertEqual, testCase)
 import           TestDefaults
+import Data.Org (PlainText(PlainText))
 
 data ParsingResult = ParsingResult { elements :: [OrgGenericElement]
                                    , context :: OrgContext
@@ -53,16 +54,14 @@ testCases = [ TestCase { description = "Parse headline with tags"
              }
 
   , TestCase { description = "Parse drawer"
-             , inputs = [ ":DRAWER:"
-                        ]
+             , inputs = [ ":DRAWER:" ]
              , expected = ParsingResult { elements = [OrgGenericText (PlainText ":DRAWER:")]
                                         , context = defaultContext
                                         }
              }
 
   , TestCase { description = "Category pragma affects context"
-             , inputs = [ "#+CATEGORY: Category 1"
-                        ]
+             , inputs = [ "#+CATEGORY: Category 1" ]
              , expected = ParsingResult { elements = [OrgGenericPragma (OrgCategoryPragma "Category 1")]
                                         , context = defaultContext { metaCategory = "Category 1" }
                                         }
@@ -115,6 +114,12 @@ testCases = [ TestCase { description = "Parse headline with tags"
                         ]
              , expected = ParsingResult { elements = [ OrgGenericHeadline (defaultHeadline { title = OrgTitle "foo" })
                                                      , OrgGenericHeadline (defaultHeadline { title = OrgTitle "bar" })]
+                                        , context = defaultContext
+                                        }
+             }
+  , TestCase { description = "Restrict infinite parsing of eol / eof"
+             , inputs = ["", ""]
+             , expected = ParsingResult { elements = []
                                         , context = defaultContext
                                         }
              }

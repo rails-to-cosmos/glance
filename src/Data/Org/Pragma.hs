@@ -18,7 +18,6 @@ import Control.Monad
 import qualified Control.Monad.State as State
 import Prelude hiding (unwords, concat, replicate, concatMap)
 
-
 data OrgPragma = OrgPragma OrgKeyword Text
                | OrgTodoPragma [Text] [Text]
                | OrgCategoryPragma Text
@@ -27,7 +26,6 @@ data OrgPragma = OrgPragma OrgKeyword Text
 instance OrgElement OrgPragma where
   parser = do
     let keyword = parser :: OrgParser OrgKeyword
-        plaintext = parser :: OrgParser PlainText
         todoList = some (todo <* space)
         todoShort = pack <$> between (char '(') (char ')') (many (noneOf ['(', ')', '\n']))
         todo = do
@@ -37,7 +35,7 @@ instance OrgElement OrgPragma where
     key <- string "#+" *> keyword <* string ":" <* space
     case key of
       OrgKeyword "CATEGORY" -> do
-        PlainText category <- plaintext
+        PlainText category <- parser :: OrgParser PlainText
         State.modify (\ctx -> ctx {metaCategory = category})
         return $ OrgCategoryPragma category
       OrgKeyword "TODO" -> do
@@ -46,7 +44,7 @@ instance OrgElement OrgPragma where
         State.modify (\ctx -> ctx {metaTodo = (nub (fst (metaTodo ctx) ++ active), nub (snd (metaTodo ctx) ++ inactive))})
         return $ OrgTodoPragma active inactive
       _ -> do
-        PlainText value <- plaintext
+        PlainText value <- parser :: OrgParser PlainText
         return $ OrgPragma key value
 
 instance TextShow OrgPragma where

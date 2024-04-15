@@ -5,9 +5,14 @@ module Main (main) where
 import System.Environment
 import System.Exit
 
+import qualified Data.ByteString.Char8 as BSChar8
+import qualified Data.ByteString as BS
+import qualified Data.Text as Text
+
 import Data.Org.Context
 import Repl.Org
 import Repl.State
+import TextShow (TextShow(showt))
 
 main :: IO ()
 main = getArgs >>= parse >>= putStr . tac
@@ -19,6 +24,14 @@ parse :: [String] -> IO a
 parse ["--help"] = usage >> exit
 parse ["--version"] = version >> exit
 parse ["--repl"] = repl >> exit
+parse ["--file", filename] = do
+  content <- BS.readFile filename
+
+  let context = mempty :: OrgContext
+  case parseOrgElements context ((Text.pack . BSChar8.unpack) content) of
+    (elements, context) -> putStrLn (show elements)
+
+  exit
 parse []     = usage >> exit
 parse (x : _) = parse [x]
 

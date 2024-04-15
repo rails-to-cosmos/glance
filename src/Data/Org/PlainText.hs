@@ -24,9 +24,6 @@ instance TextShow PlainText where
 
 instance OrgElement PlainText where
   parser = do
-    let stop = lookAhead
-          $ void (parser :: OrgParser OrgTimestamp)
-          <|> void eol
-          <|> eof
+    let stop = lookAhead (void (parser :: OrgParser OrgTimestamp)) <|> void eol <|> eof
 
     PlainText <$> fmap pack (manyTill anySingle stop)
