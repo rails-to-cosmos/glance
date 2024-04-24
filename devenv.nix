@@ -1,15 +1,12 @@
 { pkgs, ... }:
 
 {
-  # https://devenv.sh/basics/
-
   env.LSP_USE_PLISTS="true";
 
   packages = with pkgs; [
     git
     zlib
     hpack
-    stack
     universal-ctags
     haskellPackages.hoogle
     haskellPackages.ghcid
@@ -19,9 +16,9 @@
     haskellPackages.retrie
     haskellPackages.hasktags
     haskellPackages.haskdogs
-    haskell.compiler.ghc945
-    haskell.packages.ghc945.haskell-language-server
-    haskell.packages.ghc945.hlint
+    haskell.packages.ghc96.stack
+    haskell.packages.ghc96.haskell-language-server
+    haskell.packages.ghc96.hlint
   ];
 
   scripts.wake.exec = ''

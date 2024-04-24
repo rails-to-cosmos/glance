@@ -16,23 +16,16 @@ data TestCase = TestCase { description :: String
 
 testCases :: [TestCase]
 testCases = [ TestCase { description = "Org-mode headline representation"
-                       , element = OrgGenericHeadline
-                           defaultHeadline { indent = OrgIndent 1
-                                           , todo = mempty :: OrgTodo
-                                           , title = OrgTitle "Hello, world!"
-                                           , tags = OrgTags ["greetings"]
-                                           }
+                       , element = OrgGenericHeadline defaultHeadline { indent = OrgIndent 1
+                                                                      , todo = mempty :: OrgTodo
+                                                                      , title = OrgTitle "Hello, world!"
+                                                                      , tags = OrgTags ["greetings"]
+                                                                      }
                        , representation = "* Hello, world! :greetings:"
                        }]
 
 assertOne :: TestCase -> TestTree
-assertOne tc = testCase descr $ assertEqual [] (showb el) (fromText repr)
-  where
-    descr = description tc
-
-    repr = representation tc
-
-    el = element tc
+assertOne tc = testCase (description tc) $ assertEqual [] (showb (element tc)) (fromText (representation tc))
 
 assertAll :: [TestTree]
 assertAll = map assertOne testCases
