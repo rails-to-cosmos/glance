@@ -21,3 +21,4 @@ devenv.local.nix
 /report.html
 /.haskdogs/
 /tags
+/lib/

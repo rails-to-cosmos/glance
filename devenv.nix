@@ -23,7 +23,7 @@
   ];
 
   scripts.init.exec = ''
-    haskdogs --deps-dir ".haskdogs" --use-stack ON
+    haskdogs --deps-dir "lib" --use-stack ON
   '';
 
   enterShell = ''
