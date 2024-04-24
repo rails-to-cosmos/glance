@@ -3,6 +3,8 @@ system-ghc: true
 recommend-stack-upgrade: false
 ghc-options:
   '$everything': -haddock
+nix:
+  enable: true
 
 packages:
   - .
