@@ -22,7 +22,7 @@
     haskell.packages.ghc964.retrie
   ];
 
-  scripts.wake.exec = ''
+  scripts.init.exec = ''
     haskdogs --deps-dir ".haskdogs" --use-stack ON
   '';
 
