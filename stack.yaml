@@ -6,6 +6,10 @@ ghc-options:
 nix:
   enable: true
 
+nix:
+  enable: true
+  packages: [zlib.dev, zlib.out]
+
 packages:
   - .
 
