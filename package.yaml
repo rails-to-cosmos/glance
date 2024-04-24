@@ -55,7 +55,7 @@ library:
   source-dirs: src
 
 executables:
-  glance-exe:
+  glance:
     main:                Main.hs
     source-dirs:         app
     ghc-options:

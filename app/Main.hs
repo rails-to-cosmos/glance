@@ -12,7 +12,6 @@ import qualified Data.Text as Text
 import Data.Org.Context
 import Repl.Org
 import Repl.State
-import TextShow (TextShow(showt))
 
 main :: IO ()
 main = getArgs >>= parse >>= putStr . tac
@@ -29,7 +28,7 @@ parse ["--file", filename] = do
 
   let context = mempty :: OrgContext
   case parseOrgElements context ((Text.pack . BSChar8.unpack) content) of
-    (elements, context) -> putStrLn (show elements)
+    (elements, _) -> print elements
 
   exit
 parse []     = usage >> exit

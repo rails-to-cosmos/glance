@@ -1,24 +1,25 @@
 { pkgs, ... }:
 
 {
-  env.LSP_USE_PLISTS="true";
+  env.LSP_USE_PLISTS = "true";
 
   packages = with pkgs; [
     git
     zlib
-    hpack
     universal-ctags
-    haskellPackages.hoogle
-    haskellPackages.ghcid
-    haskellPackages.ormolu
-    haskellPackages.hlint
-    haskellPackages.implicit-hie
-    haskellPackages.retrie
-    haskellPackages.hasktags
-    haskellPackages.haskdogs
-    haskell.packages.ghc96.stack
-    haskell.packages.ghc96.haskell-language-server
-    haskell.packages.ghc96.hlint
+
+    haskell.compiler.ghc964
+    haskell.packages.ghc964.hpack
+    haskell.packages.ghc964.stack
+    haskell.packages.ghc964.ghcid
+    haskell.packages.ghc964.haskdogs
+    haskell.packages.ghc964.haskell-language-server
+    haskell.packages.ghc964.hasktags
+    haskell.packages.ghc964.hlint
+    haskell.packages.ghc964.hoogle
+    haskell.packages.ghc964.implicit-hie
+    haskell.packages.ghc964.ormolu
+    haskell.packages.ghc964.retrie
   ];
 
   scripts.wake.exec = ''
