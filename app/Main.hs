@@ -20,31 +20,43 @@ tac :: String -> String
 tac  = unlines . reverse . lines
 
 parse :: [String] -> IO a
-parse ["--help"] = usage >> exit
-parse ["--version"] = version >> exit
-parse ["--repl"] = repl >> exit
-parse ["--file", filename] = do
-  content <- BS.readFile filename
+
+parse []     = do
+  putStrLn "No arguments specified"
+  usage
+  exitSuccess
+
+parse ["--help"] = do
+  usage
+  exitSuccess
+
+parse ["--version"] = do
+  version
+  exitSuccess
+
+parse ["--repl"] = do
+  repl
+  exitSuccess
+
+parse ("--repl":filename:_) = do
+  content <- Text.pack . BSChar8.unpack <$> BS.readFile filename
 
   let context = mempty :: OrgContext
-  case parseOrgElements context ((Text.pack . BSChar8.unpack) content) of
-    (elements, _) -> print elements
+      (elements, context') = parseOrgElements context content
 
-  exit
-parse []     = usage >> exit
-parse (x : _) = parse [x]
+  print elements
+  runRepl "mydatabase.sqlite" 10 context' parseOrgElements
+  exitSuccess
+
+parse (x:xs) = do
+  putStrLn ("Unknown argument skipped: " ++ x)
+  parse xs
 
 repl :: IO ()
 repl = runRepl "mydatabase.sqlite" 10 (mempty::OrgContext) parseOrgElements
 
 usage :: IO ()
-usage   = putStrLn "Usage: glance [--repl | --help | --version] [file ..]"
+usage   = putStrLn "Usage: glance [--repl | --help | --version | --file [filename] ]"
 
 version :: IO ()
 version = putStrLn "Haskell glance 0.1.0.0"
-
-exit :: IO a
-exit    = exitSuccess
-
-die :: IO ()
-die = exitFailure

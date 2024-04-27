@@ -40,7 +40,7 @@ instance OrgElement OrgPragma where
         return $ OrgCategoryPragma category
       OrgKeyword "TODO" -> do
         active <- todoList
-        inactive <- char '|' *> space *> option [] todoList
+        inactive <- option [] (char '|' *> space *> todoList)
         State.modify (\ctx -> ctx {metaTodo = (nub (fst (metaTodo ctx) ++ active), nub (snd (metaTodo ctx) ++ inactive))})
         return $ OrgTodoPragma active inactive
       _ -> do

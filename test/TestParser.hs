@@ -2,12 +2,12 @@
 
 module TestParser (orgModeParserUnitTests) where
 
-import           Data.Org
-import           Data.Text (Text, intercalate)
-import           Repl.State (parseOrgElements)
-import           Test.Tasty (TestTree, testGroup)
-import           Test.Tasty.HUnit (assertEqual, testCase)
-import           TestDefaults
+import Data.Org
+import Data.Text (Text, intercalate)
+import Repl.State (parseOrgElements)
+import Test.Tasty (TestTree, testGroup)
+import Test.Tasty.HUnit (assertEqual, testCase)
+import TestDefaults
 import Data.Org (PlainText(PlainText), OrgGenericElement (OrgGenericText))
 
 data ParsingResult = ParsingResult { elements :: [OrgGenericElement]
@@ -21,117 +21,91 @@ data TestCase = TestCase { description :: String
 
 testCases :: [TestCase]
 testCases = [ TestCase { description = "Parse headline with tags"
-                       , inputs = [ "* Hello world :a:b:c:"
-                                  ]
+                       , inputs = ["* Hello world :a:b:c:"]
                        , expected = ParsingResult { elements = [ OrgGenericHeadline defaultHeadline { title = OrgTitle "Hello world"
-                                                                                                    , tags = OrgTags ["a", "b", "c"]
-                                                                                                    }
-                                                               ]
-                                                  , context = defaultContext}
-             }
+                                                                                                    , tags = OrgTags ["a", "b", "c"] } ]
+                                                  , context = defaultContext }}
 
   , TestCase { description = "Parse headline with corrupted tag string"
-             , inputs = [ "* Hello world :a:b:c"
-                        ]
-             , expected = ParsingResult { elements = [ OrgGenericHeadline defaultHeadline {title = OrgTitle "Hello world :a:b:c"}
-                                                     ]
-                                        , context = defaultContext
-                                        }
-             }
+             , inputs = ["* Hello world :a:b:c"]
+             , expected = ParsingResult { elements = [ OrgGenericHeadline defaultHeadline {title = OrgTitle "Hello world :a:b:c"} ]
+                                        , context = defaultContext }}
 
   , TestCase { description = "Parse property block"
              , inputs = [ "* Hello"
                         , ":PROPERTIES:"
                         , ":TITLE: New title"
-                        , ":END:"
-                        ]
+                        , ":END:" ]
              , expected = ParsingResult { elements = [ OrgGenericHeadline (defaultHeadline { title = OrgTitle "Hello"
-                                                                                           , properties = OrgPropertyBlock [OrgProperty (OrgKeyword "TITLE") "New title"]
-                                                                                           })
-                                                     ]
-                                        , context = defaultContext
-                                        }
-             }
+                                                                                           , properties = OrgPropertyBlock [OrgProperty (OrgKeyword "TITLE") "New title"]})]
+                                        , context = defaultContext }}
 
   , TestCase { description = "Parse drawer"
              , inputs = [ ":DRAWER:" ]
              , expected = ParsingResult { elements = [OrgGenericText (PlainText ":DRAWER:")]
-                                        , context = defaultContext
-                                        }
-             }
+                                        , context = defaultContext }}
 
   , TestCase { description = "Category pragma affects context"
              , inputs = [ "#+CATEGORY: Category 1" ]
              , expected = ParsingResult { elements = [OrgGenericPragma (OrgCategoryPragma "Category 1")]
-                                        , context = defaultContext { metaCategory = "Category 1" }
-                                        }
-             }
+                                        , context = defaultContext { metaCategory = "Category 1" }}}
 
   , TestCase { description = "Category property affects context"
              , inputs = [ "* Hello"
                         , ":PROPERTIES:"
                         , ":CATEGORY: Updated category"
-                        , ":END:"
-                        ]
+                        , ":END:" ]
              , expected = ParsingResult { elements = [ OrgGenericHeadline (defaultHeadline { title = OrgTitle "Hello"
-                                                                                           , properties = OrgPropertyBlock [ OrgProperty (OrgKeyword "CATEGORY") "Updated category"
-                                                                                                                           ]
-                                                                                           })
-                                                     ]
-                                        , context = defaultContext { metaCategory = "Updated category" }
-                                        }
-             }
+                                                                                           , properties = OrgPropertyBlock [OrgProperty (OrgKeyword "CATEGORY") "Updated category"]})]
+                                        , context = defaultContext { metaCategory = "Updated category" }}}
 
   , TestCase { description = "Parse complete headline"
-             , inputs = [ "** TODO [#A] This is a simple headline :a:b:c:"
-                        ]
+             , inputs = ["** TODO [#A] This is a simple headline :a:b:c:"]
              , expected = ParsingResult { elements = [ OrgGenericHeadline (defaultHeadline { indent = OrgIndent 2
                                                                                            , todo = OrgTodo (Just "TODO")
                                                                                            , priority = OrgPriority (Just 'A')
                                                                                            , title = OrgTitle "This is a simple headline"
-                                                                                           , tags = OrgTags ["a", "b", "c"]
-                                                                                           })
-                                                     ]
-                                        , context = defaultContext
-                                        }
-             }
+                                                                                           , tags = OrgTags ["a", "b", "c"]})]
+                                        , context = defaultContext }}
 
   , TestCase { description = "Parse headline with custom todo state"
              , inputs = [ "#+TODO: TODO | CANCELLED"
-                        , "* CANCELLED Mess"
-                        ]
+                        , "* CANCELLED Mess" ]
              , expected = ParsingResult { elements = [ OrgGenericPragma (OrgTodoPragma ["TODO"] ["CANCELLED"])
                                                      , OrgGenericHeadline (defaultHeadline { todo = OrgTodo (Just "CANCELLED")
-                                                                                           , title = OrgTitle "Mess"
-                                                                                           })
-                                                     ]
-                                        , context = defaultContext {metaTodo = (["TODO"], ["DONE", "CANCELLED"])}}
-             }
+                                                                                           , title = OrgTitle "Mess"})]
+                                        , context = defaultContext {metaTodo = (["TODO"], ["DONE", "CANCELLED"])}}}
+
+  , TestCase { description = "No inactive todo states"
+             , inputs = ["#+TODO: foo"]
+             , expected = ParsingResult { elements = [OrgGenericPragma (OrgTodoPragma ["FOO"] [])]
+                                        , context = defaultContext {metaTodo = (["TODO", "FOO"], ["DONE"])}}}
+
+  , TestCase { description = "Messed active/inactive todo states"
+             , inputs = [ "#+TODO: CANCELLED | CANCELLED"
+                        , "* CANCELLED Mess" ]
+             , expected = ParsingResult { elements = [ OrgGenericPragma (OrgTodoPragma ["CANCELLED"] ["CANCELLED"])
+                                                     , OrgGenericHeadline (defaultHeadline { todo = OrgTodo Nothing
+                                                                                           , title = OrgTitle "CANCELLED Mess" })]
+                                        , context = defaultContext {metaTodo = (["TODO"], ["DONE"])}}}
 
   , TestCase { description = "Parse several headlines (multiline parsing)"
              , inputs = [ "* foo"
-                        , "* bar"
-                        ]
+                        , "* bar" ]
              , expected = ParsingResult { elements = [ OrgGenericHeadline (defaultHeadline { title = OrgTitle "foo" })
                                                      , OrgGenericHeadline (defaultHeadline { title = OrgTitle "bar" })]
-                                        , context = defaultContext
-                                        }
-             }
+                                        , context = defaultContext }}
+
   , TestCase { description = "Empty text parsing"
              , inputs = [""]
              , expected = ParsingResult { elements = []
-                                        , context = defaultContext
-                                        }
-             }
+                                        , context = defaultContext }}
+
   , TestCase { description = "Restrict infinite parsing of eol / eof"
              , inputs = ["", "", ""]
              , expected = ParsingResult { elements = [ OrgGenericText (PlainText "")
-                                                     , OrgGenericText (PlainText "")
-                                                     ]
-                                        , context = defaultContext
-                                        }
-             }
-  ]
+                                                     , OrgGenericText (PlainText "") ]
+                                        , context = defaultContext }}]
 
     -- , TestCase
     --     { description = "Parse custom todo state",
