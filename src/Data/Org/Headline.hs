@@ -16,12 +16,12 @@ import Text.Megaparsec.Char
 import TextShow
 import Prelude hiding (replicate)
 
-data OrgHeadline = OrgHeadline { indent :: OrgIndent
-                               , todo :: OrgTodo
-                               , priority :: OrgPriority
-                               , title :: OrgTitle
-                               , tags :: OrgTags
-                               , properties :: OrgPropertyBlock
+data OrgHeadline = OrgHeadline { indent :: !OrgIndent
+                               , todo :: !OrgTodo
+                               , priority :: !OrgPriority
+                               , title :: !OrgTitle
+                               , tags :: !OrgTags
+                               , properties :: !OrgPropertyBlock
                                } deriving (Show, Eq)
 
 instance Semigroup OrgHeadline where
@@ -30,8 +30,7 @@ instance Semigroup OrgHeadline where
                              , priority = priority lhs <> priority rhs
                              , title = title lhs <> title rhs
                              , tags = tags lhs <> tags rhs
-                             , properties = properties lhs <> properties rhs
-                             }
+                             , properties = properties lhs <> properties rhs }
 
 instance Monoid OrgHeadline where
   mempty = OrgHeadline { indent = mempty :: OrgIndent
@@ -39,8 +38,7 @@ instance Monoid OrgHeadline where
                        , priority = mempty :: OrgPriority
                        , title = mempty :: OrgTitle
                        , tags = mempty :: OrgTags
-                       , properties = mempty :: OrgPropertyBlock
-                       }
+                       , properties = mempty :: OrgPropertyBlock }
 
 instance TextShow OrgHeadline where
   showb headline = fromText (replicate i "*") <> showbSpace <> showb (title headline) <> tagString

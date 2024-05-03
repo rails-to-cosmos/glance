@@ -17,12 +17,11 @@ import Data.Time (UTCTime)
 -- data OrgStack = OrgDrawer [Text] | OrgBabel [Text] | EmptyStack
 --   deriving (Show, Eq)
 
-data OrgContext = OrgContext
-  { metaTodo :: ([Text], [Text])
-  , metaCategory :: Text
-  -- , metaTime :: [UTCTime]
-  -- , metaStack :: OrgStack
-  } deriving (Show, Eq)
+data OrgContext = OrgContext { metaTodo :: ([Text], [Text])
+                             , metaCategory :: Text
+                             -- , metaTime :: [UTCTime]
+                             -- , metaStack :: OrgStack
+                             } deriving (Show, Eq)
 
 instance Semigroup OrgContext where
   (<>) lhs rhs = OrgContext
@@ -34,12 +33,11 @@ instance Semigroup OrgContext where
     }
 
 instance Monoid OrgContext where
-  mempty = OrgContext
-    { metaTodo = (["TODO"], ["DONE"])
-    , metaCategory = mempty :: Text
-    -- , metaTime = mempty :: [UTCTime]
-    -- , metaStack = EmptyStack
-    }
+  mempty = OrgContext { metaTodo = (["TODO"], ["DONE"])
+                      , metaCategory = mempty :: Text
+                      -- , metaTime = mempty :: [UTCTime]
+                      -- , metaStack = EmptyStack
+                      }
 
 allTodoStates :: OrgContext -> [Text]
 allTodoStates ctx = active ctx ++ inactive ctx
