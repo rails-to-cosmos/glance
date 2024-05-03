@@ -105,7 +105,24 @@ testCases = [ TestCase { description = "Parse headline with tags"
              , inputs = ["", "", ""]
              , expected = ParsingResult { elements = [ OrgGenericText (PlainText "")
                                                      , OrgGenericText (PlainText "") ]
-                                        , context = defaultContext }}]
+                                        , context = defaultContext }}
+
+  , TestCase { description = "Parse schedule property"
+             , inputs = [ "* foo"
+                        , "SCHEDULED: <2024-04-28 Sun>"
+                        , ":PROPERTIES:"
+                        , ":CATEGORY: bar"
+                        , ":END:"
+                        ]
+             , expected = ParsingResult { elements = [ OrgGenericHeadline (defaultHeadline { title = OrgTitle "foo"
+                                                                                           , scheduled = Just OrgTimestamp { tsStatus = TsActive
+                                                                                                                           , tsRep = Nothing
+                                                                                                                           , tsTime = Time.UTCTime {}}
+                                                                                           , properties = OrgPropertyBlock [OrgProperty (OrgKeyword "CATEGORY") "bar"]})
+                                                     , OrgGenericText (PlainText "") ]
+                                        , context = defaultContext }}
+
+  ]
 
     -- , TestCase
     --     { description = "Parse custom todo state",
