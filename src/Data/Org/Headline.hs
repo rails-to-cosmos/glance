@@ -10,6 +10,7 @@ import Data.Org.PropertyBlock
 import Data.Org.Tags
 import Data.Org.Title
 import Data.Org.Todo
+import Data.Org.Timestamp
 import Data.Text (replicate)
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -21,6 +22,8 @@ data OrgHeadline = OrgHeadline { indent :: !OrgIndent
                                , priority :: !OrgPriority
                                , title :: !OrgTitle
                                , tags :: !OrgTags
+                               , schedule :: !(Maybe OrgTimestamp)
+                               , deadline :: !(Maybe OrgTimestamp)
                                , properties :: !OrgPropertyBlock
                                } deriving (Show, Eq)
 

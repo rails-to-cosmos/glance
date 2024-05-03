@@ -109,19 +109,19 @@ testCases = [ TestCase { description = "Parse headline with tags"
                                                      , OrgGenericText (PlainText "") ]
                                         , context = defaultContext }}
 
-  -- , TestCase { description = "Parse schedule property"
-  --            , inputs = [ "* foo"
-  --                       , "SCHEDULED: <2024-04-28 Sun>"
-  --                       , ":PROPERTIES:"
-  --                       , ":CATEGORY: bar"
-  --                       , ":END:" ]
-  --            , expected = ParsingResult { elements = [ OrgGenericHeadline (defaultHeadline { title = OrgTitle "foo"
-  --                                                                                          , scheduled = Just OrgTimestamp { tsStatus = TsActive
-  --                                                                                                                          , tsRep = Nothing
-  --                                                                                                                          , tsTime = strptime "2024-04-28 00:00:00" }
-  --                                                                                          , properties = OrgPropertyBlock [OrgProperty (OrgKeyword "CATEGORY") "bar"]})
-  --                                                    , OrgGenericText (PlainText "") ]
-  --                                       , context = defaultContext }}
+  , TestCase { description = "Parse schedule property"
+             , inputs = [ "* foo"
+                        , "SCHEDULED: <2024-04-28 Sun>"
+                        , ":PROPERTIES:"
+                        , ":CATEGORY: bar"
+                        , ":END:" ]
+             , expected = ParsingResult { elements = [ OrgGenericHeadline (defaultHeadline { title = OrgTitle "foo"
+                                                                                           , schedule = Just OrgTimestamp { tsStatus = TsActive
+                                                                                                                          , tsRep = Nothing
+                                                                                                                          , tsTime = strptime "2024-04-28 00:00:00" }
+                                                                                           , properties = OrgPropertyBlock [OrgProperty (OrgKeyword "CATEGORY") "bar"]})
+                                                     , OrgGenericText (PlainText "") ]
+                                        , context = defaultContext }}
 
   ]
 
