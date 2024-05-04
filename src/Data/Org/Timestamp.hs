@@ -25,20 +25,19 @@ import Text.Megaparsec.Char.Lexer (decimal)
 import Control.Monad (guard, void)
 
 data OrgTimestamp = OrgTimestamp
-  { tsStatus :: OrgTimestampStatus
-  , tsRep :: Maybe OrgTimestampRepeaterInterval
-  , tsTime :: Time.UTCTime
+  { tsStatus :: !OrgTimestampStatus
+  , tsRep :: !(Maybe OrgTimestampRepeaterInterval)
+  , tsTime :: !Time.UTCTime
   } deriving (Show, Eq)
 
 data OrgTimestampStatus = TsActive | TsInactive
   deriving (Show, Eq)
 
-data OrgTimestampRepeaterInterval =
-  OrgTimestampRepeaterInterval
-  { repeaterType :: OrgTimestampRepeaterType
-  , repeaterValue :: Int
-  , repeaterUnit :: OrgTimestampUnit
-  , repeaterSign :: OrgTimestampRepeaterSign
+data OrgTimestampRepeaterInterval = OrgTimestampRepeaterInterval
+  { repeaterType :: !OrgTimestampRepeaterType
+  , repeaterValue :: !Int
+  , repeaterUnit :: !OrgTimestampUnit
+  , repeaterSign :: !OrgTimestampRepeaterSign
   } deriving (Show, Eq)
 
 data OrgTimestampRepeaterSign = TRSPlus | TRSMinus
@@ -91,19 +90,20 @@ instance TextShow OrgTimestamp where
 
 instance OrgElement OrgTimestamp where
   parser = do
-    tsStatus' <- State.lift $ timestampStatusParser
-    tsDay' <- State.lift $ timestampDayParser
+    tsStatus' <- State.lift timestampStatusParser
+    tsDay' <- State.lift timestampDayParser
     space
-    void $ State.lift $ optional timestampWeekdayParser -- weekday
+    void $ optional $ State.lift timestampWeekdayParser -- weekday
     space
-    tsTime' <- optional . try $ State.lift $ timestampTimeParser
+    tsTime' <- optional . try $ State.lift timestampTimeParser
     space
-    tsRepeaterInterval' <- optional . try $ State.lift $ timestampRepeaterParser
+    tsRepeaterInterval' <- optional . try $ State.lift timestampRepeaterParser
+    space
     void $ char $ case tsStatus' of
       TsActive -> '>'
       TsInactive -> ']'
 
-    return $ OrgTimestamp
+    return OrgTimestamp
       { tsStatus = tsStatus'
       , tsRep = tsRepeaterInterval'
       , tsTime = case tsTime' of
@@ -153,7 +153,7 @@ timestampTimeParser = do
 timestampWeekdayParser :: Parser Text
 timestampWeekdayParser = do
   weekday <- count 3 letterChar
-  space1
+  space
   return (pack weekday)
 
 timestampRepeaterParser :: Parser OrgTimestampRepeaterInterval

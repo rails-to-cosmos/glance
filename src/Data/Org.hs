@@ -11,6 +11,7 @@ module Data.Org
   , OrgPropertyBlock (..)
   , OrgTags (..)
   , OrgTimestamp (..)
+  , OrgTimestampStatus (..)
   , OrgTitle (..)
   , OrgTitleElement (..)
   , OrgTodo (..)

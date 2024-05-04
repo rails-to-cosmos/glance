@@ -3,7 +3,6 @@
 module Data.Org.Context (OrgContext (..), allTodoStates) where
 
 import Data.Text (Text)
-import Data.Time (UTCTime)
 
 -- newtype HeadlineId = HeadlineId Int
 --   deriving (Show, Eq)
@@ -17,8 +16,8 @@ import Data.Time (UTCTime)
 -- data OrgStack = OrgDrawer [Text] | OrgBabel [Text] | EmptyStack
 --   deriving (Show, Eq)
 
-data OrgContext = OrgContext { metaTodo :: ([Text], [Text])
-                             , metaCategory :: Text
+data OrgContext = OrgContext { metaTodo :: !([Text], [Text])
+                             , metaCategory :: !Text
                              -- , metaTime :: [UTCTime]
                              -- , metaStack :: OrgStack
                              } deriving (Show, Eq)

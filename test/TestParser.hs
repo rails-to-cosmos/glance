@@ -105,8 +105,15 @@ testCases = [ TestCase { description = "Parse headline with tags"
 
   , TestCase { description = "Restrict infinite parsing of eol / eof"
              , inputs = ["", "", ""]
-             , expected = ParsingResult { elements = [ OrgGenericText (PlainText "")
-                                                     , OrgGenericText (PlainText "") ]
+             , expected = ParsingResult { elements = [ OrgGenericText (PlainText "") ]
+                                        , context = defaultContext }}
+
+  , TestCase { description = "Parse timestamps"
+             , inputs = [ "<2024-01-01>"
+                        , "<2024-01-01 Mon>"
+                        ]
+             , expected = ParsingResult { elements = [ OrgGenericTimestamp OrgTimestamp {tsStatus = TsActive, tsRep = Nothing, tsTime = strptime "2024-01-01 00:00:00"}
+                                                     , OrgGenericTimestamp OrgTimestamp {tsStatus = TsActive, tsRep = Nothing, tsTime = strptime "2024-01-01 00:00:00"}]
                                         , context = defaultContext }}
 
   , TestCase { description = "Parse schedule property"
@@ -119,9 +126,8 @@ testCases = [ TestCase { description = "Parse headline with tags"
                                                                                            , schedule = Just OrgTimestamp { tsStatus = TsActive
                                                                                                                           , tsRep = Nothing
                                                                                                                           , tsTime = strptime "2024-04-28 00:00:00" }
-                                                                                           , properties = OrgPropertyBlock [OrgProperty (OrgKeyword "CATEGORY") "bar"]})
-                                                     , OrgGenericText (PlainText "") ]
-                                        , context = defaultContext }}
+                                                                                           , properties = OrgPropertyBlock [OrgProperty (OrgKeyword "CATEGORY") "bar"]})]
+                                        , context = defaultContext { metaCategory = "bar" }}}
 
   ]
 

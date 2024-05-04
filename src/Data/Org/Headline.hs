@@ -33,6 +33,8 @@ instance Semigroup OrgHeadline where
                              , priority = priority lhs <> priority rhs
                              , title = title lhs <> title rhs
                              , tags = tags lhs <> tags rhs
+                             , schedule = Nothing
+                             , deadline = Nothing
                              , properties = properties lhs <> properties rhs }
 
 instance Monoid OrgHeadline where
@@ -41,6 +43,8 @@ instance Monoid OrgHeadline where
                        , priority = mempty :: OrgPriority
                        , title = mempty :: OrgTitle
                        , tags = mempty :: OrgTags
+                       , schedule = Nothing
+                       , deadline = Nothing
                        , properties = mempty :: OrgPropertyBlock }
 
 instance TextShow OrgHeadline where
@@ -58,6 +62,8 @@ instance OrgElement OrgHeadline where
     title' <- option (mempty :: OrgTitle) (parser :: OrgParser OrgTitle)
     tags' <- option (mempty :: OrgTags) (parser :: OrgParser OrgTags)
     void eol <|> eof
+    schedule' <- optional $ try (string "SCHEDULED:" *> space *> (parser :: OrgParser OrgTimestamp) <* (void space <|> void eol <|> eof))
+    deadline' <- optional $ try (string "DEADLINE:" *> space *> (parser :: OrgParser OrgTimestamp) <* (void space <|> void eol <|> eof))
     properties' <- option (mempty :: OrgPropertyBlock) (try parser :: OrgParser OrgPropertyBlock)
 
     return OrgHeadline { indent = indent'
@@ -65,5 +71,7 @@ instance OrgElement OrgHeadline where
                        , priority = priority'
                        , title = title'
                        , tags = tags'
+                       , schedule = schedule'
+                       , deadline = deadline'
                        , properties = properties'
                        }

@@ -18,9 +18,9 @@ import Control.Monad
 import qualified Control.Monad.State as State
 import Prelude hiding (unwords, concat, replicate, concatMap)
 
-data OrgPragma = OrgPragma OrgKeyword Text
-               | OrgTodoPragma [Text] [Text]
-               | OrgCategoryPragma Text
+data OrgPragma = OrgPragma !OrgKeyword !Text
+               | OrgTodoPragma ![Text] ![Text]
+               | OrgCategoryPragma !Text
   deriving (Show, Eq)
 
 instance OrgElement OrgPragma where
@@ -43,7 +43,7 @@ instance OrgElement OrgPragma where
         inactive <- option [] (char '|' *> space *> todoList)
         State.modify (\ctx -> ctx {metaTodo = (nub (fst (metaTodo ctx) ++ active), nub (snd (metaTodo ctx) ++ inactive))})
         return $ OrgTodoPragma active inactive
-      _ -> do
+      _keyword -> do
         PlainText value <- parser :: OrgParser PlainText
         return $ OrgPragma key value
 
