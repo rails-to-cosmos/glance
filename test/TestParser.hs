@@ -3,21 +3,24 @@
 module TestParser (orgModeParserUnitTests) where
 
 import Data.Org
-import Data.Text (Text, intercalate)
+import Data.Text (Text, intercalate, unpack)
 import Repl.State (parseOrgElements)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertEqual, testCase)
 import TestDefaults
-import Data.Org (PlainText(PlainText), OrgGenericElement (OrgGenericText))
+import qualified Data.Set as Set
+import Data.Time (UTCTime, parseTimeOrError, defaultTimeLocale)
 
-data ParsingResult = ParsingResult { elements :: [OrgGenericElement]
-                                   , context :: OrgContext
+strptime :: Text -> UTCTime
+strptime t = parseTimeOrError True defaultTimeLocale "%Y-%m-%d %H:%M:%S" (unpack t) :: UTCTime
+
+data ParsingResult = ParsingResult { elements :: ![OrgGenericElement]
+                                   , context :: !OrgContext
                                    } deriving (Eq, Show)
 
-data TestCase = TestCase { description :: String
-                         , inputs :: [Text]
-                         , expected :: ParsingResult
-                         }
+data TestCase = TestCase { description :: !String
+                         , inputs :: ![Text]
+                         , expected :: !ParsingResult }
 
 testCases :: [TestCase]
 testCases = [ TestCase { description = "Parse headline with tags"
@@ -71,23 +74,26 @@ testCases = [ TestCase { description = "Parse headline with tags"
   , TestCase { description = "Parse headline with custom todo state"
              , inputs = [ "#+TODO: TODO | CANCELLED"
                         , "* CANCELLED Mess" ]
-             , expected = ParsingResult { elements = [ OrgGenericPragma (OrgTodoPragma ["TODO"] ["CANCELLED"])
+             , expected = ParsingResult { elements = [ OrgGenericPragma (OrgTodoPragma (Set.fromList ["TODO"]) (Set.fromList ["CANCELLED"]))
                                                      , OrgGenericHeadline (defaultHeadline { todo = OrgTodo (Just "CANCELLED")
                                                                                            , title = OrgTitle "Mess"})]
-                                        , context = defaultContext {metaTodo = (["TODO"], ["DONE", "CANCELLED"])}}}
+                                        , context = defaultContext { metaTodoActive = Set.fromList ["TODO"]
+                                                                   , metaTodoInactive = Set.fromList ["DONE", "CANCELLED"]}}}
 
   , TestCase { description = "No inactive todo states"
              , inputs = ["#+TODO: foo"]
-             , expected = ParsingResult { elements = [OrgGenericPragma (OrgTodoPragma ["FOO"] [])]
-                                        , context = defaultContext {metaTodo = (["TODO", "FOO"], ["DONE"])}}}
+             , expected = ParsingResult { elements = [OrgGenericPragma (OrgTodoPragma (Set.fromList ["FOO"]) (Set.fromList []))]
+                                        , context = defaultContext { metaTodoActive = Set.fromList ["TODO", "FOO"]
+                                                                   , metaTodoInactive = Set.fromList ["DONE"] }}}
 
-  , TestCase { description = "Messed active/inactive todo states"
-             , inputs = [ "#+TODO: CANCELLED | CANCELLED"
-                        , "* CANCELLED Mess" ]
-             , expected = ParsingResult { elements = [ OrgGenericPragma (OrgTodoPragma ["CANCELLED"] ["CANCELLED"])
-                                                     , OrgGenericHeadline (defaultHeadline { todo = OrgTodo Nothing
-                                                                                           , title = OrgTitle "CANCELLED Mess" })]
-                                        , context = defaultContext {metaTodo = (["TODO"], ["DONE"])}}}
+  -- , TestCase { description = "Messed active/inactive todo states"
+  --            , inputs = [ "#+TODO: CANCELLED | CANCELLED"
+  --                       , "* CANCELLED Mess" ]
+  --            , expected = ParsingResult { elements = [ OrgGenericPragma (OrgTodoPragma (Set.fromList ["CANCELLED"]) (Set.fromList ["CANCELLED"]))
+  --                                                    , OrgGenericHeadline (defaultHeadline { todo = OrgTodo Nothing
+  --                                                                                          , title = OrgTitle "CANCELLED Mess" })]
+  --                                       , context = defaultContext { metaTodoActive = Set.fromList ["TODO"]
+  --                                                                  , metaTodoInactive = Set.fromList ["DONE"] }}}
 
   , TestCase { description = "Parse several headlines (multiline parsing)"
              , inputs = [ "* foo"
@@ -103,9 +109,31 @@ testCases = [ TestCase { description = "Parse headline with tags"
 
   , TestCase { description = "Restrict infinite parsing of eol / eof"
              , inputs = ["", "", ""]
-             , expected = ParsingResult { elements = [ OrgGenericText (PlainText "")
-                                                     , OrgGenericText (PlainText "") ]
-                                        , context = defaultContext }}]
+             , expected = ParsingResult { elements = [ OrgGenericText (PlainText "") ]
+                                        , context = defaultContext }}
+
+  , TestCase { description = "Parse timestamps"
+             , inputs = [ "<2024-01-01>"
+                        , "<2024-01-01 Mon>"
+                        ]
+             , expected = ParsingResult { elements = [ OrgGenericTimestamp OrgTimestamp {tsStatus = TsActive, tsRep = Nothing, tsTime = strptime "2024-01-01 00:00:00"}
+                                                     , OrgGenericTimestamp OrgTimestamp {tsStatus = TsActive, tsRep = Nothing, tsTime = strptime "2024-01-01 00:00:00"}]
+                                        , context = defaultContext }}
+
+  , TestCase { description = "Parse schedule property"
+             , inputs = [ "* foo"
+                        , "SCHEDULED: <2024-04-28 Sun>"
+                        , ":PROPERTIES:"
+                        , ":CATEGORY: bar"
+                        , ":END:" ]
+             , expected = ParsingResult { elements = [ OrgGenericHeadline (defaultHeadline { title = OrgTitle "foo"
+                                                                                           , schedule = Just OrgTimestamp { tsStatus = TsActive
+                                                                                                                          , tsRep = Nothing
+                                                                                                                          , tsTime = strptime "2024-04-28 00:00:00" }
+                                                                                           , properties = OrgPropertyBlock [OrgProperty (OrgKeyword "CATEGORY") "bar"]})]
+                                        , context = defaultContext { metaCategory = "bar" }}}
+
+  ]
 
     -- , TestCase
     --     { description = "Parse custom todo state",

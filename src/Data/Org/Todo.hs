@@ -27,5 +27,5 @@ todo :: OrgParser Text
 todo = do
   ctx <- State.get
   OrgKeyword result <- (parser :: OrgParser OrgKeyword) <* space
-  guard $ result `elem` allTodoStates ctx
+  guard $ result `elem` (metaTodoActive ctx <> metaTodoInactive ctx)
   return result

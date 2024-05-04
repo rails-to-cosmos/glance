@@ -10,14 +10,16 @@ import Data.Org.PropertyBlock
 import Data.Org.Tags
 import Data.Org.Timestamp
 import Text.Megaparsec
+import Text.Megaparsec.Char
+import Control.Monad
 import TextShow (TextShow, showb)
 
-data OrgGenericElement = OrgGenericHeadline OrgHeadline
-                       | OrgGenericPragma OrgPragma
-                       | OrgGenericPropertyBlock OrgPropertyBlock
-                       | OrgGenericTags OrgTags
-                       | OrgGenericTimestamp OrgTimestamp
-                       | OrgGenericText PlainText
+data OrgGenericElement = OrgGenericHeadline !OrgHeadline
+                       | OrgGenericPragma !OrgPragma
+                       | OrgGenericPropertyBlock !OrgPropertyBlock
+                       | OrgGenericTags !OrgTags
+                       | OrgGenericTimestamp !OrgTimestamp
+                       | OrgGenericText !PlainText
                        deriving (Show, Eq)
 
 instance TextShow OrgGenericElement where
@@ -34,4 +36,4 @@ instance OrgElement OrgGenericElement where
                   , OrgGenericPragma <$> try parser
                   , OrgGenericTimestamp <$> try parser
                   , OrgGenericText <$> parser
-                  ]
+                  ] <* optional (void eol <|> eof)

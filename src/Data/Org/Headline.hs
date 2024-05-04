@@ -10,18 +10,21 @@ import Data.Org.PropertyBlock
 import Data.Org.Tags
 import Data.Org.Title
 import Data.Org.Todo
+import Data.Org.Timestamp
 import Data.Text (replicate)
 import Text.Megaparsec
 import Text.Megaparsec.Char
 import TextShow
 import Prelude hiding (replicate)
 
-data OrgHeadline = OrgHeadline { indent :: OrgIndent
-                               , todo :: OrgTodo
-                               , priority :: OrgPriority
-                               , title :: OrgTitle
-                               , tags :: OrgTags
-                               , properties :: OrgPropertyBlock
+data OrgHeadline = OrgHeadline { indent :: !OrgIndent
+                               , todo :: !OrgTodo
+                               , priority :: !OrgPriority
+                               , title :: !OrgTitle
+                               , tags :: !OrgTags
+                               , schedule :: !(Maybe OrgTimestamp)
+                               , deadline :: !(Maybe OrgTimestamp)
+                               , properties :: !OrgPropertyBlock
                                } deriving (Show, Eq)
 
 instance Semigroup OrgHeadline where
@@ -30,8 +33,9 @@ instance Semigroup OrgHeadline where
                              , priority = priority lhs <> priority rhs
                              , title = title lhs <> title rhs
                              , tags = tags lhs <> tags rhs
-                             , properties = properties lhs <> properties rhs
-                             }
+                             , schedule = Nothing
+                             , deadline = Nothing
+                             , properties = properties lhs <> properties rhs }
 
 instance Monoid OrgHeadline where
   mempty = OrgHeadline { indent = mempty :: OrgIndent
@@ -39,8 +43,9 @@ instance Monoid OrgHeadline where
                        , priority = mempty :: OrgPriority
                        , title = mempty :: OrgTitle
                        , tags = mempty :: OrgTags
-                       , properties = mempty :: OrgPropertyBlock
-                       }
+                       , schedule = Nothing
+                       , deadline = Nothing
+                       , properties = mempty :: OrgPropertyBlock }
 
 instance TextShow OrgHeadline where
   showb headline = fromText (replicate i "*") <> showbSpace <> showb (title headline) <> tagString
@@ -57,6 +62,8 @@ instance OrgElement OrgHeadline where
     title' <- option (mempty :: OrgTitle) (parser :: OrgParser OrgTitle)
     tags' <- option (mempty :: OrgTags) (parser :: OrgParser OrgTags)
     void eol <|> eof
+    schedule' <- optional $ try (string "SCHEDULED:" *> space *> (parser :: OrgParser OrgTimestamp) <* (void space <|> void eol <|> eof))
+    deadline' <- optional $ try (string "DEADLINE:" *> space *> (parser :: OrgParser OrgTimestamp) <* (void space <|> void eol <|> eof))
     properties' <- option (mempty :: OrgPropertyBlock) (try parser :: OrgParser OrgPropertyBlock)
 
     return OrgHeadline { indent = indent'
@@ -64,5 +71,7 @@ instance OrgElement OrgHeadline where
                        , priority = priority'
                        , title = title'
                        , tags = tags'
+                       , schedule = schedule'
+                       , deadline = deadline'
                        , properties = properties'
                        }

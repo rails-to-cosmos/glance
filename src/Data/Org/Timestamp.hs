@@ -3,7 +3,6 @@
 module Data.Org.Timestamp
   ( OrgTimestamp (..)
   , timestampCtrl
-  , OrgTimestampType (..)
   , OrgTimestampStatus (..)
   , OrgTimestampRepeaterInterval (..)
   , OrgTimestampRepeaterType (..)
@@ -26,24 +25,19 @@ import Text.Megaparsec.Char.Lexer (decimal)
 import Control.Monad (guard, void)
 
 data OrgTimestamp = OrgTimestamp
-  { tsType :: OrgTimestampType
-  , tsStatus :: OrgTimestampStatus
-  , tsRep :: Maybe OrgTimestampRepeaterInterval
-  , tsTime :: Time.UTCTime
+  { tsStatus :: !OrgTimestampStatus
+  , tsRep :: !(Maybe OrgTimestampRepeaterInterval)
+  , tsTime :: !Time.UTCTime
   } deriving (Show, Eq)
-
-data OrgTimestampType = TsScheduled | TsDeadline | TsClosed | TsArbitrary
-  deriving (Show, Eq)
 
 data OrgTimestampStatus = TsActive | TsInactive
   deriving (Show, Eq)
 
-data OrgTimestampRepeaterInterval =
-  OrgTimestampRepeaterInterval
-  { repeaterType :: OrgTimestampRepeaterType
-  , repeaterValue :: Int
-  , repeaterUnit :: OrgTimestampUnit
-  , repeaterSign :: OrgTimestampRepeaterSign
+data OrgTimestampRepeaterInterval = OrgTimestampRepeaterInterval
+  { repeaterType :: !OrgTimestampRepeaterType
+  , repeaterValue :: !Int
+  , repeaterUnit :: !OrgTimestampUnit
+  , repeaterSign :: !OrgTimestampRepeaterSign
   } deriving (Show, Eq)
 
 data OrgTimestampRepeaterSign = TRSPlus | TRSMinus
@@ -57,19 +51,13 @@ data OrgTimestampUnit = Days | Weeks | Months | Years
 
 instance TextShow OrgTimestamp where
   showb ts =
-    typeText
-    <> openBracket
+    openBracket
     <> fromText timeText
     <> fromText repeaterSeparator
     <> fromText repeaterText
     <> closeBracket
 
     where
-      typeText = case tsType ts of
-        TsScheduled -> "SCHEDULED: "
-        TsDeadline -> "DEADLINE: "
-        TsClosed -> "CLOSED: "
-        TsArbitrary -> ""
       openBracket = case tsStatus ts of
         TsActive -> "<"
         TsInactive -> "["
@@ -102,22 +90,21 @@ instance TextShow OrgTimestamp where
 
 instance OrgElement OrgTimestamp where
   parser = do
-    tsType' <- State.lift $ optional . try $ timestampTypeParser
-    tsStatus' <- State.lift $ timestampStatusParser
-    tsDay' <- State.lift $ timestampDayParser
+    tsStatus' <- State.lift timestampStatusParser
+    tsDay' <- State.lift timestampDayParser
     space
-    void $ State.lift $ optional timestampWeekdayParser -- weekday
+    void $ optional $ State.lift timestampWeekdayParser -- weekday
     space
-    tsTime' <- optional . try $ State.lift $ timestampTimeParser
+    tsTime' <- optional . try $ State.lift timestampTimeParser
     space
-    tsRepeaterInterval' <- optional . try $ State.lift $ timestampRepeaterParser
+    tsRepeaterInterval' <- optional . try $ State.lift timestampRepeaterParser
+    space
     void $ char $ case tsStatus' of
       TsActive -> '>'
       TsInactive -> ']'
 
-    return $ OrgTimestamp
-      { tsType = fromMaybe TsArbitrary tsType'
-      , tsStatus = tsStatus'
+    return OrgTimestamp
+      { tsStatus = tsStatus'
       , tsRep = tsRepeaterInterval'
       , tsTime = case tsTime' of
                    Just t -> Time.UTCTime tsDay' (Time.timeOfDayToTime t)
@@ -141,16 +128,6 @@ timestampStatusParser = do
     '<' -> return TsActive
     '[' -> return TsInactive
     _ -> return TsInactive
-
-timestampTypeParser :: Parser OrgTimestampType
-timestampTypeParser = do
-  ctrl <- manyTill anySingle (lookAhead $ void timestampCtrl <|> space1 <|> eof)
-  space
-  case ctrl of
-    "SCHEDULED:" -> return TsScheduled
-    "DEADLINE:" -> return TsDeadline
-    "CLOSED:" -> return TsClosed
-    _ -> fail "Expected control timestamp text (either SCHEDULED:, DEADLINE: or CLOSED:), but got nothing"
 
 timestampDayParser :: Parser Time.Day
 timestampDayParser = do
@@ -176,7 +153,7 @@ timestampTimeParser = do
 timestampWeekdayParser :: Parser Text
 timestampWeekdayParser = do
   weekday <- count 3 letterChar
-  space1
+  space
   return (pack weekday)
 
 timestampRepeaterParser :: Parser OrgTimestampRepeaterInterval

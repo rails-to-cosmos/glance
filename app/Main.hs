@@ -21,12 +21,12 @@ tac  = unlines . reverse . lines
 
 parse :: [String] -> IO a
 
-parse []     = do
-  putStrLn "No arguments specified"
-  usage
+parse [] = do
+  repl
   exitSuccess
 
 parse ["--help"] = do
+  version
   usage
   exitSuccess
 
@@ -34,11 +34,7 @@ parse ["--version"] = do
   version
   exitSuccess
 
-parse ["--repl"] = do
-  repl
-  exitSuccess
-
-parse ("--repl":filename:_) = do
+parse ("--context":filename:_) = do
   content <- Text.pack . BSChar8.unpack <$> BS.readFile filename
 
   let context = mempty :: OrgContext
