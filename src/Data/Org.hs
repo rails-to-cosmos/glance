@@ -13,6 +13,7 @@ module Data.Org
   , OrgTimestamp (..)
   , OrgTimestampStatus (..)
   , OrgTitle (..)
+  , OrgTitleElement (..)
   , OrgTodo (..)
   , OrgPragma (..)
   , OrgSeparator (..)

@@ -1,6 +1,5 @@
-{-# LANGUAGE OverloadedStrings #-}
-
-module Data.Org.Title (OrgTitle (..)) where
+module Data.Org.Title ( OrgTitle (..)
+                      , OrgTitleElement (..)) where
 
 import Control.Monad
 
@@ -10,12 +9,13 @@ import Data.Org.Tags
 import Data.Org.Timestamp
 import Data.Org.Separator
 
-import TextShow (TextShow, showb)
+import TextShow (TextShow (showbList), showb, fromText)
 
 import Text.Megaparsec
 import Text.Megaparsec.Char
 
 import Prelude hiding (concat)
+import TextShow.Data.List (showbListWith)
 
 newtype OrgTitle = OrgTitle [OrgTitleElement]
   deriving (Show, Eq)
@@ -27,7 +27,7 @@ data OrgTitleElement = OrgTitleText !PlainText
   deriving (Show, Eq)
 
 instance TextShow OrgTitleElement where
-  showb (OrgTitleText x) = showb x
+  showb (OrgTitleText (PlainText x)) = fromText x
   showb (OrgTitleTags x) = showb x
   showb (OrgTitleTimestamp x) = showb x
   showb (OrgTitleSeparator x) = showb x
@@ -39,7 +39,8 @@ instance Monoid OrgTitle where
   mempty = OrgTitle []
 
 instance TextShow OrgTitle where
-  showb (OrgTitle elems) = showb elems
+  showb (OrgTitle []) = ""
+  showb (OrgTitle (x:xs)) = showb x <> showb (OrgTitle xs)
 
 instance OrgElement OrgTitle where
   parser = do

@@ -25,13 +25,15 @@ data TestCase = TestCase { description :: !String
 testCases :: [TestCase]
 testCases = [ TestCase { description = "Parse headline with tags"
                        , inputs = ["* Hello world :a:b:c:"]
-                       , expected = ParsingResult { elements = [ OrgGenericHeadline defaultHeadline { title = OrgTitle "Hello world"
+                       , expected = ParsingResult { elements = [ OrgGenericHeadline defaultHeadline { title = OrgTitle [ OrgTitleText (PlainText "Hello")
+                                                                                                                       , OrgTitleText (PlainText "world") ]
                                                                                                     , tags = OrgTags ["a", "b", "c"] } ]
                                                   , context = defaultContext }}
 
   , TestCase { description = "Parse headline with corrupted tag string"
              , inputs = ["* Hello world :a:b:c"]
-             , expected = ParsingResult { elements = [ OrgGenericHeadline defaultHeadline {title = OrgTitle "Hello world :a:b:c"} ]
+             , expected = ParsingResult { elements = [ OrgGenericHeadline defaultHeadline {title = OrgTitle [ OrgTitleText (PlainText "Hello")
+                                                                                                            , OrgTitleText (PlainText "world")]} ]
                                         , context = defaultContext }}
 
   , TestCase { description = "Parse property block"
@@ -39,7 +41,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
                         , ":PROPERTIES:"
                         , ":TITLE: New title"
                         , ":END:" ]
-             , expected = ParsingResult { elements = [ OrgGenericHeadline (defaultHeadline { title = OrgTitle "Hello"
+             , expected = ParsingResult { elements = [ OrgGenericHeadline (defaultHeadline { title = OrgTitle [OrgTitleText (PlainText "Hello")]
                                                                                            , properties = OrgPropertyBlock [OrgProperty (OrgKeyword "TITLE") "New title"]})]
                                         , context = defaultContext }}
 
@@ -58,16 +60,16 @@ testCases = [ TestCase { description = "Parse headline with tags"
                         , ":PROPERTIES:"
                         , ":CATEGORY: Updated category"
                         , ":END:" ]
-             , expected = ParsingResult { elements = [ OrgGenericHeadline (defaultHeadline { title = OrgTitle "Hello"
+             , expected = ParsingResult { elements = [ OrgGenericHeadline (defaultHeadline { title = OrgTitle [OrgTitleText (PlainText "Hello")]
                                                                                            , properties = OrgPropertyBlock [OrgProperty (OrgKeyword "CATEGORY") "Updated category"]})]
                                         , context = defaultContext { metaCategory = "Updated category" }}}
 
   , TestCase { description = "Parse complete headline"
-             , inputs = ["** TODO [#A] This is a simple headline :a:b:c:"]
+             , inputs = ["** TODO [#A] Hello :a:b:c:"]
              , expected = ParsingResult { elements = [ OrgGenericHeadline (defaultHeadline { indent = OrgIndent 2
                                                                                            , todo = OrgTodo (Just "TODO")
                                                                                            , priority = OrgPriority (Just 'A')
-                                                                                           , title = OrgTitle "This is a simple headline"
+                                                                                           , title = OrgTitle [OrgTitleText (PlainText "Hello")]
                                                                                            , tags = OrgTags ["a", "b", "c"]})]
                                         , context = defaultContext }}
 
@@ -76,7 +78,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
                         , "* CANCELLED Mess" ]
              , expected = ParsingResult { elements = [ OrgGenericPragma (OrgTodoPragma (Set.fromList ["TODO"]) (Set.fromList ["CANCELLED"]))
                                                      , OrgGenericHeadline (defaultHeadline { todo = OrgTodo (Just "CANCELLED")
-                                                                                           , title = OrgTitle "Mess"})]
+                                                                                           , title = OrgTitle [OrgTitleText (PlainText "Mess")]})]
                                         , context = defaultContext { metaTodoActive = Set.fromList ["TODO"]
                                                                    , metaTodoInactive = Set.fromList ["DONE", "CANCELLED"]}}}
 
@@ -98,8 +100,8 @@ testCases = [ TestCase { description = "Parse headline with tags"
   , TestCase { description = "Parse several headlines (multiline parsing)"
              , inputs = [ "* foo"
                         , "* bar" ]
-             , expected = ParsingResult { elements = [ OrgGenericHeadline (defaultHeadline { title = OrgTitle "foo" })
-                                                     , OrgGenericHeadline (defaultHeadline { title = OrgTitle "bar" })]
+             , expected = ParsingResult { elements = [ OrgGenericHeadline (defaultHeadline {title = OrgTitle [OrgTitleText (PlainText "foo")]})
+                                                     , OrgGenericHeadline (defaultHeadline {title = OrgTitle [OrgTitleText (PlainText "bar")]})]
                                         , context = defaultContext }}
 
   , TestCase { description = "Empty text parsing"
@@ -125,7 +127,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
                         , ":PROPERTIES:"
                         , ":CATEGORY: bar"
                         , ":END:" ]
-             , expected = ParsingResult { elements = [ OrgGenericHeadline (defaultHeadline { title = OrgTitle "foo"
+             , expected = ParsingResult { elements = [ OrgGenericHeadline (defaultHeadline { title = OrgTitle [OrgTitleText (PlainText "foo")]
                                                                                            , schedule = Just OrgTimestamp { tsStatus = TsActive
                                                                                                                           , tsRep = Nothing
                                                                                                                           , tsTime = strptime "2024-04-28 00:00:00" }

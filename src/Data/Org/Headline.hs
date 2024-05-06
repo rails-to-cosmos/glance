@@ -51,8 +51,8 @@ instance TextShow OrgHeadline where
   showb headline = fromText (replicate i "*") <> showbSpace <> showb (title headline) <> tagString
     where OrgIndent i = indent headline
           tagString = case tags headline of
-            OrgTags [] -> fromText ""
-            t -> showbSpace <> showb t
+            OrgTags [] -> ""
+            t -> showb t
 
 instance OrgElement OrgHeadline where
   parser = do
