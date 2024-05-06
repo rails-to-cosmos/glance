@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Data.Org.Separator (OrgSeparator (..)) where
 
 import Data.Org.Element

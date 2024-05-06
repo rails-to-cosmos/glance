@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Data.Org.Context (OrgContext (..)) where
 
 import qualified Data.Set as Set

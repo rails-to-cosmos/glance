@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Data.Org.Pragma (OrgPragma (..)) where
 
 import Data.Org.Element

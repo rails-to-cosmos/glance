@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Data.Org.PropertyBlock (OrgPropertyBlock (..)) where
 
 import Data.Org.Element

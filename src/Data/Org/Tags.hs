@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Data.Org.Tags (OrgTags (..)) where
 
 import Data.Text (Text, intercalate)

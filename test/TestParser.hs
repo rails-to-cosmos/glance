@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module TestParser (orgModeParserUnitTests) where
 
 import Data.Org
@@ -26,14 +24,18 @@ testCases :: [TestCase]
 testCases = [ TestCase { description = "Parse headline with tags"
                        , inputs = ["* Hello world :a:b:c:"]
                        , expected = ParsingResult { elements = [ OrgGenericHeadline defaultHeadline { title = OrgTitle [ OrgTitleText (PlainText "Hello")
-                                                                                                                       , OrgTitleText (PlainText "world") ]
+                                                                                                                       , OrgTitleSeparator SPC
+                                                                                                                       , OrgTitleText (PlainText "world")
+                                                                                                                       , OrgTitleSeparator SPC ]
                                                                                                     , tags = OrgTags ["a", "b", "c"] } ]
                                                   , context = defaultContext }}
 
   , TestCase { description = "Parse headline with corrupted tag string"
              , inputs = ["* Hello world :a:b:c"]
              , expected = ParsingResult { elements = [ OrgGenericHeadline defaultHeadline {title = OrgTitle [ OrgTitleText (PlainText "Hello")
-                                                                                                            , OrgTitleText (PlainText "world")]} ]
+                                                                                                            , OrgTitleSeparator SPC
+                                                                                                            , OrgTitleText (PlainText "world")
+                                                                                                            , OrgTitleSeparator SPC ]}]
                                         , context = defaultContext }}
 
   , TestCase { description = "Parse property block"
@@ -41,7 +43,8 @@ testCases = [ TestCase { description = "Parse headline with tags"
                         , ":PROPERTIES:"
                         , ":TITLE: New title"
                         , ":END:" ]
-             , expected = ParsingResult { elements = [ OrgGenericHeadline (defaultHeadline { title = OrgTitle [OrgTitleText (PlainText "Hello")]
+             , expected = ParsingResult { elements = [ OrgGenericHeadline (defaultHeadline { title = OrgTitle [ OrgTitleText (PlainText "Hello")
+                                                                                                              , OrgTitleSeparator SPC]
                                                                                            , properties = OrgPropertyBlock [OrgProperty (OrgKeyword "TITLE") "New title"]})]
                                         , context = defaultContext }}
 
@@ -60,7 +63,8 @@ testCases = [ TestCase { description = "Parse headline with tags"
                         , ":PROPERTIES:"
                         , ":CATEGORY: Updated category"
                         , ":END:" ]
-             , expected = ParsingResult { elements = [ OrgGenericHeadline (defaultHeadline { title = OrgTitle [OrgTitleText (PlainText "Hello")]
+             , expected = ParsingResult { elements = [ OrgGenericHeadline (defaultHeadline { title = OrgTitle [ OrgTitleText (PlainText "Hello")
+                                                                                                              , OrgTitleSeparator SPC]
                                                                                            , properties = OrgPropertyBlock [OrgProperty (OrgKeyword "CATEGORY") "Updated category"]})]
                                         , context = defaultContext { metaCategory = "Updated category" }}}
 
@@ -69,7 +73,8 @@ testCases = [ TestCase { description = "Parse headline with tags"
              , expected = ParsingResult { elements = [ OrgGenericHeadline (defaultHeadline { indent = OrgIndent 2
                                                                                            , todo = OrgTodo (Just "TODO")
                                                                                            , priority = OrgPriority (Just 'A')
-                                                                                           , title = OrgTitle [OrgTitleText (PlainText "Hello")]
+                                                                                           , title = OrgTitle [ OrgTitleText (PlainText "Hello")
+                                                                                                              , OrgTitleSeparator SPC ]
                                                                                            , tags = OrgTags ["a", "b", "c"]})]
                                         , context = defaultContext }}
 
@@ -78,7 +83,8 @@ testCases = [ TestCase { description = "Parse headline with tags"
                         , "* CANCELLED Mess" ]
              , expected = ParsingResult { elements = [ OrgGenericPragma (OrgTodoPragma (Set.fromList ["TODO"]) (Set.fromList ["CANCELLED"]))
                                                      , OrgGenericHeadline (defaultHeadline { todo = OrgTodo (Just "CANCELLED")
-                                                                                           , title = OrgTitle [OrgTitleText (PlainText "Mess")]})]
+                                                                                           , title = OrgTitle [ OrgTitleText (PlainText "Mess")
+                                                                                                              , OrgTitleSeparator SPC]})]
                                         , context = defaultContext { metaTodoActive = Set.fromList ["TODO"]
                                                                    , metaTodoInactive = Set.fromList ["DONE", "CANCELLED"]}}}
 

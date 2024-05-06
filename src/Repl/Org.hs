@@ -1,6 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ImportQualifiedPost #-}
 
 module Repl.Org (runRepl) where
 
@@ -27,8 +25,7 @@ type Repl a = StateT OrgContext (SqlQueryT (InputT IO)) a
 
 settings :: Settings IO
 settings = defaultSettings { autoAddHistory = True
-                           , historyFile = Just ".history"
-                           }
+                           , historyFile = Just ".history" }
 
 getInput :: Repl Text
 getInput = do

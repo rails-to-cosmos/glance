@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module TestRepr (orgElementReprUnitTests) where
 
 import           Data.Org

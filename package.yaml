@@ -12,6 +12,7 @@ extra-source-files:
 
 default-extensions:
   - OverloadedStrings
+  - ImportQualifiedPost
 
 # Metadata used when publishing your package
 # synopsis:            Short description of your package

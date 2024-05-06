@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Data.Org.Timestamp
   ( OrgTimestamp (..)
   , timestampCtrl

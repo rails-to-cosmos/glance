@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Data.Org.Headline (OrgHeadline (..)) where
 
 import Control.Monad
