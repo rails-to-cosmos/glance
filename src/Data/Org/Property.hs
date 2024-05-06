@@ -6,7 +6,7 @@ import Data.Org.Keyword
 import Data.Org.PlainText
 import Data.Text (Text)
 
-import qualified Control.Monad.State as State
+import Control.Monad.State qualified as State
 
 import Text.Megaparsec
 import Text.Megaparsec.Char

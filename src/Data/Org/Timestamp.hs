@@ -9,10 +9,10 @@ module Data.Org.Timestamp
 import Data.Org.Element
 
 import Data.Text (Text, pack)
-import qualified Data.Time as Time
+import Data.Time qualified as Time
 import Data.Maybe (fromMaybe)
 
-import qualified Control.Monad.State as State
+import Control.Monad.State qualified as State
 
 import TextShow
 

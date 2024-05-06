@@ -3,9 +3,9 @@ module Main (main) where
 import System.Environment
 import System.Exit
 
-import qualified Data.ByteString.Char8 as BSChar8
-import qualified Data.ByteString as BS
-import qualified Data.Text as Text
+import Data.ByteString.Char8 qualified as BSChar8
+import Data.ByteString qualified as BS
+import Data.Text qualified as Text
 
 import Data.Org.Context
 import Repl.Org

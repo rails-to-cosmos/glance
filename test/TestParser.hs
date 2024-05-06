@@ -6,7 +6,7 @@ import Repl.State (parseOrgElements)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertEqual, testCase)
 import TestDefaults
-import qualified Data.Set as Set
+import Data.Set qualified as Set
 import Data.Time (UTCTime, parseTimeOrError, defaultTimeLocale)
 
 strptime :: Text -> UTCTime

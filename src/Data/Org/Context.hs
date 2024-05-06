@@ -1,6 +1,6 @@
 module Data.Org.Context (OrgContext (..)) where
 
-import qualified Data.Set as Set
+import Data.Set qualified as Set
 import Data.Text (Text)
 
 -- newtype HeadlineId = HeadlineId Int

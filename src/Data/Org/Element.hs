@@ -4,7 +4,7 @@ import Data.Text (Text)
 import Data.Void (Void)
 import Data.Org.Context (OrgContext)
 import Text.Megaparsec (Parsec)
-import qualified Control.Monad.State as State
+import Control.Monad.State qualified as State
 
 type Parser = Parsec Void Text
 type StatefulParser s a = State.StateT s Parser a

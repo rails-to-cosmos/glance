@@ -9,7 +9,7 @@ import Text.Megaparsec
 import Text.Megaparsec.Char
 
 import Control.Monad
-import qualified Control.Monad.State as State
+import Control.Monad.State qualified as State
 
 newtype OrgTodo = OrgTodo (Maybe Text)
   deriving (Show, Eq)

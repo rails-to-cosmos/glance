@@ -5,7 +5,7 @@ import Data.Org.Context
 import Data.Org.Keyword
 import Data.Org.PlainText
 import Data.Text (Text, pack, unwords)
-import qualified Data.Set as Set
+import Data.Set qualified as Set
 
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -13,7 +13,7 @@ import Text.Megaparsec.Char
 import TextShow
 
 import Control.Monad
-import qualified Control.Monad.State as State
+import Control.Monad.State qualified as State
 import Prelude hiding (unwords, concat, replicate, concatMap)
 
 data OrgPragma = OrgPragma !OrgKeyword !Text

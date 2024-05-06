@@ -11,7 +11,7 @@ import Text.Megaparsec
 import Text.Megaparsec.Char
 
 import Control.Monad
-import qualified Control.Monad.State as State
+import Control.Monad.State qualified as State
 
 import Prelude hiding (unwords, concat, replicate, concatMap)
 
