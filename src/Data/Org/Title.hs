@@ -1,51 +1,56 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Data.Org.Title (OrgTitle (..), OrgTitleElement (..)) where
+module Data.Org.Title (OrgTitle (..)) where
 
 import Control.Monad
-import Data.Text (Text, pack, strip)
 
 import Data.Org.Element
 import Data.Org.PlainText
 import Data.Org.Tags
 import Data.Org.Timestamp
+import Data.Org.Separator
 
-import TextShow (TextShow, showb, fromText)
+import TextShow (TextShow, showb)
 
 import Text.Megaparsec
 import Text.Megaparsec.Char
 
 import Prelude hiding (concat)
 
-newtype OrgTitle = OrgTitle Text
+newtype OrgTitle = OrgTitle [OrgTitleElement]
   deriving (Show, Eq)
 
-data OrgTitleElement = OrgTitleTags OrgTags
-                     | OrgTitleTimestamp OrgTimestamp
-                     | OrgTitleText PlainText
+data OrgTitleElement = OrgTitleText !PlainText
+                     | OrgTitleTags !OrgTags
+                     | OrgTitleTimestamp !OrgTimestamp
+                     | OrgTitleSeparator !OrgSeparator
   deriving (Show, Eq)
 
 instance TextShow OrgTitleElement where
-  showb (OrgTitleTags t) = showb t
-  showb (OrgTitleTimestamp t) = showb t
-  showb (OrgTitleText t) = showb t
+  showb (OrgTitleText x) = showb x
+  showb (OrgTitleTags x) = showb x
+  showb (OrgTitleTimestamp x) = showb x
+  showb (OrgTitleSeparator x) = showb x
 
 instance Semigroup OrgTitle where
   (<>) (OrgTitle lhs) (OrgTitle rhs) = OrgTitle (lhs <> rhs)
 
 instance Monoid OrgTitle where
-  mempty = OrgTitle ""
+  mempty = OrgTitle []
 
 instance TextShow OrgTitle where
-  showb (OrgTitle x) = fromText x
+  showb (OrgTitle elems) = showb elems
 
 instance OrgElement OrgTitle where
   parser = do
-    let stop = lookAhead $ try $ choice [ void (parser :: OrgParser OrgTags)
-                                        , void eol
-                                        , eof
-                                        ]
+    let stopParsers = choice [ void (parser :: OrgParser OrgTags)
+                             , void eol
+                             , eof ]
 
-    elements <- manyTill anySingle stop
+        elemParsers = choice [ OrgTitleSeparator <$> try parser
+                             , OrgTitleTimestamp <$> try parser
+                             , OrgTitleText <$> try parser ]
 
-    return $ OrgTitle $ strip $ pack elements
+    elems <- manyTill elemParsers (lookAhead stopParsers)
+
+    return $ OrgTitle elems

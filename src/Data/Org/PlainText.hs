@@ -2,7 +2,6 @@ module Data.Org.PlainText (PlainText(..)) where
 
 import           Data.Text (Text, pack)
 import           Data.Org.Element
-import           Data.Org.Timestamp
 
 import           TextShow (TextShow, fromText, showb)
 import           Text.Megaparsec
@@ -24,6 +23,7 @@ instance TextShow PlainText where
 
 instance OrgElement PlainText where
   parser = do
-    let stop = lookAhead (void (parser :: OrgParser OrgTimestamp)) <|> void eol <|> eof
+    let stop = lookAhead (choice [space1, void eol, eof])
+        str = manyTill anySingle stop
 
-    PlainText <$> fmap pack (manyTill anySingle stop)
+    PlainText <$> fmap pack str

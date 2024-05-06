@@ -1,10 +1,8 @@
-{-# LANGUAGE ImportQualifiedPost #-}
-
 module Repl.State (parseOrgElements) where
 
 import Control.Monad.State (runStateT)
 import Data.Org.Context (OrgContext)
-import Data.Org.Element qualified as OrgElement
+import qualified Data.Org.Element as OrgElement
 import Data.Org.Generic
 import Data.Org.PlainText
 import Data.Text (Text, pack)

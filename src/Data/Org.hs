@@ -13,9 +13,9 @@ module Data.Org
   , OrgTimestamp (..)
   , OrgTimestampStatus (..)
   , OrgTitle (..)
-  , OrgTitleElement (..)
   , OrgTodo (..)
   , OrgPragma (..)
+  , OrgSeparator (..)
   ) where
 
 import Data.Org.Element
@@ -33,3 +33,4 @@ import Data.Org.Tags
 import Data.Org.Timestamp
 import Data.Org.Title
 import Data.Org.Todo
+import Data.Org.Separator

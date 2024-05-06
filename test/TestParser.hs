@@ -114,8 +114,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
 
   , TestCase { description = "Parse timestamps"
              , inputs = [ "<2024-01-01>"
-                        , "<2024-01-01 Mon>"
-                        ]
+                        , "<2024-01-01 Mon>" ]
              , expected = ParsingResult { elements = [ OrgGenericTimestamp OrgTimestamp {tsStatus = TsActive, tsRep = Nothing, tsTime = strptime "2024-01-01 00:00:00"}
                                                      , OrgGenericTimestamp OrgTimestamp {tsStatus = TsActive, tsRep = Nothing, tsTime = strptime "2024-01-01 00:00:00"}]
                                         , context = defaultContext }}
@@ -132,6 +131,11 @@ testCases = [ TestCase { description = "Parse headline with tags"
                                                                                                                           , tsTime = strptime "2024-04-28 00:00:00" }
                                                                                            , properties = OrgPropertyBlock [OrgProperty (OrgKeyword "CATEGORY") "bar"]})]
                                         , context = defaultContext { metaCategory = "bar" }}}
+
+  , TestCase { description = "Parse links"
+             , inputs = ["[[file:/home/foo/bar.org::*NN Pipeline][NN Pipeline]]"]
+             , expected = ParsingResult { elements = [OrgGenericText (PlainText "[[file:/home/foo/bar.org::*NN Pipeline][NN Pipeline]]")]
+                                        , context = defaultContext}}
 
   ]
 
