@@ -3,12 +3,12 @@ module Data.Org.Pragma (Pragma (..)) where
 import Data.Org.Element
 import Data.Org.Context
 import Data.Org.Keyword
-import Data.Org.Lexeme
+import Data.Org.Token
 import Data.Org.Sentence
 import Data.Text (Text, pack, unwords)
 import Data.Set qualified as Set
 
-import Text.Megaparsec
+import Text.Megaparsec hiding (Token)
 import Text.Megaparsec.Char
 
 import TextShow
@@ -47,7 +47,7 @@ instance OrgElement Pragma where
 
         return $ PTodo pragmaActive pragmaInactive
       _keyword -> do
-        Lexeme value <- parser :: OrgParser Lexeme
+        Token value <- parser :: OrgParser Token
         return $ Pragma key value
 
 instance TextShow Pragma where

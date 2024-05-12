@@ -5,7 +5,7 @@ module Data.Org
   , Headline (..)
   , Indent (..)
   , Keyword (..)
-  , Lexeme (..)
+  , Token (..)
   , Priority (..)
   , Property (..)
   , Properties (..)
@@ -28,7 +28,7 @@ import Data.Org.Generic
 import Data.Org.Headline
 import Data.Org.Indent
 import Data.Org.Keyword
-import Data.Org.Lexeme
+import Data.Org.Token
 import Data.Org.Pragma
 import Data.Org.Priority
 import Data.Org.Property
@@ -50,7 +50,7 @@ import UnliftIO ()
 parse :: OrgContext -> Text -> ([GElement], OrgContext)
 parse ctx cmd = case PS.parse (runStateT (PS.manyTill OrgElement.parser PS.eof) ctx) "" cmd of
   Right val -> val
-  Left err  -> ([GText (Lexeme (pack (PS.errorBundlePretty err)))], ctx)
+  Left err  -> ([GText (Token (pack (PS.errorBundlePretty err)))], ctx)
 
 mparse :: Text -> ([GElement], OrgContext)
 mparse = parse (mempty :: OrgContext)

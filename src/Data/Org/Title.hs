@@ -3,14 +3,14 @@ module Data.Org.Title ( Title (..), TitleElement (..) ) where
 import Control.Monad
 
 import Data.Org.Element
-import Data.Org.Lexeme
+import Data.Org.Token
 import Data.Org.Tags
 import Data.Org.Timestamp
 import Data.Org.Separator
 
 import TextShow
 
-import Text.Megaparsec
+import Text.Megaparsec hiding (Token)
 import Text.Megaparsec.Char
 
 import Prelude hiding (concat)
@@ -18,14 +18,14 @@ import Prelude hiding (concat)
 newtype Title = Title [TitleElement]
   deriving (Show, Eq)
 
-data TitleElement = TitleText !Lexeme
+data TitleElement = TitleText !Token
                   | TitleTags !Tags
                   | TitleTimestamp !Timestamp
                   | TitleSeparator !Separator
   deriving (Show, Eq)
 
 instance TextShow TitleElement where
-  showb (TitleText (Lexeme x)) = fromText x
+  showb (TitleText (Token x)) = fromText x
   showb (TitleTags x) = showb x
   showb (TitleTimestamp x) = showb x
   showb (TitleSeparator x) = showb x

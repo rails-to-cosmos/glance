@@ -32,7 +32,6 @@ library
       Data.Org.Headline
       Data.Org.Indent
       Data.Org.Keyword
-      Data.Org.Lexeme
       Data.Org.Pragma
       Data.Org.Priority
       Data.Org.Properties
@@ -43,6 +42,7 @@ library
       Data.Org.Timestamp
       Data.Org.Title
       Data.Org.Todo
+      Data.Org.Token
       Persist.Org
       Repl.Org
   other-modules:

@@ -1,23 +1,23 @@
 module Data.Org.Sentence (Sentence(..), SentenceElement (..)) where
 
-import Data.Org.Lexeme
+import Data.Org.Token
 import Data.Org.Timestamp
 import Data.Org.Separator
 import Data.Org.Element
 
 import TextShow (TextShow, showb)
-import Text.Megaparsec
+import Text.Megaparsec hiding (Token)
 import Text.Megaparsec.Char
 
 import Control.Monad (void)
 
-data SentenceElement = SentenceLexeme !Lexeme
+data SentenceElement = SentenceToken !Token
                      | SentenceTimestamp !Timestamp
                      | SentenceSeparator !Separator
   deriving (Show, Eq)
 
 instance TextShow SentenceElement where
-  showb (SentenceLexeme x) = showb x
+  showb (SentenceToken x) = showb x
   showb (SentenceTimestamp x) = showb x
   showb (SentenceSeparator x) = showb x
 
@@ -39,7 +39,7 @@ instance OrgElement Sentence where
     let stopParsers = choice [ void eol, eof ]
         elemParsers = choice [ SentenceSeparator <$> try parser
                              , SentenceTimestamp <$> try parser
-                             , SentenceLexeme <$> parser ]
+                             , SentenceToken <$> parser ]
 
     elems <- manyTill elemParsers (lookAhead stopParsers)
 
