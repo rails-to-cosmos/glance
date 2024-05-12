@@ -55,9 +55,11 @@ testCases = [ TestCase { description = "Parse headline with tags"
                                         , context = defaultContext }}
 
   , TestCase { description = "Category pragma affects context"
-             , inputs = [ "#+CATEGORY: Category 1" ]
-             , expected = ParsingResult { elements = [GPragma (OrgCategoryPragma "Category 1")]
-                                        , context = defaultContext { metaCategory = "Category 1" }}}
+             , inputs = [ "#+CATEGORY: foo bar" ]
+             , expected = ParsingResult { elements = [GPragma (PCategory (Sentence [ SentenceLexeme (Lexeme "foo")
+                                                                                   , SentenceSeparator SPC
+                                                                                   , SentenceLexeme (Lexeme "bar") ]))]
+                                        , context = defaultContext { metaCategory = "foo bar" }}}
 
   -- , TestCase { description = "Category property affects context"
   --            , inputs = [ "* Hello"
@@ -82,7 +84,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
   , TestCase { description = "Parse headline with custom todo state"
              , inputs = [ "#+TODO: TODO | CANCELLED"
                         , "* CANCELLED Mess" ]
-             , expected = ParsingResult { elements = [ GPragma (TodoPragma (Set.fromList ["TODO"]) (Set.fromList ["CANCELLED"]))
+             , expected = ParsingResult { elements = [ GPragma (PTodo (Set.fromList ["TODO"]) (Set.fromList ["CANCELLED"]))
                                                      , GHeadline (defaultHeadline { todo = Todo (Just "CANCELLED")
                                                                                            , title = Title [ TitleText (Lexeme "Mess")
                                                                                                            , TitleSeparator SPC]})]
@@ -91,14 +93,14 @@ testCases = [ TestCase { description = "Parse headline with tags"
 
   , TestCase { description = "No inactive todo states"
              , inputs = ["#+TODO: foo"]
-             , expected = ParsingResult { elements = [GPragma (TodoPragma (Set.fromList ["FOO"]) (Set.fromList []))]
+             , expected = ParsingResult { elements = [GPragma (PTodo (Set.fromList ["FOO"]) (Set.fromList []))]
                                         , context = defaultContext { metaTodoActive = Set.fromList ["TODO", "FOO"]
                                                                    , metaTodoInactive = Set.fromList ["DONE"] }}}
 
   -- , TestCase { description = "Messed active/inactive todo states"
   --            , inputs = [ "#+TODO: CANCELLED | CANCELLED"
   --                       , "* CANCELLED Mess" ]
-  --            , expected = ParsingResult { elements = [ GPragma (TodoPragma (Set.fromList ["CANCELLED"]) (Set.fromList ["CANCELLED"]))
+  --            , expected = ParsingResult { elements = [ GPragma (PTodo (Set.fromList ["CANCELLED"]) (Set.fromList ["CANCELLED"]))
   --                                                    , GHeadline (defaultHeadline { todo = Todo Nothing
   --                                                                                          , title = Title "CANCELLED Mess" })]
   --                                       , context = defaultContext { metaTodoActive = Set.fromList ["TODO"]

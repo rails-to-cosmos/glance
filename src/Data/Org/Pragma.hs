@@ -4,6 +4,7 @@ import Data.Org.Element
 import Data.Org.Context
 import Data.Org.Keyword
 import Data.Org.Lexeme
+import Data.Org.Sentence
 import Data.Text (Text, pack, unwords)
 import Data.Set qualified as Set
 
@@ -17,8 +18,8 @@ import Control.Monad.State qualified as State
 import Prelude hiding (unwords, concat, replicate, concatMap)
 
 data Pragma = Pragma !Keyword !Text
-            | TodoPragma !(Set.Set Text) !(Set.Set Text)
-            | OrgCategoryPragma !Text
+            | PTodo !(Set.Set Text) !(Set.Set Text)
+            | PCategory !Sentence
   deriving (Show, Eq)
 
 instance OrgElement Pragma where
@@ -34,9 +35,9 @@ instance OrgElement Pragma where
     key <- string "#+" *> keyword <* string ":" <* space
     case key of
       Keyword "CATEGORY" -> do
-        Lexeme category <- parser :: OrgParser Lexeme
-        State.modify (\ctx -> ctx {metaCategory = category})
-        return $ OrgCategoryPragma category
+        category <- parser :: OrgParser Sentence
+        State.modify (\ctx -> ctx {metaCategory = showt category})
+        return $ PCategory category
       Keyword "TODO" -> do
         pragmaActive <- Set.fromList <$> todoList
         pragmaInactive <- Set.fromList <$> doneList
@@ -44,12 +45,12 @@ instance OrgElement Pragma where
         State.modify (\ctx -> ctx { metaTodoActive = metaTodoActive ctx <> pragmaActive
                                   , metaTodoInactive = metaTodoInactive ctx <> pragmaInactive })
 
-        return $ TodoPragma pragmaActive pragmaInactive
+        return $ PTodo pragmaActive pragmaInactive
       _keyword -> do
         Lexeme value <- parser :: OrgParser Lexeme
         return $ Pragma key value
 
 instance TextShow Pragma where
   showb (Pragma k v) = "#+" <> showb k <> ": " <> fromText v
-  showb (TodoPragma active inactive) = "#+TODO:" <> showbSpace <> fromText (unwords (Set.toList active)) <> " | " <> fromText (unwords (Set.toList inactive))
-  showb (OrgCategoryPragma category) = "#+CATEGORY:" <> showbSpace <> fromText category
+  showb (PTodo active inactive) = "#+TODO:" <> showbSpace <> fromText (unwords (Set.toList active)) <> " | " <> fromText (unwords (Set.toList inactive))
+  showb (PCategory category) = "#+CATEGORY:" <> showbSpace <> showb category
