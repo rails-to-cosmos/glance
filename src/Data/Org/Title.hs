@@ -18,17 +18,17 @@ import Prelude hiding (concat)
 newtype Title = Title [TitleElement]
   deriving (Show, Eq)
 
-data TitleElement = TitleText !Token
+data TitleElement = TText !Token
                   | TitleTags !Tags
                   | TitleTimestamp !Timestamp
-                  | TitleSeparator !Separator
+                  | TSep !Separator
   deriving (Show, Eq)
 
 instance TextShow TitleElement where
-  showb (TitleText (Token x)) = fromText x
+  showb (TText (Token x)) = fromText x
   showb (TitleTags x) = showb x
   showb (TitleTimestamp x) = showb x
-  showb (TitleSeparator x) = showb x
+  showb (TSep x) = showb x
 
 instance Semigroup Title where
   (<>) (Title lhs) (Title rhs) = Title (lhs <> rhs)
@@ -43,10 +43,10 @@ instance TextShow Title where
 instance OrgElement Title where
   parser = do
     let stopParsers = choice [ void eol, eof ]
-        elemParsers = choice [ TitleSeparator <$> try parser
+        elemParsers = choice [ TSep <$> try parser
                              , TitleTimestamp <$> try parser
                              , TitleTags <$> try parser
-                             , TitleText <$> parser ]
+                             , TText <$> parser ]
 
     elems <- manyTill elemParsers (lookAhead stopParsers)
 
