@@ -122,16 +122,16 @@ testCases = [ TestCase { description = "Parse headline with tags"
 
             , TestCase { description = "Restrict infinite parsing of eol / eof"
                        , inputs = ["", "", ""]
-                       , expected = ParsingResult { elements = [ GSeparator EOL
-                                                               , GSeparator EOL ]
+                       , expected = ParsingResult { elements = [ GSep EOL
+                                                               , GSep EOL ]
                                                   , context = defaultContext }}
 
             , TestCase { description = "Parse timestamps"
                        , inputs = [ "<2024-01-01>"
                                   , "<2024-01-01 Mon>" ]
-                       , expected = ParsingResult { elements = [ GTimestamp Timestamp {tsStatus = TsActive, tsRep = Nothing, tsTime = strptime "2024-01-01 00:00:00"}
-                                                               , GSeparator EOL
-                                                               , GTimestamp Timestamp {tsStatus = TsActive, tsRep = Nothing, tsTime = strptime "2024-01-01 00:00:00"}]
+                       , expected = ParsingResult { elements = [ GTs Ts {tsStatus = TsActive, tsRep = Nothing, tsTime = strptime "2024-01-01 00:00:00"}
+                                                               , GSep EOL
+                                                               , GTs Ts {tsStatus = TsActive, tsRep = Nothing, tsTime = strptime "2024-01-01 00:00:00"}]
                                                   , context = defaultContext }}
 
             -- , TestCase { description = "Parse schedule property"
@@ -141,7 +141,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
             --                       , ":CATEGORY: bar"
             --                       , ":END:" ]
             --            , expected = ParsingResult { elements = [ GHeadline (defaultHeadline { title = Title [TText (Tk "foo")]
-            --                                                                                 , schedule = Just Timestamp { tsStatus = TsActive
+            --                                                                                 , schedule = Just Ts { tsStatus = TsActive
             --                                                                                                             , tsRep = Nothing
             --                                                                                                             , tsTime = strptime "2024-04-28 00:00:00" }
             --                                                                                 , properties = Properties [Property (Keyword "CATEGORY") "bar"]})]
@@ -176,7 +176,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
             --           }
             --     }
             --   TestCase
-            --     { description = "Timestamp affects context",
+            --     { description = "Ts affects context",
             --       inputs =
             --         [ "[2021-08-22 Sun 10:18]"
             --         ],

@@ -19,8 +19,8 @@ data Headline = Headline { indent :: !Indent
                          , todo :: !Todo
                          , priority :: !Priority
                          , title :: !Title
-                         , schedule :: !(Maybe Timestamp)
-                         , deadline :: !(Maybe Timestamp)
+                         , schedule :: !(Maybe Ts)
+                         , deadline :: !(Maybe Ts)
                          , properties :: !Properties
                          } deriving (Show, Eq)
 
@@ -52,11 +52,11 @@ instance OrgElement Headline where
     todo' <- option (mempty :: Todo) (parser :: OrgParser Todo)
     priority' <- option (mempty :: Priority) (parser :: OrgParser Priority)
     title' <- parser :: OrgParser Title
-    -- schedule' <- optional $ try (string "SCHEDULED:" *> space *> (parser :: OrgParser Timestamp))
-    -- deadline' <- optional $ try (string "DEADLINE:" *> space *> (parser :: OrgParser Timestamp))
+    -- schedule' <- optional $ try (string "SCHEDULED:" *> space *> (parser :: OrgParser Ts))
+    -- deadline' <- optional $ try (string "DEADLINE:" *> space *> (parser :: OrgParser Ts))
     properties' <- option (mempty :: Properties) (try (eol *> parser :: OrgParser Properties))
 
-    _ <- parser :: OrgParser Separator
+    _ <- parser :: OrgParser Sep
 
     return Headline { indent = indent'
                     , todo = todo'

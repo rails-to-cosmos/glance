@@ -17,24 +17,24 @@ data GElement = GHeadline   !Headline
               | GPragma     !Pragma
               | GProperties !Properties
               | GTags       !Tags
-              | GTimestamp  !Timestamp
+              | GTs  !Ts
               | GText       !Tk
-              | GSeparator  !Separator
+              | GSep  !Sep
               deriving (Show, Eq)
 
 instance TextShow GElement where
   showb = \case
     GTags       t -> showb t
-    GTimestamp  t -> showb t
+    GTs  t -> showb t
     GText       t -> showb t
     GPragma     t -> showb t
     GProperties t -> showb t
     GHeadline   t -> showb t
-    GSeparator  t -> showb t
+    GSep  t -> showb t
 
 instance OrgElement GElement where
-  parser = choice [ GSeparator <$> try parser
+  parser = choice [ GSep <$> try parser
                   , GHeadline  <$> try parser
                   , GPragma    <$> try parser
-                  , GTimestamp <$> try parser
+                  , GTs <$> try parser
                   , GText      <$>     parser ]

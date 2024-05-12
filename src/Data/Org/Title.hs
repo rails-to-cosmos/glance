@@ -20,8 +20,8 @@ newtype Title = Title [TitleElement]
 
 data TitleElement = TText !Tk
                   | TTags !Tags
-                  | TTs !Timestamp
-                  | TSep !Separator
+                  | TTs !Ts
+                  | TSep !Sep
   deriving (Show, Eq)
 
 instance TextShow TitleElement where
