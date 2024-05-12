@@ -1,4 +1,4 @@
-module Data.Org.Separator (OrgSeparator (..)) where
+module Data.Org.Separator (Separator (..)) where
 
 import Data.Org.Element
 
@@ -7,16 +7,16 @@ import Text.Megaparsec.Char
 
 import TextShow
 
-data OrgSeparator = SPC | EOL | EOF
+data Separator = SPC | EOL | EOF
   deriving (Show, Eq)
 
-instance OrgElement OrgSeparator where
+instance OrgElement Separator where
   parser = choice
     [ EOF <$ eof
     , EOL <$ eol
     , SPC <$ space1 <* space ]
 
-instance TextShow OrgSeparator where
+instance TextShow Separator where
   showb SPC = " "
   showb EOL = "\n"
   showb EOF = ""

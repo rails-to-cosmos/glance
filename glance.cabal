@@ -32,11 +32,12 @@ library
       Data.Org.Headline
       Data.Org.Indent
       Data.Org.Keyword
-      Data.Org.PlainText
+      Data.Org.Lexeme
       Data.Org.Pragma
       Data.Org.Priority
+      Data.Org.Properties
       Data.Org.Property
-      Data.Org.PropertyBlock
+      Data.Org.Sentence
       Data.Org.Separator
       Data.Org.Tags
       Data.Org.Timestamp
@@ -78,7 +79,6 @@ library
 executable glance
   main-is: Main.hs
   other-modules:
-      Sandbox
       Paths_glance
   hs-source-dirs:
       app

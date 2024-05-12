@@ -1,4 +1,4 @@
-module Data.Org.Todo (OrgTodo (..)) where
+module Data.Org.Todo (Todo (..)) where
 
 import Data.Text (Text)
 import Data.Org.Element
@@ -11,21 +11,21 @@ import Text.Megaparsec.Char
 import Control.Monad
 import Control.Monad.State qualified as State
 
-newtype OrgTodo = OrgTodo (Maybe Text)
+newtype Todo = Todo (Maybe Text)
   deriving (Show, Eq)
 
-instance Semigroup OrgTodo where
-  (<>) (OrgTodo lhs) (OrgTodo rhs) = OrgTodo (lhs <> rhs)
+instance Semigroup Todo where
+  (<>) (Todo lhs) (Todo rhs) = Todo (lhs <> rhs)
 
-instance Monoid OrgTodo where
-  mempty = OrgTodo Nothing
+instance Monoid Todo where
+  mempty = Todo Nothing
 
-instance OrgElement OrgTodo where
-  parser = OrgTodo <$> optional (try todo)
+instance OrgElement Todo where
+  parser = Todo <$> optional (try todo)
 
 todo :: OrgParser Text
 todo = do
   ctx <- State.get
-  OrgKeyword result <- (parser :: OrgParser OrgKeyword) <* space
+  Keyword result <- (parser :: OrgParser Keyword) <* space
   guard $ result `elem` (metaTodoActive ctx <> metaTodoInactive ctx)
   return result

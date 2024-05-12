@@ -1,12 +1,9 @@
-module Data.Org.Property (OrgProperty (..)) where
+module Data.Org.Property (Property (..)) where
 
 import Data.Org.Element
-import Data.Org.Context
 import Data.Org.Keyword
-import Data.Org.PlainText
+import Data.Org.Sentence
 import Data.Text (Text)
-
-import Control.Monad.State qualified as State
 
 import Text.Megaparsec.Char
 import TextShow
@@ -15,28 +12,28 @@ import Control.Monad
 
 import Prelude hiding (unwords, concat, replicate, concatMap)
 
-data OrgProperty = OrgProperty !OrgKeyword !Text
+data Property = Property !Keyword !Sentence
   deriving (Show, Eq)
 
-propertyStackKeywords :: [Text]
-propertyStackKeywords = ["PROPERTIES", "END"]
+reservedKeywords :: [Text]
+reservedKeywords = ["PROPERTIES", "END"]
 
-isPropertyStackKeyword :: OrgKeyword -> Bool
-isPropertyStackKeyword (OrgKeyword k) = k `elem` propertyStackKeywords
+isPropertyStackKeyword :: Keyword -> Bool
+isPropertyStackKeyword (Keyword k) = k `elem` reservedKeywords
 
-instance OrgElement OrgProperty where
+instance OrgElement Property where
   parser = do
-    keyword <- char ':' *> (parser :: OrgParser OrgKeyword) <* char ':'
+    keyword <- char ':' *> (parser :: OrgParser Keyword) <* char ':'
     space
     guard $ not (isPropertyStackKeyword keyword)
 
-    PlainText value <- parser :: OrgParser PlainText
+    value <- parser :: OrgParser Sentence
 
-    case keyword of
-      OrgKeyword "CATEGORY" -> State.modify (\ctx -> ctx {metaCategory = value})
-      _keyword -> State.modify id
+    -- case keyword of
+    --   Keyword "CATEGORY" -> State.modify (\ctx -> ctx {metaCategory = value})
+    --   _keyword -> State.modify id
 
-    return $ OrgProperty keyword value
+    return $ Property keyword value
 
-instance TextShow OrgProperty where
-  showb (OrgProperty k v) = ":" <> showb k <> ": " <> fromText v
+instance TextShow Property where
+  showb (Property k v) = ":" <> showb k <> ": " <> showb v

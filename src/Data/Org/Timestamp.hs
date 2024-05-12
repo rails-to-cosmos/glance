@@ -1,9 +1,9 @@
 module Data.Org.Timestamp
-  ( OrgTimestamp (..)
+  ( Timestamp (..)
   , timestampCtrl
-  , OrgTimestampStatus (..)
-  , OrgTimestampRepeaterInterval (..)
-  , OrgTimestampRepeaterType (..)
+  , TimestampStatus (..)
+  , TimestampRepeaterInterval (..)
+  , TimestampRepeaterType (..)
   ) where
 
 import Data.Org.Element
@@ -22,32 +22,32 @@ import Text.Megaparsec.Char.Lexer (decimal)
 
 import Control.Monad (guard, void)
 
-data OrgTimestamp = OrgTimestamp
-  { tsStatus :: !OrgTimestampStatus
-  , tsRep :: !(Maybe OrgTimestampRepeaterInterval)
+data Timestamp = Timestamp
+  { tsStatus :: !TimestampStatus
+  , tsRep :: !(Maybe TimestampRepeaterInterval)
   , tsTime :: !Time.UTCTime
   } deriving (Show, Eq)
 
-data OrgTimestampStatus = TsActive | TsInactive
+data TimestampStatus = TsActive | TsInactive
   deriving (Show, Eq)
 
-data OrgTimestampRepeaterInterval = OrgTimestampRepeaterInterval
-  { repeaterType :: !OrgTimestampRepeaterType
+data TimestampRepeaterInterval = TimestampRepeaterInterval
+  { repeaterType :: !TimestampRepeaterType
   , repeaterValue :: !Int
-  , repeaterUnit :: !OrgTimestampUnit
-  , repeaterSign :: !OrgTimestampRepeaterSign
+  , repeaterUnit :: !TimestampUnit
+  , repeaterSign :: !TimestampRepeaterSign
   } deriving (Show, Eq)
 
-data OrgTimestampRepeaterSign = TRSPlus | TRSMinus
+data TimestampRepeaterSign = TRSPlus | TRSMinus
   deriving (Show, Eq)
 
-data OrgTimestampRepeaterType = CatchUp | Restart | Cumulative
+data TimestampRepeaterType = CatchUp | Restart | Cumulative
   deriving (Show, Eq)
 
-data OrgTimestampUnit = Days | Weeks | Months | Years
+data TimestampUnit = Days | Weeks | Months | Years
   deriving (Show, Eq)
 
-instance TextShow OrgTimestamp where
+instance TextShow Timestamp where
   showb ts =
     openBracket
     <> fromText timeText
@@ -65,28 +65,28 @@ instance TextShow OrgTimestamp where
       timeText = formatTimestamp (tsTime ts)
       repeaterTypeText = case tsRep ts of
         Nothing -> ""
-        Just OrgTimestampRepeaterInterval { repeaterType = Restart } -> ""
-        Just OrgTimestampRepeaterInterval { repeaterType = Cumulative } -> "."
-        Just OrgTimestampRepeaterInterval { repeaterType = CatchUp } -> "+"
+        Just TimestampRepeaterInterval { repeaterType = Restart } -> ""
+        Just TimestampRepeaterInterval { repeaterType = Cumulative } -> "."
+        Just TimestampRepeaterInterval { repeaterType = CatchUp } -> "+"
       repeaterSignText = case tsRep ts of
         Nothing -> ""
-        Just OrgTimestampRepeaterInterval { repeaterSign = TRSPlus } -> "+"
-        Just OrgTimestampRepeaterInterval { repeaterSign = TRSMinus } -> "-"
+        Just TimestampRepeaterInterval { repeaterSign = TRSPlus } -> "+"
+        Just TimestampRepeaterInterval { repeaterSign = TRSMinus } -> "-"
       repeaterUnitText = case tsRep ts of
         Nothing -> ""
-        Just OrgTimestampRepeaterInterval { repeaterUnit = Days } -> "d"
-        Just OrgTimestampRepeaterInterval { repeaterUnit = Weeks } -> "w"
-        Just OrgTimestampRepeaterInterval { repeaterUnit = Months } -> "m"
-        Just OrgTimestampRepeaterInterval { repeaterUnit = Years } -> "y"
+        Just TimestampRepeaterInterval { repeaterUnit = Days } -> "d"
+        Just TimestampRepeaterInterval { repeaterUnit = Weeks } -> "w"
+        Just TimestampRepeaterInterval { repeaterUnit = Months } -> "m"
+        Just TimestampRepeaterInterval { repeaterUnit = Years } -> "y"
       repeaterValText = case tsRep ts of
         Nothing -> ""
-        Just OrgTimestampRepeaterInterval { repeaterValue = val } -> showt val
+        Just TimestampRepeaterInterval { repeaterValue = val } -> showt val
       repeaterText = repeaterTypeText <> repeaterSignText <> repeaterValText <> repeaterUnitText
       repeaterSeparator = case repeaterText of
         "" -> ""
         _repeater -> " "
 
-instance OrgElement OrgTimestamp where
+instance OrgElement Timestamp where
   parser = do
     tsStatus' <- State.lift timestampStatusParser
     tsDay' <- State.lift timestampDayParser
@@ -101,7 +101,7 @@ instance OrgElement OrgTimestamp where
       TsActive -> '>'
       TsInactive -> ']'
 
-    return OrgTimestamp
+    return Timestamp
       { tsStatus = tsStatus'
       , tsRep = tsRepeaterInterval'
       , tsTime = case tsTime' of
@@ -118,7 +118,7 @@ formatTimestamp ts = pack (Time.formatTime Time.defaultTimeLocale timeFormat ts)
 timestampCtrl :: Parser Char
 timestampCtrl = char '<' <|> char '['
 
-timestampStatusParser :: Parser OrgTimestampStatus
+timestampStatusParser :: Parser TimestampStatus
 timestampStatusParser = do
   ctrl <- timestampCtrl
   case ctrl of
@@ -153,7 +153,7 @@ timestampWeekdayParser = do
   space
   return (pack weekday)
 
-timestampRepeaterParser :: Parser OrgTimestampRepeaterInterval
+timestampRepeaterParser :: Parser TimestampRepeaterInterval
 timestampRepeaterParser = do
   type' <- optional . try $ oneOf ['.', '+']
   sign' <- optional . try $ oneOf ['+', '-']
@@ -161,7 +161,7 @@ timestampRepeaterParser = do
   val' <- decimal
   unit' <- oneOf ['d', 'w', 'm', 'y']
 
-  return OrgTimestampRepeaterInterval {
+  return TimestampRepeaterInterval {
     repeaterType = case type' of
         Nothing -> Restart
         Just '.' -> Cumulative

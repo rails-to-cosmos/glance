@@ -1,20 +1,20 @@
-module Data.Org.Indent (OrgIndent (..)) where
+module Data.Org.Indent (Indent (..)) where
 
 import Data.Org.Element
 
 import Text.Megaparsec
 import Text.Megaparsec.Char
 
-newtype OrgIndent = OrgIndent Int
+newtype Indent = Indent Int
   deriving (Show, Eq)
 
-instance Semigroup OrgIndent where
-  (<>) (OrgIndent lhs) (OrgIndent rhs) = OrgIndent (lhs + rhs)
+instance Semigroup Indent where
+  (<>) (Indent lhs) (Indent rhs) = Indent (lhs + rhs)
 
-instance Monoid OrgIndent where
-  mempty = OrgIndent 1
+instance Monoid Indent where
+  mempty = Indent 1
 
-instance OrgElement OrgIndent where
+instance OrgElement Indent where
   parser = do
     stars <- some (char '*') <* space
-    return $ OrgIndent (length stars)
+    return $ Indent (length stars)

@@ -8,20 +8,19 @@ import           TextShow (TextShow(showb), fromText)
 import           TestDefaults
 
 data TestCase = TestCase { description :: !String
-                         , element :: !OrgGenericElement
+                         , element :: !GElement
                          , representation :: !Text }
 
 testCases :: [TestCase]
 testCases = [ TestCase { description = "Org-mode headline representation"
-                       , element = OrgGenericHeadline defaultHeadline { indent = OrgIndent 1
-                                                                      , todo = mempty :: OrgTodo
-                                                                      , title = OrgTitle [ OrgTitleText (PlainText "Hello,")
-                                                                                         , OrgTitleSeparator SPC
-                                                                                         , OrgTitleText (PlainText "world!")
-                                                                                         , OrgTitleSeparator SPC
-                                                                                         , OrgTitleTags (OrgTags ["greetings"])]}
-                       , representation = "* Hello, world! :greetings:"
-                       }]
+                       , element = GHeadline defaultHeadline { indent = Indent 1
+                                                                      , todo = mempty :: Todo
+                                                                      , title = Title [ TitleText (Lexeme "Hello,")
+                                                                                      , TitleSeparator SPC
+                                                                                      , TitleText (Lexeme "world!")
+                                                                                      , TitleSeparator SPC
+                                                                                      , TitleTags (Tags ["greetings"])]}
+                       , representation = "* Hello, world! :greetings:" }]
 
 assertOne :: TestCase -> TestTree
 assertOne tc = testCase (description tc) $ assertEqual [] (fromText (representation tc)) (showb (element tc))

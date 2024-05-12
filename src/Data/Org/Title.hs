@@ -1,10 +1,9 @@
-module Data.Org.Title ( OrgTitle (..)
-                      , OrgTitleElement (..)) where
+module Data.Org.Title ( Title (..), TitleElement (..) ) where
 
 import Control.Monad
 
 import Data.Org.Element
-import Data.Org.PlainText
+import Data.Org.Lexeme
 import Data.Org.Tags
 import Data.Org.Timestamp
 import Data.Org.Separator
@@ -16,39 +15,39 @@ import Text.Megaparsec.Char
 
 import Prelude hiding (concat)
 
-newtype OrgTitle = OrgTitle [OrgTitleElement]
+newtype Title = Title [TitleElement]
   deriving (Show, Eq)
 
-data OrgTitleElement = OrgTitleText !PlainText
-                     | OrgTitleTags !OrgTags
-                     | OrgTitleTimestamp !OrgTimestamp
-                     | OrgTitleSeparator !OrgSeparator
+data TitleElement = TitleText !Lexeme
+                  | TitleTags !Tags
+                  | TitleTimestamp !Timestamp
+                  | TitleSeparator !Separator
   deriving (Show, Eq)
 
-instance TextShow OrgTitleElement where
-  showb (OrgTitleText (PlainText x)) = fromText x
-  showb (OrgTitleTags x) = showb x
-  showb (OrgTitleTimestamp x) = showb x
-  showb (OrgTitleSeparator x) = showb x
+instance TextShow TitleElement where
+  showb (TitleText (Lexeme x)) = fromText x
+  showb (TitleTags x) = showb x
+  showb (TitleTimestamp x) = showb x
+  showb (TitleSeparator x) = showb x
 
-instance Semigroup OrgTitle where
-  (<>) (OrgTitle lhs) (OrgTitle rhs) = OrgTitle (lhs <> rhs)
+instance Semigroup Title where
+  (<>) (Title lhs) (Title rhs) = Title (lhs <> rhs)
 
-instance Monoid OrgTitle where
-  mempty = OrgTitle []
+instance Monoid Title where
+  mempty = Title []
 
-instance TextShow OrgTitle where
-  showb (OrgTitle []) = ""
-  showb (OrgTitle (x:xs)) = showb x <> showb (OrgTitle xs)
+instance TextShow Title where
+  showb (Title []) = ""
+  showb (Title (x:xs)) = showb x <> showb (Title xs)
 
-instance OrgElement OrgTitle where
+instance OrgElement Title where
   parser = do
     let stopParsers = choice [ void eol, eof ]
-        elemParsers = choice [ OrgTitleSeparator <$> try parser
-                             , OrgTitleTimestamp <$> try parser
-                             , OrgTitleTags <$> try parser
-                             , OrgTitleText <$> parser ]
+        elemParsers = choice [ TitleSeparator <$> try parser
+                             , TitleTimestamp <$> try parser
+                             , TitleTags <$> try parser
+                             , TitleText <$> parser ]
 
     elems <- manyTill elemParsers (lookAhead stopParsers)
 
-    return (OrgTitle elems)
+    return (Title elems)

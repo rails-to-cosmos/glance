@@ -1,4 +1,4 @@
-module Data.Org.Priority (OrgPriority (..)) where
+module Data.Org.Priority (Priority (..)) where
 
 import Data.Char (ord)
 import Data.Org.Element
@@ -6,11 +6,11 @@ import Data.Org.Element
 import Text.Megaparsec
 import Text.Megaparsec.Char
 
-newtype OrgPriority = OrgPriority (Maybe Char)
+newtype Priority = Priority (Maybe Char)
   deriving (Show, Eq)
 
-instance Semigroup OrgPriority where
-  (<>) (OrgPriority lhs) (OrgPriority rhs) = OrgPriority (minByOrd lhs rhs)
+instance Semigroup Priority where
+  (<>) (Priority lhs) (Priority rhs) = Priority (minByOrd lhs rhs)
     where
       minByOrd Nothing b = b
       minByOrd a Nothing = a
@@ -18,10 +18,10 @@ instance Semigroup OrgPriority where
         | ord a <= ord b = Just a
         | otherwise     = Just b
 
-instance Monoid OrgPriority where
-  mempty = OrgPriority Nothing
+instance Monoid Priority where
+  mempty = Priority Nothing
 
-instance OrgElement OrgPriority where
+instance OrgElement Priority where
   parser = do
     priority <- optional (char '[' *> char '#' *> letterChar <* char ']' <* space)
-    return (OrgPriority priority)
+    return (Priority priority)
