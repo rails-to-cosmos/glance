@@ -26,7 +26,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
                                                                                                            , TSep SPC
                                                                                                            , TText (Token "world")
                                                                                                            , TSep SPC
-                                                                                                           , TitleTags (Tags ["a", "b", "c"]) ]}]
+                                                                                                           , TTags (Tags ["a", "b", "c"]) ]}]
                                                   , context = defaultContext }}
 
             , TestCase { description = "Parse headline with corrupted tag string"
@@ -44,9 +44,9 @@ testCases = [ TestCase { description = "Parse headline with tags"
                                   , ":TITLE: New title"
                                   , ":END:" ]
                        , expected = ParsingResult { elements = [ GHeadline (defaultHeadline { title = Title [ TText (Token "Hello") ]
-                                                                                            , properties = Properties [Property (Keyword "TITLE") (Sentence [ STok (Token "New")
+                                                                                            , properties = Properties [Property (Keyword "TITLE") (Sentence [ STk (Token "New")
                                                                                                                                                             , SSep SPC
-                                                                                                                                                            , STok (Token "title") ])]})]
+                                                                                                                                                            , STk (Token "title") ])]})]
                                                   , context = defaultContext }}
 
             , TestCase { description = "Parse drawer"
@@ -56,9 +56,9 @@ testCases = [ TestCase { description = "Parse headline with tags"
 
             , TestCase { description = "Category pragma affects context"
                        , inputs = ["#+CATEGORY: foo bar"]
-                       , expected = ParsingResult { elements = [GPragma (PCategory (Sentence [ STok (Token "foo")
+                       , expected = ParsingResult { elements = [GPragma (PCategory (Sentence [ STk (Token "foo")
                                                                                              , SSep SPC
-                                                                                             , STok (Token "bar") ]))]
+                                                                                             , STk (Token "bar") ]))]
                                                   , context = defaultContext { metaCategory = "foo bar" }}}
 
             , TestCase { description = "Category property affects context"
@@ -67,9 +67,9 @@ testCases = [ TestCase { description = "Parse headline with tags"
                                   , ":CATEGORY: Updated category"
                                   , ":END:" ]
                        , expected = ParsingResult { elements = [ GHeadline (defaultHeadline { title = Title [TText (Token "Hello")]
-                                                                                            , properties = Properties [Property (Keyword "CATEGORY") (Sentence [ STok (Token "Updated")
+                                                                                            , properties = Properties [Property (Keyword "CATEGORY") (Sentence [ STk (Token "Updated")
                                                                                                                                                                , SSep SPC
-                                                                                                                                                               , STok (Token "category")])]})]
+                                                                                                                                                               , STk (Token "category")])]})]
                                                   , context = defaultContext { metaCategory = "Updated category" }}}
 
             , TestCase { description = "Parse complete headline"
@@ -79,7 +79,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
                                                                                             , priority = Priority (Just 'A')
                                                                                             , title = Title [ TText (Token "Hello")
                                                                                                             , TSep SPC
-                                                                                                            , TitleTags (Tags ["a", "b", "c"])]})]
+                                                                                                            , TTags (Tags ["a", "b", "c"])]})]
                                                   , context = defaultContext }}
 
             , TestCase { description = "Parse headline with custom todo state"

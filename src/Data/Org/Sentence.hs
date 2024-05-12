@@ -11,13 +11,13 @@ import Text.Megaparsec.Char
 
 import Control.Monad (void)
 
-data SentenceElement = STok !Token
+data SentenceElement = STk !Token
                      | SentenceTimestamp !Timestamp
                      | SSep !Separator
   deriving (Show, Eq)
 
 instance TextShow SentenceElement where
-  showb (STok x) = showb x
+  showb (STk x) = showb x
   showb (SentenceTimestamp x) = showb x
   showb (SSep x) = showb x
 
@@ -39,7 +39,7 @@ instance OrgElement Sentence where
     let stopParsers = choice [ void eol, eof ]
         elemParsers = choice [ SSep <$> try parser
                              , SentenceTimestamp <$> try parser
-                             , STok <$> parser ]
+                             , STk <$> parser ]
 
     elems <- manyTill elemParsers (lookAhead stopParsers)
 
