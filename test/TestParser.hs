@@ -46,16 +46,16 @@ testCases = [ TestCase { description = "Parse headline with tags"
                        , expected = ParsingResult { elements = [ GHeadline (defaultHeadline { title = Title [ TText (Token "Hello") ]
                                                                                             , properties = Properties [Property (Keyword "TITLE") (Sentence [ STok (Token "New")
                                                                                                                                                             , SSep SPC
-                                                                                                                                                            , STok (Token "title") ])] })]
+                                                                                                                                                            , STok (Token "title") ])]})]
                                                   , context = defaultContext }}
 
             , TestCase { description = "Parse drawer"
-                       , inputs = [ ":DRAWER:" ]
+                       , inputs = [":DRAWER:"]
                        , expected = ParsingResult { elements = [GText (Token ":DRAWER:")]
                                                   , context = defaultContext }}
 
             , TestCase { description = "Category pragma affects context"
-                       , inputs = [ "#+CATEGORY: foo bar" ]
+                       , inputs = ["#+CATEGORY: foo bar"]
                        , expected = ParsingResult { elements = [GPragma (PCategory (Sentence [ STok (Token "foo")
                                                                                              , SSep SPC
                                                                                              , STok (Token "bar") ]))]
@@ -102,7 +102,9 @@ testCases = [ TestCase { description = "Parse headline with tags"
             --                       , "* CANCELLED Mess" ]
             --            , expected = ParsingResult { elements = [ GPragma (PTodo (Set.fromList ["CANCELLED"]) (Set.fromList ["CANCELLED"]))
             --                                                    , GHeadline (defaultHeadline { todo = Todo Nothing
-            --                                                                                          , title = Title "CANCELLED Mess" })]
+            --                                                                                 , title = Title [ TText (Token "CANCELLED")
+            --                                                                                                 , TSep SPC
+            --                                                                                                 , TText (Token "Mess")]})]
             --                                       , context = defaultContext { metaTodoActive = Set.fromList ["TODO"]
             --                                                                  , metaTodoInactive = Set.fromList ["DONE"] }}}
 
