@@ -1,6 +1,5 @@
 module Data.Org.Timestamp
   ( Timestamp (..)
-  , timestampCtrl
   , TimestampStatus (..)
   , TimestampRepeaterInterval (..)
   , TimestampRepeaterType (..)
@@ -89,14 +88,10 @@ instance TextShow Timestamp where
 instance OrgElement Timestamp where
   parser = do
     tsStatus' <- State.lift timestampStatusParser
-    tsDay' <- State.lift timestampDayParser
-    space
-    void $ optional $ State.lift timestampWeekdayParser -- weekday
-    space
-    tsTime' <- optional . try $ State.lift timestampTimeParser
-    space
-    tsRepeaterInterval' <- optional . try $ State.lift timestampRepeaterParser
-    space
+    tsDay' <- State.lift timestampDayParser <* space
+    _tsWeekday' <- optional $ State.lift timestampWeekdayParser <* space
+    tsTime' <- optional $ State.lift timestampTimeParser <* space
+    tsRepeaterInterval' <- optional . try $ State.lift timestampRepeaterParser <* space
     void $ char $ case tsStatus' of
       TsActive -> '>'
       TsInactive -> ']'
