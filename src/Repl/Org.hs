@@ -6,6 +6,7 @@ import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Logger (runStderrLoggingT)
 import Control.Monad.State (StateT)
 import Control.Monad.State qualified as State
+import Data.Org qualified as Org
 import Data.Org.Context (OrgContext)
 import Data.Org.Generic
 import Data.Text (Text, pack)
@@ -14,7 +15,6 @@ import Data.Text.Lazy.Builder ()
 import Database.Persist.Monad (SqlQueryT, runMigration, runSqlQueryT)
 import Database.Persist.Sqlite (createSqlitePool)
 import Persist.Org (migrateAll)
-import Repl.State
 import System.Console.Haskeline (InputT, Settings (autoAddHistory, historyFile), defaultSettings, getInputLine, runInputT)
 import TextShow
 import UnliftIO ()
@@ -45,7 +45,7 @@ repl fn = do
     "exit" -> return ()
     "quit" -> return ()
     cmd -> do
-      let (elements, ctx') = parseOrgElements ctx cmd
+      let (elements, ctx') = Org.parse ctx cmd
       liftIO $ do
         TIO.putStrLn $ "Repr: " <> pack (show elements)
         TIO.putStrLn $ "Str: \"" <> showt elements <> "\""

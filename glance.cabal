@@ -44,7 +44,6 @@ library
       Data.Org.Todo
       Persist.Org
       Repl.Org
-      Repl.State
   other-modules:
       Paths_glance
   hs-source-dirs:

@@ -7,6 +7,7 @@
     git
     zlib
     universal-ctags
+    ripgrep
 
     haskell.compiler.ghc964
     haskell.packages.ghc964.hpack
