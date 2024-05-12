@@ -13,10 +13,18 @@ CLOSED: [2023-09-10 Sun 23:26]
 
 ** TODO Headline pretty print in REPL
 
-* Parser [16/21]
+* Parser [16/23]
 :LOGBOOK:
 - State "STARTED"    from "TODO"       [2023-08-05 Sat 10:08]
 :END:
+
+** TODO Tags: change List to Set
+** TODO Parse comments (from # to eol)
+** TODO Parse links
+** TODO Parse tables
+** TODO Parse commented/archived headlines (type: ordinary/commented/archived)
+** TODO Parse encrypted headlines (meta: encrypted regions)
+** TODO Parse closed headlines
 
 ** DONE OrgLine parsing
 CLOSED: [2023-07-15 Sat 17:10]
@@ -96,11 +104,6 @@ CLOSED: [2023-08-31 Thu 10:12]
 - State "DONE"       from "STARTED"    [2023-08-31 Thu 10:12]
 - State "STARTED"    from "TODO"       [2023-08-30 Wed 17:11]
 :END:
-** TODO Tags: change List to Set
-** TODO Parse links
-** TODO Parse commented/archived headlines (type: ordinary/commented/archived)
-** TODO Parse encrypted headlines (meta: encrypted regions)
-** TODO Parse closed headlines
 ** DONE Fix multiline parsing
 CLOSED: [2023-09-04 Mon 23:54]
 :LOGBOOK:
