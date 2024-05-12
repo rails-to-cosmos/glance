@@ -18,6 +18,7 @@ module Data.Org
   , OrgPragma (..)
   , OrgSeparator (..)
   , parse
+  , mparse
   ) where
 
 import Data.Org.Element
@@ -48,3 +49,6 @@ parse :: OrgContext -> Text -> ([OrgGenericElement], OrgContext)
 parse ctx cmd = case PS.parse (runStateT (PS.manyTill OrgElement.parser PS.eof) ctx) "" cmd of
   Right val -> val
   Left err  -> ([OrgGenericText (PlainText (pack (PS.errorBundlePretty err)))], ctx)
+
+mparse :: Text -> ([OrgGenericElement], OrgContext)
+mparse = parse (mempty :: OrgContext)

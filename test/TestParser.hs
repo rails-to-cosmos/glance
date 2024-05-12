@@ -2,7 +2,6 @@ module TestParser (orgModeParserUnitTests) where
 
 import Data.Org
 import Data.Text (Text, intercalate, unpack)
-import Repl.State (parseOrgElements)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertEqual, testCase)
 import TestDefaults
@@ -32,11 +31,11 @@ testCases = [ TestCase { description = "Parse headline with tags"
 
   , TestCase { description = "Parse headline with corrupted tag string"
              , inputs = ["* Hello world :a:b:c"]
-             , expected = ParsingResult { elements = [ OrgGenericHeadline defaultHeadline {title = OrgTitle [ OrgTitleText (PlainText "Hello")
-                                                                                                            , OrgTitleSeparator SPC
-                                                                                                            , OrgTitleText (PlainText "world")
-                                                                                                            , OrgTitleSeparator SPC
-                                                                                                            , OrgTitleText (PlainText ":a:b:c") ]}]
+             , expected = ParsingResult { elements = [ OrgGenericHeadline defaultHeadline { title = OrgTitle [ OrgTitleText (PlainText "Hello")
+                                                                                                             , OrgTitleSeparator SPC
+                                                                                                             , OrgTitleText (PlainText "world")
+                                                                                                             , OrgTitleSeparator SPC
+                                                                                                             , OrgTitleText (PlainText ":a:b:c") ]}]
                                         , context = defaultContext }}
 
   , TestCase { description = "Parse property block"
@@ -328,6 +327,6 @@ testCases = [ TestCase { description = "Parse headline with tags"
 orgModeParserUnitTests :: TestTree
 orgModeParserUnitTests = testGroup "Org-mode parser spec" assertMany
   where assert tc = testCase (description tc) $ assertEqual [] (expected tc) (result tc)
-        result tc = case parseOrgElements defaultContext (intercalate "\n" (inputs tc)) of
+        result tc = case mparse (intercalate "\n" (inputs tc)) of
           (headlines, context) -> ParsingResult headlines context
         assertMany = map assert testCases

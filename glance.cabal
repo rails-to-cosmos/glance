@@ -78,6 +78,7 @@ library
 executable glance
   main-is: Main.hs
   other-modules:
+      Sandbox
       Paths_glance
   hs-source-dirs:
       app

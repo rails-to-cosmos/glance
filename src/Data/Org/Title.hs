@@ -49,6 +49,6 @@ instance OrgElement OrgTitle where
                              , OrgTitleTags <$> try parser
                              , OrgTitleText <$> parser ]
 
-    elems <- manyTill elemParsers stopParsers
+    elems <- manyTill elemParsers (lookAhead stopParsers)
 
     return (OrgTitle elems)
