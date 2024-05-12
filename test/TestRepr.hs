@@ -18,9 +18,8 @@ testCases = [ TestCase { description = "Org-mode headline representation"
                                                                       , title = OrgTitle [ OrgTitleText (PlainText "Hello,")
                                                                                          , OrgTitleSeparator SPC
                                                                                          , OrgTitleText (PlainText "world!")
-                                                                                         , OrgTitleSeparator SPC ]
-                                                                      , tags = OrgTags ["greetings"]
-                                                                      }
+                                                                                         , OrgTitleSeparator SPC
+                                                                                         , OrgTitleTags (OrgTags ["greetings"])]}
                        , representation = "* Hello, world! :greetings:"
                        }]
 

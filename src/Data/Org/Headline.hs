@@ -5,7 +5,6 @@ import Data.Org.Element
 import Data.Org.Indent
 import Data.Org.Priority
 import Data.Org.PropertyBlock
-import Data.Org.Tags
 import Data.Org.Title
 import Data.Org.Todo
 import Data.Org.Timestamp
@@ -19,7 +18,6 @@ data OrgHeadline = OrgHeadline { indent :: !OrgIndent
                                , todo :: !OrgTodo
                                , priority :: !OrgPriority
                                , title :: !OrgTitle
-                               , tags :: !OrgTags
                                , schedule :: !(Maybe OrgTimestamp)
                                , deadline :: !(Maybe OrgTimestamp)
                                , properties :: !OrgPropertyBlock
@@ -30,7 +28,6 @@ instance Semigroup OrgHeadline where
                              , todo = todo lhs <> todo rhs
                              , priority = priority lhs <> priority rhs
                              , title = title lhs <> title rhs
-                             , tags = tags lhs <> tags rhs
                              , schedule = Nothing
                              , deadline = Nothing
                              , properties = properties lhs <> properties rhs }
@@ -40,17 +37,13 @@ instance Monoid OrgHeadline where
                        , todo = mempty :: OrgTodo
                        , priority = mempty :: OrgPriority
                        , title = mempty :: OrgTitle
-                       , tags = mempty :: OrgTags
                        , schedule = Nothing
                        , deadline = Nothing
                        , properties = mempty :: OrgPropertyBlock }
 
 instance TextShow OrgHeadline where
-  showb headline = fromText (replicate i "*") <> showbSpace <> showb (title headline) <> tagString
+  showb headline = fromText (replicate i "*") <> showbSpace <> showb (title headline)
     where OrgIndent i = indent headline
-          tagString = case tags headline of
-            OrgTags [] -> ""
-            t -> showb t
 
 instance OrgElement OrgHeadline where
   parser = do
@@ -58,18 +51,15 @@ instance OrgElement OrgHeadline where
     todo' <- option (mempty :: OrgTodo) (parser :: OrgParser OrgTodo)
     priority' <- option (mempty :: OrgPriority) (parser :: OrgParser OrgPriority)
     title' <- option (mempty :: OrgTitle) (parser :: OrgParser OrgTitle)
-    tags' <- option (mempty :: OrgTags) (parser :: OrgParser OrgTags)
-    void eol <|> eof
-    schedule' <- optional $ try (string "SCHEDULED:" *> space *> (parser :: OrgParser OrgTimestamp) <* (void space <|> void eol <|> eof))
-    deadline' <- optional $ try (string "DEADLINE:" *> space *> (parser :: OrgParser OrgTimestamp) <* (void space <|> void eol <|> eof))
+    -- schedule' <- optional $ try (string "SCHEDULED:" *> space *> (parser :: OrgParser OrgTimestamp))
+    -- deadline' <- optional $ try (string "DEADLINE:" *> space *> (parser :: OrgParser OrgTimestamp))
     properties' <- option (mempty :: OrgPropertyBlock) (try parser :: OrgParser OrgPropertyBlock)
 
     return OrgHeadline { indent = indent'
                        , todo = todo'
                        , priority = priority'
                        , title = title'
-                       , tags = tags'
-                       , schedule = schedule'
-                       , deadline = deadline'
+                       , schedule = Nothing -- schedule'
+                       , deadline = Nothing -- deadline'
                        , properties = properties'
                        }

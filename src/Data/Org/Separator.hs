@@ -12,8 +12,8 @@ data OrgSeparator = SPC | EOL | EOF
 
 instance OrgElement OrgSeparator where
   parser = choice
-    [ SPC <$ space1 <* space
-    , EOL <$ eol
+    [ EOL <$ eol
+    , SPC <$ space1 <* space
     , EOF <$ eof
     ]
 

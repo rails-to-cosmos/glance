@@ -22,8 +22,8 @@ instance Monoid OrgPropertyBlock where
 instance OrgElement OrgPropertyBlock where
   parser = do
     void (string ":PROPERTIES:")
-    void (many newline)
-    properties <- manyTill ((parser :: OrgParser OrgProperty) <* many newline) (string ":END:")
+    void newline
+    properties <- manyTill ((parser :: OrgParser OrgProperty) <* newline) (string ":END:")
     return (OrgPropertyBlock properties)
 
 instance TextShow OrgPropertyBlock where

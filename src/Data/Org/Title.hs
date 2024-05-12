@@ -9,13 +9,12 @@ import Data.Org.Tags
 import Data.Org.Timestamp
 import Data.Org.Separator
 
-import TextShow (TextShow (showbList), showb, fromText)
+import TextShow
 
 import Text.Megaparsec
 import Text.Megaparsec.Char
 
 import Prelude hiding (concat)
-import TextShow.Data.List (showbListWith)
 
 newtype OrgTitle = OrgTitle [OrgTitleElement]
   deriving (Show, Eq)
@@ -44,14 +43,12 @@ instance TextShow OrgTitle where
 
 instance OrgElement OrgTitle where
   parser = do
-    let stopParsers = choice [ void (parser :: OrgParser OrgTags)
-                             , void eol
-                             , eof ]
-
+    let stopParsers = choice [ void eol, eof ]
         elemParsers = choice [ OrgTitleSeparator <$> try parser
                              , OrgTitleTimestamp <$> try parser
+                             , OrgTitleTags <$> try parser
                              , OrgTitleText <$> try parser ]
 
-    elems <- manyTill elemParsers (lookAhead stopParsers)
+    elems <- manyTill elemParsers stopParsers
 
-    return $ OrgTitle elems
+    return (OrgTitle elems)

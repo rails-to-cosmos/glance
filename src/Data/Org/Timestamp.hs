@@ -84,7 +84,7 @@ instance TextShow OrgTimestamp where
       repeaterText = repeaterTypeText <> repeaterSignText <> repeaterValText <> repeaterUnitText
       repeaterSeparator = case repeaterText of
         "" -> ""
-        _ -> " "
+        _repeater -> " "
 
 instance OrgElement OrgTimestamp where
   parser = do
@@ -106,8 +106,7 @@ instance OrgElement OrgTimestamp where
       , tsRep = tsRepeaterInterval'
       , tsTime = case tsTime' of
                    Just t -> Time.UTCTime tsDay' (Time.timeOfDayToTime t)
-                   Nothing -> Time.UTCTime tsDay' (Time.timeOfDayToTime (Time.TimeOfDay 0 0 0))
-      }
+                   Nothing -> Time.UTCTime tsDay' (Time.timeOfDayToTime (Time.TimeOfDay 0 0 0)) }
 
 formatTimestamp :: Time.UTCTime -> Text
 formatTimestamp ts = pack (Time.formatTime Time.defaultTimeLocale timeFormat ts)
@@ -125,7 +124,7 @@ timestampStatusParser = do
   case ctrl of
     '<' -> return TsActive
     '[' -> return TsInactive
-    _ -> return TsInactive
+    _ctrl -> return TsInactive
 
 timestampDayParser :: Parser Time.Day
 timestampDayParser = do
@@ -167,7 +166,7 @@ timestampRepeaterParser = do
         Nothing -> Restart
         Just '.' -> Cumulative
         Just '+' | sign' == Just '+' -> CatchUp
-        _ -> Restart,
+        _type -> Restart,
     repeaterUnit = case unit' of
         'd' -> Days
         'w' -> Weeks
@@ -177,5 +176,5 @@ timestampRepeaterParser = do
     repeaterValue = val',
     repeaterSign = case sign' of
         Just '-' -> TRSMinus
-        _ -> TRSPlus
+        _sign -> TRSPlus
     }

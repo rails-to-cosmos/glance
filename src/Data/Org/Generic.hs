@@ -11,8 +11,6 @@ import Data.Org.Tags
 import Data.Org.Timestamp
 import Data.Org.Separator
 import Text.Megaparsec
-import Text.Megaparsec.Char
-import Control.Monad
 import TextShow (TextShow, showb)
 
 data OrgGenericElement = OrgGenericHeadline      !OrgHeadline

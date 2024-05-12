@@ -26,8 +26,8 @@ testCases = [ TestCase { description = "Parse headline with tags"
                        , expected = ParsingResult { elements = [ OrgGenericHeadline defaultHeadline { title = OrgTitle [ OrgTitleText (PlainText "Hello")
                                                                                                                        , OrgTitleSeparator SPC
                                                                                                                        , OrgTitleText (PlainText "world")
-                                                                                                                       , OrgTitleSeparator SPC ]
-                                                                                                    , tags = OrgTags ["a", "b", "c"] } ]
+                                                                                                                       , OrgTitleSeparator SPC
+                                                                                                                       , OrgTitleTags (OrgTags ["a", "b", "c"]) ]}]
                                                   , context = defaultContext }}
 
   , TestCase { description = "Parse headline with corrupted tag string"
@@ -35,7 +35,8 @@ testCases = [ TestCase { description = "Parse headline with tags"
              , expected = ParsingResult { elements = [ OrgGenericHeadline defaultHeadline {title = OrgTitle [ OrgTitleText (PlainText "Hello")
                                                                                                             , OrgTitleSeparator SPC
                                                                                                             , OrgTitleText (PlainText "world")
-                                                                                                            , OrgTitleSeparator SPC ]}]
+                                                                                                            , OrgTitleSeparator SPC
+                                                                                                            , OrgTitleText (PlainText ":a:b:c") ]}]
                                         , context = defaultContext }}
 
   , TestCase { description = "Parse property block"
@@ -43,9 +44,8 @@ testCases = [ TestCase { description = "Parse headline with tags"
                         , ":PROPERTIES:"
                         , ":TITLE: New title"
                         , ":END:" ]
-             , expected = ParsingResult { elements = [ OrgGenericHeadline (defaultHeadline { title = OrgTitle [ OrgTitleText (PlainText "Hello")
-                                                                                                              , OrgTitleSeparator SPC]
-                                                                                           , properties = OrgPropertyBlock [OrgProperty (OrgKeyword "TITLE") "New title"]})]
+             , expected = ParsingResult { elements = [ OrgGenericHeadline (defaultHeadline { title = OrgTitle [ OrgTitleText (PlainText "Hello") ]
+                                                                                           , properties = OrgPropertyBlock [OrgProperty (OrgKeyword "TITLE") "New title"] })]
                                         , context = defaultContext }}
 
   , TestCase { description = "Parse drawer"
@@ -74,8 +74,8 @@ testCases = [ TestCase { description = "Parse headline with tags"
                                                                                            , todo = OrgTodo (Just "TODO")
                                                                                            , priority = OrgPriority (Just 'A')
                                                                                            , title = OrgTitle [ OrgTitleText (PlainText "Hello")
-                                                                                                              , OrgTitleSeparator SPC ]
-                                                                                           , tags = OrgTags ["a", "b", "c"]})]
+                                                                                                              , OrgTitleSeparator SPC
+                                                                                                              , OrgTitleTags (OrgTags ["a", "b", "c"])]})]
                                         , context = defaultContext }}
 
   , TestCase { description = "Parse headline with custom todo state"
