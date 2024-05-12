@@ -47,7 +47,7 @@ instance OrgElement OrgTitle where
         elemParsers = choice [ OrgTitleSeparator <$> try parser
                              , OrgTitleTimestamp <$> try parser
                              , OrgTitleTags <$> try parser
-                             , OrgTitleText <$> try parser ]
+                             , OrgTitleText <$> parser ]
 
     elems <- manyTill elemParsers stopParsers
 

@@ -10,7 +10,6 @@ import Data.Org.Todo
 import Data.Org.Timestamp
 import Data.Text (replicate)
 import Text.Megaparsec
-import Text.Megaparsec.Char
 import TextShow
 import Prelude hiding (replicate)
 
@@ -50,7 +49,7 @@ instance OrgElement OrgHeadline where
     indent' <- parser :: OrgParser OrgIndent
     todo' <- option (mempty :: OrgTodo) (parser :: OrgParser OrgTodo)
     priority' <- option (mempty :: OrgPriority) (parser :: OrgParser OrgPriority)
-    title' <- option (mempty :: OrgTitle) (parser :: OrgParser OrgTitle)
+    title' <- parser :: OrgParser OrgTitle
     -- schedule' <- optional $ try (string "SCHEDULED:" *> space *> (parser :: OrgParser OrgTimestamp))
     -- deadline' <- optional $ try (string "DEADLINE:" *> space *> (parser :: OrgParser OrgTimestamp))
     properties' <- option (mempty :: OrgPropertyBlock) (try parser :: OrgParser OrgPropertyBlock)

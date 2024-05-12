@@ -12,10 +12,9 @@ data OrgSeparator = SPC | EOL | EOF
 
 instance OrgElement OrgSeparator where
   parser = choice
-    [ EOL <$ eol
-    , SPC <$ space1 <* space
-    , EOF <$ eof
-    ]
+    [ EOF <$ eof
+    , EOL <$ eol
+    , SPC <$ space1 <* space ]
 
 instance TextShow OrgSeparator where
   showb SPC = " "

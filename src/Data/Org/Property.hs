@@ -8,7 +8,6 @@ import Data.Text (Text)
 
 import Control.Monad.State qualified as State
 
-import Text.Megaparsec
 import Text.Megaparsec.Char
 import TextShow
 
@@ -16,7 +15,7 @@ import Control.Monad
 
 import Prelude hiding (unwords, concat, replicate, concatMap)
 
-data OrgProperty = OrgProperty OrgKeyword Text
+data OrgProperty = OrgProperty !OrgKeyword !Text
   deriving (Show, Eq)
 
 propertyStackKeywords :: [Text]
@@ -27,17 +26,17 @@ isPropertyStackKeyword (OrgKeyword k) = k `elem` propertyStackKeywords
 
 instance OrgElement OrgProperty where
   parser = do
-    key <- between (char ':') (char ':') (parser :: OrgParser OrgKeyword)
+    keyword <- char ':' *> (parser :: OrgParser OrgKeyword) <* char ':'
     space
-    guard $ not (isPropertyStackKeyword key)
+    guard $ not (isPropertyStackKeyword keyword)
 
     PlainText value <- parser :: OrgParser PlainText
 
-    case key of
+    case keyword of
       OrgKeyword "CATEGORY" -> State.modify (\ctx -> ctx {metaCategory = value})
-      _ -> State.modify id
+      _keyword -> State.modify id
 
-    return $ OrgProperty key value
+    return $ OrgProperty keyword value
 
 instance TextShow OrgProperty where
   showb (OrgProperty k v) = ":" <> showb k <> ": " <> fromText v
