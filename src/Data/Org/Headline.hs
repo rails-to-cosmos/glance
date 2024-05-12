@@ -25,13 +25,13 @@ data Headline = Headline { indent :: !Indent
                          } deriving (Show, Eq)
 
 instance Semigroup Headline where
-  (<>) lhs rhs = Headline { indent = indent lhs <> indent rhs
-                          , todo = todo lhs <> todo rhs
-                          , priority = priority lhs <> priority rhs
-                          , title = title lhs <> title rhs
-                          , schedule = Nothing
-                          , deadline = Nothing
-                          , properties = properties lhs <> properties rhs }
+  (<>) a b = Headline { indent = indent a <> indent b
+                      , todo = todo a <> todo b
+                      , priority = priority a <> priority b
+                      , title = title a <> title b
+                      , schedule = Nothing
+                      , deadline = Nothing
+                      , properties = properties a <> properties b }
 
 instance Monoid Headline where
   mempty = Headline { indent = mempty :: Indent
