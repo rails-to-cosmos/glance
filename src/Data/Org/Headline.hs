@@ -8,6 +8,7 @@ import Data.Org.Properties
 import Data.Org.Title
 import Data.Org.Todo
 import Data.Org.Timestamp
+import Data.Org.Separator
 import Data.Text (replicate)
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -54,6 +55,8 @@ instance OrgElement Headline where
     -- schedule' <- optional $ try (string "SCHEDULED:" *> space *> (parser :: OrgParser Timestamp))
     -- deadline' <- optional $ try (string "DEADLINE:" *> space *> (parser :: OrgParser Timestamp))
     properties' <- option (mempty :: Properties) (try (eol *> parser :: OrgParser Properties))
+
+    _ <- parser :: OrgParser Separator
 
     return Headline { indent = indent'
                     , todo = todo'

@@ -86,8 +86,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
                         , "* CANCELLED Mess" ]
              , expected = ParsingResult { elements = [ GPragma (PTodo (Set.fromList ["TODO"]) (Set.fromList ["CANCELLED"]))
                                                      , GHeadline (defaultHeadline { todo = Todo (Just "CANCELLED")
-                                                                                           , title = Title [ TitleText (Token "Mess")
-                                                                                                           , TitleSeparator SPC]})]
+                                                                                  , title = Title [TitleText (Token "Mess")] })]
                                         , context = defaultContext { metaTodoActive = Set.fromList ["TODO"]
                                                                    , metaTodoInactive = Set.fromList ["DONE", "CANCELLED"]}}}
 

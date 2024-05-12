@@ -37,4 +37,8 @@
     stack test
   '';
 
+  scripts.run-test.exec = ''
+    stack test --test-arguments "--pattern \"$@\""
+  '';
+
 }
