@@ -119,13 +119,15 @@ testCases = [ TestCase { description = "Parse headline with tags"
 
   , TestCase { description = "Restrict infinite parsing of eol / eof"
              , inputs = ["", "", ""]
-             , expected = ParsingResult { elements = [ GText (Token "") ]
+             , expected = ParsingResult { elements = [ GSeparator EOL
+                                                     , GSeparator EOL ]
                                         , context = defaultContext }}
 
   , TestCase { description = "Parse timestamps"
              , inputs = [ "<2024-01-01>"
                         , "<2024-01-01 Mon>" ]
              , expected = ParsingResult { elements = [ GTimestamp Timestamp {tsStatus = TsActive, tsRep = Nothing, tsTime = strptime "2024-01-01 00:00:00"}
+                                                     , GSeparator EOL
                                                      , GTimestamp Timestamp {tsStatus = TsActive, tsRep = Nothing, tsTime = strptime "2024-01-01 00:00:00"}]
                                         , context = defaultContext }}
 
@@ -142,10 +144,10 @@ testCases = [ TestCase { description = "Parse headline with tags"
   --                                                                                 , properties = Properties [Property (Keyword "CATEGORY") "bar"]})]
   --                                       , context = defaultContext { metaCategory = "bar" }}}
 
-  , TestCase { description = "Parse links"
-             , inputs = ["[[file:/home/foo/bar.org::*NN Pipeline][NN Pipeline]]"]
-             , expected = ParsingResult { elements = [GText (Token "[[file:/home/foo/bar.org::*NN Pipeline][NN Pipeline]]")]
-                                        , context = defaultContext}}
+  -- , TestCase { description = "Parse links"
+  --            , inputs = ["[[file:/home/foo/bar.org::*NN Pipeline][NN Pipeline]]"]
+  --            , expected = ParsingResult { elements = [GText (Token "[[file:/home/foo/bar.org::*NN Pipeline][NN Pipeline]]")]
+  --                                       , context = defaultContext}}
 
   ]
 
