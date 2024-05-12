@@ -6,12 +6,12 @@ import Data.Org.Separator
 import Data.Org.Element
 
 import TextShow (TextShow, showb)
-import Text.Megaparsec hiding (Token)
+import Text.Megaparsec
 import Text.Megaparsec.Char
 
 import Control.Monad (void)
 
-data SentenceElement = STk !Token
+data SentenceElement = STk !Tk
                      | SentenceTimestamp !Timestamp
                      | SSep !Separator
   deriving (Show, Eq)

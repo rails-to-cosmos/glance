@@ -22,20 +22,20 @@ data TestCase = TestCase { description :: !String
 testCases :: [TestCase]
 testCases = [ TestCase { description = "Parse headline with tags"
                        , inputs = ["* Hello world :a:b:c:"]
-                       , expected = ParsingResult { elements = [ GHeadline defaultHeadline { title = Title [ TText (Token "Hello")
+                       , expected = ParsingResult { elements = [ GHeadline defaultHeadline { title = Title [ TText (Tk "Hello")
                                                                                                            , TSep SPC
-                                                                                                           , TText (Token "world")
+                                                                                                           , TText (Tk "world")
                                                                                                            , TSep SPC
                                                                                                            , TTags (Tags ["a", "b", "c"]) ]}]
                                                   , context = defaultContext }}
 
             , TestCase { description = "Parse headline with corrupted tag string"
                        , inputs = ["* Hello world :a:b:c"]
-                       , expected = ParsingResult { elements = [ GHeadline defaultHeadline { title = Title [ TText (Token "Hello")
+                       , expected = ParsingResult { elements = [ GHeadline defaultHeadline { title = Title [ TText (Tk "Hello")
                                                                                                            , TSep SPC
-                                                                                                           , TText (Token "world")
+                                                                                                           , TText (Tk "world")
                                                                                                            , TSep SPC
-                                                                                                           , TText (Token ":a:b:c") ]}]
+                                                                                                           , TText (Tk ":a:b:c") ]}]
                                                   , context = defaultContext }}
 
             , TestCase { description = "Parse property block"
@@ -43,22 +43,22 @@ testCases = [ TestCase { description = "Parse headline with tags"
                                   , ":PROPERTIES:"
                                   , ":TITLE: New title"
                                   , ":END:" ]
-                       , expected = ParsingResult { elements = [ GHeadline (defaultHeadline { title = Title [ TText (Token "Hello") ]
-                                                                                            , properties = Properties [Property (Keyword "TITLE") (Sentence [ STk (Token "New")
+                       , expected = ParsingResult { elements = [ GHeadline (defaultHeadline { title = Title [ TText (Tk "Hello") ]
+                                                                                            , properties = Properties [Property (Keyword "TITLE") (Sentence [ STk (Tk "New")
                                                                                                                                                             , SSep SPC
-                                                                                                                                                            , STk (Token "title") ])]})]
+                                                                                                                                                            , STk (Tk "title") ])]})]
                                                   , context = defaultContext }}
 
             , TestCase { description = "Parse drawer"
                        , inputs = [":DRAWER:"]
-                       , expected = ParsingResult { elements = [GText (Token ":DRAWER:")]
+                       , expected = ParsingResult { elements = [GText (Tk ":DRAWER:")]
                                                   , context = defaultContext }}
 
             , TestCase { description = "Category pragma affects context"
                        , inputs = ["#+CATEGORY: foo bar"]
-                       , expected = ParsingResult { elements = [GPragma (PCategory (Sentence [ STk (Token "foo")
+                       , expected = ParsingResult { elements = [GPragma (PCategory (Sentence [ STk (Tk "foo")
                                                                                              , SSep SPC
-                                                                                             , STk (Token "bar") ]))]
+                                                                                             , STk (Tk "bar") ]))]
                                                   , context = defaultContext { metaCategory = "foo bar" }}}
 
             , TestCase { description = "Category property affects context"
@@ -66,10 +66,10 @@ testCases = [ TestCase { description = "Parse headline with tags"
                                   , ":PROPERTIES:"
                                   , ":CATEGORY: Updated category"
                                   , ":END:" ]
-                       , expected = ParsingResult { elements = [ GHeadline (defaultHeadline { title = Title [TText (Token "Hello")]
-                                                                                            , properties = Properties [Property (Keyword "CATEGORY") (Sentence [ STk (Token "Updated")
+                       , expected = ParsingResult { elements = [ GHeadline (defaultHeadline { title = Title [TText (Tk "Hello")]
+                                                                                            , properties = Properties [Property (Keyword "CATEGORY") (Sentence [ STk (Tk "Updated")
                                                                                                                                                                , SSep SPC
-                                                                                                                                                               , STk (Token "category")])]})]
+                                                                                                                                                               , STk (Tk "category")])]})]
                                                   , context = defaultContext { metaCategory = "Updated category" }}}
 
             , TestCase { description = "Parse complete headline"
@@ -77,7 +77,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
                        , expected = ParsingResult { elements = [ GHeadline (defaultHeadline { indent = Indent 2
                                                                                             , todo = Todo (Just "TODO")
                                                                                             , priority = Priority (Just 'A')
-                                                                                            , title = Title [ TText (Token "Hello")
+                                                                                            , title = Title [ TText (Tk "Hello")
                                                                                                             , TSep SPC
                                                                                                             , TTags (Tags ["a", "b", "c"])]})]
                                                   , context = defaultContext }}
@@ -87,7 +87,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
                                   , "* CANCELLED Mess" ]
                        , expected = ParsingResult { elements = [ GPragma (PTodo (Set.fromList ["TODO"]) (Set.fromList ["CANCELLED"]))
                                                                , GHeadline (defaultHeadline { todo = Todo (Just "CANCELLED")
-                                                                                            , title = Title [TText (Token "Mess")] })]
+                                                                                            , title = Title [TText (Tk "Mess")] })]
                                                   , context = defaultContext { metaTodoActive = Set.fromList ["TODO"]
                                                                              , metaTodoInactive = Set.fromList ["DONE", "CANCELLED"]}}}
 
@@ -102,17 +102,17 @@ testCases = [ TestCase { description = "Parse headline with tags"
             --                       , "* CANCELLED Mess" ]
             --            , expected = ParsingResult { elements = [ GPragma (PTodo (Set.fromList ["CANCELLED"]) (Set.fromList ["CANCELLED"]))
             --                                                    , GHeadline (defaultHeadline { todo = Todo Nothing
-            --                                                                                 , title = Title [ TText (Token "CANCELLED")
+            --                                                                                 , title = Title [ TText (Tk "CANCELLED")
             --                                                                                                 , TSep SPC
-            --                                                                                                 , TText (Token "Mess")]})]
+            --                                                                                                 , TText (Tk "Mess")]})]
             --                                       , context = defaultContext { metaTodoActive = Set.fromList ["TODO"]
             --                                                                  , metaTodoInactive = Set.fromList ["DONE"] }}}
 
             , TestCase { description = "Parse several headlines (multiline parsing)"
                        , inputs = [ "* foo"
                                   , "* bar" ]
-                       , expected = ParsingResult { elements = [ GHeadline (defaultHeadline {title = Title [TText (Token "foo")]})
-                                                               , GHeadline (defaultHeadline {title = Title [TText (Token "bar")]})]
+                       , expected = ParsingResult { elements = [ GHeadline (defaultHeadline {title = Title [TText (Tk "foo")]})
+                                                               , GHeadline (defaultHeadline {title = Title [TText (Tk "bar")]})]
                                                   , context = defaultContext }}
 
             , TestCase { description = "Empty text parsing"
@@ -140,7 +140,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
             --                       , ":PROPERTIES:"
             --                       , ":CATEGORY: bar"
             --                       , ":END:" ]
-            --            , expected = ParsingResult { elements = [ GHeadline (defaultHeadline { title = Title [TText (Token "foo")]
+            --            , expected = ParsingResult { elements = [ GHeadline (defaultHeadline { title = Title [TText (Tk "foo")]
             --                                                                                 , schedule = Just Timestamp { tsStatus = TsActive
             --                                                                                                             , tsRep = Nothing
             --                                                                                                             , tsTime = strptime "2024-04-28 00:00:00" }
@@ -149,7 +149,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
 
             -- , TestCase { description = "Parse links"
             --            , inputs = ["[[file:/home/foo/bar.org::*NN Pipeline][NN Pipeline]]"]
-            --            , expected = ParsingResult { elements = [GText (Token "[[file:/home/foo/bar.org::*NN Pipeline][NN Pipeline]]")]
+            --            , expected = ParsingResult { elements = [GText (Tk "[[file:/home/foo/bar.org::*NN Pipeline][NN Pipeline]]")]
             --                                       , context = defaultContext}}
 
             ]

@@ -18,7 +18,7 @@ data GElement = GHeadline   !Headline
               | GProperties !Properties
               | GTags       !Tags
               | GTimestamp  !Timestamp
-              | GText       !Token
+              | GText       !Tk
               | GSeparator  !Separator
               deriving (Show, Eq)
 

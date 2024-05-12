@@ -15,9 +15,9 @@ testCases :: [TestCase]
 testCases = [ TestCase { description = "Org-mode headline representation"
                        , element = GHeadline defaultHeadline { indent = Indent 1
                                                                       , todo = mempty :: Todo
-                                                                      , title = Title [ TText (Token "Hello,")
+                                                                      , title = Title [ TText (Tk "Hello,")
                                                                                       , TSep SPC
-                                                                                      , TText (Token "world!")
+                                                                                      , TText (Tk "world!")
                                                                                       , TSep SPC
                                                                                       , TTags (Tags ["greetings"])]}
                        , representation = "* Hello, world! :greetings:" }]

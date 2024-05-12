@@ -5,7 +5,7 @@ module Data.Org
   , Headline (..)
   , Indent (..)
   , Keyword (..)
-  , Token (..)
+  , Tk (..)
   , Priority (..)
   , Property (..)
   , Properties (..)
@@ -50,7 +50,7 @@ import UnliftIO ()
 parse :: OrgContext -> Text -> ([GElement], OrgContext)
 parse ctx cmd = case PS.parse (runStateT (PS.manyTill OrgElement.parser PS.eof) ctx) "" cmd of
   Right val -> val
-  Left err  -> ([GText (Token (pack (PS.errorBundlePretty err)))], ctx)
+  Left err  -> ([GText (Tk (pack (PS.errorBundlePretty err)))], ctx)
 
 mparse :: Text -> ([GElement], OrgContext)
 mparse = parse (mempty :: OrgContext)
