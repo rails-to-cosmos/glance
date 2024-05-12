@@ -19,7 +19,7 @@ import System.Console.Haskeline (InputT, Settings (autoAddHistory, historyFile),
 import TextShow
 import UnliftIO ()
 
-type CommandProcessor = OrgContext -> Text -> ([GElement], OrgContext)
+type CommandProcessor = OrgContext -> Text -> ([GElem], OrgContext)
 
 type Repl a = StateT OrgContext (SqlQueryT (InputT IO)) a
 

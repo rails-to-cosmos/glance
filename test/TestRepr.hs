@@ -8,7 +8,7 @@ import           TextShow (TextShow(showb), fromText)
 import           TestDefaults
 
 data TestCase = TestCase { description :: !String
-                         , element :: !GElement
+                         , element :: !GElem
                          , representation :: !Text }
 
 testCases :: [TestCase]

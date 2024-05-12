@@ -1,7 +1,7 @@
 module Data.Org
   ( OrgElement (..)
   , OrgContext (..)
-  , GElement (..)
+  , GElem (..)
   , Headline (..)
   , Indent (..)
   , Keyword (..)
@@ -47,10 +47,10 @@ import Data.Text.Lazy.Builder ()
 import Text.Megaparsec qualified as PS
 import UnliftIO ()
 
-parse :: OrgContext -> Text -> ([GElement], OrgContext)
+parse :: OrgContext -> Text -> ([GElem], OrgContext)
 parse ctx cmd = case PS.parse (runStateT (PS.manyTill OrgElement.parser PS.eof) ctx) "" cmd of
   Right val -> val
-  Left err  -> ([GText (Tk (pack (PS.errorBundlePretty err)))], ctx)
+  Left err  -> ([GTk (Tk (pack (PS.errorBundlePretty err)))], ctx)
 
-mparse :: Text -> ([GElement], OrgContext)
+mparse :: Text -> ([GElem], OrgContext)
 mparse = parse (mempty :: OrgContext)

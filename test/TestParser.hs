@@ -11,7 +11,7 @@ import Data.Time (UTCTime, parseTimeOrError, defaultTimeLocale)
 strptime :: Text -> UTCTime
 strptime t = parseTimeOrError True defaultTimeLocale "%Y-%m-%d %H:%M:%S" (unpack t) :: UTCTime
 
-data ParsingResult = ParsingResult { elements :: ![GElement]
+data ParsingResult = ParsingResult { elements :: ![GElem]
                                    , context :: !OrgContext
                                    } deriving (Eq, Show)
 
@@ -51,7 +51,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
 
             , TestCase { description = "Parse drawer"
                        , inputs = [":DRAWER:"]
-                       , expected = ParsingResult { elements = [GText (Tk ":DRAWER:")]
+                       , expected = ParsingResult { elements = [GTk (Tk ":DRAWER:")]
                                                   , context = defaultContext }}
 
             , TestCase { description = "Category pragma affects context"
@@ -149,7 +149,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
 
             -- , TestCase { description = "Parse links"
             --            , inputs = ["[[file:/home/foo/bar.org::*NN Pipeline][NN Pipeline]]"]
-            --            , expected = ParsingResult { elements = [GText (Tk "[[file:/home/foo/bar.org::*NN Pipeline][NN Pipeline]]")]
+            --            , expected = ParsingResult { elements = [GTk (Tk "[[file:/home/foo/bar.org::*NN Pipeline][NN Pipeline]]")]
             --                                       , context = defaultContext}}
 
             ]
