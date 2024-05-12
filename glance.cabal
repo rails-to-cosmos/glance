@@ -32,23 +32,27 @@ library
       Data.Org.Headline
       Data.Org.Indent
       Data.Org.Keyword
-      Data.Org.PlainText
       Data.Org.Pragma
       Data.Org.Priority
+      Data.Org.Properties
       Data.Org.Property
-      Data.Org.PropertyBlock
+      Data.Org.Sentence
+      Data.Org.Separator
       Data.Org.Tags
       Data.Org.Timestamp
       Data.Org.Title
       Data.Org.Todo
+      Data.Org.Token
       Persist.Org
       Repl.Org
-      Repl.State
   other-modules:
       Paths_glance
   hs-source-dirs:
       src
       lib
+  default-extensions:
+      OverloadedStrings
+      ImportQualifiedPost
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
       base >=4.7 && <5
@@ -78,6 +82,9 @@ executable glance
       Paths_glance
   hs-source-dirs:
       app
+  default-extensions:
+      OverloadedStrings
+      ImportQualifiedPost
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5
@@ -112,6 +119,9 @@ test-suite glance-test
       Paths_glance
   hs-source-dirs:
       test
+  default-extensions:
+      OverloadedStrings
+      ImportQualifiedPost
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5

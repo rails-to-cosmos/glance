@@ -1,4 +1,4 @@
-module Data.Org.Keyword (OrgKeyword (..)) where
+module Data.Org.Keyword (Keyword (..)) where
 
 import Data.Org.Element
 import Data.Text (Text, pack, toUpper)
@@ -10,13 +10,13 @@ import TextShow (TextShow, fromText, showb)
 
 import Prelude hiding (unwords, concat, replicate, concatMap)
 
-newtype OrgKeyword = OrgKeyword Text
+newtype Keyword = Keyword Text
   deriving (Show, Eq)
 
-instance TextShow OrgKeyword where
-  showb (OrgKeyword k) = fromText k
+instance TextShow Keyword where
+  showb (Keyword k) = fromText k
 
-instance OrgElement OrgKeyword where
+instance OrgElement Keyword where
   parser = do
     let keyword = some (satisfy (\c -> isAlpha c || c == '_'))
-    OrgKeyword . toUpper . pack <$> keyword
+    Keyword . toUpper . pack <$> keyword

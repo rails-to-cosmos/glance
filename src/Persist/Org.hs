@@ -1,4 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DataKinds #-}
@@ -14,7 +13,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE ImportQualifiedPost #-}
 
 module Persist.Org (migrateAll) where
 

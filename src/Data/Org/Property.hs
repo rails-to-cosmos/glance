@@ -1,45 +1,41 @@
-{-# LANGUAGE OverloadedStrings #-}
-
-module Data.Org.Property (OrgProperty (..)) where
+module Data.Org.Property (Property (..)) where
 
 import Data.Org.Element
-import Data.Org.Context
 import Data.Org.Keyword
-import Data.Org.PlainText
+import Data.Org.Sentence
+import Data.Org.Context (metaCategory)
 import Data.Text (Text)
 
-import qualified Control.Monad.State as State
-
-import Text.Megaparsec
 import Text.Megaparsec.Char
-import TextShow
+import TextShow (TextShow, showt, showb)
 
 import Control.Monad
+import Control.Monad.State qualified as State
 
 import Prelude hiding (unwords, concat, replicate, concatMap)
 
-data OrgProperty = OrgProperty OrgKeyword Text
+data Property = Property !Keyword !Sentence
   deriving (Show, Eq)
 
-propertyStackKeywords :: [Text]
-propertyStackKeywords = ["PROPERTIES", "END"]
+reservedKeywords :: [Text]
+reservedKeywords = ["PROPERTIES", "END"]
 
-isPropertyStackKeyword :: OrgKeyword -> Bool
-isPropertyStackKeyword (OrgKeyword k) = k `elem` propertyStackKeywords
+isPropertyStackKeyword :: Keyword -> Bool
+isPropertyStackKeyword (Keyword k) = k `elem` reservedKeywords
 
-instance OrgElement OrgProperty where
+instance OrgElement Property where
   parser = do
-    key <- between (char ':') (char ':') (parser :: OrgParser OrgKeyword)
-    space
-    guard $ not (isPropertyStackKeyword key)
+    keyword <- char ':' *> (parser :: OrgParser Keyword) <* char ':' <* space
 
-    PlainText value <- parser :: OrgParser PlainText
+    guard $ not (isPropertyStackKeyword keyword)
 
-    case key of
-      OrgKeyword "CATEGORY" -> State.modify (\ctx -> ctx {metaCategory = value})
-      _ -> State.modify id
+    value <- parser :: OrgParser Sentence
 
-    return $ OrgProperty key value
+    case keyword of
+      Keyword "CATEGORY" -> State.modify (\ctx -> ctx {metaCategory = showt value})
+      _keyword -> State.modify id
 
-instance TextShow OrgProperty where
-  showb (OrgProperty k v) = ":" <> showb k <> ": " <> fromText v
+    return $ Property keyword value
+
+instance TextShow Property where
+  showb (Property k v) = ":" <> showb k <> ": " <> showb v

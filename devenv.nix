@@ -7,6 +7,7 @@
     git
     zlib
     universal-ctags
+    ripgrep
 
     haskell.compiler.ghc964
     haskell.packages.ghc964.hpack
@@ -34,6 +35,10 @@
   enterTest = ''
     hlint src --report
     stack test
+  '';
+
+  scripts.run-test.exec = ''
+    stack test --test-arguments "--pattern \"$@\""
   '';
 
 }

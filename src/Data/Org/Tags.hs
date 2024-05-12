@@ -1,6 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
-
-module Data.Org.Tags (OrgTags (..)) where
+module Data.Org.Tags (Tags (..)) where
 
 import Data.Text (Text, intercalate)
 import Data.List (nub)
@@ -13,22 +11,22 @@ import Text.Megaparsec
 import Text.Megaparsec.Char
 
 import Control.Monad
-import qualified Control.Monad.State as State
+import Control.Monad.State qualified as State
 
 import Prelude hiding (unwords, concat, replicate, concatMap)
 
-newtype OrgTags = OrgTags [Text]
+newtype Tags = Tags [Text]
   deriving (Show, Eq)
 
-instance TextShow OrgTags where
-  showb (OrgTags []) = fromText ""
-  showb (OrgTags tags) = fromText ":" <> fromText (intercalate ":" tags) <> fromText ":"
+instance TextShow Tags where
+  showb (Tags []) = fromText ""
+  showb (Tags tags) = fromText ":" <> fromText (intercalate ":" tags) <> fromText ":"
 
-instance Semigroup OrgTags where
-  (<>) (OrgTags lhs) (OrgTags rhs) = OrgTags (nub lhs <> rhs)
+instance Semigroup Tags where
+  (<>) (Tags lhs) (Tags rhs) = Tags (nub lhs <> rhs)
 
-instance Monoid OrgTags where
-  mempty = OrgTags []
+instance Monoid Tags where
+  mempty = Tags []
 
 tag :: Parser Text
 tag = takeWhile1P (Just "tag character") (`elem` keyword) <* char ':'
@@ -36,7 +34,7 @@ tag = takeWhile1P (Just "tag character") (`elem` keyword) <* char ':'
 keyword :: [Char]
 keyword = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ "-_"
 
-instance OrgElement OrgTags where
+instance OrgElement Tags where
   parser = do
     let stop = lookAhead (try (choice [void eol, eof]))
-    OrgTags <$> State.lift (char ':' *> manyTill tag stop)
+    Tags <$> State.lift (char ':' *> manyTill tag stop)
