@@ -19,7 +19,7 @@ testCases = [ TestCase { description = "Org-mode headline representation"
                                                                                       , TSep SPC
                                                                                       , TText (Token "world!")
                                                                                       , TSep SPC
-                                                                                      , TitleTags (Tags ["greetings"])]}
+                                                                                      , TTags (Tags ["greetings"])]}
                        , representation = "* Hello, world! :greetings:" }]
 
 assertOne :: TestCase -> TestTree
