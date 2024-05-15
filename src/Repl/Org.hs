@@ -16,7 +16,7 @@ import Data.Text.Lazy.Builder ()
 import Database.Persist.Monad (SqlQueryT, runMigration, runSqlQueryT)
 import Database.Persist.Sqlite (createSqlitePool)
 import Persist.Org (migrateAll)
-import System.Console.Haskeline (InputT, Settings, getInputLine, runInputT)
+import System.Console.Haskeline (InputT, getInputLine, runInputT)
 import TextShow
 import UnliftIO ()
 
