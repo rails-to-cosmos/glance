@@ -9,23 +9,20 @@ import Control.Monad.State qualified as State
 import Data.Org qualified as Org
 import Data.Org.Context (OrgContext)
 import Data.Org.Generic
+import Data.Config qualified as Config
 import Data.Text (Text, pack)
 import Data.Text.IO as TIO
 import Data.Text.Lazy.Builder ()
 import Database.Persist.Monad (SqlQueryT, runMigration, runSqlQueryT)
 import Database.Persist.Sqlite (createSqlitePool)
 import Persist.Org (migrateAll)
-import System.Console.Haskeline (InputT, Settings (autoAddHistory, historyFile), defaultSettings, getInputLine, runInputT)
+import System.Console.Haskeline (InputT, Settings, getInputLine, runInputT)
 import TextShow
 import UnliftIO ()
 
 type CommandProcessor = OrgContext -> Text -> ([GElem], OrgContext)
 
 type Repl a = StateT OrgContext (SqlQueryT (InputT IO)) a
-
-settings :: Settings IO
-settings = defaultSettings { autoAddHistory = True
-                           , historyFile = Just ".history" }
 
 getInput :: Repl Text
 getInput = do
@@ -52,10 +49,14 @@ repl fn = do
       State.put ctx'
       repl fn
 
-runRepl :: Text -> Int -> OrgContext -> CommandProcessor -> IO ()
-runRepl connectionString poolSize state fn = do
-  pool <- runStderrLoggingT createPool
+runRepl :: Config.Config -> OrgContext -> CommandProcessor -> IO ()
+runRepl config state fn = do
+  pool <- createPool
   runSqlQueryT pool (runMigration migrateAll)
-  runInputT settings (runSqlQueryT pool (runStateT state (repl fn)))
-  where runStateT = flip State.evalStateT
-        createPool = createSqlitePool connectionString poolSize
+  runInputT haskelineSettings (runSqlQueryT pool (runStateT state (repl fn)))
+  where
+    dbPoolSize = Config.dbPoolSize config
+    dbConnectionString = Config.dbConnectionString config
+    haskelineSettings = Config.haskelineSettings config
+    runStateT = flip State.evalStateT
+    createPool = runStderrLoggingT (createSqlitePool dbConnectionString dbPoolSize)

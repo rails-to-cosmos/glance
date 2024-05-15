@@ -25,6 +25,7 @@ source-repository head
 
 library
   exposed-modules:
+      Data.Config
       Data.Org
       Data.Org.Context
       Data.Org.Element
