@@ -43,7 +43,7 @@ instance Monoid Headline where
                     , properties = mempty :: Properties }
 
 instance TextShow Headline where
-  showb headline = fromText (replicate i "*") <> showbSpace <> showb (title headline)
+  showb headline = fromText (replicate i "*") <> showb (todo headline) <> showb (title headline)
     where Indent i = indent headline
 
 instance OrgElement Headline where
