@@ -8,7 +8,7 @@ import Data.Org.Sentence
 import Data.Text (Text, pack, unwords)
 import Data.Set qualified as Set
 
-import Text.Megaparsec hiding (Token)
+import Text.Megaparsec
 import Text.Megaparsec.Char
 
 import TextShow
@@ -47,7 +47,7 @@ instance OrgElement Pragma where
 
         return $ PTodo pragmaActive pragmaInactive
       _keyword -> do
-        Token value <- parser :: OrgParser Token
+        Tk value <- parser :: OrgParser Tk
         return $ Pragma key value
 
 instance TextShow Pragma where

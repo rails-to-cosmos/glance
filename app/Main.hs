@@ -11,6 +11,8 @@ import Data.Config qualified as Config
 import Data.Org.Context
 import Repl.Org
 
+import TextShow
+
 import System.Directory
 import System.FilePath
 import System.Console.Haskeline qualified as Haskeline
@@ -56,7 +58,11 @@ parse (filename:_) = do
   exitSuccess
 
 repl :: Config.Config -> OrgContext -> IO ()
-repl config context = runRepl config context Org.parse
+repl config context = do
+  printT ("Hello there, fellow hacker!" :: Text.Text)
+  printT (Text.intercalate " " ["I'll use meta db located in", Config.dbConnectionString config])
+
+  runRepl config context Org.parse
 
 -- parse (x:xs) = do
 --   putStrLn ("Unknown argument skipped: " ++ x)

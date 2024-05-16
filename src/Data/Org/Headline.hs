@@ -19,19 +19,19 @@ data Headline = Headline { indent :: !Indent
                          , todo :: !Todo
                          , priority :: !Priority
                          , title :: !Title
-                         , schedule :: !(Maybe Timestamp)
-                         , deadline :: !(Maybe Timestamp)
+                         , schedule :: !(Maybe Ts)
+                         , deadline :: !(Maybe Ts)
                          , properties :: !Properties
                          } deriving (Show, Eq)
 
 instance Semigroup Headline where
-  (<>) lhs rhs = Headline { indent = indent lhs <> indent rhs
-                          , todo = todo lhs <> todo rhs
-                          , priority = priority lhs <> priority rhs
-                          , title = title lhs <> title rhs
-                          , schedule = Nothing
-                          , deadline = Nothing
-                          , properties = properties lhs <> properties rhs }
+  (<>) a b = Headline { indent = indent a <> indent b
+                      , todo = todo a <> todo b
+                      , priority = priority a <> priority b
+                      , title = title a <> title b
+                      , schedule = Nothing
+                      , deadline = Nothing
+                      , properties = properties a <> properties b }
 
 instance Monoid Headline where
   mempty = Headline { indent = mempty :: Indent
@@ -52,11 +52,11 @@ instance OrgElement Headline where
     todo' <- option (mempty :: Todo) (parser :: OrgParser Todo)
     priority' <- option (mempty :: Priority) (parser :: OrgParser Priority)
     title' <- parser :: OrgParser Title
-    -- schedule' <- optional $ try (string "SCHEDULED:" *> space *> (parser :: OrgParser Timestamp))
-    -- deadline' <- optional $ try (string "DEADLINE:" *> space *> (parser :: OrgParser Timestamp))
+    -- schedule' <- optional $ try (string "SCHEDULED:" *> space *> (parser :: OrgParser Ts))
+    -- deadline' <- optional $ try (string "DEADLINE:" *> space *> (parser :: OrgParser Ts))
     properties' <- option (mempty :: Properties) (try (eol *> parser :: OrgParser Properties))
 
-    _ <- parser :: OrgParser Separator
+    _ <- parser :: OrgParser Sep
 
     return Headline { indent = indent'
                     , todo = todo'

@@ -10,7 +10,7 @@ import Data.Org.Separator
 
 import TextShow
 
-import Text.Megaparsec hiding (Token)
+import Text.Megaparsec
 import Text.Megaparsec.Char
 
 import Prelude hiding (concat)
@@ -18,14 +18,14 @@ import Prelude hiding (concat)
 newtype Title = Title [TitleElement]
   deriving (Show, Eq)
 
-data TitleElement = TText !Token
+data TitleElement = TText !Tk
                   | TTags !Tags
-                  | TTs !Timestamp
-                  | TSep !Separator
+                  | TTs !Ts
+                  | TSep !Sep
   deriving (Show, Eq)
 
 instance TextShow TitleElement where
-  showb (TText (Token x)) = fromText x
+  showb (TText (Tk x)) = fromText x
   showb (TTags x) = showb x
   showb (TTs x) = showb x
   showb (TSep x) = showb x

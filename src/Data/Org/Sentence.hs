@@ -6,19 +6,19 @@ import Data.Org.Separator
 import Data.Org.Element
 
 import TextShow (TextShow, showb)
-import Text.Megaparsec hiding (Token)
+import Text.Megaparsec
 import Text.Megaparsec.Char
 
 import Control.Monad (void)
 
-data SentenceElement = STk !Token
-                     | SentenceTimestamp !Timestamp
-                     | SSep !Separator
+data SentenceElement = STk !Tk
+                     | STs !Ts
+                     | SSep !Sep
   deriving (Show, Eq)
 
 instance TextShow SentenceElement where
   showb (STk x) = showb x
-  showb (SentenceTimestamp x) = showb x
+  showb (STs x) = showb x
   showb (SSep x) = showb x
 
 newtype Sentence = Sentence [SentenceElement]
@@ -38,7 +38,7 @@ instance OrgElement Sentence where
   parser = do
     let stopParsers = choice [ void eol, eof ]
         elemParsers = choice [ SSep <$> try parser
-                             , SentenceTimestamp <$> try parser
+                             , STs <$> try parser
                              , STk <$> parser ]
 
     elems <- manyTill elemParsers (lookAhead stopParsers)
