@@ -56,7 +56,7 @@ parse (filename:_) = do
 
   TIO.putStrLn "Hello there, fellow hacker!"
   TIO.putStrLn (Text.intercalate " " ["MetaDB location:", Config.dbConnectionString config])
-  TIO.putStrLn (Text.intercalate " " ["Additional context: ", Text.pack filename])
+  TIO.putStrLn (Text.intercalate " " ["Additional context:", Text.pack filename])
 
   runRepl config context Org.parse
   exitSuccess
