@@ -6,6 +6,7 @@ import System.Exit
 import Data.ByteString.Char8 qualified as BSChar8
 import Data.ByteString qualified as BS
 import Data.Text qualified as Text
+import Data.Text.IO qualified as TIO
 import Data.Org qualified as Org
 import Data.Config qualified as Config
 import Data.Org.Context
@@ -53,14 +54,17 @@ parse (filename:_) = do
 
   let (elements, context) = Org.parse defaultContext content
 
-  print elements
-  repl config context
+  TIO.putStrLn "Hello there, fellow hacker!"
+  TIO.putStrLn (Text.intercalate " " ["MetaDB location:", Config.dbConnectionString config])
+  TIO.putStrLn (Text.intercalate " " ["Additional context: ", Text.pack filename])
+
+  runRepl config context Org.parse
   exitSuccess
 
 repl :: Config.Config -> OrgContext -> IO ()
 repl config context = do
-  printT ("Hello there, fellow hacker!" :: Text.Text)
-  printT (Text.intercalate " " ["I'll use meta db located in", Config.dbConnectionString config])
+  TIO.putStrLn "Hello there, fellow hacker!"
+  TIO.putStrLn (Text.intercalate " " ["I'll use meta db located in", Config.dbConnectionString config])
 
   runRepl config context Org.parse
 
