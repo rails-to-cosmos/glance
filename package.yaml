@@ -58,7 +58,6 @@ ghc-options:
 library:
   source-dirs:
     - src
-    - lib
 
 executables:
   glance:

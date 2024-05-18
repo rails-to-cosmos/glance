@@ -1,6 +1,5 @@
 module Data.Org.Headline (Headline (..)) where
 
-import Control.Monad
 import Data.Org.Element
 import Data.Org.Indent
 import Data.Org.Priority
@@ -9,11 +8,10 @@ import Data.Org.Title
 import Data.Org.Todo
 import Data.Org.Timestamp
 import Data.Org.Separator
-import Data.Text (replicate)
+import Data.Text qualified as Text
 import Text.Megaparsec
 import Text.Megaparsec.Char
-import TextShow
-import Prelude hiding (replicate)
+import TextShow qualified
 
 data Headline = Headline { indent :: !Indent
                          , todo :: !Todo
@@ -42,8 +40,8 @@ instance Monoid Headline where
                     , deadline = Nothing
                     , properties = mempty :: Properties }
 
-instance TextShow Headline where
-  showb headline = fromText (replicate i "*") <> showb (todo headline) <> showb (title headline)
+instance TextShow.TextShow Headline where
+  showb headline = TextShow.fromText (Text.replicate i "*") <> TextShow.showb (todo headline) <> TextShow.showb (title headline)
     where Indent i = indent headline
 
 instance OrgElement Headline where

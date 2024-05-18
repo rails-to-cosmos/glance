@@ -50,7 +50,6 @@ library
       Paths_glance
   hs-source-dirs:
       src
-      lib
   default-extensions:
       OverloadedStrings
       ImportQualifiedPost
