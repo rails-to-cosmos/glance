@@ -108,11 +108,11 @@ testCases = [ TestCase { description = "Parse headline with tags"
             --                                       , context = defaultContext { metaTodoActive = Set.fromList ["TODO"]
             --                                                                  , metaTodoInactive = Set.fromList ["DONE"] }}}
 
-            , TestCase { description = "Parse several headlines (multiline parsing)"
+            , TestCase { description = "Multiline parsing"
                        , inputs = [ "* foo"
                                   , "* bar" ]
                        , expected = ParsingResult { elements = [ GHeadline (defaultHeadline {title = Title [TText (Tk "foo")]})
-                                                               , GHeadline (defaultHeadline {title = Title [TText (Tk "bar")]})]
+                                                               , GHeadline (defaultHeadline {title = Title [TText (Tk "bar")]}) ]
                                                   , context = defaultContext }}
 
             , TestCase { description = "Empty text parsing"
