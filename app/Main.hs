@@ -6,10 +6,13 @@ import System.Exit
 import Data.ByteString.Char8 qualified as BSChar8
 import Data.ByteString qualified as BS
 import Data.Text qualified as Text
+import Data.Text.IO qualified as TIO
 import Data.Org qualified as Org
 import Data.Config qualified as Config
 import Data.Org.Context
 import Repl.Org
+
+import TextShow
 
 import System.Directory
 import System.FilePath
@@ -51,12 +54,19 @@ parse (filename:_) = do
 
   let (elements, context) = Org.parse defaultContext content
 
-  print elements
-  repl config context
+  TIO.putStrLn "Hello there, fellow hacker!"
+  TIO.putStrLn (Text.intercalate " " ["MetaDB location:", Config.dbConnectionString config])
+  TIO.putStrLn (Text.intercalate " " ["Additional context:", Text.pack filename])
+
+  runRepl config context Org.parse
   exitSuccess
 
 repl :: Config.Config -> OrgContext -> IO ()
-repl config context = runRepl config context Org.parse
+repl config context = do
+  TIO.putStrLn "Hello there, fellow hacker!"
+  TIO.putStrLn (Text.intercalate " " ["I'll use meta db located in", Config.dbConnectionString config])
+
+  runRepl config context Org.parse
 
 -- parse (x:xs) = do
 --   putStrLn ("Unknown argument skipped: " ++ x)

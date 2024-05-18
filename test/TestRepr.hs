@@ -8,19 +8,25 @@ import           TextShow (TextShow(showb), fromText)
 import           TestDefaults
 
 data TestCase = TestCase { description :: !String
-                         , element :: !GElement
+                         , element :: !GElem
                          , representation :: !Text }
 
 testCases :: [TestCase]
 testCases = [ TestCase { description = "Org-mode headline representation"
                        , element = GHeadline defaultHeadline { indent = Indent 1
-                                                                      , todo = mempty :: Todo
-                                                                      , title = Title [ TText (Token "Hello,")
-                                                                                      , TSep SPC
-                                                                                      , TText (Token "world!")
-                                                                                      , TSep SPC
-                                                                                      , TTags (Tags ["greetings"])]}
-                       , representation = "* Hello, world! :greetings:" }]
+                                                             , todo = mempty :: Todo
+                                                             , title = Title [ TText (Tk "Hello,")
+                                                                             , TSep SPC
+                                                                             , TText (Tk "world!")
+                                                                             , TSep SPC
+                                                                             , TTags (Tags ["greetings"])]}
+                       , representation = "* Hello, world! :greetings:" }
+
+            , TestCase { description = "Todo state representation"
+                       , element = GHeadline defaultHeadline { indent = Indent 1
+                                                             , todo = Todo (Just "TODO")
+                                                             , title = Title [ TText (Tk "foo") ]}
+                       , representation = "* TODO foo" }]
 
 assertOne :: TestCase -> TestTree
 assertOne tc = testCase (description tc) $ assertEqual [] (fromText (representation tc)) (showb (element tc))
