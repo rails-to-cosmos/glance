@@ -25,11 +25,11 @@ isPropertyStackKeyword (Keyword k) = k `elem` reservedKeywords
 
 instance Org.Base Property where
   parser = do
-    keyword <- char ':' *> (Org.parser :: Org.OrgParser Keyword) <* char ':' <* space
+    keyword <- char ':' *> (Org.parser :: Org.StatefulParser Keyword) <* char ':' <* space
 
     guard $ not (isPropertyStackKeyword keyword)
 
-    value <- Org.parser :: Org.OrgParser Sentence
+    value <- Org.parser :: Org.StatefulParser Sentence
 
     case keyword of
       Keyword "CATEGORY" -> State.modify (\ctx -> ctx {metaCategory = showt value})

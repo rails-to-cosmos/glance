@@ -28,7 +28,7 @@ instance Semigroup Tags where
 instance Monoid Tags where
   mempty = Tags []
 
-tag :: Org.Parser Text
+tag :: Org.StatelessParser Text
 tag = takeWhile1P (Just "tag character") (`elem` keyword) <* char ':'
 
 keyword :: [Char]

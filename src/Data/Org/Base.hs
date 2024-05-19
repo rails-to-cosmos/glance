@@ -1,4 +1,4 @@
-module Data.Org.Base (Parser, OrgParser, Base(..)) where
+module Data.Org.Base (StatelessParser, StatefulParser, Base(..)) where
 
 import Data.Typeable
 import Data.Text (Text)
@@ -8,9 +8,9 @@ import Text.Megaparsec (Parsec)
 import TextShow qualified
 import Control.Monad.State qualified as State
 
-type Parser = Parsec Void Text
-type StatefulParser s a = State.StateT s Parser a
-type OrgParser a = StatefulParser OrgContext a
+type StatelessParser = Parsec Void Text
+type StatefulParserBase s a = State.StateT s StatelessParser a
+type StatefulParser a = StatefulParserBase OrgContext a
 
 class (Show a, TextShow.TextShow a, Typeable a, Eq a) => Base a where
-  parser :: OrgParser a
+  parser :: StatefulParser a

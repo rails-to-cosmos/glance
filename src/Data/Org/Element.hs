@@ -25,11 +25,11 @@ instance Eq OrgElement where
         Nothing -> False
 
 instance Org.Base OrgElement where
-  parser = choice [ try (OrgElement <$> (Org.parser :: Org.OrgParser Sep))
-                  , try (OrgElement <$> (Org.parser :: Org.OrgParser Headline))
-                  , try (OrgElement <$> (Org.parser :: Org.OrgParser Pragma))
-                  , try (OrgElement <$> (Org.parser :: Org.OrgParser Ts))
-                  , OrgElement <$> (Org.parser :: Org.OrgParser Tk) ]
+  parser = choice [ try (OrgElement <$> (Org.parser :: Org.StatefulParser Sep))
+                  , try (OrgElement <$> (Org.parser :: Org.StatefulParser Headline))
+                  , try (OrgElement <$> (Org.parser :: Org.StatefulParser Pragma))
+                  , try (OrgElement <$> (Org.parser :: Org.StatefulParser Ts))
+                  , OrgElement <$> (Org.parser :: Org.StatefulParser Tk) ]
 
 instance TextShow OrgElement where
   showb (OrgElement a) = showb a

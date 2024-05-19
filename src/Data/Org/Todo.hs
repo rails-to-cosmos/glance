@@ -28,9 +28,9 @@ instance TS.TextShow Todo where
   showb (Todo Nothing) = TS.showbSpace
   showb (Todo (Just state)) = TS.showbSpace <> TS.fromText state <> TS.showbSpace
 
-todo :: Org.OrgParser Text
+todo :: Org.StatefulParser Text
 todo = do
   ctx <- State.get
-  Keyword result <- (Org.parser :: Org.OrgParser Keyword) <* space
+  Keyword result <- (Org.parser :: Org.StatefulParser Keyword) <* space
   guard $ result `elem` (metaTodoActive ctx <> metaTodoInactive ctx)
   return result

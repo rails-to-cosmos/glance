@@ -24,7 +24,7 @@ data Pragma = Pragma !Keyword !Text
 
 instance Org.Base Pragma where
   parser = do
-    let keyword = Org.parser :: Org.OrgParser Keyword
+    let keyword = Org.parser :: Org.StatefulParser Keyword
         todoList = some (todo <* space)
         doneList = option [] (char '|' *> space *> todoList)
         todoShort = pack <$> between (char '(') (char ')') (many (noneOf ['(', ')', '\n']))
@@ -35,7 +35,7 @@ instance Org.Base Pragma where
     key <- string "#+" *> keyword <* string ":" <* space
     case key of
       Keyword "CATEGORY" -> do
-        category <- Org.parser :: Org.OrgParser Sentence
+        category <- Org.parser :: Org.StatefulParser Sentence
         State.modify (\ctx -> ctx {metaCategory = showt category})
         return $ PCategory category
       Keyword "TODO" -> do
@@ -47,7 +47,7 @@ instance Org.Base Pragma where
 
         return $ PTodo pragmaActive pragmaInactive
       _keyword -> do
-        Tk value <- Org.parser :: Org.OrgParser Tk
+        Tk value <- Org.parser :: Org.StatefulParser Tk
         return $ Pragma key value
 
 instance TextShow Pragma where

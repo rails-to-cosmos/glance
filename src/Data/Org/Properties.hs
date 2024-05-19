@@ -20,7 +20,7 @@ instance Monoid Properties where
 instance Org.Base Properties where
   parser = do
     _ <- string ":PROPERTIES:" <* eol
-    properties <- manyTill ((Org.parser :: Org.OrgParser Property) <* eol) (string ":END:")
+    properties <- manyTill ((Org.parser :: Org.StatefulParser Property) <* eol) (string ":END:")
     return (Properties properties)
 
 instance TextShow Properties where

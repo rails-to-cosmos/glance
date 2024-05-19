@@ -8,10 +8,9 @@ import Data.Org.Title
 import Data.Org.Todo
 import Data.Org.Timestamp
 import Data.Org.Separator
-import Data.Text qualified as Text
 import Text.Megaparsec
 import Text.Megaparsec.Char
-import TextShow qualified
+import TextShow qualified as TS
 
 data Headline = Headline { indent :: !Indent
                          , todo :: !Todo
@@ -40,23 +39,23 @@ instance Monoid Headline where
                     , deadline = Nothing
                     , properties = mempty :: Properties }
 
-instance TextShow.TextShow Headline where
-  showb headline = TextShow.showb (indent headline)
-    <> TextShow.showb (todo headline)
-    <> TextShow.showb (priority headline)
-    <> TextShow.showb (title headline)
+instance TS.TextShow Headline where
+  showb headline = TS.showb (indent headline)
+    <> TS.showb (todo headline)
+    <> TS.showb (priority headline)
+    <> TS.showb (title headline)
 
 instance Org.Base Headline where
   parser = do
-    indent' <- Org.parser :: Org.OrgParser Indent
-    todo' <- option (mempty :: Todo) (Org.parser :: Org.OrgParser Todo)
-    priority' <- option (mempty :: Priority) (Org.parser :: Org.OrgParser Priority)
-    title' <- Org.parser :: Org.OrgParser Title
-    -- schedule' <- optional $ try (string "SCHEDULED:" *> space *> (Org.parser :: Org.OrgParser Ts))
-    -- deadline' <- optional $ try (string "DEADLINE:" *> space *> (Org.parser :: Org.OrgParser Ts))
-    properties' <- option (mempty :: Properties) (try (eol *> Org.parser :: Org.OrgParser Properties))
+    indent' <- Org.parser :: Org.StatefulParser Indent
+    todo' <- option (mempty :: Todo) (Org.parser :: Org.StatefulParser Todo)
+    priority' <- option (mempty :: Priority) (Org.parser :: Org.StatefulParser Priority)
+    title' <- Org.parser :: Org.StatefulParser Title
+    -- schedule' <- optional $ try (string "SCHEDULED:" *> space *> (Org.parser :: Org.StatefulParser Ts))
+    -- deadline' <- optional $ try (string "DEADLINE:" *> space *> (Org.parser :: Org.StatefulParser Ts))
+    properties' <- option (mempty :: Properties) (try (eol *> Org.parser :: Org.StatefulParser Properties))
 
-    _ <- Org.parser :: Org.OrgParser Sep
+    _ <- Org.parser :: Org.StatefulParser Sep
 
     return Headline { indent = indent'
                     , todo = todo'
