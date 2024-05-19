@@ -12,21 +12,21 @@ data TestCase = TestCase { description :: !String
                          , representation :: !Text }
 
 testCases :: [TestCase]
-testCases = [ -- TestCase { description = "Org-mode headline representation"
-            --            , element = GHeadline defaultHeadline { indent = Indent 1
-            --                                                  , todo = mempty :: Todo
-            --                                                  , title = Title [ TText (Tk "Hello,")
-            --                                                                  , TSep SPC
-            --                                                                  , TText (Tk "world!")
-            --                                                                  , TSep SPC
-            --                                                                  , TTags (Tags ["greetings"])]}
-            --            , representation = "* Hello, world! :greetings:" }
+testCases = [ TestCase { description = "Org-mode headline representation"
+                       , element = OrgElement defaultHeadline { indent = Indent 1
+                                                              , todo = mempty :: Todo
+                                                              , title = Title [ TText (Tk "Hello,")
+                                                                              , TSep SPC
+                                                                              , TText (Tk "world!")
+                                                                              , TSep SPC
+                                                                              , TTags (Tags ["greetings"])]}
+                       , representation = "* Hello, world! :greetings:" }
 
-            -- , TestCase { description = "Todo state representation"
-            --            , element = GHeadline defaultHeadline { indent = Indent 1
-            --                                                  , todo = Todo (Just "TODO")
-            --                                                  , title = Title [ TText (Tk "foo") ]}
-            --            , representation = "* TODO foo" }
+            , TestCase { description = "Todo state representation"
+                       , element = OrgElement defaultHeadline { indent = Indent 1
+                                                              , todo = Todo (Just "TODO")
+                                                              , title = Title [ TText (Tk "foo") ]}
+                       , representation = "* TODO foo" }
             ]
 
 assertOne :: TestCase -> TestTree
