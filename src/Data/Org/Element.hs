@@ -4,6 +4,7 @@
 module Data.Org.Element (OrgElement (..)) where
 
 import Data.Typeable
+
 import Data.Org.Base qualified as Org
 import Data.Org.Headline
 import Data.Org.Token
@@ -11,7 +12,9 @@ import Data.Org.Pragma
 import Data.Org.Timestamp
 import Data.Org.Separator
 import Text.Megaparsec (try, choice)
-import TextShow (TextShow, showb)
+
+import TextShow (TextShow)
+import TextShow qualified as TS
 
 data OrgElement where
   OrgElement :: Org.Base a => a -> OrgElement
@@ -32,4 +35,4 @@ instance Org.Base OrgElement where
                   , OrgElement <$> (Org.parser :: Org.StatefulParser Tk) ]
 
 instance TextShow OrgElement where
-  showb (OrgElement a) = showb a
+  showb (OrgElement a) = TS.showb a

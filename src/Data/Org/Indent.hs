@@ -4,8 +4,10 @@ import Data.Org.Base qualified as Org
 
 import Text.Megaparsec
 import Text.Megaparsec.Char
-import Data.Text qualified as Text
-import TextShow qualified
+import Data.Text qualified as T
+
+import TextShow (TextShow)
+import TextShow qualified as TS
 
 newtype Indent = Indent Int
   deriving (Show, Eq)
@@ -21,5 +23,5 @@ instance Org.Base Indent where
     stars <- some (char '*') <* space
     return $ Indent (length stars)
 
-instance TextShow.TextShow Indent where
-  showb (Indent indent) = TextShow.fromText (Text.replicate indent "*")
+instance TextShow Indent where
+  showb (Indent indent) = TS.fromText (T.replicate indent "*")

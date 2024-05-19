@@ -17,7 +17,7 @@ import Database.Persist.Monad (SqlQueryT, runMigration, runSqlQueryT)
 import Database.Persist.Sqlite (createSqlitePool)
 import Persist.Org (migrateAll)
 import System.Console.Haskeline (InputT, getInputLine, runInputT)
-import TextShow
+import TextShow qualified as TS
 import UnliftIO ()
 
 type CommandProcessor = OrgContext -> Text.Text -> ([OrgElement], OrgContext)
@@ -45,7 +45,7 @@ repl fn = do
       let (elements, ctx') = Org.parse ctx cmd
       liftIO $ do
         TIO.putStrLn $ "Repr: " <> Text.pack (show elements)
-        TIO.putStrLn $ "Str: \"" <> Text.intercalate "" (map showt elements) <> "\""
+        TIO.putStrLn $ "Str: \"" <> Text.intercalate "" (map TS.showt elements) <> "\""
       State.put ctx'
       repl fn
 
