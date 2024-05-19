@@ -23,14 +23,13 @@ data GElem = GHeadline   !Headline
            deriving (Show, Eq)
 
 instance TextShow GElem where
-  showb = \case
-    GTags       t -> showb t
-    GTs         t -> showb t
-    GTk         t -> showb t
-    GPragma     t -> showb t
-    GProperties t -> showb t
-    GHeadline   t -> showb t
-    GSep        t -> showb t
+  showb (GTags       t) = showb t
+  showb (GTs         t) = showb t
+  showb (GTk         t) = showb t
+  showb (GPragma     t) = showb t
+  showb (GProperties t) = showb t
+  showb (GHeadline   t) = showb t
+  showb (GSep        t) = showb t
 
 instance OrgElement GElem where
   parser = choice [ GSep      <$> try parser
