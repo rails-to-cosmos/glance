@@ -5,7 +5,7 @@ import Data.Org.Element
 import Data.Org.Context
 import Data.Org.Keyword
 
-import TextShow
+import TextShow qualified as TS
 import Text.Megaparsec
 import Text.Megaparsec.Char
 
@@ -24,9 +24,9 @@ instance Monoid Todo where
 instance OrgElement Todo where
   parser = Todo <$> optional (try todo)
 
-instance TextShow Todo where
-  showb (Todo Nothing) = showbSpace
-  showb (Todo (Just state)) = showbSpace <> fromText state <> showbSpace
+instance TS.TextShow Todo where
+  showb (Todo Nothing) = TS.showbSpace
+  showb (Todo (Just state)) = TS.showbSpace <> TS.fromText state <> TS.showbSpace
 
 todo :: OrgParser Text
 todo = do

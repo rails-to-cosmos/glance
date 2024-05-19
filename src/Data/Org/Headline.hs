@@ -41,8 +41,10 @@ instance Monoid Headline where
                     , properties = mempty :: Properties }
 
 instance TextShow.TextShow Headline where
-  showb headline = TextShow.fromText (Text.replicate i "*") <> TextShow.showb (todo headline) <> TextShow.showb (title headline)
-    where Indent i = indent headline
+  showb headline = TextShow.showb (indent headline)
+    <> TextShow.showb (todo headline)
+    <> TextShow.showb (priority headline)
+    <> TextShow.showb (title headline)
 
 instance OrgElement Headline where
   parser = do
