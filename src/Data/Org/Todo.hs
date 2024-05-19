@@ -1,7 +1,7 @@
 module Data.Org.Todo (Todo (..)) where
 
 import Data.Text (Text)
-import Data.Org.Element
+import Data.Org.Base qualified as Org
 import Data.Org.Context
 import Data.Org.Keyword
 
@@ -21,16 +21,16 @@ instance Semigroup Todo where
 instance Monoid Todo where
   mempty = Todo Nothing
 
-instance Org Todo where
+instance Org.Base Todo where
   parser = Todo <$> optional (try todo)
 
 instance TS.TextShow Todo where
   showb (Todo Nothing) = TS.showbSpace
   showb (Todo (Just state)) = TS.showbSpace <> TS.fromText state <> TS.showbSpace
 
-todo :: OrgParser Text
+todo :: Org.OrgParser Text
 todo = do
   ctx <- State.get
-  Keyword result <- (parser :: OrgParser Keyword) <* space
+  Keyword result <- (Org.parser :: Org.OrgParser Keyword) <* space
   guard $ result `elem` (metaTodoActive ctx <> metaTodoInactive ctx)
   return result

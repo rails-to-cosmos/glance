@@ -1,16 +1,35 @@
-module Data.Org.Element (Parser, OrgParser, Org(..)) where
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE FlexibleInstances #-}
+
+module Data.Org.Element (OrgElement (..)) where
 
 import Data.Typeable
-import Data.Text (Text)
-import Data.Void (Void)
-import Data.Org.Context (OrgContext)
-import Text.Megaparsec (Parsec)
-import TextShow qualified
-import Control.Monad.State qualified as State
+import Data.Org.Base qualified as Org
+import Data.Org.Headline
+import Data.Org.Token
+import Data.Org.Pragma
+import Data.Org.Timestamp
+import Data.Org.Separator
+import Text.Megaparsec (try, choice)
+import TextShow (TextShow, showb)
 
-type Parser = Parsec Void Text
-type StatefulParser s a = State.StateT s Parser a
-type OrgParser a = StatefulParser OrgContext a
+data OrgElement where
+  OrgElement :: Org.Base a => a -> OrgElement
 
-class (Show a, TextShow.TextShow a, Typeable a, Eq a) => Org a where
-  parser :: OrgParser a
+instance Show OrgElement where
+  show (OrgElement a) = show a
+
+instance Eq OrgElement where
+    (OrgElement x) == (OrgElement y) = case cast y of
+        Just y' -> x == y'
+        Nothing -> False
+
+instance Org.Base OrgElement where
+  parser = choice [ try (OrgElement <$> (Org.parser :: Org.OrgParser Sep))
+                  , try (OrgElement <$> (Org.parser :: Org.OrgParser Headline))
+                  , try (OrgElement <$> (Org.parser :: Org.OrgParser Pragma))
+                  , try (OrgElement <$> (Org.parser :: Org.OrgParser Ts))
+                  , OrgElement <$> (Org.parser :: Org.OrgParser Tk) ]
+
+instance TextShow OrgElement where
+  showb (OrgElement a) = showb a

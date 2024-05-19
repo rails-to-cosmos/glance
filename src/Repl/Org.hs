@@ -8,7 +8,7 @@ import Control.Monad.State (StateT)
 import Control.Monad.State qualified as State
 import Data.Org qualified as Org
 import Data.Org.Context (OrgContext)
-import Data.Org.Generic
+import Data.Org.Element (OrgElement)
 import Data.Config qualified as Config
 import Data.Text qualified as Text
 import Data.Text.IO as TIO

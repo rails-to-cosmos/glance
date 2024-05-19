@@ -3,7 +3,7 @@ module Data.Org.Sentence (Sentence(..), SentenceElement (..)) where
 import Data.Org.Token
 import Data.Org.Timestamp
 import Data.Org.Separator
-import Data.Org.Element
+import Data.Org.Base qualified as Org
 
 import TextShow (TextShow, showb)
 import Text.Megaparsec
@@ -34,12 +34,12 @@ instance TextShow Sentence where
   showb (Sentence []) = ""
   showb (Sentence (x:xs)) = showb x <> showb (Sentence xs)
 
-instance Org Sentence where
+instance Org.Base Sentence where
   parser = do
     let stopParsers = choice [ void eol, eof ]
-        elemParsers = choice [ SSep <$> try parser
-                             , STs <$> try parser
-                             , STk <$> parser ]
+        elemParsers = choice [ SSep <$> try Org.parser
+                             , STs <$> try Org.parser
+                             , STk <$> Org.parser ]
 
     elems <- manyTill elemParsers (lookAhead stopParsers)
 

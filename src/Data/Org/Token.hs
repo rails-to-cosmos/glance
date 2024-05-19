@@ -1,7 +1,7 @@
 module Data.Org.Token (Tk(..)) where
 
 import Data.Text (Text, pack)
-import Data.Org.Element
+import Data.Org.Base qualified as Org
 
 import TextShow (TextShow, fromText, showb)
 import Text.Megaparsec
@@ -21,7 +21,7 @@ instance Monoid Tk where
 instance TextShow Tk where
   showb (Tk a) = fromText a
 
-instance Org Tk where
+instance Org.Base Tk where
   parser = do
     let stop = lookAhead (choice [space1, void eol, eof])
         word = manyTill anySingle stop

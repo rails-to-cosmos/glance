@@ -1,6 +1,6 @@
 module Data.Org.Property (Property (..)) where
 
-import Data.Org.Element
+import Data.Org.Base qualified as Org
 import Data.Org.Keyword
 import Data.Org.Sentence
 import Data.Org.Context (metaCategory)
@@ -23,13 +23,13 @@ reservedKeywords = ["PROPERTIES", "END"]
 isPropertyStackKeyword :: Keyword -> Bool
 isPropertyStackKeyword (Keyword k) = k `elem` reservedKeywords
 
-instance Org Property where
+instance Org.Base Property where
   parser = do
-    keyword <- char ':' *> (parser :: OrgParser Keyword) <* char ':' <* space
+    keyword <- char ':' *> (Org.parser :: Org.OrgParser Keyword) <* char ':' <* space
 
     guard $ not (isPropertyStackKeyword keyword)
 
-    value <- parser :: OrgParser Sentence
+    value <- Org.parser :: Org.OrgParser Sentence
 
     case keyword of
       Keyword "CATEGORY" -> State.modify (\ctx -> ctx {metaCategory = showt value})

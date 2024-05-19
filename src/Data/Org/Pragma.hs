@@ -1,6 +1,6 @@
 module Data.Org.Pragma (Pragma (..)) where
 
-import Data.Org.Element
+import Data.Org.Base qualified as Org
 import Data.Org.Context
 import Data.Org.Keyword
 import Data.Org.Token
@@ -22,9 +22,9 @@ data Pragma = Pragma !Keyword !Text
             | PCategory !Sentence
   deriving (Show, Eq)
 
-instance Org Pragma where
+instance Org.Base Pragma where
   parser = do
-    let keyword = parser :: OrgParser Keyword
+    let keyword = Org.parser :: Org.OrgParser Keyword
         todoList = some (todo <* space)
         doneList = option [] (char '|' *> space *> todoList)
         todoShort = pack <$> between (char '(') (char ')') (many (noneOf ['(', ')', '\n']))
@@ -35,7 +35,7 @@ instance Org Pragma where
     key <- string "#+" *> keyword <* string ":" <* space
     case key of
       Keyword "CATEGORY" -> do
-        category <- parser :: OrgParser Sentence
+        category <- Org.parser :: Org.OrgParser Sentence
         State.modify (\ctx -> ctx {metaCategory = showt category})
         return $ PCategory category
       Keyword "TODO" -> do
@@ -47,7 +47,7 @@ instance Org Pragma where
 
         return $ PTodo pragmaActive pragmaInactive
       _keyword -> do
-        Tk value <- parser :: OrgParser Tk
+        Tk value <- Org.parser :: Org.OrgParser Tk
         return $ Pragma key value
 
 instance TextShow Pragma where

@@ -4,7 +4,7 @@ module Data.Org.Timestamp
   , TsRepeaterInterval (..)
   , TsRepeaterType (..) ) where
 
-import Data.Org.Element
+import Data.Org.Base qualified as Org
 
 import Data.Text (Text, pack)
 import Data.Time qualified as Time
@@ -84,7 +84,7 @@ instance TextShow Ts where
         "" -> ""
         _repeater -> " "
 
-instance Org Ts where
+instance Org.Base Ts where
   parser = do
     tsStatus' <- State.lift timestampStatusParser
     tsDay' <- State.lift timestampDayParser <* space
@@ -109,10 +109,10 @@ formatTs ts = pack (Time.formatTime Time.defaultTimeLocale timeFormat ts)
                      else "%Y-%m-%d %a %H:%M:%S"
         seconds = floor $ Time.utctDayTime ts
 
-timestampCtrl :: Parser Char
+timestampCtrl :: Org.Parser Char
 timestampCtrl = char '<' <|> char '['
 
-timestampStatusParser :: Parser TsStatus
+timestampStatusParser :: Org.Parser TsStatus
 timestampStatusParser = do
   ctrl <- timestampCtrl
   case ctrl of
@@ -120,7 +120,7 @@ timestampStatusParser = do
     '[' -> return TsInactive
     _ctrl -> return TsInactive
 
-timestampDayParser :: Parser Time.Day
+timestampDayParser :: Org.Parser Time.Day
 timestampDayParser = do
   let sep = '-'
   year <- decimal <* char sep
@@ -130,7 +130,7 @@ timestampDayParser = do
   guard (day >= 1 && day <= 31) <|> fail "Day out of range"
   return (Time.fromGregorian year month day)
 
-timestampTimeParser :: Parser Time.TimeOfDay
+timestampTimeParser :: Org.Parser Time.TimeOfDay
 timestampTimeParser = do
   let sep = ':'
   tsHour <- optional . try $ decimal <* char sep
@@ -141,13 +141,13 @@ timestampTimeParser = do
           (fromMaybe 0 tsMinute)
           (fromMaybe 0 tsSecond))
 
-timestampWeekdayParser :: Parser Text
+timestampWeekdayParser :: Org.Parser Text
 timestampWeekdayParser = do
   weekday <- count 3 letterChar
   space
   return (pack weekday)
 
-timestampRepeaterParser :: Parser TsRepeaterInterval
+timestampRepeaterParser :: Org.Parser TsRepeaterInterval
 timestampRepeaterParser = do
   type' <- optional . try $ oneOf ['.', '+']
   sign' <- optional . try $ oneOf ['+', '-']

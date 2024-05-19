@@ -1,5 +1,5 @@
 module Data.Org
-  ( Org (..)
+  ( Base (..)
   , OrgContext (..)
   , OrgElement (..)
   , Headline (..)
@@ -22,9 +22,9 @@ module Data.Org
   , parse
   , mparse ) where
 
-import Data.Org.Element
+import Data.Org.Base
 import Data.Org.Context
-import Data.Org.Generic
+import Data.Org.Element
 import Data.Org.Headline
 import Data.Org.Indent
 import Data.Org.Keyword
@@ -41,7 +41,7 @@ import Data.Org.Separator
 import Data.Org.Sentence
 
 import Control.Monad.State (runStateT)
-import Data.Org.Element qualified as Org
+import Data.Org.Base qualified as Org
 import Data.Text (Text, pack)
 import Data.Text.Lazy.Builder ()
 import Text.Megaparsec qualified as MPS
