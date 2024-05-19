@@ -7,7 +7,9 @@ import Data.Org.Context (metaCategory)
 import Data.Text (Text)
 
 import Text.Megaparsec.Char
-import TextShow (TextShow, showt, showb)
+
+import TextShow (TextShow)
+import TextShow qualified as TS
 
 import Control.Monad
 import Control.Monad.State qualified as State
@@ -32,10 +34,10 @@ instance Org.Base Property where
     value <- Org.parser :: Org.StatefulParser Sentence
 
     case keyword of
-      Keyword "CATEGORY" -> State.modify (\ctx -> ctx {metaCategory = showt value})
+      Keyword "CATEGORY" -> State.modify (\ctx -> ctx {metaCategory = TS.showt value})
       _keyword -> State.modify id
 
     return $ Property keyword value
 
 instance TextShow Property where
-  showb (Property k v) = ":" <> showb k <> ": " <> showb v
+  showb (Property k v) = ":" <> TS.showb k <> ": " <> TS.showb v

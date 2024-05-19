@@ -5,7 +5,8 @@ import Data.Org.Base qualified as Org
 import Text.Megaparsec
 import Text.Megaparsec.Char
 
-import TextShow
+import TextShow (TextShow)
+import TextShow qualified as TS
 
 data Sep = SPC | EOL | EOF
   deriving (Show, Eq)

@@ -4,7 +4,6 @@
 module Data.Org.Element (OrgElement (..)) where
 
 import Data.Typeable
-
 import Data.Org.Base qualified as Org
 import Data.Org.Headline
 import Data.Org.Token

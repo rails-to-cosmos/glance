@@ -6,7 +6,8 @@ import Data.Org.Property
 import Text.Megaparsec
 import Text.Megaparsec.Char
 
-import TextShow
+import TextShow (TextShow)
+import TextShow qualified as TS
 
 newtype Properties = Properties [Property]
   deriving (Show, Eq)
@@ -24,4 +25,4 @@ instance Org.Base Properties where
     return (Properties properties)
 
 instance TextShow Properties where
-  showb (Properties ps) = ":PROPERTIES:\n" <> showb ps <> ":END:\n"
+  showb (Properties ps) = ":PROPERTIES:\n" <> TS.showb ps <> ":END:\n"

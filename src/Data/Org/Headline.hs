@@ -10,6 +10,8 @@ import Data.Org.Timestamp
 import Data.Org.Separator
 import Text.Megaparsec
 import Text.Megaparsec.Char
+
+import TextShow (TextShow)
 import TextShow qualified as TS
 
 data Headline = Headline { indent :: !Indent
@@ -39,7 +41,7 @@ instance Monoid Headline where
                     , deadline = Nothing
                     , properties = mempty :: Properties }
 
-instance TS.TextShow Headline where
+instance TextShow Headline where
   showb headline = TS.showb (indent headline)
     <> TS.showb (todo headline)
     <> TS.showb (priority headline)

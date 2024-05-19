@@ -6,7 +6,9 @@ import Data.Org.Base qualified as Org
 import Text.Megaparsec
 import Text.Megaparsec.Char
 import Data.Text.Lazy.Builder qualified as B
-import TextShow qualified
+
+import TextShow (TextShow)
+import TextShow qualified as TS
 
 newtype Priority = Priority (Maybe Char)
   deriving (Show, Eq)
@@ -17,9 +19,9 @@ instance Semigroup Priority where
 instance Monoid Priority where
   mempty = Priority Nothing
 
-instance TextShow.TextShow Priority where
-  showb (Priority Nothing) = TextShow.fromText ""
-  showb (Priority (Just priority)) = "[#" <> B.singleton priority <> "]" <> TextShow.showbSpace
+instance TextShow Priority where
+  showb (Priority Nothing) = TS.fromText ""
+  showb (Priority (Just priority)) = "[#" <> B.singleton priority <> "]" <> TS.showbSpace
 
 instance Org.Base Priority where
   parser = do

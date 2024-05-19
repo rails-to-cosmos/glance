@@ -1,8 +1,7 @@
-module Data.Org.Timestamp
-  ( Ts (..)
-  , TsStatus (..)
-  , TsRepeaterInterval (..)
-  , TsRepeaterType (..) ) where
+module Data.Org.Timestamp ( Ts (..)
+                          , TsStatus (..)
+                          , TsRepeaterInterval (..)
+                          , TsRepeaterType (..) ) where
 
 import Data.Org.Base qualified as Org
 
@@ -12,7 +11,8 @@ import Data.Maybe (fromMaybe)
 
 import Control.Monad.State qualified as State
 
-import TextShow
+import TextShow (TextShow)
+import TextShow qualified as TS
 
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -48,9 +48,9 @@ data TsUnit = Days | Weeks | Months | Years
 instance TextShow Ts where
   showb ts =
     openBracket
-    <> fromText timeText
-    <> fromText repeaterSep
-    <> fromText repeaterText
+    <> TS.fromText timeText
+    <> TS.fromText repeaterSep
+    <> TS.fromText repeaterText
     <> closeBracket
 
     where
@@ -78,7 +78,7 @@ instance TextShow Ts where
         Just TsRepeaterInterval { repeaterUnit = Years } -> "y"
       repeaterValText = case tsRep ts of
         Nothing -> ""
-        Just TsRepeaterInterval { repeaterValue = val } -> showt val
+        Just TsRepeaterInterval { repeaterValue = val } -> TS.showt val
       repeaterText = repeaterTypeText <> repeaterSignText <> repeaterValText <> repeaterUnitText
       repeaterSep = case repeaterText of
         "" -> ""

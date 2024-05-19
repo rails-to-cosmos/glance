@@ -6,7 +6,8 @@ import Data.Char (isAlpha)
 
 import Text.Megaparsec
 
-import TextShow (TextShow, fromText, showb)
+import TextShow (TextShow)
+import TextShow qualified as TS
 
 import Prelude hiding (unwords, concat, replicate, concatMap)
 
@@ -14,7 +15,7 @@ newtype Keyword = Keyword Text
   deriving (Show, Eq)
 
 instance TextShow Keyword where
-  showb (Keyword k) = fromText k
+  showb (Keyword k) = TS.fromText k
 
 instance Org.Base Keyword where
   parser = do
