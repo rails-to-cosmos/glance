@@ -22,7 +22,7 @@ data Pragma = Pragma !Keyword !Text
             | PCategory !Sentence
   deriving (Show, Eq)
 
-instance OrgElement Pragma where
+instance Org Pragma where
   parser = do
     let keyword = parser :: OrgParser Keyword
         todoList = some (todo <* space)

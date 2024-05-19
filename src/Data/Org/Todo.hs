@@ -21,7 +21,7 @@ instance Semigroup Todo where
 instance Monoid Todo where
   mempty = Todo Nothing
 
-instance OrgElement Todo where
+instance Org Todo where
   parser = Todo <$> optional (try todo)
 
 instance TS.TextShow Todo where

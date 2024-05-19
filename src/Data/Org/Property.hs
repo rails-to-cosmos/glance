@@ -23,7 +23,7 @@ reservedKeywords = ["PROPERTIES", "END"]
 isPropertyStackKeyword :: Keyword -> Bool
 isPropertyStackKeyword (Keyword k) = k `elem` reservedKeywords
 
-instance OrgElement Property where
+instance Org Property where
   parser = do
     keyword <- char ':' *> (parser :: OrgParser Keyword) <* char ':' <* space
 

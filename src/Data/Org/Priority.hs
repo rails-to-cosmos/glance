@@ -21,7 +21,7 @@ instance TextShow.TextShow Priority where
   showb (Priority Nothing) = TextShow.fromText ""
   showb (Priority (Just priority)) = "[#" <> B.singleton priority <> "]" <> TextShow.showbSpace
 
-instance OrgElement Priority where
+instance Org Priority where
   parser = do
     priority <- optional (char '[' *> char '#' *> letterChar <* char ']' <* space)
     return (Priority priority)

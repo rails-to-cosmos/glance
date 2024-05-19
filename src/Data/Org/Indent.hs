@@ -16,7 +16,7 @@ instance Semigroup Indent where
 instance Monoid Indent where
   mempty = Indent 1
 
-instance OrgElement Indent where
+instance Org Indent where
   parser = do
     stars <- some (char '*') <* space
     return $ Indent (length stars)

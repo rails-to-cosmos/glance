@@ -16,7 +16,7 @@ newtype Keyword = Keyword Text
 instance TextShow Keyword where
   showb (Keyword k) = fromText k
 
-instance OrgElement Keyword where
+instance Org Keyword where
   parser = do
     let keyword = some (satisfy (\c -> isAlpha c || c == '_'))
     Keyword . toUpper . pack <$> keyword

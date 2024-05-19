@@ -40,7 +40,7 @@ instance TextShow Title where
   showb (Title []) = ""
   showb (Title (x:xs)) = showb x <> showb (Title xs)
 
-instance OrgElement Title where
+instance Org Title where
   parser = do
     let stopParsers = choice [ void eol, eof ]
         elemParsers = choice [ TSep <$> try parser

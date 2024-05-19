@@ -20,7 +20,7 @@ import System.Console.Haskeline (InputT, getInputLine, runInputT)
 import TextShow
 import UnliftIO ()
 
-type CommandProcessor = OrgContext -> Text.Text -> ([GElem], OrgContext)
+type CommandProcessor = OrgContext -> Text.Text -> ([OrgElement], OrgContext)
 
 type Repl a = StateT OrgContext (SqlQueryT (InputT IO)) a
 

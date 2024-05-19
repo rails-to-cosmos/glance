@@ -34,7 +34,7 @@ tag = takeWhile1P (Just "tag character") (`elem` keyword) <* char ':'
 keyword :: [Char]
 keyword = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ "-_"
 
-instance OrgElement Tags where
+instance Org Tags where
   parser = do
     let stop = lookAhead (try (choice [void eol, eof]))
     Tags <$> State.lift (char ':' *> manyTill tag stop)

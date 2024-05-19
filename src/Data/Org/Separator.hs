@@ -10,7 +10,7 @@ import TextShow
 data Sep = SPC | EOL | EOF
   deriving (Show, Eq)
 
-instance OrgElement Sep where
+instance Org Sep where
   parser = choice
     [ EOF <$ eof
     , EOL <$ eol

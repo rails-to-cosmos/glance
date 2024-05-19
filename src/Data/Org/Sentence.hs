@@ -34,7 +34,7 @@ instance TextShow Sentence where
   showb (Sentence []) = ""
   showb (Sentence (x:xs)) = showb x <> showb (Sentence xs)
 
-instance OrgElement Sentence where
+instance Org Sentence where
   parser = do
     let stopParsers = choice [ void eol, eof ]
         elemParsers = choice [ SSep <$> try parser

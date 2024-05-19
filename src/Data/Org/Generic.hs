@@ -1,7 +1,10 @@
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 
-module Data.Org.Generic (GElem (..)) where
+module Data.Org.Generic (OrgElement (..)) where
 
+import Data.Typeable
 import Data.Org.Element
 import Data.Org.Headline
 import Data.Org.Token
@@ -13,27 +16,23 @@ import Data.Org.Separator
 import Text.Megaparsec (try, choice)
 import TextShow (TextShow, showb)
 
-data GElem = GHeadline   !Headline
-           | GPragma     !Pragma
-           | GProperties !Properties
-           | GTags       !Tags
-           | GTs         !Ts
-           | GTk         !Tk
-           | GSep        !Sep
-           deriving (Show, Eq)
+data OrgElement where
+  OrgElement :: Org a => a -> OrgElement
 
-instance TextShow GElem where
-  showb (GTags       t) = showb t
-  showb (GTs         t) = showb t
-  showb (GTk         t) = showb t
-  showb (GPragma     t) = showb t
-  showb (GProperties t) = showb t
-  showb (GHeadline   t) = showb t
-  showb (GSep        t) = showb t
+instance Show OrgElement where
+  show (OrgElement a) = show a
 
-instance OrgElement GElem where
-  parser = choice [ GSep      <$> try parser
-                  , GHeadline <$> try parser
-                  , GPragma   <$> try parser
-                  , GTs       <$> try parser
-                  , GTk       <$>     parser ]
+instance Eq OrgElement where
+    (OrgElement x) == (OrgElement y) = case cast y of
+        Just y' -> x == y'
+        Nothing -> False
+
+instance Org OrgElement where
+  parser = choice [ try (OrgElement <$> (parser :: OrgParser Sep))
+                  , try (OrgElement <$> (parser :: OrgParser Headline))
+                  , try (OrgElement <$> (parser :: OrgParser Pragma))
+                  , try (OrgElement <$> (parser :: OrgParser Ts))
+                  , OrgElement <$> (parser :: OrgParser Tk) ]
+
+instance TextShow OrgElement where
+  showb (OrgElement a) = showb a
