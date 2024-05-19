@@ -1,13 +1,15 @@
 module Data.Org.Property (Property (..)) where
 
-import Data.Org.Element
+import Data.Org.Base qualified as Org
 import Data.Org.Keyword
 import Data.Org.Sentence
 import Data.Org.Context (metaCategory)
 import Data.Text (Text)
 
 import Text.Megaparsec.Char
-import TextShow (TextShow, showt, showb)
+
+import TextShow (TextShow)
+import TextShow qualified as TS
 
 import Control.Monad
 import Control.Monad.State qualified as State
@@ -23,19 +25,19 @@ reservedKeywords = ["PROPERTIES", "END"]
 isPropertyStackKeyword :: Keyword -> Bool
 isPropertyStackKeyword (Keyword k) = k `elem` reservedKeywords
 
-instance OrgElement Property where
+instance Org.Base Property where
   parser = do
-    keyword <- char ':' *> (parser :: OrgParser Keyword) <* char ':' <* space
+    keyword <- char ':' *> (Org.parser :: Org.StatefulParser Keyword) <* char ':' <* space
 
     guard $ not (isPropertyStackKeyword keyword)
 
-    value <- parser :: OrgParser Sentence
+    value <- Org.parser :: Org.StatefulParser Sentence
 
     case keyword of
-      Keyword "CATEGORY" -> State.modify (\ctx -> ctx {metaCategory = showt value})
+      Keyword "CATEGORY" -> State.modify (\ctx -> ctx {metaCategory = TS.showt value})
       _keyword -> State.modify id
 
     return $ Property keyword value
 
 instance TextShow Property where
-  showb (Property k v) = ":" <> showb k <> ": " <> showb v
+  showb (Property k v) = ":" <> TS.showb k <> ": " <> TS.showb v

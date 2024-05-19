@@ -1,16 +1,17 @@
 module Data.Org.Separator (Sep (..)) where
 
-import Data.Org.Element
+import Data.Org.Base qualified as Org
 
 import Text.Megaparsec
 import Text.Megaparsec.Char
 
-import TextShow
+import TextShow (TextShow)
+import TextShow qualified as TS
 
 data Sep = SPC | EOL | EOF
   deriving (Show, Eq)
 
-instance OrgElement Sep where
+instance Org.Base Sep where
   parser = choice
     [ EOF <$ eof
     , EOL <$ eol

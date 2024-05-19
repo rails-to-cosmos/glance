@@ -1,24 +1,26 @@
 Glance
 
+* Main
+** TODO [#C] optparse-applicative
 * REPL [1/2]
 :LOGBOOK:
 - State "DONE"       from "TODO"       [2023-07-15 Sat 15:14]
 :END:
 
-** DONE Some commands (like pragmas) should apply on \n
+** DONE Some commands (like pragmas) should apply on eol
 CLOSED: [2023-09-10 Sun 23:26]
 :LOGBOOK:
 - State "DONE"       from "TODO"       [2023-09-10 Sun 23:26]
 :END:
 
-** TODO Headline pretty print in REPL
-
+** TODO Pretty print
+* Data
+** TODO Tags: change List to Set
 * Parser [16/23]
 :LOGBOOK:
 - State "STARTED"    from "TODO"       [2023-08-05 Sat 10:08]
 :END:
 
-** TODO Tags: change List to Set
 ** TODO Parse comments (from # to eol)
 ** TODO Parse links
 ** TODO Parse tables
@@ -124,7 +126,7 @@ CLOSED: [2023-08-01 Tue 11:09]
 :LOGBOOK:
 - State "DONE"       from "TODO"       [2023-08-01 Tue 11:09]
 :END:
-* Store (Persistent layer) [1/3]
+* Persistent [1/3]
 ** DONE Understand ID/UUIDs
 CLOSED: [2023-07-25 Tue 09:16]
 :LOGBOOK:
@@ -132,7 +134,7 @@ CLOSED: [2023-07-25 Tue 09:16]
 :END:
 
 title + tags + timestamps
-** TODO Implement simple CRUD for metadata
+** TODO Simple crud
 ** TODO Kuzu
 * Relations [0/2]
 ** TODO Inherit properties only from parents (implement headline stack, vertical inheritance)

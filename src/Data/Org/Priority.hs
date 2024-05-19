@@ -1,10 +1,14 @@
 module Data.Org.Priority (Priority (..)) where
 
 import Data.Char (ord)
-import Data.Org.Element
+import Data.Org.Base qualified as Org
 
 import Text.Megaparsec
 import Text.Megaparsec.Char
+import Data.Text.Lazy.Builder qualified as B
+
+import TextShow (TextShow)
+import TextShow qualified as TS
 
 newtype Priority = Priority (Maybe Char)
   deriving (Show, Eq)
@@ -15,7 +19,11 @@ instance Semigroup Priority where
 instance Monoid Priority where
   mempty = Priority Nothing
 
-instance OrgElement Priority where
+instance TextShow Priority where
+  showb (Priority Nothing) = TS.fromText ""
+  showb (Priority (Just priority)) = "[#" <> B.singleton priority <> "]" <> TS.showbSpace
+
+instance Org.Base Priority where
   parser = do
     priority <- optional (char '[' *> char '#' *> letterChar <* char ']' <* space)
     return (Priority priority)

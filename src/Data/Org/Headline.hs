@@ -1,7 +1,6 @@
 module Data.Org.Headline (Headline (..)) where
 
-import Control.Monad
-import Data.Org.Element
+import Data.Org.Base qualified as Org
 import Data.Org.Indent
 import Data.Org.Priority
 import Data.Org.Properties
@@ -9,11 +8,11 @@ import Data.Org.Title
 import Data.Org.Todo
 import Data.Org.Timestamp
 import Data.Org.Separator
-import Data.Text (replicate)
 import Text.Megaparsec
 import Text.Megaparsec.Char
-import TextShow
-import Prelude hiding (replicate)
+
+import TextShow (TextShow)
+import TextShow qualified as TS
 
 data Headline = Headline { indent :: !Indent
                          , todo :: !Todo
@@ -43,20 +42,22 @@ instance Monoid Headline where
                     , properties = mempty :: Properties }
 
 instance TextShow Headline where
-  showb headline = fromText (replicate i "*") <> showb (todo headline) <> showb (title headline)
-    where Indent i = indent headline
+  showb headline = TS.showb (indent headline)
+    <> TS.showb (todo headline)
+    <> TS.showb (priority headline)
+    <> TS.showb (title headline)
 
-instance OrgElement Headline where
+instance Org.Base Headline where
   parser = do
-    indent' <- parser :: OrgParser Indent
-    todo' <- option (mempty :: Todo) (parser :: OrgParser Todo)
-    priority' <- option (mempty :: Priority) (parser :: OrgParser Priority)
-    title' <- parser :: OrgParser Title
-    -- schedule' <- optional $ try (string "SCHEDULED:" *> space *> (parser :: OrgParser Ts))
-    -- deadline' <- optional $ try (string "DEADLINE:" *> space *> (parser :: OrgParser Ts))
-    properties' <- option (mempty :: Properties) (try (eol *> parser :: OrgParser Properties))
+    indent' <- Org.parser :: Org.StatefulParser Indent
+    todo' <- option (mempty :: Todo) (Org.parser :: Org.StatefulParser Todo)
+    priority' <- option (mempty :: Priority) (Org.parser :: Org.StatefulParser Priority)
+    title' <- Org.parser :: Org.StatefulParser Title
+    -- schedule' <- optional $ try (string "SCHEDULED:" *> space *> (Org.parser :: Org.StatefulParser Ts))
+    -- deadline' <- optional $ try (string "DEADLINE:" *> space *> (Org.parser :: Org.StatefulParser Ts))
+    properties' <- option (mempty :: Properties) (try (eol *> Org.parser :: Org.StatefulParser Properties))
 
-    _ <- parser :: OrgParser Sep
+    _ <- Org.parser :: Org.StatefulParser Sep
 
     return Headline { indent = indent'
                     , todo = todo'

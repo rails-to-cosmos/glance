@@ -1,10 +1,9 @@
-module Data.Org.Timestamp
-  ( Ts (..)
-  , TsStatus (..)
-  , TsRepeaterInterval (..)
-  , TsRepeaterType (..) ) where
+module Data.Org.Timestamp ( Ts (..)
+                          , TsStatus (..)
+                          , TsRepeaterInterval (..)
+                          , TsRepeaterType (..) ) where
 
-import Data.Org.Element
+import Data.Org.Base qualified as Org
 
 import Data.Text (Text, pack)
 import Data.Time qualified as Time
@@ -12,7 +11,8 @@ import Data.Maybe (fromMaybe)
 
 import Control.Monad.State qualified as State
 
-import TextShow
+import TextShow (TextShow)
+import TextShow qualified as TS
 
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -48,9 +48,9 @@ data TsUnit = Days | Weeks | Months | Years
 instance TextShow Ts where
   showb ts =
     openBracket
-    <> fromText timeText
-    <> fromText repeaterSep
-    <> fromText repeaterText
+    <> TS.fromText timeText
+    <> TS.fromText repeaterSep
+    <> TS.fromText repeaterText
     <> closeBracket
 
     where
@@ -78,13 +78,13 @@ instance TextShow Ts where
         Just TsRepeaterInterval { repeaterUnit = Years } -> "y"
       repeaterValText = case tsRep ts of
         Nothing -> ""
-        Just TsRepeaterInterval { repeaterValue = val } -> showt val
+        Just TsRepeaterInterval { repeaterValue = val } -> TS.showt val
       repeaterText = repeaterTypeText <> repeaterSignText <> repeaterValText <> repeaterUnitText
       repeaterSep = case repeaterText of
         "" -> ""
         _repeater -> " "
 
-instance OrgElement Ts where
+instance Org.Base Ts where
   parser = do
     tsStatus' <- State.lift timestampStatusParser
     tsDay' <- State.lift timestampDayParser <* space
@@ -109,10 +109,10 @@ formatTs ts = pack (Time.formatTime Time.defaultTimeLocale timeFormat ts)
                      else "%Y-%m-%d %a %H:%M:%S"
         seconds = floor $ Time.utctDayTime ts
 
-timestampCtrl :: Parser Char
+timestampCtrl :: Org.StatelessParser Char
 timestampCtrl = char '<' <|> char '['
 
-timestampStatusParser :: Parser TsStatus
+timestampStatusParser :: Org.StatelessParser TsStatus
 timestampStatusParser = do
   ctrl <- timestampCtrl
   case ctrl of
@@ -120,7 +120,7 @@ timestampStatusParser = do
     '[' -> return TsInactive
     _ctrl -> return TsInactive
 
-timestampDayParser :: Parser Time.Day
+timestampDayParser :: Org.StatelessParser Time.Day
 timestampDayParser = do
   let sep = '-'
   year <- decimal <* char sep
@@ -130,7 +130,7 @@ timestampDayParser = do
   guard (day >= 1 && day <= 31) <|> fail "Day out of range"
   return (Time.fromGregorian year month day)
 
-timestampTimeParser :: Parser Time.TimeOfDay
+timestampTimeParser :: Org.StatelessParser Time.TimeOfDay
 timestampTimeParser = do
   let sep = ':'
   tsHour <- optional . try $ decimal <* char sep
@@ -141,13 +141,13 @@ timestampTimeParser = do
           (fromMaybe 0 tsMinute)
           (fromMaybe 0 tsSecond))
 
-timestampWeekdayParser :: Parser Text
+timestampWeekdayParser :: Org.StatelessParser Text
 timestampWeekdayParser = do
   weekday <- count 3 letterChar
   space
   return (pack weekday)
 
-timestampRepeaterParser :: Parser TsRepeaterInterval
+timestampRepeaterParser :: Org.StatelessParser TsRepeaterInterval
 timestampRepeaterParser = do
   type' <- optional . try $ oneOf ['.', '+']
   sign' <- optional . try $ oneOf ['+', '-']

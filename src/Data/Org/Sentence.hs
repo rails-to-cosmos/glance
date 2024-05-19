@@ -3,9 +3,11 @@ module Data.Org.Sentence (Sentence(..), SentenceElement (..)) where
 import Data.Org.Token
 import Data.Org.Timestamp
 import Data.Org.Separator
-import Data.Org.Element
+import Data.Org.Base qualified as Org
 
-import TextShow (TextShow, showb)
+import TextShow (TextShow)
+import TextShow qualified as TS
+
 import Text.Megaparsec
 import Text.Megaparsec.Char
 
@@ -17,9 +19,9 @@ data SentenceElement = STk !Tk
   deriving (Show, Eq)
 
 instance TextShow SentenceElement where
-  showb (STk x) = showb x
-  showb (STs x) = showb x
-  showb (SSep x) = showb x
+  showb (STk x) = TS.showb x
+  showb (STs x) = TS.showb x
+  showb (SSep x) = TS.showb x
 
 newtype Sentence = Sentence [SentenceElement]
   deriving (Show, Eq)
@@ -32,14 +34,14 @@ instance Semigroup Sentence where
 
 instance TextShow Sentence where
   showb (Sentence []) = ""
-  showb (Sentence (x:xs)) = showb x <> showb (Sentence xs)
+  showb (Sentence (x:xs)) = TS.showb x <> TS.showb (Sentence xs)
 
-instance OrgElement Sentence where
+instance Org.Base Sentence where
   parser = do
     let stopParsers = choice [ void eol, eof ]
-        elemParsers = choice [ SSep <$> try parser
-                             , STs <$> try parser
-                             , STk <$> parser ]
+        elemParsers = choice [ SSep <$> try Org.parser
+                             , STs <$> try Org.parser
+                             , STk <$> Org.parser ]
 
     elems <- manyTill elemParsers (lookAhead stopParsers)
 

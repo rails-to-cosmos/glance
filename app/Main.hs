@@ -12,8 +12,6 @@ import Data.Config qualified as Config
 import Data.Org.Context
 import Repl.Org
 
-import TextShow
-
 import System.Directory
 import System.FilePath
 import System.Console.Haskeline qualified as Haskeline
@@ -39,7 +37,8 @@ defaultContext :: OrgContext
 defaultContext = mempty
 
 main :: IO ()
-main = getArgs >>= parse
+main = do
+  getArgs >>= parse
 
 parse :: [String] -> IO a
 
@@ -52,7 +51,7 @@ parse (filename:_) = do
   config <- defaultConfig
   content <- Text.pack . BSChar8.unpack <$> BS.readFile filename
 
-  let (elements, context) = Org.parse defaultContext content
+  let (_elements, context) = Org.parse defaultContext content
 
   TIO.putStrLn "Hello there, fellow hacker!"
   TIO.putStrLn (Text.intercalate " " ["MetaDB location:", Config.dbConnectionString config])

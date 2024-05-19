@@ -27,9 +27,9 @@ library
   exposed-modules:
       Data.Config
       Data.Org
+      Data.Org.Base
       Data.Org.Context
       Data.Org.Element
-      Data.Org.Generic
       Data.Org.Headline
       Data.Org.Indent
       Data.Org.Keyword
@@ -50,7 +50,6 @@ library
       Paths_glance
   hs-source-dirs:
       src
-      lib
   default-extensions:
       OverloadedStrings
       ImportQualifiedPost
