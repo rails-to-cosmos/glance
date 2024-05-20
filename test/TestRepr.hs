@@ -17,17 +17,17 @@ testCases :: [TestCase]
 testCases = [ TestCase { description = "Org-mode headline representation"
                        , element = Org.Element defaultHeadline { indent = Indent 1
                                                                , todo = mempty :: Todo
-                                                               , title = Title [ TText (Token "Hello,")
-                                                                               , TSeparator SPC
-                                                                               , TText (Token "world!")
-                                                                               , TSeparator SPC
-                                                                               , TTags (Tags ["greetings"])]}
+                                                               , title = Title [ TitleElement (Token "Hello,")
+                                                                               , TitleElement SPC
+                                                                               , TitleElement (Token "world!")
+                                                                               , TitleElement SPC
+                                                                               , TitleElement (Tags ["greetings"])]}
                        , representation = "* Hello, world! :greetings:" }
 
             , TestCase { description = "Todo state representation"
                        , element = Org.Element defaultHeadline { indent = Indent 1
                                                                , todo = Todo (Just "TODO")
-                                                               , title = Title [ TText (Token "foo") ]}
+                                                               , title = Title [ TitleElement (Token "foo") ]}
                        , representation = "* TODO foo" } ]
 
 assertOne :: TestCase -> TestTree

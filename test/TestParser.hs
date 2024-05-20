@@ -24,20 +24,20 @@ data TestCase = TestCase { description :: !String
 testCases :: [TestCase]
 testCases = [ TestCase { description = "Parse headline with tags"
                        , inputs = ["* Hello world :a:b:c:"]
-                       , expected = Result { elements = [ Org.Element defaultHeadline { title = Title [ TText (Token "Hello")
-                                                                                                      , TSeparator SPC
-                                                                                                      , TText (Token "world")
-                                                                                                      , TSeparator SPC
-                                                                                                      , TTags (Tags ["a", "b", "c"]) ]}]
+                       , expected = Result { elements = [ Org.Element defaultHeadline { title = Title [ TitleElement (Token "Hello")
+                                                                                                      , TitleElement SPC
+                                                                                                      , TitleElement (Token "world")
+                                                                                                      , TitleElement SPC
+                                                                                                      , TitleElement (Tags ["a", "b", "c"]) ]}]
                                            , context = defaultContext }}
 
             , TestCase { description = "Parse headline with corrupted tag string"
                        , inputs = ["* Hello world :a:b:c"]
-                       , expected = Result { elements = [ Org.Element defaultHeadline { title = Title [ TText (Token "Hello")
-                                                                                                     , TSeparator SPC
-                                                                                                     , TText (Token "world")
-                                                                                                     , TSeparator SPC
-                                                                                                     , TText (Token ":a:b:c") ]}]
+                       , expected = Result { elements = [ Org.Element defaultHeadline { title = Title [ TitleElement (Token "Hello")
+                                                                                                      , TitleElement SPC
+                                                                                                      , TitleElement (Token "world")
+                                                                                                      , TitleElement SPC
+                                                                                                      , TitleElement (Token ":a:b:c") ]}]
                                                   , context = defaultContext }}
 
             , TestCase { description = "Parse property block"
@@ -45,10 +45,10 @@ testCases = [ TestCase { description = "Parse headline with tags"
                                   , ":PROPERTIES:"
                                   , ":TITLE: New title"
                                   , ":END:" ]
-                       , expected = Result { elements = [ Org.Element defaultHeadline { title = Title [ TText (Token "Hello") ]
-                                                                                     , properties = Properties [Property (Keyword "TITLE") (Sentence [ SToken (Token "New")
-                                                                                                                                                     , SSeparator SPC
-                                                                                                                                                     , SToken (Token "title") ])]}]
+                       , expected = Result { elements = [ Org.Element defaultHeadline { title = Title [ TitleElement (Token "Hello") ]
+                                                                                      , properties = Properties [Property (Keyword "TITLE") (Sentence [ SToken (Token "New")
+                                                                                                                                                      , SSeparator SPC
+                                                                                                                                                      , SToken (Token "title") ])]}]
                                            , context = defaultContext }}
 
             , TestCase { description = "Parse drawer"
@@ -59,8 +59,8 @@ testCases = [ TestCase { description = "Parse headline with tags"
             , TestCase { description = "Category pragma affects context"
                        , inputs = ["#+CATEGORY: foo bar"]
                        , expected = Result { elements = [Org.Element (PCategory (Sentence [ SToken (Token "foo")
-                                                                                         , SSeparator SPC
-                                                                                         , SToken (Token "bar") ]))]
+                                                                                          , SSeparator SPC
+                                                                                          , SToken (Token "bar") ]))]
                                            , context = defaultContext { metaCategory = "foo bar" }}}
 
             , TestCase { description = "Category property affects context"
@@ -68,10 +68,10 @@ testCases = [ TestCase { description = "Parse headline with tags"
                                   , ":PROPERTIES:"
                                   , ":CATEGORY: Updated category"
                                   , ":END:" ]
-                       , expected = Result { elements = [ Org.Element defaultHeadline { title = Title [TText (Token "Hello")]
-                                                                                     , properties = Properties [Property (Keyword "CATEGORY") (Sentence [ SToken (Token "Updated")
-                                                                                                                                                        , SSeparator SPC
-                                                                                                                                                        , SToken (Token "category")])]}]
+                       , expected = Result { elements = [ Org.Element defaultHeadline { title = Title [TitleElement (Token "Hello")]
+                                                                                      , properties = Properties [Property (Keyword "CATEGORY") (Sentence [ SToken (Token "Updated")
+                                                                                                                                                         , SSeparator SPC
+                                                                                                                                                         , SToken (Token "category")])]}]
                                            , context = defaultContext { metaCategory = "Updated category" }}}
 
             , TestCase { description = "Parse complete headline"
@@ -79,9 +79,9 @@ testCases = [ TestCase { description = "Parse headline with tags"
                        , expected = Result { elements = [ Org.Element defaultHeadline { indent = Indent 2
                                                                                       , todo = Todo (Just "TODO")
                                                                                       , priority = Priority (Just 'A')
-                                                                                      , title = Title [ TText (Token "Hello")
-                                                                                                      , TSeparator SPC
-                                                                                                      , TTags (Tags ["a", "b", "c"])]}]
+                                                                                      , title = Title [ TitleElement (Token "Hello")
+                                                                                                      , TitleElement SPC
+                                                                                                      , TitleElement (Tags ["a", "b", "c"])]}]
                                            , context = defaultContext }}
 
             , TestCase { description = "Parse headline with custom todo state"
@@ -89,7 +89,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
                                   , "* CANCELLED Mess" ]
                        , expected = Result { elements = [ Org.Element (PTodo (Set.fromList ["TODO"]) (Set.fromList ["CANCELLED"]))
                                                         , Org.Element (defaultHeadline { todo = Todo (Just "CANCELLED")
-                                                                                      , title = Title [TText (Token "Mess")] })]
+                                                                                       , title = Title [TitleElement (Token "Mess")] })]
                                            , context = defaultContext { metaTodoActive = Set.fromList ["TODO"]
                                                                       , metaTodoInactive = Set.fromList ["DONE", "CANCELLED"]}}}
 
@@ -113,8 +113,8 @@ testCases = [ TestCase { description = "Parse headline with tags"
             , TestCase { description = "Multiline parsing"
                        , inputs = [ "* foo"
                                   , "* bar" ]
-                       , expected = Result { elements = [ Org.Element (defaultHeadline {title = Title [TText (Token "foo")]})
-                                                        , Org.Element (defaultHeadline {title = Title [TText (Token "bar")]}) ]
+                       , expected = Result { elements = [ Org.Element (defaultHeadline {title = Title [TitleElement (Token "foo")]})
+                                                        , Org.Element (defaultHeadline {title = Title [TitleElement (Token "bar")]}) ]
                                            , context = defaultContext }}
 
             , TestCase { description = "Empty text parsing"
