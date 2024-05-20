@@ -1,13 +1,17 @@
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE FlexibleInstances #-}
+
 module Data.Org.Title ( Title (..)
                       , TitleElement (..) ) where
 
 import Control.Monad
 
 import Data.Org.Parse
-import Data.Org.Token
+import Data.Org.Separator
 import Data.Org.Tags
 import Data.Org.Timestamp
-import Data.Org.Separator
+import Data.Org.Token
+import Data.Typeable
 
 import TextShow (TextShow)
 import TextShow qualified as TS
@@ -17,20 +21,28 @@ import Text.Megaparsec.Char
 
 import Prelude hiding (concat)
 
-newtype Title = Title [TitleElement]
-  deriving (Show, Eq)
+data TitleElement where
+  TitleElement :: Parse a => a -> TitleElement
 
-data TitleElement = TText !Token
-                  | TTags !Tags
-                  | TTimestamp !Timestamp
-                  | TSeparator !Separator
-  deriving (Show, Eq)
+instance Show TitleElement where
+  show (TitleElement a) = show a
 
 instance TextShow TitleElement where
-  showb (TText (Token x)) = TS.fromText x
-  showb (TTags x) = TS.showb x
-  showb (TTimestamp x) = TS.showb x
-  showb (TSeparator x) = TS.showb x
+  showb (TitleElement a) = TS.showb a
+
+instance Eq TitleElement where
+    (TitleElement x) == (TitleElement y) = case cast y of
+        Just y' -> x == y'
+        Nothing -> False
+
+instance Parse TitleElement where
+  parser = choice [ try (TitleElement <$> (parser :: StatefulParser Separator))
+                  , try (TitleElement <$> (parser :: StatefulParser Timestamp))
+                  , try (TitleElement <$> (parser :: StatefulParser Tags))
+                  , TitleElement <$> (parser :: StatefulParser Token) ]
+
+newtype Title = Title [TitleElement]
+  deriving (Show, Eq)
 
 instance Semigroup Title where
   (<>) (Title lhs) (Title rhs) = Title (lhs <> rhs)
@@ -44,12 +56,8 @@ instance TextShow Title where
 
 instance Parse Title where
   parser = do
-    let stopParsers = choice [ void eol, eof ]
-        elemParsers = choice [ TSeparator <$> try parser
-                             , TTimestamp <$> try parser
-                             , TTags <$> try parser
-                             , TText <$> parser ]
+    let stop = choice [ void eol, eof ]
 
-    elems <- manyTill elemParsers (lookAhead stopParsers)
+    elems <- manyTill (parser :: StatefulParser TitleElement) (lookAhead stop)
 
     return (Title elems)
