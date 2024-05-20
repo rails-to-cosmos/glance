@@ -3,12 +3,12 @@ module Main (main) where
 import System.Environment
 import System.Exit
 
-import Data.ByteString.Char8 qualified as BSChar8
 import Data.ByteString qualified as BS
-import Data.Text qualified as Text
-import Data.Text.IO qualified as TIO
-import Data.Org qualified as Org
+import Data.ByteString.Char8 qualified as BSChar8
 import Data.Config qualified as Config
+import Data.Org qualified as Org
+import Data.Text qualified as T
+import Data.Text.IO qualified as TIO
 import Repl.Org
 
 import System.Directory
@@ -29,7 +29,7 @@ defaultConfig = do
   createDirectoryIfMissing True configDir
 
   return Config.Config { Config.haskelineSettings = haskelineSettings
-                       , Config.dbConnectionString = Text.pack dbFile
+                       , Config.dbConnectionString = T.pack dbFile
                        , Config.dbPoolSize = 10 }
 
 defaultContext :: Org.Context
@@ -48,13 +48,13 @@ parse [] = do
 
 parse (filename:_) = do
   config <- defaultConfig
-  content <- Text.pack . BSChar8.unpack <$> BS.readFile filename
+  content <- T.pack . BSChar8.unpack <$> BS.readFile filename
 
   let (_elements, context) = Org.parse defaultContext content
 
   TIO.putStrLn "Hello there, fellow hacker!"
-  TIO.putStrLn (Text.intercalate " " ["MetaDB location:", Config.dbConnectionString config])
-  TIO.putStrLn (Text.intercalate " " ["Additional context:", Text.pack filename])
+  TIO.putStrLn (T.intercalate " " ["MetaDB location:", Config.dbConnectionString config])
+  TIO.putStrLn (T.intercalate " " ["Additional context:", T.pack filename])
 
   runRepl config context Org.parse
   exitSuccess
@@ -62,7 +62,7 @@ parse (filename:_) = do
 repl :: Config.Config -> Org.Context -> IO ()
 repl config context = do
   TIO.putStrLn "Hello there, fellow hacker!"
-  TIO.putStrLn (Text.intercalate " " ["I'll use meta db located in", Config.dbConnectionString config])
+  TIO.putStrLn (T.intercalate " " ["I'll use meta db located in", Config.dbConnectionString config])
 
   runRepl config context Org.parse
 
