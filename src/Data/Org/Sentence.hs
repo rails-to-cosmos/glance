@@ -14,14 +14,14 @@ import Text.Megaparsec hiding (Token)
 import Text.Megaparsec.Char
 
 data SentenceElement = SToken !Token
-                     | STs !Ts
-                     | SSep !Sep
+                     | STimestamp !Timestamp
+                     | SSeparator !Separator
   deriving (Show, Eq)
 
 instance TextShow SentenceElement where
   showb (SToken x) = TS.showb x
-  showb (STs x) = TS.showb x
-  showb (SSep x) = TS.showb x
+  showb (STimestamp x) = TS.showb x
+  showb (SSeparator x) = TS.showb x
 
 newtype Sentence = Sentence [SentenceElement]
   deriving (Show, Eq)
@@ -39,8 +39,8 @@ instance TextShow Sentence where
 instance Parse Sentence where
   parser = do
     let stopParsers = choice [ void eol, eof ]
-        elemParsers = choice [ SSep <$> try parser
-                             , STs <$> try parser
+        elemParsers = choice [ SSeparator <$> try parser
+                             , STimestamp <$> try parser
                              , SToken <$> parser ]
 
     elems <- manyTill elemParsers (lookAhead stopParsers)

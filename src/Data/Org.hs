@@ -1,4 +1,4 @@
-module Data.Org ( OrgContext (..)
+module Data.Org ( Context (..)
                 , Element (..)
                 , Headline (..)
                 , Indent (..)
@@ -8,13 +8,13 @@ module Data.Org ( OrgContext (..)
                 , Property (..)
                 , Properties (..)
                 , Tags (..)
-                , Ts (..)
-                , TsStatus (..)
+                , Timestamp (..)
+                , TimestampStatus (..)
                 , Title (..)
                 , TitleElement (..)
                 , Todo (..)
                 , Pragma (..)
-                , Sep (..)
+                , Separator (..)
                 , Sentence (..)
                 , SentenceElement (..)
                 , parse
@@ -44,10 +44,10 @@ import Data.Text.Lazy.Builder ()
 import Text.Megaparsec qualified as MPS
 import UnliftIO ()
 
-parse :: OrgContext -> Text -> ([Element], OrgContext)
+parse :: Context -> Text -> ([Element], Context)
 parse ctx cmd = case MPS.parse (runStateT (MPS.manyTill parser MPS.eof) ctx) "" cmd of
   Right val -> val
   Left err  -> ([], ctx)  -- GToken (Token (pack (PS.errorBundlePretty err)))
 
-mparse :: Text -> ([Element], OrgContext)
-mparse = parse (mempty :: OrgContext)
+mparse :: Text -> ([Element], Context)
+mparse = parse (mempty :: Context)

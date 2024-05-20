@@ -27,10 +27,10 @@ instance Eq Element where
         Nothing -> False
 
 instance Parse Element where
-  parser = choice [ try (Element <$> (parser :: StatefulParser Sep))
+  parser = choice [ try (Element <$> (parser :: StatefulParser Separator))
                   , try (Element <$> (parser :: StatefulParser Headline))
                   , try (Element <$> (parser :: StatefulParser Pragma))
-                  , try (Element <$> (parser :: StatefulParser Ts))
+                  , try (Element <$> (parser :: StatefulParser Timestamp))
                   , Element <$> (parser :: StatefulParser Token) ]
 
 instance TextShow Element where

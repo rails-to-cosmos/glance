@@ -18,9 +18,9 @@ testCases = [ TestCase { description = "Org-mode headline representation"
                        , element = Org.Element defaultHeadline { indent = Indent 1
                                                                , todo = mempty :: Todo
                                                                , title = Title [ TText (Token "Hello,")
-                                                                               , TSep SPC
+                                                                               , TSeparator SPC
                                                                                , TText (Token "world!")
-                                                                               , TSep SPC
+                                                                               , TSeparator SPC
                                                                                , TTags (Tags ["greetings"])]}
                        , representation = "* Hello, world! :greetings:" }
 

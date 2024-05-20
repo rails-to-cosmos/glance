@@ -18,8 +18,8 @@ data Headline = Headline { indent :: !Indent
                          , todo :: !Todo
                          , priority :: !Priority
                          , title :: !Title
-                         , schedule :: !(Maybe Ts)
-                         , deadline :: !(Maybe Ts)
+                         , schedule :: !(Maybe Timestamp)
+                         , deadline :: !(Maybe Timestamp)
                          , properties :: !Properties
                          } deriving (Show, Eq)
 
@@ -53,11 +53,11 @@ instance Parse Headline where
     todo' <- option (mempty :: Todo) (parser :: StatefulParser Todo)
     priority' <- option (mempty :: Priority) (parser :: StatefulParser Priority)
     title' <- parser :: StatefulParser Title
-    -- schedule' <- optional $ try (string "SCHEDULED:" *> space *> (parser :: StatefulParser Ts))
-    -- deadline' <- optional $ try (string "DEADLINE:" *> space *> (parser :: StatefulParser Ts))
+    -- schedule' <- optional $ try (string "SCHEDULED:" *> space *> (parser :: StatefulParser Timestamp))
+    -- deadline' <- optional $ try (string "DEADLINE:" *> space *> (parser :: StatefulParser Timestamp))
     properties' <- option (mempty :: Properties) (try (eol *> parser :: StatefulParser Properties))
 
-    _ <- parser :: StatefulParser Sep
+    _ <- parser :: StatefulParser Separator
 
     return Headline { indent = indent'
                     , todo = todo'

@@ -7,7 +7,6 @@ import Control.Monad.Logger (runStderrLoggingT)
 import Control.Monad.State (StateT)
 import Control.Monad.State qualified as State
 import Data.Org qualified as Org
-import Data.Org.Context (OrgContext)
 import Data.Config qualified as Config
 import Data.Text qualified as Text
 import Data.Text.IO as TIO
@@ -19,9 +18,9 @@ import System.Console.Haskeline (InputT, getInputLine, runInputT)
 import TextShow qualified as TS
 import UnliftIO ()
 
-type CommandProcessor = OrgContext -> Text.Text -> ([Org.Element], OrgContext)
+type CommandProcessor = Org.Context -> Text.Text -> ([Org.Element], Org.Context)
 
-type Repl a = StateT OrgContext (SqlQueryT (InputT IO)) a
+type Repl a = StateT Org.Context (SqlQueryT (InputT IO)) a
 
 getInput :: Repl Text.Text
 getInput = do
@@ -48,7 +47,7 @@ repl fn = do
       State.put ctx'
       repl fn
 
-runRepl :: Config.Config -> OrgContext -> CommandProcessor -> IO ()
+runRepl :: Config.Config -> Org.Context -> CommandProcessor -> IO ()
 runRepl config state fn = do
   pool <- createPool
   runSqlQueryT pool (runMigration migrateAll)

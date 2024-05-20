@@ -22,15 +22,15 @@ newtype Title = Title [TitleElement]
 
 data TitleElement = TText !Token
                   | TTags !Tags
-                  | TTs !Ts
-                  | TSep !Sep
+                  | TTimestamp !Timestamp
+                  | TSeparator !Separator
   deriving (Show, Eq)
 
 instance TextShow TitleElement where
   showb (TText (Token x)) = TS.fromText x
   showb (TTags x) = TS.showb x
-  showb (TTs x) = TS.showb x
-  showb (TSep x) = TS.showb x
+  showb (TTimestamp x) = TS.showb x
+  showb (TSeparator x) = TS.showb x
 
 instance Semigroup Title where
   (<>) (Title lhs) (Title rhs) = Title (lhs <> rhs)
@@ -45,8 +45,8 @@ instance TextShow Title where
 instance Parse Title where
   parser = do
     let stopParsers = choice [ void eol, eof ]
-        elemParsers = choice [ TSep <$> try parser
-                             , TTs <$> try parser
+        elemParsers = choice [ TSeparator <$> try parser
+                             , TTimestamp <$> try parser
                              , TTags <$> try parser
                              , TText <$> parser ]
 

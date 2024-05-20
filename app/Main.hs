@@ -9,7 +9,6 @@ import Data.Text qualified as Text
 import Data.Text.IO qualified as TIO
 import Data.Org qualified as Org
 import Data.Config qualified as Config
-import Data.Org.Context
 import Repl.Org
 
 import System.Directory
@@ -33,7 +32,7 @@ defaultConfig = do
                        , Config.dbConnectionString = Text.pack dbFile
                        , Config.dbPoolSize = 10 }
 
-defaultContext :: OrgContext
+defaultContext :: Org.Context
 defaultContext = mempty
 
 main :: IO ()
@@ -60,7 +59,7 @@ parse (filename:_) = do
   runRepl config context Org.parse
   exitSuccess
 
-repl :: Config.Config -> OrgContext -> IO ()
+repl :: Config.Config -> Org.Context -> IO ()
 repl config context = do
   TIO.putStrLn "Hello there, fellow hacker!"
   TIO.putStrLn (Text.intercalate " " ["I'll use meta db located in", Config.dbConnectionString config])
