@@ -47,7 +47,7 @@ instance TextShow Headline where
     <> TS.showb (priority headline)
     <> TS.showb (title headline)
 
-instance Org.Base Headline where
+instance Org.Parse Headline where
   parser = do
     indent' <- Org.parser :: Org.StatefulParser Indent
     todo' <- option (mempty :: Todo) (Org.parser :: Org.StatefulParser Todo)

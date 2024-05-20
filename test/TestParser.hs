@@ -1,6 +1,8 @@
 module TestParser (orgModeParserUnitTests) where
 
 import Data.Org
+import Data.Org qualified as Org
+
 import Data.Text (Text, intercalate, unpack)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertEqual, testCase)
@@ -11,8 +13,8 @@ import Data.Time (UTCTime, parseTimeOrError, defaultTimeLocale)
 strptime :: Text -> UTCTime
 strptime t = parseTimeOrError True defaultTimeLocale "%Y-%m-%d %H:%M:%S" (unpack t) :: UTCTime
 
-data Result = Result { elements :: ![OrgElement]
-                     , context :: !OrgContext
+data Result = Result { elements :: ![Org.Element]
+                     , context :: !Org.OrgContext
                      } deriving (Eq, Show)
 
 data TestCase = TestCase { description :: !String
@@ -22,16 +24,16 @@ data TestCase = TestCase { description :: !String
 testCases :: [TestCase]
 testCases = [ TestCase { description = "Parse headline with tags"
                        , inputs = ["* Hello world :a:b:c:"]
-                       , expected = Result { elements = [ OrgElement defaultHeadline { title = Title [ TText (Tk "Hello")
-                                                                                                     , TSep SPC
-                                                                                                     , TText (Tk "world")
-                                                                                                     , TSep SPC
-                                                                                                     , TTags (Tags ["a", "b", "c"]) ]}]
+                       , expected = Result { elements = [ Org.Element defaultHeadline { title = Title [ TText (Tk "Hello")
+                                                                                                      , TSep SPC
+                                                                                                      , TText (Tk "world")
+                                                                                                      , TSep SPC
+                                                                                                      , TTags (Tags ["a", "b", "c"]) ]}]
                                            , context = defaultContext }}
 
             , TestCase { description = "Parse headline with corrupted tag string"
                        , inputs = ["* Hello world :a:b:c"]
-                       , expected = Result { elements = [ OrgElement defaultHeadline { title = Title [ TText (Tk "Hello")
+                       , expected = Result { elements = [ Org.Element defaultHeadline { title = Title [ TText (Tk "Hello")
                                                                                                      , TSep SPC
                                                                                                      , TText (Tk "world")
                                                                                                      , TSep SPC
@@ -43,7 +45,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
                                   , ":PROPERTIES:"
                                   , ":TITLE: New title"
                                   , ":END:" ]
-                       , expected = Result { elements = [ OrgElement defaultHeadline { title = Title [ TText (Tk "Hello") ]
+                       , expected = Result { elements = [ Org.Element defaultHeadline { title = Title [ TText (Tk "Hello") ]
                                                                                      , properties = Properties [Property (Keyword "TITLE") (Sentence [ STk (Tk "New")
                                                                                                                                                      , SSep SPC
                                                                                                                                                      , STk (Tk "title") ])]}]
@@ -51,12 +53,12 @@ testCases = [ TestCase { description = "Parse headline with tags"
 
             , TestCase { description = "Parse drawer"
                        , inputs = [":DRAWER:"]
-                       , expected = Result { elements = [OrgElement (Tk ":DRAWER:")]
+                       , expected = Result { elements = [Org.Element (Tk ":DRAWER:")]
                                            , context = defaultContext }}
 
             , TestCase { description = "Category pragma affects context"
                        , inputs = ["#+CATEGORY: foo bar"]
-                       , expected = Result { elements = [OrgElement (PCategory (Sentence [ STk (Tk "foo")
+                       , expected = Result { elements = [Org.Element (PCategory (Sentence [ STk (Tk "foo")
                                                                                          , SSep SPC
                                                                                          , STk (Tk "bar") ]))]
                                            , context = defaultContext { metaCategory = "foo bar" }}}
@@ -66,7 +68,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
                                   , ":PROPERTIES:"
                                   , ":CATEGORY: Updated category"
                                   , ":END:" ]
-                       , expected = Result { elements = [ OrgElement defaultHeadline { title = Title [TText (Tk "Hello")]
+                       , expected = Result { elements = [ Org.Element defaultHeadline { title = Title [TText (Tk "Hello")]
                                                                                      , properties = Properties [Property (Keyword "CATEGORY") (Sentence [ STk (Tk "Updated")
                                                                                                                                                         , SSep SPC
                                                                                                                                                         , STk (Tk "category")])]}]
@@ -74,7 +76,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
 
             , TestCase { description = "Parse complete headline"
                        , inputs = ["** TODO [#A] Hello :a:b:c:"]
-                       , expected = Result { elements = [ OrgElement defaultHeadline { indent = Indent 2
+                       , expected = Result { elements = [ Org.Element defaultHeadline { indent = Indent 2
                                                                                       , todo = Todo (Just "TODO")
                                                                                       , priority = Priority (Just 'A')
                                                                                       , title = Title [ TText (Tk "Hello")
@@ -85,15 +87,15 @@ testCases = [ TestCase { description = "Parse headline with tags"
             , TestCase { description = "Parse headline with custom todo state"
                        , inputs = [ "#+TODO: TODO | CANCELLED"
                                   , "* CANCELLED Mess" ]
-                       , expected = Result { elements = [ OrgElement (PTodo (Set.fromList ["TODO"]) (Set.fromList ["CANCELLED"]))
-                                                        , OrgElement (defaultHeadline { todo = Todo (Just "CANCELLED")
+                       , expected = Result { elements = [ Org.Element (PTodo (Set.fromList ["TODO"]) (Set.fromList ["CANCELLED"]))
+                                                        , Org.Element (defaultHeadline { todo = Todo (Just "CANCELLED")
                                                                                       , title = Title [TText (Tk "Mess")] })]
                                            , context = defaultContext { metaTodoActive = Set.fromList ["TODO"]
                                                                       , metaTodoInactive = Set.fromList ["DONE", "CANCELLED"]}}}
 
             , TestCase { description = "No inactive todo states"
                        , inputs = ["#+TODO: foo"]
-                       , expected = Result { elements = [ OrgElement (PTodo (Set.fromList ["FOO"]) (Set.fromList [])) ]
+                       , expected = Result { elements = [ Org.Element (PTodo (Set.fromList ["FOO"]) (Set.fromList [])) ]
                                            , context = defaultContext { metaTodoActive = Set.fromList ["TODO", "FOO"]
                                                                       , metaTodoInactive = Set.fromList ["DONE"] }}}
 
@@ -101,7 +103,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
             --            , inputs = [ "#+TODO: CANCELLED | CANCELLED"
             --                       , "* CANCELLED Mess" ]
             --            , expected = Result { elements = [ GPragma (PTodo (Set.fromList ["CANCELLED"]) (Set.fromList ["CANCELLED"]))
-            --                                                    , OrgElement (defaultHeadline { todo = Todo Nothing
+            --                                                    , Org.Element (defaultHeadline { todo = Todo Nothing
             --                                                                                 , title = Title [ TText (Tk "CANCELLED")
             --                                                                                                 , TSep SPC
             --                                                                                                 , TText (Tk "Mess")]})]
@@ -111,8 +113,8 @@ testCases = [ TestCase { description = "Parse headline with tags"
             , TestCase { description = "Multiline parsing"
                        , inputs = [ "* foo"
                                   , "* bar" ]
-                       , expected = Result { elements = [ OrgElement (defaultHeadline {title = Title [TText (Tk "foo")]})
-                                                        , OrgElement (defaultHeadline {title = Title [TText (Tk "bar")]}) ]
+                       , expected = Result { elements = [ Org.Element (defaultHeadline {title = Title [TText (Tk "foo")]})
+                                                        , Org.Element (defaultHeadline {title = Title [TText (Tk "bar")]}) ]
                                            , context = defaultContext }}
 
             , TestCase { description = "Empty text parsing"
@@ -122,16 +124,16 @@ testCases = [ TestCase { description = "Parse headline with tags"
 
             , TestCase { description = "Restrict infinite parsing of eol / eof"
                        , inputs = ["", "", ""]
-                       , expected = Result { elements = [ OrgElement EOL
-                                                        , OrgElement EOL ]
+                       , expected = Result { elements = [ Org.Element EOL
+                                                        , Org.Element EOL ]
                                            , context = defaultContext }}
 
             , TestCase { description = "Parse timestamps"
                        , inputs = [ "<2024-01-01>"
                                   , "<2024-01-01 Mon>" ]
-                       , expected = Result { elements = [ OrgElement Ts {tsStatus = TsActive, tsRep = Nothing, tsTime = strptime "2024-01-01 00:00:00"}
-                                                        , OrgElement EOL
-                                                        , OrgElement Ts {tsStatus = TsActive, tsRep = Nothing, tsTime = strptime "2024-01-01 00:00:00"}]
+                       , expected = Result { elements = [ Org.Element Ts {tsStatus = TsActive, tsRep = Nothing, tsTime = strptime "2024-01-01 00:00:00"}
+                                                        , Org.Element EOL
+                                                        , Org.Element Ts {tsStatus = TsActive, tsRep = Nothing, tsTime = strptime "2024-01-01 00:00:00"}]
                                            , context = defaultContext }}
 
             -- , TestCase { description = "Parse schedule property"
@@ -140,7 +142,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
             --                       , ":PROPERTIES:"
             --                       , ":CATEGORY: bar"
             --                       , ":END:" ]
-            --            , expected = Result { elements = [ OrgElement (defaultHeadline { title = Title [TText (Tk "foo")]
+            --            , expected = Result { elements = [ Org.Element (defaultHeadline { title = Title [TText (Tk "foo")]
             --                                                                           , schedule = Just Ts { tsStatus = TsActive
             --                                                                                                , tsRep = Nothing
             --                                                                                                , tsTime = strptime "2024-04-28 00:00:00" }
@@ -149,7 +151,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
 
             -- , TestCase { description = "Parse links"
             --            , inputs = ["[[file:/home/foo/bar.org::*NN Pipeline][NN Pipeline]]"]
-            --            , expected = Result { elements = [OrgElement (Tk "[[file:/home/foo/bar.org::*NN Pipeline][NN Pipeline]]")]
+            --            , expected = Result { elements = [Org.Element (Tk "[[file:/home/foo/bar.org::*NN Pipeline][NN Pipeline]]")]
             --                                       , context = defaultContext}}
 
             ]
@@ -161,7 +163,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
             --           "* CANCELLED Mess"
             --         ],
             --       expected =
-            --         OrgContext
+            --         Org.OrgContext
             --           { headline =
             --               Headline
             --                 { indent = EIndent 1
@@ -241,7 +243,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
             --           "#+TODO: STARTED(s!) | CANCELLED(c!)"
             --         ],
             --       expected =
-            --         OrgContext
+            --         Org.OrgContext
             --           { headline =
             --               defaultHeadline
             --                 { meta = defaultMeta {metaTodo = (["TODO", "PENDING", "STARTED"], ["DONE", "CANCELLED"])}
@@ -254,7 +256,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
             --         [ "* CANCELLED Mess"
             --         ],
             --       expected =
-            --         OrgContext
+            --         Org.OrgContext
             --           { headline =
             --               Headline
             --                 { indent = EIndent 1

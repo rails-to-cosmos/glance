@@ -18,7 +18,7 @@ instance Semigroup Properties where
 instance Monoid Properties where
   mempty = Properties []
 
-instance Org.Base Properties where
+instance Org.Parse Properties where
   parser = do
     _ <- string ":PROPERTIES:" <* eol
     properties <- manyTill ((Org.parser :: Org.StatefulParser Property) <* eol) (string ":END:")

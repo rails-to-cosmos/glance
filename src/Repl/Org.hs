@@ -8,7 +8,6 @@ import Control.Monad.State (StateT)
 import Control.Monad.State qualified as State
 import Data.Org qualified as Org
 import Data.Org.Context (OrgContext)
-import Data.Org.Element (OrgElement)
 import Data.Config qualified as Config
 import Data.Text qualified as Text
 import Data.Text.IO as TIO
@@ -20,7 +19,7 @@ import System.Console.Haskeline (InputT, getInputLine, runInputT)
 import TextShow qualified as TS
 import UnliftIO ()
 
-type CommandProcessor = OrgContext -> Text.Text -> ([OrgElement], OrgContext)
+type CommandProcessor = OrgContext -> Text.Text -> ([Org.Element], OrgContext)
 
 type Repl a = StateT OrgContext (SqlQueryT (InputT IO)) a
 

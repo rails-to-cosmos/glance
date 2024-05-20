@@ -84,7 +84,7 @@ instance TextShow Ts where
         "" -> ""
         _repeater -> " "
 
-instance Org.Base Ts where
+instance Org.Parse Ts where
   parser = do
     tsStatus' <- State.lift timestampStatusParser
     tsDay' <- State.lift timestampDayParser <* space

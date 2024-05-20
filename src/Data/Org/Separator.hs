@@ -11,7 +11,7 @@ import TextShow qualified as TS
 data Sep = SPC | EOL | EOF
   deriving (Show, Eq)
 
-instance Org.Base Sep where
+instance Org.Parse Sep where
   parser = choice
     [ EOF <$ eof
     , EOL <$ eol

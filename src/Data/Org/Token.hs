@@ -23,7 +23,7 @@ instance Monoid Tk where
 instance TextShow Tk where
   showb (Tk a) = TS.fromText a
 
-instance Org.Base Tk where
+instance Org.Parse Tk where
   parser = do
     let stop = lookAhead (choice [space1, void eol, eof])
         word = manyTill anySingle stop
