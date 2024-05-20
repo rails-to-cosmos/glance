@@ -1,6 +1,6 @@
-module Data.Org.Base ( StatelessParser,
-                       StatefulParser,
-                       Parse(..) ) where
+module Data.Org.Parse ( StatelessParser,
+                        StatefulParser,
+                        Parse(parser) ) where
 
 import Data.Typeable (Typeable)
 import Data.Text (Text)

@@ -3,7 +3,7 @@ module Data.Org ( OrgContext (..)
                 , Headline (..)
                 , Indent (..)
                 , Keyword (..)
-                , Tk (..)
+                , Token (..)
                 , Priority (..)
                 , Property (..)
                 , Properties (..)
@@ -20,7 +20,7 @@ module Data.Org ( OrgContext (..)
                 , parse
                 , mparse ) where
 
-import Data.Org.Base
+import Data.Org.Parse
 import Data.Org.Context
 import Data.Org.Element
 import Data.Org.Headline
@@ -47,7 +47,7 @@ import UnliftIO ()
 parse :: OrgContext -> Text -> ([Element], OrgContext)
 parse ctx cmd = case MPS.parse (runStateT (MPS.manyTill parser MPS.eof) ctx) "" cmd of
   Right val -> val
-  Left err  -> ([], ctx)  -- GTk (Tk (pack (PS.errorBundlePretty err)))
+  Left err  -> ([], ctx)  -- GToken (Token (pack (PS.errorBundlePretty err)))
 
 mparse :: Text -> ([Element], OrgContext)
 mparse = parse (mempty :: OrgContext)

@@ -1,6 +1,6 @@
 module Data.Org.Properties (Properties (..)) where
 
-import Data.Org.Base qualified as Org
+import Data.Org.Parse
 import Data.Org.Property
 
 import Text.Megaparsec
@@ -18,10 +18,10 @@ instance Semigroup Properties where
 instance Monoid Properties where
   mempty = Properties []
 
-instance Org.Parse Properties where
+instance Parse Properties where
   parser = do
     _ <- string ":PROPERTIES:" <* eol
-    properties <- manyTill ((Org.parser :: Org.StatefulParser Property) <* eol) (string ":END:")
+    properties <- manyTill ((parser :: StatefulParser Property) <* eol) (string ":END:")
     return (Properties properties)
 
 instance TextShow Properties where

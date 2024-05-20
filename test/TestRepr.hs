@@ -17,9 +17,9 @@ testCases :: [TestCase]
 testCases = [ TestCase { description = "Org-mode headline representation"
                        , element = Org.Element defaultHeadline { indent = Indent 1
                                                                , todo = mempty :: Todo
-                                                               , title = Title [ TText (Tk "Hello,")
+                                                               , title = Title [ TText (Token "Hello,")
                                                                                , TSep SPC
-                                                                               , TText (Tk "world!")
+                                                                               , TText (Token "world!")
                                                                                , TSep SPC
                                                                                , TTags (Tags ["greetings"])]}
                        , representation = "* Hello, world! :greetings:" }
@@ -27,7 +27,7 @@ testCases = [ TestCase { description = "Org-mode headline representation"
             , TestCase { description = "Todo state representation"
                        , element = Org.Element defaultHeadline { indent = Indent 1
                                                                , todo = Todo (Just "TODO")
-                                                               , title = Title [ TText (Tk "foo") ]}
+                                                               , title = Title [ TText (Token "foo") ]}
                        , representation = "* TODO foo" } ]
 
 assertOne :: TestCase -> TestTree

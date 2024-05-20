@@ -4,7 +4,7 @@
 module Data.Org.Element (Element (..)) where
 
 import Data.Typeable
-import Data.Org.Base qualified as Org
+import Data.Org.Parse
 import Data.Org.Headline
 import Data.Org.Token
 import Data.Org.Pragma
@@ -16,7 +16,7 @@ import TextShow (TextShow)
 import TextShow qualified as TS
 
 data Element where
-  Element :: Org.Parse a => a -> Element
+  Element :: Parse a => a -> Element
 
 instance Show Element where
   show (Element a) = show a
@@ -26,12 +26,12 @@ instance Eq Element where
         Just y' -> x == y'
         Nothing -> False
 
-instance Org.Parse Element where
-  parser = choice [ try (Element <$> (Org.parser :: Org.StatefulParser Sep))
-                  , try (Element <$> (Org.parser :: Org.StatefulParser Headline))
-                  , try (Element <$> (Org.parser :: Org.StatefulParser Pragma))
-                  , try (Element <$> (Org.parser :: Org.StatefulParser Ts))
-                  , Element <$> (Org.parser :: Org.StatefulParser Tk) ]
+instance Parse Element where
+  parser = choice [ try (Element <$> (parser :: StatefulParser Sep))
+                  , try (Element <$> (parser :: StatefulParser Headline))
+                  , try (Element <$> (parser :: StatefulParser Pragma))
+                  , try (Element <$> (parser :: StatefulParser Ts))
+                  , Element <$> (parser :: StatefulParser Token) ]
 
 instance TextShow Element where
   showb (Element a) = TS.showb a

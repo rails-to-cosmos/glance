@@ -1,6 +1,6 @@
 module Data.Org.Headline (Headline (..)) where
 
-import Data.Org.Base qualified as Org
+import Data.Org.Parse
 import Data.Org.Indent
 import Data.Org.Priority
 import Data.Org.Properties
@@ -47,17 +47,17 @@ instance TextShow Headline where
     <> TS.showb (priority headline)
     <> TS.showb (title headline)
 
-instance Org.Parse Headline where
+instance Parse Headline where
   parser = do
-    indent' <- Org.parser :: Org.StatefulParser Indent
-    todo' <- option (mempty :: Todo) (Org.parser :: Org.StatefulParser Todo)
-    priority' <- option (mempty :: Priority) (Org.parser :: Org.StatefulParser Priority)
-    title' <- Org.parser :: Org.StatefulParser Title
-    -- schedule' <- optional $ try (string "SCHEDULED:" *> space *> (Org.parser :: Org.StatefulParser Ts))
-    -- deadline' <- optional $ try (string "DEADLINE:" *> space *> (Org.parser :: Org.StatefulParser Ts))
-    properties' <- option (mempty :: Properties) (try (eol *> Org.parser :: Org.StatefulParser Properties))
+    indent' <- parser :: StatefulParser Indent
+    todo' <- option (mempty :: Todo) (parser :: StatefulParser Todo)
+    priority' <- option (mempty :: Priority) (parser :: StatefulParser Priority)
+    title' <- parser :: StatefulParser Title
+    -- schedule' <- optional $ try (string "SCHEDULED:" *> space *> (parser :: StatefulParser Ts))
+    -- deadline' <- optional $ try (string "DEADLINE:" *> space *> (parser :: StatefulParser Ts))
+    properties' <- option (mempty :: Properties) (try (eol *> parser :: StatefulParser Properties))
 
-    _ <- Org.parser :: Org.StatefulParser Sep
+    _ <- parser :: StatefulParser Sep
 
     return Headline { indent = indent'
                     , todo = todo'
