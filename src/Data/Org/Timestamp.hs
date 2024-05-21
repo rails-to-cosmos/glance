@@ -21,9 +21,9 @@ import Text.Megaparsec.Char.Lexer (decimal)
 import Control.Monad (guard, void)
 
 data Timestamp = Timestamp
-  { tsStatus :: !TimestampStatus
-  , tsRep :: !(Maybe TimestampRepeaterInterval)
-  , tsTime :: !Time.UTCTime
+  { timestampStatus :: !TimestampStatus
+  , timestampInterval :: !(Maybe TimestampRepeaterInterval)
+  , timestampTime :: !Time.UTCTime
   } deriving (Show, Eq)
 
 data TimestampStatus = TimestampActive | TimestampInactive
@@ -54,29 +54,29 @@ instance TextShow Timestamp where
     <> closeBracket
 
     where
-      openBracket = case tsStatus ts of
+      openBracket = case timestampStatus ts of
         TimestampActive -> "<"
         TimestampInactive -> "["
-      closeBracket = case tsStatus ts of
+      closeBracket = case timestampStatus ts of
         TimestampActive -> ">"
         TimestampInactive -> "]"
-      timeText = formatTimestamp (tsTime ts)
-      repeaterTypeText = case tsRep ts of
+      timeText = formatTimestamp (timestampTime ts)
+      repeaterTypeText = case timestampInterval ts of
         Nothing -> ""
         Just TimestampRepeaterInterval { repeaterType = Restart } -> ""
         Just TimestampRepeaterInterval { repeaterType = Cumulative } -> "."
         Just TimestampRepeaterInterval { repeaterType = CatchUp } -> "+"
-      repeaterSignText = case tsRep ts of
+      repeaterSignText = case timestampInterval ts of
         Nothing -> ""
         Just TimestampRepeaterInterval { repeaterSign = TRSPlus } -> "+"
         Just TimestampRepeaterInterval { repeaterSign = TRSMinus } -> "-"
-      repeaterUnitText = case tsRep ts of
+      repeaterUnitText = case timestampInterval ts of
         Nothing -> ""
         Just TimestampRepeaterInterval { repeaterUnit = Days } -> "d"
         Just TimestampRepeaterInterval { repeaterUnit = Weeks } -> "w"
         Just TimestampRepeaterInterval { repeaterUnit = Months } -> "m"
         Just TimestampRepeaterInterval { repeaterUnit = Years } -> "y"
-      repeaterValText = case tsRep ts of
+      repeaterValText = case timestampInterval ts of
         Nothing -> ""
         Just TimestampRepeaterInterval { repeaterValue = val } -> TS.showt val
       repeaterText = repeaterTypeText <> repeaterSignText <> repeaterValText <> repeaterUnitText
@@ -86,19 +86,19 @@ instance TextShow Timestamp where
 
 instance Parse Timestamp where
   parser = do
-    tsStatus' <- State.lift timestampStatusParser
+    timestampStatus' <- State.lift timestampStatusParser
     tsDay' <- State.lift timestampDayParser <* space
     _tsWeekday' <- optional $ State.lift timestampWeekdayParser <* space
-    tsTime' <- optional $ State.lift timestampTimeParser <* space
-    tsRepeaterInterval' <- optional . try $ State.lift timestampRepeaterParser <* space
-    void $ char $ case tsStatus' of
+    timestampTime' <- optional $ State.lift timestampTimeParser <* space
+    timestampIntervaleaterInterval' <- optional . try $ State.lift timestampRepeaterParser <* space
+    void $ char $ case timestampStatus' of
       TimestampActive -> '>'
       TimestampInactive -> ']'
 
     return Timestamp
-      { tsStatus = tsStatus'
-      , tsRep = tsRepeaterInterval'
-      , tsTime = case tsTime' of
+      { timestampStatus = timestampStatus'
+      , timestampInterval = timestampIntervaleaterInterval'
+      , timestampTime = case timestampTime' of
                    Just t -> Time.UTCTime tsDay' (Time.timeOfDayToTime t)
                    Nothing -> Time.UTCTime tsDay' (Time.timeOfDayToTime (Time.TimeOfDay 0 0 0)) }
 
@@ -156,18 +156,17 @@ timestampRepeaterParser = do
   unit' <- oneOf ['d', 'w', 'm', 'y']
 
   return TimestampRepeaterInterval {
+    repeaterValue = val',
     repeaterType = case type' of
-        Nothing -> Restart
         Just '.' -> Cumulative
         Just '+' | sign' == Just '+' -> CatchUp
         _type -> Restart,
     repeaterUnit = case unit' of
-        'd' -> Days
-        'w' -> Weeks
-        'm' -> Months
-        'y' -> Years
-        _   -> Days,
-    repeaterValue = val',
+        'd'   -> Days
+        'w'   -> Weeks
+        'm'   -> Months
+        'y'   -> Years
+        _unit -> Days,
     repeaterSign = case sign' of
         Just '-' -> TRSMinus
         _sign -> TRSPlus

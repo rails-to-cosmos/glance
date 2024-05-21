@@ -131,9 +131,9 @@ testCases = [ TestCase { description = "Parse headline with tags"
             , TestCase { description = "Parse timestamps"
                        , inputs = [ "<2024-01-01>"
                                   , "<2024-01-01 Mon>" ]
-                       , expected = Result { elements = [ Org.Element Timestamp {tsStatus = TimestampActive, tsRep = Nothing, tsTime = strptime "2024-01-01 00:00:00"}
+                       , expected = Result { elements = [ Org.Element Timestamp {timestampStatus = TimestampActive, timestampInterval = Nothing, timestampTime = strptime "2024-01-01 00:00:00"}
                                                         , Org.Element EOL
-                                                        , Org.Element Timestamp {tsStatus = TimestampActive, tsRep = Nothing, tsTime = strptime "2024-01-01 00:00:00"}]
+                                                        , Org.Element Timestamp {timestampStatus = TimestampActive, timestampInterval = Nothing, timestampTime = strptime "2024-01-01 00:00:00"}]
                                            , context = defaultContext }}
 
             -- , TestCase { description = "Parse schedule property"
@@ -143,9 +143,9 @@ testCases = [ TestCase { description = "Parse headline with tags"
             --                       , ":CATEGORY: bar"
             --                       , ":END:" ]
             --            , expected = Result { elements = [ Org.Element (defaultHeadline { title = Title [TText (Token "foo")]
-            --                                                                           , schedule = Just Timestamp { tsStatus = TimestampActive
-            --                                                                                                , tsRep = Nothing
-            --                                                                                                , tsTime = strptime "2024-04-28 00:00:00" }
+            --                                                                           , schedule = Just Timestamp { timestampStatus = TimestampActive
+            --                                                                                                , timestampInterval = Nothing
+            --                                                                                                , timestampTime = strptime "2024-04-28 00:00:00" }
             --                                                                           , properties = Properties [Property (Keyword "CATEGORY") (Sentence [(SToken (Token "bar"))])]})]
             --                                , context = defaultContext { metaCategory = "bar" }}}
 
