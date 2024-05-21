@@ -149,25 +149,24 @@ timestampWeekdayParser = do
 
 timestampRepeaterParser :: StatelessParser TimestampRepeaterInterval
 timestampRepeaterParser = do
-  type' <- optional . try $ oneOf ['.', '+']
-  sign' <- optional . try $ oneOf ['+', '-']
-
-  val' <- decimal
-  unit' <- oneOf ['d', 'w', 'm', 'y']
+  repType <- optional . try $ oneOf ['.', '+']
+  repSign <- optional . try $ oneOf ['+', '-']
+  repValue <- decimal
+  repUnit <- oneOf ['d', 'w', 'm', 'y']
 
   return TimestampRepeaterInterval {
-    repeaterValue = val',
-    repeaterType = case type' of
+    repeaterValue = repValue,
+    repeaterType = case repType of
         Just '.' -> Cumulative
-        Just '+' | sign' == Just '+' -> CatchUp
+        Just '+' | repSign == Just '+' -> CatchUp
         _type -> Restart,
-    repeaterUnit = case unit' of
+    repeaterUnit = case repUnit of
         'd'   -> Days
         'w'   -> Weeks
         'm'   -> Months
         'y'   -> Years
         _unit -> Days,
-    repeaterSign = case sign' of
+    repeaterSign = case repSign of
         Just '-' -> TRSMinus
         _sign -> TRSPlus
     }
