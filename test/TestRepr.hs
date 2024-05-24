@@ -1,6 +1,8 @@
 module TestRepr (orgElementReprUnitTests) where
 
 import Data.Org
+import Data.Org qualified as Org
+
 import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertEqual, testCase)
@@ -8,24 +10,24 @@ import TextShow qualified as TS
 import TestDefaults
 
 data TestCase = TestCase { description :: !String
-                         , element :: !OrgElement
+                         , element :: !Org.Element
                          , representation :: !Text }
 
 testCases :: [TestCase]
 testCases = [ TestCase { description = "Org-mode headline representation"
-                       , element = OrgElement defaultHeadline { indent = Indent 1
-                                                              , todo = mempty :: Todo
-                                                              , title = Title [ TText (Tk "Hello,")
-                                                                              , TSep SPC
-                                                                              , TText (Tk "world!")
-                                                                              , TSep SPC
-                                                                              , TTags (Tags ["greetings"])]}
+                       , element = Org.Element defaultHeadline { indent = Indent 1
+                                                               , todo = mempty :: Todo
+                                                               , title = Title [ TitleElement (Token "Hello,")
+                                                                               , TitleElement SPC
+                                                                               , TitleElement (Token "world!")
+                                                                               , TitleElement SPC
+                                                                               , TitleElement (Tags ["greetings"])]}
                        , representation = "* Hello, world! :greetings:" }
 
             , TestCase { description = "Todo state representation"
-                       , element = OrgElement defaultHeadline { indent = Indent 1
-                                                              , todo = Todo (Just "TODO")
-                                                              , title = Title [ TText (Tk "foo") ]}
+                       , element = Org.Element defaultHeadline { indent = Indent 1
+                                                               , todo = Todo (Just "TODO")
+                                                               , title = Title [ TitleElement (Token "foo") ]}
                        , representation = "* TODO foo" } ]
 
 assertOne :: TestCase -> TestTree

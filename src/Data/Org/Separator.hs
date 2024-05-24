@@ -1,6 +1,6 @@
-module Data.Org.Separator (Sep (..)) where
+module Data.Org.Separator (Separator (..)) where
 
-import Data.Org.Base qualified as Org
+import Data.Org.Parse
 
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -8,16 +8,16 @@ import Text.Megaparsec.Char
 import TextShow (TextShow)
 import TextShow qualified as TS
 
-data Sep = SPC | EOL | EOF
+data Separator = SPC | EOL | EOF
   deriving (Show, Eq)
 
-instance Org.Base Sep where
+instance Parse Separator where
   parser = choice
     [ EOF <$ eof
     , EOL <$ eol
     , SPC <$ space1 <* space ]
 
-instance TextShow Sep where
+instance TextShow Separator where
   showb SPC = " "
   showb EOL = "\n"
   showb EOF = ""

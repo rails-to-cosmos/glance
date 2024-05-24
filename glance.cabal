@@ -27,12 +27,12 @@ library
   exposed-modules:
       Data.Config
       Data.Org
-      Data.Org.Base
       Data.Org.Context
       Data.Org.Element
       Data.Org.Headline
       Data.Org.Indent
       Data.Org.Keyword
+      Data.Org.Parse
       Data.Org.Pragma
       Data.Org.Priority
       Data.Org.Properties

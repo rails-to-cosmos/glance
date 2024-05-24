@@ -3,7 +3,7 @@ module Data.Org.Pragma (Pragma (..)) where
 import Control.Monad
 import Control.Monad.State qualified as State
 
-import Data.Org.Base qualified as Org
+import Data.Org.Parse
 import Data.Org.Context
 import Data.Org.Keyword
 import Data.Org.Token
@@ -11,7 +11,7 @@ import Data.Org.Sentence
 import Data.Text (Text, pack, unwords)
 import Data.Set qualified as Set
 
-import Text.Megaparsec
+import Text.Megaparsec hiding (Token)
 import Text.Megaparsec.Char
 
 import TextShow (TextShow)
@@ -24,9 +24,9 @@ data Pragma = Pragma !Keyword !Text
             | PCategory !Sentence
   deriving (Show, Eq)
 
-instance Org.Base Pragma where
+instance Parse Pragma where
   parser = do
-    let keyword = Org.parser :: Org.StatefulParser Keyword
+    let keyword = parser :: StatefulParser Keyword
         todoList = some (todo <* space)
         doneList = option [] (char '|' *> space *> todoList)
         todoShort = pack <$> between (char '(') (char ')') (many (noneOf ['(', ')', '\n']))
@@ -37,7 +37,7 @@ instance Org.Base Pragma where
     key <- string "#+" *> keyword <* string ":" <* space
     case key of
       Keyword "CATEGORY" -> do
-        category <- Org.parser :: Org.StatefulParser Sentence
+        category <- parser :: StatefulParser Sentence
         State.modify (\ctx -> ctx {metaCategory = TS.showt category})
         return $ PCategory category
       Keyword "TODO" -> do
@@ -49,7 +49,7 @@ instance Org.Base Pragma where
 
         return $ PTodo pragmaActive pragmaInactive
       _keyword -> do
-        Tk value <- Org.parser :: Org.StatefulParser Tk
+        Token value <- parser :: StatefulParser Token
         return $ Pragma key value
 
 instance TextShow Pragma where

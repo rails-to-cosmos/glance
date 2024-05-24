@@ -7,10 +7,8 @@ import Control.Monad.Logger (runStderrLoggingT)
 import Control.Monad.State (StateT)
 import Control.Monad.State qualified as State
 import Data.Org qualified as Org
-import Data.Org.Context (OrgContext)
-import Data.Org.Element (OrgElement)
 import Data.Config qualified as Config
-import Data.Text qualified as Text
+import Data.Text qualified as T
 import Data.Text.IO as TIO
 import Data.Text.Lazy.Builder ()
 import Database.Persist.Monad (SqlQueryT, runMigration, runSqlQueryT)
@@ -20,16 +18,13 @@ import System.Console.Haskeline (InputT, getInputLine, runInputT)
 import TextShow qualified as TS
 import UnliftIO ()
 
-type CommandProcessor = OrgContext -> Text.Text -> ([OrgElement], OrgContext)
+type CommandProcessor = Org.Context -> T.Text -> ([Org.Element], Org.Context)
+type Repl a = StateT Org.Context (SqlQueryT (InputT IO)) a
 
-type Repl a = StateT OrgContext (SqlQueryT (InputT IO)) a
-
-getInput :: Repl Text.Text
+getInput :: Repl T.Text
 getInput = do
   input <- State.lift $ State.lift $ getInputLine "> "
-  case input of
-    Nothing -> return ""
-    Just cmd -> return (Text.pack cmd)
+  return $ maybe "" T.pack input
 
 repl :: CommandProcessor -> Repl ()
 repl fn = do
@@ -44,12 +39,12 @@ repl fn = do
     cmd -> do
       let (elements, ctx') = Org.parse ctx cmd
       liftIO $ do
-        TIO.putStrLn $ "Repr: " <> Text.pack (show elements)
-        TIO.putStrLn $ "Str: \"" <> Text.intercalate "" (map TS.showt elements) <> "\""
+        TIO.putStrLn $ "Repr: " <> T.pack (show elements)
+        TIO.putStrLn $ "Str: \"" <> T.intercalate "" (map TS.showt elements) <> "\""
       State.put ctx'
       repl fn
 
-runRepl :: Config.Config -> OrgContext -> CommandProcessor -> IO ()
+runRepl :: Config.Config -> Org.Context -> CommandProcessor -> IO ()
 runRepl config state fn = do
   pool <- createPool
   runSqlQueryT pool (runMigration migrateAll)

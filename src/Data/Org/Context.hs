@@ -1,4 +1,4 @@
-module Data.Org.Context (OrgContext (..)) where
+module Data.Org.Context (Context (..)) where
 
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -15,23 +15,23 @@ import Data.Text (Text)
 -- data OrgStack = OrgDrawer [Text] | OrgBabel [Text] | EmptyStack
 --   deriving (Show, Eq)
 
-data OrgContext = OrgContext { metaTodoActive :: !(Set.Set Text)
+data Context = Context { metaTodoActive :: !(Set.Set Text)
                              , metaTodoInactive :: !(Set.Set Text)
                              , metaCategory :: !Text
                              -- , metaTime :: [UTCTime]
                              -- , metaStack :: OrgStack
                              } deriving (Show, Eq)
 
-instance Semigroup OrgContext where
-  (<>) lhs rhs = OrgContext
+instance Semigroup Context where
+  (<>) lhs rhs = Context
     { metaTodoActive = metaTodoActive lhs <> metaTodoActive rhs
     , metaTodoInactive = metaTodoInactive lhs <> metaTodoInactive rhs
     , metaCategory = metaCategory lhs <> metaCategory rhs
     -- , metaTime = metaTime lhs <> metaTime rhs
     }
 
-instance Monoid OrgContext where
-  mempty = OrgContext { metaTodoActive = Set.fromList ["TODO"]
+instance Monoid Context where
+  mempty = Context { metaTodoActive = Set.fromList ["TODO"]
                       , metaTodoInactive = Set.fromList ["DONE"]
                       , metaCategory = mempty :: Text
                       -- , metaTime = mempty :: [UTCTime]

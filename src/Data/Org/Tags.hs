@@ -3,7 +3,7 @@ module Data.Org.Tags (Tags (..)) where
 import Data.Text (Text, intercalate)
 import Data.List (nub)
 
-import Data.Org.Base qualified as Org
+import Data.Org.Parse
 import Data.Char
 
 import TextShow (TextShow)
@@ -30,13 +30,13 @@ instance Semigroup Tags where
 instance Monoid Tags where
   mempty = Tags []
 
-tag :: Org.StatelessParser Text
+tag :: StatelessParser Text
 tag = takeWhile1P (Just "tag character") (`elem` keyword) <* char ':'
 
 keyword :: [Char]
 keyword = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ "-_"
 
-instance Org.Base Tags where
+instance Parse Tags where
   parser = do
     let stop = lookAhead (try (choice [void eol, eof]))
     Tags <$> S.lift (char ':' *> manyTill tag stop)

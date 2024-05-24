@@ -1,8 +1,8 @@
 module TestDefaults (defaultContext, defaultHeadline) where
-import Data.Org (Headline, OrgContext)
+import Data.Org qualified as Org
 
-defaultHeadline :: Headline
-defaultHeadline = mempty :: Headline
+defaultHeadline :: Org.Headline
+defaultHeadline = mempty :: Org.Headline
 
-defaultContext :: OrgContext
-defaultContext = mempty :: OrgContext
+defaultContext :: Org.Context
+defaultContext = mempty :: Org.Context

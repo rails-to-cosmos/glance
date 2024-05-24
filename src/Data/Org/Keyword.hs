@@ -1,6 +1,6 @@
 module Data.Org.Keyword (Keyword (..)) where
 
-import Data.Org.Base qualified as Org
+import Data.Org.Parse
 import Data.Text (Text, pack, toUpper)
 import Data.Char (isAlpha)
 
@@ -17,7 +17,7 @@ newtype Keyword = Keyword Text
 instance TextShow Keyword where
   showb (Keyword k) = TS.fromText k
 
-instance Org.Base Keyword where
+instance Parse Keyword where
   parser = do
     let keyword = some (satisfy (\c -> isAlpha c || c == '_'))
     Keyword . toUpper . pack <$> keyword

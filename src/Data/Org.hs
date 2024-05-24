@@ -1,28 +1,26 @@
-module Data.Org
-  ( Base (..)
-  , OrgContext (..)
-  , OrgElement (..)
-  , Headline (..)
-  , Indent (..)
-  , Keyword (..)
-  , Tk (..)
-  , Priority (..)
-  , Property (..)
-  , Properties (..)
-  , Tags (..)
-  , Ts (..)
-  , TsStatus (..)
-  , Title (..)
-  , TitleElement (..)
-  , Todo (..)
-  , Pragma (..)
-  , Sep (..)
-  , Sentence (..)
-  , SentenceElement (..)
-  , parse
-  , mparse ) where
+module Data.Org ( Context (..)
+                , Element (..)
+                , Headline (..)
+                , Indent (..)
+                , Keyword (..)
+                , Token (..)
+                , Priority (..)
+                , Property (..)
+                , Properties (..)
+                , Tags (..)
+                , Timestamp (..)
+                , TimestampStatus (..)
+                , Title (..)
+                , TitleElement (..)
+                , Todo (..)
+                , Pragma (..)
+                , Separator (..)
+                , Sentence (..)
+                , SentenceElement (..)
+                , parse
+                , mparse ) where
 
-import Data.Org.Base
+import Data.Org.Parse
 import Data.Org.Context
 import Data.Org.Element
 import Data.Org.Headline
@@ -41,16 +39,15 @@ import Data.Org.Separator
 import Data.Org.Sentence
 
 import Control.Monad.State (runStateT)
-import Data.Org.Base qualified as Org
 import Data.Text (Text, pack)
 import Data.Text.Lazy.Builder ()
 import Text.Megaparsec qualified as MPS
 import UnliftIO ()
 
-parse :: OrgContext -> Text -> ([OrgElement], OrgContext)
-parse ctx cmd = case MPS.parse (runStateT (MPS.manyTill Org.parser MPS.eof) ctx) "" cmd of
+parse :: Context -> Text -> ([Element], Context)
+parse ctx cmd = case MPS.parse (runStateT (MPS.manyTill parser MPS.eof) ctx) "" cmd of
   Right val -> val
-  Left err  -> ([], ctx)  -- GTk (Tk (pack (PS.errorBundlePretty err)))
+  Left err  -> ([], ctx)  -- GToken (Token (pack (PS.errorBundlePretty err)))
 
-mparse :: Text -> ([OrgElement], OrgContext)
-mparse = parse (mempty :: OrgContext)
+mparse :: Text -> ([Element], Context)
+mparse = parse (mempty :: Context)

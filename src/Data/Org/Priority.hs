@@ -1,7 +1,7 @@
 module Data.Org.Priority (Priority (..)) where
 
 import Data.Char (ord)
-import Data.Org.Base qualified as Org
+import Data.Org.Parse
 
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -23,7 +23,7 @@ instance TextShow Priority where
   showb (Priority Nothing) = TS.fromText ""
   showb (Priority (Just priority)) = "[#" <> B.singleton priority <> "]" <> TS.showbSpace
 
-instance Org.Base Priority where
+instance Parse Priority where
   parser = do
     priority <- optional (char '[' *> char '#' *> letterChar <* char ']' <* space)
     return (Priority priority)

@@ -1,27 +1,27 @@
 module Data.Org.Sentence (Sentence(..), SentenceElement (..)) where
 
-import Data.Org.Token
-import Data.Org.Timestamp
+import Control.Monad (void)
+
+import Data.Org.Parse
 import Data.Org.Separator
-import Data.Org.Base qualified as Org
+import Data.Org.Timestamp
+import Data.Org.Token
 
 import TextShow (TextShow)
 import TextShow qualified as TS
 
-import Text.Megaparsec
+import Text.Megaparsec hiding (Token)
 import Text.Megaparsec.Char
 
-import Control.Monad (void)
-
-data SentenceElement = STk !Tk
-                     | STs !Ts
-                     | SSep !Sep
+data SentenceElement = SToken !Token
+                     | STimestamp !Timestamp
+                     | SSeparator !Separator
   deriving (Show, Eq)
 
 instance TextShow SentenceElement where
-  showb (STk x) = TS.showb x
-  showb (STs x) = TS.showb x
-  showb (SSep x) = TS.showb x
+  showb (SToken x) = TS.showb x
+  showb (STimestamp x) = TS.showb x
+  showb (SSeparator x) = TS.showb x
 
 newtype Sentence = Sentence [SentenceElement]
   deriving (Show, Eq)
@@ -36,12 +36,12 @@ instance TextShow Sentence where
   showb (Sentence []) = ""
   showb (Sentence (x:xs)) = TS.showb x <> TS.showb (Sentence xs)
 
-instance Org.Base Sentence where
+instance Parse Sentence where
   parser = do
     let stopParsers = choice [ void eol, eof ]
-        elemParsers = choice [ SSep <$> try Org.parser
-                             , STs <$> try Org.parser
-                             , STk <$> Org.parser ]
+        elemParsers = choice [ SSeparator <$> try parser
+                             , STimestamp <$> try parser
+                             , SToken <$> parser ]
 
     elems <- manyTill elemParsers (lookAhead stopParsers)
 
