@@ -1,4 +1,4 @@
-module Data.Org.Separator (Separator (..)) where
+module Data.Org.Elements.Separator (Separator (..)) where
 
 import Data.Org.Parse
 

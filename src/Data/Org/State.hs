@@ -1,9 +1,9 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleInstances #-}
 
-module Data.Org.MutableState (Ctx (..), Mut (..)) where
+module Data.Org.State (Ctx (..), Mut (..)) where
 
-import Data.Typeable
+import Data.Typeable (Typeable)
 import Data.Text (Text)
 import Data.Set (Set)
 

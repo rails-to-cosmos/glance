@@ -1,13 +1,13 @@
-module Data.Org.Headline (Headline (..)) where
+module Data.Org.Elements.Headline (Headline (..)) where
 
 import Data.Org.Parse
-import Data.Org.Indent
-import Data.Org.Priority
-import Data.Org.Properties
-import Data.Org.Title
-import Data.Org.Todo
-import Data.Org.Timestamp
-import Data.Org.Separator
+import Data.Org.Elements.Indent
+import Data.Org.Elements.Priority
+import Data.Org.Elements.Properties
+import Data.Org.Elements.Title
+import Data.Org.Elements.Todo
+import Data.Org.Elements.Timestamp
+import Data.Org.Elements.Separator
 import Text.Megaparsec
 import Text.Megaparsec.Char
 

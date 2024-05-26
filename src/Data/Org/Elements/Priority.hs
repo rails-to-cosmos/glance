@@ -1,4 +1,4 @@
-module Data.Org.Priority (Priority (..)) where
+module Data.Org.Elements.Priority (Priority (..)) where
 
 import Data.Char (ord)
 import Data.Org.Parse

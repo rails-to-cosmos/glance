@@ -1,4 +1,4 @@
-module Data.Org.Token (Token(..)) where
+module Data.Org.Elements.Token (Token(..)) where
 
 import Data.Text (Text, pack)
 import Data.Org.Parse

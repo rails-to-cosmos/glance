@@ -1,7 +1,7 @@
 module Data.Org.Context (Context (..)) where
 
 import Data.Typeable
-import Data.Org.MutableState
+import Data.Org.State
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)

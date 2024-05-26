@@ -1,9 +1,9 @@
-module Data.Org.Property (Property (..)) where
+module Data.Org.Elements.Property (Property (..)) where
 
-import Data.Org.MutableState
+import Data.Org.State
 import Data.Org.Parse
-import Data.Org.Keyword
-import Data.Org.Sentence
+import Data.Org.Elements.Keyword
+import Data.Org.Elements.Sentence
 import Data.Org.Context (metaCategory)
 import Data.Text (Text)
 

@@ -2,7 +2,7 @@ module Data.Org.Parse ( StatelessParser,
                         StatefulParser,
                         Parse(parser) ) where
 
-import Data.Org.MutableState (Ctx)
+import Data.Org.State (Ctx)
 import Data.Typeable (Typeable)
 import Data.Text (Text)
 import Data.Void (Void)

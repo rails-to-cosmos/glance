@@ -1,7 +1,7 @@
-module Data.Org.Properties (Properties (..)) where
+module Data.Org.Elements.Properties (Properties (..)) where
 
 import Data.Org.Parse
-import Data.Org.Property
+import Data.Org.Elements.Property
 
 import Text.Megaparsec
 import Text.Megaparsec.Char

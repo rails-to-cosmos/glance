@@ -22,24 +22,24 @@ module Data.Org ( Context (..)
                 , parse
                 , mparse ) where
 
-import Data.Org.MutableState
+import Data.Org.State
 import Data.Org.Context
-import Data.Org.Element
-import Data.Org.Headline
-import Data.Org.Indent
-import Data.Org.Keyword
+import Data.Org.Elements.Base
+import Data.Org.Elements.Headline
+import Data.Org.Elements.Indent
+import Data.Org.Elements.Keyword
 import Data.Org.Parse
-import Data.Org.Pragma
-import Data.Org.Priority
-import Data.Org.Properties
-import Data.Org.Property
-import Data.Org.Sentence
-import Data.Org.Separator
-import Data.Org.Tags
-import Data.Org.Timestamp
-import Data.Org.Title
-import Data.Org.Todo
-import Data.Org.Token
+import Data.Org.Elements.Pragma
+import Data.Org.Elements.Priority
+import Data.Org.Elements.Properties
+import Data.Org.Elements.Property
+import Data.Org.Elements.Sentence
+import Data.Org.Elements.Separator
+import Data.Org.Elements.Tags
+import Data.Org.Elements.Timestamp
+import Data.Org.Elements.Title
+import Data.Org.Elements.Todo
+import Data.Org.Elements.Token
 
 import Control.Monad.State (runStateT)
 import Data.Text (Text, pack)

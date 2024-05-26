@@ -1,9 +1,9 @@
-module Data.Org.Todo (Todo (..)) where
+module Data.Org.Elements.Todo (Todo (..)) where
 
-import Data.Org.MutableState
+import Data.Org.State
 import Data.Text (Text)
 import Data.Org.Parse
-import Data.Org.Keyword
+import Data.Org.Elements.Keyword
 
 import TextShow (TextShow)
 import TextShow qualified as TS

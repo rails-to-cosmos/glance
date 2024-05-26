@@ -1,13 +1,13 @@
-module Data.Org.Pragma (Pragma (..)) where
+module Data.Org.Elements.Pragma (Pragma (..)) where
 
 import Control.Monad
 import Control.Monad.State qualified as State
 
-import Data.Org.MutableState
+import Data.Org.State
 import Data.Org.Parse
-import Data.Org.Keyword
-import Data.Org.Token
-import Data.Org.Sentence
+import Data.Org.Elements.Keyword
+import Data.Org.Elements.Token
+import Data.Org.Elements.Sentence
 import Data.Text (Text, pack, unwords)
 import Data.Set qualified as Set
 

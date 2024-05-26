@@ -1,16 +1,16 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleInstances #-}
 
-module Data.Org.Title ( Title (..)
-                      , TitleElement (..) ) where
+module Data.Org.Elements.Title ( Title (..)
+                               , TitleElement (..) ) where
 
 import Control.Monad
 
 import Data.Org.Parse
-import Data.Org.Separator
-import Data.Org.Tags
-import Data.Org.Timestamp
-import Data.Org.Token
+import Data.Org.Elements.Separator
+import Data.Org.Elements.Tags
+import Data.Org.Elements.Timestamp
+import Data.Org.Elements.Token
 import Data.Typeable
 
 import TextShow (TextShow)

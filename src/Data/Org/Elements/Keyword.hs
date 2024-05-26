@@ -1,4 +1,4 @@
-module Data.Org.Keyword (Keyword (..)) where
+module Data.Org.Elements.Keyword (Keyword (..)) where
 
 import Data.Org.Parse
 import Data.Text (Text, pack, toUpper)

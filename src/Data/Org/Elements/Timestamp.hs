@@ -1,7 +1,7 @@
-module Data.Org.Timestamp ( Timestamp (..)
-                          , TimestampStatus (..)
-                          , TimestampRepeaterInterval (..)
-                          , TimestampRepeaterType (..) ) where
+module Data.Org.Elements.Timestamp ( Timestamp (..)
+                                   , TimestampStatus (..)
+                                   , TimestampRepeaterInterval (..)
+                                   , TimestampRepeaterType (..) ) where
 
 import Data.Org.Parse
 

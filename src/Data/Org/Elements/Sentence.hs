@@ -1,11 +1,11 @@
-module Data.Org.Sentence (Sentence(..), SentenceElement (..)) where
+module Data.Org.Elements.Sentence (Sentence(..), SentenceElement (..)) where
 
 import Control.Monad (void)
 
 import Data.Org.Parse
-import Data.Org.Separator
-import Data.Org.Timestamp
-import Data.Org.Token
+import Data.Org.Elements.Separator
+import Data.Org.Elements.Timestamp
+import Data.Org.Elements.Token
 
 import TextShow (TextShow)
 import TextShow qualified as TS

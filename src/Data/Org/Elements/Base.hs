@@ -1,15 +1,15 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleInstances #-}
 
-module Data.Org.Element (Element (..)) where
+module Data.Org.Elements.Base (Element (..)) where
 
 import Data.Typeable
 import Data.Org.Parse
-import Data.Org.Headline
-import Data.Org.Token
-import Data.Org.Pragma
-import Data.Org.Timestamp
-import Data.Org.Separator
+import Data.Org.Elements.Headline
+import Data.Org.Elements.Token
+import Data.Org.Elements.Pragma
+import Data.Org.Elements.Timestamp
+import Data.Org.Elements.Separator
 import Text.Megaparsec (try, choice)
 
 import TextShow (TextShow)

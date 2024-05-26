@@ -1,4 +1,4 @@
-module Data.Org.Indent (Indent (..)) where
+module Data.Org.Elements.Indent (Indent (..)) where
 
 import Data.Org.Parse
 

@@ -1,4 +1,4 @@
-module Data.Org.Tags (Tags (..)) where
+module Data.Org.Elements.Tags (Tags (..)) where
 
 import Data.Text (Text, intercalate)
 import Data.List (nub)
