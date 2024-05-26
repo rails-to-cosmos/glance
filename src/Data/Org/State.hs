@@ -3,10 +3,10 @@
 
 module Data.Org.State (St (..), Mut (..)) where
 
+import Data.Set (Set)
+import Data.Text (Text)
 import Data.Typeable (Typeable)
 import Data.Typeable qualified as Typeable
-import Data.Text (Text)
-import Data.Set (Set)
 
 class Mut s where
   categoryUpdate :: Text -> s -> s
