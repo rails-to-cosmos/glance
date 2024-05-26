@@ -11,6 +11,8 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Repl.Org
 
+import Control.Exception
+
 import System.Directory
 import System.FilePath
 import System.Console.Haskeline qualified as Haskeline
@@ -39,6 +41,19 @@ main :: IO ()
 main = do
   getArgs >>= parse
 
+greetings :: [[T.Text]] -> IO ()
+greetings messages = do
+  TIO.putStrLn ""
+  TIO.putStrLn "---"
+  TIO.putStrLn "Hello there, fellow hacker!"
+
+  let _lines = map (T.intercalate " ") messages
+
+  mapM_ TIO.putStrLn _lines
+
+  TIO.putStrLn "---"
+  TIO.putStrLn ""
+
 parse :: [String] -> IO a
 
 parse [] = do
@@ -52,17 +67,15 @@ parse (filename:_) = do
 
   let (_elements, context) = Org.parse defaultContext content
 
-  TIO.putStrLn "Hello there, fellow hacker!"
-  TIO.putStrLn (T.intercalate " " ["MetaDB location:", Config.dbConnectionString config])
-  TIO.putStrLn (T.intercalate " " ["Additional context:", T.pack filename])
+  greetings [ ["Using meta db located in", Config.dbConnectionString config]
+            , ["And an additional context from", T.pack filename]]
 
   runRepl config context Org.parse
   exitSuccess
 
 repl :: Config.Config -> Org.Context -> IO ()
 repl config context = do
-  TIO.putStrLn "Hello there, fellow hacker!"
-  TIO.putStrLn (T.intercalate " " ["I'll use meta db located in", Config.dbConnectionString config])
+  greetings [["Using meta db located in", Config.dbConnectionString config]]
 
   runRepl config context Org.parse
 
