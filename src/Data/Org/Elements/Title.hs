@@ -11,10 +11,12 @@ import Data.Org.Elements.Separator
 import Data.Org.Elements.Tags
 import Data.Org.Elements.Timestamp
 import Data.Org.Elements.Token
-import Data.Typeable
+
+import Data.Typeable (Typeable)
+import Data.Typeable qualified as Typeable
 
 import TextShow (TextShow)
-import TextShow qualified as TS
+import TextShow qualified
 
 import Text.Megaparsec hiding (Token)
 import Text.Megaparsec.Char
@@ -22,16 +24,16 @@ import Text.Megaparsec.Char
 import Prelude hiding (concat)
 
 data TitleElement where
-  TitleElement :: Parseable a => a -> TitleElement
+  TitleElement :: (Show a, TextShow a, Typeable a, Eq a, Parseable a) => a -> TitleElement
 
 instance Show TitleElement where
   show (TitleElement a) = show a
 
 instance TextShow TitleElement where
-  showb (TitleElement a) = TS.showb a
+  showb (TitleElement a) = TextShow.showb a
 
 instance Eq TitleElement where
-    (TitleElement x) == (TitleElement y) = case cast y of
+    (TitleElement x) == (TitleElement y) = case Typeable.cast y of
         Just y' -> x == y'
         Nothing -> False
 
@@ -52,7 +54,7 @@ instance Monoid Title where
 
 instance TextShow Title where
   showb (Title []) = ""
-  showb (Title (x:xs)) = TS.showb x <> TS.showb (Title xs)
+  showb (Title (x:xs)) = TextShow.showb x <> TextShow.showb (Title xs)
 
 instance Parseable Title where
   parser = do

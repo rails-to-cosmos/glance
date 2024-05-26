@@ -28,6 +28,6 @@ instance Show St where
   show (St s) = show s
 
 instance Eq St where
-    (St a) == (St b) = case Typeable.cast b of
-        Just b' -> a == b'
-        Nothing -> False
+  (St a) == (St b) = case Typeable.cast b of
+    Just b' -> a == b'
+    Nothing -> False

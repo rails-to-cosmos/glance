@@ -3,6 +3,8 @@
 
 module Data.Org.Elements.Base (Element (..)) where
 
+import Data.Typeable (Typeable)
+import Data.Org.Identifiable (Identifiable)
 import Data.Org.Elements.Headline (Headline)
 import Data.Org.Elements.Pragma (Pragma)
 import Data.Org.Elements.Separator (Separator)
@@ -17,7 +19,12 @@ import TextShow (TextShow)
 import TextShow qualified
 
 data Element where
-  Element :: Parseable a => a -> Element
+  Element :: ( Show a
+             , TextShow a
+             , Typeable a
+             , Eq a
+             , Parseable a
+             , Identifiable a ) => a -> Element
 
 instance Show Element where
   show (Element a) = show a
