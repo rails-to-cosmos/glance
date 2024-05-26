@@ -6,7 +6,7 @@ module Data.Org.Elements.Title ( Title (..)
 
 import Control.Monad
 
-import Data.Org.Parse
+import Data.Org.Parser
 import Data.Org.Elements.Separator
 import Data.Org.Elements.Tags
 import Data.Org.Elements.Timestamp
@@ -22,7 +22,7 @@ import Text.Megaparsec.Char
 import Prelude hiding (concat)
 
 data TitleElement where
-  TitleElement :: Parse a => a -> TitleElement
+  TitleElement :: Parseable a => a -> TitleElement
 
 instance Show TitleElement where
   show (TitleElement a) = show a
@@ -35,7 +35,7 @@ instance Eq TitleElement where
         Just y' -> x == y'
         Nothing -> False
 
-instance Parse TitleElement where
+instance Parseable TitleElement where
   parser = choice [ try (TitleElement <$> (parser :: StatefulParser Separator))
                   , try (TitleElement <$> (parser :: StatefulParser Timestamp))
                   , try (TitleElement <$> (parser :: StatefulParser Tags))
@@ -54,7 +54,7 @@ instance TextShow Title where
   showb (Title []) = ""
   showb (Title (x:xs)) = TS.showb x <> TS.showb (Title xs)
 
-instance Parse Title where
+instance Parseable Title where
   parser = do
     let stop = choice [ void eol, eof ]
 

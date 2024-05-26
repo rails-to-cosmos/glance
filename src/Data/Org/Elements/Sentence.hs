@@ -2,7 +2,7 @@ module Data.Org.Elements.Sentence (Sentence(..), SentenceElement (..)) where
 
 import Control.Monad (void)
 
-import Data.Org.Parse
+import Data.Org.Parser
 import Data.Org.Elements.Separator
 import Data.Org.Elements.Timestamp
 import Data.Org.Elements.Token
@@ -36,7 +36,7 @@ instance TextShow Sentence where
   showb (Sentence []) = ""
   showb (Sentence (x:xs)) = TS.showb x <> TS.showb (Sentence xs)
 
-instance Parse Sentence where
+instance Parseable Sentence where
   parser = do
     let stopParsers = choice [ void eol, eof ]
         elemParsers = choice [ SSeparator <$> try parser

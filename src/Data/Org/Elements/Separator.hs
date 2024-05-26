@@ -1,6 +1,6 @@
 module Data.Org.Elements.Separator (Separator (..)) where
 
-import Data.Org.Parse
+import Data.Org.Parser
 
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -11,7 +11,7 @@ import TextShow qualified as TS
 data Separator = SPC | EOL | EOF
   deriving (Show, Eq)
 
-instance Parse Separator where
+instance Parseable Separator where
   parser = choice
     [ EOF <$ eof
     , EOL <$ eol

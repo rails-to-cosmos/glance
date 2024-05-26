@@ -1,10 +1,9 @@
 module Data.Org.Elements.Property (Property (..)) where
 
 import Data.Org.State
-import Data.Org.Parse
+import Data.Org.Parser
 import Data.Org.Elements.Keyword
 import Data.Org.Elements.Sentence
-import Data.Org.Context (metaCategory)
 import Data.Text (Text)
 
 import Text.Megaparsec.Char
@@ -26,7 +25,7 @@ reservedKeywords = ["PROPERTIES", "END"]
 isPropertyStackKeyword :: Keyword -> Bool
 isPropertyStackKeyword (Keyword k) = k `elem` reservedKeywords
 
-instance Parse Property where
+instance Parseable Property where
   parser = do
     keyword <- char ':' *> (parser :: StatefulParser Keyword) <* char ':' <* space
 

@@ -4,7 +4,7 @@ import Control.Monad
 import Control.Monad.State qualified as State
 
 import Data.Org.State
-import Data.Org.Parse
+import Data.Org.Parser
 import Data.Org.Elements.Keyword
 import Data.Org.Elements.Token
 import Data.Org.Elements.Sentence
@@ -24,7 +24,7 @@ data Pragma = Pragma !Keyword !Text
             | PCategory !Sentence
   deriving (Show, Eq)
 
-instance Parse Pragma where
+instance Parseable Pragma where
   parser = do
     let keyword = parser :: StatefulParser Keyword
         todoList = some (todo <* space)

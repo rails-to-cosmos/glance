@@ -4,7 +4,7 @@
 module Data.Org.Elements.Base (Element (..)) where
 
 import Data.Typeable
-import Data.Org.Parse
+import Data.Org.Parser
 import Data.Org.Elements.Headline
 import Data.Org.Elements.Token
 import Data.Org.Elements.Pragma
@@ -16,17 +16,17 @@ import TextShow (TextShow)
 import TextShow qualified as TS
 
 data Element where
-  Element :: Parse a => a -> Element
+  Element :: Parseable a => a -> Element
 
 instance Show Element where
   show (Element a) = show a
 
 instance Eq Element where
-    (Element x) == (Element y) = case cast y of
-        Just y' -> x == y'
-        Nothing -> False
+  (Element x) == (Element y) = case cast y of
+    Just y' -> x == y'
+    Nothing -> False
 
-instance Parse Element where
+instance Parseable Element where
   parser = choice [ try (Element <$> (parser :: StatefulParser Separator))
                   , try (Element <$> (parser :: StatefulParser Headline))
                   , try (Element <$> (parser :: StatefulParser Pragma))

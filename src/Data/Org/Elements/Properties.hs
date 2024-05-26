@@ -1,6 +1,6 @@
 module Data.Org.Elements.Properties (Properties (..)) where
 
-import Data.Org.Parse
+import Data.Org.Parser
 import Data.Org.Elements.Property
 
 import Text.Megaparsec
@@ -18,7 +18,7 @@ instance Semigroup Properties where
 instance Monoid Properties where
   mempty = Properties []
 
-instance Parse Properties where
+instance Parseable Properties where
   parser = do
     _ <- string ":PROPERTIES:" <* eol
     properties <- manyTill ((parser :: StatefulParser Property) <* eol) (string ":END:")

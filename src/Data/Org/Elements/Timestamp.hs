@@ -3,7 +3,7 @@ module Data.Org.Elements.Timestamp ( Timestamp (..)
                                    , TimestampRepeaterInterval (..)
                                    , TimestampRepeaterType (..) ) where
 
-import Data.Org.Parse
+import Data.Org.Parser
 
 import Data.Text (Text, pack)
 import Data.Time qualified as Time
@@ -84,7 +84,7 @@ instance TextShow Timestamp where
         "" -> ""
         _repeater -> " "
 
-instance Parse Timestamp where
+instance Parseable Timestamp where
   parser = do
     timestampStatus' <- State.lift timestampStatusParser
     tsDay' <- State.lift timestampDayParser <* space

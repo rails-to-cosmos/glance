@@ -1,6 +1,6 @@
 module Data.Org.Elements.Headline (Headline (..)) where
 
-import Data.Org.Parse
+import Data.Org.Parser
 import Data.Org.Elements.Indent
 import Data.Org.Elements.Priority
 import Data.Org.Elements.Properties
@@ -47,7 +47,7 @@ instance TextShow Headline where
     <> TS.showb (priority headline)
     <> TS.showb (title headline)
 
-instance Parse Headline where
+instance Parseable Headline where
   parser = do
     indent' <- parser :: StatefulParser Indent
     todo' <- option (mempty :: Todo) (parser :: StatefulParser Todo)

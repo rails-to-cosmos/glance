@@ -1,6 +1,6 @@
-module Data.Org.Parse ( StatelessParser,
+module Data.Org.Parser ( StatelessParser,
                         StatefulParser,
-                        Parse(parser) ) where
+                        Parseable(..) ) where
 
 import Data.Org.State (St)
 import Data.Typeable (Typeable)
@@ -14,5 +14,5 @@ type StatelessParser = Parsec Void Text
 type StatefulParserBase s a = StateT s StatelessParser a
 type StatefulParser a = StatefulParserBase St a
 
-class (Show a, TextShow a, Typeable a, Eq a) => Parse a where
+class (Show a, TextShow a, Typeable a, Eq a) => Parseable a where
   parser :: StatefulParser a

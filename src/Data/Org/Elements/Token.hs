@@ -1,7 +1,7 @@
 module Data.Org.Elements.Token (Token(..)) where
 
 import Data.Text (Text, pack)
-import Data.Org.Parse
+import Data.Org.Parser
 
 import TextShow (TextShow)
 import TextShow qualified as TS
@@ -23,7 +23,7 @@ instance Monoid Token where
 instance TextShow Token where
   showb (Token a) = TS.fromText a
 
-instance Parse Token where
+instance Parseable Token where
   parser = do
     let stop = lookAhead (choice [space1, void eol, eof])
         word = manyTill anySingle stop

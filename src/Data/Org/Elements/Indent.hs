@@ -1,6 +1,6 @@
 module Data.Org.Elements.Indent (Indent (..)) where
 
-import Data.Org.Parse
+import Data.Org.Parser
 
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -18,7 +18,7 @@ instance Semigroup Indent where
 instance Monoid Indent where
   mempty = Indent 1
 
-instance Parse Indent where
+instance Parseable Indent where
   parser = do
     stars <- some (char '*') <* space
     return $ Indent (length stars)

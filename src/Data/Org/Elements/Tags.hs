@@ -3,7 +3,7 @@ module Data.Org.Elements.Tags (Tags (..)) where
 import Data.Text (Text, intercalate)
 import Data.List (nub)
 
-import Data.Org.Parse
+import Data.Org.Parser
 import Data.Char
 
 import TextShow (TextShow)
@@ -36,7 +36,7 @@ tag = takeWhile1P (Just "tag character") (`elem` keyword) <* char ':'
 keyword :: [Char]
 keyword = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ "-_"
 
-instance Parse Tags where
+instance Parseable Tags where
   parser = do
     let stop = lookAhead (try (choice [void eol, eof]))
     Tags <$> S.lift (char ':' *> manyTill tag stop)
