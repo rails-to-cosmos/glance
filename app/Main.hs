@@ -7,11 +7,12 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BSChar8
 import Data.Config qualified as Config
 import Data.Org qualified as Org
-import Data.Text qualified as T
-import Data.Text.IO qualified as TIO
-import Repl.Org
 
-import Control.Exception
+import Data.Text (Text)
+import Data.Text qualified as Text
+import Data.Text.IO qualified as TIO
+
+import Repl.Org
 
 import System.Directory
 import System.FilePath
@@ -31,7 +32,7 @@ defaultConfig = do
   createDirectoryIfMissing True configDir
 
   return Config.Config { Config.haskelineSettings = haskelineSettings
-                       , Config.dbConnectionString = T.pack dbFile
+                       , Config.dbConnectionString = Text.pack dbFile
                        , Config.dbPoolSize = 10 }
 
 defaultContext :: Org.Context
@@ -41,13 +42,13 @@ main :: IO ()
 main = do
   getArgs >>= parse
 
-greetings :: [[T.Text]] -> IO ()
+greetings :: [[Text]] -> IO ()
 greetings messages = do
   TIO.putStrLn ""
   TIO.putStrLn "---"
   TIO.putStrLn "Hello there, fellow hacker!"
 
-  let _lines = map (T.intercalate " ") messages
+  let _lines = map (Text.intercalate " ") messages
 
   mapM_ TIO.putStrLn _lines
 
@@ -63,12 +64,12 @@ parse [] = do
 
 parse (filename:_) = do
   config <- defaultConfig
-  content <- T.pack . BSChar8.unpack <$> BS.readFile filename
+  content <- Text.pack . BSChar8.unpack <$> BS.readFile filename
 
   let (_elements, context) = Org.parse defaultContext content
 
   greetings [ ["Using meta db located in", Config.dbConnectionString config]
-            , ["And an additional context from", T.pack filename]]
+            , ["And an additional context from", Text.pack filename]]
 
   runRepl config context Org.parse
   exitSuccess
