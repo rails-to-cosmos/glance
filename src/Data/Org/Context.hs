@@ -30,11 +30,11 @@ data Context = Context { metaTodoActive :: !(Set Text)
                        } deriving (Show, Eq, Typeable)
 
 instance Mut Context where
-  categoryUpdate category ctx = ctx { metaCategory = category }
+  setCategory category ctx = ctx { metaCategory = category }
 
-  todoAll ctx = metaTodoActive ctx <> metaTodoInactive ctx
-  todoElem todo ctx = todo `elem` todoAll ctx
-  todoUpdate active inactive ctx = ctx { metaTodoActive = metaTodoActive ctx <> active
+  getTodo ctx = metaTodoActive ctx <> metaTodoInactive ctx
+  inTodo todo ctx = todo `elem` getTodo ctx
+  setTodo active inactive ctx = ctx { metaTodoActive = metaTodoActive ctx <> active
                                        , metaTodoInactive = metaTodoInactive ctx <> inactive }
 
 instance Semigroup Context where

@@ -34,7 +34,7 @@ instance Parseable Property where
     value <- parser :: StatefulParser Sentence
 
     case keyword of
-      Keyword "CATEGORY" -> State.modify (categoryUpdate (TS.showt value))
+      Keyword "CATEGORY" -> State.modify (setCategory (TS.showt value))
       _keyword -> State.modify id
 
     return $ Property keyword value

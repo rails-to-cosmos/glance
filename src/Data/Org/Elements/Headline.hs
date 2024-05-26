@@ -8,11 +8,16 @@ import Data.Org.Elements.Title
 import Data.Org.Elements.Todo
 import Data.Org.Elements.Timestamp
 import Data.Org.Elements.Separator
+
+import Data.Graph.Inductive qualified as Graph
+
 import Text.Megaparsec
 import Text.Megaparsec.Char
 
 import TextShow (TextShow)
 import TextShow qualified as TS
+
+import Control.Monad.State qualified as State
 
 data Headline = Headline { indent :: !Indent
                          , todo :: !Todo
@@ -59,10 +64,15 @@ instance Parseable Headline where
 
     _ <- parser :: StatefulParser Separator
 
-    return Headline { indent = indent'
-                    , todo = todo'
-                    , priority = priority'
-                    , title = title'
-                    , schedule = Nothing -- schedule'
-                    , deadline = Nothing -- deadline'
-                    , properties = properties' }
+    -- ctx <- State.get
+    -- State.modify $ addNode
+
+    let headline = Headline { indent = indent'
+                            , todo = todo'
+                            , priority = priority'
+                            , title = title'
+                            , schedule = Nothing -- schedule'
+                            , deadline = Nothing -- deadline'
+                            , properties = properties' }
+
+    return headline

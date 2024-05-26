@@ -9,19 +9,20 @@ import Data.Typeable (Typeable)
 import Data.Typeable qualified as Typeable
 
 class Mut s where
-  categoryUpdate :: Text -> s -> s
-  todoUpdate :: Set Text -> Set Text -> s -> s
-  todoAll :: s -> Set Text
-  todoElem :: Text -> s -> Bool
+  setCategory :: Text -> s -> s
+  setTodo :: Set Text -> Set Text -> s -> s
+  getTodo :: s -> Set Text
+  inTodo :: Text -> s -> Bool
+  -- addNode :: Text -> Text -> s -> s
 
 data St where
   St :: (Eq s, Show s, Mut s, Typeable s) => s -> St
 
 instance Mut St where
-  categoryUpdate category (St s) = St (categoryUpdate category s)
-  todoUpdate active inactive (St s) = St (todoUpdate active inactive s)
-  todoAll (St s) = todoAll s
-  todoElem todo (St s) = todo `elem` todoAll s
+  setCategory category (St s) = St (setCategory category s)
+  setTodo active inactive (St s) = St (setTodo active inactive s)
+  getTodo (St s) = getTodo s
+  inTodo todo (St s) = todo `elem` getTodo s
 
 instance Show St where
   show (St s) = show s

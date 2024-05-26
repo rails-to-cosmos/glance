@@ -38,13 +38,13 @@ instance Parseable Pragma where
     case key of
       Keyword "CATEGORY" -> do
         category <- parser :: StatefulParser Sentence
-        State.modify (categoryUpdate (TS.showt category))
+        State.modify $ setCategory (TS.showt category)
         return $ PCategory category
       Keyword "TODO" -> do
         pragmaActive <- Set.fromList <$> todoList
         pragmaInactive <- Set.fromList <$> doneList
 
-        State.modify (todoUpdate pragmaActive pragmaInactive)
+        State.modify (setTodo pragmaActive pragmaInactive)
 
         return $ PTodo pragmaActive pragmaInactive
       _keyword -> do

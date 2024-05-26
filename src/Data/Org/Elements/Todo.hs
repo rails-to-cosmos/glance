@@ -34,5 +34,5 @@ todo :: StatefulParser Text
 todo = do
   ctx <- State.get
   Keyword result <- (parser :: StatefulParser Keyword) <* space
-  guard $ todoElem result ctx
+  guard $ inTodo result ctx
   return result
