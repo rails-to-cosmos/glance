@@ -14,7 +14,7 @@ strptime :: Text -> UTCTime
 strptime t = parseTimeOrError True defaultTimeLocale "%Y-%m-%d %H:%M:%S" (unpack t) :: UTCTime
 
 data Result = Result { elements :: ![Org.Element]
-                     , context :: !Org.Ctx
+                     , context :: !Org.St
                      } deriving (Eq, Show)
 
 data TestCase = TestCase { description :: !String

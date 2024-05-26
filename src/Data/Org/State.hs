@@ -1,9 +1,10 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleInstances #-}
 
-module Data.Org.State (Ctx (..), Mut (..)) where
+module Data.Org.State (St (..), Mut (..)) where
 
 import Data.Typeable (Typeable)
+import Data.Typeable qualified as Typeable
 import Data.Text (Text)
 import Data.Set (Set)
 
@@ -13,19 +14,19 @@ class Mut s where
   todoAll :: s -> Set Text
   todoElem :: Text -> s -> Bool
 
-data Ctx where
-  Ctx :: (Eq s, Show s, Mut s, Typeable s) => s -> Ctx
+data St where
+  St :: (Eq s, Show s, Mut s, Typeable s) => s -> St
 
-instance Mut Ctx where
-  categoryUpdate category (Ctx s) = Ctx (categoryUpdate category s)
-  todoUpdate active inactive (Ctx s) = Ctx (todoUpdate active inactive s)
-  todoAll (Ctx s) = todoAll s
-  todoElem todo (Ctx s) = todo `elem` todoAll s
+instance Mut St where
+  categoryUpdate category (St s) = St (categoryUpdate category s)
+  todoUpdate active inactive (St s) = St (todoUpdate active inactive s)
+  todoAll (St s) = todoAll s
+  todoElem todo (St s) = todo `elem` todoAll s
 
-instance Show Ctx where
-  show (Ctx s) = show s
+instance Show St where
+  show (St s) = show s
 
-instance Eq Ctx where
-    (Ctx a) == (Ctx b) = case cast b of
+instance Eq St where
+    (St a) == (St b) = case Typeable.cast b of
         Just b' -> a == b'
         Nothing -> False

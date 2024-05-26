@@ -8,11 +8,11 @@ import Data.Org qualified as Org
 defaultHeadline :: Org.Headline
 defaultHeadline = mempty :: Org.Headline
 
-defaultContext :: Org.Ctx
-defaultContext = Org.Ctx (mempty :: Org.Context)
+defaultContext :: Org.St
+defaultContext = Org.St (mempty :: Org.Context)
 
-withCategory :: Org.Ctx -> Text -> Org.Ctx
+withCategory :: Org.St -> Text -> Org.St
 withCategory ctx category = Org.categoryUpdate category ctx
 
-withTodo :: Org.Ctx -> ([Text], [Text]) -> Org.Ctx
+withTodo :: Org.St -> ([Text], [Text]) -> Org.St
 withTodo ctx (active, inactive) = Org.todoUpdate (Set.fromList active) (Set.fromList inactive) ctx

@@ -1,5 +1,5 @@
 module Data.Org ( Context (..)
-                , Ctx (..)
+                , St (..)
                 , Mut (..)
                 , Element (..)
                 , Headline (..)
@@ -47,10 +47,10 @@ import Data.Text.Lazy.Builder ()
 import Text.Megaparsec qualified as MPS
 import UnliftIO ()
 
-parse :: Ctx -> Text -> ([Element], Ctx)
+parse :: St -> Text -> ([Element], St)
 parse ctx cmd = case MPS.parse (runStateT (MPS.manyTill parser MPS.eof) ctx) "" cmd of
   Right val -> val
   Left err  -> ([], ctx)  -- GToken (Token (pack (PS.errorBundlePretty err)))
 
-mparse :: Text -> ([Element], Ctx)
-mparse = parse (Ctx (mempty :: Context))
+mparse :: Text -> ([Element], St)
+mparse = parse (St (mempty :: Context))
