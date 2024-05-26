@@ -14,7 +14,7 @@ strptime :: Text -> UTCTime
 strptime t = parseTimeOrError True defaultTimeLocale "%Y-%m-%d %H:%M:%S" (unpack t) :: UTCTime
 
 data Result = Result { elements :: ![Org.Element]
-                     , context :: !Org.Context
+                     , context :: !Org.Ctx
                      } deriving (Eq, Show)
 
 data TestCase = TestCase { description :: !String
@@ -38,7 +38,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
                                                                                                       , TitleElement (Token "world")
                                                                                                       , TitleElement SPC
                                                                                                       , TitleElement (Token ":a:b:c") ]}]
-                                                  , context = defaultContext }}
+                                           , context = defaultContext }}
 
             , TestCase { description = "Parse property block"
                        , inputs = [ "* Hello"
@@ -61,7 +61,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
                        , expected = Result { elements = [Org.Element (PCategory (Sentence [ SToken (Token "foo")
                                                                                           , SSeparator SPC
                                                                                           , SToken (Token "bar") ]))]
-                                           , context = defaultContext { metaCategory = "foo bar" }}}
+                                           , context = defaultContext `withCategory` "foo bar" }}
 
             , TestCase { description = "Category property affects context"
                        , inputs = [ "* Hello"
@@ -72,7 +72,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
                                                                                       , properties = Properties [Property (Keyword "CATEGORY") (Sentence [ SToken (Token "Updated")
                                                                                                                                                          , SSeparator SPC
                                                                                                                                                          , SToken (Token "category")])]}]
-                                           , context = defaultContext { metaCategory = "Updated category" }}}
+                                           , context = defaultContext `withCategory` "Updated category"}}
 
             , TestCase { description = "Parse complete headline"
                        , inputs = ["** TODO [#A] Hello :a:b:c:"]
@@ -90,14 +90,12 @@ testCases = [ TestCase { description = "Parse headline with tags"
                        , expected = Result { elements = [ Org.Element (PTodo (Set.fromList ["TODO"]) (Set.fromList ["CANCELLED"]))
                                                         , Org.Element (defaultHeadline { todo = Todo (Just "CANCELLED")
                                                                                        , title = Title [TitleElement (Token "Mess")] })]
-                                           , context = defaultContext { metaTodoActive = Set.fromList ["TODO"]
-                                                                      , metaTodoInactive = Set.fromList ["DONE", "CANCELLED"]}}}
+                                           , context = defaultContext `withTodo` (["TODO"], ["DONE", "CANCELLED"]) }}
 
             , TestCase { description = "No inactive todo states"
                        , inputs = ["#+TODO: foo"]
                        , expected = Result { elements = [ Org.Element (PTodo (Set.fromList ["FOO"]) (Set.fromList [])) ]
-                                           , context = defaultContext { metaTodoActive = Set.fromList ["TODO", "FOO"]
-                                                                      , metaTodoInactive = Set.fromList ["DONE"] }}}
+                                           , context = defaultContext `withTodo` (["TODO", "FOO"], ["DONE"])}}
 
             -- , TestCase { description = "Messed active/inactive todo states"
             --            , inputs = [ "#+TODO: CANCELLED | CANCELLED"

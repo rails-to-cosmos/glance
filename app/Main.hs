@@ -35,8 +35,8 @@ defaultConfig = do
                        , Config.dbConnectionString = Text.pack dbFile
                        , Config.dbPoolSize = 10 }
 
-defaultContext :: Org.Context
-defaultContext = mempty
+defaultContext :: Org.Ctx
+defaultContext = Org.Ctx (mempty :: Org.Context)
 
 main :: IO ()
 main = do
@@ -74,7 +74,7 @@ parse (filename:_) = do
   runRepl config context Org.parse
   exitSuccess
 
-repl :: Config.Config -> Org.Context -> IO ()
+repl :: Config.Config -> Org.Ctx -> IO ()
 repl config context = do
   greetings [["Using meta db located in", Config.dbConnectionString config]]
 

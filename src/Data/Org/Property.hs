@@ -1,5 +1,6 @@
 module Data.Org.Property (Property (..)) where
 
+import Data.Org.MutableState
 import Data.Org.Parse
 import Data.Org.Keyword
 import Data.Org.Sentence
@@ -34,7 +35,7 @@ instance Parse Property where
     value <- parser :: StatefulParser Sentence
 
     case keyword of
-      Keyword "CATEGORY" -> State.modify (\ctx -> ctx {metaCategory = TS.showt value})
+      Keyword "CATEGORY" -> State.modify (categoryUpdate (TS.showt value))
       _keyword -> State.modify id
 
     return $ Property keyword value

@@ -32,6 +32,7 @@ library
       Data.Org.Headline
       Data.Org.Indent
       Data.Org.Keyword
+      Data.Org.MutableState
       Data.Org.Parse
       Data.Org.Pragma
       Data.Org.Priority
@@ -60,6 +61,7 @@ library
     , containers
     , directory
     , exceptions
+    , fgl
     , filepath
     , haskeline
     , megaparsec
@@ -92,6 +94,7 @@ executable glance
     , containers
     , directory
     , exceptions
+    , fgl
     , filepath
     , glance
     , haskeline
@@ -129,6 +132,7 @@ test-suite glance-test
     , containers
     , directory
     , exceptions
+    , fgl
     , filepath
     , glance
     , haskeline

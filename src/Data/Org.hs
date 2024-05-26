@@ -1,4 +1,6 @@
 module Data.Org ( Context (..)
+                , Ctx (..)
+                , Mut (..)
                 , Element (..)
                 , Headline (..)
                 , Indent (..)
@@ -20,23 +22,24 @@ module Data.Org ( Context (..)
                 , parse
                 , mparse ) where
 
-import Data.Org.Parse
+import Data.Org.MutableState
 import Data.Org.Context
 import Data.Org.Element
 import Data.Org.Headline
 import Data.Org.Indent
 import Data.Org.Keyword
-import Data.Org.Token
+import Data.Org.Parse
 import Data.Org.Pragma
 import Data.Org.Priority
-import Data.Org.Property
 import Data.Org.Properties
+import Data.Org.Property
+import Data.Org.Sentence
+import Data.Org.Separator
 import Data.Org.Tags
 import Data.Org.Timestamp
 import Data.Org.Title
 import Data.Org.Todo
-import Data.Org.Separator
-import Data.Org.Sentence
+import Data.Org.Token
 
 import Control.Monad.State (runStateT)
 import Data.Text (Text, pack)
@@ -44,10 +47,10 @@ import Data.Text.Lazy.Builder ()
 import Text.Megaparsec qualified as MPS
 import UnliftIO ()
 
-parse :: Context -> Text -> ([Element], Context)
+parse :: Ctx -> Text -> ([Element], Ctx)
 parse ctx cmd = case MPS.parse (runStateT (MPS.manyTill parser MPS.eof) ctx) "" cmd of
   Right val -> val
   Left err  -> ([], ctx)  -- GToken (Token (pack (PS.errorBundlePretty err)))
 
-mparse :: Text -> ([Element], Context)
-mparse = parse (mempty :: Context)
+mparse :: Text -> ([Element], Ctx)
+mparse = parse (Ctx (mempty :: Context))

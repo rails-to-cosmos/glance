@@ -1,8 +1,8 @@
 module Data.Org.Todo (Todo (..)) where
 
+import Data.Org.MutableState
 import Data.Text (Text)
 import Data.Org.Parse
-import Data.Org.Context
 import Data.Org.Keyword
 
 import TextShow (TextShow)
@@ -34,5 +34,5 @@ todo :: StatefulParser Text
 todo = do
   ctx <- State.get
   Keyword result <- (parser :: StatefulParser Keyword) <* space
-  guard $ result `elem` (metaTodoActive ctx <> metaTodoInactive ctx)
+  guard $ todoElem result ctx
   return result

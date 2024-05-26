@@ -3,8 +3,8 @@ module Data.Org.Pragma (Pragma (..)) where
 import Control.Monad
 import Control.Monad.State qualified as State
 
+import Data.Org.MutableState
 import Data.Org.Parse
-import Data.Org.Context
 import Data.Org.Keyword
 import Data.Org.Token
 import Data.Org.Sentence
@@ -38,14 +38,13 @@ instance Parse Pragma where
     case key of
       Keyword "CATEGORY" -> do
         category <- parser :: StatefulParser Sentence
-        State.modify (\ctx -> ctx {metaCategory = TS.showt category})
+        State.modify (categoryUpdate (TS.showt category))
         return $ PCategory category
       Keyword "TODO" -> do
         pragmaActive <- Set.fromList <$> todoList
         pragmaInactive <- Set.fromList <$> doneList
 
-        State.modify (\ctx -> ctx { metaTodoActive = metaTodoActive ctx <> pragmaActive
-                                  , metaTodoInactive = metaTodoInactive ctx <> pragmaInactive })
+        State.modify (todoUpdate pragmaActive pragmaInactive)
 
         return $ PTodo pragmaActive pragmaInactive
       _keyword -> do
