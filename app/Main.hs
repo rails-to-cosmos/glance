@@ -46,7 +46,7 @@ greetings :: [[Text]] -> IO ()
 greetings messages = do
   TIO.putStrLn ""
   TIO.putStrLn "---"
-  TIO.putStrLn "Hello there, fellow hacker!"
+  TIO.putStrLn "Hello, fellow hacker!\n"
 
   let _lines = map (Text.intercalate " ") messages
 
@@ -68,8 +68,8 @@ parse (filename:_) = do
 
   let (_elements, context) = Org.parse defaultContext content
 
-  greetings [ ["Using meta db located in", Config.dbConnectionString config]
-            , ["And an additional context from", Text.pack filename]]
+  greetings [ ["The database is located at", Config.dbConnectionString config]
+            , ["Additional context provided:", Text.pack filename]]
 
   runRepl config context Org.parse
   exitSuccess
