@@ -1,7 +1,7 @@
 module Data.Org.Elements.Token (Token(..)) where
 
 import Data.Text (Text, pack)
-import Data.Org.Parser
+import Data.Org.Parse
 
 import TextShow (TextShow)
 import TextShow qualified as TS

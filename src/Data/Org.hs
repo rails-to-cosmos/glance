@@ -22,7 +22,7 @@ module Data.Org ( Context (..)
                 , parse
                 , mparse ) where
 
-import Data.Org.Parser
+import Data.Org.Parse
 import Data.Org.State
 import Data.Org.Context
 

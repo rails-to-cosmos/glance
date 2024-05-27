@@ -1,6 +1,6 @@
 module Data.Org.Elements.Headline (Headline (..)) where
 
-import Data.Org.Parser
+import Data.Org.Parse
 import Data.Org.Elements.Indent
 import Data.Org.Elements.Priority
 import Data.Org.Elements.Properties

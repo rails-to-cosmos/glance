@@ -1,6 +1,6 @@
 module Data.Org.Elements.Indent (Indent (..)) where
 
-import Data.Org.Parser
+import Data.Org.Parse
 
 import Text.Megaparsec
 import Text.Megaparsec.Char

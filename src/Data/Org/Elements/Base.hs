@@ -10,7 +10,7 @@ import Data.Org.Elements.Pragma (Pragma)
 import Data.Org.Elements.Separator (Separator)
 import Data.Org.Elements.Timestamp (Timestamp)
 import Data.Org.Elements.Token (Token)
-import Data.Org.Parser (Parse, StatefulParser, parser)
+import Data.Org.Parse (Parse, StatefulParser, parser)
 import Data.Typeable qualified as Typeable
 
 import Text.Megaparsec (try, choice)
@@ -24,7 +24,8 @@ data Element where
              , Typeable a
              , Eq a
              , Parse a
-             , Identity a ) => a -> Element
+             -- , Identity a
+             ) => a -> Element
 
 instance Show Element where
   show (Element a) = show a

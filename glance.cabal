@@ -44,7 +44,7 @@ library
       Data.Org.Elements.Todo
       Data.Org.Elements.Token
       Data.Org.Identity
-      Data.Org.Parser
+      Data.Org.Parse
       Data.Org.State
       Persist.Org
       Repl.Org
