@@ -25,7 +25,7 @@ reservedKeywords = ["PROPERTIES", "END"]
 isPropertyStackKeyword :: Keyword -> Bool
 isPropertyStackKeyword (Keyword k) = k `elem` reservedKeywords
 
-instance Parseable Property where
+instance Parse Property where
   parser = do
     keyword <- char ':' *> (parser :: StatefulParser Keyword) <* char ':' <* space
 

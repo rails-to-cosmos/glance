@@ -43,7 +43,7 @@ library
       Data.Org.Elements.Title
       Data.Org.Elements.Todo
       Data.Org.Elements.Token
-      Data.Org.Identifiable
+      Data.Org.Identity
       Data.Org.Parser
       Data.Org.State
       Persist.Org

@@ -36,7 +36,7 @@ instance TextShow Sentence where
   showb (Sentence []) = ""
   showb (Sentence (x:xs)) = TS.showb x <> TS.showb (Sentence xs)
 
-instance Parseable Sentence where
+instance Parse Sentence where
   parser = do
     let stopParsers = choice [ void eol, eof ]
         elemParsers = choice [ SSeparator <$> try parser

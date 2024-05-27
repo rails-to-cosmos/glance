@@ -1,6 +1,8 @@
 module Data.Org.Elements.Separator (Separator (..)) where
 
 import Data.Org.Parser
+import Data.Org.Identity (Identity)
+import Data.Org.Identity qualified as Identity
 
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -11,7 +13,12 @@ import TextShow qualified as TS
 data Separator = SPC | EOL | EOF
   deriving (Show, Eq)
 
-instance Parseable Separator where
+instance Identity Separator where
+  id SPC = "SPC"
+  id EOL = "EOL"
+  id EOF = "EOF"
+
+instance Parse Separator where
   parser = choice
     [ EOF <$ eof
     , EOL <$ eol

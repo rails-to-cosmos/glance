@@ -4,13 +4,13 @@
 module Data.Org.Elements.Base (Element (..)) where
 
 import Data.Typeable (Typeable)
-import Data.Org.Identifiable (Identifiable)
+import Data.Org.Identity (Identity)
 import Data.Org.Elements.Headline (Headline)
 import Data.Org.Elements.Pragma (Pragma)
 import Data.Org.Elements.Separator (Separator)
 import Data.Org.Elements.Timestamp (Timestamp)
 import Data.Org.Elements.Token (Token)
-import Data.Org.Parser (Parseable, StatefulParser, parser)
+import Data.Org.Parser (Parse, StatefulParser, parser)
 import Data.Typeable qualified as Typeable
 
 import Text.Megaparsec (try, choice)
@@ -23,8 +23,8 @@ data Element where
              , TextShow a
              , Typeable a
              , Eq a
-             , Parseable a
-             , Identifiable a ) => a -> Element
+             , Parse a
+             , Identity a ) => a -> Element
 
 instance Show Element where
   show (Element a) = show a
@@ -34,7 +34,7 @@ instance Eq Element where
     Just y' -> x == y'
     Nothing -> False
 
-instance Parseable Element where
+instance Parse Element where
   parser = choice [ try (Element <$> (parser :: StatefulParser Separator))
                   , try (Element <$> (parser :: StatefulParser Headline))
                   , try (Element <$> (parser :: StatefulParser Pragma))

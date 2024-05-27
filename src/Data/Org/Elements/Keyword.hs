@@ -17,7 +17,7 @@ newtype Keyword = Keyword Text
 instance TextShow Keyword where
   showb (Keyword k) = TS.fromText k
 
-instance Parseable Keyword where
+instance Parse Keyword where
   parser = do
     let keyword = some (satisfy (\c -> isAlpha c || c == '_'))
     Keyword . toUpper . pack <$> keyword

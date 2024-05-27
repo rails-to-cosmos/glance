@@ -23,7 +23,7 @@ instance Semigroup Todo where
 instance Monoid Todo where
   mempty = Todo Nothing
 
-instance Parseable Todo where
+instance Parse Todo where
   parser = Todo <$> optional (try todo)
 
 instance TextShow Todo where

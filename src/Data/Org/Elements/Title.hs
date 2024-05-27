@@ -24,7 +24,7 @@ import Text.Megaparsec.Char
 import Prelude hiding (concat)
 
 data TitleElement where
-  TitleElement :: (Show a, TextShow a, Typeable a, Eq a, Parseable a) => a -> TitleElement
+  TitleElement :: (Show a, TextShow a, Typeable a, Eq a, Parse a) => a -> TitleElement
 
 instance Show TitleElement where
   show (TitleElement a) = show a
@@ -37,7 +37,7 @@ instance Eq TitleElement where
         Just y' -> x == y'
         Nothing -> False
 
-instance Parseable TitleElement where
+instance Parse TitleElement where
   parser = choice [ try (TitleElement <$> (parser :: StatefulParser Separator))
                   , try (TitleElement <$> (parser :: StatefulParser Timestamp))
                   , try (TitleElement <$> (parser :: StatefulParser Tags))
@@ -56,7 +56,7 @@ instance TextShow Title where
   showb (Title []) = ""
   showb (Title (x:xs)) = TextShow.showb x <> TextShow.showb (Title xs)
 
-instance Parseable Title where
+instance Parse Title where
   parser = do
     let stop = choice [ void eol, eof ]
 

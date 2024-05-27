@@ -23,7 +23,7 @@ instance Monoid Token where
 instance TextShow Token where
   showb (Token a) = TS.fromText a
 
-instance Parseable Token where
+instance Parse Token where
   parser = do
     let stop = lookAhead (choice [space1, void eol, eof])
         word = manyTill anySingle stop

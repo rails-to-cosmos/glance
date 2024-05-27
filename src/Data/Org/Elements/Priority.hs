@@ -23,7 +23,7 @@ instance TextShow Priority where
   showb (Priority Nothing) = TS.fromText ""
   showb (Priority (Just priority)) = "[#" <> B.singleton priority <> "]" <> TS.showbSpace
 
-instance Parseable Priority where
+instance Parse Priority where
   parser = do
     priority <- optional (char '[' *> char '#' *> letterChar <* char ']' <* space)
     return (Priority priority)
