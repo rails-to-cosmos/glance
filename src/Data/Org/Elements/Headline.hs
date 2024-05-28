@@ -30,7 +30,7 @@ instance Id.Identity Headline where
   id = id
 
 instance Semigroup Headline where
-  (<>) a b = Headline { id = ""
+  (<>) a b = Headline { id = (id a) <> (id b)
                       , indent = indent a <> indent b
                       , todo = todo a <> todo b
                       , priority = priority a <> priority b
