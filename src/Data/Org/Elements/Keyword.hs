@@ -4,7 +4,7 @@ import Data.Org.Parse
 import Data.Text (Text, pack, toUpper)
 import Data.Char (isAlpha)
 
-import Text.Megaparsec
+import Text.Megaparsec qualified as MP
 
 import TextShow (TextShow)
 import TextShow qualified as TS
@@ -19,5 +19,5 @@ instance TextShow Keyword where
 
 instance Parse Keyword where
   parse = do
-    let keyword = some (satisfy (\c -> isAlpha c || c == '_'))
+    let keyword = MP.some (MP.satisfy (\c -> isAlpha c || c == '_'))
     Keyword . toUpper . pack <$> keyword

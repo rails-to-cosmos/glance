@@ -4,8 +4,8 @@ import Data.Org.Parse
 import Data.Org.Identity (Identity)
 import Data.Org.Identity qualified as Identity
 
-import Text.Megaparsec
-import Text.Megaparsec.Char
+import Text.Megaparsec qualified as MP
+import Text.Megaparsec.Char qualified as MPC
 
 import TextShow (TextShow)
 import TextShow qualified as TS
@@ -19,9 +19,9 @@ instance Identity Separator where
   id EOF = "EOF"
 
 instance Parse Separator where
-  parse = choice [ EOF <$ eof
-                 , EOL <$ eol
-                 , SPC <$ space1 <* space ]
+  parse = MP.choice [ EOF <$ MP.eof
+                    , EOL <$ MPC.eol
+                    , SPC <$ MPC.space1 <* MPC.space ]
 
 instance TextShow Separator where
   showb SPC = " "

@@ -17,9 +17,10 @@ import Control.Monad.State qualified as State
 import TextShow (TextShow)
 import TextShow qualified as TS
 
-import Text.Megaparsec
-import Text.Megaparsec.Char
-import Text.Megaparsec.Char.Lexer (decimal)
+import Text.Megaparsec qualified as MP
+import Text.Megaparsec ((<|>))
+import Text.Megaparsec.Char qualified as MPC
+import Text.Megaparsec.Char.Lexer qualified as MPL
 
 import Control.Monad (guard, void)
 
@@ -90,11 +91,11 @@ instance TextShow Timestamp where
 instance Parse Timestamp where
   parse = do
     timestampStatus' <- State.lift timestampStatusParser
-    tsDay' <- State.lift timestampDayParser <* space
-    _tsWeekday' <- optional $ State.lift timestampWeekdayParser <* space
-    timestampTime' <- optional $ State.lift timestampTimeParser <* space
-    timestampIntervaleaterInterval' <- optional . try $ State.lift timestampRepeaterParser <* space
-    void $ char $ case timestampStatus' of
+    tsDay' <- State.lift timestampDayParser <* MPC.space
+    _tsWeekday' <- MP.optional $ State.lift timestampWeekdayParser <* MPC.space
+    timestampTime' <- MP.optional $ State.lift timestampTimeParser <* MPC.space
+    timestampIntervaleaterInterval' <- MP.optional . MP.try $ State.lift timestampRepeaterParser <* MPC.space
+    void $ MPC.char $ case timestampStatus' of
       TimestampActive -> '>'
       TimestampInactive -> ']'
 
@@ -113,7 +114,7 @@ formatTimestamp ts = pack (Time.formatTime Time.defaultTimeLocale timeFormat ts)
         seconds = floor $ Time.utctDayTime ts
 
 timestampCtrl :: StatelessParser Char
-timestampCtrl = char '<' <|> char '['
+timestampCtrl = MPC.char '<' <|> MPC.char '['
 
 timestampStatusParser :: StatelessParser TimestampStatus
 timestampStatusParser = do
@@ -126,9 +127,9 @@ timestampStatusParser = do
 timestampDayParser :: StatelessParser Time.Day
 timestampDayParser = do
   let sep = '-'
-  year <- decimal <* char sep
-  month <- decimal <* char sep
-  day <- decimal <* space
+  year <- MPL.decimal <* MPC.char sep
+  month <- MPL.decimal <* MPC.char sep
+  day <- MPL.decimal <* MPC.space
   guard (month >= 1 && month <= 12) <|> fail "Month out of range"
   guard (day >= 1 && day <= 31) <|> fail "Day out of range"
   return (Time.fromGregorian year month day)
@@ -136,9 +137,9 @@ timestampDayParser = do
 timestampTimeParser :: StatelessParser Time.TimeOfDay
 timestampTimeParser = do
   let sep = ':'
-  tsHour <- optional . try $ decimal <* char sep
-  tsMinute <- optional . try $ decimal
-  tsSecond <- optional . try $ char sep *> decimal <* space
+  tsHour <- MP.optional . MP.try $ MPL.decimal <* MPC.char sep
+  tsMinute <- MP.optional . MP.try $ MPL.decimal
+  tsSecond <- MP.optional . MP.try $ MPC.char sep *> MPL.decimal <* MPC.space
   return (Time.TimeOfDay
           (fromMaybe 0 tsHour)
           (fromMaybe 0 tsMinute)
@@ -146,16 +147,16 @@ timestampTimeParser = do
 
 timestampWeekdayParser :: StatelessParser Text
 timestampWeekdayParser = do
-  weekday <- count 3 letterChar
-  space
+  weekday <- MP.count 3 MPC.letterChar
+  MPC.space
   return (pack weekday)
 
 timestampRepeaterParser :: StatelessParser TimestampRepeaterInterval
 timestampRepeaterParser = do
-  repType <- optional . try $ oneOf ['.', '+']
-  repSign <- optional . try $ oneOf ['+', '-']
-  repValue <- decimal
-  repUnit <- oneOf ['d', 'w', 'm', 'y']
+  repType <- MP.optional . MP.try $ MP.oneOf ['.', '+']
+  repSign <- MP.optional . MP.try $ MP.oneOf ['+', '-']
+  repValue <- MPL.decimal
+  repUnit <- MP.oneOf ['d', 'w', 'm', 'y']
 
   return TimestampRepeaterInterval {
     repeaterValue = repValue,

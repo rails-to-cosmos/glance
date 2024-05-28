@@ -6,8 +6,8 @@ import Data.Org.Parse
 import TextShow (TextShow)
 import TextShow qualified as TS
 
-import Text.Megaparsec hiding (Token)
-import Text.Megaparsec.Char (space1, eol)
+import Text.Megaparsec qualified as MP
+import Text.Megaparsec.Char qualified as MPC
 
 import Control.Monad (void)
 
@@ -25,6 +25,6 @@ instance TextShow Token where
 
 instance Parse Token where
   parse = do
-    let stop = lookAhead (choice [space1, void eol, eof])
-        word = manyTill anySingle stop
+    let stop = MP.lookAhead (MP.choice [MPC.space1, void MPC.eol, MP.eof])
+        word = MP.manyTill MP.anySingle stop
     Token <$> fmap pack word

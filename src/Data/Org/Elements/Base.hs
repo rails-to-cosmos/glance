@@ -13,7 +13,7 @@ import Data.Org.Elements.Token (Token)
 import Data.Org.Parse (Parse, StatefulParser, parse)
 import Data.Typeable qualified as Typeable
 
-import Text.Megaparsec (try, choice)
+import Text.Megaparsec qualified as MP
 
 import TextShow (TextShow)
 import TextShow qualified
@@ -36,11 +36,11 @@ instance Eq Element where
     Nothing -> False
 
 instance Parse Element where
-  parse = choice [ try (Element <$> (parse :: StatefulParser Separator))
-                 , try (Element <$> (parse :: StatefulParser Headline))
-                 , try (Element <$> (parse :: StatefulParser Pragma))
-                 , try (Element <$> (parse :: StatefulParser Timestamp))
-                 , Element <$> (parse :: StatefulParser Token) ]
+  parse = MP.choice [ MP.try (Element <$> (parse :: StatefulParser Separator))
+                    , MP.try (Element <$> (parse :: StatefulParser Headline))
+                    , MP.try (Element <$> (parse :: StatefulParser Pragma))
+                    , MP.try (Element <$> (parse :: StatefulParser Timestamp))
+                    , Element <$> (parse :: StatefulParser Token) ]
 
 instance TextShow Element where
   showb (Element a) = TextShow.showb a

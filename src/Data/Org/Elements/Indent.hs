@@ -2,8 +2,8 @@ module Data.Org.Elements.Indent (Indent (..)) where
 
 import Data.Org.Parse
 
-import Text.Megaparsec
-import Text.Megaparsec.Char
+import Text.Megaparsec qualified as MP
+import Text.Megaparsec.Char qualified as MPC
 import Data.Text qualified as T
 
 import TextShow (TextShow)
@@ -20,7 +20,7 @@ instance Monoid Indent where
 
 instance Parse Indent where
   parse = do
-    stars <- some (char '*') <* space
+    stars <- MP.some (MPC.char '*') <* MPC.space
     return $ Indent (length stars)
 
 instance TextShow Indent where

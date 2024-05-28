@@ -10,8 +10,8 @@ import Data.Org.Elements.Token
 import TextShow (TextShow)
 import TextShow qualified as TS
 
-import Text.Megaparsec qualified as MPS
-import Text.Megaparsec.Char (eol)
+import Text.Megaparsec qualified as MP
+import Text.Megaparsec.Char qualified as MPC
 
 data SentenceElement = SToken !Token
                      | STimestamp !Timestamp
@@ -38,11 +38,11 @@ instance TextShow Sentence where
 
 instance Parse Sentence where
   parse = do
-    let stopParsers = MPS.choice [ void eol, MPS.eof ]
-        elemParsers = MPS.choice [ SSeparator <$> MPS.try parse
-                                 , STimestamp <$> MPS.try parse
-                                 , SToken <$> parse ]
+    let stopParsers = MP.choice [ void MPC.eol, MP.eof ]
+        elemParsers = MP.choice [ SSeparator <$> MP.try parse
+                                , STimestamp <$> MP.try parse
+                                , SToken <$> parse ]
 
-    elems <- MPS.manyTill elemParsers (MPS.lookAhead stopParsers)
+    elems <- MP.manyTill elemParsers (MP.lookAhead stopParsers)
 
     return (Sentence elems)

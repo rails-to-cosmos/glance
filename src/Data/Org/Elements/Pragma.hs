@@ -19,8 +19,8 @@ import Data.Text qualified as Text
 
 import Data.Set qualified as Set
 
-import Text.Megaparsec qualified as MPS
-import Text.Megaparsec.Char (space, char, string)
+import Text.Megaparsec qualified as MP
+import Text.Megaparsec.Char qualified as MPC
 
 import TextShow (TextShow)
 import TextShow qualified
@@ -40,14 +40,14 @@ instance Identity Pragma where
 instance Parse Pragma where
   parse = do
     let keyword = parse :: StatefulParser Keyword
-        todoList = MPS.some (todo <* space)
-        doneList = MPS.option [] (char '|' *> space *> todoList)
-        todoShort = Text.pack <$> MPS.between (char '(') (char ')') (MPS.many (MPS.noneOf ['(', ')', '\n']))
+        todoList = MP.some (todo <* MPC.space)
+        doneList = MP.option [] (MPC.char '|' *> MPC.space *> todoList)
+        todoShort = Text.pack <$> MP.between (MPC.char '(') (MPC.char ')') (MP.many (MP.noneOf ['(', ')', '\n']))
         todo = do
-          Keyword result <- keyword <* MPS.skipMany todoShort
+          Keyword result <- keyword <* MP.skipMany todoShort
           return result
 
-    key <- string "#+" *> keyword <* string ":" <* space
+    key <- MPC.string "#+" *> keyword <* MPC.string ":" <* MPC.space
     case key of
       Keyword "CATEGORY" -> do
         category <- parse :: StatefulParser Sentence
