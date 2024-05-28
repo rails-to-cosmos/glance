@@ -1,21 +1,23 @@
 module Data.Org.Elements.Headline (Headline (..)) where
 
-import Data.Org.Parse
+import Data.Org.Identity
 import Data.Org.Elements.Indent
 import Data.Org.Elements.Priority
 import Data.Org.Elements.Properties
+import Data.Org.Elements.Separator
+import Data.Org.Elements.Timestamp
 import Data.Org.Elements.Title
 import Data.Org.Elements.Todo
-import Data.Org.Elements.Timestamp
-import Data.Org.Elements.Separator
-
+import Data.Org.Parse
+import Data.Text (Text)
+import Data.Text qualified as Text
 import Text.Megaparsec qualified as MP
 import Text.Megaparsec.Char qualified as MPC
-
 import TextShow (TextShow)
 import TextShow qualified
 
-data Headline = Headline { indent :: !Indent
+data Headline = Headline { id :: !Text
+                         , indent :: !Indent
                          , todo :: !Todo
                          , priority :: !Priority
                          , title :: !Title
@@ -23,6 +25,9 @@ data Headline = Headline { indent :: !Indent
                          , deadline :: !(Maybe Timestamp)
                          , properties :: !Properties
                          } deriving (Show, Eq)
+
+instance Identity Headline where
+  id = Headline.id
 
 instance Semigroup Headline where
   (<>) a b = Headline { indent = indent a <> indent b
