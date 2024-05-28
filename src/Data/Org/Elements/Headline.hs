@@ -1,6 +1,6 @@
 module Data.Org.Elements.Headline (Headline (..)) where
 
-import Data.Org.Identity
+import Data.Org.Identity qualified as Id
 import Data.Org.Elements.Indent
 import Data.Org.Elements.Priority
 import Data.Org.Elements.Properties
@@ -10,11 +10,11 @@ import Data.Org.Elements.Title
 import Data.Org.Elements.Todo
 import Data.Org.Parse
 import Data.Text (Text)
-import Data.Text qualified as Text
 import Text.Megaparsec qualified as MP
 import Text.Megaparsec.Char qualified as MPC
 import TextShow (TextShow)
 import TextShow qualified
+import Prelude hiding (id)
 
 data Headline = Headline { id :: !Text
                          , indent :: !Indent
@@ -26,11 +26,12 @@ data Headline = Headline { id :: !Text
                          , properties :: !Properties
                          } deriving (Show, Eq)
 
-instance Identity Headline where
-  id = Headline.id
+instance Id.Identity Headline where
+  id = id
 
 instance Semigroup Headline where
-  (<>) a b = Headline { indent = indent a <> indent b
+  (<>) a b = Headline { id = ""
+                      , indent = indent a <> indent b
                       , todo = todo a <> todo b
                       , priority = priority a <> priority b
                       , title = title a <> title b
@@ -39,7 +40,8 @@ instance Semigroup Headline where
                       , properties = properties a <> properties b }
 
 instance Monoid Headline where
-  mempty = Headline { indent = mempty :: Indent
+  mempty = Headline { id = ""
+                    , indent = mempty :: Indent
                     , todo = mempty :: Todo
                     , priority = mempty :: Priority
                     , title = mempty :: Title
@@ -68,7 +70,8 @@ instance Parse Headline where
     -- ctx <- State.get
     -- State.modify $ addNode
 
-    let headline = Headline { indent = indent'
+    let headline = Headline { id = ""
+                            , indent = indent'
                             , todo = todo'
                             , priority = priority'
                             , title = title'
