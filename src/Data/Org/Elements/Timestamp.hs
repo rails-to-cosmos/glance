@@ -8,14 +8,15 @@ import Data.Org.Parse
 import Data.Org.Identity (Identity)
 import Data.Org.Identity qualified as Identity
 
-import Data.Text (Text, pack)
+import Data.Text (Text)
+import Data.Text qualified as Text
 import Data.Time qualified as Time
 import Data.Maybe (fromMaybe)
 
 import Control.Monad.State qualified as State
 
 import TextShow (TextShow)
-import TextShow qualified as TS
+import TextShow qualified
 
 import Text.Megaparsec qualified as MP
 import Text.Megaparsec ((<|>))
@@ -30,31 +31,14 @@ data Timestamp = Timestamp
   , timestampTime :: !Time.UTCTime
   } deriving (Show, Eq)
 
-data TimestampStatus = TimestampActive | TimestampInactive
-  deriving (Show, Eq)
-
-data TimestampRepeaterInterval = TimestampRepeaterInterval
-  { repeaterType :: !TimestampRepeaterType
-  , repeaterValue :: !Int
-  , repeaterUnit :: !TimestampUnit
-  , repeaterSign :: !TimestampRepeaterSign
-  } deriving (Show, Eq)
-
-data TimestampRepeaterSign = TRSPlus | TRSMinus
-  deriving (Show, Eq)
-
-data TimestampRepeaterType = CatchUp | Restart | Cumulative
-  deriving (Show, Eq)
-
-data TimestampUnit = Days | Weeks | Months | Years
-  deriving (Show, Eq)
+instance Identity Timestamp where
+  id = TextShow.showt
 
 instance TextShow Timestamp where
-  showb ts =
-    openBracket
-    <> TS.fromText timeText
-    <> TS.fromText repeaterSeparator
-    <> TS.fromText repeaterText
+  showb ts = openBracket
+    <> TextShow.fromText timeText
+    <> TextShow.fromText repeaterSeparator
+    <> TextShow.fromText repeaterText
     <> closeBracket
 
     where
@@ -82,7 +66,7 @@ instance TextShow Timestamp where
         Just TimestampRepeaterInterval { repeaterUnit = Years } -> "y"
       repeaterValText = case timestampInterval ts of
         Nothing -> ""
-        Just TimestampRepeaterInterval { repeaterValue = val } -> TS.showt val
+        Just TimestampRepeaterInterval { repeaterValue = val } -> TextShow.showt val
       repeaterText = repeaterTypeText <> repeaterSignText <> repeaterValText <> repeaterUnitText
       repeaterSeparator = case repeaterText of
         "" -> ""
@@ -106,8 +90,27 @@ instance Parse Timestamp where
                    Just t -> Time.UTCTime tsDay' (Time.timeOfDayToTime t)
                    Nothing -> Time.UTCTime tsDay' (Time.timeOfDayToTime (Time.TimeOfDay 0 0 0)) }
 
+data TimestampStatus = TimestampActive | TimestampInactive
+  deriving (Show, Eq)
+
+data TimestampRepeaterInterval = TimestampRepeaterInterval
+  { repeaterType :: !TimestampRepeaterType
+  , repeaterValue :: !Int
+  , repeaterUnit :: !TimestampUnit
+  , repeaterSign :: !TimestampRepeaterSign
+  } deriving (Show, Eq)
+
+data TimestampRepeaterSign = TRSPlus | TRSMinus
+  deriving (Show, Eq)
+
+data TimestampRepeaterType = CatchUp | Restart | Cumulative
+  deriving (Show, Eq)
+
+data TimestampUnit = Days | Weeks | Months | Years
+  deriving (Show, Eq)
+
 formatTimestamp :: Time.UTCTime -> Text
-formatTimestamp ts = pack (Time.formatTime Time.defaultTimeLocale timeFormat ts)
+formatTimestamp ts = Text.pack (Time.formatTime Time.defaultTimeLocale timeFormat ts)
   where timeFormat = if (seconds::Integer) `mod` 60 == 0
                      then "%Y-%m-%d %a %H:%M"
                      else "%Y-%m-%d %a %H:%M:%S"
@@ -149,7 +152,7 @@ timestampWeekdayParser :: StatelessParser Text
 timestampWeekdayParser = do
   weekday <- MP.count 3 MPC.letterChar
   MPC.space
-  return (pack weekday)
+  return (Text.pack weekday)
 
 timestampRepeaterParser :: StatelessParser TimestampRepeaterInterval
 timestampRepeaterParser = do

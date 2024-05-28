@@ -24,8 +24,7 @@ data Element where
              , Typeable a
              , Eq a
              , Parse a
-             -- , Identity a
-             ) => a -> Element
+             , Identity a) => a -> Element
 
 instance Show Element where
   show (Element a) = show a

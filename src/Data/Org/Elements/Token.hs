@@ -2,9 +2,10 @@ module Data.Org.Elements.Token (Token(..)) where
 
 import Data.Text (Text, pack)
 import Data.Org.Parse
+import Data.Org.Identity
 
 import TextShow (TextShow)
-import TextShow qualified as TS
+import TextShow qualified
 
 import Text.Megaparsec qualified as MP
 import Text.Megaparsec.Char qualified as MPC
@@ -20,8 +21,11 @@ instance Semigroup Token where
 instance Monoid Token where
   mempty = Token (mempty :: Text)
 
+instance Identity Token where
+  id (Token token) = TextShow.showt token
+
 instance TextShow Token where
-  showb (Token a) = TS.fromText a
+  showb (Token a) = TextShow.fromText a
 
 instance Parse Token where
   parse = do
