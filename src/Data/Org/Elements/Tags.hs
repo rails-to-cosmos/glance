@@ -37,6 +37,6 @@ keyword :: [Char]
 keyword = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ "-_"
 
 instance Parse Tags where
-  parser = do
+  parse = do
     let stop = lookAhead (try (choice [void eol, eof]))
     Tags <$> S.lift (char ':' *> manyTill tag stop)

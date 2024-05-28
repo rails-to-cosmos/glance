@@ -6,10 +6,10 @@ import Data.Org.Parse
 import Data.Org.Elements.Keyword
 
 import TextShow (TextShow)
-import TextShow qualified as TS
+import TextShow qualified
 
-import Text.Megaparsec
-import Text.Megaparsec.Char
+import Text.Megaparsec qualified as MPS
+import Text.Megaparsec.Char qualified as MPSChar
 
 import Control.Monad
 import Control.Monad.State qualified as State
@@ -18,21 +18,21 @@ newtype Todo = Todo (Maybe Text)
   deriving (Show, Eq)
 
 instance Semigroup Todo where
-  (<>) (Todo lhs) (Todo rhs) = Todo (lhs <> rhs)
+  (<>) (Todo a) (Todo b) = Todo (a <> b)
 
 instance Monoid Todo where
   mempty = Todo Nothing
 
 instance Parse Todo where
-  parser = Todo <$> optional (try todo)
+  parse = Todo <$> MPS.optional (MPS.try todo)
 
 instance TextShow Todo where
-  showb (Todo Nothing) = TS.showbSpace
-  showb (Todo (Just state)) = TS.showbSpace <> TS.fromText state <> TS.showbSpace
+  showb (Todo Nothing) = TextShow.showbSpace
+  showb (Todo (Just state)) = TextShow.showbSpace <> TextShow.fromText state <> TextShow.showbSpace
 
 todo :: StatefulParser Text
 todo = do
   ctx <- State.get
-  Keyword result <- (parser :: StatefulParser Keyword) <* space
+  Keyword result <- (parse :: StatefulParser Keyword) <* MPSChar.space
   guard $ inTodo result ctx
   return result

@@ -19,7 +19,7 @@ instance Monoid Indent where
   mempty = Indent 1
 
 instance Parse Indent where
-  parser = do
+  parse = do
     stars <- some (char '*') <* space
     return $ Indent (length stars)
 

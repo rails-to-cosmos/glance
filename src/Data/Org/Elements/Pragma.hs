@@ -19,8 +19,8 @@ import Data.Text qualified as Text
 
 import Data.Set qualified as Set
 
-import Text.Megaparsec hiding (Token)
-import Text.Megaparsec.Char
+import Text.Megaparsec qualified as MPS
+import Text.Megaparsec.Char (space, char, string)
 
 import TextShow (TextShow)
 import TextShow qualified
@@ -38,19 +38,19 @@ instance Identity Pragma where
   id (PCategory category) = TextShow.showt category
 
 instance Parse Pragma where
-  parser = do
-    let keyword = parser :: StatefulParser Keyword
-        todoList = some (todo <* space)
-        doneList = option [] (char '|' *> space *> todoList)
-        todoShort = Text.pack <$> between (char '(') (char ')') (many (noneOf ['(', ')', '\n']))
+  parse = do
+    let keyword = parse :: StatefulParser Keyword
+        todoList = MPS.some (todo <* space)
+        doneList = MPS.option [] (char '|' *> space *> todoList)
+        todoShort = Text.pack <$> MPS.between (char '(') (char ')') (MPS.many (MPS.noneOf ['(', ')', '\n']))
         todo = do
-          Keyword result <- keyword <* skipMany todoShort
+          Keyword result <- keyword <* MPS.skipMany todoShort
           return result
 
     key <- string "#+" *> keyword <* string ":" <* space
     case key of
       Keyword "CATEGORY" -> do
-        category <- parser :: StatefulParser Sentence
+        category <- parse :: StatefulParser Sentence
         State.modify $ setCategory (TextShow.showt category)
         return $ PCategory category
       Keyword "TODO" -> do
@@ -61,7 +61,7 @@ instance Parse Pragma where
 
         return $ PTodo pragmaActive pragmaInactive
       _keyword -> do
-        Token value <- parser :: StatefulParser Token
+        Token value <- parse :: StatefulParser Token
         return $ Pragma key value
 
 instance TextShow Pragma where

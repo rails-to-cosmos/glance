@@ -22,7 +22,7 @@ module Data.Org ( Context (..)
                 , parse
                 , mparse ) where
 
-import Data.Org.Parse
+import Data.Org.Parse qualified as OrgParse
 import Data.Org.State
 import Data.Org.Context
 
@@ -45,11 +45,11 @@ import Data.Org.Elements.Token
 import Control.Monad.State (runStateT)
 import Data.Text (Text)
 import Data.Text.Lazy.Builder ()
-import Text.Megaparsec qualified as MPS
+import Text.Megaparsec qualified as MP
 import UnliftIO ()
 
 parse :: St -> Text -> ([Element], St)
-parse ctx cmd = case MPS.parse (runStateT (MPS.manyTill parser MPS.eof) ctx) "" cmd of
+parse ctx cmd = case MP.parse (runStateT (MP.manyTill OrgParse.parse MP.eof) ctx) "" cmd of
   Right val -> val
   Left err  -> ([], ctx)  -- GToken (Token (pack (PS.errorBundlePretty err)))
 

@@ -10,7 +10,7 @@ import Data.Org.Elements.Pragma (Pragma)
 import Data.Org.Elements.Separator (Separator)
 import Data.Org.Elements.Timestamp (Timestamp)
 import Data.Org.Elements.Token (Token)
-import Data.Org.Parse (Parse, StatefulParser, parser)
+import Data.Org.Parse (Parse, StatefulParser, parse)
 import Data.Typeable qualified as Typeable
 
 import Text.Megaparsec (try, choice)
@@ -36,11 +36,11 @@ instance Eq Element where
     Nothing -> False
 
 instance Parse Element where
-  parser = choice [ try (Element <$> (parser :: StatefulParser Separator))
-                  , try (Element <$> (parser :: StatefulParser Headline))
-                  , try (Element <$> (parser :: StatefulParser Pragma))
-                  , try (Element <$> (parser :: StatefulParser Timestamp))
-                  , Element <$> (parser :: StatefulParser Token) ]
+  parse = choice [ try (Element <$> (parse :: StatefulParser Separator))
+                 , try (Element <$> (parse :: StatefulParser Headline))
+                 , try (Element <$> (parse :: StatefulParser Pragma))
+                 , try (Element <$> (parse :: StatefulParser Timestamp))
+                 , Element <$> (parse :: StatefulParser Token) ]
 
 instance TextShow Element where
   showb (Element a) = TextShow.showb a

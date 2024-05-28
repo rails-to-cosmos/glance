@@ -18,6 +18,6 @@ instance TextShow Keyword where
   showb (Keyword k) = TS.fromText k
 
 instance Parse Keyword where
-  parser = do
+  parse = do
     let keyword = some (satisfy (\c -> isAlpha c || c == '_'))
     Keyword . toUpper . pack <$> keyword

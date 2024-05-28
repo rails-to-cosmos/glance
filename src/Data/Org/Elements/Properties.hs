@@ -3,8 +3,8 @@ module Data.Org.Elements.Properties (Properties (..)) where
 import Data.Org.Parse
 import Data.Org.Elements.Property
 
-import Text.Megaparsec
-import Text.Megaparsec.Char
+import Text.Megaparsec qualified as MP
+import Text.Megaparsec.Char qualified as MPC
 
 import TextShow (TextShow)
 import TextShow qualified as TS
@@ -19,9 +19,9 @@ instance Monoid Properties where
   mempty = Properties []
 
 instance Parse Properties where
-  parser = do
-    _ <- string ":PROPERTIES:" <* eol
-    properties <- manyTill ((parser :: StatefulParser Property) <* eol) (string ":END:")
+  parse = do
+    _ <- MPC.string ":PROPERTIES:" <* MPC.eol
+    properties <- MP.manyTill ((parse :: StatefulParser Property) <* MPC.eol) (MPC.string ":END:")
     return (Properties properties)
 
 instance TextShow Properties where

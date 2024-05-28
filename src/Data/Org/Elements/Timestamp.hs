@@ -88,7 +88,7 @@ instance TextShow Timestamp where
         _repeater -> " "
 
 instance Parse Timestamp where
-  parser = do
+  parse = do
     timestampStatus' <- State.lift timestampStatusParser
     tsDay' <- State.lift timestampDayParser <* space
     _tsWeekday' <- optional $ State.lift timestampWeekdayParser <* space

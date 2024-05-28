@@ -24,7 +24,7 @@ instance TextShow Token where
   showb (Token a) = TS.fromText a
 
 instance Parse Token where
-  parser = do
+  parse = do
     let stop = lookAhead (choice [space1, void eol, eof])
         word = manyTill anySingle stop
     Token <$> fmap pack word

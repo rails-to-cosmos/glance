@@ -13,4 +13,4 @@ type StatefulParserBase s a = StateT s StatelessParser a
 type StatefulParser a = StatefulParserBase St a
 
 class Parse a where
-  parser :: StatefulParser a
+  parse :: StatefulParser a

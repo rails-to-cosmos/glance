@@ -9,15 +9,11 @@ import Data.Org.Elements.Todo
 import Data.Org.Elements.Timestamp
 import Data.Org.Elements.Separator
 
-import Data.Graph.Inductive qualified as Graph
-
-import Text.Megaparsec
-import Text.Megaparsec.Char
+import Text.Megaparsec qualified as MP
+import Text.Megaparsec.Char qualified as MPC
 
 import TextShow (TextShow)
-import TextShow qualified as TS
-
-import Control.Monad.State qualified as State
+import TextShow qualified
 
 data Headline = Headline { indent :: !Indent
                          , todo :: !Todo
@@ -47,22 +43,22 @@ instance Monoid Headline where
                     , properties = mempty :: Properties }
 
 instance TextShow Headline where
-  showb headline = TS.showb (indent headline)
-    <> TS.showb (todo headline)
-    <> TS.showb (priority headline)
-    <> TS.showb (title headline)
+  showb headline = TextShow.showb (indent headline)
+    <> TextShow.showb (todo headline)
+    <> TextShow.showb (priority headline)
+    <> TextShow.showb (title headline)
 
 instance Parse Headline where
-  parser = do
-    indent' <- parser :: StatefulParser Indent
-    todo' <- option (mempty :: Todo) (parser :: StatefulParser Todo)
-    priority' <- option (mempty :: Priority) (parser :: StatefulParser Priority)
-    title' <- parser :: StatefulParser Title
-    -- schedule' <- optional $ try (string "SCHEDULED:" *> space *> (parser :: StatefulParser Timestamp))
-    -- deadline' <- optional $ try (string "DEADLINE:" *> space *> (parser :: StatefulParser Timestamp))
-    properties' <- option (mempty :: Properties) (try (eol *> parser :: StatefulParser Properties))
+  parse = do
+    indent' <- parse :: StatefulParser Indent
+    todo' <- MP.option (mempty :: Todo) (parse :: StatefulParser Todo)
+    priority' <- MP.option (mempty :: Priority) (parse :: StatefulParser Priority)
+    title' <- parse :: StatefulParser Title
+    -- schedule' <- optional $ try (string "SCHEDULED:" *> space *> (parse :: StatefulParser Timestamp))
+    -- deadline' <- optional $ try (string "DEADLINE:" *> space *> (parse :: StatefulParser Timestamp))
+    properties' <- MP.option (mempty :: Properties) (MP.try (MPC.eol *> parse :: StatefulParser Properties))
 
-    _ <- parser :: StatefulParser Separator
+    _ <- parse :: StatefulParser Separator
 
     -- ctx <- State.get
     -- State.modify $ addNode

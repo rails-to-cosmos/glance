@@ -6,7 +6,7 @@ import Data.Org.Elements.Keyword
 import Data.Org.Elements.Sentence
 import Data.Text (Text)
 
-import Text.Megaparsec.Char
+import Text.Megaparsec.Char (char, space)
 
 import TextShow (TextShow)
 import TextShow qualified as TS
@@ -26,12 +26,12 @@ isPropertyStackKeyword :: Keyword -> Bool
 isPropertyStackKeyword (Keyword k) = k `elem` reservedKeywords
 
 instance Parse Property where
-  parser = do
-    keyword <- char ':' *> (parser :: StatefulParser Keyword) <* char ':' <* space
+  parse = do
+    keyword <- char ':' *> (parse :: StatefulParser Keyword) <* char ':' <* space
 
     guard $ not (isPropertyStackKeyword keyword)
 
-    value <- parser :: StatefulParser Sentence
+    value <- parse :: StatefulParser Sentence
 
     case keyword of
       Keyword "CATEGORY" -> State.modify (setCategory (TS.showt value))

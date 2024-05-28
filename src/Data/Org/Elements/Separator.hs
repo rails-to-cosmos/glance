@@ -19,10 +19,9 @@ instance Identity Separator where
   id EOF = "EOF"
 
 instance Parse Separator where
-  parser = choice
-    [ EOF <$ eof
-    , EOL <$ eol
-    , SPC <$ space1 <* space ]
+  parse = choice [ EOF <$ eof
+                 , EOL <$ eol
+                 , SPC <$ space1 <* space ]
 
 instance TextShow Separator where
   showb SPC = " "

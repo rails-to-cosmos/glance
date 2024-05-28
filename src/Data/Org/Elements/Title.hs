@@ -18,8 +18,8 @@ import Data.Typeable qualified as Typeable
 import TextShow (TextShow)
 import TextShow qualified
 
-import Text.Megaparsec hiding (Token)
-import Text.Megaparsec.Char
+import Text.Megaparsec qualified as MP
+import Text.Megaparsec.Char qualified as MPC
 
 import Prelude hiding (concat)
 
@@ -38,10 +38,10 @@ instance Eq TitleElement where
         Nothing -> False
 
 instance Parse TitleElement where
-  parser = choice [ try (TitleElement <$> (parser :: StatefulParser Separator))
-                  , try (TitleElement <$> (parser :: StatefulParser Timestamp))
-                  , try (TitleElement <$> (parser :: StatefulParser Tags))
-                  , TitleElement <$> (parser :: StatefulParser Token) ]
+  parse = MP.choice [ MP.try (TitleElement <$> (parse :: StatefulParser Separator))
+                    , MP.try (TitleElement <$> (parse :: StatefulParser Timestamp))
+                    , MP.try (TitleElement <$> (parse :: StatefulParser Tags))
+                    , TitleElement <$> (parse :: StatefulParser Token) ]
 
 newtype Title = Title [TitleElement]
   deriving (Show, Eq)
@@ -57,9 +57,9 @@ instance TextShow Title where
   showb (Title (x:xs)) = TextShow.showb x <> TextShow.showb (Title xs)
 
 instance Parse Title where
-  parser = do
-    let stop = choice [ void eol, eof ]
+  parse = do
+    let stop = MP.choice [ void MPC.eol, MP.eof ]
 
-    elems <- manyTill (parser :: StatefulParser TitleElement) (lookAhead stop)
+    elems <- MP.manyTill (parse :: StatefulParser TitleElement) (MP.lookAhead stop)
 
     return (Title elems)
