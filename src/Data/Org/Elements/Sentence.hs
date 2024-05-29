@@ -1,17 +1,17 @@
-module Data.Org.Sentence (Sentence(..), SentenceElement (..)) where
+module Data.Org.Elements.Sentence (Sentence(..), SentenceElement (..)) where
 
 import Control.Monad (void)
 
 import Data.Org.Parse
-import Data.Org.Separator
-import Data.Org.Timestamp
-import Data.Org.Token
+import Data.Org.Elements.Separator
+import Data.Org.Elements.Timestamp
+import Data.Org.Elements.Token
 
 import TextShow (TextShow)
 import TextShow qualified as TS
 
-import Text.Megaparsec hiding (Token)
-import Text.Megaparsec.Char
+import Text.Megaparsec qualified as MP
+import Text.Megaparsec.Char qualified as MPC
 
 data SentenceElement = SToken !Token
                      | STimestamp !Timestamp
@@ -37,12 +37,12 @@ instance TextShow Sentence where
   showb (Sentence (x:xs)) = TS.showb x <> TS.showb (Sentence xs)
 
 instance Parse Sentence where
-  parser = do
-    let stopParsers = choice [ void eol, eof ]
-        elemParsers = choice [ SSeparator <$> try parser
-                             , STimestamp <$> try parser
-                             , SToken <$> parser ]
+  parse = do
+    let stopParsers = MP.choice [ void MPC.eol, MP.eof ]
+        elemParsers = MP.choice [ SSeparator <$> MP.try parse
+                                , STimestamp <$> MP.try parse
+                                , SToken <$> parse ]
 
-    elems <- manyTill elemParsers (lookAhead stopParsers)
+    elems <- MP.manyTill elemParsers (MP.lookAhead stopParsers)
 
     return (Sentence elems)

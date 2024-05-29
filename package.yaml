@@ -43,6 +43,7 @@ dependencies:
   - time
   - containers
   - text-show
+  - fgl
 
 ghc-options:
   - -Wall

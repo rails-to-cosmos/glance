@@ -1,8 +1,18 @@
-module TestDefaults (defaultContext, defaultHeadline) where
+module TestDefaults (defaultContext, defaultHeadline, withCategory, withTodo) where
+
+import Data.Set qualified as Set
+
+import Data.Text (Text)
 import Data.Org qualified as Org
 
 defaultHeadline :: Org.Headline
 defaultHeadline = mempty :: Org.Headline
 
-defaultContext :: Org.Context
-defaultContext = mempty :: Org.Context
+defaultContext :: Org.St
+defaultContext = Org.St (mempty :: Org.Context)
+
+withCategory :: Org.St -> Text -> Org.St
+withCategory ctx category = Org.setCategory category ctx
+
+withTodo :: Org.St -> ([Text], [Text]) -> Org.St
+withTodo ctx (active, inactive) = Org.setTodo (Set.fromList active) (Set.fromList inactive) ctx

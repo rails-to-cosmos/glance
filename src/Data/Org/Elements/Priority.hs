@@ -1,10 +1,10 @@
-module Data.Org.Priority (Priority (..)) where
+module Data.Org.Elements.Priority (Priority (..)) where
 
 import Data.Char (ord)
 import Data.Org.Parse
 
-import Text.Megaparsec
-import Text.Megaparsec.Char
+import Text.Megaparsec qualified as MP
+import Text.Megaparsec.Char qualified as MPC
 import Data.Text.Lazy.Builder qualified as B
 
 import TextShow (TextShow)
@@ -24,8 +24,8 @@ instance TextShow Priority where
   showb (Priority (Just priority)) = "[#" <> B.singleton priority <> "]" <> TS.showbSpace
 
 instance Parse Priority where
-  parser = do
-    priority <- optional (char '[' *> char '#' *> letterChar <* char ']' <* space)
+  parse = do
+    priority <- MP.optional (MPC.char '[' *> MPC.char '#' *> MPC.letterChar <* MPC.char ']' <* MPC.space)
     return (Priority priority)
 
 minByOrd :: Maybe Char -> Maybe Char -> Maybe Char

@@ -28,22 +28,24 @@ library
       Data.Config
       Data.Org
       Data.Org.Context
-      Data.Org.Element
-      Data.Org.Headline
-      Data.Org.Indent
-      Data.Org.Keyword
+      Data.Org.Elements.Base
+      Data.Org.Elements.Headline
+      Data.Org.Elements.Indent
+      Data.Org.Elements.Keyword
+      Data.Org.Elements.Pragma
+      Data.Org.Elements.Priority
+      Data.Org.Elements.Properties
+      Data.Org.Elements.Property
+      Data.Org.Elements.Sentence
+      Data.Org.Elements.Separator
+      Data.Org.Elements.Tags
+      Data.Org.Elements.Timestamp
+      Data.Org.Elements.Title
+      Data.Org.Elements.Todo
+      Data.Org.Elements.Token
+      Data.Org.Identity
       Data.Org.Parse
-      Data.Org.Pragma
-      Data.Org.Priority
-      Data.Org.Properties
-      Data.Org.Property
-      Data.Org.Sentence
-      Data.Org.Separator
-      Data.Org.Tags
-      Data.Org.Timestamp
-      Data.Org.Title
-      Data.Org.Todo
-      Data.Org.Token
+      Data.Org.State
       Persist.Org
       Repl.Org
   other-modules:
@@ -60,6 +62,7 @@ library
     , containers
     , directory
     , exceptions
+    , fgl
     , filepath
     , haskeline
     , megaparsec
@@ -92,6 +95,7 @@ executable glance
     , containers
     , directory
     , exceptions
+    , fgl
     , filepath
     , glance
     , haskeline
@@ -129,6 +133,7 @@ test-suite glance-test
     , containers
     , directory
     , exceptions
+    , fgl
     , filepath
     , glance
     , haskeline

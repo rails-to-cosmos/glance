@@ -7,8 +7,11 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BSChar8
 import Data.Config qualified as Config
 import Data.Org qualified as Org
-import Data.Text qualified as T
+
+import Data.Text (Text)
+import Data.Text qualified as Text
 import Data.Text.IO qualified as TIO
+
 import Repl.Org
 
 import System.Directory
@@ -29,15 +32,28 @@ defaultConfig = do
   createDirectoryIfMissing True configDir
 
   return Config.Config { Config.haskelineSettings = haskelineSettings
-                       , Config.dbConnectionString = T.pack dbFile
+                       , Config.dbConnectionString = Text.pack dbFile
                        , Config.dbPoolSize = 10 }
 
-defaultContext :: Org.Context
-defaultContext = mempty
+defaultContext :: Org.St
+defaultContext = Org.St (mempty :: Org.Context)
 
 main :: IO ()
 main = do
   getArgs >>= parse
+
+greetings :: [[Text]] -> IO ()
+greetings messages = do
+  TIO.putStrLn ""
+  TIO.putStrLn "---"
+  TIO.putStrLn "Hello, fellow hacker!\n"
+
+  let _lines = map (Text.intercalate " ") messages
+
+  mapM_ TIO.putStrLn _lines
+
+  TIO.putStrLn "---"
+  TIO.putStrLn ""
 
 parse :: [String] -> IO a
 
@@ -48,21 +64,19 @@ parse [] = do
 
 parse (filename:_) = do
   config <- defaultConfig
-  content <- T.pack . BSChar8.unpack <$> BS.readFile filename
+  content <- Text.pack . BSChar8.unpack <$> BS.readFile filename
 
   let (_elements, context) = Org.parse defaultContext content
 
-  TIO.putStrLn "Hello there, fellow hacker!"
-  TIO.putStrLn (T.intercalate " " ["MetaDB location:", Config.dbConnectionString config])
-  TIO.putStrLn (T.intercalate " " ["Additional context:", T.pack filename])
+  greetings [ ["The database is located at", Config.dbConnectionString config]
+            , ["Additional context provided:", Text.pack filename]]
 
   runRepl config context Org.parse
   exitSuccess
 
-repl :: Config.Config -> Org.Context -> IO ()
+repl :: Config.Config -> Org.St -> IO ()
 repl config context = do
-  TIO.putStrLn "Hello there, fellow hacker!"
-  TIO.putStrLn (T.intercalate " " ["I'll use meta db located in", Config.dbConnectionString config])
+  greetings [["Using meta db located in", Config.dbConnectionString config]]
 
   runRepl config context Org.parse
 
