@@ -33,9 +33,9 @@ data Pragma = Pragma !Keyword !Text
   deriving (Show, Eq)
 
 instance Identity Pragma where
-  id (Pragma keyword text) = Text.intercalate "-" [TextShow.showt keyword, text]
-  id (PTodo active inactive) = Text.intercalate "-" (List.sort (Set.toList (active <> inactive)))
-  id (PCategory category) = TextShow.showt category
+  identity (Pragma keyword text) = Text.intercalate "-" [TextShow.showt keyword, text]
+  identity (PTodo active inactive) = Text.intercalate "-" (List.sort (Set.toList (active <> inactive)))
+  identity (PCategory category) = TextShow.showt category
 
 instance Parse Pragma where
   parse = do

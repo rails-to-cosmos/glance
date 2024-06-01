@@ -22,7 +22,7 @@ instance Monoid Token where
   mempty = Token (mempty :: Text)
 
 instance Identity Token where
-  id (Token token) = TextShow.showt token
+  identity (Token token) = TextShow.showt token
 
 instance TextShow Token where
   showb (Token a) = TextShow.fromText a

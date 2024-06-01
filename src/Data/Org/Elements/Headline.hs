@@ -1,6 +1,6 @@
 module Data.Org.Elements.Headline (Headline (..)) where
 
-import Data.Org.Identity qualified as Id
+import Data.Org.Identity
 import Data.Org.Elements.Indent
 import Data.Org.Elements.Priority
 import Data.Org.Elements.Properties
@@ -14,9 +14,8 @@ import Text.Megaparsec qualified as MP
 import Text.Megaparsec.Char qualified as MPC
 import TextShow (TextShow)
 import TextShow qualified
-import Prelude hiding (id)
 
-data Headline = Headline { id :: !Text
+data Headline = Headline { _id :: !Text
                          , indent :: !Indent
                          , todo :: !Todo
                          , priority :: !Priority
@@ -26,11 +25,11 @@ data Headline = Headline { id :: !Text
                          , properties :: !Properties
                          } deriving (Show, Eq)
 
-instance Id.Identity Headline where
-  id = id
+instance Identity Headline where
+  identity = _id
 
 instance Semigroup Headline where
-  (<>) a b = Headline { id = (id a) <> (id b)
+  (<>) a b = Headline { _id = identity a <> identity b
                       , indent = indent a <> indent b
                       , todo = todo a <> todo b
                       , priority = priority a <> priority b
@@ -40,7 +39,7 @@ instance Semigroup Headline where
                       , properties = properties a <> properties b }
 
 instance Monoid Headline where
-  mempty = Headline { id = ""
+  mempty = Headline { _id = ""
                     , indent = mempty :: Indent
                     , todo = mempty :: Todo
                     , priority = mempty :: Priority
@@ -70,7 +69,7 @@ instance Parse Headline where
     -- ctx <- State.get
     -- State.modify $ addNode
 
-    let headline = Headline { id = ""
+    let headline = Headline { _id = ""
                             , indent = indent'
                             , todo = todo'
                             , priority = priority'

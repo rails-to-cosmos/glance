@@ -32,7 +32,7 @@ data Timestamp = Timestamp
   } deriving (Show, Eq)
 
 instance Identity Timestamp where
-  id = TextShow.showt
+  identity = TextShow.showt
 
 instance TextShow Timestamp where
   showb ts = openBracket
