@@ -39,20 +39,20 @@ instance Semigroup Headline where
                       , properties = properties a <> properties b }
 
 instance Monoid Headline where
-  mempty = Headline { _id = ""
-                    , indent = mempty :: Indent
-                    , todo = mempty :: Todo
-                    , priority = mempty :: Priority
-                    , title = mempty :: Title
+  mempty = Headline { _id = mempty
+                    , indent = mempty
+                    , todo = mempty
+                    , priority = mempty
+                    , title = mempty
                     , schedule = Nothing
                     , deadline = Nothing
-                    , properties = mempty :: Properties }
+                    , properties = mempty }
 
 instance TextShow Headline where
-  showb headline = TextShow.showb (indent headline)
-    <> TextShow.showb (todo headline)
-    <> TextShow.showb (priority headline)
-    <> TextShow.showb (title headline)
+  showb a = TextShow.showb (indent a)
+    <> TextShow.showb (todo a)
+    <> TextShow.showb (priority a)
+    <> TextShow.showb (title a)
 
 instance Parse Headline where
   parse = do
@@ -63,8 +63,7 @@ instance Parse Headline where
     -- schedule' <- optional $ try (string "SCHEDULED:" *> space *> (parse :: StatefulParser Timestamp))
     -- deadline' <- optional $ try (string "DEADLINE:" *> space *> (parse :: StatefulParser Timestamp))
     properties' <- MP.option (mempty :: Properties) (MP.try (MPC.eol *> parse :: StatefulParser Properties))
-
-    _ <- parse :: StatefulParser Separator
+    _newline <- parse :: StatefulParser Separator
 
     -- ctx <- State.get
     -- State.modify $ addNode
