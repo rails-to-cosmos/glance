@@ -13,7 +13,7 @@ newtype Properties = Properties [Property]
   deriving (Show, Eq)
 
 instance Semigroup Properties where
-  (<>) (Properties lhs) (Properties rhs) = Properties (lhs <> rhs)
+  (<>) (Properties a) (Properties b) = Properties (a <> b)
 
 instance Monoid Properties where
   mempty = Properties []

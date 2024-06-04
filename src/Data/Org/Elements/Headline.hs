@@ -29,7 +29,7 @@ instance Identity Headline where
   identity = _id
 
 instance Semigroup Headline where
-  (<>) a b = Headline { _id = identity a <> identity b
+  (<>) a b = Headline { _id = _id a <> _id b
                       , indent = indent a <> indent b
                       , todo = todo a <> todo b
                       , priority = priority a <> priority b
