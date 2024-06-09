@@ -8,10 +8,12 @@ import Data.Org.Elements.Pragma (Pragma)
 import Data.Org.Elements.Separator (Separator)
 import Data.Org.Elements.Timestamp (Timestamp)
 import Data.Org.Elements.Token (Token)
-import Data.Org.Identity (Identity)
+import Data.Org.Identity (Identity(..))
 import Data.Org.Parse (Parse, StatefulParser, parse)
+
 import Data.Typeable (Typeable)
 import Data.Typeable qualified as Typeable
+
 import Text.Megaparsec qualified as MP
 import TextShow (TextShow)
 import TextShow qualified
@@ -23,6 +25,9 @@ data Element where
              , Eq a
              , Parse a
              , Identity a) => a -> Element
+
+instance Identity Element where
+  identity (Element a) = identity a
 
 instance Show Element where
   show (Element a) = show a
