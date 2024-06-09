@@ -25,10 +25,10 @@ data Headline = Headline { indent :: !Indent
                          } deriving (Show, Eq)
 
 instance Identity Headline where
-  identity (Headline { properties = ps }) = case glanceId of
+  identity (Headline { properties = props }) = case glanceId of
     Just (Property _k v) -> TextShow.showt v
     Nothing -> ""
-    where glanceId = Properties.find "GLANCE_ID" ps
+    where glanceId = Properties.find "GLANCE_ID" props
 
 instance Semigroup Headline where
   (<>) a b = Headline { indent = indent a <> indent b
@@ -62,7 +62,7 @@ instance Parse Headline where
     title' <- parse :: StatefulParser Title
     -- schedule' <- optional $ try (string "SCHEDULED:" *> space *> (parse :: StatefulParser Timestamp))
     -- deadline' <- optional $ try (string "DEADLINE:" *> space *> (parse :: StatefulParser Timestamp))
-    ps <- MP.option (mempty :: Properties) (MP.try (MPC.eol *> parse :: StatefulParser Properties))
+    properties' <- MP.option (mempty :: Properties) (MP.try (MPC.eol *> parse :: StatefulParser Properties))
     _newline <- parse :: StatefulParser Separator
 
     -- ctx <- State.get
@@ -74,4 +74,4 @@ instance Parse Headline where
                     , title = title'
                     , schedule = Nothing -- schedule'
                     , deadline = Nothing -- deadline'
-                    , properties = ps }
+                    , properties = properties' }
