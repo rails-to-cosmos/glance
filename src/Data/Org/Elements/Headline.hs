@@ -68,12 +68,10 @@ instance Parse Headline where
     -- ctx <- State.get
     -- State.modify $ addNode
 
-    let headline = Headline { indent = indent'
-                            , todo = todo'
-                            , priority = priority'
-                            , title = title'
-                            , schedule = Nothing -- schedule'
-                            , deadline = Nothing -- deadline'
-                            , properties = properties' }
-
-    return headline
+    return Headline { indent = indent'
+                    , todo = todo'
+                    , priority = priority'
+                    , title = title'
+                    , schedule = Nothing -- schedule'
+                    , deadline = Nothing -- deadline'
+                    , properties = properties' }
