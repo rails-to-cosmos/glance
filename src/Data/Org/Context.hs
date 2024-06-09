@@ -19,7 +19,7 @@ instance Monoid OrgGraph where
   mempty = OrgGraph G.empty
 
 instance Semigroup OrgGraph where
-  (<>) lhs _rhs = lhs  -- TODO implement semigroup
+  (<>) a _b = a  -- TODO implement semigroup
 
 data Context = Context { metaTodoActive :: !(Set Text)
                        , metaTodoInactive :: !(Set Text)
@@ -38,11 +38,11 @@ instance Mut Context where
                                        , metaTodoInactive = metaTodoInactive ctx <> inactive }
 
 instance Semigroup Context where
-  (<>) lhs rhs = Context { metaTodoActive = metaTodoActive lhs <> metaTodoActive rhs
-                         , metaTodoInactive = metaTodoInactive lhs <> metaTodoInactive rhs
-                         , metaCategory = metaCategory lhs <> metaCategory rhs
-                         , metaGraph = metaGraph lhs <> metaGraph rhs
-                         -- , metaTime = metaTime lhs <> metaTime rhs
+  (<>) a b = Context { metaTodoActive = metaTodoActive a <> metaTodoActive b
+                         , metaTodoInactive = metaTodoInactive a <> metaTodoInactive b
+                         , metaCategory = metaCategory a <> metaCategory b
+                         , metaGraph = metaGraph a <> metaGraph b
+                         -- , metaTime = metaTime a <> metaTime b
                          }
 
 instance Monoid Context where

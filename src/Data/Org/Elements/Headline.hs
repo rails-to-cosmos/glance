@@ -3,20 +3,19 @@ module Data.Org.Elements.Headline (Headline (..)) where
 import Data.Org.Identity
 import Data.Org.Elements.Indent
 import Data.Org.Elements.Priority
-import Data.Org.Elements.Properties
+import Data.Org.Elements.Properties (Property(..), Properties)
+import Data.Org.Elements.Properties qualified as Properties
 import Data.Org.Elements.Separator
 import Data.Org.Elements.Timestamp
 import Data.Org.Elements.Title
 import Data.Org.Elements.Todo
 import Data.Org.Parse
-import Data.Text (Text)
 import Text.Megaparsec qualified as MP
 import Text.Megaparsec.Char qualified as MPC
 import TextShow (TextShow)
 import TextShow qualified
 
-data Headline = Headline { _id :: !Text
-                         , indent :: !Indent
+data Headline = Headline { indent :: !Indent
                          , todo :: !Todo
                          , priority :: !Priority
                          , title :: !Title
@@ -26,11 +25,13 @@ data Headline = Headline { _id :: !Text
                          } deriving (Show, Eq)
 
 instance Identity Headline where
-  identity = _id
+  identity headline = case glanceId of
+    Nothing -> ""
+    Just (Property _k v) -> TextShow.showt v
+    where glanceId = Properties.find "GLANCE_ID" (properties headline)
 
 instance Semigroup Headline where
-  (<>) a b = Headline { _id = _id a <> _id b
-                      , indent = indent a <> indent b
+  (<>) a b = Headline { indent = indent a <> indent b
                       , todo = todo a <> todo b
                       , priority = priority a <> priority b
                       , title = title a <> title b
@@ -39,8 +40,7 @@ instance Semigroup Headline where
                       , properties = properties a <> properties b }
 
 instance Monoid Headline where
-  mempty = Headline { _id = mempty
-                    , indent = mempty
+  mempty = Headline { indent = mempty
                     , todo = mempty
                     , priority = mempty
                     , title = mempty
@@ -68,8 +68,7 @@ instance Parse Headline where
     -- ctx <- State.get
     -- State.modify $ addNode
 
-    let headline = Headline { _id = ""
-                            , indent = indent'
+    let headline = Headline { indent = indent'
                             , todo = todo'
                             , priority = priority'
                             , title = title'

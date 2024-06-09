@@ -8,7 +8,7 @@ import Data.Text (Text)
 import Data.Typeable (Typeable)
 import Data.Typeable qualified as Typeable
 
-class Mut s where
+class Mut s where  -- TODO lens
   setCategory :: Text -> s -> s
   setTodo :: Set Text -> Set Text -> s -> s
   getTodo :: s -> Set Text
