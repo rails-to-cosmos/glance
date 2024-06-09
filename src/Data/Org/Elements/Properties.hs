@@ -1,20 +1,18 @@
 module Data.Org.Elements.Properties (Properties (..), Property(..), find) where
 
-import Data.Org.Parse
-import Data.Org.Elements.Property (Property)
-import Data.Org.Elements.Property qualified as Property
-import Data.Org.Elements.Keyword qualified as Keyword
-
-import Data.List qualified as List
-
 import Data.Text (Text)
-import Data.Text qualified as Text
+import Data.List qualified as List
 
 import Text.Megaparsec qualified as MP
 import Text.Megaparsec.Char qualified as MPC
 
 import TextShow (TextShow)
 import TextShow qualified as TS
+
+import Data.Org.Elements.Keyword qualified as Keyword
+import Data.Org.Elements.Property (Property)
+import Data.Org.Elements.Property qualified as Property
+import Data.Org.Parse
 
 newtype Properties = Properties [Property]
   deriving (Show, Eq)

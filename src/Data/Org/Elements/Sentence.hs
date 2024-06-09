@@ -5,8 +5,6 @@ module Data.Org.Elements.Sentence (Sentence(..), Element(..)) where
 
 import Control.Monad (void)
 
-import Data.Text (Text)
-
 import Data.Org.Parse
 import Data.Org.Elements.Separator
 import Data.Org.Elements.Timestamp
