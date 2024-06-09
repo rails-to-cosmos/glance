@@ -44,6 +44,8 @@ dependencies:
   - containers
   - text-show
   - fgl
+  - uuid
+  - random
 
 ghc-options:
   - -Wall

@@ -1,6 +1,6 @@
 module Data.Org ( Context (..)
-                , St (..)
-                , Mut (..)
+                , OrgState.State (..)
+                , OrgState.Mutable (..)
                 , Element (..)
                 , Headline (..)
                 , Indent (..)
@@ -22,7 +22,7 @@ module Data.Org ( Context (..)
                 , sparse ) where
 
 import Data.Org.Parse qualified as OrgParse
-import Data.Org.State
+import Data.Org.State qualified as OrgState
 import Data.Org.Context
 
 import Data.Org.Elements.Base
@@ -46,13 +46,13 @@ import Data.Text.Lazy.Builder ()
 import Text.Megaparsec qualified as MP
 import UnliftIO ()
 
-parse :: St -> Text -> ([Element], St)
+parse :: OrgState.State -> Text -> ([Element], OrgState.State)
 parse ctx cmd = case MP.parse (runStateT (MP.manyTill OrgParse.parse MP.eof) ctx) "" cmd of
   Right v -> v
   Left err  -> ([], ctx)  -- GToken (Token (pack (PS.errorBundlePretty err)))
 
-mparse :: Text -> ([Element], St)
-mparse = parse (St (mempty :: Context))
+mparse :: Text -> ([Element], OrgState.State)
+mparse = parse (OrgState.State (mempty :: Context))
 
 sparse :: Text -> [Element]
 sparse a = case mparse a of

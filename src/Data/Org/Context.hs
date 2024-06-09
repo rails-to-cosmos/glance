@@ -29,7 +29,7 @@ data Context = Context { metaTodoActive :: !(Set Text)
                        -- , metaStack :: OrgStack
                        } deriving (Show, Eq, Typeable)
 
-instance Mut Context where
+instance Mutable Context where
   setCategory category ctx = ctx { metaCategory = category }
 
   getTodo ctx = metaTodoActive ctx <> metaTodoInactive ctx

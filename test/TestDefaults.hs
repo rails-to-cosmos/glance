@@ -8,11 +8,11 @@ import Data.Org qualified as Org
 defaultHeadline :: Org.Headline
 defaultHeadline = mempty :: Org.Headline
 
-defaultContext :: Org.St
-defaultContext = Org.St (mempty :: Org.Context)
+defaultContext :: Org.State
+defaultContext = Org.State (mempty :: Org.Context)
 
-withCategory :: Org.St -> Text -> Org.St
+withCategory :: Org.State -> Text -> Org.State
 withCategory ctx category = Org.setCategory category ctx
 
-withTodo :: Org.St -> ([Text], [Text]) -> Org.St
+withTodo :: Org.State -> ([Text], [Text]) -> Org.State
 withTodo ctx (active, inactive) = Org.setTodo (Set.fromList active) (Set.fromList inactive) ctx

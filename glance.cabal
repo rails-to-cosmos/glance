@@ -72,11 +72,13 @@ library
     , persistent-mtl
     , persistent-sqlite
     , persistent-template
+    , random
     , resource-pool
     , text
     , text-show
     , time
     , unliftio
+    , uuid
   default-language: Haskell2010
 
 executable glance
@@ -106,11 +108,13 @@ executable glance
     , persistent-mtl
     , persistent-sqlite
     , persistent-template
+    , random
     , resource-pool
     , text
     , text-show
     , time
     , unliftio
+    , uuid
   default-language: Haskell2010
 
 test-suite glance-test
@@ -144,6 +148,7 @@ test-suite glance-test
     , persistent-mtl
     , persistent-sqlite
     , persistent-template
+    , random
     , resource-pool
     , tasty
     , tasty-hunit
@@ -151,4 +156,5 @@ test-suite glance-test
     , text-show
     , time
     , unliftio
+    , uuid
   default-language: Haskell2010
