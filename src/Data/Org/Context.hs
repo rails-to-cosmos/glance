@@ -1,6 +1,5 @@
 module Data.Org.Context (Context (..)) where
 
-import Data.Graph.Inductive qualified as G
 import Data.Org.Elements.Base qualified as Org
 import Data.Org.State
 import Data.Set (Set)
@@ -8,23 +7,25 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Typeable
 
-type Graph = G.Gr
-type Node = Org.Element
-type Edge = Text
+-- import Data.Graph.Inductive qualified as G
 
-newtype OrgGraph = OrgGraph (Graph Node Edge)
-  deriving (Show, Eq)
+-- type Graph = G.Gr
+-- type Node = Org.Element
+-- type Edge = Text
 
-instance Monoid OrgGraph where
-  mempty = OrgGraph G.empty
+-- newtype OrgGraph = OrgGraph (Graph Node Edge)
+--   deriving (Show, Eq)
 
-instance Semigroup OrgGraph where
-  (<>) a _b = a  -- TODO implement semigroup
+-- instance Monoid OrgGraph where
+--   mempty = OrgGraph G.empty
+
+-- instance Semigroup OrgGraph where
+--   (<>) a _b = a  -- TODO implement semigroup
 
 data Context = Context { metaTodoActive :: !(Set Text)
                        , metaTodoInactive :: !(Set Text)
                        , metaCategory :: !Text
-                       , metaGraph :: OrgGraph
+                       -- , metaGraph :: OrgGraph
                        -- , metaTime :: [UTCTime]
                        -- , metaStack :: OrgStack
                        } deriving (Show, Eq, Typeable)
@@ -41,7 +42,7 @@ instance Semigroup Context where
   (<>) a b = Context { metaTodoActive = metaTodoActive a <> metaTodoActive b
                          , metaTodoInactive = metaTodoInactive a <> metaTodoInactive b
                          , metaCategory = metaCategory a <> metaCategory b
-                         , metaGraph = metaGraph a <> metaGraph b
+                         -- , metaGraph = metaGraph a <> metaGraph b
                          -- , metaTime = metaTime a <> metaTime b
                          }
 
@@ -49,7 +50,7 @@ instance Monoid Context where
   mempty = Context { metaTodoActive = Set.fromList ["TODO"]
                    , metaTodoInactive = Set.fromList ["DONE"]
                    , metaCategory = mempty
-                   , metaGraph = mempty
+                   -- , metaGraph = mempty
                    -- , metaTime = mempty :: [UTCTime]
                    -- , metaStack = EmptyStack
                    }
