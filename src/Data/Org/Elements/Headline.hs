@@ -1,10 +1,5 @@
 module Data.Org.Elements.Headline (Headline (..)) where
 
-import System.Random
-import Data.UUID
-import Control.Monad.IO.Class
-import Control.Monad.State qualified as State
-
 import Data.Org.Identity
 import Data.Org.Elements.Indent
 import Data.Org.Elements.Priority
@@ -90,8 +85,4 @@ instance Parse Headline where
                             , deadline = Nothing -- deadline'
                             , properties = properties' }
 
-        headline' = case glanceId headline of
-          Just _id -> headline
-          Nothing -> headline {properties = properties headline}
-
-    return headline'
+    return headline
