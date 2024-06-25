@@ -1,12 +1,16 @@
 { pkgs, ... }:
 
 {
+  env.FZF_DEFAULT_COMMAND = "fd --type f --strip-cwd-prefix";
   env.LSP_USE_PLISTS = "true";
 
   packages = with pkgs; [
     zlib
-    universal-ctags
+
+    fzf
+    fd
     ripgrep
+    universal-ctags
 
     haskell.compiler.ghc964
     haskell.packages.ghc964.hpack
