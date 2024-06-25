@@ -4,7 +4,6 @@
   env.LSP_USE_PLISTS = "true";
 
   packages = with pkgs; [
-    git
     zlib
     universal-ctags
     ripgrep
