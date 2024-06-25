@@ -19,6 +19,8 @@ CLOSED: [2023-09-10 Sun 23:26]
 ** TODO Graph representation
 *** https://github.com/haskell/fgl
 *** https://github.com/travitch/haggle
+** Data model
+- https://kb.databasedesignbook.com/posts/google-calendar/
 * Parser [16/23]
 :LOGBOOK:
 - State "STARTED"    from "TODO"       [2023-08-05 Sat 10:08]
