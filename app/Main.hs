@@ -5,7 +5,7 @@ import System.Exit
 
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BSChar8
-import Data.Config qualified as Config
+import Data.Config (Config (..))
 import Data.Org qualified as Org
 
 import Data.Text (Text)
@@ -18,22 +18,21 @@ import System.Directory
 import System.FilePath
 import System.Console.Haskeline qualified as Haskeline
 
-defaultConfig :: IO Config.Config
+defaultConfig :: IO Config
 defaultConfig = do
   homeDir <- getHomeDirectory
 
   let configDir = homeDir </> ".config" </> "glance"
       historyFile = Just (configDir </> ".history")
       dbFile = configDir </> "db.sqlite"
-
+      dbConnectionString = Text.pack dbFile
+      dbPoolSize = 10
       haskelineSettings = Haskeline.defaultSettings { Haskeline.autoAddHistory = True
                                                     , Haskeline.historyFile = historyFile }
 
   createDirectoryIfMissing True configDir
 
-  return Config.Config { Config.haskelineSettings = haskelineSettings
-                       , Config.dbConnectionString = Text.pack dbFile
-                       , Config.dbPoolSize = 10 }
+  return Config {..}
 
 initialState :: Org.State
 initialState = Org.State (mempty :: Org.Context)
@@ -64,14 +63,14 @@ parse (filename:_) = do
 
   let (_elements, context) = Org.parse initialState content
 
-  greetings [ ["The database is located at", Config.dbConnectionString config]
+  greetings [ ["The database is located at", dbConnectionString config]
             , ["Additional context provided:", Text.pack filename]]
 
   runRepl config context Org.parse
   exitSuccess
 
-repl :: Config.Config -> Org.State -> IO ()
-repl config@(Config.Config {..}) context = do
+repl :: Config -> Org.State -> IO ()
+repl config@(Config {..}) context = do
   greetings [["Using meta db located in", dbConnectionString]]
   runRepl config context Org.parse
 
