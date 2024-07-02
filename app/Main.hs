@@ -71,9 +71,8 @@ parse (filename:_) = do
   exitSuccess
 
 repl :: Config.Config -> Org.State -> IO ()
-repl config context = do
-  greetings [["Using meta db located in", Config.dbConnectionString config]]
-
+repl config@(Config.Config {..}) context = do
+  greetings [["Using meta db located in", dbConnectionString]]
   runRepl config context Org.parse
 
 -- parse (x:xs) = do
