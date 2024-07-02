@@ -37,4 +37,4 @@ instance Parse Property where
     return $ Property keyword value
 
 instance TextShow Property where
-  showb (Property k v) = ":" <> TextShow.showb k <> ": " <> TextShow.showb v
+  showb (Property {..}) = ":" <> TextShow.showb key <> ": " <> TextShow.showb val

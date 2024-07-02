@@ -35,8 +35,8 @@ defaultConfig = do
                        , Config.dbConnectionString = Text.pack dbFile
                        , Config.dbPoolSize = 10 }
 
-defaultContext :: Org.State
-defaultContext = Org.State (mempty :: Org.Context)
+initialState :: Org.State
+initialState = Org.State (mempty :: Org.Context)
 
 main :: IO ()
 main = do
@@ -44,14 +44,10 @@ main = do
 
 greetings :: [[Text]] -> IO ()
 greetings messages = do
-  TIO.putStrLn ""
   TIO.putStrLn "---"
   TIO.putStrLn "Hello, fellow hacker!\n"
-
   let _lines = map (Text.intercalate " ") messages
-
   mapM_ TIO.putStrLn _lines
-
   TIO.putStrLn "---"
   TIO.putStrLn ""
 
@@ -59,14 +55,14 @@ parse :: [String] -> IO a
 
 parse [] = do
   config <- defaultConfig
-  repl config defaultContext
+  repl config initialState
   exitSuccess
 
 parse (filename:_) = do
   config <- defaultConfig
   content <- Text.pack . BSChar8.unpack <$> BS.readFile filename
 
-  let (_elements, context) = Org.parse defaultContext content
+  let (_elements, context) = Org.parse initialState content
 
   greetings [ ["The database is located at", Config.dbConnectionString config]
             , ["Additional context provided:", Text.pack filename]]

@@ -25,11 +25,10 @@ import Text.Megaparsec.Char.Lexer qualified as MPL
 
 import Control.Monad (guard, void)
 
-data Timestamp = Timestamp
-  { timestampStatus :: !TimestampStatus
-  , timestampInterval :: !(Maybe TimestampRepeaterInterval)
-  , timestampTime :: !Time.UTCTime
-  } deriving (Show, Eq)
+data Timestamp = Timestamp { timestampStatus :: !TimestampStatus
+                           , timestampInterval :: !(Maybe TimestampRepeaterInterval)
+                           , timestampTime :: !Time.UTCTime
+                           } deriving (Show, Eq)
 
 instance Identity Timestamp where
   identity = TextShow.showt
@@ -74,21 +73,21 @@ instance TextShow Timestamp where
 
 instance Parse Timestamp where
   parse = do
-    timestampStatus' <- State.lift timestampStatusParser
-    tsDay' <- State.lift timestampDayParser <* MPC.space
+    timestampStatus <- State.lift timestampStatusParser
+    tsDay <- State.lift timestampDayParser <* MPC.space
     _tsWeekday' <- MP.optional $ State.lift timestampWeekdayParser <* MPC.space
     timestampTime' <- MP.optional $ State.lift timestampTimeParser <* MPC.space
-    timestampIntervaleaterInterval' <- MP.optional . MP.try $ State.lift timestampRepeaterParser <* MPC.space
-    void $ MPC.char $ case timestampStatus' of
+    timestampInterval <- MP.optional . MP.try $ State.lift timestampRepeaterParser <* MPC.space
+
+    void $ MPC.char $ case timestampStatus of
       TimestampActive -> '>'
       TimestampInactive -> ']'
 
-    return Timestamp
-      { timestampStatus = timestampStatus'
-      , timestampInterval = timestampIntervaleaterInterval'
-      , timestampTime = case timestampTime' of
-                   Just t -> Time.UTCTime tsDay' (Time.timeOfDayToTime t)
-                   Nothing -> Time.UTCTime tsDay' (Time.timeOfDayToTime (Time.TimeOfDay 0 0 0)) }
+    let timestampTime = case timestampTime' of
+          Just t -> Time.UTCTime tsDay (Time.timeOfDayToTime t)
+          Nothing -> Time.UTCTime tsDay (Time.timeOfDayToTime (Time.TimeOfDay 0 0 0))
+
+    return (Timestamp {..})
 
 data TimestampStatus = TimestampActive | TimestampInactive
   deriving (Show, Eq)

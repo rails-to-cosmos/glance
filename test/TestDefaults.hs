@@ -1,4 +1,4 @@
-module TestDefaults (defaultContext, defaultHeadline, withCategory, withTodo) where
+module TestDefaults (initialState, defaultHeadline, withCategory, withTodo) where
 
 import Data.Set qualified as Set
 
@@ -8,8 +8,8 @@ import Data.Org qualified as Org
 defaultHeadline :: Org.Headline
 defaultHeadline = mempty :: Org.Headline
 
-defaultContext :: Org.State
-defaultContext = Org.State (mempty :: Org.Context)
+initialState :: Org.State
+initialState = Org.State (mempty :: Org.Context)
 
 withCategory :: Org.State -> Text -> Org.State
 withCategory ctx category = Org.setCategory category ctx

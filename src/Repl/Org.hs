@@ -50,7 +50,10 @@ runRepl :: Config.Config -> Org.State -> CommandProcessor -> IO ()
 runRepl config state fn = do
   conn <- createPool
   runSqlQueryT conn (runMigration migrateAll)
-  runInputT haskelineSettings (runSqlQueryT conn (evalStateT state (repl fn)))
+  runInputT haskelineSettings
+    $ runSqlQueryT conn
+    $ evalStateT state
+    $ repl fn
   where dbPoolSize = Config.dbPoolSize config
         dbConnectionString = Config.dbConnectionString config
         haskelineSettings = Config.haskelineSettings config

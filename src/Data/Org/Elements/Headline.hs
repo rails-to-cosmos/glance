@@ -20,7 +20,7 @@ import TextShow (TextShow)
 import TextShow qualified
 
 glanceId :: Headline -> Maybe Text
-glanceId (Headline { properties = props }) = case Properties.find "GLANCE_ID" props of
+glanceId (Headline {..}) = case Properties.find "GLANCE_ID" properties of
   Nothing -> Nothing
   Just (Property _k v) -> Just (TextShow.showt v)
 

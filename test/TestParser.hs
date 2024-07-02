@@ -31,7 +31,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
                                                                                                       , Title.Element (Token "world")
                                                                                                       , Title.Element SPC
                                                                                                       , Title.Element (Tags ["a", "b", "c"]) ]}]
-                                           , context = defaultContext }}
+                                           , context = initialState }}
 
             , TestCase { description = "Parse headline with corrupted tag string"
                        , inputs = ["* Hello world :a:b:c"]
@@ -40,7 +40,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
                                                                                                       , Title.Element (Token "world")
                                                                                                       , Title.Element SPC
                                                                                                       , Title.Element (Token ":a:b:c") ]}]
-                                           , context = defaultContext }}
+                                           , context = initialState }}
 
             , TestCase { description = "Parse property block"
                        , inputs = [ "* Hello"
@@ -51,19 +51,19 @@ testCases = [ TestCase { description = "Parse headline with tags"
                                                                                       , properties = Properties [Property (Keyword "TITLE") (Sentence [ Sentence.Element (Token "New")
                                                                                                                                                       , Sentence.Element SPC
                                                                                                                                                       , Sentence.Element (Token "title") ])]}]
-                                           , context = defaultContext }}
+                                           , context = initialState }}
 
             , TestCase { description = "Parse drawer"
                        , inputs = [":DRAWER:"]
                        , expected = Result { elements = [Org.Element (Token ":DRAWER:")]
-                                           , context = defaultContext }}
+                                           , context = initialState }}
 
             , TestCase { description = "Category pragma affects context"
                        , inputs = ["#+CATEGORY: foo bar"]
                        , expected = Result { elements = [Org.Element (PCategory (Sentence [ Sentence.Element (Token "foo")
                                                                                           , Sentence.Element SPC
                                                                                           , Sentence.Element (Token "bar") ]))]
-                                           , context = defaultContext `withCategory` "foo bar" }}
+                                           , context = initialState `withCategory` "foo bar" }}
 
             , TestCase { description = "Category property affects context"
                        , inputs = [ "* Hello"
@@ -74,7 +74,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
                                                                                       , properties = Properties [Property (Keyword "CATEGORY") (Sentence [ Sentence.Element (Token "Updated")
                                                                                                                                                          , Sentence.Element SPC
                                                                                                                                                          , Sentence.Element (Token "category")])]}]
-                                           , context = defaultContext `withCategory` "Updated category"}}
+                                           , context = initialState `withCategory` "Updated category"}}
 
             , TestCase { description = "Parse complete headline"
                        , inputs = ["** TODO [#A] Hello :a:b:c:"]
@@ -84,7 +84,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
                                                                                       , title = Title [ Title.Element (Token "Hello")
                                                                                                       , Title.Element SPC
                                                                                                       , Title.Element (Tags ["a", "b", "c"])]}]
-                                           , context = defaultContext }}
+                                           , context = initialState }}
 
             , TestCase { description = "Parse headline with custom todo state"
                        , inputs = [ "#+TODO: TODO | CANCELLED"
@@ -92,12 +92,12 @@ testCases = [ TestCase { description = "Parse headline with tags"
                        , expected = Result { elements = [ Org.Element (PTodo (Set.fromList ["TODO"]) (Set.fromList ["CANCELLED"]))
                                                         , Org.Element (defaultHeadline { todo = Todo (Just "CANCELLED")
                                                                                        , title = Title [Title.Element (Token "Mess")] })]
-                                           , context = defaultContext `withTodo` (["TODO"], ["DONE", "CANCELLED"]) }}
+                                           , context = initialState `withTodo` (["TODO"], ["DONE", "CANCELLED"]) }}
 
             , TestCase { description = "No inactive todo states"
                        , inputs = ["#+TODO: foo"]
                        , expected = Result { elements = [ Org.Element (PTodo (Set.fromList ["FOO"]) (Set.fromList [])) ]
-                                           , context = defaultContext `withTodo` (["TODO", "FOO"], ["DONE"])}}
+                                           , context = initialState `withTodo` (["TODO", "FOO"], ["DONE"])}}
 
             -- , TestCase { description = "Messed active/inactive todo states"
             --            , inputs = [ "#+TODO: CANCELLED | CANCELLED"
@@ -107,7 +107,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
             --                                                                                 , title = Title [ TText (Token "CANCELLED")
             --                                                                                                 , TSeparator SPC
             --                                                                                                 , TText (Token "Mess")]})]
-            --                                       , context = defaultContext { metaTodoActive = Set.fromList ["TODO"]
+            --                                       , context = initialState { metaTodoActive = Set.fromList ["TODO"]
             --                                                                  , metaTodoInactive = Set.fromList ["DONE"] }}}
 
             , TestCase { description = "Multiline parsing"
@@ -115,18 +115,18 @@ testCases = [ TestCase { description = "Parse headline with tags"
                                   , "* bar" ]
                        , expected = Result { elements = [ Org.Element (defaultHeadline {title = Title [Title.Element (Token "foo")]})
                                                         , Org.Element (defaultHeadline {title = Title [Title.Element (Token "bar")]}) ]
-                                           , context = defaultContext }}
+                                           , context = initialState }}
 
             , TestCase { description = "Empty text parsing"
                        , inputs = [""]
                        , expected = Result { elements = []
-                                           , context = defaultContext }}
+                                           , context = initialState }}
 
             , TestCase { description = "Restrict infinite parsing of eol / eof"
                        , inputs = ["", "", ""]
                        , expected = Result { elements = [ Org.Element EOL
                                                         , Org.Element EOL ]
-                                           , context = defaultContext }}
+                                           , context = initialState }}
 
             , TestCase { description = "Parse timestamps"
                        , inputs = [ "<2024-01-01>"
@@ -134,7 +134,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
                        , expected = Result { elements = [ Org.Element Timestamp {timestampStatus = TimestampActive, timestampInterval = Nothing, timestampTime = strptime "2024-01-01 00:00:00"}
                                                         , Org.Element EOL
                                                         , Org.Element Timestamp {timestampStatus = TimestampActive, timestampInterval = Nothing, timestampTime = strptime "2024-01-01 00:00:00"}]
-                                           , context = defaultContext }}
+                                           , context = initialState }}
 
             -- , TestCase { description = "Parse schedule property"
             --            , inputs = [ "* foo"
@@ -147,12 +147,12 @@ testCases = [ TestCase { description = "Parse headline with tags"
             --                                                                                                , timestampInterval = Nothing
             --                                                                                                , timestampTime = strptime "2024-04-28 00:00:00" }
             --                                                                           , properties = Properties [Property (Keyword "CATEGORY") (Sentence [(SToken (Token "bar"))])]})]
-            --                                , context = defaultContext { metaCategory = "bar" }}}
+            --                                , context = initialState { metaCategory = "bar" }}}
 
             -- , TestCase { description = "Parse links"
             --            , inputs = ["[[file:/home/foo/bar.org::*NN Pipeline][NN Pipeline]]"]
             --            , expected = Result { elements = [Org.Element (Token "[[file:/home/foo/bar.org::*NN Pipeline][NN Pipeline]]")]
-            --                                       , context = defaultContext}}
+            --                                       , context = initialState}}
 
             ]
 
@@ -183,7 +183,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
             --         [ "[2021-08-22 Sun 10:18]"
             --         ],
             --       expected =
-            --         (defaultContext)
+            --         (initialState)
             --           { metaTime =
             --               [ strptime "2021-08-22 10:18:00"
             --               ]
@@ -195,7 +195,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
             --         [ "* Headline with a timestamp in it [2021-08-22 Sun 11:37]"
             --         ],
             --       expected =
-            --         (defaultContext)
+            --         (initialState)
             --           { metaTime =
             --               [ strptime "2021-08-22 11:37:00"
             --               ]
@@ -205,7 +205,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
             --     { description = "Parse minimal headline",
             --       inputs = ["* Hello"],
             --       expected =
-            --         defaultContext
+            --         initialState
             --           { headline =
             --               Headline
             --                 { indent = EIndent 1,
@@ -222,7 +222,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
             --     { description = "Parse corrupted headline",
             --       inputs = ["* TOO [#AD] Hey :a:b:c"],
             --       expected =
-            --         defaultContext
+            --         initialState
             --           { headline =
             --               Headline
             --                 { indent = EIndent 1,
@@ -275,7 +275,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
             --         [ "#+CATEGORY: New category"
             --         ],
             --       expected =
-            --         defaultContext
+            --         initialState
             --           { headline =
             --               defaultHeadline
             --                 { meta = defaultMeta {metaCategory = "New category"}
@@ -288,7 +288,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
             --         [ ":CATEGORY: New category"
             --         ],
             --       expected =
-            --         defaultContext
+            --         initialState
             --           { headline =
             --               defaultHeadline
             --                 { properties = makeProperties [("CATEGORY", "New category")]
@@ -301,7 +301,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
             --       inputs =
             --         [ ":GLANCE_ID: MyAwesomeNote"
             --         ],
-            --       expected = defaultContext {headline = defaultHeadline `withProperties` [("GLANCE_ID", "MyAwesomeNote")]}
+            --       expected = initialState {headline = defaultHeadline `withProperties` [("GLANCE_ID", "MyAwesomeNote")]}
             --     }
             -- , TestCase
             --     { description = "Parse todo pragma",
@@ -309,7 +309,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
             --         [ "#+TODO: TODO(t) STARTED(s!) DELEGATED(e@/!) PENDING(p!) | DONE(d!) CANCELLED(c!)"
             --         ],
             --       expected =
-            --         defaultContext
+            --         initialState
             --           { headline =
             --               defaultHeadline
             --                 { properties = defaultProperties,
@@ -325,7 +325,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
             --         , "** My second headline"
             --         ],
             --       expected =
-            --         defaultContext
+            --         initialState
             --           { headline = defaultHeadline
             --             { indent = EIndent 2
             --             , title = "My second headline"

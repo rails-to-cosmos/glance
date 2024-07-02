@@ -47,9 +47,9 @@ import Text.Megaparsec qualified as MP
 import UnliftIO ()
 
 parse :: OrgState.State -> Text -> ([Element], OrgState.State)
-parse ctx cmd = case MP.parse (runStateT (MP.manyTill OrgParse.parse MP.eof) ctx) "" cmd of
+parse st cmd = case MP.parse (runStateT (MP.manyTill OrgParse.parse MP.eof) st) "" cmd of
   Right v -> v
-  Left err  -> ([], ctx)  -- GToken (Token (pack (PS.errorBundlePretty err)))
+  Left err  -> ([], st)  -- GToken (Token (pack (PS.errorBundlePretty err)))
 
 mparse :: Text -> ([Element], OrgState.State)
 mparse = parse (OrgState.State (mempty :: Context))

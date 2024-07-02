@@ -46,7 +46,7 @@ newtype Title = Title [Element]
   deriving (Show, Eq)
 
 instance Semigroup Title where
-  (<>) (Title lhs) (Title rhs) = Title (lhs <> rhs)
+  (<>) (Title a) (Title b) = Title (a <> b)
 
 instance Monoid Title where
   mempty = Title []
