@@ -1,6 +1,3 @@
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE FlexibleInstances #-}
-
 module Data.Org.Elements.Sentence (Sentence(..), Element(..)) where
 
 import Control.Monad (void)

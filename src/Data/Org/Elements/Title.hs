@@ -1,6 +1,3 @@
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE FlexibleInstances #-}
-
 module Data.Org.Elements.Title (Title (..), Element (..)) where
 
 import Control.Monad

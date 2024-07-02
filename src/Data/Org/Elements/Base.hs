@@ -1,6 +1,3 @@
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE FlexibleInstances #-}
-
 module Data.Org.Elements.Base (Element (..)) where
 
 import Data.Org.Elements.Headline (Headline)

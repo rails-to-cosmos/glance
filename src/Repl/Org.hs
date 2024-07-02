@@ -47,15 +47,12 @@ repl fn = do
       repl fn
 
 runRepl :: Config.Config -> Org.State -> CommandProcessor -> IO ()
-runRepl config state fn = do
+runRepl (Config.Config {..}) state fn = do
   conn <- createPool
   runSqlQueryT conn (runMigration migrateAll)
   runInputT haskelineSettings
     $ runSqlQueryT conn
     $ evalStateT state
     $ repl fn
-  where dbPoolSize = Config.dbPoolSize config
-        dbConnectionString = Config.dbConnectionString config
-        haskelineSettings = Config.haskelineSettings config
-        evalStateT = flip State.evalStateT
+  where evalStateT = flip State.evalStateT
         createPool = runStderrLoggingT (createSqlitePool dbConnectionString dbPoolSize)
