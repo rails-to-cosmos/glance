@@ -6,13 +6,13 @@ import Data.Text (Text)
 import Data.Org qualified as Org
 
 defaultHeadline :: Org.Headline
-defaultHeadline = mempty :: Org.Headline
+defaultHeadline = mempty
 
-initialState :: Org.State
-initialState = Org.State (mempty :: Org.Context)
+initialState :: Org.Context
+initialState = mempty
 
-withCategory :: Org.State -> Text -> Org.State
+withCategory :: Org.Context -> Text -> Org.Context
 withCategory ctx category = Org.setCategory category ctx
 
-withTodo :: Org.State -> ([Text], [Text]) -> Org.State
+withTodo :: Org.Context -> ([Text], [Text]) -> Org.Context
 withTodo ctx (active, inactive) = Org.setTodo (Set.fromList active) (Set.fromList inactive) ctx

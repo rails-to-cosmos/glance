@@ -45,7 +45,6 @@ library
       Data.Org.Elements.Token
       Data.Org.Identity
       Data.Org.Parse
-      Data.Org.State
       Persist.Org
       Repl.Org
   other-modules:

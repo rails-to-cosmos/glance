@@ -20,8 +20,8 @@ import System.Console.Haskeline (InputT, getInputLine, runInputT)
 import TextShow qualified as TS
 import UnliftIO ()
 
-type CommandProcessor = Org.State -> Text -> ([Org.Element], Org.State)
-type Repl a = StateT Org.State (SqlQueryT (InputT IO)) a
+type CommandProcessor = Org.Context -> Text -> ([Org.Element], Org.Context)
+type Repl a = StateT Org.Context (SqlQueryT (InputT IO)) a
 
 getInput :: Repl Text
 getInput = do
@@ -46,7 +46,7 @@ repl fn = do
       State.put ctx'
       repl fn
 
-runRepl :: Config.Config -> Org.State -> CommandProcessor -> IO ()
+runRepl :: Config.Config -> Org.Context -> CommandProcessor -> IO ()
 runRepl (Config.Config {..}) state fn = do
   conn <- createPool
   runSqlQueryT conn (runMigration migrateAll)

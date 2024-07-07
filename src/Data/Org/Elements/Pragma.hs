@@ -6,7 +6,7 @@ import Control.Monad.State qualified as State
 import Data.Org.Identity (Identity)
 import Data.Org.Identity qualified as Identity
 
-import Data.Org.State
+import Data.Org.Context
 import Data.Org.Parse
 import Data.Org.Elements.Keyword
 import Data.Org.Elements.Token

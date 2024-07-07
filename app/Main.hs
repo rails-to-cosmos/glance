@@ -34,9 +34,6 @@ defaultConfig = do
 
   return Config {..}
 
-initialState :: Org.State
-initialState = Org.State (mempty :: Org.Context)
-
 main :: IO ()
 main = do
   getArgs >>= parse
@@ -54,14 +51,14 @@ parse :: [String] -> IO a
 
 parse [] = do
   config <- defaultConfig
-  repl config initialState
+  repl config mempty
   exitSuccess
 
 parse (filename:_) = do
   config <- defaultConfig
   content <- Text.pack . BSChar8.unpack <$> BS.readFile filename
 
-  let (_elements, context) = Org.parse initialState content
+  let (_elements, context) = Org.mparse content
 
   greetings [ ["The database is located at", dbConnectionString config]
             , ["Additional context provided:", Text.pack filename]]
@@ -69,7 +66,7 @@ parse (filename:_) = do
   runRepl config context Org.parse
   exitSuccess
 
-repl :: Config -> Org.State -> IO ()
+repl :: Config -> Org.Context -> IO ()
 repl config@(Config {..}) context = do
   greetings [["Using meta db located in", dbConnectionString]]
   runRepl config context Org.parse

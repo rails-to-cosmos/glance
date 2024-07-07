@@ -1,6 +1,6 @@
 module Data.Org.Elements.Todo (Todo (..)) where
 
-import Data.Org.State
+import Data.Org.Context
 import Data.Text (Text)
 import Data.Org.Parse
 import Data.Org.Elements.Keyword
