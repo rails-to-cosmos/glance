@@ -1,7 +1,7 @@
 module Data.Org.Context (Context (..),
-                        setCategory,
-                        inTodo, getTodo, setTodo,
-                        addNode) where
+                         setCategory,
+                         inTodo, getTodo, setTodo,
+                         addNode) where
 
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -10,11 +10,7 @@ import Data.Typeable
 
 import Data.Graph.Inductive qualified as G
 
-type Graph = G.Gr
-type Node = Text
-type Edge = Text
-
-newtype OrgGraph = OrgGraph (Graph Node Edge)
+newtype OrgGraph = OrgGraph (G.Gr () ())
   deriving (Show, Eq)
 
 instance Monoid OrgGraph where
@@ -57,8 +53,8 @@ getTodo :: Context -> Set Text
 getTodo ctx = metaTodoActive ctx <> metaTodoInactive ctx
 
 setTodo :: Set Text -> Set Text -> Context -> Context
-setTodo active inactive ctx = ctx { metaTodoActive = metaTodoActive ctx <> active
-                                  , metaTodoInactive = metaTodoInactive ctx <> inactive }
+setTodo active inactive Context{..} = Context{..} { metaTodoActive = metaTodoActive <> active
+                                                  , metaTodoInactive = metaTodoInactive <> inactive }
 
-addNode :: Text -> Text -> Context -> Context
-addNode node edge ctx = ctx { metaGraph = metaGraph ctx }
+addNode :: Int -> Context -> Context
+addNode node context@Context{ metaGraph = OrgGraph gr  } = context { metaGraph = OrgGraph (G.insNode (node, ()) gr) }

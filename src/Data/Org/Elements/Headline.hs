@@ -1,6 +1,5 @@
 module Data.Org.Elements.Headline (Headline (..)) where
 
-import Data.Org.Identity
 import Data.Org.Elements.Indent
 import Data.Org.Elements.Priority
 import Data.Org.Elements.Properties (Property(..), Properties)
@@ -9,20 +8,13 @@ import Data.Org.Elements.Separator
 import Data.Org.Elements.Timestamp
 import Data.Org.Elements.Title
 import Data.Org.Elements.Todo
+import Data.Org.Identity
 import Data.Org.Parse
-
-import Data.Text (Text)
-import Data.Maybe (fromMaybe)
 
 import Text.Megaparsec qualified as MP
 import Text.Megaparsec.Char qualified as MPC
 import TextShow (TextShow)
 import TextShow qualified
-
-glanceId :: Headline -> Maybe Text
-glanceId (Headline {..}) = case Properties.find "GLANCE_ID" properties of
-  Nothing -> Nothing
-  Just (Property _k v) -> Just (TextShow.showt v)
 
 data Headline = Headline { indent :: !Indent
                          , todo :: !Todo
@@ -34,7 +26,9 @@ data Headline = Headline { indent :: !Indent
                          } deriving (Show, Eq)
 
 instance Identity Headline where
-  identity headline = fromMaybe "" (glanceId headline)
+  identity Headline {..} = case Properties.find "GLANCE_ID" properties of
+    Nothing -> TextShow.showt title
+    Just (Property _k v) -> TextShow.showt v
 
 instance Semigroup Headline where
   (<>) a b = Headline { indent = indent a <> indent b
