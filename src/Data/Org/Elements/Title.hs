@@ -5,23 +5,18 @@ module Data.Org.Elements.Title ( Title (..)
                                , TitleElement (..) ) where
 
 import Control.Monad
-
-import Data.Org.Parse
 import Data.Org.Elements.Separator
 import Data.Org.Elements.Tags
 import Data.Org.Elements.Timestamp
 import Data.Org.Elements.Token
-
+import Data.Org.Parser
 import Data.Typeable (Typeable)
 import Data.Typeable qualified as Typeable
-
-import TextShow (TextShow)
-import TextShow qualified
-
+import Prelude hiding (concat)
 import Text.Megaparsec qualified as MP
 import Text.Megaparsec.Char qualified as MPC
-
-import Prelude hiding (concat)
+import TextShow (TextShow)
+import TextShow qualified
 
 data TitleElement where
   TitleElement :: (Show a, TextShow a, Typeable a, Eq a, Parse a) => a -> TitleElement

@@ -1,10 +1,9 @@
 module Data.Org.Elements.Indent (Indent (..)) where
 
-import Data.Org.Parse
-
+import Data.Org.Parser
+import Data.Text qualified as T
 import Text.Megaparsec qualified as MP
 import Text.Megaparsec.Char qualified as MPC
-import Data.Text qualified as T
 
 import TextShow (TextShow)
 import TextShow qualified as TS

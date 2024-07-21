@@ -2,7 +2,7 @@ module Data.Org.Elements.Sentence (Sentence(..), SentenceElement (..)) where
 
 import Control.Monad (void)
 
-import Data.Org.Parse
+import Data.Org.Parser
 import Data.Org.Elements.Separator
 import Data.Org.Elements.Timestamp
 import Data.Org.Elements.Token

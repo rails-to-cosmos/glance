@@ -1,6 +1,6 @@
 module Data.Org.Elements.Keyword (Keyword (..)) where
 
-import Data.Org.Parse
+import Data.Org.Parser
 import Data.Text (Text, pack, toUpper)
 import Data.Char (isAlpha)
 

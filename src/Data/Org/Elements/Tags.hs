@@ -3,7 +3,7 @@ module Data.Org.Elements.Tags (Tags (..)) where
 import Data.Text (Text, intercalate)
 import Data.List (nub)
 
-import Data.Org.Parse
+import Data.Org.Parser
 import Data.Char
 
 import TextShow (TextShow)
