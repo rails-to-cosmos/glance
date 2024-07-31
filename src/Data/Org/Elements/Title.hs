@@ -54,7 +54,5 @@ instance TextShow Title where
 instance Parse Title where
   parse = do
     let stop = MP.choice [ void MPC.eol, MP.eof ]
-
     elems <- MP.manyTill (parse :: StatefulParser TitleElement) (MP.lookAhead stop)
-
     return (Title elems)
