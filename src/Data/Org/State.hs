@@ -13,7 +13,6 @@ class Mut s where
   setTodo :: Set Text -> Set Text -> s -> s
   getTodo :: s -> Set Text
   inTodo :: Text -> s -> Bool
-  -- addNode :: Text -> Text -> s -> s
 
 data St where
   St :: (Eq s, Show s, Mut s, Typeable s) => s -> St
