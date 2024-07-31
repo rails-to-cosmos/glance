@@ -2,7 +2,7 @@ module Data.Org.Elements.Todo (Todo (..)) where
 
 import Data.Org.State
 import Data.Text (Text)
-import Data.Org.Parse
+import Data.Org.Parser
 import Data.Org.Elements.Keyword
 
 import TextShow (TextShow)

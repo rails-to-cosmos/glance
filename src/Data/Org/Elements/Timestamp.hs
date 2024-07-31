@@ -3,8 +3,7 @@ module Data.Org.Elements.Timestamp ( Timestamp (..)
                                    , TimestampRepeaterInterval (..)
                                    , TimestampRepeaterType (..) ) where
 
-import Data.Org.Parse
-
+import Data.Org.Parser
 import Data.Org.Identity (Identity)
 import Data.Org.Identity qualified as Identity
 

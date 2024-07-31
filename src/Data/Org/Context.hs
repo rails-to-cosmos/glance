@@ -8,23 +8,22 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Typeable
 
-type Graph = G.Gr
-type Node = Org.Element
-type Edge = Text
+-- type Graph = G.Gr
+-- type Node = Org.Element
+-- type Edge = Text
 
-newtype OrgGraph = OrgGraph (Graph Node Edge)
-  deriving (Show, Eq)
+-- newtype OrgGraph = OrgGraph (Graph Node Edge)
+--   deriving (Show, Eq)
 
-instance Monoid OrgGraph where
-  mempty = OrgGraph G.empty
+-- instance Monoid OrgGraph where
+--   mempty = OrgGraph G.empty
 
-instance Semigroup OrgGraph where
-  (<>) lhs _rhs = lhs  -- TODO implement semigroup
+-- instance Semigroup OrgGraph where
+--   (<>) lhs _rhs = lhs  -- TODO implement semigroup
 
 data Context = Context { metaTodoActive :: !(Set Text)
                        , metaTodoInactive :: !(Set Text)
                        , metaCategory :: !Text
-                       , metaGraph :: OrgGraph
                        -- , metaTime :: [UTCTime]
                        -- , metaStack :: OrgStack
                        } deriving (Show, Eq, Typeable)
@@ -35,13 +34,12 @@ instance Mut Context where
   getTodo ctx = metaTodoActive ctx <> metaTodoInactive ctx
   inTodo todo ctx = todo `elem` getTodo ctx
   setTodo active inactive ctx = ctx { metaTodoActive = metaTodoActive ctx <> active
-                                       , metaTodoInactive = metaTodoInactive ctx <> inactive }
+                                    , metaTodoInactive = metaTodoInactive ctx <> inactive }
 
 instance Semigroup Context where
   (<>) lhs rhs = Context { metaTodoActive = metaTodoActive lhs <> metaTodoActive rhs
                          , metaTodoInactive = metaTodoInactive lhs <> metaTodoInactive rhs
                          , metaCategory = metaCategory lhs <> metaCategory rhs
-                         , metaGraph = metaGraph lhs <> metaGraph rhs
                          -- , metaTime = metaTime lhs <> metaTime rhs
                          }
 
@@ -49,7 +47,6 @@ instance Monoid Context where
   mempty = Context { metaTodoActive = Set.fromList ["TODO"]
                    , metaTodoInactive = Set.fromList ["DONE"]
                    , metaCategory = mempty
-                   , metaGraph = mempty
                    -- , metaTime = mempty :: [UTCTime]
                    -- , metaStack = EmptyStack
                    }

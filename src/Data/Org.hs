@@ -22,10 +22,8 @@ module Data.Org ( Context (..)
                 , parse
                 , mparse ) where
 
-import Data.Org.Parse qualified as OrgParse
-import Data.Org.State
+import Control.Monad.State (runStateT)
 import Data.Org.Context
-
 import Data.Org.Elements.Base
 import Data.Org.Elements.Headline
 import Data.Org.Elements.Indent
@@ -41,15 +39,15 @@ import Data.Org.Elements.Timestamp
 import Data.Org.Elements.Title
 import Data.Org.Elements.Todo
 import Data.Org.Elements.Token
-
-import Control.Monad.State (runStateT)
+import Data.Org.Parser qualified as OrgParser
+import Data.Org.State
 import Data.Text (Text)
 import Data.Text.Lazy.Builder ()
 import Text.Megaparsec qualified as MP
 import UnliftIO ()
 
 parse :: St -> Text -> ([Element], St)
-parse ctx cmd = case MP.parse (runStateT (MP.manyTill OrgParse.parse MP.eof) ctx) "" cmd of
+parse ctx cmd = case MP.parse (runStateT (MP.manyTill OrgParser.parse MP.eof) ctx) "" cmd of
   Right val -> val
   Left err  -> ([], ctx)  -- GToken (Token (pack (PS.errorBundlePretty err)))
 

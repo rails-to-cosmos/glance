@@ -7,7 +7,7 @@ import Data.Org.Identity (Identity)
 import Data.Org.Identity qualified as Identity
 
 import Data.Org.State
-import Data.Org.Parse
+import Data.Org.Parser
 import Data.Org.Elements.Keyword
 import Data.Org.Elements.Token
 import Data.Org.Elements.Sentence
