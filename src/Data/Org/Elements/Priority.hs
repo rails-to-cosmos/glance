@@ -1,7 +1,7 @@
 module Data.Org.Elements.Priority (Priority (..)) where
 
 import Data.Char (ord)
-import Data.Org.Parse
+import Data.Org.Parser
 
 import Text.Megaparsec qualified as MP
 import Text.Megaparsec.Char qualified as MPC
