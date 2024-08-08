@@ -3,7 +3,6 @@ module Data.Org ( Context (..)
                 , inTodo
                 , getTodo
                 , setTodo
-                , addNode
                 , Element (..)
                 , Headline (..)
                 , Indent (..)
