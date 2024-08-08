@@ -66,9 +66,6 @@ instance Parse Headline where
 
     _newline <- parse :: StatefulParser Separator
 
-    -- ctx <- State.get
-    -- State.modify $ addNode
-
     -- _id <- State.lift (liftIO (randomIO :: IO UUID))
 
     let headline = Headline { indent = indent'
