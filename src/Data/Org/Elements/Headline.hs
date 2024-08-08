@@ -9,7 +9,7 @@ import Data.Org.Elements.Timestamp
 import Data.Org.Elements.Title
 import Data.Org.Elements.Todo
 import Data.Org.Identity
-import Data.Org.Parse
+import Data.Org.Parser
 
 import Text.Megaparsec qualified as MP
 import Text.Megaparsec.Char qualified as MPC

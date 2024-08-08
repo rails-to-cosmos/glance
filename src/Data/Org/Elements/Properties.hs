@@ -12,7 +12,7 @@ import TextShow qualified as TS
 import Data.Org.Elements.Keyword qualified as Keyword
 import Data.Org.Elements.Property (Property)
 import Data.Org.Elements.Property qualified as Property
-import Data.Org.Parse
+import Data.Org.Parser
 
 newtype Properties = Properties [Property]
   deriving (Show, Eq)

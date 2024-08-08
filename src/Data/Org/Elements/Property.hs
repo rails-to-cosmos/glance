@@ -1,7 +1,7 @@
 module Data.Org.Elements.Property (Property (..)) where
 
 import Data.Org.Context
-import Data.Org.Parse
+import Data.Org.Parser
 import Data.Org.Elements.Keyword
 import Data.Org.Elements.Sentence
 

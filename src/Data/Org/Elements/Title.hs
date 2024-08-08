@@ -2,7 +2,7 @@ module Data.Org.Elements.Title (Title (..), Element (..)) where
 
 import Control.Monad
 
-import Data.Org.Parse
+import Data.Org.Parser
 import Data.Org.Elements.Separator
 import Data.Org.Elements.Tags
 import Data.Org.Elements.Timestamp
