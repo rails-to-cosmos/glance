@@ -1,7 +1,7 @@
-module Data.Org.Elements.Properties (Properties (..)) where
+module Data.Org.Elements.Properties (Properties (..), Property(..), find) where
 
-import Data.Org.Parse
-import Data.Org.Elements.Property
+import Data.Text (Text)
+import Data.List qualified as List
 
 import Text.Megaparsec qualified as MP
 import Text.Megaparsec.Char qualified as MPC
@@ -9,11 +9,16 @@ import Text.Megaparsec.Char qualified as MPC
 import TextShow (TextShow)
 import TextShow qualified as TS
 
+import Data.Org.Elements.Keyword qualified as Keyword
+import Data.Org.Elements.Property (Property)
+import Data.Org.Elements.Property qualified as Property
+import Data.Org.Parse
+
 newtype Properties = Properties [Property]
   deriving (Show, Eq)
 
 instance Semigroup Properties where
-  (<>) (Properties lhs) (Properties rhs) = Properties (lhs <> rhs)
+  (<>) (Properties a) (Properties b) = Properties (a <> b)
 
 instance Monoid Properties where
   mempty = Properties []
@@ -26,3 +31,6 @@ instance Parse Properties where
 
 instance TextShow Properties where
   showb (Properties ps) = ":PROPERTIES:\n" <> TS.showb ps <> ":END:\n"
+
+find :: Text -> Properties -> Maybe Property
+find k (Properties props) = List.find (\p -> Property.key p == Keyword.fromText k) props

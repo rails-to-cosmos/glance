@@ -6,7 +6,7 @@ import Control.Monad.State qualified as State
 import Data.Org.Identity (Identity)
 import Data.Org.Identity qualified as Identity
 
-import Data.Org.State
+import Data.Org.Context
 import Data.Org.Parse
 import Data.Org.Elements.Keyword
 import Data.Org.Elements.Token
@@ -33,9 +33,9 @@ data Pragma = Pragma !Keyword !Text
   deriving (Show, Eq)
 
 instance Identity Pragma where
-  id (Pragma keyword text) = Text.intercalate "-" [TextShow.showt keyword, text]
-  id (PTodo active inactive) = Text.intercalate "-" (List.sort (Set.toList (active <> inactive)))
-  id (PCategory category) = TextShow.showt category
+  identity (Pragma keyword text) = Text.intercalate "-" [TextShow.showt keyword, text]
+  identity (PTodo active inactive) = Text.intercalate "-" (List.sort (Set.toList (active <> inactive)))
+  identity (PCategory category) = TextShow.showt category
 
 instance Parse Pragma where
   parse = do
