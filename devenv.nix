@@ -11,7 +11,6 @@
 
     git
     pre-commit
-    zlib
     universal-ctags
 
     haskell.compiler.ghc964
