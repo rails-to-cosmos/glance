@@ -7,7 +7,9 @@ stack-developer-mode: true
 system-ghc: true
 
 nix:
-  enable: false
+  enable: true
+  packages: [zlib]
+
 
 ghc-options:
   '$everything': -haddock
