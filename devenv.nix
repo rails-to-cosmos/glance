@@ -27,34 +27,8 @@
     haskell.packages.ghc964.retrie
   ];
 
-  # Update third-party dependencies and add it to stack.yaml
-  scripts.package.exec = ''
+  scripts.init.exec = ''
     haskdogs --deps-dir lib --use-stack ON --hasktags-args -e
-
-    directories=$(find ./lib -mindepth 1 -maxdepth 1 -type d)
-
-    deps_list="extra-deps\n  - ."
-    for dir in $directories;
-    do
-        # Remove leading './' from directory path
-        relative_dir=$(echo "$dir" | sed 's|^\./||')
-        deps_list="$deps_list\n  - $relative_dir"
-    done
-
-    # Update stack.yaml
-    # First, create a backup of the original stack.yaml
-    cp stack.yaml stack.yaml.bak
-
-    # Use awk to replace the existing deps section with the new one
-    awk -v new_deps="$deps_list" '
-        BEGIN { in_deps = 0 }
-        /^extra-deps/ { in_deps = 1; print new_deps; next }
-        in_deps && /^\s*-/ { next }
-        !in_deps || !/^\s*$/ { in_deps = 0; print }
-    ' stack.yaml.bak > stack.yaml
-
-    echo "Updated stack.yaml with the following deps list:"
-    echo -e "$deps_list"
   '';
 
   enterShell = ''
