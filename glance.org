@@ -165,3 +165,5 @@ title + tags + timestamps
 ** TODO Headline: CRUD
 ** TODO Import / Export headlines
 ** TODO Overview
+* Tools to discover
+- https://github.com/IHaskell/IHaskell
