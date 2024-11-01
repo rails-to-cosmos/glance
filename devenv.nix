@@ -1,9 +1,6 @@
 { pkgs, ... }:
 
 {
-  env.LSP_USE_PLISTS = "true";
-  env.FZF_DEFAULT_COMMAND = "fd --type f --strip-cwd-prefix";
-
   packages = with pkgs; [
     fzf
     fd
@@ -29,11 +26,13 @@
 
   scripts.wake.exec = ''
     ghcup upgrade
-    ghcup install ghc 9.6.4
-    ghcup install cabal
-    ghcup set ghc 9.6.4
+    ghcup install ghc $GHC_VERSION
+    ghcup set ghc $GHC_VERSION
 
-    haskdogs --deps-dir lib --use-stack ON --hasktags-args -e
+    ghcup install cabal $CABAL_VERSION
+    cabal update
+
+    # haskdogs --deps-dir lib --use-stack ON --hasktags-args -e
   '';
 
   enterShell = ''
