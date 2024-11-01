@@ -13,27 +13,31 @@
     pre-commit
     universal-ctags
 
-    haskell.compiler.ghc964
-    haskell.packages.ghc964.hpack
-    haskell.packages.ghc964.stack
-    haskell.packages.ghc964.ghcid
-    haskell.packages.ghc964.haskdogs
-    haskell.packages.ghc964.haskell-language-server
-    haskell.packages.ghc964.hasktags
-    haskell.packages.ghc964.hlint
-    haskell.packages.ghc964.hoogle
-    haskell.packages.ghc964.implicit-hie
-    haskell.packages.ghc964.ormolu
-    haskell.packages.ghc964.retrie
+    # haskell.compiler.ghc964
+    # haskell.packages.ghc964.hpack
+    # haskell.packages.ghc964.stack
+    # haskell.packages.ghc964.ghcid
+    # haskell.packages.ghc964.haskdogs
+    # haskell.packages.ghc964.haskell-language-server
+    # haskell.packages.ghc964.hasktags
+    # haskell.packages.ghc964.hlint
+    # haskell.packages.ghc964.hoogle
+    # haskell.packages.ghc964.implicit-hie
+    # haskell.packages.ghc964.ormolu
+    # haskell.packages.ghc964.retrie
   ];
 
-  scripts.init.exec = ''
+  scripts.wake.exec = ''
+    ghcup upgrade
+    ghcup install ghc 9.6.4
+    ghcup install cabal
+    ghcup set ghc 9.6.4
+
     haskdogs --deps-dir lib --use-stack ON --hasktags-args -e
   '';
 
   enterShell = ''
     echo "Hello fellow hacker"
-    ghc --version
   '';
 
   enterTest = ''
