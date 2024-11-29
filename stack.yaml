@@ -1,13 +1,14 @@
 resolver: lts-22.18
 
-allow-newer: false
+allow-newer: true
 notify-if-nix-on-path: false
-recommend-stack-upgrade: false
+recommend-stack-upgrade: true
 stack-developer-mode: true
 system-ghc: true
 
 nix:
-  enable: false
+  enable: true
+  packages: [zlib]
 
 ghc-options:
   '$everything': -haddock
