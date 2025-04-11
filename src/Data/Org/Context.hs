@@ -1,7 +1,7 @@
-module Data.Org.Context (Context (..),
-                         setCategory,
-                         inTodo, getTodo, setTodo) where
+module Data.Org.Context (Context (..)) where
 
+import Data.Org.Elements.Base qualified as Org
+import Data.Org.State
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -11,7 +11,16 @@ data Context = Context { metaTodoActive :: !(Set Text)
                        , metaTodoInactive :: !(Set Text)
                        , metaCategory :: !Text
                        -- , metaTime :: [UTCTime]
+                       -- , metaStack :: OrgStack
                        } deriving (Show, Eq, Typeable)
+
+instance Mut Context where
+  setCategory category ctx = ctx { metaCategory = category }
+
+  getTodo ctx = metaTodoActive ctx <> metaTodoInactive ctx
+  inTodo todo ctx = todo `elem` getTodo ctx
+  setTodo active inactive ctx = ctx { metaTodoActive = metaTodoActive ctx <> active
+                                    , metaTodoInactive = metaTodoInactive ctx <> inactive }
 
 instance Semigroup Context where
   (<>) a b = Context { metaTodoActive = metaTodoActive a <> metaTodoActive b
@@ -27,16 +36,3 @@ instance Monoid Context where
                    -- , metaTime = mempty :: [UTCTime]
                    -- , metaStack = EmptyStack
                    }
-
-setCategory :: Text -> Context -> Context
-setCategory category ctx = ctx { metaCategory = category }
-
-inTodo :: Text -> Context -> Bool
-inTodo todo ctx = todo `elem` getTodo ctx
-
-getTodo :: Context -> Set Text
-getTodo ctx = metaTodoActive ctx <> metaTodoInactive ctx
-
-setTodo :: Set Text -> Set Text -> Context -> Context
-setTodo active inactive Context{..} = Context{..} { metaTodoActive = metaTodoActive <> active
-                                                  , metaTodoInactive = metaTodoInactive <> inactive }

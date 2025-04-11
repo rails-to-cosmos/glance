@@ -1,22 +1,23 @@
 module Data.Org.Elements.Headline (Headline (..)) where
 
+import Data.Org.Identity qualified as Id
 import Data.Org.Elements.Indent
 import Data.Org.Elements.Priority
-import Data.Org.Elements.Properties (Property(..), Properties)
-import Data.Org.Elements.Properties qualified as Properties
+import Data.Org.Elements.Properties
 import Data.Org.Elements.Separator
 import Data.Org.Elements.Timestamp
 import Data.Org.Elements.Title
 import Data.Org.Elements.Todo
-import Data.Org.Identity
 import Data.Org.Parser
-
+import Data.Text (Text)
 import Text.Megaparsec qualified as MP
 import Text.Megaparsec.Char qualified as MPC
 import TextShow (TextShow)
 import TextShow qualified
+import Prelude hiding (id)
 
-data Headline = Headline { indent :: !Indent
+data Headline = Headline { id :: !Text
+                         , indent :: !Indent
                          , todo :: !Todo
                          , priority :: !Priority
                          , title :: !Title
@@ -25,13 +26,12 @@ data Headline = Headline { indent :: !Indent
                          , properties :: !Properties
                          } deriving (Show, Eq)
 
-instance Identity Headline where
-  identity Headline {..} = case Properties.find "GLANCE_ID" properties of
-    Nothing -> TextShow.showt title
-    Just (Property _k v) -> TextShow.showt v
+instance Id.Identity Headline where
+  id = id
 
 instance Semigroup Headline where
-  (<>) a b = Headline { indent = indent a <> indent b
+  (<>) a b = Headline { id = Id.id a <> Id.id b
+                      , indent = indent a <> indent b
                       , todo = todo a <> todo b
                       , priority = priority a <> priority b
                       , title = title a <> title b
@@ -40,19 +40,20 @@ instance Semigroup Headline where
                       , properties = properties a <> properties b }
 
 instance Monoid Headline where
-  mempty = Headline { indent = mempty
-                    , todo = mempty
-                    , priority = mempty
-                    , title = mempty
+  mempty = Headline { id = ""
+                    , indent = mempty :: Indent
+                    , todo = mempty :: Todo
+                    , priority = mempty :: Priority
+                    , title = mempty :: Title
                     , schedule = Nothing
                     , deadline = Nothing
-                    , properties = mempty }
+                    , properties = mempty :: Properties }
 
 instance TextShow Headline where
-  showb a = TextShow.showb (indent a)
-    <> TextShow.showb (todo a)
-    <> TextShow.showb (priority a)
-    <> TextShow.showb (title a)
+  showb headline = TextShow.showb (indent headline)
+    <> TextShow.showb (todo headline)
+    <> TextShow.showb (priority headline)
+    <> TextShow.showb (title headline)
 
 instance Parse Headline where
   parse = do
@@ -64,11 +65,13 @@ instance Parse Headline where
     -- deadline' <- optional $ try (string "DEADLINE:" *> space *> (parse :: StatefulParser Timestamp))
     properties' <- MP.option (mempty :: Properties) (MP.try (MPC.eol *> parse :: StatefulParser Properties))
 
-    _newline <- parse :: StatefulParser Separator
+    _ <- parse :: StatefulParser Separator
 
-    -- _id <- State.lift (liftIO (randomIO :: IO UUID))
+    -- ctx <- State.get
+    -- State.modify $ addNode
 
-    let headline = Headline { indent = indent'
+    let headline = Headline { id = ""
+                            , indent = indent'
                             , todo = todo'
                             , priority = priority'
                             , title = title'
