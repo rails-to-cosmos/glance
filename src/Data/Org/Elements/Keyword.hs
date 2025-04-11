@@ -1,4 +1,4 @@
-module Data.Org.Elements.Keyword (Keyword (..)) where
+module Data.Org.Elements.Keyword (Keyword (..), fromText) where
 
 import Data.Org.Parser
 import Data.Text (Text, pack, toUpper)
@@ -21,3 +21,6 @@ instance Parse Keyword where
   parse = do
     let keyword = MP.some (MP.satisfy (\c -> isAlpha c || c == '_'))
     Keyword . toUpper . pack <$> keyword
+
+fromText :: Text -> Keyword
+fromText = Keyword

@@ -5,7 +5,7 @@ import System.Exit
 
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BSChar8
-import Data.Config qualified as Config
+import Data.Config (Config (..))
 import Data.Org qualified as Org
 
 import Data.Text (Text)
@@ -18,25 +18,21 @@ import System.Directory
 import System.FilePath
 import System.Console.Haskeline qualified as Haskeline
 
-defaultConfig :: IO Config.Config
+defaultConfig :: IO Config
 defaultConfig = do
   homeDir <- getHomeDirectory
 
   let configDir = homeDir </> ".config" </> "glance"
       historyFile = Just (configDir </> ".history")
       dbFile = configDir </> "db.sqlite"
-
+      dbConnectionString = Text.pack dbFile
+      dbPoolSize = 10
       haskelineSettings = Haskeline.defaultSettings { Haskeline.autoAddHistory = True
                                                     , Haskeline.historyFile = historyFile }
 
   createDirectoryIfMissing True configDir
 
-  return Config.Config { Config.haskelineSettings = haskelineSettings
-                       , Config.dbConnectionString = Text.pack dbFile
-                       , Config.dbPoolSize = 10 }
-
-defaultContext :: Org.St
-defaultContext = Org.St (mempty :: Org.Context)
+  return Config {..}
 
 main :: IO ()
 main = do
@@ -44,14 +40,10 @@ main = do
 
 greetings :: [[Text]] -> IO ()
 greetings messages = do
-  TIO.putStrLn ""
   TIO.putStrLn "---"
   TIO.putStrLn "Hello, fellow hacker!\n"
-
   let _lines = map (Text.intercalate " ") messages
-
   mapM_ TIO.putStrLn _lines
-
   TIO.putStrLn "---"
   TIO.putStrLn ""
 
@@ -59,25 +51,24 @@ parse :: [String] -> IO a
 
 parse [] = do
   config <- defaultConfig
-  repl config defaultContext
+  repl config mempty
   exitSuccess
 
 parse (filename:_) = do
   config <- defaultConfig
   content <- Text.pack . BSChar8.unpack <$> BS.readFile filename
 
-  let (_elements, context) = Org.parse defaultContext content
+  let (_elements, context) = Org.mparse content
 
-  greetings [ ["The database is located at", Config.dbConnectionString config]
+  greetings [ ["The database is located at", dbConnectionString config]
             , ["Additional context provided:", Text.pack filename]]
 
   runRepl config context Org.parse
   exitSuccess
 
-repl :: Config.Config -> Org.St -> IO ()
-repl config context = do
-  greetings [["Using meta db located in", Config.dbConnectionString config]]
-
+repl :: Config -> Org.Context -> IO ()
+repl config@(Config {..}) context = do
+  greetings [["Using meta db located in", dbConnectionString]]
   runRepl config context Org.parse
 
 -- parse (x:xs) = do

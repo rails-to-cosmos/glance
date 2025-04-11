@@ -25,7 +25,7 @@ instance TextShow Tags where
   showb (Tags tags) = TS.fromText ":" <> TS.fromText (intercalate ":" tags) <> TS.fromText ":"
 
 instance Semigroup Tags where
-  (<>) (Tags lhs) (Tags rhs) = Tags (nub lhs <> rhs)
+  (<>) (Tags a) (Tags b) = Tags (nub a <> b)
 
 instance Monoid Tags where
   mempty = Tags []

@@ -14,9 +14,9 @@ data Separator = SPC | EOL | EOF
   deriving (Show, Eq)
 
 instance Identity Separator where
-  id SPC = "SPC"
-  id EOL = "EOL"
-  id EOF = "EOF"
+  identity SPC = "SPC"
+  identity EOL = "EOL"
+  identity EOF = "EOF"
 
 instance Parse Separator where
   parse = MP.choice [ EOF <$ MP.eof
