@@ -5,8 +5,7 @@ import Data.Org.Elements.Pragma (Pragma)
 import Data.Org.Elements.Separator (Separator)
 import Data.Org.Elements.Timestamp (Timestamp)
 import Data.Org.Elements.Token (Token)
-import Data.Org.Identity (Identity(..))
-import Data.Org.Parser (Parse, StatefulParser, parse)
+import Data.Org.Types
 
 import Data.Typeable (Typeable)
 import Data.Typeable qualified as Typeable

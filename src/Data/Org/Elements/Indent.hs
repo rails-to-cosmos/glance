@@ -1,6 +1,6 @@
 module Data.Org.Elements.Indent (Indent (..)) where
 
-import Data.Org.Parser
+import Data.Org.Types
 
 import Text.Megaparsec qualified as MP
 import Text.Megaparsec.Char qualified as MPC

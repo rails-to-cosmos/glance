@@ -1,4 +1,5 @@
 module Data.Org ( Context (..)
+                , OT.Identity
                 , setCategory
                 , inTodo
                 , getTodo
@@ -23,7 +24,8 @@ module Data.Org ( Context (..)
                 , mparse
                 , sparse ) where
 
-import Data.Org.Parser qualified as OrgParser
+import Data.Org.Types qualified as OT
+
 import Data.Org.Context
 
 import Data.Org.Elements.Base
@@ -48,7 +50,7 @@ import Text.Megaparsec qualified as MP
 import UnliftIO ()
 
 parse :: Context -> Text -> ([Element], Context)
-parse st cmd = case MP.parse (runStateT (MP.manyTill OrgParser.parse MP.eof) st) "" cmd of
+parse st cmd = case MP.parse (runStateT (MP.manyTill OT.parse MP.eof) st) "" cmd of
   Right v -> v
   Left err  -> ([], st)  -- GToken (Token (pack (PS.errorBundlePretty err)))
 

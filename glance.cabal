@@ -39,8 +39,7 @@ library
       Data.Org.Elements.Title
       Data.Org.Elements.Todo
       Data.Org.Elements.Token
-      Data.Org.Identity
-      Data.Org.Parser
+      Data.Org.Types
       Persist.Org
       Repl.Org
   other-modules:

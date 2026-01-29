@@ -1,8 +1,6 @@
 module Data.Org.Elements.Separator (Separator (..)) where
 
-import Data.Org.Parser
-import Data.Org.Identity (Identity)
-import Data.Org.Identity qualified as Identity
+import Data.Org.Types
 
 import Text.Megaparsec qualified as MP
 import Text.Megaparsec.Char qualified as MPC

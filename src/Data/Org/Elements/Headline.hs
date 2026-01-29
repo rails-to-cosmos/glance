@@ -8,8 +8,7 @@ import Data.Org.Elements.Separator
 import Data.Org.Elements.Timestamp
 import Data.Org.Elements.Title
 import Data.Org.Elements.Todo
-import Data.Org.Identity
-import Data.Org.Parser
+import Data.Org.Types
 
 import Text.Megaparsec qualified as MP
 import Text.Megaparsec.Char qualified as MPC

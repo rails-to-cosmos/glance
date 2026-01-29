@@ -1,6 +1,6 @@
 module Data.Org.Elements.Priority (Priority (..)) where
 
-import Data.Org.Parser
+import Data.Org.Types
 
 import Text.Megaparsec.Char qualified as MPC
 import Data.Text.Lazy.Builder qualified as B

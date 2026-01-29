@@ -3,11 +3,9 @@ module Data.Org.Elements.Pragma (Pragma (..)) where
 import Control.Monad
 import Control.Monad.State qualified as State
 
-import Data.Org.Identity (Identity)
-import Data.Org.Identity qualified as Identity
+import Data.Org.Types
 
 import Data.Org.Context
-import Data.Org.Parser
 import Data.Org.Elements.Keyword
 import Data.Org.Elements.Token
 import Data.Org.Elements.Sentence
