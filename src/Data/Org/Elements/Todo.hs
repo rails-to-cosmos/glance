@@ -14,25 +14,17 @@ import Text.Megaparsec.Char qualified as MPC
 import Control.Monad
 import Control.Monad.State qualified as State
 
-newtype Todo = Todo (Maybe Text)
+data Todo = Todo { name :: Text, active :: Bool }
   deriving (Show, Eq)
 
-instance Semigroup Todo where
-  (<>) (Todo a) (Todo b) = Todo (a <> b)
-
-instance Monoid Todo where
-  mempty = Todo Nothing
-
 instance Parse Todo where
-  parse = Todo <$> MP.optional (MP.try todo)
+  parse = do
+    ctx <- State.get
+    Keyword result <- (parse :: StatefulParser Keyword) <* MPC.space
+    guard $ inTodo result ctx
+    return Todo { name = result
+                , active = result `elem` todoActive ctx
+                }
 
 instance TextShow Todo where
-  showb (Todo Nothing) = TextShow.showbSpace
-  showb (Todo (Just state)) = TextShow.showbSpace <> TextShow.fromText state <> TextShow.showbSpace
-
-todo :: StatefulParser Text
-todo = do
-  ctx <- State.get
-  Keyword result <- (parse :: StatefulParser Keyword) <* MPC.space
-  guard $ inTodo result ctx
-  return result
+  showb a = TextShow.fromText (name a)

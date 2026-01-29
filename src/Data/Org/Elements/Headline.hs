@@ -17,8 +17,8 @@ import TextShow (TextShow)
 import TextShow qualified
 
 data Headline = Headline { indent :: !Indent
-                         , todo :: !Todo
-                         , priority :: !Priority
+                         , todo :: !(Maybe Todo)
+                         , priority :: !(Maybe Priority)
                          , title :: !Title
                          , schedule :: !(Maybe Timestamp)
                          , deadline :: !(Maybe Timestamp)
@@ -26,39 +26,24 @@ data Headline = Headline { indent :: !Indent
                          } deriving (Show, Eq)
 
 instance Identity Headline where
-  identity Headline {..} = case Properties.find "GLANCE_ID" properties of
+  identity Headline {..} = case Properties.find "ID" properties of
     Nothing -> TextShow.showt title
-    Just (Property _k v) -> TextShow.showt v
-
-instance Semigroup Headline where
-  (<>) a b = Headline { indent = indent a <> indent b
-                      , todo = todo a <> todo b
-                      , priority = priority a <> priority b
-                      , title = title a <> title b
-                      , schedule = Nothing
-                      , deadline = Nothing
-                      , properties = properties a <> properties b }
-
-instance Monoid Headline where
-  mempty = Headline { indent = mempty
-                    , todo = mempty
-                    , priority = mempty
-                    , title = mempty
-                    , schedule = Nothing
-                    , deadline = Nothing
-                    , properties = mempty }
+    Just (Property _ v) -> TextShow.showt v
 
 instance TextShow Headline where
-  showb a = TextShow.showb (indent a)
-    <> TextShow.showb (todo a)
-    <> TextShow.showb (priority a)
-    <> TextShow.showb (title a)
+  showb Headline {..} =
+    showSpaced indent
+    <> foldMap showSpaced todo
+    <> foldMap showSpaced priority
+    <> TextShow.showb title
+    where showSpaced :: TextShow a => a -> TextShow.Builder
+          showSpaced = (<> TextShow.showbSpace) . TextShow.showb
 
 instance Parse Headline where
   parse = do
     indent' <- parse :: StatefulParser Indent
-    todo' <- MP.option (mempty :: Todo) (parse :: StatefulParser Todo)
-    priority' <- MP.option (mempty :: Priority) (parse :: StatefulParser Priority)
+    todo' <- MP.optional (MP.try parse :: StatefulParser Todo)
+    priority' <- MP.optional (MP.try parse :: StatefulParser Priority)
     title' <- parse :: StatefulParser Title
     -- schedule' <- optional $ try (string "SCHEDULED:" *> space *> (parse :: StatefulParser Timestamp))
     -- deadline' <- optional $ try (string "DEADLINE:" *> space *> (parse :: StatefulParser Timestamp))

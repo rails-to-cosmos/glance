@@ -3,7 +3,6 @@
 module Repl.Org (runRepl) where
 
 import Control.Monad.IO.Class (MonadIO (..))
-import Control.Monad.Logger (runStderrLoggingT)
 import Control.Monad.State (StateT)
 import Control.Monad.State qualified as State
 
@@ -13,19 +12,16 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO as TIO
 import Data.Text.Lazy.Builder ()
-import Database.Persist.Monad (SqlQueryT, runMigration, runSqlQueryT)
-import Database.Persist.Sqlite (createSqlitePool)
-import Persist.Org (migrateAll)
 import System.Console.Haskeline (InputT, getInputLine, runInputT)
 import TextShow qualified as TS
 import UnliftIO ()
 
 type CommandProcessor = Org.Context -> Text -> ([Org.Element], Org.Context)
-type Repl a = StateT Org.Context (SqlQueryT (InputT IO)) a
+type Repl a = StateT Org.Context (InputT IO) a
 
 getInput :: Repl Text
 getInput = do
-  input <- State.lift $ State.lift $ getInputLine "> "
+  input <- State.lift $ getInputLine "> "
   return $ maybe "" Text.pack input
 
 repl :: CommandProcessor -> Repl ()
@@ -48,11 +44,9 @@ repl fn = do
 
 runRepl :: Config.Config -> Org.Context -> CommandProcessor -> IO ()
 runRepl (Config.Config {..}) state fn = do
-  conn <- createPool
-  runSqlQueryT conn (runMigration migrateAll)
+  -- conn <- createPool
+  -- runSqlQueryT conn (runMigration migrateAll)
   runInputT haskelineSettings
-    $ runSqlQueryT conn
     $ evalStateT state
     $ repl fn
   where evalStateT = flip State.evalStateT
-        createPool = runStderrLoggingT (createSqlitePool dbConnectionString dbPoolSize)

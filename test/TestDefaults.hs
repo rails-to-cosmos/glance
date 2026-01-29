@@ -6,7 +6,15 @@ import Data.Text (Text)
 import Data.Org qualified as Org
 
 defaultHeadline :: Org.Headline
-defaultHeadline = mempty
+defaultHeadline = Org.Headline
+  { indent     = Org.Indent 1
+  , todo       = Nothing
+  , priority   = Nothing
+  , title      = Org.Title []
+  , schedule   = Nothing
+  , deadline   = Nothing
+  , properties = mempty          -- Empty properties
+  }
 
 initialState :: Org.Context
 initialState = mempty

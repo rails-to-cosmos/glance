@@ -7,22 +7,22 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Typeable
 
-data Context = Context { metaTodoActive :: !(Set Text)
-                       , metaTodoInactive :: !(Set Text)
+data Context = Context { todoActive :: !(Set Text)
+                       , todoInactive :: !(Set Text)
                        , metaCategory :: !Text
                        -- , metaTime :: [UTCTime]
                        } deriving (Show, Eq, Typeable)
 
 instance Semigroup Context where
-  (<>) a b = Context { metaTodoActive = metaTodoActive a <> metaTodoActive b
-                     , metaTodoInactive = metaTodoInactive a <> metaTodoInactive b
+  (<>) a b = Context { todoActive = todoActive a <> todoActive b
+                     , todoInactive = todoInactive a <> todoInactive b
                      , metaCategory = metaCategory a <> metaCategory b
                      -- , metaTime = metaTime a <> metaTime b
                      }
 
 instance Monoid Context where
-  mempty = Context { metaTodoActive = Set.fromList ["TODO"]
-                   , metaTodoInactive = Set.fromList ["DONE"]
+  mempty = Context { todoActive = Set.fromList ["TODO"]
+                   , todoInactive = Set.fromList ["DONE"]
                    , metaCategory = mempty
                    -- , metaTime = mempty :: [UTCTime]
                    -- , metaStack = EmptyStack
@@ -35,8 +35,8 @@ inTodo :: Text -> Context -> Bool
 inTodo todo ctx = todo `elem` getTodo ctx
 
 getTodo :: Context -> Set Text
-getTodo ctx = metaTodoActive ctx <> metaTodoInactive ctx
+getTodo ctx = todoActive ctx <> todoInactive ctx
 
 setTodo :: Set Text -> Set Text -> Context -> Context
-setTodo active inactive Context{..} = Context{..} { metaTodoActive = metaTodoActive <> active
-                                                  , metaTodoInactive = metaTodoInactive <> inactive }
+setTodo active inactive Context{..} = Context{..} { todoActive = todoActive <> active
+                                                  , todoInactive = todoInactive <> inactive }

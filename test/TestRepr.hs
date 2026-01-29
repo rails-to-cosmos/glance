@@ -16,7 +16,7 @@ data TestCase = TestCase { description :: !String
 testCases :: [TestCase]
 testCases = [ TestCase { description = "Org-mode headline representation"
                        , element = Org.Element defaultHeadline { indent = Indent 1
-                                                               , todo = mempty :: Todo
+                                                               , todo = Nothing
                                                                , title = Title [ Org.Title.Element (Token "Hello,")
                                                                                , Org.Title.Element SPC
                                                                                , Org.Title.Element (Token "world!")
@@ -26,7 +26,7 @@ testCases = [ TestCase { description = "Org-mode headline representation"
 
             , TestCase { description = "Todo state representation"
                        , element = Org.Element defaultHeadline { indent = Indent 1
-                                                               , todo = Todo (Just "TODO")
+                                                               , todo = Just (Todo {name = "TODO", active = True})
                                                                , title = Title [ Org.Title.Element (Token "foo") ]}
                        , representation = "* TODO foo" } ]
 

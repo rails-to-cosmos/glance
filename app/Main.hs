@@ -24,9 +24,6 @@ defaultConfig = do
 
   let configDir = homeDir </> ".config" </> "glance"
       historyFile = Just (configDir </> ".history")
-      dbFile = configDir </> "db.sqlite"
-      dbConnectionString = Text.pack dbFile
-      dbPoolSize = 10
       haskelineSettings = Haskeline.defaultSettings { Haskeline.autoAddHistory = True
                                                     , Haskeline.historyFile = historyFile }
 
@@ -60,15 +57,14 @@ parse (filename:_) = do
 
   let (_elements, context) = Org.mparse content
 
-  greetings [ ["The database is located at", dbConnectionString config]
-            , ["Additional context provided:", Text.pack filename]]
+  greetings [["Additional context provided:", Text.pack filename]]
 
   runRepl config context Org.parse
   exitSuccess
 
 repl :: Config -> Org.Context -> IO ()
-repl config@(Config {..}) context = do
-  greetings [["Using meta db located in", dbConnectionString]]
+repl config context = do
+  greetings []
   runRepl config context Org.parse
 
 -- parse (x:xs) = do

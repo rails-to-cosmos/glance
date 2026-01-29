@@ -79,8 +79,8 @@ testCases = [ TestCase { description = "Parse headline with tags"
             , TestCase { description = "Parse complete headline"
                        , inputs = ["** TODO [#A] Hello :a:b:c:"]
                        , expected = Result { elements = [ Org.Element defaultHeadline { indent = Indent 2
-                                                                                      , todo = Todo (Just "TODO")
-                                                                                      , priority = Priority (Just 'A')
+                                                                                      , todo = Just (Todo { name = "TODO", active = True})
+                                                                                      , priority = Just (Priority 'A')
                                                                                       , title = Title [ Title.Element (Token "Hello")
                                                                                                       , Title.Element SPC
                                                                                                       , Title.Element (Tags ["a", "b", "c"])]}]
@@ -90,7 +90,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
                        , inputs = [ "#+TODO: TODO | CANCELLED"
                                   , "* CANCELLED Mess" ]
                        , expected = Result { elements = [ Org.Element (PTodo (Set.fromList ["TODO"]) (Set.fromList ["CANCELLED"]))
-                                                        , Org.Element (defaultHeadline { todo = Todo (Just "CANCELLED")
+                                                        , Org.Element (defaultHeadline { todo = Just (Todo { name = "CANCELLED", active = False })
                                                                                        , title = Title [Title.Element (Token "Mess")] })]
                                            , context = initialState `withTodo` (["TODO"], ["DONE", "CANCELLED"]) }}
 
@@ -107,8 +107,8 @@ testCases = [ TestCase { description = "Parse headline with tags"
             --                                                                                 , title = Title [ TText (Token "CANCELLED")
             --                                                                                                 , TSeparator SPC
             --                                                                                                 , TText (Token "Mess")]})]
-            --                                       , context = initialState { metaTodoActive = Set.fromList ["TODO"]
-            --                                                                  , metaTodoInactive = Set.fromList ["DONE"] }}}
+            --                                       , context = initialState { todoActive = Set.fromList ["TODO"]
+            --                                                                  , todoInactive = Set.fromList ["DONE"] }}}
 
             , TestCase { description = "Multiline parsing"
                        , inputs = [ "* foo"
@@ -172,7 +172,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
             --                 , title = "Mess"
             --                 , tags = []
             --                 , properties = defaultProperties
-            --                 , meta = defaultMeta { metaTodo = (["TODO"], ["DONE", "CANCELLED"])
+            --                 , meta = defaultMeta { todo = (["TODO"], ["DONE", "CANCELLED"])
             --                                      }
             --                 }
             --           }
@@ -246,7 +246,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
             --         Org.Context
             --           { headline =
             --               defaultHeadline
-            --                 { meta = defaultMeta {metaTodo = (["TODO", "PENDING", "STARTED"], ["DONE", "CANCELLED"])}
+            --                 { meta = defaultMeta {todo = (["TODO", "PENDING", "STARTED"], ["DONE", "CANCELLED"])}
             --                 }
             --           }
             --     }
@@ -313,7 +313,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
             --           { headline =
             --               defaultHeadline
             --                 { properties = defaultProperties,
-            --                   meta = defaultMeta {metaTodo = (["TODO", "STARTED", "DELEGATED", "PENDING"], ["DONE", "CANCELLED"])}
+            --                   meta = defaultMeta {todo = (["TODO", "STARTED", "DELEGATED", "PENDING"], ["DONE", "CANCELLED"])}
             --                 }
             --           }
             --     }
