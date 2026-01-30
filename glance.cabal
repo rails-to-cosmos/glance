@@ -23,23 +23,6 @@ library
   exposed-modules:
       Data.Config
       Data.Org
-      Data.Org.Context
-      Data.Org.Elements.Base
-      Data.Org.Elements.Headline
-      Data.Org.Elements.Indent
-      Data.Org.Elements.Keyword
-      Data.Org.Elements.Pragma
-      Data.Org.Elements.Priority
-      Data.Org.Elements.Properties
-      Data.Org.Elements.Property
-      Data.Org.Elements.Sentence
-      Data.Org.Elements.Separator
-      Data.Org.Elements.Tags
-      Data.Org.Elements.Timestamp
-      Data.Org.Elements.Title
-      Data.Org.Elements.Todo
-      Data.Org.Elements.Token
-      Data.Org.Types
       Persist.Org
       Repl.Org
   other-modules:

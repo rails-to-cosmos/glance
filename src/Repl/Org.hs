@@ -7,6 +7,7 @@ import Control.Monad.State (StateT)
 import Control.Monad.State qualified as State
 
 import Data.Org qualified as Org
+import Data.Org (orgParse)
 import Data.Config qualified as Config
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -35,7 +36,7 @@ repl fn = do
     "exit" -> return ()
     "quit" -> return ()
     cmd -> do
-      let (elements, ctx') = Org.parse ctx cmd
+      let (elements, ctx') = orgParse ctx cmd
       liftIO $ do
         TIO.putStrLn $ "Repr: " <> Text.pack (show elements)
         TIO.putStrLn $ "Str: \"" <> Text.intercalate "" (map TS.showt elements) <> "\""
