@@ -7,6 +7,7 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BSChar8
 import Data.Config (Config (..))
 import Data.Org qualified as Org
+import Data.Org (orgParse, orgParseM)
 
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -55,17 +56,17 @@ parse (filename:_) = do
   config <- defaultConfig
   content <- Text.pack . BSChar8.unpack <$> BS.readFile filename
 
-  let (_elements, context) = Org.mparse content
+  let (_elements, context) = orgParseM content
 
   greetings [["Additional context provided:", Text.pack filename]]
 
-  runRepl config context Org.parse
+  runRepl config context orgParse
   exitSuccess
 
 repl :: Config -> Org.Context -> IO ()
 repl config context = do
   greetings []
-  runRepl config context Org.parse
+  runRepl config context orgParse
 
 -- parse (x:xs) = do
 --   putStrLn ("Unknown argument skipped: " ++ x)
