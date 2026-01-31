@@ -23,12 +23,10 @@ module Data.Org ( Context (..)
                 , getTodo
                 , setTodo
                 , orgParse
-                , orgParseM
-                , orgParseS ) where
+                , orgParseM) where
 
 import Control.Monad (void, guard)
-import Control.Monad.State (StateT, lift)
-import Control.Monad.State (runStateT)
+import Control.Monad.State ( StateT, lift, runStateT )
 import Control.Monad.State qualified as State
 import Data.Char (isAlpha)
 import Data.List (nub, find, sort)
@@ -63,15 +61,11 @@ orgParse st cmd = case MP.parse (runStateT (MP.manyTill parse MP.eof) st) "" cmd
 orgParseM :: Text -> ([Element], Context)
 orgParseM = orgParse mempty
 
-orgParseS :: Text -> [Element]
-orgParseS a = case orgParseM a of
-  (elems, _st) -> elems
+-- tag :: StatelessParser Text
+-- tag = MP.takeWhile1P (Just "tag character") (`elem` keyword) <* MPC.char ':'
 
-tag :: StatelessParser Text
-tag = MP.takeWhile1P (Just "tag character") (`elem` keyword) <* MPC.char ':'
-
-keyword :: [Char]
-keyword = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ "-_"
+-- keyword :: [Char]
+-- keyword = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ "-_"
 
 class Identity a where
   identity :: a -> Text
