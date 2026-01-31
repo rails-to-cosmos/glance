@@ -5,17 +5,14 @@ module Repl.Org (runRepl) where
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.State (StateT)
 import qualified Control.Monad.State as State
-
-import qualified Data.Org as Org
-import Data.Org (orgParse)
 import qualified Data.Config as Config
+import Data.Org (orgParse)
+import qualified Data.Org as Org
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.Text.IO as TIO
-import Data.Text.Lazy.Builder ()
 import System.Console.Haskeline (InputT, getInputLine, runInputT)
 import qualified TextShow as TS
-import UnliftIO ()
 
 type CommandProcessor = Org.Context -> Text -> ([Org.Element], Org.Context)
 type Repl a = StateT Org.Context (InputT IO) a

@@ -47,7 +47,7 @@ import qualified Data.Time as Time
 import Data.Typeable (Typeable)
 import qualified Data.Typeable as Typeable
 import Data.Void (Void)
-import Text.Megaparsec (lookAhead, try, choice, eof, manyTill, takeWhile1P, (<|>))
+import Text.Megaparsec (lookAhead, try, choice, eof, manyTill, takeWhile1P, (<|>), many)
 import qualified Text.Megaparsec as MP
 import Text.Megaparsec.Char (eol, space1, space, char)
 import qualified Text.Megaparsec.Char as MPC
@@ -78,6 +78,18 @@ orgParseM = orgParse mempty
 
 -- keyword :: [Char]
 -- keyword = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ "-_"
+
+-- Helpers
+
+via :: (Parse a) => (a -> b) -> StatefulParser b
+via el = try (el <$> parse)
+
+asContainer :: (Parse element) => ([element] -> container) -> StatefulParser container
+asContainer con = do
+    let stop = void eol <|> eof
+    con <$> manyTill parse (lookAhead stop)
+
+-- Types
 
 newtype HashID = HashID (Crypto.Digest Crypto.SHA256)
   deriving (Show, Eq)
@@ -205,6 +217,21 @@ instance Parse Element where
 instance TextShow Element where
   showb (Element a) = TS.showb a
 
+data RefKind = CHILD_OF | PARENT_OF | CustomRef Text
+  deriving (Show, Eq)
+
+instance TextShow RefKind where
+  showb (CustomRef t) = fromText t
+  showb x             = fromString (show x)
+
+data Ref = Ref { kind :: RefKind
+               , headlineId :: HeadlineID
+               }
+  deriving (Show, Eq)
+
+instance TextShow Ref where
+  showb Ref {..} = TS.showb kind <> TS.showb headlineId
+
 data Headline = Headline { indent     :: !Indent
                          , todo       :: !(Maybe Todo)
                          , priority   :: !(Maybe Priority)
@@ -212,7 +239,7 @@ data Headline = Headline { indent     :: !Indent
                          , schedule   :: !(Maybe Timestamp)
                          , deadline   :: !(Maybe Timestamp)
                          , properties :: !Properties
-                         , refs       :: ![HeadlineID]
+                         , refs       :: ![Ref]
                          , hashRefs   :: ![HashID]
                          } deriving (Show, Eq)
 
@@ -421,48 +448,42 @@ getProperty k (Properties props) = case find (\p -> key p == Keyword k) props of
     Nothing -> Nothing
     Just (Property _ v) -> Just (TS.showt v)
 
-data SentenceElement = ElToken !Token
-                     | ElSeparator !Separator
-                     | ElTimestamp !Timestamp
+data SentenceElement = SentenceToken !Token
+                     | SentenceSeparator !Separator
+                     | SentenceTimestamp !Timestamp
   deriving (Show, Eq)
 
-instance TextShow SentenceElement where
-  showb (ElToken t) = TS.showb t
-  showb (ElSeparator t) = TS.showb t
-  showb (ElTimestamp t) = TS.showb t
-
 instance Parse SentenceElement where
-  parse = parseTry ElSeparator
-    <|> parseTry ElTimestamp
-    <|> (ElToken <$> parse)
-    where parseTry el = try (el <$> parse)
+  parse = via SentenceSeparator
+    <|> via SentenceTimestamp
+    <|> (SentenceToken <$> parse)
+
+instance TextShow SentenceElement where
+  showb (SentenceToken t) = TS.showb t
+  showb (SentenceSeparator t) = TS.showb t
+  showb (SentenceTimestamp t) = TS.showb t
 
 newtype Sentence = Sentence [SentenceElement]
   deriving (Show, Eq)
 
-instance Monoid Sentence where
-  mempty = Sentence []
-
 instance Semigroup Sentence where
   (<>) (Sentence a) (Sentence b) = Sentence (a <> b)
+
+instance Monoid Sentence where
+  mempty = Sentence []
 
 instance TextShow Sentence where
   showb (Sentence []) = ""
   showb (Sentence (x:xs)) = TS.showb x <> TS.showb (Sentence xs)
 
 instance Parse Sentence where
-  parse = do
-    let stop = choice [ void eol, eof ]
-    elems <- manyTill (parse :: StatefulParser SentenceElement) (lookAhead stop)
-    return (Sentence elems)
+  parse = asContainer Sentence
 
 data Separator = SPC | EOL | EOF
   deriving (Show, Eq)
 
 instance Identity Separator where
-  identity SPC = Just "SPC"
-  identity EOL = Just "EOL"
-  identity EOF = Just "EOF"
+  identity = Just . showt
 
 instance Parse Separator where
   parse = choice [ EOF <$ eof
@@ -662,25 +683,23 @@ tsRepeaterParser = do
 
 -- Title
 
-data TitleElement where
-  TitleElement :: (Show a, TextShow a, Typeable a, Eq a, Parse a) => a -> TitleElement
+data TitleElement = TitleToken !Token
+                  | TitleSeparator !Separator
+                  | TitleTimestamp !Timestamp
+                  | TitleTags !Tags
+  deriving (Show, Eq)
 
 instance Parse TitleElement where
-  parse = MP.choice [ MP.try (TitleElement <$> (parse :: StatefulParser Separator))
-                    , MP.try (TitleElement <$> (parse :: StatefulParser Timestamp))
-                    , MP.try (TitleElement <$> (parse :: StatefulParser Tags))
-                    , TitleElement <$> (parse :: StatefulParser Token) ]
-
-instance Show TitleElement where
-  show (TitleElement a) = show a
+  parse = via TitleSeparator
+    <|> via TitleTimestamp
+    <|> via TitleTags
+    <|> (TitleToken <$> parse)
 
 instance TextShow TitleElement where
-  showb (TitleElement a) = TS.showb a
-
-instance Eq TitleElement where
-    (TitleElement a) == (TitleElement b) = case Typeable.cast b of
-        Just b' -> a == b'
-        Nothing -> False
+  showb (TitleSeparator t) = TS.showb t
+  showb (TitleTimestamp t) = TS.showb t
+  showb (TitleTags t) = TS.showb t
+  showb (TitleToken t) = TS.showb t
 
 newtype Title = Title [TitleElement]
   deriving (Show, Eq)
@@ -696,10 +715,7 @@ instance TextShow Title where
   showb (Title (x:xs)) = TS.showb x <> TS.showb (Title xs)
 
 instance Parse Title where
-  parse = do
-    let stop = MP.choice [ void MPC.eol, MP.eof ]
-    elems <- MP.manyTill (parse :: StatefulParser TitleElement) (MP.lookAhead stop)
-    return (Title elems)
+  parse = asContainer Title
 
 -- Todo
 
