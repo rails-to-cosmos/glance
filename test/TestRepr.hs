@@ -16,17 +16,19 @@ testCases :: [TestCase]
 testCases = [ TestCase { description = "Org-mode headline representation"
                        , element = Org.Element defaultHeadline { indent = Indent 1
                                                                , todo = Nothing
-                                                               , title = Title [ TitleElement (Token "Hello,")
-                                                                               , TitleElement SPC
-                                                                               , TitleElement (Token "world!")
-                                                                               , TitleElement SPC
-                                                                               , TitleElement (Tags ["greetings"])]}
+                                                               , title = Title [ TitleToken "Hello,"
+                                                                               , TitleSeparator SPC
+                                                                               , TitleToken "world!"
+                                                                               , TitleSeparator SPC
+                                                                               , TitleTags (Tags ["greetings"])
+                                                                               ]
+                                                               }
                        , representation = "* Hello, world! :greetings:" }
 
             , TestCase { description = "Todo state representation"
                        , element = Org.Element defaultHeadline { indent = Indent 1
                                                                , todo = Just (Todo {name = "TODO", active = True})
-                                                               , title = Title [ TitleElement (Token "foo") ]}
+                                                               , title = Title [ TitleToken "foo" ]}
                        , representation = "* TODO foo" } ]
 
 assertOne :: TestCase -> TestTree

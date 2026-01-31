@@ -248,6 +248,18 @@ instance Semigroup Headline where
         (Just t1, Just t2) | t1 > t2 -> h1
         _                            -> h2
 
+instance Monoid Headline where
+  mempty = Headline { indent     = Indent 1
+                    , todo       = Nothing
+                    , priority   = Nothing
+                    , title      = Title []
+                    , schedule   = Nothing
+                    , deadline   = Nothing
+                    , properties = mempty
+                    , refs       = mempty
+                    , hashRefs   = mempty
+                    }
+
 instance Display Headline where
   display h@Headline{..} =
     T.unlines $ [ "Headline"
@@ -733,7 +745,6 @@ instance Parse Todo where
 
 instance TextShow Todo where
   showb a = TS.fromText (name a)
-
 
 -- Token
 

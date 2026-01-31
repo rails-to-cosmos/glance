@@ -6,17 +6,7 @@ import Data.Text (Text)
 import qualified Data.Org as Org
 
 defaultHeadline :: Org.Headline
-defaultHeadline = Org.Headline
-  { indent     = Org.Indent 1
-  , todo       = Nothing
-  , priority   = Nothing
-  , title      = Org.Title []
-  , schedule   = Nothing
-  , deadline   = Nothing
-  , properties = mempty
-  , refs       = mempty
-  , hashRefs   = mempty
-  }
+defaultHeadline = mempty
 
 initialState :: Org.Context
 initialState = mempty
