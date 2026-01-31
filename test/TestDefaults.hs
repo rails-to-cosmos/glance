@@ -1,9 +1,9 @@
 module TestDefaults (initialState, defaultHeadline, withCategory, withTodo) where
 
-import Data.Set qualified as Set
+import qualified Data.Set as Set
 
 import Data.Text (Text)
-import Data.Org qualified as Org
+import qualified Data.Org as Org
 
 defaultHeadline :: Org.Headline
 defaultHeadline = Org.Headline
@@ -13,7 +13,9 @@ defaultHeadline = Org.Headline
   , title      = Org.Title []
   , schedule   = Nothing
   , deadline   = Nothing
-  , properties = mempty          -- Empty properties
+  , properties = mempty
+  , refs       = mempty
+  , hashRefs   = mempty
   }
 
 initialState :: Org.Context

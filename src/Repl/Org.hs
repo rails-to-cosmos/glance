@@ -4,17 +4,17 @@ module Repl.Org (runRepl) where
 
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.State (StateT)
-import Control.Monad.State qualified as State
+import qualified Control.Monad.State as State
 
-import Data.Org qualified as Org
+import qualified Data.Org as Org
 import Data.Org (orgParse)
-import Data.Config qualified as Config
+import qualified Data.Config as Config
 import Data.Text (Text)
-import Data.Text qualified as Text
+import qualified Data.Text as Text
 import Data.Text.IO as TIO
 import Data.Text.Lazy.Builder ()
 import System.Console.Haskeline (InputT, getInputLine, runInputT)
-import TextShow qualified as TS
+import qualified TextShow as TS
 import UnliftIO ()
 
 type CommandProcessor = Org.Context -> Text -> ([Org.Element], Org.Context)
@@ -28,7 +28,7 @@ getInput = do
 repl :: CommandProcessor -> Repl ()
 repl fn = do
   ctx <- State.get
-  liftIO (print ctx)
+  liftIO $ TIO.putStrLn $ Org.display ctx
   input <- getInput
 
   case input of
@@ -40,6 +40,7 @@ repl fn = do
       liftIO $ do
         TIO.putStrLn $ "Repr: " <> Text.pack (show elements)
         TIO.putStrLn $ "Str: \"" <> Text.intercalate "" (map TS.showt elements) <> "\""
+        TIO.putStrLn $ "Display: " <> Text.intercalate "" (map Org.display elements)
       State.put ctx'
       repl fn
 

@@ -3,21 +3,21 @@ module Main (main) where
 import System.Environment
 import System.Exit
 
-import Data.ByteString qualified as BS
-import Data.ByteString.Char8 qualified as BSChar8
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSChar8
 import Data.Config (Config (..))
-import Data.Org qualified as Org
+import qualified Data.Org as Org
 import Data.Org (orgParse, orgParseM)
 
 import Data.Text (Text)
-import Data.Text qualified as Text
-import Data.Text.IO qualified as TIO
+import qualified Data.Text as Text
+import qualified Data.Text.IO as TIO
 
 import Repl.Org
 
 import System.Directory
 import System.FilePath
-import System.Console.Haskeline qualified as Haskeline
+import qualified System.Console.Haskeline as Haskeline
 
 defaultConfig :: IO Config
 defaultConfig = do

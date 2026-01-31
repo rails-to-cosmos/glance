@@ -1,4 +1,5 @@
 module Data.Org ( Context (..)
+                , Display (..)
                 , Element (..)
                 , Headline (..)
                 , Identity
@@ -27,36 +28,47 @@ module Data.Org ( Context (..)
 
 import Control.Monad (void, guard)
 import Control.Monad.State ( StateT, lift, runStateT )
-import Control.Monad.State qualified as State
+import qualified Control.Monad.State as State
+import qualified Crypto.Hash as Crypto
 import Data.Char (isAlpha)
 import Data.List (nub, find, sort)
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Maybe (fromMaybe)
 import Data.Set (Set)
-import Data.Set qualified as Set
+import qualified Data.Set as Set
 import Data.String (IsString(..))
 import Data.Text (Text, pack, toUpper, intercalate, replicate)
-import Data.Text qualified as Text
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import Data.Text.Lazy.Builder ()
-import Data.Text.Lazy.Builder qualified as B
-import Data.Time qualified as Time
+import qualified Data.Text.Lazy.Builder as B
+import qualified Data.Time as Time
 import Data.Typeable (Typeable)
-import Data.Typeable qualified as Typeable
+import qualified Data.Typeable as Typeable
 import Data.Void (Void)
 import Text.Megaparsec (lookAhead, try, choice, eof, manyTill, takeWhile1P, (<|>))
-import Text.Megaparsec qualified as MP
+import qualified Text.Megaparsec as MP
 import Text.Megaparsec.Char (eol, space1, space, char)
-import Text.Megaparsec.Char qualified as MPC
-import Text.Megaparsec.Char.Lexer qualified as MPL
-import TextShow (TextShow, fromText)
-import TextShow qualified
+import qualified Text.Megaparsec.Char as MPC
+import qualified Text.Megaparsec.Char.Lexer as MPL
+import TextShow (TextShow, fromText, showt, showb)
+import qualified TextShow as TS
 import UnliftIO ()
 
 import Prelude hiding (unwords, concat, replicate, concatMap)
 
+-- Config
+
+headlineIdProperty :: Text
+headlineIdProperty = "ORG_GLANCE_ID"
+
+-- Public
+
 orgParse :: Context -> Text -> ([Element], Context)
 orgParse st cmd = case MP.parse (runStateT (MP.manyTill parse MP.eof) st) "" cmd of
   Right v -> v
-  Left err  -> ([], st)  -- GToken (Token (pack (PS.errorBundlePretty err)))
+  Left _err  -> ([], st)  -- GToken (Token (pack (PS.errorBundlePretty err)))
 
 orgParseM :: Text -> ([Element], Context)
 orgParseM = orgParse mempty
@@ -67,8 +79,34 @@ orgParseM = orgParse mempty
 -- keyword :: [Char]
 -- keyword = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ "-_"
 
+newtype HashID = HashID (Crypto.Digest Crypto.SHA256)
+  deriving (Show, Eq)
+
+instance TextShow HashID where
+  showb (HashID digest) = TS.fromString (show digest)
+
+type HeadlineID = Text
+
+newtype IAS = IAS (Map HeadlineID Headline)
+  deriving (Show, Eq)
+
+instance Semigroup IAS where
+  (IAS m1) <> (IAS m2) = IAS $ Map.unionWith resolveCollision m1 m2
+    where resolveCollision _old new = new  -- LWW
+
+instance Monoid IAS where
+  mempty = IAS Map.empty
+
+type CAS = Map HashID Headline
+
+class Display a where
+  display :: a -> Text
+
 class Identity a where
-  identity :: a -> Text
+  identity :: a -> Maybe Text
+
+class Hashable a where
+  hash :: a -> HashID
 
 class Parse a where
   parse :: StatefulParser a
@@ -76,12 +114,28 @@ class Parse a where
 data Context = Context { todoActive :: !(Set Text)
                        , todoInactive :: !(Set Text)
                        , metaCategory :: !Text
-                       } deriving (Show, Eq, Typeable)
+                       , ias :: !IAS
+                       } deriving (Show, Eq)
+
+instance Display Context where
+  display Context{ias = IAS m, ..} = T.unlines
+    [ "Context"
+    , "  Category:       " <> metaCategory
+    , "  Active Todos:   " <> formatSet todoActive
+    , "  Inactive Todos: " <> formatSet todoInactive
+    , "  Headlines:      " <> showt (Map.size m) <> " items"
+    ]
+    where formatSet :: Set.Set T.Text -> T.Text
+          formatSet s
+            | Set.null s = "{}"
+            | otherwise  = "{ " <> T.intercalate ", " (Set.toList s) <> " }"
 
 instance Semigroup Context where
   (<>) a b = Context { todoActive = todoActive a <> todoActive b
                      , todoInactive = todoInactive a <> todoInactive b
                      , metaCategory = metaCategory a <> metaCategory b
+                     -- , contentAddressableStorage = contentAddressableStorage a <> contentAddressableStorage b
+                     , ias = ias a <> ias b
                      -- , metaTime = metaTime a <> metaTime b
                      }
 
@@ -89,12 +143,20 @@ instance Monoid Context where
   mempty = Context { todoActive = Set.fromList ["TODO"]
                    , todoInactive = Set.fromList ["DONE"]
                    , metaCategory = mempty
+                   -- , contentAddressableStorage = mempty
+                   , ias = mempty
                    -- , metaTime = mempty :: [UTCTime]
                    -- , metaStack = EmptyStack
                    }
 
 setCategory :: Text -> Context -> Context
 setCategory category ctx = ctx { metaCategory = category }
+
+registerHeadline :: Headline -> Context -> Context
+registerHeadline headline ctx@Context{ias = IAS m} =
+  case identity headline of
+    Nothing -> ctx  -- don't register anonymous headlines yet
+    Just k -> ctx { ias = IAS (Map.insert k headline m) }
 
 inTodo :: Text -> Context -> Bool
 inTodo todo ctx = todo `elem` getTodo ctx
@@ -116,13 +178,17 @@ data Element where Element :: ( Show a
                               , Typeable a
                               , Eq a
                               , Parse a
-                              , Identity a) => a -> Element
+                              , Identity a
+                              , Display a) => a -> Element
 
 instance Identity Element where
   identity (Element a) = identity a
 
 instance Show Element where
   show (Element a) = show a
+
+instance Display Element where
+  display (Element a) = display a
 
 instance Eq Element where
   (Element x) == (Element y) = case Typeable.cast y of
@@ -137,30 +203,69 @@ instance Parse Element where
                  , Element <$> (parse :: StatefulParser Token) ]
 
 instance TextShow Element where
-  showb (Element a) = TextShow.showb a
+  showb (Element a) = TS.showb a
 
-data Headline = Headline { indent :: !Indent
-                         , todo :: !(Maybe Todo)
-                         , priority :: !(Maybe Priority)
-                         , title :: !Title
-                         , schedule :: !(Maybe Timestamp)
-                         , deadline :: !(Maybe Timestamp)
+data Headline = Headline { indent     :: !Indent
+                         , todo       :: !(Maybe Todo)
+                         , priority   :: !(Maybe Priority)
+                         , title      :: !Title
+                         , schedule   :: !(Maybe Timestamp)
+                         , deadline   :: !(Maybe Timestamp)
                          , properties :: !Properties
+                         , refs       :: ![HeadlineID]
+                         , hashRefs   :: ![HashID]
                          } deriving (Show, Eq)
 
+instance Semigroup Headline where
+    h1 <> h2 = case (schedule h1, schedule h2) of
+        (Just t1, Just t2) | t1 > t2 -> h1
+        _                            -> h2
+
+instance Display Headline where
+  display h@Headline{..} =
+    T.unlines $ [ "Headline"
+                , kv "Indent"     (showt indent)
+                , kv "Title"      (showt title)
+                , kv "Todo"       (formatMaybe todo)
+                , kv "Priority"   (formatMaybe priority)
+                , kv "Schedule"   (formatMaybe schedule)
+                , kv "Deadline"   (formatMaybe deadline)
+                , kv "ID"         (formatMaybe (identity h))
+                , kv "Hash"       (showt (hash h))
+                , "  Properties:"
+                ]
+    ++ formatProps properties
+    ++ [ "  Refs:" ] ++ formatList refs
+    ++ [ "  HashRefs:" ] ++ formatList hashRefs
+    where kv :: Text -> Text -> Text
+          kv k v = "  " <> T.justifyLeft 12 ' ' (k <> ":") <> v
+
+          formatMaybe :: (TextShow a) => Maybe a -> Text
+          formatMaybe Nothing  = "_" -- Or "None"
+          formatMaybe (Just x) = showt x
+
+          formatList :: (TextShow a) => [a] -> [Text]
+          formatList [] = ["    (empty)"]
+          formatList xs = fmap (\x -> "    - " <> showt x) xs
+
+          formatProps :: Properties -> [Text]
+          formatProps (Properties []) = ["    (none)"]
+          formatProps (Properties ps) = [ "    " <> showt (key p) <> " = " <> showt (val p) | p <- ps ]
+
 instance Identity Headline where
-  identity Headline {..} = case getProperty "ID" properties of
-    Nothing -> TextShow.showt title
-    Just (Property _ v) -> TextShow.showt v
+  identity Headline {..} = getProperty headlineIdProperty properties
+
+instance Hashable Headline where
+  hash Headline {..} = HashID $ Crypto.hash $ TE.encodeUtf8 $ TS.showt title
 
 instance TextShow Headline where
   showb Headline {..} =
     showSpaced indent
     <> foldMap showSpaced todo
     <> foldMap showSpaced priority
-    <> TextShow.showb title
-    where showSpaced :: TextShow a => a -> TextShow.Builder
-          showSpaced = (<> TextShow.showbSpace) . TextShow.showb
+    <> TS.showb title
+    where showSpaced :: TextShow a => a -> TS.Builder
+          showSpaced = (<> TS.showbSpace) . TS.showb
 
 instance Parse Headline where
   parse = do
@@ -171,18 +276,21 @@ instance Parse Headline where
     -- schedule' <- optional $ try (string "SCHEDULED:" *> space *> (parse :: StatefulParser Timestamp))
     -- deadline' <- optional $ try (string "DEADLINE:" *> space *> (parse :: StatefulParser Timestamp))
     properties' <- MP.option (mempty :: Properties) (MP.try (MPC.eol *> parse :: StatefulParser Properties))
-
     _newline <- parse :: StatefulParser Separator
-
     -- _id <- State.lift (liftIO (randomIO :: IO UUID))
 
     let headline = Headline { indent = indent'
                             , todo = todo'
                             , priority = priority'
                             , title = title'
+                            , properties = properties'
                             , schedule = Nothing -- schedule'
                             , deadline = Nothing -- deadline'
-                            , properties = properties' }
+                            , refs = []
+                            , hashRefs = []
+                            }
+
+    State.modify $ registerHeadline headline
 
     return headline
 
@@ -201,13 +309,13 @@ instance Parse Indent where
     return $ Indent (length stars)
 
 instance TextShow Indent where
-  showb (Indent indent) = TextShow.fromText (replicate indent "*")
+  showb (Indent indent) = TS.fromText (replicate indent "*")
 
 newtype Keyword = Keyword Text
   deriving (Show, Eq)
 
 instance TextShow Keyword where
-  showb (Keyword k) = TextShow.fromText k
+  showb (Keyword k) = TS.fromText k
 
 instance Parse Keyword where
   parse = do
@@ -220,9 +328,9 @@ data Pragma = Pragma !Keyword !Text
   deriving (Show, Eq)
 
 instance Identity Pragma where
-  identity (Pragma keyword text) = intercalate "-" [TextShow.showt keyword, text]
-  identity (PTodo active inactive) = intercalate "-" (sort (Set.toList (active <> inactive)))
-  identity (PCategory category) = TextShow.showt category
+  identity (Pragma keyword text) = Just $ intercalate "-" [TS.showt keyword, text]
+  identity (PTodo active inactive) = Just $ intercalate "-" (sort (Set.toList (active <> inactive)))
+  identity (PCategory category) = Just $ TS.showt category
 
 instance Parse Pragma where
   parse = do
@@ -238,7 +346,7 @@ instance Parse Pragma where
     case key of
       Keyword "CATEGORY" -> do
         category <- parse :: StatefulParser Sentence
-        State.modify $ setCategory (TextShow.showt category)
+        State.modify $ setCategory (TS.showt category)
         return $ PCategory category
       Keyword "TODO" -> do
         pragmaActive <- Set.fromList <$> todoList
@@ -252,15 +360,18 @@ instance Parse Pragma where
         return $ Pragma key value
 
 instance TextShow Pragma where
-  showb (Pragma k v) = "#+" <> TextShow.showb k <> ": " <> TextShow.fromText v
-  showb (PTodo active inactive) = "#+TODO:" <> TextShow.showbSpace <> TextShow.fromText (Text.unwords (Set.toList active)) <> " | " <> TextShow.fromText (Text.unwords (Set.toList inactive))
-  showb (PCategory category) = "#+CATEGORY:" <> TextShow.showbSpace <> TextShow.showb category
+  showb (Pragma k v) = "#+" <> TS.showb k <> ": " <> TS.fromText v
+  showb (PTodo active inactive) = "#+TODO:" <> TS.showbSpace <> TS.fromText (T.unwords (Set.toList active)) <> " | " <> TS.fromText (T.unwords (Set.toList inactive))
+  showb (PCategory category) = "#+CATEGORY:" <> TS.showbSpace <> TS.showb category
+
+instance Display Pragma where
+  display = showt
 
 newtype Priority = Priority Char
   deriving (Show, Eq)
 
 instance TextShow Priority where
-  showb (Priority priority) = "[#" <> B.singleton priority <> "]" <> TextShow.showbSpace
+  showb (Priority priority) = "[#" <> B.singleton priority <> "]" <> TS.showbSpace
 
 instance Parse Priority where
   parse = do
@@ -277,7 +388,7 @@ instance Parse Property where
     value <- parse :: StatefulParser Sentence
 
     case keyword of
-      Keyword "CATEGORY" -> State.modify $ setCategory $ TextShow.showt value
+      Keyword "CATEGORY" -> State.modify $ setCategory $ TS.showt value
       _keyword -> State.modify id
 
     return $ Property keyword value
@@ -285,7 +396,7 @@ instance Parse Property where
           reserved (Keyword k) = k `elem` ["PROPERTIES", "END"]
 
 instance TextShow Property where
-  showb (Property {..}) = ":" <> TextShow.showb key <> ": " <> TextShow.showb val
+  showb (Property {..}) = ":" <> TS.showb key <> ": " <> TS.showb val
 
 newtype Properties = Properties [Property]
   deriving (Show, Eq)
@@ -303,10 +414,12 @@ instance Parse Properties where
     return (Properties properties)
 
 instance TextShow Properties where
-  showb (Properties ps) = ":PROPERTIES:\n" <> TextShow.showb ps <> ":END:\n"
+  showb (Properties ps) = ":PROPERTIES:\n" <> TS.showb ps <> ":END:\n"
 
-getProperty :: Text -> Properties -> Maybe Property
-getProperty k (Properties props) = find (\p -> key p == Keyword k) props
+getProperty :: Text -> Properties -> Maybe Text
+getProperty k (Properties props) = case find (\p -> key p == Keyword k) props of
+    Nothing -> Nothing
+    Just (Property _ v) -> Just (TS.showt v)
 
 data SentenceElement = ElToken !Token
                      | ElSeparator !Separator
@@ -314,9 +427,9 @@ data SentenceElement = ElToken !Token
   deriving (Show, Eq)
 
 instance TextShow SentenceElement where
-  showb (ElToken t) = TextShow.showb t
-  showb (ElSeparator t) = TextShow.showb t
-  showb (ElTimestamp t) = TextShow.showb t
+  showb (ElToken t) = TS.showb t
+  showb (ElSeparator t) = TS.showb t
+  showb (ElTimestamp t) = TS.showb t
 
 instance Parse SentenceElement where
   parse = parseTry ElSeparator
@@ -335,7 +448,7 @@ instance Semigroup Sentence where
 
 instance TextShow Sentence where
   showb (Sentence []) = ""
-  showb (Sentence (x:xs)) = TextShow.showb x <> TextShow.showb (Sentence xs)
+  showb (Sentence (x:xs)) = TS.showb x <> TS.showb (Sentence xs)
 
 instance Parse Sentence where
   parse = do
@@ -347,9 +460,9 @@ data Separator = SPC | EOL | EOF
   deriving (Show, Eq)
 
 instance Identity Separator where
-  identity SPC = "SPC"
-  identity EOL = "EOL"
-  identity EOF = "EOF"
+  identity SPC = Just "SPC"
+  identity EOL = Just "EOL"
+  identity EOF = Just "EOF"
 
 instance Parse Separator where
   parse = choice [ EOF <$ eof
@@ -360,6 +473,9 @@ instance TextShow Separator where
   showb SPC = " "
   showb EOL = "\n"
   showb EOF = ""
+
+instance Display Separator where
+  display = showt
 
 type Tag = Text
 
@@ -392,46 +508,51 @@ data Timestamp = Timestamp { tsStatus :: !TimestampStatus
                            , tsTime :: !Time.UTCTime
                            } deriving (Show, Eq)
 
+instance Ord Timestamp where
+  compare a b = compare (tsTime a) (tsTime b)
+
 instance Identity Timestamp where
-  identity = TextShow.showt
+  identity = Just . TS.showt
 
 instance TextShow Timestamp where
   showb ts = openBracket
-    <> TextShow.fromText timeText
-    <> TextShow.fromText repeaterSeparator
-    <> TextShow.fromText repeaterText
+    <> TS.fromText timeText
+    <> TS.fromText repeaterSeparator
+    <> TS.fromText repeaterText
     <> closeBracket
 
-    where
-      openBracket = case tsStatus ts of
-        TimestampActive -> "<"
-        TimestampInactive -> "["
-      closeBracket = case tsStatus ts of
-        TimestampActive -> ">"
-        TimestampInactive -> "]"
-      timeText = tsFormat (tsTime ts)
-      repeaterTypeText = case tsInterval ts of
-        Nothing -> ""
-        Just TimestampRepeaterInterval { repeaterType = Restart } -> ""
-        Just TimestampRepeaterInterval { repeaterType = Cumulative } -> "."
-        Just TimestampRepeaterInterval { repeaterType = CatchUp } -> "+"
-      repeaterSignText = case tsInterval ts of
-        Nothing -> ""
-        Just TimestampRepeaterInterval { repeaterSign = TRSPlus } -> "+"
-        Just TimestampRepeaterInterval { repeaterSign = TRSMinus } -> "-"
-      repeaterUnitText = case tsInterval ts of
-        Nothing -> ""
-        Just TimestampRepeaterInterval { repeaterUnit = Days } -> "d"
-        Just TimestampRepeaterInterval { repeaterUnit = Weeks } -> "w"
-        Just TimestampRepeaterInterval { repeaterUnit = Months } -> "m"
-        Just TimestampRepeaterInterval { repeaterUnit = Years } -> "y"
-      repeaterValText = case tsInterval ts of
-        Nothing -> ""
-        Just TimestampRepeaterInterval { repeaterValue = val } -> TextShow.showt val
-      repeaterText = repeaterTypeText <> repeaterSignText <> repeaterValText <> repeaterUnitText
-      repeaterSeparator = case repeaterText of
-        "" -> ""
-        _repeater -> " "
+    where openBracket = case tsStatus ts of
+            TimestampActive -> "<"
+            TimestampInactive -> "["
+          closeBracket = case tsStatus ts of
+            TimestampActive -> ">"
+            TimestampInactive -> "]"
+          timeText = tsFormat (tsTime ts)
+          repeaterTypeText = case tsInterval ts of
+            Nothing -> ""
+            Just TimestampRepeaterInterval { repeaterType = Restart } -> ""
+            Just TimestampRepeaterInterval { repeaterType = Cumulative } -> "."
+            Just TimestampRepeaterInterval { repeaterType = CatchUp } -> "+"
+          repeaterSignText = case tsInterval ts of
+            Nothing -> ""
+            Just TimestampRepeaterInterval { repeaterSign = TRSPlus } -> "+"
+            Just TimestampRepeaterInterval { repeaterSign = TRSMinus } -> "-"
+          repeaterUnitText = case tsInterval ts of
+            Nothing -> ""
+            Just TimestampRepeaterInterval { repeaterUnit = Days } -> "d"
+            Just TimestampRepeaterInterval { repeaterUnit = Weeks } -> "w"
+            Just TimestampRepeaterInterval { repeaterUnit = Months } -> "m"
+            Just TimestampRepeaterInterval { repeaterUnit = Years } -> "y"
+          repeaterValText = case tsInterval ts of
+            Nothing -> ""
+            Just TimestampRepeaterInterval { repeaterValue = val } -> TS.showt val
+          repeaterText = repeaterTypeText <> repeaterSignText <> repeaterValText <> repeaterUnitText
+          repeaterSeparator = case repeaterText of
+            "" -> ""
+            _repeater -> " "
+
+instance Display Timestamp where
+  display = showt
 
 instance Parse Timestamp where
   parse = do
@@ -544,22 +665,22 @@ tsRepeaterParser = do
 data TitleElement where
   TitleElement :: (Show a, TextShow a, Typeable a, Eq a, Parse a) => a -> TitleElement
 
-instance Show TitleElement where
-  show (TitleElement a) = show a
-
-instance TextShow TitleElement where
-  showb (TitleElement a) = TextShow.showb a
-
-instance Eq TitleElement where
-    (TitleElement a) == (TitleElement b) = case Typeable.cast b of
-        Just b' -> a == b'
-        Nothing -> False
-
 instance Parse TitleElement where
   parse = MP.choice [ MP.try (TitleElement <$> (parse :: StatefulParser Separator))
                     , MP.try (TitleElement <$> (parse :: StatefulParser Timestamp))
                     , MP.try (TitleElement <$> (parse :: StatefulParser Tags))
                     , TitleElement <$> (parse :: StatefulParser Token) ]
+
+instance Show TitleElement where
+  show (TitleElement a) = show a
+
+instance TextShow TitleElement where
+  showb (TitleElement a) = TS.showb a
+
+instance Eq TitleElement where
+    (TitleElement a) == (TitleElement b) = case Typeable.cast b of
+        Just b' -> a == b'
+        Nothing -> False
 
 newtype Title = Title [TitleElement]
   deriving (Show, Eq)
@@ -572,14 +693,13 @@ instance Monoid Title where
 
 instance TextShow Title where
   showb (Title []) = ""
-  showb (Title (x:xs)) = TextShow.showb x <> TextShow.showb (Title xs)
+  showb (Title (x:xs)) = TS.showb x <> TS.showb (Title xs)
 
 instance Parse Title where
   parse = do
     let stop = MP.choice [ void MPC.eol, MP.eof ]
     elems <- MP.manyTill (parse :: StatefulParser TitleElement) (MP.lookAhead stop)
     return (Title elems)
-
 
 -- Todo
 
@@ -596,7 +716,7 @@ instance Parse Todo where
                 }
 
 instance TextShow Todo where
-  showb a = TextShow.fromText (name a)
+  showb a = TS.fromText (name a)
 
 
 -- Token
@@ -614,10 +734,13 @@ instance Monoid Token where
   mempty = Token (mempty :: Text)
 
 instance Identity Token where
-  identity (Token token) = TextShow.showt token
+  identity = Just . TS.showt
 
 instance TextShow Token where
-  showb (Token a) = TextShow.fromText a
+  showb (Token a) = TS.fromText a
+
+instance Display Token where
+  display = showt
 
 instance Parse Token where
   parse = do

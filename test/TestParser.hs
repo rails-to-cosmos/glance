@@ -1,13 +1,13 @@
 module TestParser (orgModeParserUnitTests) where
 
 import Data.Org
-import Data.Org qualified as Org
+import qualified Data.Org as Org
 
 import Data.Text (Text, intercalate, unpack)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertEqual, testCase)
 import TestDefaults
-import Data.Set qualified as Set
+import qualified Data.Set as Set
 import Data.Time (UTCTime, parseTimeOrError, defaultTimeLocale)
 
 strptime :: Text -> UTCTime

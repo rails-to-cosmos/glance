@@ -1,12 +1,12 @@
 module TestRepr (orgElementReprUnitTests) where
 
 import Data.Org
-import Data.Org qualified as Org
+import qualified Data.Org as Org
 import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertEqual, testCase)
 import TestDefaults
-import TextShow qualified as TS
+import qualified TextShow as TS
 
 data TestCase = TestCase { description :: !String
                          , element :: !Org.Element
