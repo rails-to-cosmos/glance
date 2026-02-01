@@ -1,4 +1,4 @@
-module TestRepr (orgElementReprUnitTests) where
+module TestRepresentation (orgElementReprUnitTests) where
 
 import Data.Org
 import qualified Data.Org as Org
@@ -13,22 +13,22 @@ data TestCase = TestCase { description :: !String
                          , representation :: !Text }
 
 testCases :: [TestCase]
-testCases = [ TestCase { description = "Org-mode headline representation"
+testCases = [ TestCase { description = "Headline"
                        , element = Org.Element defaultHeadline { indent = Indent 1
                                                                , todo = Nothing
-                                                               , title = Title [ TitleToken "Hello,"
-                                                                               , TitleSeparator SPC
-                                                                               , TitleToken "world!"
-                                                                               , TitleSeparator SPC
-                                                                               , TitleTags (Tags ["greetings"])
+                                                               , title = Title [ OrgLineToken "Hello,"
+                                                                               , OrgLineSeparator SPC
+                                                                               , OrgLineToken "world!"
+                                                                               , OrgLineSeparator SPC
                                                                                ]
+                                                               , tags = Tags ["greetings"]
                                                                }
                        , representation = "* Hello, world! :greetings:" }
 
-            , TestCase { description = "Todo state representation"
+            , TestCase { description = "TODO"
                        , element = Org.Element defaultHeadline { indent = Indent 1
                                                                , todo = Just (Todo {name = "TODO", active = True})
-                                                               , title = Title [ TitleToken "foo" ]}
+                                                               , title = Title [ OrgLineToken "foo" ]}
                        , representation = "* TODO foo" } ]
 
 assertOne :: TestCase -> TestTree
@@ -38,4 +38,4 @@ assertAll :: [TestTree]
 assertAll = map assertOne testCases
 
 orgElementReprUnitTests :: TestTree
-orgElementReprUnitTests = testGroup "Org-mode elements representations" assertAll
+orgElementReprUnitTests = testGroup "Representation" assertAll

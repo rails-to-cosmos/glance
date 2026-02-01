@@ -22,79 +22,72 @@ data TestCase = TestCase { description :: !String
                          , expected :: !Result }
 
 testCases :: [TestCase]
-testCases = [ TestCase { description = "Parse headline with tags"
-                       , inputs = ["* Hello world :a:b:c:"]
-                       , expected = Result { elements = [ Org.Element defaultHeadline { title = Title [ TitleToken "Hello"
-                                                                                                      , TitleSeparator SPC
-                                                                                                      , TitleToken "world"
-                                                                                                      , TitleSeparator SPC
-                                                                                                      , TitleTags (Tags ["a", "b", "c"])
-                                                                                                      ]
-                                                                                      }]
-                                           , context = initialState }}
-
-            , TestCase { description = "Parse headline with corrupted tag string"
-                       , inputs = ["* Hello world :a:b:c"]
-                       , expected = Result { elements = [ Org.Element defaultHeadline { title = Title [ TitleToken "Hello"
-                                                                                                      , TitleSeparator SPC
-                                                                                                      , TitleToken "world"
-                                                                                                      , TitleSeparator SPC
-                                                                                                      , TitleToken ":a:b:c" ]}]
-                                           , context = initialState }}
-
-            , TestCase { description = "Parse property block"
-                       , inputs = [ "* Hello"
-                                  , ":PROPERTIES:"
-                                  , ":TITLE: New title"
-                                  , ":END:" ]
-                       , expected = Result { elements = [ Org.Element defaultHeadline { title = Title [ TitleToken "Hello" ]
-                                                                                      , properties = Properties [Property (Keyword "TITLE") (Sentence [ SentenceToken "New"
-                                                                                                                                                      , SentenceSeparator SPC
-                                                                                                                                                      , SentenceToken "title" ])]}]
-                                           , context = initialState }}
-
-            , TestCase { description = "Parse drawer"
-                       , inputs = [":DRAWER:"]
-                       , expected = Result { elements = [Org.Element (Token ":DRAWER:")]
-                                           , context = initialState }}
-
-            , TestCase { description = "Category pragma affects context"
-                       , inputs = ["#+CATEGORY: foo bar"]
-                       , expected = Result { elements = [Org.Element (PCategory (Sentence [ SentenceToken "foo"
-                                                                                          , SentenceSeparator SPC
-                                                                                          , SentenceToken "bar" ]))]
-                                           , context = initialState `withCategory` "foo bar" }}
-
-            , TestCase { description = "Category property affects context"
-                       , inputs = [ "* Hello"
-                                  , ":PROPERTIES:"
-                                  , ":CATEGORY: Updated category"
-                                  , ":END:" ]
-                       , expected = Result { elements = [ Org.Element defaultHeadline { title = Title [TitleToken "Hello"]
-                                                                                      , properties = Properties [Property (Keyword "CATEGORY") (Sentence [ SentenceToken "Updated"
-                                                                                                                                                         , SentenceSeparator SPC
-                                                                                                                                                         , SentenceToken "category"])]}]
-                                           , context = initialState `withCategory` "Updated category"}}
-
-            , TestCase { description = "Parse complete headline"
+testCases = [ TestCase { description = "Headline"
                        , inputs = ["** TODO [#A] Hello :a:b:c:"]
                        , expected = Result { elements = [ Org.Element defaultHeadline { indent = Indent 2
                                                                                       , todo = Just (Todo { name = "TODO", active = True})
                                                                                       , priority = Just (Priority 'A')
-                                                                                      , title = Title [ TitleToken "Hello"
-                                                                                                      , TitleSeparator SPC
-                                                                                                      , TitleTags (Tags ["a", "b", "c"])]}]
+                                                                                      , title = Title [OrgLineToken "Hello"]
+                                                                                      , tags = Tags ["a", "b", "c"]
+                                                                                      }]
                                            , context = initialState }}
 
-            , TestCase { description = "Parse headline with custom todo state"
+
+            , TestCase { description = "Corrupted tags"
+                       , inputs = ["* Hello world :a:b:c"]
+                       , expected = Result { elements = [ Org.Element defaultHeadline { title = Title [ OrgLineToken "Hello"
+                                                                                                      , OrgLineSeparator SPC
+                                                                                                      , OrgLineToken "world"
+                                                                                                      , OrgLineSeparator SPC
+                                                                                                      , OrgLineToken ":a:b:c" ]}]
+                                           , context = initialState }}
+
+            , TestCase { description = "Property block"
+                       , inputs = [ "* Hello"
+                                  , ":PROPERTIES:"
+                                  , ":TITLE: New title"
+                                  , ":END:" ]
+                       , expected = Result { elements = [ Org.Element defaultHeadline { title = Title [OrgLineToken "Hello"]
+                                                                                      , properties = Properties [Property (
+                                                                                                                    Keyword "TITLE") (
+                                                                                                                    OrgLine [ OrgLineToken "New"
+                                                                                                                            , OrgLineSeparator SPC
+                                                                                                                            , OrgLineToken "title"
+                                                                                                                            ])]}]
+                                           , context = initialState }}
+
+            , TestCase { description = "Drawer"
+                       , inputs = [":DRAWER:"]
+                       , expected = Result { elements = [Org.Element (Token ":DRAWER:")]
+                                           , context = initialState }}
+
+            , TestCase { description = "Category pragma"
+                       , inputs = ["#+CATEGORY: foo bar"]
+                       , expected = Result { elements = [Org.Element (PCategory (OrgLine [ OrgLineToken "foo"
+                                                                                         , OrgLineSeparator SPC
+                                                                                         , OrgLineToken "bar" ]))]
+                                           , context = initialState `withCategory` "foo bar" }}
+
+            , TestCase { description = "Category property"
+                       , inputs = [ "* Hello"
+                                  , ":PROPERTIES:"
+                                  , ":CATEGORY: Updated category"
+                                  , ":END:" ]
+                       , expected = Result { elements = [ Org.Element defaultHeadline { title = Title [OrgLineToken "Hello"]
+                                                                                      , properties = Properties [Property (Keyword "CATEGORY") (OrgLine [ OrgLineToken "Updated"
+                                                                                                                                                        , OrgLineSeparator SPC
+                                                                                                                                                        , OrgLineToken "category"])]}]
+                                           , context = initialState `withCategory` "Updated category"}}
+
+            , TestCase { description = "TODO pragma"
                        , inputs = [ "#+TODO: TODO | CANCELLED"
                                   , "* CANCELLED Mess" ]
                        , expected = Result { elements = [ Org.Element (PTodo (Set.fromList ["TODO"]) (Set.fromList ["CANCELLED"]))
                                                         , Org.Element (defaultHeadline { todo = Just (Todo { name = "CANCELLED", active = False })
-                                                                                       , title = Title [TitleToken "Mess"] })]
+                                                                                       , title = Title [OrgLineToken "Mess"] })]
                                            , context = initialState `withTodo` (["TODO"], ["DONE", "CANCELLED"]) }}
 
-            , TestCase { description = "No inactive todo states"
+            , TestCase { description = "TODO pragma (active only)"
                        , inputs = ["#+TODO: foo"]
                        , expected = Result { elements = [ Org.Element (PTodo (Set.fromList ["FOO"]) (Set.fromList [])) ]
                                            , context = initialState `withTodo` (["TODO", "FOO"], ["DONE"])}}
@@ -110,25 +103,25 @@ testCases = [ TestCase { description = "Parse headline with tags"
             --                                       , context = initialState { todoActive = Set.fromList ["TODO"]
             --                                                                  , todoInactive = Set.fromList ["DONE"] }}}
 
-            , TestCase { description = "Multiline parsing"
+            , TestCase { description = "Multiline"
                        , inputs = [ "* foo"
                                   , "* bar" ]
-                       , expected = Result { elements = [ Org.Element (defaultHeadline {title = Title [TitleToken "foo"]})
-                                                        , Org.Element (defaultHeadline {title = Title [TitleToken "bar"]}) ]
+                       , expected = Result { elements = [ Org.Element (defaultHeadline {title = Title [OrgLineToken "foo"]})
+                                                        , Org.Element (defaultHeadline {title = Title [OrgLineToken "bar"]}) ]
                                            , context = initialState }}
 
-            , TestCase { description = "Empty text parsing"
+            , TestCase { description = "Empty text"
                        , inputs = [""]
                        , expected = Result { elements = []
                                            , context = initialState }}
 
-            , TestCase { description = "Restrict infinite parsing of eol / eof"
+            , TestCase { description = "EOL / EOF"
                        , inputs = ["", "", ""]
                        , expected = Result { elements = [ Org.Element EOL
                                                         , Org.Element EOL ]
                                            , context = initialState }}
 
-            , TestCase { description = "Parse timestamps"
+            , TestCase { description = "Timestamp"
                        , inputs = [ "<2024-01-01>"
                                   , "<2024-01-01 Mon>" ]
                        , expected = Result { elements = [ Org.Element Timestamp {tsStatus = TimestampActive, tsInterval = Nothing, tsTime = strptime "2024-01-01 00:00:00"}
@@ -146,7 +139,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
             --                                                                           , schedule = Just Timestamp { tsStatus = TimestampActive
             --                                                                                                , tsInterval = Nothing
             --                                                                                                , tsTime = strptime "2024-04-28 00:00:00" }
-            --                                                                           , properties = Properties [Property (Keyword "CATEGORY") (Sentence [(SToken (Token "bar"))])]})]
+            --                                                                           , properties = Properties [Property (Keyword "CATEGORY") (OrgLine [(SToken (Token "bar"))])]})]
             --                                , context = initialState { metaCategory = "bar" }}}
 
             -- , TestCase { description = "Parse links"
@@ -335,7 +328,7 @@ testCases = [ TestCase { description = "Parse headline with tags"
             --     }
 
 orgModeParserUnitTests :: TestTree
-orgModeParserUnitTests = testGroup "Org-mode parser spec" assertMany
+orgModeParserUnitTests = testGroup "Parser" assertMany
   where assert tc = testCase (description tc) $ assertEqual [] (expected tc) (result tc)
         result tc = case orgParseM (intercalate "\n" (inputs tc)) of
           (headlines, _context) -> Result headlines _context

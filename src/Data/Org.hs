@@ -9,14 +9,13 @@ module Data.Org ( Context (..)
                 , Priority (..)
                 , Properties (..)
                 , Property (..)
-                , Sentence (..)
-                , SentenceElement (..)
+                , OrgLine (..)
+                , OrgLineElement (..)
                 , Separator (..)
                 , Tags (..)
                 , Timestamp (..)
                 , TimestampStatus (..)
                 , Title (..)
-                , TitleElement (..)
                 , Todo (..)
                 , Token (..)
                 , setCategory
@@ -31,7 +30,7 @@ import Control.Monad.State ( StateT, lift, runStateT )
 import qualified Control.Monad.State as State
 import qualified Crypto.Hash as Crypto
 import Data.Char (isAlpha)
-import Data.List (nub, find, sort)
+import Data.List (nub, find, sort, dropWhileEnd)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (fromMaybe)
@@ -49,10 +48,12 @@ import qualified Data.Typeable as Typeable
 import Data.Void (Void)
 import Text.Megaparsec (lookAhead, try, choice, eof, manyTill, takeWhile1P, (<|>), many)
 import qualified Text.Megaparsec as MP
+import Text.Megaparsec (eof, option, try, optional, some)
 import Text.Megaparsec.Char (eol, space1, space, char)
 import qualified Text.Megaparsec.Char as MPC
+import qualified Text.Megaparsec.Char (eol)
 import qualified Text.Megaparsec.Char.Lexer as MPL
-import TextShow (TextShow, fromText, showt, showb)
+import TextShow (TextShow, fromText, showt, showb, showbSpace, Builder)
 import qualified TextShow as TS
 import UnliftIO ()
 
@@ -84,10 +85,16 @@ orgParseM = orgParse mempty
 via :: (Parse a) => (a -> b) -> StatefulParser b
 via el = try (el <$> parse)
 
-asContainer :: (Parse element) => ([element] -> container) -> StatefulParser container
-asContainer con = do
+asLine :: (Parse element) => ([element] -> container) -> StatefulParser container
+asLine con = do
     let stop = void eol <|> eof
     con <$> manyTill parse (lookAhead stop)
+
+asLineNoTags :: (Parse element) => (element -> Bool) -> ([element] -> container) -> StatefulParser container
+asLineNoTags isSep con = do
+    let stop = void eol <|> void (parse :: StatefulParser Tags) <|> eof
+    elems <- manyTill parse (lookAhead stop)
+    return $ con (dropWhileEnd isSep elems)
 
 -- Types
 
@@ -217,12 +224,42 @@ instance Parse Element where
 instance TextShow Element where
   showb (Element a) = TS.showb a
 
-data RefKind = CHILD_OF | PARENT_OF | CustomRef Text
-  deriving (Show, Eq)
+data RefKind
+    -- Hierarchy (Vertical)
+    = CHILD_OF
+    | PARENT_OF
+
+    -- Sequence (Horizontal)
+    | NEXT_SIBLING_OF    -- Useful for ordered tasks/steps
+    | PREV_SIBLING_OF
+
+    -- Dependencies (Blocking)
+    | BLOCKS             -- This headline blocks another (Org dependency)
+    | BLOCKED_BY         -- This headline is waiting on another
+
+    -- Knowledge Graph (Network)
+    | RELATED_TO         -- See also / Zettelkasten connection
+    | CITES              -- Bibliographic reference
+
+    -- Special
+    | CustomRef Text     -- User-defined property (e.g., "DELEGATED_TO")
+    deriving (Show, Eq, Ord) -- Added Ord for stable sorting
 
 instance TextShow RefKind where
   showb (CustomRef t) = fromText t
   showb x             = fromString (show x)
+
+instance IsString RefKind where
+  fromString s = case s of
+    "child of"        -> CHILD_OF
+    "parent of"       -> PARENT_OF
+    "next sibling of" -> NEXT_SIBLING_OF
+    "prev sibling of" -> PREV_SIBLING_OF
+    "blocks"          -> BLOCKS
+    "blocked by"      -> BLOCKED_BY
+    "related to"      -> RELATED_TO
+    "cites"           -> CITES
+    _                 -> CustomRef (T.pack s)
 
 data Ref = Ref { kind :: RefKind
                , headlineId :: HeadlineID
@@ -232,10 +269,14 @@ data Ref = Ref { kind :: RefKind
 instance TextShow Ref where
   showb Ref {..} = TS.showb kind <> TS.showb headlineId
 
+-- instance Parse Ref where
+--   parse = do
+
 data Headline = Headline { indent     :: !Indent
                          , todo       :: !(Maybe Todo)
                          , priority   :: !(Maybe Priority)
                          , title      :: !Title
+                         , tags       :: !Tags
                          , schedule   :: !(Maybe Timestamp)
                          , deadline   :: !(Maybe Timestamp)
                          , properties :: !Properties
@@ -253,6 +294,7 @@ instance Monoid Headline where
                     , todo       = Nothing
                     , priority   = Nothing
                     , title      = Title []
+                    , tags       = Tags []
                     , schedule   = Nothing
                     , deadline   = Nothing
                     , properties = mempty
@@ -302,19 +344,20 @@ instance TextShow Headline where
     showSpaced indent
     <> foldMap showSpaced todo
     <> foldMap showSpaced priority
-    <> TS.showb title
-    where showSpaced :: TextShow a => a -> TS.Builder
-          showSpaced = (<> TS.showbSpace) . TS.showb
+    <> showb title
+    where showSpaced :: TextShow a => a -> Builder
+          showSpaced = (<> showbSpace) . showb
 
 instance Parse Headline where
   parse = do
-    indent' <- parse :: StatefulParser Indent
-    todo' <- MP.optional (MP.try parse :: StatefulParser Todo)
-    priority' <- MP.optional (MP.try parse :: StatefulParser Priority)
-    title' <- parse :: StatefulParser Title
+    indent' <- parse
+    todo' <- optional (try parse)
+    priority' <- optional (try parse)
+    title' <- parse
+    tags' <- option mempty parse
     -- schedule' <- optional $ try (string "SCHEDULED:" *> space *> (parse :: StatefulParser Timestamp))
     -- deadline' <- optional $ try (string "DEADLINE:" *> space *> (parse :: StatefulParser Timestamp))
-    properties' <- MP.option (mempty :: Properties) (MP.try (MPC.eol *> parse :: StatefulParser Properties))
+    properties' <- option mempty (try (eol *> parse))
     _newline <- parse :: StatefulParser Separator
     -- _id <- State.lift (liftIO (randomIO :: IO UUID))
 
@@ -322,6 +365,7 @@ instance Parse Headline where
                             , todo = todo'
                             , priority = priority'
                             , title = title'
+                            , tags = tags'
                             , properties = properties'
                             , schedule = Nothing -- schedule'
                             , deadline = Nothing -- deadline'
@@ -358,24 +402,24 @@ instance TextShow Keyword where
 
 instance Parse Keyword where
   parse = do
-    let keyword = MP.some (MP.satisfy (\c -> isAlpha c || c == '_'))
+    let keyword = some (MP.satisfy (\c -> isAlpha c || c == '_'))
     Keyword . toUpper . pack <$> keyword
 
 data Pragma = Pragma !Keyword !Text
             | PTodo !(Set.Set Text) !(Set.Set Text)
-            | PCategory !Sentence
+            | PCategory !OrgLine
   deriving (Show, Eq)
 
 instance Identity Pragma where
-  identity (Pragma keyword text) = Just $ intercalate "-" [TS.showt keyword, text]
+  identity (Pragma keyword text) = Just $ intercalate "-" [showt keyword, text]
   identity (PTodo active inactive) = Just $ intercalate "-" (sort (Set.toList (active <> inactive)))
-  identity (PCategory category) = Just $ TS.showt category
+  identity (PCategory category) = Just $ showt category
 
 instance Parse Pragma where
   parse = do
     let keyword = parse :: StatefulParser Keyword
-        todoList = MP.some (todo <* MPC.space)
-        doneList = MP.option [] (MPC.char '|' *> MPC.space *> todoList)
+        todoList = some (todo <* space)
+        doneList = option [] (char '|' *> space *> todoList)
         todoShort = pack <$> MP.between (MPC.char '(') (MPC.char ')') (MP.many (MP.noneOf ['(', ')', '\n']))
         todo = do
           Keyword result <- keyword <* MP.skipMany todoShort
@@ -384,7 +428,7 @@ instance Parse Pragma where
     key <- MPC.string "#+" *> keyword <* MPC.string ":" <* MPC.space
     case key of
       Keyword "CATEGORY" -> do
-        category <- parse :: StatefulParser Sentence
+        category <- parse :: StatefulParser OrgLine
         State.modify $ setCategory (TS.showt category)
         return $ PCategory category
       Keyword "TODO" -> do
@@ -417,14 +461,14 @@ instance Parse Priority where
     priority <- MPC.char '[' *> MPC.char '#' *> MPC.letterChar <* MPC.char ']' <* MPC.space
     return (Priority priority)
 
-data Property = Property { key :: !Keyword, val :: !Sentence }
+data Property = Property { key :: !Keyword, val :: !OrgLine }
   deriving (Show, Eq)
 
 instance Parse Property where
   parse = do
     keyword <- MPC.char ':' *> (parse :: StatefulParser Keyword) <* MPC.char ':' <* MPC.space
     guard $ not (reserved keyword)
-    value <- parse :: StatefulParser Sentence
+    value <- parse :: StatefulParser OrgLine
 
     case keyword of
       Keyword "CATEGORY" -> State.modify $ setCategory $ TS.showt value
@@ -460,36 +504,36 @@ getProperty k (Properties props) = case find (\p -> key p == Keyword k) props of
     Nothing -> Nothing
     Just (Property _ v) -> Just (TS.showt v)
 
-data SentenceElement = SentenceToken !Token
-                     | SentenceSeparator !Separator
-                     | SentenceTimestamp !Timestamp
+data OrgLineElement = OrgLineToken !Token
+                     | OrgLineSeparator !Separator
+                     | OrgLineTimestamp !Timestamp
   deriving (Show, Eq)
 
-instance Parse SentenceElement where
-  parse = via SentenceSeparator
-    <|> via SentenceTimestamp
-    <|> (SentenceToken <$> parse)
+instance Parse OrgLineElement where
+  parse = via OrgLineSeparator
+    <|> via OrgLineTimestamp
+    <|> (OrgLineToken <$> parse)
 
-instance TextShow SentenceElement where
-  showb (SentenceToken t) = TS.showb t
-  showb (SentenceSeparator t) = TS.showb t
-  showb (SentenceTimestamp t) = TS.showb t
+instance TextShow OrgLineElement where
+  showb (OrgLineToken t) = TS.showb t
+  showb (OrgLineSeparator t) = TS.showb t
+  showb (OrgLineTimestamp t) = TS.showb t
 
-newtype Sentence = Sentence [SentenceElement]
+newtype OrgLine = OrgLine [OrgLineElement]
   deriving (Show, Eq)
 
-instance Semigroup Sentence where
-  (<>) (Sentence a) (Sentence b) = Sentence (a <> b)
+instance Semigroup OrgLine where
+  (<>) (OrgLine a) (OrgLine b) = OrgLine (a <> b)
 
-instance Monoid Sentence where
-  mempty = Sentence []
+instance Monoid OrgLine where
+  mempty = OrgLine []
 
-instance TextShow Sentence where
-  showb (Sentence []) = ""
-  showb (Sentence (x:xs)) = TS.showb x <> TS.showb (Sentence xs)
+instance TextShow OrgLine where
+  showb (OrgLine []) = ""
+  showb (OrgLine (x:xs)) = TS.showb x <> TS.showb (OrgLine xs)
 
-instance Parse Sentence where
-  parse = asContainer Sentence
+instance Parse OrgLine where
+  parse = asLine OrgLine
 
 data Separator = SPC | EOL | EOF
   deriving (Show, Eq)
@@ -695,25 +739,7 @@ tsRepeaterParser = do
 
 -- Title
 
-data TitleElement = TitleToken !Token
-                  | TitleSeparator !Separator
-                  | TitleTimestamp !Timestamp
-                  | TitleTags !Tags
-  deriving (Show, Eq)
-
-instance Parse TitleElement where
-  parse = via TitleSeparator
-    <|> via TitleTimestamp
-    <|> via TitleTags
-    <|> (TitleToken <$> parse)
-
-instance TextShow TitleElement where
-  showb (TitleSeparator t) = TS.showb t
-  showb (TitleTimestamp t) = TS.showb t
-  showb (TitleTags t) = TS.showb t
-  showb (TitleToken t) = TS.showb t
-
-newtype Title = Title [TitleElement]
+newtype Title = Title [OrgLineElement]
   deriving (Show, Eq)
 
 instance Semigroup Title where
@@ -727,7 +753,10 @@ instance TextShow Title where
   showb (Title (x:xs)) = TS.showb x <> TS.showb (Title xs)
 
 instance Parse Title where
-  parse = asContainer Title
+  parse = asLineNoTags isSep Title
+    where isSep :: OrgLineElement -> Bool
+          isSep (OrgLineSeparator _) = True
+          isSep _                    = False
 
 -- Todo
 

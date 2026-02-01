@@ -114,7 +114,7 @@ test-suite glance-test
   other-modules:
       TestDefaults
       TestParser
-      TestRepr
+      TestRepresentation
       Paths_glance
   hs-source-dirs:
       test
