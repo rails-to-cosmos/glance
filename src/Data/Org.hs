@@ -48,7 +48,7 @@ import qualified Data.Typeable as Typeable
 import Data.Void (Void)
 import Text.Megaparsec (lookAhead, try, choice, eof, manyTill, takeWhile1P, (<|>), many)
 import qualified Text.Megaparsec as MP
-import Text.Megaparsec (eof, option, try, optional, some)
+import Text.Megaparsec (eof, option, try, optional, some, anySingle)
 import Text.Megaparsec.Char (eol, space1, space, char)
 import qualified Text.Megaparsec.Char as MPC
 import qualified Text.Megaparsec.Char (eol)
@@ -93,6 +93,16 @@ asLine con = do
 asLineNoTags :: (Parse element) => (element -> Bool) -> ([element] -> container) -> StatefulParser container
 asLineNoTags isSep con = do
     let stop = void eol <|> void (parse :: StatefulParser Tags) <|> eof
+    elems <- manyTill parse (lookAhead stop)
+    return $ con (dropWhileEnd isSep elems)
+
+asLineUntil :: (Parse element)
+            => (element -> Bool)          -- ^ Predicate: What counts as a separator?
+            -> ([element] -> container)   -- ^ Constructor: Wraps the list
+            -> StatefulParser end         -- ^ The Stop Condition (e.g., Tags parser)
+            -> StatefulParser container
+asLineUntil isSep con endParser = do
+    let stop = void eol <|> void endParser <|> eof
     elems <- manyTill parse (lookAhead stop)
     return $ con (dropWhileEnd isSep elems)
 
@@ -354,7 +364,7 @@ instance Parse Headline where
     todo' <- optional (try parse)
     priority' <- optional (try parse)
     title' <- parse
-    tags' <- option mempty parse
+    tags' <- option mempty (try parse)
     -- schedule' <- optional $ try (string "SCHEDULED:" *> space *> (parse :: StatefulParser Timestamp))
     -- deadline' <- optional $ try (string "DEADLINE:" *> space *> (parse :: StatefulParser Timestamp))
     properties' <- option mempty (try (eol *> parse))
@@ -571,7 +581,7 @@ instance Monoid Tags where
 
 instance Parse Tags where
   parse = do
-    let stop = lookAhead $ try $ choice [void eol, eof]
+    let stop = lookAhead (void eol <|> eof)
     Tags <$> lift (char ':' *> manyTill tag stop)
     where tag :: StatelessParser Text
           tag = takeWhile1P (Just "tag character") (`elem` keyword) <* char ':'
@@ -753,10 +763,10 @@ instance TextShow Title where
   showb (Title (x:xs)) = TS.showb x <> TS.showb (Title xs)
 
 instance Parse Title where
-  parse = asLineNoTags isSep Title
-    where isSep :: OrgLineElement -> Bool
-          isSep (OrgLineSeparator _) = True
-          isSep _                    = False
+  parse = asLineUntil isSep Title (parse :: StatefulParser Tags)
+  where isSep :: OrgLineElement -> Bool
+        isSep (OrgLineSeparator _) = True
+        isSep _                    = False
 
 -- Todo
 
@@ -800,6 +810,6 @@ instance Display Token where
 
 instance Parse Token where
   parse = do
-    let stop = MP.lookAhead (MP.choice [MPC.space1, void MPC.eol, MP.eof])
-        word = MP.manyTill MP.anySingle stop
+    let stop = lookAhead (space1 <|> void eol <|> eof)
+        word = manyTill anySingle stop
     Token <$> fmap pack word
