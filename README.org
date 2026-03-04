@@ -1,0 +1,125 @@
+* Glance — Repository Overview
+
+** Summary
+
+*Glance* is an experimental /stateful org-mode parser/ written in *Haskell*. Its goal is to explore org-mode parsing combined with database interactions, providing a system for managing, querying, and relating org-mode content.
+
+- *Author:* Dmitry Akatov
+- *Version:* =0.1.0.0=
+- *License:* BSD3
+- *Upstream:* https://github.com/rails-to-cosmos/glance
+
+** Directory Structure
+
+#+begin_src
+glance/
+├── app/
+│   ├── Main.hs          ← CLI entry point
+│   └── Demo.hs          ← Demo executable
+├── src/
+│   ├── Data/
+│   │   ├── Org.hs       ← Core parser & data types (816 lines)
+│   │   └── Config.hs    ← Haskeline config
+│   ├── Persist/
+│   │   └── Org.hs       ← SQLite persistence layer
+│   └── Repl/
+│       └── Org.hs       ← Interactive REPL
+├── test/
+│   ├── Spec.hs
+│   ├── TestParser.hs
+│   └── TestRepresentation.hs
+├── package.yaml          ← ← you are here (line 7)
+├── glance.cabal
+├── glance.org            ← Project roadmap (in org-mode!)
+└── README.md
+#+end_src
+
+** Core Architecture
+
+*** ~Data.Org~ — Parser & Data Model
+
+The heart of the project. Key design patterns:
+
+- *Type class-based parsing* via a ~Parse~ typeclass — extensible grammar
+- *Stateful parser monad*: ~StateT Context (Parsec Text)~ to track active TODO keywords, categories, and an /Indexed Article Store/ (IAS) across parses
+- *Existential types* (~Element~) for heterogeneous collections of parsed nodes
+- *Content-addressable storage* using SHA256 hashes (~HashID~) for headlines
+
+Key types:
+
+#+begin_src haskell
+-- Stateful parse with context threading
+orgParse :: Context -> Text -> ([Element], Context)
+
+-- The REPL monad stack
+type Repl a = StateT Org.Context (InputT IO) a
+#+end_src
+
+*** ~Persist.Org~ — SQLite Storage
+
+Uses ~persistent-template~ (Template Haskell) to define and migrate a ~PersistentHeadline~ schema backed by SQLite.
+
+*** ~Repl.Org~ — Interactive REPL
+
+A Haskeline-powered REPL that:
+- Accepts raw org-mode text interactively
+- Accumulates parser context across inputs
+- Shows ~Show~, ~TextShow~, and /display/ representations simultaneously
+- Exits on ~:q~, ~exit~, or ~quit~
+
+*** ~Main.hs~ — CLI
+
+- *No argument* → starts the REPL
+- *File argument* → parses the file, displays resulting ~Context~, then drops into the REPL
+- History stored in =~/.config/glance/.history=
+
+** Key Dependencies
+
+| Category | Libraries |
+|---|---|
+| Parsing | ~megaparsec~, ~text~ |
+| State/Monads | ~mtl~, ~unliftio~, ~monad-logger~ |
+| Persistence | ~persistent~, ~persistent-sqlite~, ~resource-pool~ |
+| Graph | ~fgl~ (functional graph library) |
+| REPL | ~haskeline~ |
+| Identity | ~uuid~, ~random~ |
+| Testing | ~tasty~, ~tasty-hunit~ |
+
+** Org-Mode Features Supported
+
+- Multi-level headlines (~*~, ~**~, ~***~ …)
+- TODO/DONE states with *dynamic keyword registration* via ~#+TODO:~ pragma
+- Priorities (~[#A]~, ~[#B]~, ~[#C]~)
+- Tags (~:tag1:tag2:~)
+- ~:PROPERTIES: ... :END:~ blocks
+- Active ~<YYYY-MM-DD>~ and inactive ~[YYYY-MM-DD]~ timestamps with repeater intervals
+- ~#+CATEGORY:~ pragma
+
+** Reference / Graph System
+
+Supports typed relationships between headlines:
+
+#+begin_src haskell
+data RefKind
+  = CHILD_OF | PARENT_OF         -- hierarchy
+  | NEXT_SIBLING_OF | PREV_SIBLING_OF  -- sequence
+  | BLOCKS | BLOCKED_BY          -- dependencies
+  | RELATED_TO | CITES           -- knowledge graph
+  | ...
+#+end_src
+
+** Development Status
+
+The project roadmap (tracked in =glance.org= itself!) shows *16 of 23 parser tasks* complete. Remaining work includes:
+
+- [ ] Comment & link parsing
+- [ ] Table parsing
+- [ ] Pretty printing
+- [ ] CRUD operations on the DB
+- [ ] Emacs / browser integration
+- [ ] Full graph-based relation inheritance
+
+** Verdict
+
+This is a well-architected *research/experimental project* at an early stage (~v0.1.0.0~). It demonstrates sophisticated Haskell idioms (GADTs, monad transformers, existential types, TH-generated DB schemas) applied to the interesting problem of treating org-mode files as a *queryable, graph-structured database*.
+# --- [session: 0b6019bc-9704-43eb-81c6-404d94905880 | cost: $0.1680413 | model: sonnet] ---

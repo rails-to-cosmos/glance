@@ -4,7 +4,7 @@ github:              "rails-to-cosmos/glance"
 license:             BSD3
 author:              "Dmitry Akatov"
 maintainer:          "dmitry.akatov@protonmail.com"
-copyright:           "Dmitry Akatov"
+copyright:           "Dmitry Akatov" # [*llm:glance* : done]
 
 extra-source-files:
   - README.md
