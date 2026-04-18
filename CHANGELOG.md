@@ -1,4 +1,4 @@
-# Changelog for `glance-stack`
+# Changelog for `glance`
 
 All notable changes to this project will be documented in this file.
 

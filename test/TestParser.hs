@@ -1,4 +1,4 @@
-module TestParser (orgModeParserUnitTests) where
+module TestParser (spec) where
 
 import Data.Org
 import qualified Data.Org as Org
@@ -36,9 +36,7 @@ testCases = [ TestCase { description = "Headline"
             , TestCase { description = "Corrupted tags"
                        , inputs = ["* Hello world :a:b:c"]
                        , expected = Result { elements = [ Org.Element defaultHeadline { title = Title [ OrgLineToken "Hello"
-                                                                                                      , OrgLineSeparator SPC
                                                                                                       , OrgLineToken "world"
-                                                                                                      , OrgLineSeparator SPC
                                                                                                       , OrgLineToken ":a:b:c" ]}]
                                            , context = initialState }}
 
@@ -51,7 +49,6 @@ testCases = [ TestCase { description = "Headline"
                                                                                       , properties = Properties [Property (
                                                                                                                     Keyword "TITLE") (
                                                                                                                     OrgLine [ OrgLineToken "New"
-                                                                                                                            , OrgLineSeparator SPC
                                                                                                                             , OrgLineToken "title"
                                                                                                                             ])]}]
                                            , context = initialState }}
@@ -64,7 +61,6 @@ testCases = [ TestCase { description = "Headline"
             , TestCase { description = "Category pragma"
                        , inputs = ["#+CATEGORY: foo bar"]
                        , expected = Result { elements = [Org.Element (PCategory (OrgLine [ OrgLineToken "foo"
-                                                                                         , OrgLineSeparator SPC
                                                                                          , OrgLineToken "bar" ]))]
                                            , context = initialState `withCategory` "foo bar" }}
 
@@ -75,7 +71,6 @@ testCases = [ TestCase { description = "Headline"
                                   , ":END:" ]
                        , expected = Result { elements = [ Org.Element defaultHeadline { title = Title [OrgLineToken "Hello"]
                                                                                       , properties = Properties [Property (Keyword "CATEGORY") (OrgLine [ OrgLineToken "Updated"
-                                                                                                                                                        , OrgLineSeparator SPC
                                                                                                                                                         , OrgLineToken "category"])]}]
                                            , context = initialState `withCategory` "Updated category"}}
 
@@ -115,17 +110,10 @@ testCases = [ TestCase { description = "Headline"
                        , expected = Result { elements = []
                                            , context = initialState }}
 
-            , TestCase { description = "EOL / EOF"
-                       , inputs = ["", "", ""]
-                       , expected = Result { elements = [ Org.Element EOL
-                                                        , Org.Element EOL ]
-                                           , context = initialState }}
-
             , TestCase { description = "Timestamp"
                        , inputs = [ "<2024-01-01>"
                                   , "<2024-01-01 Mon>" ]
                        , expected = Result { elements = [ Org.Element Timestamp {tsStatus = TimestampActive, tsInterval = Nothing, tsTime = strptime "2024-01-01 00:00:00"}
-                                                        , Org.Element EOL
                                                         , Org.Element Timestamp {tsStatus = TimestampActive, tsInterval = Nothing, tsTime = strptime "2024-01-01 00:00:00"}]
                                            , context = initialState }}
 
@@ -327,9 +315,9 @@ testCases = [ TestCase { description = "Headline"
             --           }
             --     }
 
-orgModeParserUnitTests :: TestTree
-orgModeParserUnitTests = testGroup "Parser" assertMany
+spec :: TestTree
+spec = testGroup "Parser" assertMany
   where assert tc = testCase (description tc) $ assertEqual [] (expected tc) (result tc)
-        result tc = case orgParseM (intercalate "\n" (inputs tc)) of
-          (headlines, _context) -> Result headlines _context
+        result tc = case orgParse mempty (intercalate "\n" (inputs tc)) of
+          (headlines, context, maybeError) -> Result headlines context
         assertMany = map assert testCases

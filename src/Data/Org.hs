@@ -11,33 +11,33 @@ module Data.Org ( Context (..)
                 , Property (..)
                 , OrgLine (..)
                 , OrgLineElement (..)
-                , Separator (..)
                 , Tags (..)
                 , Timestamp (..)
                 , TimestampStatus (..)
                 , Title (..)
                 , Todo (..)
                 , Token (..)
+                , OrgParser
+                , OrgParserResult
                 , setCategory
                 , inTodo
                 , getTodo
                 , setTodo
-                , orgParse
-                , orgParseM) where
+                , orgParse) where
 
 import Control.Monad (void, guard)
 import Control.Monad.State ( StateT, lift, runStateT )
 import qualified Control.Monad.State as State
 import qualified Crypto.Hash as Crypto
-import Data.Char (isAlpha)
+import Data.Char (isAlpha, isAlphaNum, isSpace)
 import Data.List (nub, find, sort, dropWhileEnd)
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, maybeToList)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.String (IsString(..))
-import Data.Text (Text, pack, toUpper, intercalate, replicate)
+import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Text.Lazy.Builder ()
@@ -46,18 +46,17 @@ import qualified Data.Time as Time
 import Data.Typeable (Typeable)
 import qualified Data.Typeable as Typeable
 import Data.Void (Void)
-import Text.Megaparsec (lookAhead, try, choice, eof, manyTill, takeWhile1P, (<|>), many)
+import Text.Megaparsec (lookAhead, try, choice, eof, manyTill, takeWhile1P, (<|>), many, ParseErrorBundle)
 import qualified Text.Megaparsec as MP
-import Text.Megaparsec (eof, option, try, optional, some, anySingle)
+import Text.Megaparsec (option, optional, some, )
 import Text.Megaparsec.Char (eol, space1, space, char)
 import qualified Text.Megaparsec.Char as MPC
-import qualified Text.Megaparsec.Char (eol)
 import qualified Text.Megaparsec.Char.Lexer as MPL
 import TextShow (TextShow, fromText, showt, showb, showbSpace, Builder)
 import qualified TextShow as TS
 import UnliftIO ()
 
-import Prelude hiding (unwords, concat, replicate, concatMap)
+import Prelude hiding (unwords, concat, concatMap)
 
 -- Config
 
@@ -66,45 +65,42 @@ headlineIdProperty = "ORG_GLANCE_ID"
 
 -- Public
 
-orgParse :: Context -> Text -> ([Element], Context)
-orgParse st cmd = case MP.parse (runStateT (MP.manyTill parse MP.eof) st) "" cmd of
-  Right v -> v
-  Left _err  -> ([], st)  -- GToken (Token (pack (PS.errorBundlePretty err)))
+orgParse :: OrgParser
+orgParse st cmd = case MP.parse sfParser "" cmd of
+  Right (elems, finalSt) -> (elems, finalSt, Nothing)
+  Left err               -> ([], st, Just err)
+  where sfParser = parser.runStateT st
+        parser = do
+          _ <- space
+          elems <- parse `MP.sepEndBy` space1
+          _ <- space <* eof
+          return elems
 
-orgParseM :: Text -> ([Element], Context)
-orgParseM = orgParse mempty
+-- Base types
 
--- tag :: StatelessParser Text
--- tag = MP.takeWhile1P (Just "tag character") (`elem` keyword) <* MPC.char ':'
-
--- keyword :: [Char]
--- keyword = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ "-_"
+type OrgParser = Context -> Text -> OrgParserResult
+type OrgParserResult = ([Element], Context, Maybe (ParseErrorBundle Text Void))
+type StatefulParser a = StateT Context StatelessParser a
+type StatelessParser = MP.Parsec Void Text
 
 -- Helpers
 
 via :: (Parse a) => (a -> b) -> StatefulParser b
 via el = try (el <$> parse)
 
-asLine :: (Parse element) => ([element] -> container) -> StatefulParser container
-asLine con = do
+parseContainer :: (Parse element) => ([element] -> container) -> StatefulParser container
+parseContainer con = do
     let stop = void eol <|> eof
     con <$> manyTill parse (lookAhead stop)
 
-asLineNoTags :: (Parse element) => (element -> Bool) -> ([element] -> container) -> StatefulParser container
-asLineNoTags isSep con = do
-    let stop = void eol <|> void (parse :: StatefulParser Tags) <|> eof
-    elems <- manyTill parse (lookAhead stop)
-    return $ con (dropWhileEnd isSep elems)
-
-asLineUntil :: (Parse element)
-            => (element -> Bool)          -- ^ Predicate: What counts as a separator?
-            -> ([element] -> container)   -- ^ Constructor: Wraps the list
+parseContainerUntil :: (Parse element)
+            => ([element] -> container)
             -> StatefulParser end         -- ^ The Stop Condition (e.g., Tags parser)
             -> StatefulParser container
-asLineUntil isSep con endParser = do
+parseContainerUntil con endParser = do
     let stop = void eol <|> void endParser <|> eof
     elems <- manyTill parse (lookAhead stop)
-    return $ con (dropWhileEnd isSep elems)
+    return $ con elems
 
 -- Types
 
@@ -126,7 +122,7 @@ instance Semigroup IAS where
 instance Monoid IAS where
   mempty = IAS Map.empty
 
-type CAS = Map HashID Headline
+type ContentAddressableStorage = Map HashID Headline
 
 class Display a where
   display :: a -> Text
@@ -150,12 +146,12 @@ instance Display Context where
   display Context{ias = IAS m, ..} = T.unlines
     [ "Context"
     , "  Category:       " <> metaCategory
-    , "  Active Todos:   " <> formatSet todoActive
-    , "  Inactive Todos: " <> formatSet todoInactive
+    , "  Active Todos:   " <> fset todoActive
+    , "  Inactive Todos: " <> fset todoInactive
     , "  Headlines:      " <> showt (Map.size m) <> " items"
     ]
-    where formatSet :: Set.Set T.Text -> T.Text
-          formatSet s
+    where fset :: Set.Set T.Text -> T.Text
+          fset s
             | Set.null s = "{}"
             | otherwise  = "{ " <> T.intercalate ", " (Set.toList s) <> " }"
 
@@ -198,10 +194,6 @@ setTodo active inactive Context{..} =
   Context{..} { todoActive = todoActive <> active
               , todoInactive = todoInactive <> inactive }
 
-type StatelessParser = MP.Parsec Void Text
-
-type StatefulParser a = StateT Context StatelessParser a
-
 data Element where Element :: ( Show a
                               , TextShow a
                               , Typeable a
@@ -225,11 +217,12 @@ instance Eq Element where
     Nothing -> False
 
 instance Parse Element where
-  parse = choice [ try (Element <$> (parse :: StatefulParser Separator))
-                 , try (Element <$> (parse :: StatefulParser Headline))
-                 , try (Element <$> (parse :: StatefulParser Pragma))
-                 , try (Element <$> (parse :: StatefulParser Timestamp))
-                 , Element <$> (parse :: StatefulParser Token) ]
+  parse = choice
+    [ try (Element <$> (parse :: StatefulParser Headline))
+    , try (Element <$> (parse :: StatefulParser Pragma))
+    , try (Element <$> (parse :: StatefulParser Timestamp))
+    , Element <$> (parse :: StatefulParser Token)
+    ]
 
 instance TextShow Element where
   showb (Element a) = TS.showb a
@@ -318,6 +311,7 @@ instance Display Headline where
                 , kv "Indent"     (showt indent)
                 , kv "Title"      (showt title)
                 , kv "Todo"       (formatMaybe todo)
+                , kv "Tags"       (showt tags)
                 , kv "Priority"   (formatMaybe priority)
                 , kv "Schedule"   (formatMaybe schedule)
                 , kv "Deadline"   (formatMaybe deadline)
@@ -350,26 +344,27 @@ instance Hashable Headline where
   hash Headline {..} = HashID $ Crypto.hash $ TE.encodeUtf8 $ TS.showt title
 
 instance TextShow Headline where
-  showb Headline {..} =
-    showSpaced indent
-    <> foldMap showSpaced todo
-    <> foldMap showSpaced priority
+  showb Headline{..} =
+       showb indent
+    <> showbSpace
+    <> maybe mempty spaced todo
+    <> maybe mempty spaced priority
     <> showb title
-    where showSpaced :: TextShow a => a -> Builder
-          showSpaced = (<> showbSpace) . showb
+    <> if tags == mempty then mempty else showbSpace
+    <> showb tags
+    where spaced :: TextShow a => a -> Builder
+          spaced = (<> showbSpace) . showb
 
 instance Parse Headline where
   parse = do
     indent' <- parse
-    todo' <- optional (try parse)
-    priority' <- optional (try parse)
+    todo' <- optional $ try parse
+    priority' <- optional $ try parse
     title' <- parse
-    tags' <- option mempty (try parse)
+    tags' <- option mempty $ try parse
     -- schedule' <- optional $ try (string "SCHEDULED:" *> space *> (parse :: StatefulParser Timestamp))
     -- deadline' <- optional $ try (string "DEADLINE:" *> space *> (parse :: StatefulParser Timestamp))
-    properties' <- option mempty (try (eol *> parse))
-    _newline <- parse :: StatefulParser Separator
-    -- _id <- State.lift (liftIO (randomIO :: IO UUID))
+    properties' <- option mempty $ try parse
 
     let headline = Headline { indent = indent'
                             , todo = todo'
@@ -402,7 +397,7 @@ instance Parse Indent where
     return $ Indent (length stars)
 
 instance TextShow Indent where
-  showb (Indent indent) = TS.fromText (replicate indent "*")
+  showb (Indent indent) = TS.fromText (T.replicate indent "*")
 
 newtype Keyword = Keyword Text
   deriving (Show, Eq)
@@ -413,47 +408,80 @@ instance TextShow Keyword where
 instance Parse Keyword where
   parse = do
     let keyword = some (MP.satisfy (\c -> isAlpha c || c == '_'))
-    Keyword . toUpper . pack <$> keyword
+    Keyword . T.toUpper . T.pack <$> keyword
 
-data Pragma = Pragma !Keyword !Text
+data Pragma = Pragma !Keyword !OrgLine
             | PTodo !(Set.Set Text) !(Set.Set Text)
             | PCategory !OrgLine
   deriving (Show, Eq)
 
 instance Identity Pragma where
-  identity (Pragma keyword text) = Just $ intercalate "-" [showt keyword, text]
-  identity (PTodo active inactive) = Just $ intercalate "-" (sort (Set.toList (active <> inactive)))
+  identity (Pragma k v) = Just $ T.intercalate "-" [showt k, showt v]
+  identity (PTodo active inactive) = Just $ T.intercalate "-" (sort (Set.toList (active <> inactive)))
   identity (PCategory category) = Just $ showt category
 
 instance Parse Pragma where
   parse = do
-    let keyword = parse :: StatefulParser Keyword
-        todoList = some (todo <* space)
-        doneList = option [] (char '|' *> space *> todoList)
-        todoShort = pack <$> MP.between (MPC.char '(') (MPC.char ')') (MP.many (MP.noneOf ['(', ')', '\n']))
-        todo = do
-          Keyword result <- keyword <* MP.skipMany todoShort
-          return result
+    key@(Keyword kText) <- MPC.string "#+" *> parse <* MPC.char ':' <* MPC.space
 
-    key <- MPC.string "#+" *> keyword <* MPC.string ":" <* MPC.space
-    case key of
-      Keyword "CATEGORY" -> do
-        category <- parse :: StatefulParser OrgLine
-        State.modify $ setCategory (TS.showt category)
-        return $ PCategory category
-      Keyword "TODO" -> do
-        pragmaActive <- Set.fromList <$> todoList
-        pragmaInactive <- Set.fromList <$> doneList
+    case kText of
+      "CATEGORY" -> do
+        cat <- parse :: StatefulParser OrgLine
+        State.modify $ setCategory (TS.showt cat)
+        return $ PCategory cat
 
-        State.modify (setTodo pragmaActive pragmaInactive)
+      "TODO" -> do
+        -- Helper: Parses "TODO(t)" and returns "TODO"
+        let todoKw = do
+              Keyword k <- parse
+              -- Efficiently skip fast-access keys like (t)
+              void $ optional (MPC.char '(' *> MP.takeWhileP Nothing (/= ')') *> MPC.char ')')
+              return k
 
-        return $ PTodo pragmaActive pragmaInactive
-      _keyword -> do
-        Token value <- parse :: StatefulParser Token
-        return $ Pragma key value
+        -- Parse: TODO items ... | DONE items ...
+        active   <- todoKw `MP.sepEndBy` MPC.hspace1
+        inactive <- MP.option [] $ do
+                      void $ MPC.char '|' <* MPC.hspace
+                      todoKw `MP.sepEndBy` MPC.hspace1
+
+        let (sActive, sInactive) = (Set.fromList active, Set.fromList inactive)
+        State.modify (setTodo sActive sInactive)
+        return $ PTodo sActive sInactive
+
+      _ -> do
+        -- Fallback: Parse the rest of the line as value
+        val <- parse :: StatefulParser OrgLine
+        return $ Pragma key val -- Assumes Pragma takes OrgLine, change if it takes Token
+
+-- instance Parse Pragma where
+--   parse = do
+--     let keyword = parse :: StatefulParser Keyword
+--         todoList = some (todo <* space)
+--         doneList = option [] (char '|' *> space *> todoList)
+--         todoShort = T.pack <$> MP.between (MPC.char '(') (MPC.char ')') (MP.many (MP.noneOf ['(', ')', '\n']))
+--         todo = do
+--           Keyword result <- keyword <* MP.skipMany todoShort
+--           return result
+
+--     key <- MPC.string "#+" *> keyword <* MPC.string ":" <* MPC.space
+--     case key of
+--       Keyword "CATEGORY" -> do
+--         category <- parse :: StatefulParser OrgLine
+--         State.modify $ setCategory (TS.showt category)
+--         return $ PCategory category
+--       Keyword "TODO" -> do
+--         pragmaActive <- Set.fromList <$> todoList
+--         pragmaInactive <- Set.fromList <$> doneList
+
+--         State.modify (setTodo pragmaActive pragmaInactive)
+
+--         return $ PTodo pragmaActive pragmaInactive
+--       _keyword -> do
+--         Token value <- parse :: StatefulParser Token
+--         return $ Pragma key value
 
 instance TextShow Pragma where
-  showb (Pragma k v) = "#+" <> TS.showb k <> ": " <> TS.fromText v
+  showb (Pragma k v) = "#+" <> TS.showb k <> ": " <> TS.showb v
   showb (PTodo active inactive) = "#+TODO:" <> TS.showbSpace <> TS.fromText (T.unwords (Set.toList active)) <> " | " <> TS.fromText (T.unwords (Set.toList inactive))
   showb (PCategory category) = "#+CATEGORY:" <> TS.showbSpace <> TS.showb category
 
@@ -502,7 +530,7 @@ instance Monoid Properties where
 
 instance Parse Properties where
   parse = do
-    _ <- MPC.string ":PROPERTIES:" <* MPC.eol
+    MPC.eol <* MPC.string ":PROPERTIES:" <* MPC.eol
     properties <- MP.manyTill ((parse :: StatefulParser Property) <* MPC.eol) (MPC.string ":END:")
     return (Properties properties)
 
@@ -515,18 +543,15 @@ getProperty k (Properties props) = case find (\p -> key p == Keyword k) props of
     Just (Property _ v) -> Just (TS.showt v)
 
 data OrgLineElement = OrgLineToken !Token
-                     | OrgLineSeparator !Separator
-                     | OrgLineTimestamp !Timestamp
+                    | OrgLineTimestamp !Timestamp
   deriving (Show, Eq)
 
 instance Parse OrgLineElement where
-  parse = via OrgLineSeparator
-    <|> via OrgLineTimestamp
+  parse = via OrgLineTimestamp
     <|> (OrgLineToken <$> parse)
 
 instance TextShow OrgLineElement where
   showb (OrgLineToken t) = TS.showb t
-  showb (OrgLineSeparator t) = TS.showb t
   showb (OrgLineTimestamp t) = TS.showb t
 
 newtype OrgLine = OrgLine [OrgLineElement]
@@ -543,26 +568,7 @@ instance TextShow OrgLine where
   showb (OrgLine (x:xs)) = TS.showb x <> TS.showb (OrgLine xs)
 
 instance Parse OrgLine where
-  parse = asLine OrgLine
-
-data Separator = SPC | EOL | EOF
-  deriving (Show, Eq)
-
-instance Identity Separator where
-  identity = Just . showt
-
-instance Parse Separator where
-  parse = choice [ EOF <$ eof
-                 , EOL <$ eol
-                 , SPC <$ space1 <* space ]
-
-instance TextShow Separator where
-  showb SPC = " "
-  showb EOL = "\n"
-  showb EOF = ""
-
-instance Display Separator where
-  display = showt
+  parse = parseContainer OrgLine
 
 type Tag = Text
 
@@ -571,22 +577,21 @@ newtype Tags = Tags [Tag]
 
 instance TextShow Tags where
   showb (Tags []) = fromText ""
-  showb (Tags tags) = fromText ":" <> fromText (intercalate ":" tags) <> fromText ":"
+  showb (Tags tags) = fromText $ ":" <> T.intercalate ":" tags <> ":"
 
 instance Semigroup Tags where
-  (<>) (Tags a) (Tags b) = Tags (nub a <> b)
+  (<>) (Tags a) (Tags b) = Tags (nub (a <> b))
 
 instance Monoid Tags where
-  mempty = Tags []
+  mempty = Tags mempty
 
 instance Parse Tags where
   parse = do
-    let stop = lookAhead (void eol <|> eof)
-    Tags <$> lift (char ':' *> manyTill tag stop)
-    where tag :: StatelessParser Text
-          tag = takeWhile1P (Just "tag character") (`elem` keyword) <* char ':'
-          keyword :: [Char]
-          keyword = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ "-_"
+    _ <- space
+    _ <- char ':'
+    Tags <$> many tag
+    where tag = takeWhile1P (Just "tag") isTagChar <* char ':'
+          isTagChar c = isAlphaNum c || c == '_' || c == '-' || c == '@' || c == '#'
 
 -- Timestamp
 
@@ -679,7 +684,7 @@ data TimestampUnit = Days | Weeks | Months | Years
   deriving (Show, Eq)
 
 tsFormat :: Time.UTCTime -> Text
-tsFormat ts = pack (Time.formatTime Time.defaultTimeLocale timeFormat ts)
+tsFormat ts = T.pack (Time.formatTime Time.defaultTimeLocale timeFormat ts)
   where timeFormat = if (seconds::Integer) `mod` 60 == 0
                      then "%Y-%m-%d %a %H:%M"
                      else "%Y-%m-%d %a %H:%M:%S"
@@ -721,7 +726,7 @@ tsWeekdayParser :: StatelessParser Text
 tsWeekdayParser = do
   weekday <- MP.count 3 MPC.letterChar
   MPC.space
-  return (pack weekday)
+  return (T.pack weekday)
 
 tsRepeaterParser :: StatelessParser TimestampRepeaterInterval
 tsRepeaterParser = do
@@ -759,14 +764,11 @@ instance Monoid Title where
   mempty = Title []
 
 instance TextShow Title where
-  showb (Title []) = ""
-  showb (Title (x:xs)) = TS.showb x <> TS.showb (Title xs)
+  showb (Title xs) = foldMap showb xs
 
 instance Parse Title where
-  parse = asLineUntil isSep Title (parse :: StatefulParser Tags)
-  where isSep :: OrgLineElement -> Bool
-        isSep (OrgLineSeparator _) = True
-        isSep _                    = False
+  parse = parseContainerUntil Title stop
+    where stop = parse :: StatefulParser Tags
 
 -- Todo
 
@@ -791,7 +793,7 @@ newtype Token = Token Text
   deriving (Show, Eq)
 
 instance IsString Token where
-  fromString s = Token (pack s)
+  fromString s = Token (T.pack s)
 
 instance Semigroup Token where
   (<>) (Token a) (Token b) = Token (a <> b)
@@ -809,7 +811,4 @@ instance Display Token where
   display = showt
 
 instance Parse Token where
-  parse = do
-    let stop = lookAhead (space1 <|> void eol <|> eof)
-        word = manyTill anySingle stop
-    Token <$> fmap pack word
+  parse = Token <$> takeWhile1P (Just "token") (not . isSpace)

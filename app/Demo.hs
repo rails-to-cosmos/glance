@@ -5,7 +5,7 @@ module Main where
 import System.Environment (getArgs)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import Data.Org (orgParseM, display)
+import Data.Org (orgParse, display)
 
 main :: IO ()
 main = do
@@ -13,6 +13,6 @@ main = do
     case args of
         (inputString:_) -> do
             let txt = T.pack inputString
-            TIO.putStrLn $ display $ head $ fst $ orgParseM txt
+            TIO.putStrLn $ display $ head $ fst $ orgParse mempty txt
 
         [] -> putStrLn "Please provide an Org-mode string as an argument"

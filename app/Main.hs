@@ -7,11 +7,12 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSChar8
 import Data.Config (Config (..))
 import qualified Data.Org as Org
-import Data.Org (orgParse, orgParseM)
+import Data.Org (orgParse)
 
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TIO
+import Text.Megaparsec (errorBundlePretty)
 
 import Repl.Org
 
@@ -56,9 +57,12 @@ parse (filename:_) = do
   config <- defaultConfig
   content <- Text.pack . BSChar8.unpack <$> BS.readFile filename
 
-  let (_elements, context) = orgParseM content
+  let (_elements, context, maybeErr) = orgParse mempty content
 
-  greetings [["Additional context provided:", Text.pack filename]]
+  greetings [ ["Additional context provided:", Text.pack filename]]
+
+  case maybeErr of
+    Just err -> TIO.putStrLn $ Text.pack (errorBundlePretty err)
 
   runRepl config context orgParse
   exitSuccess

@@ -17,9 +17,7 @@ testCases = [ TestCase { description = "Headline"
                        , element = Org.Element defaultHeadline { indent = Indent 1
                                                                , todo = Nothing
                                                                , title = Title [ OrgLineToken "Hello,"
-                                                                               , OrgLineSeparator SPC
                                                                                , OrgLineToken "world!"
-                                                                               , OrgLineSeparator SPC
                                                                                ]
                                                                , tags = Tags ["greetings"]
                                                                }
