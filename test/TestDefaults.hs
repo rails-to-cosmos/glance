@@ -6,7 +6,7 @@ import Data.Text (Text)
 import qualified Data.Org as Org
 
 defaultHeadline :: Org.Headline
-defaultHeadline = mempty
+defaultHeadline = Org.defaultHeadline
 
 initialState :: Org.Context
 initialState = mempty

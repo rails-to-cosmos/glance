@@ -13,6 +13,9 @@ main = do
     case args of
         (inputString:_) -> do
             let txt = T.pack inputString
-            TIO.putStrLn $ display $ head $ fst $ orgParse mempty txt
+            let (elems, _ctx, _err) = orgParse mempty txt
+            case elems of
+              (x:_) -> TIO.putStrLn $ display x
+              []    -> putStrLn "No elements parsed"
 
         [] -> putStrLn "Please provide an Org-mode string as an argument"

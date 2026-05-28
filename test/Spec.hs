@@ -3,14 +3,21 @@ module Main (main) where
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import qualified TestLexer as Lexer
 import qualified TestParser as Parser
--- import           TestRepresentation
+import qualified TestRoundtrip as Roundtrip
+import qualified TestTimestamp as Timestamp
+import qualified TestContext as Context
+import qualified TestNegative as Negative
+import qualified TestTextShow as TextShow
 
 tests :: TestTree
 tests = testGroup "Tests"
   [ Lexer.spec
-  -- , Parser.spec
-  -- , orgModeParserUnitTests
-  -- , orgElementReprUnitTests
+  , Parser.spec
+  , Roundtrip.spec
+  , Timestamp.spec
+  , Context.spec
+  , Negative.spec
+  , TextShow.spec
   ]
 
 main :: IO ()

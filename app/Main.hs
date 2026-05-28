@@ -63,6 +63,7 @@ parse (filename:_) = do
 
   case maybeErr of
     Just err -> TIO.putStrLn $ Text.pack (errorBundlePretty err)
+    Nothing  -> pure ()
 
   runRepl config context orgParse
   exitSuccess

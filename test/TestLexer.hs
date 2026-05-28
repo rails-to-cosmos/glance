@@ -27,7 +27,7 @@ expectSuccess :: Text -> [Text] -> [Text] -> TestCase
 expectSuccess description inputLines result = TestCase description inputLines (Result (map token result) Nothing)
 
 token :: Text -> Org.Element
-token a = Org.Element (Org.Token a)
+token a = Org.EToken (Org.Token a)
 
 spec :: TestTree
 spec = testGroup "Lexer" assertMany

@@ -1,6 +1,6 @@
 module TestParser (spec) where
 
-import Data.Org
+import Data.Org hiding (defaultHeadline)
 import qualified Data.Org as Org
 
 import Data.Text (Text, intercalate, unpack)
@@ -24,7 +24,7 @@ data TestCase = TestCase { description :: !String
 testCases :: [TestCase]
 testCases = [ TestCase { description = "Headline"
                        , inputs = ["** TODO [#A] Hello :a:b:c:"]
-                       , expected = Result { elements = [ Org.Element defaultHeadline { indent = Indent 2
+                       , expected = Result { elements = [ Org.EHeadline defaultHeadline { indent = Indent 2
                                                                                       , todo = Just (Todo { name = "TODO", active = True})
                                                                                       , priority = Just (Priority 'A')
                                                                                       , title = Title [OrgLineToken "Hello"]
@@ -35,7 +35,7 @@ testCases = [ TestCase { description = "Headline"
 
             , TestCase { description = "Corrupted tags"
                        , inputs = ["* Hello world :a:b:c"]
-                       , expected = Result { elements = [ Org.Element defaultHeadline { title = Title [ OrgLineToken "Hello"
+                       , expected = Result { elements = [ Org.EHeadline defaultHeadline { title = Title [ OrgLineToken "Hello"
                                                                                                       , OrgLineToken "world"
                                                                                                       , OrgLineToken ":a:b:c" ]}]
                                            , context = initialState }}
@@ -45,7 +45,7 @@ testCases = [ TestCase { description = "Headline"
                                   , ":PROPERTIES:"
                                   , ":TITLE: New title"
                                   , ":END:" ]
-                       , expected = Result { elements = [ Org.Element defaultHeadline { title = Title [OrgLineToken "Hello"]
+                       , expected = Result { elements = [ Org.EHeadline defaultHeadline { title = Title [OrgLineToken "Hello"]
                                                                                       , properties = Properties [Property (
                                                                                                                     Keyword "TITLE") (
                                                                                                                     OrgLine [ OrgLineToken "New"
@@ -55,12 +55,12 @@ testCases = [ TestCase { description = "Headline"
 
             , TestCase { description = "Drawer"
                        , inputs = [":DRAWER:"]
-                       , expected = Result { elements = [Org.Element (Token ":DRAWER:")]
+                       , expected = Result { elements = [Org.EToken (Token ":DRAWER:")]
                                            , context = initialState }}
 
             , TestCase { description = "Category pragma"
                        , inputs = ["#+CATEGORY: foo bar"]
-                       , expected = Result { elements = [Org.Element (PCategory (OrgLine [ OrgLineToken "foo"
+                       , expected = Result { elements = [Org.EPragma (PCategory (OrgLine [ OrgLineToken "foo"
                                                                                          , OrgLineToken "bar" ]))]
                                            , context = initialState `withCategory` "foo bar" }}
 
@@ -69,7 +69,7 @@ testCases = [ TestCase { description = "Headline"
                                   , ":PROPERTIES:"
                                   , ":CATEGORY: Updated category"
                                   , ":END:" ]
-                       , expected = Result { elements = [ Org.Element defaultHeadline { title = Title [OrgLineToken "Hello"]
+                       , expected = Result { elements = [ Org.EHeadline defaultHeadline { title = Title [OrgLineToken "Hello"]
                                                                                       , properties = Properties [Property (Keyword "CATEGORY") (OrgLine [ OrgLineToken "Updated"
                                                                                                                                                         , OrgLineToken "category"])]}]
                                            , context = initialState `withCategory` "Updated category"}}
@@ -77,21 +77,21 @@ testCases = [ TestCase { description = "Headline"
             , TestCase { description = "TODO pragma"
                        , inputs = [ "#+TODO: TODO | CANCELLED"
                                   , "* CANCELLED Mess" ]
-                       , expected = Result { elements = [ Org.Element (PTodo (Set.fromList ["TODO"]) (Set.fromList ["CANCELLED"]))
-                                                        , Org.Element (defaultHeadline { todo = Just (Todo { name = "CANCELLED", active = False })
+                       , expected = Result { elements = [ Org.EPragma (PTodo (Set.fromList ["TODO"]) (Set.fromList ["CANCELLED"]))
+                                                        , Org.EHeadline (defaultHeadline { todo = Just (Todo { name = "CANCELLED", active = False })
                                                                                        , title = Title [OrgLineToken "Mess"] })]
                                            , context = initialState `withTodo` (["TODO"], ["DONE", "CANCELLED"]) }}
 
             , TestCase { description = "TODO pragma (active only)"
                        , inputs = ["#+TODO: foo"]
-                       , expected = Result { elements = [ Org.Element (PTodo (Set.fromList ["FOO"]) (Set.fromList [])) ]
+                       , expected = Result { elements = [ Org.EPragma (PTodo (Set.fromList ["FOO"]) (Set.fromList [])) ]
                                            , context = initialState `withTodo` (["TODO", "FOO"], ["DONE"])}}
 
             -- , TestCase { description = "Messed active/inactive todo states"
             --            , inputs = [ "#+TODO: CANCELLED | CANCELLED"
             --                       , "* CANCELLED Mess" ]
             --            , expected = Result { elements = [ GPragma (PTodo (Set.fromList ["CANCELLED"]) (Set.fromList ["CANCELLED"]))
-            --                                                    , Org.Element (defaultHeadline { todo = Todo Nothing
+            --                                                    , Org.EHeadline (defaultHeadline { todo = Todo Nothing
             --                                                                                 , title = Title [ TText (Token "CANCELLED")
             --                                                                                                 , TSeparator SPC
             --                                                                                                 , TText (Token "Mess")]})]
@@ -101,8 +101,8 @@ testCases = [ TestCase { description = "Headline"
             , TestCase { description = "Multiline"
                        , inputs = [ "* foo"
                                   , "* bar" ]
-                       , expected = Result { elements = [ Org.Element (defaultHeadline {title = Title [OrgLineToken "foo"]})
-                                                        , Org.Element (defaultHeadline {title = Title [OrgLineToken "bar"]}) ]
+                       , expected = Result { elements = [ Org.EHeadline (defaultHeadline {title = Title [OrgLineToken "foo"]})
+                                                        , Org.EHeadline (defaultHeadline {title = Title [OrgLineToken "bar"]}) ]
                                            , context = initialState }}
 
             , TestCase { description = "Empty text"
@@ -113,8 +113,8 @@ testCases = [ TestCase { description = "Headline"
             , TestCase { description = "Timestamp"
                        , inputs = [ "<2024-01-01>"
                                   , "<2024-01-01 Mon>" ]
-                       , expected = Result { elements = [ Org.Element Timestamp {tsStatus = TimestampActive, tsInterval = Nothing, tsTime = strptime "2024-01-01 00:00:00"}
-                                                        , Org.Element Timestamp {tsStatus = TimestampActive, tsInterval = Nothing, tsTime = strptime "2024-01-01 00:00:00"}]
+                       , expected = Result { elements = [ Org.ETimestamp Timestamp {tsStatus = TimestampActive, tsInterval = Nothing, tsTime = strptime "2024-01-01 00:00:00"}
+                                                        , Org.ETimestamp Timestamp {tsStatus = TimestampActive, tsInterval = Nothing, tsTime = strptime "2024-01-01 00:00:00"}]
                                            , context = initialState }}
 
             -- , TestCase { description = "Parse schedule property"
@@ -123,7 +123,7 @@ testCases = [ TestCase { description = "Headline"
             --                       , ":PROPERTIES:"
             --                       , ":CATEGORY: bar"
             --                       , ":END:" ]
-            --            , expected = Result { elements = [ Org.Element (defaultHeadline { title = Title [TText (Token "foo")]
+            --            , expected = Result { elements = [ Org.EHeadline (defaultHeadline { title = Title [TText (Token "foo")]
             --                                                                           , schedule = Just Timestamp { tsStatus = TimestampActive
             --                                                                                                , tsInterval = Nothing
             --                                                                                                , tsTime = strptime "2024-04-28 00:00:00" }

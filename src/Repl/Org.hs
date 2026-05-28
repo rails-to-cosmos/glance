@@ -7,14 +7,13 @@ import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.State (StateT)
 import qualified Control.Monad.State as State
 import qualified Data.Config as Config
-import Data.Maybe
 import Data.Org (orgParse, OrgParser)
 import qualified Data.Org as Org
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.Text.IO as TIO
 import System.Console.Haskeline (InputT, getInputLine, runInputT)
-import Text.Megaparsec (ParseErrorBundle, errorBundlePretty)
+import Text.Megaparsec (errorBundlePretty)
 import qualified TextShow as TS
 
 type Repl a = StateT Org.Context (InputT IO) a
