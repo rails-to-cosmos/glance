@@ -161,6 +161,17 @@ on.
   snapshot) + atomic temp-then-rename.
 - The web layer depends only on the `Glance.Query` facade (S2), enforced at
   the cabal-stanza level; `Display`/`TextShow` stay out of the wire.
+- **The wire is built in `Glance.Query`, out of spans.** The public library
+  exposes that one module over the private `glance-internal` sublibrary, so no
+  outside target can name `Data.Org.*` at all. Title and tag cells are sliced
+  from the source (`sliceSpan`) and copied out of the document; the `TextShow`
+  render is the fallback for a component with no span, which is to say an empty
+  one. Dates are ISO renders: the wire spells them, and org's brackets stay in
+  the file. The view
+  `Value` is assembled from `object`/`.=` combinators and no internal type
+  carries a `ToJSON` instance: deriving one would make the AST the contract,
+  and `SCHEMA.md` is. **test** (`TestQuery` imports the facade only; golden +
+  schema-conformance groups)
 - Browser: structured commands only. Automation: reviewed deterministic
   scripts behind a separate privilege tier; no LLM in the loop.
 
@@ -169,3 +180,11 @@ on.
 - `glance.cabal` is hand-maintained; hpack/package.yaml were removed after
   diverging (regeneration dropped `OverloadedRecordDot` and deps and broke
   the build). Do not reintroduce without making it authoritative again.
+- **Four components, one direction.** `glance-internal` (`src/`) holds the
+  parser, the AST and the file walk at `visibility: private`; the public
+  `library` (`src-query/`) exposes `Glance.Query` and depends on it; the CLI
+  and the suite name the sublibrary (`glance:{glance, glance-internal}` in the
+  suite, which pins internals in the older modules and exercises the facade
+  alone in `TestQuery`). Putting `Data.Org.*` in a web or daemon target's
+  build-depends is impossible from outside the package — the S2 exit bar,
+  enforced by the solver rather than by review. **test** (it would not build)

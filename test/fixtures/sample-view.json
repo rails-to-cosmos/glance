@@ -1,0 +1,39 @@
+{
+  "title": "Sample — glance",
+  "columns": [
+    { "key": "state", "header": "State", "type": "badge", "sortable": true,
+      "badges": [ { "value": "NEXT",      "color": "#e0af68" },
+                  { "value": "TODO",      "color": "#ff9e64" },
+                  { "value": "WAITING",   "color": "#f7768e" },
+                  { "value": "CANCELLED", "color": "#9ece6a" },
+                  { "value": "DONE",      "color": "#73daca" } ] },
+    { "key": "priority", "header": "Pri", "type": "text", "sortable": true,
+      "values": ["A", "B", "C"] },
+    { "key": "title", "header": "Headline", "type": "text" },
+    { "key": "tags", "header": "Tags", "type": "text" },
+    { "key": "scheduled", "header": "Scheduled", "type": "text", "sortable": true },
+    { "key": "deadline", "header": "Deadline", "type": "text", "sortable": true }
+  ],
+  "sort": { "column": "scheduled", "ascending": true },
+  "rows": [
+    { "id": "ship-table-view", "cells": {
+        "state": "NEXT", "priority": "A", "title": "Ship the table view",
+        "tags": ":web:glance:", "scheduled": "2026-08-01 09:30",
+        "deadline": "2026-08-05" } },
+    { "id": "test/fixtures/view/sample.org:210", "cells": {
+        "state": "TODO", "priority": "B", "title": "Привет мир",
+        "tags": ":unicode:", "scheduled": "2026-08-03", "deadline": null } },
+    { "id": "test/fixtures/view/sample.org:271", "cells": {
+        "state": "WAITING", "priority": null, "title": "Reply from the печатник",
+        "tags": "", "scheduled": null, "deadline": "2026-08-10 17:00" } },
+    { "id": "test/fixtures/view/sample.org:338", "cells": {
+        "state": null, "priority": null, "title": "Plain headline without a state",
+        "tags": "", "scheduled": null, "deadline": null } },
+    { "id": "test/fixtures/view/sample.org:371", "cells": {
+        "state": "CANCELLED", "priority": "C", "title": "Drop the old renderer",
+        "tags": ":cleanup:", "scheduled": null, "deadline": null } },
+    { "id": "test/fixtures/view/sample.org:451", "cells": {
+        "state": "DONE", "priority": null, "title": "Read the schema",
+        "tags": ":web:", "scheduled": null, "deadline": null } }
+  ]
+}

@@ -1,0 +1,16 @@
+#+CATEGORY: sample
+#+TODO: NEXT WAITING | CANCELLED
+
+* NEXT [#A] Ship the table view :web:glance:
+SCHEDULED: <2026-08-01 Sat 09:30> DEADLINE: <2026-08-05 Wed>
+:PROPERTIES:
+:ORG_GLANCE_ID: ship-table-view
+:END:
+* TODO [#B] Привет мир :unicode:
+SCHEDULED: <2026-08-03 Mon>
+* WAITING Reply from the печатник
+DEADLINE: <2026-08-10 Mon 17:00>
+* Plain headline without a state
+* CANCELLED [#C] Drop the old renderer :cleanup:
+CLOSED: [2026-07-20 Mon 12:00]
+* DONE Read the schema :web:

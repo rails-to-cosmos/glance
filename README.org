@@ -16,17 +16,22 @@ glance/
 ├── app/
 │   ├── Main.hs          ← CLI entry point
 │   └── Scan.hs          ← Corpus scan and span-invariant report
-├── src/
+├── src/                  ← glance-internal (private sublibrary)
 │   ├── Data/
 │   │   ├── Org.hs       ← Re-export facade
 │   │   └── Org/
 │   │       ├── Types.hs  ← Data model, rendering, context
-│   │       └── Parser.hs ← Megaparsec grammar
+│   │       ├── Parser.hs ← Megaparsec grammar
+│   │       └── Walk.hs   ← .org discovery, shared by scan and query
 │   └── Repl/
 │       └── Org.hs       ← Interactive REPL
+├── src-query/            ← glance (public library)
+│   └── Glance/
+│       └── Query.hs     ← Records and table-view JSON: the whole public API
 ├── test/
 │   ├── Spec.hs
-│   └── Test*.hs
+│   ├── Test*.hs
+│   └── fixtures/         ← Sample org files and the golden view JSON
 ├── glance.cabal
 ├── glance.org            ← Project roadmap (in org-mode!)
 └── README.org

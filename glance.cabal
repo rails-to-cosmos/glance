@@ -1,4 +1,4 @@
-cabal-version: 1.12
+cabal-version: 3.0
 
 name:           glance
 version:        0.1.0.0
@@ -8,24 +8,29 @@ bug-reports:    https://github.com/rails-to-cosmos/glance/issues
 author:         Dmitry Akatov
 maintainer:     dmitry.akatov@protonmail.com
 copyright:      Dmitry Akatov
-license:        BSD3
+license:        BSD-3-Clause
 license-file:   LICENSE
 build-type:     Simple
 extra-source-files:
     CHANGELOG.md
+    test/fixtures/*.json
+    test/fixtures/broken/*.org
+    test/fixtures/view/*.org
 
 source-repository head
   type: git
   location: https://github.com/rails-to-cosmos/glance
 
-library
+-- The parser and its AST.  Private: only this package's own components may
+-- depend on it, so a future daemon or web target cannot reach past the facade.
+library glance-internal
+  visibility: private
   exposed-modules:
       Data.Org
       Data.Org.Types
       Data.Org.Parser
+      Data.Org.Walk
       Repl.Org
-  other-modules:
-      Paths_glance
   hs-source-dirs:
       src
   default-extensions:
@@ -38,9 +43,32 @@ library
   build-depends:
       base >=4.7 && <5
     , containers
+    , directory
+    , filepath
     , haskeline
     , megaparsec
     , mtl
+    , text
+    , text-show
+    , time
+  default-language: Haskell2010
+
+-- The public library: the query facade and nothing else.  Everything outside
+-- this package sees only 'Glance.Query'.
+library
+  exposed-modules:
+      Glance.Query
+  hs-source-dirs:
+      src-query
+  default-extensions:
+      OverloadedStrings
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
+  build-depends:
+      base >=4.7 && <5
+    , aeson
+    , bytestring
+    , containers
+    , glance:glance-internal
     , text
     , text-show
     , time
@@ -50,7 +78,6 @@ executable glance
   main-is: Main.hs
   other-modules:
       Scan
-      Paths_glance
   hs-source-dirs:
       app
   default-extensions:
@@ -63,7 +90,7 @@ executable glance
     , bytestring
     , directory
     , filepath
-    , glance
+    , glance:glance-internal
     , haskeline
     , megaparsec
     , text
@@ -77,13 +104,13 @@ test-suite glance-test
   other-modules:
       TestDefaults
       TestParser
+      TestQuery
       TestRoundtrip
       TestTimestamp
       TestContext
       TestNegative
       TestTextShow
       TestSpans
-      Paths_glance
   hs-source-dirs:
       test
   default-extensions:
@@ -93,28 +120,12 @@ test-suite glance-test
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5
-    , bytestring
+    , aeson
     , containers
-    , directory
-    , exceptions
-    , fgl
-    , filepath
-    , glance
-    , haskeline
-    , megaparsec
-    , monad-logger
-    , mtl
-    , persistent
-    , persistent-mtl
-    , persistent-sqlite
-    , persistent-template
-    , random
-    , resource-pool
+    , glance:{glance, glance-internal}
     , tasty
     , tasty-hunit
     , text
     , text-show
     , time
-    , unliftio
-    , uuid
   default-language: Haskell2010

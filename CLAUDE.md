@@ -69,6 +69,10 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   temp+rename; untouched bytes stay byte-identical.
 - `Display`/`TextShow` stay out of the wire contract; the web layer depends
   only on the `Glance.Query` facade (S2+).
+- The public library exposes `Glance.Query` alone over the private
+  `glance-internal` sublibrary; cells are sliced from spans and the view
+  `Value` is hand-built — no `ToJSON` on an internal type
+  (table-view/SCHEMA.md is the contract).
 - Browser gets structured commands only, never freeform editing; automation =
   reviewed deterministic scripts, no LLM in the loop.
 
@@ -76,3 +80,6 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 
 - `glance.cabal` is hand-maintained; package.yaml/hpack removed — do not
   regenerate.
+- Components: private sublibrary `glance-internal` (`src/`), public library
+  `glance` (`src-query/`, `Glance.Query` only), CLI and suite on the
+  sublibrary. A new web or daemon target depends on the public library alone.

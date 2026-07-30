@@ -9,18 +9,16 @@ import Data.Text (Text)
 import Data.Time (diffUTCTime, getCurrentTime)
 import Data.Void (Void)
 import Numeric (showFFloat)
-import System.Directory (doesDirectoryExist, doesFileExist, listDirectory, pathIsSymbolicLink)
-import System.FilePath (takeExtension, (</>))
 import Text.Megaparsec (ParseErrorBundle, errorBundlePretty)
 
 import qualified Data.ByteString as BS
-import qualified Data.Char as Char
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 import qualified TextShow as TS
 
 import Data.Org
+import Data.Org.Walk (Found (..), errText, findOrgFiles)
 
 -- | How many entries of each failure listing to print.
 sampleLimit :: Int
@@ -32,7 +30,7 @@ sampleLimit = 20
 runScan :: [FilePath] -> IO ()
 runScan roots = do
   started <- getCurrentTime
-  found <- foldM collect emptyFound roots
+  found <- findOrgFiles roots
   let paths = sort (foundFiles found)
       dirErrs = sort (foundDirErrs found)
   totals <- foldM visitFile emptyTotals paths
@@ -43,62 +41,6 @@ runScan roots = do
           result <- scanFile path
           let t' = merge t path result
           t' `seq` pure t'
-
--- File discovery
-
--- | What a walk turned up: .org files and the directories it could not read.
--- Both accumulate in reverse; 'runScan' sorts them.
-data Found = Found
-  { foundFiles   :: ![FilePath]
-  , foundDirErrs :: ![(FilePath, Text)]
-  }
-
-emptyFound :: Found
-emptyFound = Found [] []
-
--- | Add ROOT's .org files to ACC, walking it when it is a directory.
-collect :: Found -> FilePath -> IO Found
-collect acc root = do
-  isDir <- doesDirectoryExist root
-  if isDir
-    then walk acc root
-    else do
-      isFile <- doesFileExist root
-      pure $! case (isFile, isOrg root) of
-        (True, True)  -> keepFile root acc
-        (True, False) -> acc
-        (False, _)    -> keepDirErr root "no such file or directory" acc
-
--- | Collect .org files under DIR, recursing into real subdirectories only.
-walk :: Found -> FilePath -> IO Found
-walk acc dir = do
-  listed <- try (listDirectory dir) :: IO (Either IOException [FilePath])
-  case listed of
-    Left e      -> pure $! keepDirErr dir (errText e) acc
-    Right names -> foldM (visit dir) acc names
-
--- | Classify NAME inside DIR: recurse, keep, or ignore.  The accumulator is
--- forced at every entry: a thunk per entry would retain the whole tree.
-visit :: FilePath -> Found -> FilePath -> IO Found
-visit dir acc name = do
-  isDir <- doesDirectoryExist path
-  if isDir
-    then do
-      link <- try (pathIsSymbolicLink path) :: IO (Either IOException Bool)
-      case link of
-        Right False -> walk acc path
-        _symlink    -> pure acc
-    else pure $! if isOrg path then keepFile path acc else acc
-  where path = dir </> name
-
-keepFile :: FilePath -> Found -> Found
-keepFile path acc = acc { foundFiles = path : foundFiles acc }
-
-keepDirErr :: FilePath -> Text -> Found -> Found
-keepDirErr path why acc = acc { foundDirErrs = (path, why) : foundDirErrs acc }
-
-isOrg :: FilePath -> Bool
-isOrg path = map Char.toLower (takeExtension path) == ".org"
 
 -- Per-file scan
 
@@ -312,14 +254,6 @@ num = TS.showt
 
 fixed :: Int -> Double -> Text
 fixed digits x = T.pack (showFFloat (Just digits) x "")
-
--- | The first line of T, with trailing whitespace dropped.
-firstLine :: Text -> Text
-firstLine = T.stripEnd . T.takeWhile (/= '\n')
-
--- | E's rendering, cut to its first line, as a one-line diagnostic.
-errText :: Show e => e -> Text
-errText = firstLine . T.pack . show
 
 -- | Position plus the first diagnostic line of ERR's pretty rendering.
 errorReason :: ParseErrorBundle Text Void -> Text

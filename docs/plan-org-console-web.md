@@ -60,11 +60,35 @@ Stable API the web layer depends on; parser refactors stay behind it. Add
 of the wire.
 
 Exit:
-- [ ] `Glance.Query.viewJSON dir` output validates against `SCHEMA.md` field
+- [x] `Glance.Query.viewJSON dir` output validates against `SCHEMA.md` field
       tables (golden test with committed expected JSON for a sample org file).
-- [ ] Rows carry: state badge, title, tags, priority, scheduled date.
-- [ ] Web/daemon code imports only `Glance.Query` — enforced by a separate
+      Actual: `TestQuery`, group `Query` — golden `Query/View/matches
+      test/fixtures/sample-view.json` (both sides decoded to `Value`, so key
+      order is free) plus a `Schema conformance` group: cell keys ⊆ column
+      keys, badge column carries a palette, sort column exists, every row has
+      an id, no `actions` yet.
+- [x] Rows carry: state badge, title, tags, priority, scheduled date.
+      Actual columns: `state` (badge, sortable), `priority` (sortable, values
+      A/B/C), `title`, `tags`, `scheduled` (sortable), `deadline` (sortable —
+      our addition, schema-legal). Sort: scheduled ascending.
+- [x] Web/daemon code imports only `Glance.Query` — enforced by a separate
       cabal library stanza (daemon target lacks `Data.Org.*` in build-depends).
+      Actual: the public `library` exposes `Glance.Query` alone over the
+      private sublibrary `glance-internal` (parser, AST, walk). The CLI and the
+      suite name the sublibrary explicitly (`glance:{glance, glance-internal}`
+      in the suite); nothing outside the package can, private being a
+      sublibrary's default visibility.
+
+**Landed during S2** — `aeson` 2.2 added. The file walk moved out of
+`app/Scan.hs` into `Data.Org.Walk` so `runScan` and `loadDir` discover the same
+files; the extraction changes no scan number. The `~/sync` run now reads 6308
+files / 13343 headlines / 14 parse / 17 decode because this repo sits inside
+`~/sync` and the three new fixtures join the corpus — S1's 6305 / 13337 / 13 /
+16 plus exactly them. Span violations stay 0. Suite 243 → 261 tests. Cells
+are cut from spans at load time and copied out of the document; `hrHeadline`
+still shares text with its file, so full-store residency is the S3 number to
+watch. Row identity is the `ORG_GLANCE_ID` property, else `FILE:START` — an
+edit above a headline renames its row, which S5's watch has to answer.
 
 ## S3 — M0: headlines in a browser tab
 
