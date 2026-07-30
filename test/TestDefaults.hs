@@ -9,7 +9,7 @@ defaultHeadline :: Org.Headline
 defaultHeadline = Org.defaultHeadline
 
 initialState :: Org.Context
-initialState = mempty
+initialState = Org.defaultContext
 
 withCategory :: Org.Context -> Text -> Org.Context
 withCategory ctx category = Org.setCategory category ctx

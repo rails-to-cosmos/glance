@@ -29,14 +29,14 @@ spec = testGroup "Context"
               , ":PROPERTIES:"
               , ":ORG_GLANCE_ID: unique-id-123"
               , ":END:" ]
-        let (_elems, ctx, _err) = orgParse mempty input
-        let IAS m = ias ctx
+        let (_elems, ctx, _err) = orgParse defaultContext input
+        let m = ias ctx
         assertBool "Should have one registered headline" (Map.size m == 1)
         assertBool "Should be keyed by ORG_GLANCE_ID" (Map.member "unique-id-123" m)
 
     , testCase "Headline without ORG_GLANCE_ID is not registered" $ do
-        let (_elems, ctx, _err) = orgParse mempty "* Anonymous Headline"
-        let IAS m = ias ctx
+        let (_elems, ctx, _err) = orgParse defaultContext "* Anonymous Headline"
+        let m = ias ctx
         assertEqual "IAS should be empty" 0 (Map.size m)
 
     , testCase "Multiple headlines with IDs" $ do
@@ -49,8 +49,8 @@ spec = testGroup "Context"
               , ":PROPERTIES:"
               , ":ORG_GLANCE_ID: id-2"
               , ":END:" ]
-        let (_elems, ctx, _err) = orgParse mempty input
-        let IAS m = ias ctx
+        let (_elems, ctx, _err) = orgParse defaultContext input
+        let m = ias ctx
         assertEqual "Should have two registered headlines" 2 (Map.size m)
 
     , testCase "Duplicate IDs use last-writer-wins" $ do
@@ -63,8 +63,8 @@ spec = testGroup "Context"
               , ":PROPERTIES:"
               , ":ORG_GLANCE_ID: same-id"
               , ":END:" ]
-        let (_elems, ctx, _err) = orgParse mempty input
-        let IAS m = ias ctx
+        let (_elems, ctx, _err) = orgParse defaultContext input
+        let m = ias ctx
         assertEqual "Should have one entry" 1 (Map.size m)
         case Map.lookup "same-id" m of
           Just h -> assertEqual "Should keep latest" (Title [OrgLineToken (Token "Second"), OrgLineToken (Token "version")]) (title h)
@@ -73,12 +73,12 @@ spec = testGroup "Context"
 
   , testGroup "Context accumulation across parses"
     [ testCase "Category persists across calls" $ do
-        let (_, ctx1, _) = orgParse mempty "#+CATEGORY: first"
+        let (_, ctx1, _) = orgParse defaultContext "#+CATEGORY: first"
         let (_, ctx2, _) = orgParse ctx1 "* Hello"
         assertEqual "Category should persist" "first" (metaCategory ctx2)
 
     , testCase "TODO keywords persist across calls" $ do
-        let (_, ctx1, _) = orgParse mempty "#+TODO: WAITING | CANCELLED"
+        let (_, ctx1, _) = orgParse defaultContext "#+TODO: WAITING | CANCELLED"
         let (elems, _, _) = orgParse ctx1 "* WAITING Something"
         case map valueOf elems of
           [EHeadline h] -> assertEqual "Should recognize WAITING as todo" (Just (Todo "WAITING" True)) (todo h)
@@ -95,9 +95,9 @@ spec = testGroup "Context"
               , ":PROPERTIES:"
               , ":ORG_GLANCE_ID: id-2"
               , ":END:" ]
-        let (_, ctx1, _) = orgParse mempty input1
+        let (_, ctx1, _) = orgParse defaultContext input1
         let (_, ctx2, _) = orgParse ctx1 input2
-        let IAS m = ias ctx2
+        let m = ias ctx2
         assertEqual "Should have both headlines" 2 (Map.size m)
     ]
 
@@ -123,12 +123,12 @@ spec = testGroup "Context"
 
   , testGroup "TODO keyword management"
     [ testCase "Default has TODO and DONE" $ do
-        let ctx = mempty :: Context
+        let ctx = defaultContext
         assertBool "TODO should be active" (Set.member "TODO" (todoActive ctx))
         assertBool "DONE should be inactive" (Set.member "DONE" (todoInactive ctx))
 
     , testCase "setTodo adds to existing" $ do
-        let ctx = setTodo (Set.fromList ["WAITING"]) (Set.fromList ["CANCELLED"]) mempty
+        let ctx = setTodo (Set.fromList ["WAITING"]) (Set.fromList ["CANCELLED"]) defaultContext
         assertBool "WAITING should be active" (Set.member "WAITING" (todoActive ctx))
         assertBool "TODO should still be active" (Set.member "TODO" (todoActive ctx))
         assertBool "CANCELLED should be inactive" (Set.member "CANCELLED" (todoInactive ctx))
@@ -137,19 +137,19 @@ spec = testGroup "Context"
         let input = T.intercalate "\n"
               [ "#+TODO: TODO STARTED | DONE"
               , "#+TODO: WAITING | CANCELLED" ]
-        let (_, ctx, _) = orgParse mempty input
+        let (_, ctx, _) = orgParse defaultContext input
         assertBool "STARTED should be active" (Set.member "STARTED" (todoActive ctx))
         assertBool "WAITING should be active" (Set.member "WAITING" (todoActive ctx))
         assertBool "CANCELLED should be inactive" (Set.member "CANCELLED" (todoInactive ctx))
 
     , testCase "Unregistered keyword is not parsed as TODO" $ do
-        let (elems, _, _) = orgParse mempty "* CUSTOM Something"
+        let (elems, _, _) = orgParse defaultContext "* CUSTOM Something"
         case map valueOf elems of
           [EHeadline h] -> assertEqual "Should not have todo" Nothing (todo h)
           _ -> assertBool "Expected single headline" False
 
     , testCase "Keyword casing must match: Done stays in the title" $ do
-        let (elems, _, _) = orgParse mempty "* Done with it"
+        let (elems, _, _) = orgParse defaultContext "* Done with it"
         case map valueOf elems of
           [EHeadline h] -> do
             assertEqual "Should not have todo" Nothing (todo h)
@@ -159,20 +159,20 @@ spec = testGroup "Context"
           _ -> assertBool "Expected single headline" False
 
     , testCase "Lowercase keywords register as written" $ do
-        let (_, ctx, _) = orgParse mempty "#+TODO: wip | done"
+        let (_, ctx, _) = orgParse defaultContext "#+TODO: wip | done"
         assertBool "wip should be active" (Set.member "wip" (todoActive ctx))
         assertBool "done should be inactive" (Set.member "done" (todoInactive ctx))
         assertBool "WIP should not be registered" (not (Set.member "WIP" (todoActive ctx)))
 
     , testCase "Lowercase keyword matches as written" $ do
-        let (_, ctx, _) = orgParse mempty "#+TODO: wip | done"
+        let (_, ctx, _) = orgParse defaultContext "#+TODO: wip | done"
         let (elems, _, _) = orgParse ctx "* wip Task"
         case map valueOf elems of
           [EHeadline h] -> assertEqual "Should recognize wip" (Just (Todo "wip" True)) (todo h)
           _ -> assertBool "Expected single headline" False
 
     , testCase "Uppercase spelling of a lowercase keyword does not match" $ do
-        let (_, ctx, _) = orgParse mempty "#+TODO: wip | done"
+        let (_, ctx, _) = orgParse defaultContext "#+TODO: wip | done"
         let (elems, _, _) = orgParse ctx "* WIP Task"
         case map valueOf elems of
           [EHeadline h] -> do
@@ -185,7 +185,7 @@ spec = testGroup "Context"
 
   , testGroup "Category management"
     [ testCase "Category pragma updates context" $ do
-        let (_, ctx, _) = orgParse mempty "#+CATEGORY: myproject"
+        let (_, ctx, _) = orgParse defaultContext "#+CATEGORY: myproject"
         assertEqual "Category should be set" "myproject" (metaCategory ctx)
 
     , testCase "Category property updates context" $ do
@@ -194,7 +194,7 @@ spec = testGroup "Context"
               , ":PROPERTIES:"
               , ":CATEGORY: fromprops"
               , ":END:" ]
-        let (_, ctx, _) = orgParse mempty input
+        let (_, ctx, _) = orgParse defaultContext input
         assertEqual "Category should be set from property" "fromprops" (metaCategory ctx)
     ]
   ]

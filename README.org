@@ -15,23 +15,21 @@
 glance/
 ├── app/
 │   ├── Main.hs          ← CLI entry point
-│   └── Demo.hs          ← Demo executable
+│   └── Scan.hs          ← Corpus scan and span-invariant report
 ├── src/
 │   ├── Data/
-│   │   ├── Org.hs       ← Core parser & data types (816 lines)
-│   │   └── Config.hs    ← Haskeline config
-│   ├── Persist/
-│   │   └── Org.hs       ← SQLite persistence layer
+│   │   ├── Org.hs       ← Re-export facade
+│   │   └── Org/
+│   │       ├── Types.hs  ← Data model, rendering, context
+│   │       └── Parser.hs ← Megaparsec grammar
 │   └── Repl/
 │       └── Org.hs       ← Interactive REPL
 ├── test/
 │   ├── Spec.hs
-│   ├── TestParser.hs
-│   └── TestRepresentation.hs
-├── package.yaml          ← ← you are here (line 7)
+│   └── Test*.hs
 ├── glance.cabal
 ├── glance.org            ← Project roadmap (in org-mode!)
-└── README.md
+└── README.org
 #+end_src
 
 ** Core Architecture
@@ -43,7 +41,6 @@ The heart of the project. Key design patterns:
 - *Type class-based parsing* via a ~Parse~ typeclass — extensible grammar
 - *Stateful parser monad*: ~StateT Context (Parsec Text)~ to track active TODO keywords, categories, and an /Indexed Article Store/ (IAS) across parses
 - *Existential types* (~Element~) for heterogeneous collections of parsed nodes
-- *Content-addressable storage* using SHA256 hashes (~HashID~) for headlines
 
 Key types:
 
@@ -54,10 +51,6 @@ orgParse :: Context -> Text -> ([Element], Context)
 -- The REPL monad stack
 type Repl a = StateT Org.Context (InputT IO) a
 #+end_src
-
-*** ~Persist.Org~ — SQLite Storage
-
-Uses ~persistent-template~ (Template Haskell) to define and migrate a ~PersistentHeadline~ schema backed by SQLite.
 
 *** ~Repl.Org~ — Interactive REPL
 
@@ -78,11 +71,9 @@ A Haskeline-powered REPL that:
 | Category | Libraries |
 |---|---|
 | Parsing | ~megaparsec~, ~text~ |
-| State/Monads | ~mtl~, ~unliftio~, ~monad-logger~ |
-| Persistence | ~persistent~, ~persistent-sqlite~, ~resource-pool~ |
-| Graph | ~fgl~ (functional graph library) |
+| State/Monads | ~mtl~ |
+| Rendering | ~text-show~ |
 | REPL | ~haskeline~ |
-| Identity | ~uuid~, ~random~ |
 | Testing | ~tasty~, ~tasty-hunit~ |
 
 ** Org-Mode Features Supported

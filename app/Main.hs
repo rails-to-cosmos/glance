@@ -5,9 +5,7 @@ import System.Exit
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSChar8
-import Data.Config (Config (..))
-import qualified Data.Org as Org
-import Data.Org (orgParse)
+import Data.Org (defaultContext, orgParse)
 
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -21,18 +19,17 @@ import System.Directory
 import System.FilePath
 import qualified System.Console.Haskeline as Haskeline
 
-defaultConfig :: IO Config
-defaultConfig = do
+-- | Haskeline settings backed by a history file under ~/.config/glance.
+replSettings :: IO (Haskeline.Settings IO)
+replSettings = do
   homeDir <- getHomeDirectory
 
   let configDir = homeDir </> ".config" </> "glance"
-      historyFile = Just (configDir </> ".history")
-      haskelineSettings = Haskeline.defaultSettings { Haskeline.autoAddHistory = True
-                                                    , Haskeline.historyFile = historyFile }
 
   createDirectoryIfMissing True configDir
 
-  return Config {..}
+  return Haskeline.defaultSettings { Haskeline.autoAddHistory = True
+                                   , Haskeline.historyFile = Just (configDir </> ".history") }
 
 main :: IO ()
 main = do
@@ -50,8 +47,9 @@ greetings messages = do
 parse :: [String] -> IO a
 
 parse [] = do
-  config <- defaultConfig
-  repl config mempty
+  settings <- replSettings
+  greetings []
+  runRepl settings defaultContext
   exitSuccess
 
 parse ("scan":dirs) = do
@@ -59,10 +57,10 @@ parse ("scan":dirs) = do
   exitSuccess
 
 parse (filename:_) = do
-  config <- defaultConfig
+  settings <- replSettings
   content <- Text.pack . BSChar8.unpack <$> BS.readFile filename
 
-  let (_elements, context, maybeErr) = orgParse mempty content
+  let (_elements, context, maybeErr) = orgParse defaultContext content
 
   greetings [ ["Additional context provided:", Text.pack filename]]
 
@@ -70,25 +68,5 @@ parse (filename:_) = do
     Just err -> TIO.putStrLn $ Text.pack (errorBundlePretty err)
     Nothing  -> pure ()
 
-  runRepl config context orgParse
+  runRepl settings context
   exitSuccess
-
-repl :: Config -> Org.Context -> IO ()
-repl config context = do
-  greetings []
-  runRepl config context orgParse
-
--- parse (x:xs) = do
---   putStrLn ("Unknown argument skipped: " ++ x)
---   parse xs
-
--- parse ["--help"] = do
---   version
---   usage
---   exitSuccess
-
--- usage :: IO ()
--- usage   = putStrLn "Usage: glance [filename]"
-
--- version :: IO ()
--- version = putStrLn "Haskell glance 0.1.0.0"

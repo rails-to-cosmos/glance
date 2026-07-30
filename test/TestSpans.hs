@@ -56,7 +56,7 @@ cases =
 
 -- | Run K over the elements and final context of CASE, failing on a parse error.
 onDoc :: Case -> (Text -> Context -> [Spanned Element] -> Assertion) -> TestTree
-onDoc c k = testCase (caseName c) $ case orgParse mempty (caseInput c) of
+onDoc c k = testCase (caseName c) $ case orgParse defaultContext (caseInput c) of
   (elems, ctx, Nothing) -> k (caseInput c) ctx elems
   (_, _, Just _err)     -> assertFailure ("parse error in " <> show (caseInput c))
 
@@ -64,14 +64,8 @@ headlinesOf :: [Spanned Element] -> [Headline]
 headlinesOf elems = [h | e <- elems, EHeadline h <- [valueOf e]]
 
 -- | Sub-spans a headline actually carries, in source order.
-presentSpans :: HeadlineSpans -> [(String, Span)]
-presentSpans hs = [(label, s) | (label, Just s) <- parts]
-  where parts = [ ("hsTodo", hsTodo hs)
-                , ("hsPriority", hsPriority hs)
-                , ("hsTitle", hsTitle hs)
-                , ("hsTags", hsTags hs)
-                , ("hsProperties", hsProperties hs)
-                ]
+presentSpans :: Headline -> [(String, Span)]
+presentSpans h = [(T.unpack label, s) | (label, Just s, _ok) <- headlineSpanParts h]
 
 propertyKeys :: Headline -> [Text]
 propertyKeys h = case properties h of
@@ -79,7 +73,7 @@ propertyKeys h = case properties h of
 
 -- | Elements of INPUT parsed from an empty context, spans dropped.
 bareElements :: Text -> [Element]
-bareElements input = case orgParse mempty input of
+bareElements input = case orgParse defaultContext input of
   (elems, _ctx, _err) -> map (stripSpans . valueOf) elems
 
 -- | A default headline whose title is the single token T.
@@ -105,22 +99,12 @@ assertReparse label ctx expected slice = case orgParse ctx slice of
 -- | Every present sub-span slices back to the component it stands for.
 assertSlices :: Text -> Headline -> Assertion
 assertSlices input h = do
-  onSpan (hsTodo h') $ \slice ->
-    assertEqual (say "hsTodo") (maybe "" name (todo h)) slice
-  onSpan (hsPriority h') $ \slice ->
-    assertEqual (say "hsPriority") (maybe "" TS.showt (priority h)) slice
-  onSpan (hsTags h') $ \slice ->
-    assertEqual (say "hsTags") (TS.showt (tags h)) slice
-  onSpan (hsTitle h') $ \slice ->
-    assertEqual (say "hsTitle words") (T.words (TS.showt (title h))) (T.words slice)
-  onSpan (hsProperties h') $ \slice -> do
-    let drawer = T.strip slice
-    assertBool (say "hsProperties opens the drawer") (":PROPERTIES:" `T.isPrefixOf` drawer)
-    assertBool (say "hsProperties closes the drawer") (":END:" `T.isSuffixOf` drawer)
-    mapM_ (assertKey slice) (propertyKeys h)
-  where h' = spans h
-        say = about input h
-        onSpan ms f = maybe (pure ()) (f . sliceSpan input) ms
+  sequence_ [ assertBool (say (T.unpack label <> " sliced " <> show slice)) (ok slice)
+            | (label, Just s, ok) <- headlineSpanParts h
+            , let slice = sliceSpan input s ]
+  maybe (pure ()) assertKeys (hsProperties (spans h))
+  where say = about input h
+        assertKeys s = mapM_ (assertKey (sliceSpan input s)) (propertyKeys h)
         assertKey slice k =
           assertBool (say ("hsProperties covers key " <> show k))
                      (T.toUpper k `T.isInfixOf` T.toUpper slice)
@@ -150,16 +134,15 @@ assertInvariants input e = do
             assertBool (about input h (label <> " ends inside hsFull"))
                        (spanEnd s <= spanEnd full)
       assertWellFormed (about input h "hsFull") full
-      mapM_ (\(label, s) -> assertWellFormed (about input h label) s) (presentSpans hs)
-      mapM_ inFull (presentSpans hs)
+      mapM_ (\(label, s) -> assertWellFormed (about input h label) s) (presentSpans h)
+      mapM_ inFull (presentSpans h)
       maybe (pure ()) (assertPropertiesPlacement input h) (hsProperties hs)
-      assertOrdered (about input h "sub-spans") (presentSpans hs)
+      assertOrdered (about input h "sub-spans") (presentSpans h)
     _element -> pure ()
   where
-    assertWellFormed label s = do
-      assertBool (label <> ": start must not be negative") (spanStart s >= 0)
-      assertBool (label <> ": start must not pass end") (spanStart s <= spanEnd s)
-      assertBool (label <> ": end must stay inside the input") (spanEnd s <= T.length input)
+    assertWellFormed label s = case spanFaults (T.length input) s of
+      []     -> pure ()
+      faults -> assertFailure (label <> ": " <> show faults)
 
 -- | The drawer closes the headline and follows the title.
 assertPropertiesPlacement :: Text -> Headline -> Span -> Assertion
@@ -219,9 +202,9 @@ trailingWhitespaceSpec = testGroup "Trailing whitespace"
   , testCase "pragma value stays tight" $ do
       let input = "#+CATEGORY: cat  "
       assertEqual "elements"
-                  [EPragma (PCategory (OrgLine [OrgLineToken "cat"]))]
+                  [EPragma (Pragma (Keyword "CATEGORY") (OrgLine [OrgLineToken "cat"]))]
                   (bareElements input)
-      case orgParse mempty input of
+      case orgParse defaultContext input of
         (elems, ctx, _err) -> do
           assertEqual "category" "cat" (metaCategory ctx)
           assertEqual "element slices" ["#+CATEGORY: cat"]
@@ -239,7 +222,7 @@ trailingWhitespaceSpec = testGroup "Trailing whitespace"
 
   , testCase "spans stop before the trailing space" $ do
       let input = "* Hello  \n* Two"
-      case orgParse mempty input of
+      case orgParse defaultContext input of
         (elems, _ctx, _err) -> do
           assertEqual "element slices" ["* Hello", "* Two"]
                       (map (sliceSpan input . spanOf) elems)

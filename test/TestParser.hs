@@ -60,8 +60,8 @@ testCases = [ TestCase { description = "Headline"
 
             , TestCase { description = "Category pragma"
                        , inputs = ["#+CATEGORY: foo bar"]
-                       , expected = Result { elements = [Org.EPragma (PCategory (OrgLine [ OrgLineToken "foo"
-                                                                                         , OrgLineToken "bar" ]))]
+                       , expected = Result { elements = [Org.EPragma (Pragma (Keyword "CATEGORY") (OrgLine [ OrgLineToken "foo"
+                                                                                                          , OrgLineToken "bar" ]))]
                                            , context = initialState `withCategory` "foo bar" }}
 
             , TestCase { description = "Category property"
@@ -86,17 +86,6 @@ testCases = [ TestCase { description = "Headline"
                        , inputs = ["#+TODO: foo"]
                        , expected = Result { elements = [ Org.EPragma (PTodo (Set.fromList ["foo"]) (Set.fromList [])) ]
                                            , context = initialState `withTodo` (["TODO", "foo"], ["DONE"])}}
-
-            -- , TestCase { description = "Messed active/inactive todo states"
-            --            , inputs = [ "#+TODO: CANCELLED | CANCELLED"
-            --                       , "* CANCELLED Mess" ]
-            --            , expected = Result { elements = [ GPragma (PTodo (Set.fromList ["CANCELLED"]) (Set.fromList ["CANCELLED"]))
-            --                                                    , Org.EHeadline (defaultHeadline { todo = Todo Nothing
-            --                                                                                 , title = Title [ TText (Token "CANCELLED")
-            --                                                                                                 , TSeparator SPC
-            --                                                                                                 , TText (Token "Mess")]})]
-            --                                       , context = initialState { todoActive = Set.fromList ["TODO"]
-            --                                                                  , todoInactive = Set.fromList ["DONE"] }}}
 
             , TestCase { description = "Multiline"
                        , inputs = [ "* foo"
@@ -124,204 +113,7 @@ testCases = [ TestCase { description = "Headline"
                                                                                    , tsStart = TsMoment (strptime "2023-07-15 15:54:00") True
                                                                                    , tsEnd = Just (TsMoment (strptime "2023-07-15 17:10:00") True) }]
                                            , context = initialState }}
-
-            -- , TestCase { description = "Parse schedule property"
-            --            , inputs = [ "* foo"
-            --                       , "SCHEDULED: <2024-04-28 Sun>"
-            --                       , ":PROPERTIES:"
-            --                       , ":CATEGORY: bar"
-            --                       , ":END:" ]
-            --            , expected = Result { elements = [ Org.EHeadline (defaultHeadline { title = Title [TText (Token "foo")]
-            --                                                                           , schedule = Just Timestamp { tsStatus = TimestampActive
-            --                                                                                                , tsInterval = Nothing
-            --                                                                                                , tsTime = strptime "2024-04-28 00:00:00" }
-            --                                                                           , properties = Properties [Property (Keyword "CATEGORY") (OrgLine [(SToken (Token "bar"))])]})]
-            --                                , context = initialState { metaCategory = "bar" }}}
-
-            -- , TestCase { description = "Parse links"
-            --            , inputs = ["[[file:/home/foo/bar.org::*NN Pipeline][NN Pipeline]]"]
-            --            , expected = Result { elements = [Org.Element (Token "[[file:/home/foo/bar.org::*NN Pipeline][NN Pipeline]]")]
-            --                                       , context = initialState}}
-
             ]
-
-            -- , TestCase
-            --     { description = "Parse custom todo state",
-            --       inputs =
-            --         [ "#+TODO: TODO | CANCELLED",
-            --           "* CANCELLED Mess"
-            --         ],
-            --       expected =
-            --         Org.Context
-            --           { headline =
-            --               Headline
-            --                 { indent = EIndent 1
-            --                 , todo = ETodo "CANCELLED"
-            --                 , priority = EPriority Nothing
-            --                 , title = "Mess"
-            --                 , tags = []
-            --                 , properties = defaultProperties
-            --                 , meta = defaultMeta { todo = (["TODO"], ["DONE", "CANCELLED"])
-            --                                      }
-            --                 }
-            --           }
-            --     }
-            --   TestCase
-            --     { description = "Timestamp affects context",
-            --       inputs =
-            --         [ "[2021-08-22 Sun 10:18]"
-            --         ],
-            --       expected =
-            --         (initialState)
-            --           { metaTime =
-            --               [ strptime "2021-08-22 10:18:00"
-            --               ]
-            --           }
-            --     },
-            --   TestCase
-            --     { description = "Headline title affects context",
-            --       inputs =
-            --         [ "* Headline with a ts in it [2021-08-22 Sun 11:37]"
-            --         ],
-            --       expected =
-            --         (initialState)
-            --           { metaTime =
-            --               [ strptime "2021-08-22 11:37:00"
-            --               ]
-            --           }
-            --     }
-            -- , TestCase
-            --     { description = "Parse minimal headline",
-            --       inputs = ["* Hello"],
-            --       expected =
-            --         initialState
-            --           { headline =
-            --               Headline
-            --                 { indent = EIndent 1,
-            --                   todo = ETodo "",
-            --                   priority = EPriority Nothing,
-            --                   title = "Hello",
-            --                   tags = [],
-            --                   properties = defaultProperties,
-            --                   meta = defaultMeta
-            --                 }
-            --           }
-            --     }
-            -- , TestCase
-            --     { description = "Parse corrupted headline",
-            --       inputs = ["* TOO [#AD] Hey :a:b:c"],
-            --       expected =
-            --         initialState
-            --           { headline =
-            --               Headline
-            --                 { indent = EIndent 1,
-            --                   todo = ETodo "",
-            --                   priority = EPriority Nothing,
-            --                   title = "TOO [#AD] Hey :a:b:c",
-            --                   tags = [],
-            --                   properties = defaultProperties,
-            --                   meta = defaultMeta
-            --                 }
-            --           }
-            --     }
-            -- , TestCase
-            --     { description = "Multiple todo headers",
-            --       inputs =
-            --         [ "#+TODO: TODO | DONE",
-            --           "#+TODO: PENDING | CANCELLED",
-            --           "#+TODO: STARTED(s!) | CANCELLED(c!)"
-            --         ],
-            --       expected =
-            --         Org.Context
-            --           { headline =
-            --               defaultHeadline
-            --                 { meta = defaultMeta {todo = (["TODO", "PENDING", "STARTED"], ["DONE", "CANCELLED"])}
-            --                 }
-            --           }
-            --     }
-            -- , TestCase
-            --     { description = "Parse missing todo state",
-            --       inputs =
-            --         [ "* CANCELLED Mess"
-            --         ],
-            --       expected =
-            --         Org.Context
-            --           { headline =
-            --               Headline
-            --                 { indent = EIndent 1
-            --                 , todo = ETodo ""
-            --                 , priority = EPriority Nothing
-            --                 , title = "CANCELLED Mess"
-            --                 , tags = []
-            --                 , properties = defaultProperties
-            --                 , meta = defaultMeta
-            --                 }
-            --           }
-            --     }
-            -- , TestCase
-            --     { description = "Parse category pragma",
-            --       inputs =
-            --         [ "#+CATEGORY: New category"
-            --         ],
-            --       expected =
-            --         initialState
-            --           { headline =
-            --               defaultHeadline
-            --                 { meta = defaultMeta {metaCategory = "New category"}
-            --                 }
-            --           }
-            --     }
-            -- , TestCase
-            --     { description = "Parse category property",
-            --       inputs =
-            --         [ ":CATEGORY: New category"
-            --         ],
-            --       expected =
-            --         initialState
-            --           { headline =
-            --               defaultHeadline
-            --                 { properties = makeProperties [("CATEGORY", "New category")]
-            --                 , meta = defaultMeta {metaCategory = "New category"}
-            --                 }
-            --           }
-            --     }
-            -- , TestCase
-            --     { description = "Parse custom underscored property",
-            --       inputs =
-            --         [ ":GLANCE_ID: MyAwesomeNote"
-            --         ],
-            --       expected = initialState {headline = defaultHeadline `withProperties` [("GLANCE_ID", "MyAwesomeNote")]}
-            --     }
-            -- , TestCase
-            --     { description = "Parse todo pragma",
-            --       inputs =
-            --         [ "#+TODO: TODO(t) STARTED(s!) DELEGATED(e@/!) PENDING(p!) | DONE(d!) CANCELLED(c!)"
-            --         ],
-            --       expected =
-            --         initialState
-            --           { headline =
-            --               defaultHeadline
-            --                 { properties = defaultProperties,
-            --                   meta = defaultMeta {todo = (["TODO", "STARTED", "DELEGATED", "PENDING"], ["DONE", "CANCELLED"])}
-            --                 }
-            --           }
-            --     }
-            -- , TestCase
-            --     { description = "Meta inheritance",
-            --       inputs =
-            --         [ "* My first headline"
-            --         , "[2021-08-22 Sun 10:18]"
-            --         , "** My second headline"
-            --         ],
-            --       expected =
-            --         initialState
-            --           { headline = defaultHeadline
-            --             { indent = EIndent 2
-            --             , title = "My second headline"
-            --             , meta = defaultMeta
-            --             }
-            --           }
-            --     }
 
 -- | 2024-01-01, date only.
 day2024 :: Org.Timestamp
@@ -333,6 +125,6 @@ day2024 = Timestamp { tsStatus = TimestampActive
 spec :: TestTree
 spec = testGroup "Parser" assertMany
   where assert tc = testCase (description tc) $ assertEqual [] (expected tc) (result tc)
-        result tc = case orgParse mempty (intercalate "\n" (inputs tc)) of
+        result tc = case orgParse defaultContext (intercalate "\n" (inputs tc)) of
           (headlines, context, maybeError) -> Result (map (stripSpans . valueOf) headlines) context
         assertMany = map assert testCases

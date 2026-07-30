@@ -1,18 +1,15 @@
-{-# LANGUAGE TypeFamilies #-}
-
 module Repl.Org (runRepl) where
 
 import Control.Monad (unless)
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.State (StateT)
 import qualified Control.Monad.State as State
-import qualified Data.Config as Config
-import Data.Org (orgParse, OrgParser)
+import Data.Org (orgParse)
 import qualified Data.Org as Org
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.Text.IO as TIO
-import System.Console.Haskeline (InputT, getInputLine, runInputT)
+import System.Console.Haskeline (InputT, Settings, getInputLine, runInputT)
 import Text.Megaparsec (errorBundlePretty)
 import qualified TextShow as TS
 
@@ -23,8 +20,8 @@ getInput = do
   input <- State.lift $ getInputLine "> "
   return $ maybe "" Text.pack input
 
-repl :: OrgParser -> Repl ()
-repl fn = do
+repl :: Repl ()
+repl = do
   ctx <- State.get
   liftIO $ TIO.putStrLn $ Org.display ctx
   input <- getInput
@@ -39,13 +36,8 @@ repl fn = do
         Nothing  -> return ()
         Just err -> TIO.putStrLn $ "Errors:\n" <> Text.pack (errorBundlePretty err)
     State.put ctx'
-    repl fn
+    repl
 
-runRepl :: Config.Config -> Org.Context -> OrgParser -> IO ()
-runRepl (Config.Config {..}) state fn = do
-  -- conn <- createPool
-  -- runSqlQueryT conn (runMigration migrateAll)
-  runInputT haskelineSettings
-    $ evalStateT state
-    $ repl fn
-  where evalStateT = flip State.evalStateT
+-- | Read org text from SETTINGS' prompt, threading STATE across inputs.
+runRepl :: Settings IO -> Org.Context -> IO ()
+runRepl settings state = runInputT settings (State.evalStateT repl state)

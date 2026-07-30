@@ -10,15 +10,15 @@ import qualified TextShow as TS
 
 roundtrip :: Text -> (Text, Bool)
 roundtrip input =
-  let (elems, _ctx, _err) = orgParse mempty input
+  let (elems, _ctx, _err) = orgParse defaultContext input
       rendered = T.intercalate " " (map TS.showt elems)
-      (elems2, _ctx2, _err2) = orgParse mempty rendered
+      (elems2, _ctx2, _err2) = orgParse defaultContext rendered
       bare = map (stripSpans . valueOf)
   in (rendered, bare elems == bare elems2)
 
 roundtripExact :: Text -> (Text, Bool)
 roundtripExact input =
-  let (elems, _ctx, _err) = orgParse mempty input
+  let (elems, _ctx, _err) = orgParse defaultContext input
       rendered = T.intercalate " " (map TS.showt elems)
   in (rendered, rendered == input)
 

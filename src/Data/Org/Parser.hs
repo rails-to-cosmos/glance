@@ -6,10 +6,11 @@ module Data.Org.Parser ( Parse (..)
                        , orgParse
                        ) where
 
-import Control.Monad (void, guard)
+import Control.Monad (void, guard, when)
 import Control.Monad.State (StateT)
 import qualified Control.Monad.State as State
 import Data.Char (isAlpha, isAlphaNum, isSpace)
+import Data.List (foldl')
 import Data.Maybe (catMaybes, fromMaybe, isJust)
 import Data.Org.Types
 import qualified Data.Set as Set
@@ -73,25 +74,20 @@ spannedP p = do
   e <- MP.getOffset
   pure (Spanned (Span s e) x)
 
--- | Span from the first to the last of SPANS; Nothing when empty.
+-- | Like 'spannedP', also consuming the whitespace trailing P.  The span still
+-- covers P alone.
+lexemeP :: StatefulParser a -> StatefulParser (Spanned a)
+lexemeP p = spannedP p <* MPC.space
+
+-- | Span from the first to the last of SPANS; Nothing when empty.  Forced at
+-- every step: a thunk chain here would outlive the document it points into.
 spanRange :: [Span] -> Maybe Span
-spanRange = foldr step Nothing
-  where step s Nothing     = Just s
-        step s (Just rest) = Just (Span (spanStart s) (spanEnd rest))
+spanRange = foldl' (\acc sp -> Just $! maybe sp (<> sp) acc) Nothing
 
-via :: (Parse a) => (a -> b) -> StatefulParser b
-via el = try (el <$> parse)
-
--- | Parse elements up to the end of the line.  Trailing horizontal space
--- terminates the container and stays unconsumed.
-parseContainer :: (Parse element) => ([element] -> container) -> StatefulParser container
-parseContainer con = do
-    let stop = MPC.hspace *> (void eol <|> eof)
-    con <$> manyTill (MPC.hspace *> parse) (lookAhead (try stop))
-
--- | Like 'parseContainer' but stopping at ENDPARSER, also yielding the span
--- from the first to the last element.  ENDPARSER comes first: it may claim the
--- horizontal space the end-of-line branch would otherwise swallow.
+-- | Parse elements until ENDPARSER or the end of the line, yielding the span
+-- from the first to the last one.  ENDPARSER comes first: it may claim the
+-- horizontal space the end-of-line branch would otherwise swallow.  Trailing
+-- horizontal space terminates the container and stays unconsumed.
 spannedContainerUntil :: (Parse element)
                       => ([element] -> container)
                       -> StatefulParser end
@@ -102,9 +98,6 @@ spannedContainerUntil con endParser = do
     return (spanRange (map spanOf elems), con (map valueOf elems))
 
 -- Parse instances
-
-instance Parse Element where
-  parse = elementP True
 
 -- | Parse one element.  A headline is only tried when BOL: org anchors its
 -- stars to column 1, so mid-line "*emphasis*" stays plain text.
@@ -118,7 +111,6 @@ elementP bol = choice $
 
 instance Parse Headline where
   parse = do
-    start <- MP.getOffset
     indent' <- indentP
     todo' <- optional $ try todoP
     priority' <- optional $ try priorityP
@@ -127,12 +119,13 @@ instance Parse Headline where
     properties' <- optional $ try propertiesP
 
     let propsSpan = spanOf <$> properties'
-        present = catMaybes [ propsSpan
-                            , tagsSpan
-                            , titleSpan
-                            , spanOf <$> priority'
-                            , spanOf <$> todo'
-                            ]
+        -- Source order: the fold below runs from the stars to the last part.
+        present = spanOf indent' : catMaybes [ spanOf <$> todo'
+                                             , spanOf <$> priority'
+                                             , titleSpan
+                                             , tagsSpan
+                                             , propsSpan
+                                             ]
 
         headline = Headline { indent = valueOf indent'
                             , todo = valueOf <$> todo'
@@ -142,10 +135,8 @@ instance Parse Headline where
                             , properties = maybe mempty valueOf properties'
                             , schedule = Nothing
                             , deadline = Nothing
-                            , refs = []
-                            , hashRefs = []
                             , spans = HeadlineSpans
-                                { hsFull = Span start (maximum (spanEnd (spanOf indent') : map spanEnd present))
+                                { hsFull = foldr1 (<>) present
                                 , hsTodo = spanOf <$> todo'
                                 , hsPriority = spanOf <$> priority'
                                 , hsTitle = titleSpan
@@ -158,17 +149,9 @@ instance Parse Headline where
 
     return headline
 
-instance Parse Indent where
-  parse = valueOf <$> indentP
-
 -- | Parse the stars, spanning them alone; the trailing space is still consumed.
 indentP :: StatefulParser (Spanned Indent)
-indentP = do
-  s <- MP.getOffset
-  stars <- MP.some (MPC.char '*')
-  e <- MP.getOffset
-  _ <- MPC.space
-  return $ Spanned (Span s e) (Indent (length stars))
+indentP = lexemeP (Indent . length <$> MP.some (MPC.char '*'))
 
 instance Parse Keyword where
   parse = Keyword . T.toUpper <$> keywordTextP
@@ -182,11 +165,6 @@ instance Parse Pragma where
     key@(Keyword kText) <- MPC.string "#+" *> parse <* MPC.char ':' <* MPC.space
 
     case kText of
-      "CATEGORY" -> do
-        cat <- parse :: StatefulParser OrgLine
-        State.modify $ setCategory (TS.showt cat)
-        return $ PCategory cat
-
       "TODO" -> do
         -- Keywords register as written: org matches them case-sensitively.
         let todoKw = keywordTextP
@@ -203,55 +181,39 @@ instance Parse Pragma where
 
       _ -> do
         val <- parse :: StatefulParser OrgLine
+        when (kText == "CATEGORY") $ State.modify $ setCategory $ TS.showt val
         return $ Pragma key val
-
-instance Parse Priority where
-  parse = valueOf <$> priorityP
 
 -- | Parse "[#X]", spanning it alone; the trailing space is still consumed.
 priorityP :: StatefulParser (Spanned Priority)
-priorityP = do
-  s <- MP.getOffset
-  p <- MPC.char '[' *> MPC.char '#' *> MPC.letterChar <* MPC.char ']'
-  e <- MP.getOffset
-  _ <- MPC.space
-  return $ Spanned (Span s e) (Priority p)
+priorityP = lexemeP (Priority <$> (MPC.char '[' *> MPC.char '#' *> MPC.letterChar <* MPC.char ']'))
 
 instance Parse Property where
   parse = do
     keyword <- MPC.char ':' *> (parse :: StatefulParser Keyword) <* MPC.char ':' <* MPC.space
     guard $ not (reserved keyword)
     value <- parse :: StatefulParser OrgLine
-
-    case keyword of
-      Keyword "CATEGORY" -> State.modify $ setCategory $ TS.showt value
-      _keyword -> State.modify id
-
+    when (keyword == Keyword "CATEGORY") $ State.modify $ setCategory $ TS.showt value
     return $ Property keyword value
     where reserved :: Keyword -> Bool
           reserved (Keyword k) = k `elem` ["PROPERTIES", "END"]
 
-instance Parse Properties where
-  parse = valueOf <$> propertiesP
-
 -- | Parse a property drawer; the span starts at the drawer line, past the
 -- leading eol, and ends right after ":END:".
 propertiesP :: StatefulParser (Spanned Properties)
-propertiesP = do
-  _ <- MPC.eol
-  s <- MP.getOffset
-  _ <- MPC.hspace *> MPC.string ":PROPERTIES:" <* MPC.hspace <* MPC.eol
-  ps <- MP.manyTill (MPC.hspace *> (parse :: StatefulParser Property) <* MPC.hspace <* MPC.eol)
-                    (try (MPC.hspace *> MPC.string ":END:"))
-  e <- MP.getOffset
-  return $ Spanned (Span s e) (Properties ps)
+propertiesP = MPC.eol *> spannedP drawer
+  where drawer = do
+          _ <- MPC.hspace *> MPC.string ":PROPERTIES:" <* MPC.hspace <* MPC.eol
+          ps <- MP.manyTill (MPC.hspace *> (parse :: StatefulParser Property) <* MPC.hspace <* MPC.eol)
+                            (try (MPC.hspace *> MPC.string ":END:"))
+          return (Properties ps)
 
 instance Parse OrgLineElement where
-  parse = via OrgLineTimestamp
-    <|> (OrgLineToken <$> parse)
+  parse = try (OrgLineTimestamp <$> parse)
+      <|> (OrgLineToken <$> parse)
 
 instance Parse OrgLine where
-  parse = parseContainer OrgLine
+  parse = snd <$> spannedContainerUntil OrgLine (MP.empty :: StatefulParser ())
 
 instance Parse Tags where
   parse = snd <$> tagsP
@@ -261,41 +223,28 @@ instance Parse Tags where
 tagsP :: StatefulParser (Maybe Span, Tags)
 tagsP = do
     _ <- MPC.hspace1
-    s <- MP.getOffset
-    _ <- char ':'
-    ts <- many tag
-    e <- MP.getOffset
-    return (if null ts then Nothing else Just (Span s e), Tags ts)
+    Spanned sp ts <- spannedP (char ':' *> many tag)
+    return (if null ts then Nothing else Just sp, Tags ts)
     where tag = takeWhile1P (Just "tag") isTagChar <* char ':'
           isTagChar c = isAlphaNum c || c == '_' || c == '-' || c == '@' || c == '#'
 
 instance Parse Timestamp where
   parse = State.lift tsParser
 
-instance Parse Title where
-  parse = snd <$> titleP
-
 -- | Parse a title, spanning its first through its last element.
 titleP :: StatefulParser (Maybe Span, Title)
-titleP = spannedContainerUntil Title stop
-  where stop = parse :: StatefulParser Tags
-
-instance Parse Todo where
-  parse = valueOf <$> todoP
+titleP = spannedContainerUntil Title tagsP
 
 -- | Parse a todo keyword, spanning it alone; the trailing space is still
 -- consumed.  The keyword must match a registered one exactly, case included.
 todoP :: StatefulParser (Spanned Todo)
 todoP = do
   ctx <- State.get
-  s <- MP.getOffset
-  result <- keywordTextP
-  e <- MP.getOffset
-  _ <- MPC.space
+  Spanned sp result <- lexemeP keywordTextP
   guard $ inTodo result ctx
-  return $ Spanned (Span s e) Todo { name = result
-                                   , active = result `elem` todoActive ctx
-                                   }
+  return $ Spanned sp Todo { name = result
+                           , active = result `elem` todoActive ctx
+                           }
 
 instance Parse Token where
   parse = Token <$> takeWhile1P (Just "token") (not . isSpace)
@@ -312,11 +261,6 @@ tsParser = do
     _ <- MPC.string "--" *> MPC.char (fst (tsBrackets tsStatus))
     fst <$> tsBodyParser tsStatus
   return (Timestamp {..})
-
--- | The brackets STATUS is written with: opening and closing.
-tsBrackets :: TimestampStatus -> (Char, Char)
-tsBrackets TimestampActive = ('<', '>')
-tsBrackets TimestampInactive = ('[', ']')
 
 tsStatusParser :: StatelessParser TimestampStatus
 tsStatusParser = (TimestampActive <$ MPC.char '<')
@@ -363,26 +307,21 @@ tsWeekdayParser = do
   MPC.space
   return (T.pack weekday)
 
+-- | Parse a repeater such as ".+3d", spelled with the characters
+-- 'typeChar', 'signChar' and 'unitChar' name.
 tsRepeaterParser :: StatelessParser TimestampRepeaterInterval
 tsRepeaterParser = do
-  repType <- MP.optional . MP.try $ MP.oneOf ['.', '+']
-  repSign <- MP.optional . MP.try $ MP.oneOf ['+', '-']
+  repType <- MP.optional . MP.try $ choice [t <$ char c | t <- [minBound ..], Just c <- [typeChar t]]
+  repSign <- MP.optional . MP.try $ choice [s <$ char (signChar s) | s <- [minBound ..]]
   repValue <- MPL.decimal
-  repUnit <- MP.oneOf ['d', 'w', 'm', 'y']
+  repUnit <- choice [u <$ char (unitChar u) | u <- [minBound ..]]
 
   return TimestampRepeaterInterval {
     repeaterValue = repValue,
-    repeaterType = case repType of
-                     Just '.' -> Cumulative
-                     Just '+' | repSign == Just '+' -> CatchUp
-                     _type -> Restart,
-    repeaterUnit = case repUnit of
-                     'd'   -> Days
-                     'w'   -> Weeks
-                     'm'   -> Months
-                     'y'   -> Years
-                     _unit -> Days,
-    repeaterSign = case repSign of
-                     Just '-' -> TRSMinus
-                     _sign -> TRSPlus
+    repeaterType = case (repType, repSign) of
+                     (Just Cumulative, _)         -> Cumulative
+                     (Just CatchUp, Just TRSPlus) -> CatchUp
+                     _type                        -> Restart,
+    repeaterUnit = repUnit,
+    repeaterSign = fromMaybe TRSPlus repSign
     }

@@ -47,7 +47,7 @@ spec = testGroup "TextShow"
   , testGroup "Pragma rendering"
     [ testCase "Category pragma" $
         assertEqual "" "#+CATEGORY: mycat"
-          (showt $ PCategory (OrgLine [OrgLineToken (Token "mycat")]))
+          (showt $ Pragma (Keyword "CATEGORY") (OrgLine [OrgLineToken (Token "mycat")]))
 
     , testCase "TODO pragma" $
         assertEqual "" "#+TODO: TODO | DONE"

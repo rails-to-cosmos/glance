@@ -74,7 +74,7 @@ walk :: Found -> FilePath -> IO Found
 walk acc dir = do
   listed <- try (listDirectory dir) :: IO (Either IOException [FilePath])
   case listed of
-    Left e      -> pure $! keepDirErr dir (firstLine (T.pack (show e))) acc
+    Left e      -> pure $! keepDirErr dir (errText e) acc
     Right names -> foldM (visit dir) acc names
 
 -- | Classify NAME inside DIR: recurse, keep, or ignore.  The accumulator is
@@ -119,19 +119,19 @@ scanFile :: FilePath -> IO FileResult
 scanFile path = do
   raw <- try (BS.readFile path) :: IO (Either IOException BS.ByteString)
   case raw of
-    Left e -> pure (bare (BRead (firstLine (T.pack (show e)))))
+    Left e -> pure (bare (BRead (errText e)))
     Right bytes -> case TE.decodeUtf8' bytes of
-      Left e -> pure (bare (BDecode (firstLine (T.pack (show e)))))
+      Left e -> pure (bare (BDecode (errText e)))
       Right doc -> do
         outcome <- try (evaluate (forceResult (analyse path doc)))
         pure $ case outcome of
-          Left e  -> bare (BParse ("exception: " <> firstLine (T.pack (show (e :: SomeException)))))
+          Left e  -> bare (BParse ("exception: " <> errText (e :: SomeException)))
           Right r -> r
   where bare b = FileResult b 0 0 0 []
 
 -- | Parse DOC and tally its elements, headlines and span violations.
 analyse :: FilePath -> Text -> FileResult
-analyse path doc = case orgParse mempty doc of
+analyse path doc = case orgParse defaultContext doc of
   (_elems, _ctx, Just err) -> FileResult (BParse (errorReason err)) 0 0 0 []
   (elems, _ctx, Nothing)   ->
     let acc = foldl' (step path doc (T.length doc)) (Acc 0 0 0 [] (Cursor 0 doc)) elems
@@ -189,32 +189,15 @@ elementViolations path doc len cur el = case valueOf el of
 
 -- | Report SP when it runs backwards or leaves [0, LEN].
 wellFormed :: FilePath -> Int -> Text -> Span -> [Text]
-wellFormed path len label sp = concat
-  [ [ note path sp (label <> "/negative-start")  | spanStart sp < 0 ]
-  , [ note path sp (label <> "/start-after-end") | spanStart sp > spanEnd sp ]
-  , [ note path sp (label <> "/end-past-eof")    | spanEnd sp > len ]
-  ]
+wellFormed path len label sp = [note path sp (label <> "/" <> fault) | fault <- spanFaults len sp]
 
 -- | Check H's sub-spans: shape, containment in 'hsFull', order, and slices.
 headlineViolations :: FilePath -> Text -> Int -> Cursor -> Headline -> ([Text], Cursor)
 headlineViolations path doc len cur h = (concat parts, cur')
   where
-    hs = spans h
-    full = hsFull hs
-    present = [ (label, sp, ok) | (label, Just sp, ok) <- labelled ]
+    full = hsFull (spans h)
+    present = [ (label, sp, ok) | (label, Just sp, ok) <- headlineSpanParts h ]
     (sliced, cur') = sliceAll doc cur present
-
-    labelled :: [(Text, Maybe Span, Text -> Bool)]
-    labelled =
-      [ ("hsTodo",       hsTodo hs,       (== maybe "" name (todo h)))
-      , ("hsPriority",   hsPriority hs,   (== maybe "" TS.showt (priority h)))
-      , ("hsTitle",      hsTitle hs,      \t -> T.words t == T.words (TS.showt (title h)))
-      , ("hsTags",       hsTags hs,       (== TS.showt (tags h)))
-      , ("hsProperties", hsProperties hs, drawer)
-      ]
-
-    drawer t = ":PROPERTIES:" `T.isPrefixOf` stripped && ":END:" `T.isSuffixOf` stripped
-      where stripped = T.strip t
 
     parts =
       [ wellFormed path len "hsFull" full
@@ -333,6 +316,10 @@ fixed digits x = T.pack (showFFloat (Just digits) x "")
 -- | The first line of T, with trailing whitespace dropped.
 firstLine :: Text -> Text
 firstLine = T.stripEnd . T.takeWhile (/= '\n')
+
+-- | E's rendering, cut to its first line, as a one-line diagnostic.
+errText :: Show e => e -> Text
+errText = firstLine . T.pack . show
 
 -- | Position plus the first diagnostic line of ERR's pretty rendering.
 errorReason :: ParseErrorBundle Text Void -> Text

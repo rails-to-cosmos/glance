@@ -22,12 +22,12 @@ on :: Text -> TsMoment
 on t = TsMoment (strptime t) False
 
 parseTimestamp :: Text -> Maybe Timestamp
-parseTimestamp input = case orgParse mempty input of
+parseTimestamp input = case orgParse defaultContext input of
   (Spanned _ (ETimestamp ts) : _, _, _) -> Just ts
   _                                     -> Nothing
 
 parseFails :: Text -> Bool
-parseFails input = case orgParse mempty input of
+parseFails input = case orgParse defaultContext input of
   (Spanned _ (ETimestamp _) : _, _, _) -> False
   _                                    -> True
 
@@ -90,7 +90,7 @@ spec = testGroup "Timestamp"
         let input = T.intercalate "\n"
               [ "* Task"
               , "CLOCK: [2023-07-15 Sat 15:54]--[2023-07-15 Sat 17:10] =>  1:16" ]
-        case orgParse mempty input of
+        case orgParse defaultContext input of
           (_, _, Just _err) -> assertBool "CLOCK line should parse" False
           (elems, _, Nothing) -> do
             let ranges = [ (s, t) | Spanned s (ETimestamp t) <- elems, isJust (tsEnd t) ]
@@ -148,7 +148,7 @@ spec = testGroup "Timestamp"
 
   , testGroup "Timestamp in headline title"
     [ testCase "Active timestamp in title" $ do
-        let (elems, _, _) = orgParse mempty "* Meeting <2024-01-15 Mon 10:00>"
+        let (elems, _, _) = orgParse defaultContext "* Meeting <2024-01-15 Mon 10:00>"
         case map valueOf elems of
           [EHeadline h] -> assertBool "Title should contain timestamp"
             (case title h of
@@ -156,7 +156,7 @@ spec = testGroup "Timestamp"
           _ -> assertBool "Expected single headline" False
 
     , testCase "Inactive timestamp in title" $ do
-        let (elems, _, _) = orgParse mempty "* Created [2024-01-15 Mon 10:00]"
+        let (elems, _, _) = orgParse defaultContext "* Created [2024-01-15 Mon 10:00]"
         case map valueOf elems of
           [EHeadline h] -> assertBool "Title should contain timestamp"
             (case title h of
@@ -164,7 +164,7 @@ spec = testGroup "Timestamp"
           _ -> assertBool "Expected single headline" False
 
     , testCase "Date-only timestamp in title renders without a time" $ do
-        let (elems, _, _) = orgParse mempty "* Due <2026-07-08 Wed>"
+        let (elems, _, _) = orgParse defaultContext "* Due <2026-07-08 Wed>"
         case map valueOf elems of
           [EHeadline h] -> assertEqual "" "* Due <2026-07-08 Wed>" (TS.showt h)
           _ -> assertBool "Expected single headline" False
