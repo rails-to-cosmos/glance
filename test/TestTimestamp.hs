@@ -58,6 +58,41 @@ spec = testGroup "Timestamp"
         assertEqual "" (Just Nothing) (tsEnd <$> parseTimestamp "[2023-07-15 Sat 15:54] tail")
     ]
 
+  , testGroup "Compact same-day ranges"
+    [ testCase "Both times land on the start's day" $
+        assertEqual "" (Just (compactTs TimestampActive (at "2024-01-15 10:30:00")
+                                                        (at "2024-01-15 11:30:00")))
+                       (parseTimestamp "<2024-01-15 Mon 10:30-11:30>")
+
+    , testCase "Inactive brackets" $
+        assertEqual "" (Just (compactTs TimestampInactive (at "2021-11-09 17:30:00")
+                                                          (at "2021-11-09 18:30:00")))
+                       (parseTimestamp "[2021-11-09 Tue 17:30-18:30]")
+
+    , testCase "Seconds on both ends" $
+        assertEqual "" (Just (compactTs TimestampActive (at "2024-01-15 10:30:15")
+                                                        (at "2024-01-15 11:45:30")))
+                       (parseTimestamp "<2024-01-15 Mon 10:30:15-11:45:30>")
+
+    , testCase "A repeater follows the range" $
+        assertEqual "" (Just (compactTs TimestampActive (at "2024-01-15 10:30:00")
+                                                        (at "2024-01-15 11:30:00"))
+                               { tsInterval = Just (TimestampRepeaterInterval Restart 1 Weeks TRSPlus) })
+                       (parseTimestamp "<2024-01-15 Mon 10:30-11:30 +1w>")
+
+    -- '-' opens both a range end and a negative repeater; only the time's
+    -- colon separates them, so "-1d" backtracks out of the range and stays a
+    -- repeater whether or not a space precedes it.
+    , testCase "A negative repeater is not a range end" $
+        assertEqual "" (Just (repeating (at "2024-01-15 10:30:00")
+                                        (TimestampRepeaterInterval Restart 1 Days TRSMinus)))
+                       (parseTimestamp "<2024-01-15 Mon 10:30-1d>")
+
+    , testCase "The -- spelling is kept, not folded into the compact one" $
+        assertEqual "" (Just False)
+          (tsCompactRange <$> parseTimestamp "[2023-07-15 Sat 15:54]--[2023-07-15 Sat 17:10]")
+    ]
+
   , testGroup "Repeater intervals"
     [ testCase "Weekly restart repeater" $
         assertEqual "" (Just (repeating (on "2024-01-01 00:00:00")

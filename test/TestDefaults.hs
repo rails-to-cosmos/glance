@@ -1,6 +1,7 @@
 module TestDefaults ( at
                     , bare
                     , bareParse
+                    , compactTs
                     , headlinesOf
                     , initialState
                     , on
@@ -40,7 +41,13 @@ plainTs :: TimestampStatus -> TsMoment -> Timestamp
 plainTs status moment = Timestamp { tsStatus = status
                                   , tsInterval = Nothing
                                   , tsStart = moment
-                                  , tsEnd = Nothing }
+                                  , tsEnd = Nothing
+                                  , tsCompactRange = False }
+
+-- | A compact same-day range of STATUS: START through END in one bracket pair.
+compactTs :: TimestampStatus -> TsMoment -> TsMoment -> Timestamp
+compactTs status start end = (plainTs status start) { tsEnd = Just end
+                                                    , tsCompactRange = True }
 
 -- Context
 

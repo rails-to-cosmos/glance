@@ -65,6 +65,7 @@ cases =
   , Case "planning keywords out of order"   planningDocument
   , Case "planning line before a drawer"    planningDrawerDocument
   , Case "planning with a stale weekday"    "* Task\nSCHEDULED: <2024-01-15 Fri>"
+  , Case "planning with a compact range"    "* Task\nSCHEDULED: <2024-01-15 Mon 10:30-11:30 +1w>"
   , Case "date-only timestamp in a title"   "* Due <2026-07-08 Wed>"
   , Case "trailing spaces before a newline" "* Hello  \n* Two"
   , Case "trailing tab at eof"              "* Hello\t"

@@ -79,11 +79,21 @@ on.
   whether the source spelled a time — midnight-with-time and date-only both
   store 00:00. Weekday is parsed, discarded, recomputed on render (wrong
   source weekdays re-render corrected — a spurious hunk if rendered rather
-  than span-spliced). Org's same-day time range, `<2024-01-15 Mon 10:30-11:30>`,
-  does not parse at all: `tsRepeaterParser` eats the `-`, then the closing
-  bracket fails. 1529 corpus stamps are spelled that way, nearly all of them on
-  planning lines, and each falls back to plain tokens. **test** (has-time,
-  brackets) / **comment** (weekday) / **corpus** (time ranges)
+  than span-spliced). **test** (has-time, brackets) / **comment** (weekday)
+- **Two range spellings, source form preserved.** `<a>--<b>` and the compact
+  same-day `<date wd 10:30-11:30>` both land in `tsStart`/`tsEnd`;
+  `tsCompactRange` records which the source wrote and the renderer branches on
+  it. Canonicalizing either into the other is a spurious hunk — emacs writes
+  CLOCK ranges as `--` even though both halves share a date, which is what the
+  `Exact` clock-range roundtrip row pins. The compact branch additionally
+  requires both ends to carry a time on one day, so a hand-built timestamp
+  cannot render its end date away. `Eq` includes the flag; `Ord` still compares
+  start moments only. **test**
+- **Range end versus negative repeater.** Both open with `-` and only the
+  time's colon separates them. The end time is tried first: `-1d` gets through
+  `MPL.decimal` and fails at the missing `:`, backtracking whole and leaving
+  the repeater its text. No space may sit around the `-`, or ` -1d` would read
+  as an end time instead. **test**
 - **Planning line.** The one line right after a headline's title line, ahead of
   any drawer, fills `schedule`, `deadline` and `closed`. Keywords match
   uppercase-only, in any order, and a keyword repeated on the line keeps its
@@ -92,11 +102,13 @@ on.
   as it did before and a `SCHEDULED:` further down the body stays a Token +
   Timestamp pair. Each span covers the timestamp text alone, keyword excluded:
   S8 reschedules by replacing that slice and nothing else. Corpus: 4661 planning
-  lines in parseable files carry 7220 entries, 6423 of which attach — the
-  remainder are stamps the timestamp parser rejects, and since the entry loop
-  stops at the first failure, later entries on the same line are stranded with
-  it. A further 2642 planning lines sit inside the 13 files that fail to parse
-  outright. **test + corpus**
+  lines in parseable files carry 7220 entries, 7161 of which attach. The ~70
+  stragglers are stamps the timestamp parser still rejects — two-letter weekday
+  abbreviations, unit-less repeaters (`10:00+2`), a repeater written before the
+  time, diary sexps, and a repeater followed by a warning period — and since
+  the entry loop stops at the first failure, later entries on that line are
+  stranded with it. A further 2642 planning lines sit inside the 13 files that
+  fail to parse outright. **test + corpus**
 - **All-or-nothing parse.** On error `orgParse` returns zero elements and the
   caller's context unchanged — scan buckets, the REPL, and pragma
   half-application all rely on it. **test**

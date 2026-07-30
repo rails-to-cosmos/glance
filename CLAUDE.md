@@ -33,8 +33,11 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - The property parser rejects reserved `PROPERTIES`/`END` — that guard is what
   terminates the drawer.
 - Timestamp range halves share one bracket kind; `tsmHasTime` alone decides
-  whether a time renders; the weekday is recomputed from the date. Org's
-  same-day time range `<… 10:30-11:30>` does not parse — 1529 corpus stamps.
+  whether a time renders; the weekday is recomputed from the date.
+- A range is spelled `<a>--<b>` or compactly as `<date wd 10:30-11:30>`;
+  `tsCompactRange` preserves which, and the renderer never canonicalizes one
+  into the other (CLOCK lines are always `--`). A `-` before a time opens a
+  range end, before a unit it is a negative repeater.
 - The planning line is the one line after the title line, before any drawer:
   `SCHEDULED:`/`DEADLINE:`/`CLOSED:` uppercase-only, any order, last-wins per
   keyword. `CLOCK:` is not one. The whole line backtracks when it is not a

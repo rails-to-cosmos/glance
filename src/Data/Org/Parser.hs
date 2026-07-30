@@ -305,15 +305,22 @@ instance Parse Token where
 
 -- Timestamp sub-parsers
 
--- | Parse a timestamp, optionally a "start--end" range.  Both ends must use
--- the bracket kind the start opened with.
+-- | Parse a timestamp, optionally a range.  Org spells a range either as
+-- "start--end" over two bracket pairs, both of the kind the start opened with,
+-- or compactly as one pair holding "HH:MM-HH:MM" on a single day;
+-- 'tsCompactRange' records which the source used.  A "--" half wins when some
+-- source carries both, the model having room for one end.
 tsParser :: StatelessParser Timestamp
 tsParser = do
   tsStatus <- tsStatusParser
-  (tsStart, tsInterval) <- tsBodyParser tsStatus
-  tsEnd <- MP.optional . MP.try $ do
+  (tsStart, compactEnd, tsInterval) <- tsBodyParser tsStatus
+  dashEnd <- MP.optional . MP.try $ do
     _ <- MPC.string "--" *> MPC.char (fst (tsBrackets tsStatus))
-    fst <$> tsBodyParser tsStatus
+    (moment, _compact, _interval) <- tsBodyParser tsStatus
+    return moment
+  let (tsEnd, tsCompactRange) = case dashEnd of
+        Just moment -> (Just moment, False)
+        Nothing     -> (compactEnd, isJust compactEnd)
   return (Timestamp {..})
 
 tsStatusParser :: StatelessParser TimestampStatus
@@ -321,18 +328,28 @@ tsStatusParser = (TimestampActive <$ MPC.char '<')
              <|> (TimestampInactive <$ MPC.char '[')
 
 -- | Parse one bracketed moment of STATUS, from the day through the closing
--- bracket, together with the repeater it carries.
-tsBodyParser :: TimestampStatus -> StatelessParser (TsMoment, Maybe TimestampRepeaterInterval)
+-- bracket: the moment, the compact range end it may carry, and its repeater.
+tsBodyParser :: TimestampStatus -> StatelessParser (TsMoment, Maybe TsMoment, Maybe TimestampRepeaterInterval)
 tsBodyParser status = do
   day <- tsDayParser <* MPC.space
   _weekday <- MP.optional (MP.try tsWeekdayParser) <* MPC.space
-  time <- MP.optional (MP.try tsTimeParser) <* MPC.space
+  time <- MP.optional (MP.try tsTimeParser)
+  -- A range end and a repeater both open with '-', so the end time is tried
+  -- first and only its colon tells them apart: "-1d" gets through 'MPL.decimal'
+  -- and fails at the missing ':', backtracking whole and leaving the repeater
+  -- its text.  No space may sit around the '-' — org writes none, and allowing
+  -- it would let " -1d" read as a range end.
+  endTime <- if isJust time
+             then MP.optional (MP.try (MPC.char '-' *> tsTimeParser))
+             else return Nothing
+  MPC.space
   interval <- MP.optional . MP.try $ tsRepeaterParser <* MPC.space
   void $ MPC.char (snd (tsBrackets status))
-  let moment = TsMoment { tsmTime = Time.UTCTime day (Time.timeOfDayToTime (fromMaybe midnight time))
-                        , tsmHasTime = isJust time
-                        }
-  return (moment, interval)
+  let atTime hasTime t = TsMoment { tsmTime = Time.UTCTime day (Time.timeOfDayToTime t)
+                                  , tsmHasTime = hasTime }
+  return ( atTime (isJust time) (fromMaybe midnight time)
+         , atTime True <$> endTime
+         , interval )
   where midnight = Time.TimeOfDay 0 0 0
 
 tsDayParser :: StatelessParser Time.Day

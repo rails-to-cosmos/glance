@@ -107,6 +107,13 @@ testCases =
           , deadline = Just day2024
                               { tsInterval = Just (TimestampRepeaterInterval Restart 1 Weeks TRSPlus) } } ]
 
+  , plain "Planning: a compact same-day range"
+      ["* Task", "SCHEDULED: <2024-01-15 Mon 10:30-11:30 +1w>"]
+      [ EHeadline (titled "Task")
+          { schedule = Just (compactTs TimestampActive (at "2024-01-15 10:30:00")
+                                                       (at "2024-01-15 11:30:00"))
+                              { tsInterval = Just (TimestampRepeaterInterval Restart 1 Weeks TRSPlus) } } ]
+
   , plain "Planning: an indented line still attaches"
       ["* Task", "  SCHEDULED: <2024-01-01 Mon>"]
       [EHeadline (titled "Task") { schedule = Just day2024 }]

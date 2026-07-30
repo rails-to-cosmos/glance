@@ -33,8 +33,14 @@ cases =
   , ("Active midnight",         "<2024-01-01 Mon 00:00>",                         Stable)
   , ("Inactive midnight",       "[2024-01-01 Mon 00:00]",                         Exact)
   , ("Date-only timestamp",     "<2026-07-08 Wed>",                               Exact)
+    -- Both halves share a date, so this row is what pins that an explicit "--"
+    -- source never re-renders as the compact form.
   , ("Clock range",             "[2023-07-15 Sat 15:54]--[2023-07-15 Sat 17:10]", Exact)
   , ("Date range",              "<2024-01-15 Mon>--<2024-01-19 Fri>",             Stable)
+  , ("Compact range",           "<2024-01-15 Mon 10:30-11:30>",                   Exact)
+  , ("Compact range inactive",  "[2021-11-09 Tue 17:30-18:30]",                   Exact)
+  , ("Compact range repeating", "<2024-01-15 Mon 10:30-11:30 +1w>",               Exact)
+  , ("Compact range seconds",   "<2024-01-15 Mon 10:30:15-11:45:30>",             Exact)
   , ("Date-only in a title",    "* Due <2026-07-08 Wed>",                         Exact)
   ]
 

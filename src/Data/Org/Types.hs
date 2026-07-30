@@ -414,23 +414,36 @@ data TsMoment = TsMoment { tsmTime :: !Time.UTCTime
                          , tsmHasTime :: !Bool
                          } deriving (Show, Eq)
 
--- | A timestamp; 'tsEnd' set makes it the "start--end" range org writes on
--- CLOCK lines.  Both ends share the bracket kind 'tsStatus' names.
+-- | A timestamp; 'tsEnd' set makes it a range.  Both ends share the bracket
+-- kind 'tsStatus' names.  Org spells a range two ways — "<a>--<b>", which
+-- CLOCK lines always use, and the compact same-day "<date wd 10:30-11:30>" —
+-- and 'tsCompactRange' preserves the source's choice, since re-rendering the
+-- other spelling is a spurious hunk.
 data Timestamp = Timestamp { tsStatus :: !TimestampStatus
                            , tsInterval :: !(Maybe TimestampRepeaterInterval)
                            , tsStart :: !TsMoment
                            , tsEnd :: !(Maybe TsMoment)
+                           , tsCompactRange :: !Bool
                            } deriving (Show, Eq)
 
 instance Ord Timestamp where
   compare a b = compare (tsmTime (tsStart a)) (tsmTime (tsStart b))
 
 instance TextShow Timestamp where
-  showb ts = bracketed (tsFormat (tsStart ts) <> repeaterText)
-          <> maybe mempty (\end -> "--" <> bracketed (tsFormat end)) (tsEnd ts)
+  showb ts = case tsEnd ts of
+    Just end | compactly end -> bracketed (tsFormat (tsStart ts) <> "-" <> tsTimeOnly end <> repeaterText)
+    Just end                 -> bracketed (tsFormat (tsStart ts) <> repeaterText)
+                             <> "--" <> bracketed (tsFormat end)
+    Nothing                  -> bracketed (tsFormat (tsStart ts) <> repeaterText)
     where bracketed body = fromText (T.cons open (T.snoc body close))
           (open, close) = tsBrackets (tsStatus ts)
           repeaterText = maybe "" ((" " <>) . repeaterFormat) (tsInterval ts)
+          -- Both ends carrying a time on one day is what the compact spelling
+          -- can express; guarded rather than assumed, so a hand-built
+          -- timestamp cannot render its end date away.
+          compactly end = tsCompactRange ts
+                       && tsmHasTime (tsStart ts) && tsmHasTime end
+                       && Time.utctDay (tsmTime (tsStart ts)) == Time.utctDay (tsmTime end)
 
 instance Display Timestamp where
   display = showt
@@ -477,14 +490,24 @@ unitChar Weeks = 'w'
 unitChar Months = 'm'
 unitChar Years = 'y'
 
+-- | The time-of-day format M needs: seconds only when it carries them.
+tsTimeFormat :: TsMoment -> String
+tsTimeFormat (TsMoment time _hasTime)
+  | seconds `mod` 60 == 0 = "%H:%M"
+  | otherwise             = "%H:%M:%S"
+  where seconds = floor (Time.utctDayTime time) :: Integer
+
 -- | Render M as org writes it: date, recomputed weekday, and a time of day
 -- only when the source carried one.
 tsFormat :: TsMoment -> Text
-tsFormat (TsMoment time hasTime) = T.pack (Time.formatTime Time.defaultTimeLocale timeFormat time)
-  where timeFormat | not hasTime           = "%Y-%m-%d %a"
-                   | seconds `mod` 60 == 0 = "%Y-%m-%d %a %H:%M"
-                   | otherwise             = "%Y-%m-%d %a %H:%M:%S"
-        seconds = floor (Time.utctDayTime time) :: Integer
+tsFormat m@(TsMoment time hasTime) = T.pack (Time.formatTime Time.defaultTimeLocale fmt time)
+  where fmt | hasTime   = "%Y-%m-%d %a " <> tsTimeFormat m
+            | otherwise = "%Y-%m-%d %a"
+
+-- | Render M's time of day alone: the tail of the compact range spelling.
+tsTimeOnly :: TsMoment -> Text
+tsTimeOnly m@(TsMoment time _hasTime) =
+  T.pack (Time.formatTime Time.defaultTimeLocale (tsTimeFormat m) time)
 
 -- | Render INTERVAL the way org writes a repeater, e.g. ".+3d".
 repeaterFormat :: TimestampRepeaterInterval -> Text
