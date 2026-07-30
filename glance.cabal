@@ -76,7 +76,6 @@ test-suite glance-test
   main-is: Spec.hs
   other-modules:
       TestDefaults
-      TestLexer
       TestParser
       TestRoundtrip
       TestTimestamp

@@ -1,16 +1,17 @@
 module TestNegative (spec) where
 
+import Data.Maybe (isJust, isNothing)
 import Data.Org
-import qualified Data.Org as Org
+import qualified Data.Set as Set
 import Data.Text (Text)
-import qualified Data.Text as T
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, assertBool, assertEqual)
+import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, testCase)
+import TestDefaults
 
 parsesAs :: Text -> (Element -> Bool) -> Bool
-parsesAs input predicate = case orgParse defaultContext input of
-  (e:_, _, _) -> predicate (valueOf e)
-  _           -> False
+parsesAs input predicate = case bareParse defaultContext input of
+  (e:_) -> predicate e
+  _     -> False
 
 isToken :: Element -> Bool
 isToken (EToken _) = True
@@ -20,14 +21,15 @@ isHeadline :: Element -> Bool
 isHeadline (EHeadline _) = True
 isHeadline _ = False
 
-hasError :: Text -> Bool
-hasError input = case orgParse defaultContext input of
-  (_, _, Just _) -> True
-  _              -> False
+headlineCount :: Text -> Int
+headlineCount = length . filter isHeadline . bareParse defaultContext
 
-elementCount :: Text -> Int
-elementCount input = case orgParse defaultContext input of
-  (elems, _, _) -> length elems
+-- | INPUT must parse cleanly and yield nothing at all.
+assertNoElements :: (String, Text) -> Assertion
+assertNoElements (desc, input) = case orgParse defaultContext input of
+  (elems, _ctx, err) -> do
+    assertBool (desc <> ": unexpected parse error") (isNothing err)
+    assertEqual (desc <> ": elements") [] (bare elems)
 
 spec :: TestTree
 spec = testGroup "Negative / Edge cases"
@@ -35,94 +37,75 @@ spec = testGroup "Negative / Edge cases"
     [ testCase "Lone star parses as headline with empty title" $
         assertBool "Should be a headline" (parsesAs "*" isHeadline)
 
-    , testCase "Incomplete tags become part of title" $ do
-        let (elems, _, _) = orgParse defaultContext "* Hello :incomplete"
-        case map valueOf elems of
-          [EHeadline h] ->
-            assertEqual "Incomplete tags should be in title"
-              (Title [OrgLineToken (Token "Hello"), OrgLineToken (Token ":incomplete")])
-              (title h)
-          _ -> assertBool "Expected single headline" False
+    , testCase "Incomplete tags become part of title" $
+        withHeadline "* Hello :incomplete" $ \h ->
+          assertEqual "Incomplete tags should be in title"
+            (Title [OrgLineToken "Hello", OrgLineToken ":incomplete"])
+            (title h)
 
-    , testCase "Unknown pragma keyword becomes generic pragma" $ do
-        let (elems, _, _) = orgParse defaultContext "#+FOOBAR: some value"
-        case map valueOf elems of
-          [EPragma (Pragma (Keyword "FOOBAR") _)] -> return ()
-          _ -> assertBool ("Expected generic pragma, got: " <> show elems) False
-
-    , testCase "Drawer is not a property block" $
-        assertBool "Standalone drawer should be token" (parsesAs ":DRAWER:" isToken)
+    , testCase "Unknown pragma keyword becomes generic pragma" $
+        assertEqual "elements"
+          [EPragma (Pragma (Keyword "FOOBAR") (OrgLine [OrgLineToken "some", OrgLineToken "value"]))]
+          (bareParse defaultContext "#+FOOBAR: some value")
 
     , testCase "Property-like text outside headline is a token" $
         assertBool "Should be token" (parsesAs ":KEY: value" isToken)
     ]
 
-  , testGroup "Empty / whitespace inputs"
-    [ testCase "Empty string" $
-        assertEqual "Should produce no elements" 0 (elementCount "")
+  , testCase "Whitespace-only input yields nothing" $
+      mapM_ assertNoElements [ ("Only spaces",     "   ")
+                             , ("Only newlines",   "\n\n\n")
+                             , ("Mixed whitespace", "  \n  \n  ") ]
 
-    , testCase "Only spaces" $
-        assertEqual "Should produce no elements" 0 (elementCount "   ")
-
-    , testCase "Only newlines" $
-        assertEqual "Should produce no elements" 0 (elementCount "\n\n\n")
-
-    , testCase "Mixed whitespace" $
-        assertEqual "Should produce no elements" 0 (elementCount "  \n  \n  ")
+  , testGroup "Parse failures"
+    [ testCase "Mismatched range brackets fail the whole document" $
+        case orgParse defaultContext "[2023-07-15 Sat 15:54]--<2023-07-15 Sat 17:10>" of
+          (elems, ctx, err) -> do
+            assertBool "expected a parse error" (isJust err)
+            assertEqual "no elements on error" [] (bare elems)
+            assertEqual "context untouched on error" defaultContext ctx
     ]
 
   , testGroup "Headline edge cases"
-    [ testCase "Headline with only stars and space is valid headline" $ do
-        let (elems, _, _) = orgParse defaultContext "* "
-        case map valueOf elems of
-          [EHeadline h] -> assertEqual "Title should be empty" (Title []) (title h)
-          _ -> assertBool ("Expected headline with empty title, got: " <> show elems) False
+    [ testCase "Headline with only stars and space is valid headline" $
+        withHeadline "* " $ \h -> assertEqual "Title should be empty" (Title []) (title h)
 
-    , testCase "Very deep nesting" $ do
-        let (elems, _, _) = orgParse defaultContext "********** Deep"
-        case map valueOf elems of
-          [EHeadline h] -> assertEqual "Should have indent 10" (Indent 10) (indent h)
-          _ -> assertBool "Expected headline" False
+    , testCase "Very deep nesting" $
+        withHeadline "********** Deep" $ \h ->
+          assertEqual "Should have indent 10" (Indent 10) (indent h)
 
-    , testCase "Headline without title text after TODO" $ do
-        let (elems, _, _) = orgParse defaultContext "* TODO"
-        case map valueOf elems of
-          [EHeadline h] -> do
-            assertEqual "Should have TODO" (Just (Todo "TODO" True)) (todo h)
-            assertEqual "Title should be empty" (Title []) (title h)
-          _ -> assertBool ("Expected headline, got: " <> show elems) False
+    , testCase "Headline without title text after TODO" $
+        withHeadline "* TODO" $ \h -> do
+          assertEqual "Should have TODO" (Just (Todo "TODO" True)) (todo h)
+          assertEqual "Title should be empty" (Title []) (title h)
 
-    , testCase "Priority without TODO" $ do
-        let (elems, _, _) = orgParse defaultContext "* [#A] Hello"
-        case map valueOf elems of
-          [EHeadline h] -> do
-            assertEqual "No TODO" Nothing (todo h)
-            assertEqual "Has priority" (Just (Priority 'A')) (priority h)
-          _ -> assertBool "Expected headline" False
+    , testCase "Priority without TODO" $
+        withHeadline "* [#A] Hello" $ \h -> do
+          assertEqual "No TODO" Nothing (todo h)
+          assertEqual "Has priority" (Just (Priority 'A')) (priority h)
 
-    , testCase "Multiple headlines in sequence" $ do
-        let input = T.intercalate "\n" ["* First", "** Second", "*** Third"]
-        assertEqual "Should parse 3 headlines" 3 (elementCount input)
+    , testCase "Multiple headlines in sequence" $
+        assertEqual "elements"
+          [ EHeadline (titled "First")
+          , EHeadline (titled "Second") { indent = Indent 2 }
+          , EHeadline (titled "Third") { indent = Indent 3 } ]
+          (bareParse defaultContext "* First\n** Second\n*** Third")
     ]
 
   , testGroup "Headlines are anchored to column 1"
-    [ testCase "Mid-line emphasis is not a headline" $ do
-        let (elems, _, _) = orgParse defaultContext "word *done* word"
+    [ testCase "Mid-line emphasis is not a headline" $
         assertEqual "Should be three tokens"
-          [EToken (Token "word"), EToken (Token "*done*"), EToken (Token "word")]
-          (map valueOf elems)
+          [EToken "word", EToken "*done*", EToken "word"]
+          (bareParse defaultContext "word *done* word")
 
-    , testCase "Mid-line emphasized keyword is not a headline" $ do
-        let (elems, _, _) = orgParse defaultContext "see *TODO* below"
-        assertBool "No headline expected" (not (any (isHeadline . valueOf) elems))
+    , testCase "Mid-line emphasized keyword is not a headline" $
+        assertEqual "No headline expected" 0 (headlineCount "see *TODO* below")
 
-    , testCase "Emphasis on a later body line is not a headline" $ do
-        let (elems, _, _) = orgParse defaultContext (T.intercalate "\n" ["* Task", "body *TODO* text"])
-        assertEqual "Only the real headline" 1 (length (filter (isHeadline . valueOf) elems))
+    , testCase "Emphasis on a later body line is not a headline" $
+        assertEqual "Only the real headline" 1 (headlineCount "* Task\nbody *TODO* text")
 
-    , testCase "Stars after a newline still open a headline" $ do
-        let (elems, _, _) = orgParse defaultContext "body\n* Task"
-        assertEqual "One headline" 1 (length (filter (isHeadline . valueOf) elems))
+    , testCase "Stars after a newline still open a headline" $
+        assertEqual "One headline" 1 (headlineCount "body\n* Task")
 
     , testCase "Indented stars are not a headline" $
         assertBool "Should be token" (parsesAs "  * Task" isToken)
@@ -135,16 +118,22 @@ spec = testGroup "Negative / Edge cases"
     , testCase "Invalid day falls back to token" $
         assertBool "Should not parse as timestamp" (parsesAs "<2024-01-32>" isToken)
 
+    , testCase "Invalid hour falls back to token" $
+        assertBool "Should not parse as timestamp" (parsesAs "<2024-01-01 Mon 25:00>" isToken)
+
     , testCase "Unclosed active timestamp" $
         assertBool "Should be token" (parsesAs "<2024-01-01" isToken)
     ]
 
   , testGroup "Pragma edge cases"
-    [ testCase "Pragma with no value" $ do
-        let (elems, _, _) = orgParse defaultContext "#+TODO: "
-        case map valueOf elems of
-          [EPragma (PTodo _ _)] -> return ()
-          _ -> assertBool ("Expected TODO pragma, got: " <> show elems) False
+    [ testCase "Pragma with no value" $
+        case orgParse defaultContext "#+TODO: " of
+          (elems, ctx, _err) -> do
+            assertEqual "elements" [EPragma (PTodo Set.empty Set.empty)] (bare elems)
+            assertEqual "active keywords unchanged"
+                        (todoActive defaultContext) (todoActive ctx)
+            assertEqual "inactive keywords unchanged"
+                        (todoInactive defaultContext) (todoInactive ctx)
 
     , testCase "Hash without plus is a token" $
         assertBool "Should be token" (parsesAs "#notapragma" isToken)

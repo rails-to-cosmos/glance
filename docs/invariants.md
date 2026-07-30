@@ -92,8 +92,8 @@ on.
 
 - **`TextShow` is lossy by design.** Whitespace collapses to single spaces,
   pragma keys uppercase, `#+TODO:` sets re-emit in Set (alphabetical) order.
-  `TestRoundtrip`'s exact list (10 inputs) vs stable list (17) is the
-  documented budget: promoting a stable case to exact asserts fidelity the
+  `TestRoundtrip`'s `Fidelity` column (11 `Exact` rows, 8 `Stable`) is the
+  documented budget: promoting a `Stable` case to `Exact` asserts fidelity the
   renderer lacks. Write-back and the future wire contract must never route
   through it — spans are the lossless channel. **test**
 - **`Ord Timestamp` ≠ `Eq Timestamp`.** Ord compares start moments only;

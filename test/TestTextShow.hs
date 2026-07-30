@@ -1,19 +1,11 @@
 module TestTextShow (spec) where
 
 import Data.Org
-import Data.Text (Text)
 import qualified Data.Set as Set
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertEqual, testCase)
+import TestDefaults (at, on, plainTs, titled)
 import TextShow (showt)
-
--- | The moment T names, as a source that spelled a time of day.
-timed :: String -> TsMoment
-timed t = TsMoment (read t) True
-
--- | The moment T names, as a date-only source.
-dated :: String -> TsMoment
-dated t = TsMoment (read t) False
 
 spec :: TestTree
 spec = testGroup "TextShow"
@@ -24,24 +16,20 @@ spec = testGroup "TextShow"
 
     , testCase "Headline with TODO" $
         assertEqual "" "* TODO Hello"
-          (showt $ defaultHeadline { todo = Just (Todo "TODO" True)
-                                   , title = Title [OrgLineToken (Token "Hello")] })
+          (showt $ (titled "Hello") { todo = Just (Todo "TODO" True) })
 
     , testCase "Headline with priority" $
         assertEqual "" "* TODO [#A] Hello"
-          (showt $ defaultHeadline { todo = Just (Todo "TODO" True)
-                                   , priority = Just (Priority 'A')
-                                   , title = Title [OrgLineToken (Token "Hello")] })
+          (showt $ (titled "Hello") { todo = Just (Todo "TODO" True)
+                                    , priority = Just (Priority 'A') })
 
     , testCase "Headline with tags" $
         assertEqual "" "* Hello :a:b:"
-          (showt $ defaultHeadline { title = Title [OrgLineToken (Token "Hello")]
-                                   , tags = Tags ["a", "b"] })
+          (showt $ (titled "Hello") { tags = Tags ["a", "b"] })
 
     , testCase "Deep indent" $
         assertEqual "" "*** Hello"
-          (showt $ defaultHeadline { indent = Indent 3
-                                   , title = Title [OrgLineToken (Token "Hello")] })
+          (showt $ (titled "Hello") { indent = Indent 3 })
     ]
 
   , testGroup "Pragma rendering"
@@ -61,35 +49,30 @@ spec = testGroup "TextShow"
   , testGroup "Timestamp rendering"
     [ testCase "Active timestamp" $
         assertEqual "" "<2024-01-01 Mon 00:00>"
-          (showt $ Timestamp TimestampActive Nothing (timed "2024-01-01 00:00:00 UTC") Nothing)
+          (showt $ plainTs TimestampActive (at "2024-01-01 00:00:00"))
 
     , testCase "Inactive timestamp" $
         assertEqual "" "[2024-06-15 Sat 00:00]"
-          (showt $ Timestamp TimestampInactive Nothing (timed "2024-06-15 00:00:00 UTC") Nothing)
+          (showt $ plainTs TimestampInactive (at "2024-06-15 00:00:00"))
 
     , testCase "Date-only timestamp" $
         assertEqual "" "<2024-01-01 Mon>"
-          (showt $ Timestamp TimestampActive Nothing (dated "2024-01-01 00:00:00 UTC") Nothing)
+          (showt $ plainTs TimestampActive (on "2024-01-01 00:00:00"))
 
     , testCase "Timestamp range" $
         assertEqual "" "[2024-01-01 Mon 09:00]--[2024-01-01 Mon 17:30]"
-          (showt $ Timestamp TimestampInactive Nothing
-                    (timed "2024-01-01 09:00:00 UTC")
-                    (Just (timed "2024-01-01 17:30:00 UTC")))
+          (showt $ (plainTs TimestampInactive (at "2024-01-01 09:00:00"))
+                     { tsEnd = Just (at "2024-01-01 17:30:00") })
 
     , testCase "Timestamp with repeater" $
         assertEqual "" "<2024-01-01 Mon 00:00 +1w>"
-          (showt $ Timestamp TimestampActive
-                    (Just (TimestampRepeaterInterval Restart 1 Weeks TRSPlus))
-                    (timed "2024-01-01 00:00:00 UTC")
-                    Nothing)
+          (showt $ (plainTs TimestampActive (at "2024-01-01 00:00:00"))
+                     { tsInterval = Just (TimestampRepeaterInterval Restart 1 Weeks TRSPlus) })
 
     , testCase "Timestamp with cumulative repeater" $
         assertEqual "" "<2024-01-01 Mon 00:00 .+3d>"
-          (showt $ Timestamp TimestampActive
-                    (Just (TimestampRepeaterInterval Cumulative 3 Days TRSPlus))
-                    (timed "2024-01-01 00:00:00 UTC")
-                    Nothing)
+          (showt $ (plainTs TimestampActive (at "2024-01-01 00:00:00"))
+                     { tsInterval = Just (TimestampRepeaterInterval Cumulative 3 Days TRSPlus) })
     ]
 
   , testGroup "Component rendering"

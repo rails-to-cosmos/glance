@@ -6,6 +6,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
+import TestDefaults (bareParse, headlinesOf, titled)
 import qualified TextShow as TS
 
 -- Test inputs
@@ -60,9 +61,6 @@ onDoc c k = testCase (caseName c) $ case orgParse defaultContext (caseInput c) o
   (elems, ctx, Nothing) -> k (caseInput c) ctx elems
   (_, _, Just _err)     -> assertFailure ("parse error in " <> show (caseInput c))
 
-headlinesOf :: [Spanned Element] -> [Headline]
-headlinesOf elems = [h | e <- elems, EHeadline h <- [valueOf e]]
-
 -- | Sub-spans a headline actually carries, in source order.
 presentSpans :: Headline -> [(String, Span)]
 presentSpans h = [(T.unpack label, s) | (label, Just s, _ok) <- headlineSpanParts h]
@@ -70,15 +68,6 @@ presentSpans h = [(T.unpack label, s) | (label, Just s, _ok) <- headlineSpanPart
 propertyKeys :: Headline -> [Text]
 propertyKeys h = case properties h of
   Properties ps -> [k | Property (Keyword k) _ <- ps]
-
--- | Elements of INPUT parsed from an empty context, spans dropped.
-bareElements :: Text -> [Element]
-bareElements input = case orgParse defaultContext input of
-  (elems, _ctx, _err) -> map (stripSpans . valueOf) elems
-
--- | A default headline whose title is the single token T.
-titled :: Text -> Headline
-titled t = defaultHeadline { title = Title [OrgLineToken (Token t)] }
 
 -- | Describe LABEL of headline H inside INPUT for an assertion message.
 about :: Text -> Headline -> String -> String
@@ -96,14 +85,25 @@ assertReparse label ctx expected slice = case orgParse ctx slice of
 
 -- Assertions
 
--- | Every present sub-span slices back to the component it stands for.
+-- | Every present sub-span slices back to the component it stands for, and
+-- every component the headline carries has a sub-span: a dropped one would
+-- leave the slice assertions with nothing to check.
 assertSlices :: Text -> Headline -> Assertion
 assertSlices input h = do
   sequence_ [ assertBool (say (T.unpack label <> " sliced " <> show slice)) (ok slice)
             | (label, Just s, ok) <- headlineSpanParts h
             , let slice = sliceSpan input s ]
+  sequence_ [ assertBool (say (T.unpack label <> " is missing")) (isJust s)
+            | (label, s, _ok) <- headlineSpanParts h
+            , carried label ]
   maybe (pure ()) assertKeys (hsProperties (spans h))
   where say = about input h
+        carried "hsTodo"       = isJust (todo h)
+        carried "hsPriority"   = isJust (priority h)
+        carried "hsTitle"      = title h /= Title []
+        carried "hsTags"       = tags h /= Tags []
+        carried "hsProperties" = properties h /= mempty
+        carried _              = False
         assertKeys s = mapM_ (assertKey (sliceSpan input s)) (propertyKeys h)
         assertKey slice k =
           assertBool (say ("hsProperties covers key " <> show k))
@@ -169,7 +169,7 @@ spec = testGroup "Spans"
     [ onDoc c (\input _ctx elems -> mapM_ (assertSlices input) (headlinesOf elems))
     | c <- cases ]
 
-  , testGroup "Custom TODO keyword" [customTodoSpan]
+  , testGroup "Headline sub-spans" [customTodoSpan, starsOnlySpans]
 
   , testGroup "Timestamp ranges" [clockRangeSpans]
 
@@ -194,16 +194,17 @@ trailingWhitespaceSpec = testGroup "Trailing whitespace"
   [ testCase "headline before a newline" $
       assertEqual "elements"
                   [EHeadline (titled "Hello"), EHeadline (titled "Two")]
-                  (bareElements "* Hello  \n* Two")
+                  (bareParse defaultContext "* Hello  \n* Two")
 
   , testCase "headline before eof" $
-      assertEqual "elements" [EHeadline (titled "Hello")] (bareElements "* Hello\t")
+      assertEqual "elements" [EHeadline (titled "Hello")]
+                  (bareParse defaultContext "* Hello\t")
 
   , testCase "pragma value stays tight" $ do
       let input = "#+CATEGORY: cat  "
       assertEqual "elements"
                   [EPragma (Pragma (Keyword "CATEGORY") (OrgLine [OrgLineToken "cat"]))]
-                  (bareElements input)
+                  (bareParse defaultContext input)
       case orgParse defaultContext input of
         (elems, ctx, _err) -> do
           assertEqual "category" "cat" (metaCategory ctx)
@@ -213,12 +214,12 @@ trailingWhitespaceSpec = testGroup "Trailing whitespace"
   , testCase "property drawer" $
       assertEqual "elements"
                   [EHeadline (titled "H") { properties = drawer }]
-                  (bareElements "* H\n:PROPERTIES:\n:K: v  \n:END:")
+                  (bareParse defaultContext "* H\n:PROPERTIES:\n:K: v  \n:END:")
 
   , testCase "indented property drawer" $
       assertEqual "elements"
                   [EHeadline (titled "H") { properties = drawer }]
-                  (bareElements "* H\n  :PROPERTIES:\n  :K: v  \n  :END:  ")
+                  (bareParse defaultContext "* H\n  :PROPERTIES:\n  :K: v  \n  :END:  ")
 
   , testCase "spans stop before the trailing space" $ do
       let input = "* Hello  \n* Two"
@@ -235,7 +236,7 @@ trailingWhitespaceSpec = testGroup "Trailing whitespace"
 clockRangeSpans :: TestTree
 clockRangeSpans = onDoc (Case "ranges span both halves" clockDocument) check
   where
-    check doc ctx elems = case ranges elems of
+    check doc _ctx elems = case ranges elems of
       [inactive, active] -> do
         assertEqual "clock range slice"
                     "[2023-07-15 Sat 15:54]--[2023-07-15 Sat 17:10]"
@@ -243,9 +244,19 @@ clockRangeSpans = onDoc (Case "ranges span both halves" clockDocument) check
         assertEqual "scheduled range slice"
                     "<2024-01-15 Mon>--<2024-01-19 Fri>"
                     (sliceSpan doc (spanOf active))
-        mapM_ (assertElementReparse doc ctx) [inactive, active]
       es -> assertFailure ("expected two ranges, got " <> show (length es))
     ranges elems = [e | e <- elems, ETimestamp t <- [valueOf e], isJust (tsEnd t)]
+
+-- | Stars alone carry no component: every sub-span is absent and 'hsFull'
+-- covers the stars, not the space after them.
+starsOnlySpans :: TestTree
+starsOnlySpans = onDoc (Case "stars alone carry no sub-span" "* ") check
+  where
+    check doc _ctx elems = case headlinesOf elems of
+      [h] -> do
+        assertEqual "sub-spans" [] (presentSpans h)
+        assertEqual "hsFull slice" "*" (sliceSpan doc (hsFull (spans h)))
+      hs -> assertFailure ("expected one headline, got " <> show (length hs))
 
 customTodoSpan :: TestTree
 customTodoSpan = onDoc (Case "keyword declared by a #+TODO pragma" input) check

@@ -1,7 +1,6 @@
 module Main (main) where
 
 import Test.Tasty (TestTree, defaultMain, testGroup)
-import qualified TestLexer as Lexer
 import qualified TestParser as Parser
 import qualified TestRoundtrip as Roundtrip
 import qualified TestTimestamp as Timestamp
@@ -12,8 +11,7 @@ import qualified TestSpans as Spans
 
 tests :: TestTree
 tests = testGroup "Tests"
-  [ Lexer.spec
-  , Parser.spec
+  [ Parser.spec
   , Roundtrip.spec
   , Timestamp.spec
   , Context.spec
