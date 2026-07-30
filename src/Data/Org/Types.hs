@@ -47,7 +47,7 @@ module Data.Org.Types ( Context (..)
                       , unitChar
                       ) where
 
-import Data.List (find, intersperse, nub)
+import Data.List (find, intersperse, nub, sortOn)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (maybeToList)
@@ -181,6 +181,7 @@ data Headline = Headline { indent     :: !Indent
                          , tags       :: !Tags
                          , schedule   :: !(Maybe Timestamp)
                          , deadline   :: !(Maybe Timestamp)
+                         , closed     :: !(Maybe Timestamp)
                          , properties :: !Properties
                          , spans      :: !HeadlineSpans
                          } deriving (Show, Eq)
@@ -193,25 +194,57 @@ data HeadlineSpans = HeadlineSpans
   , hsPriority   :: !(Maybe Span)  -- ^ "[#A]" exactly.
   , hsTitle      :: !(Maybe Span)  -- ^ first to last title element; Nothing when title empty.
   , hsTags       :: !(Maybe Span)  -- ^ ":a:b:" exactly; Nothing when no tags.
+  , hsSchedule   :: !(Maybe Span)  -- ^ the SCHEDULED: timestamp alone, keyword excluded.
+  , hsDeadline   :: !(Maybe Span)  -- ^ the DEADLINE: timestamp alone, keyword excluded.
+  , hsClosed     :: !(Maybe Span)  -- ^ the CLOSED: timestamp alone, keyword excluded.
   , hsProperties :: !(Maybe Span)  -- ^ line start of ":PROPERTIES:" through end of ":END:".
   } deriving (Show, Eq)
 
 emptyHeadlineSpans :: HeadlineSpans
-emptyHeadlineSpans = HeadlineSpans (Span 0 0) Nothing Nothing Nothing Nothing Nothing
+emptyHeadlineSpans = HeadlineSpans { hsFull       = Span 0 0
+                                   , hsTodo       = Nothing
+                                   , hsPriority   = Nothing
+                                   , hsTitle      = Nothing
+                                   , hsTags       = Nothing
+                                   , hsSchedule   = Nothing
+                                   , hsDeadline   = Nothing
+                                   , hsClosed     = Nothing
+                                   , hsProperties = Nothing
+                                   }
 
 -- | H's labelled sub-spans in source order, each paired with the predicate its
--- slice out of the source must satisfy.  Single source of the span spec.
+-- slice out of the source must satisfy.  Single source of the span spec.  The
+-- three planning entries sort by offset: org writes SCHEDULED:, DEADLINE: and
+-- CLOSED: in any order on the planning line, and every consumer — the overlap
+-- check, the 'hsFull' fold, the ordering assertion — reads this list as source
+-- order.
 headlineSpanParts :: Headline -> [(Text, Maybe Span, Text -> Bool)]
 headlineSpanParts h =
-  [ ("hsTodo",       hsTodo hs,       (== maybe "" name (todo h)))
-  , ("hsPriority",   hsPriority hs,   (== maybe "" showt (priority h)))
-  , ("hsTitle",      hsTitle hs,      \t -> T.words t == T.words (showt (title h)))
-  , ("hsTags",       hsTags hs,       (== showt (tags h)))
-  , ("hsProperties", hsProperties hs, drawer)
-  ]
+     [ ("hsTodo",     hsTodo hs,     (== maybe "" name (todo h)))
+     , ("hsPriority", hsPriority hs, (== maybe "" showt (priority h)))
+     , ("hsTitle",    hsTitle hs,    \t -> T.words t == T.words (showt (title h)))
+     , ("hsTags",     hsTags hs,     (== showt (tags h)))
+     ]
+  ++ sortOn (\(_label, sp, _ok) -> spanStart <$> sp) planning
+  ++ [ ("hsProperties", hsProperties hs, drawer) ]
   where hs = spans h
+        planning = [ ("hsSchedule", hsSchedule hs, timestampSlice (schedule h))
+                   , ("hsDeadline", hsDeadline hs, timestampSlice (deadline h))
+                   , ("hsClosed",   hsClosed hs,   timestampSlice (closed h))
+                   ]
         drawer t = ":PROPERTIES:" `T.isPrefixOf` stripped && ":END:" `T.isSuffixOf` stripped
           where stripped = T.strip t
+
+-- | Whether a slice can be the source spelling of TS: the brackets 'tsStatus'
+-- names, around a non-empty body.  The check stays structural for two reasons.
+-- Rendering recomputes the weekday, so a source stamp carrying a stale one —
+-- the corpus has them — never equals its own render.  And this module cannot
+-- reparse, since the parser imports it; TestSpans, which can, carries the
+-- exact reparse-equality assertion for these three spans.
+timestampSlice :: Maybe Timestamp -> Text -> Bool
+timestampSlice Nothing = T.null
+timestampSlice (Just ts) = \t -> T.length t > 2 && T.head t == open && T.last t == close
+  where (open, close) = tsBrackets (tsStatus ts)
 
 defaultHeadline :: Headline
 defaultHeadline = Headline { indent     = Indent 1
@@ -221,6 +254,7 @@ defaultHeadline = Headline { indent     = Indent 1
                            , tags       = Tags []
                            , schedule   = Nothing
                            , deadline   = Nothing
+                           , closed     = Nothing
                            , properties = mempty
                            , spans      = emptyHeadlineSpans
                            }
@@ -244,6 +278,7 @@ instance Display Headline where
                 , kv "Priority"   (formatMaybe priority)
                 , kv "Schedule"   (formatMaybe schedule)
                 , kv "Deadline"   (formatMaybe deadline)
+                , kv "Closed"     (formatMaybe closed)
                 , kv "ID"         (formatMaybe (identity h))
                 , "  Properties:"
                 ]

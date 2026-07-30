@@ -24,6 +24,12 @@ on.
   components (`foldr1 (<>)` over source-ordered spans — ordering guaranteed),
   never trailing whitespace. Capture/refile insertion points derive from it.
   **test** (`TestSpans` trailing-whitespace group)
+- **Sub-span order.** todo < priority < title < tags < planning < properties.
+  The three planning spans permute freely — org writes `SCHEDULED:`,
+  `DEADLINE:` and `CLOSED:` in any order on the line — so both
+  `headlineSpanParts` and the `hsFull` fold sort them by `spanStart`. Drop the
+  sort and `hsFull` ends at whichever entry the record lists last, leaving the
+  others outside it. **test** (`TestSpans` "planning keywords out of order")
 - **Drawer placement.** When present, `hsProperties` starts past the newline
   after the headline line, after `hsTitle`, and ends exactly at `hsFull`'s
   end. An append-note command writing at `spanEnd hsFull` writes inside the
@@ -73,7 +79,24 @@ on.
   whether the source spelled a time — midnight-with-time and date-only both
   store 00:00. Weekday is parsed, discarded, recomputed on render (wrong
   source weekdays re-render corrected — a spurious hunk if rendered rather
-  than span-spliced). **test** (has-time, brackets) / **comment** (weekday)
+  than span-spliced). Org's same-day time range, `<2024-01-15 Mon 10:30-11:30>`,
+  does not parse at all: `tsRepeaterParser` eats the `-`, then the closing
+  bracket fails. 1529 corpus stamps are spelled that way, nearly all of them on
+  planning lines, and each falls back to plain tokens. **test** (has-time,
+  brackets) / **comment** (weekday) / **corpus** (time ranges)
+- **Planning line.** The one line right after a headline's title line, ahead of
+  any drawer, fills `schedule`, `deadline` and `closed`. Keywords match
+  uppercase-only, in any order, and a keyword repeated on the line keeps its
+  last timestamp, the way org reads one. `CLOCK:` is not one of them. The whole
+  line backtracks when it is not a planning line, so a body line parses exactly
+  as it did before and a `SCHEDULED:` further down the body stays a Token +
+  Timestamp pair. Each span covers the timestamp text alone, keyword excluded:
+  S8 reschedules by replacing that slice and nothing else. Corpus: 4661 planning
+  lines in parseable files carry 7220 entries, 6423 of which attach — the
+  remainder are stamps the timestamp parser rejects, and since the entry loop
+  stops at the first failure, later entries on the same line are stranded with
+  it. A further 2642 planning lines sit inside the 13 files that fail to parse
+  outright. **test + corpus**
 - **All-or-nothing parse.** On error `orgParse` returns zero elements and the
   caller's context unchanged — scan buckets, the REPL, and pragma
   half-application all rely on it. **test**
@@ -100,9 +123,10 @@ on.
   Set/Map keys would deduplicate distinct timestamps sharing a start. **none**
 - **`resolveHeadline` last-wins.** Keeps h1 only when both scheduled and h1
   strictly later; everything else yields h2. **test**
-- **`schedule`/`deadline` unpopulated.** Parser hardcodes `Nothing`;
-  `SCHEDULED:`/`DEADLINE:` lines parse as sibling Token + Timestamp elements.
-  S2's row projection needs these wired first — recorded as S2 work. **none**
+- **Planning stays out of the render.** `TextShow Headline` emits the title
+  line only, so a headline carrying `schedule`/`deadline`/`closed` re-renders
+  without its planning line. Round-tripping a planning line through `showt`
+  loses it; the span is the only channel that keeps it. **none**
 
 ## Scan
 

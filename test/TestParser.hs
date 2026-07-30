@@ -76,6 +76,69 @@ testCases =
       [ ETimestamp (plainTs TimestampInactive (at "2023-07-15 15:54:00"))
                      { tsEnd = Just (at "2023-07-15 17:10:00") } ]
 
+  , plain "Planning: SCHEDULED" ["* Task", "SCHEDULED: <2024-01-01 Mon>"]
+      [EHeadline (titled "Task") { schedule = Just day2024 }]
+
+  , plain "Planning: DEADLINE" ["* Task", "DEADLINE: <2024-01-01 Mon>"]
+      [EHeadline (titled "Task") { deadline = Just day2024 }]
+
+  , plain "Planning: CLOSED" ["* DONE Task", "CLOSED: [2024-01-01 Mon 10:30]"]
+      [ EHeadline (titled "Task")
+          { todo = Just Todo { name = "DONE", active = False }
+          , closed = Just (plainTs TimestampInactive (at "2024-01-01 10:30:00")) } ]
+
+  , plain "Planning: two keywords on one line"
+      ["* Task", "SCHEDULED: <2024-01-01 Mon> DEADLINE: <2024-06-01 Sat>"]
+      [EHeadline (titled "Task") { schedule = Just day2024, deadline = Just jun2024 }]
+
+  , plain "Planning: keywords in the reverse order"
+      ["* Task", "DEADLINE: <2024-06-01 Sat> SCHEDULED: <2024-01-01 Mon>"]
+      [EHeadline (titled "Task") { schedule = Just day2024, deadline = Just jun2024 }]
+
+  , plain "Planning: a repeated keyword keeps the last"
+      ["* Task", "SCHEDULED: <2024-01-01 Mon> SCHEDULED: <2024-06-01 Sat>"]
+      [EHeadline (titled "Task") { schedule = Just jun2024 }]
+
+  , plain "Planning: range and repeater timestamps"
+      ["* Task", "SCHEDULED: <2024-01-15 Mon>--<2024-01-19 Fri> DEADLINE: <2024-01-01 Mon +1w>"]
+      [ EHeadline (titled "Task")
+          { schedule = Just (plainTs TimestampActive (on "2024-01-15 00:00:00"))
+                              { tsEnd = Just (on "2024-01-19 00:00:00") }
+          , deadline = Just day2024
+                              { tsInterval = Just (TimestampRepeaterInterval Restart 1 Weeks TRSPlus) } } ]
+
+  , plain "Planning: an indented line still attaches"
+      ["* Task", "  SCHEDULED: <2024-01-01 Mon>"]
+      [EHeadline (titled "Task") { schedule = Just day2024 }]
+
+  , plain "Planning: a drawer may follow the planning line"
+      ["* Task", "SCHEDULED: <2024-01-01 Mon>", ":PROPERTIES:", ":K: v", ":END:"]
+      [ EHeadline (titled "Task")
+          { schedule = Just day2024
+          , properties = Properties [Property (Keyword "K") (OrgLine [OrgLineToken "v"])] } ]
+
+  , plain "Planning: a blank line detaches it" ["* Task", "", "SCHEDULED: <2024-01-01 Mon>"]
+      [EHeadline (titled "Task"), EToken "SCHEDULED:", ETimestamp day2024]
+
+  , plain "Planning: a later body line stays body"
+      ["* Task", "note", "SCHEDULED: <2024-01-01 Mon>"]
+      [ EHeadline (titled "Task"), EToken "note"
+      , EToken "SCHEDULED:", ETimestamp day2024 ]
+
+  , plain "Planning: lowercase keywords do not match"
+      ["* Task", "scheduled: <2024-01-01 Mon>"]
+      [EHeadline (titled "Task"), EToken "scheduled:", ETimestamp day2024]
+
+  , plain "Planning: CLOCK is not a planning keyword"
+      ["* Task", "CLOCK: [2023-07-15 Sat 15:54]--[2023-07-15 Sat 17:10]"]
+      [ EHeadline (titled "Task"), EToken "CLOCK:"
+      , ETimestamp (plainTs TimestampInactive (at "2023-07-15 15:54:00"))
+                     { tsEnd = Just (at "2023-07-15 17:10:00") } ]
+
+  , plain "Planning: text after the last timestamp stays body"
+      ["* Task", "SCHEDULED: <2024-01-01 Mon> note"]
+      [EHeadline (titled "Task") { schedule = Just day2024 }, EToken "note"]
+
   , plain "Single token" ["a"] [EToken "a"]
   , plain "Multiple tokens" ["a", "b"] [EToken "a", EToken "b"]
   , plain "Skip spaces" [" "] []
@@ -87,6 +150,10 @@ testCases =
 -- | 2024-01-01, date only.
 day2024 :: Timestamp
 day2024 = plainTs TimestampActive (on "2024-01-01 00:00:00")
+
+-- | 2024-06-01, date only: a second date, to catch a misfiled planning entry.
+jun2024 :: Timestamp
+jun2024 = plainTs TimestampActive (on "2024-06-01 00:00:00")
 
 spec :: TestTree
 spec = testGroup "Parser" (map assert testCases)

@@ -11,8 +11,11 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   surrounding whitespace. Element spans are only well-formed + reparseable.
 - `hsFull` runs from the stars to the max end of present components and never
   covers trailing whitespace. Sub-spans nest inside it, ordered
-  todo < priority < title < tags < properties, non-overlapping; a drawer, when
-  present, ends exactly at `hsFull`'s end.
+  todo < priority < title < tags < planning < properties, non-overlapping; a
+  drawer, when present, ends exactly at `hsFull`'s end.
+- The three planning spans permute freely on their line, so `headlineSpanParts`
+  and the `hsFull` fold sort them by `spanStart`. Each covers the timestamp
+  text alone — the keyword is not part of it.
 - `stripSpans` must cover every span-carrying constructor; a new `Element`
   constructor that embeds spans must extend it.
 
@@ -30,7 +33,12 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - The property parser rejects reserved `PROPERTIES`/`END` — that guard is what
   terminates the drawer.
 - Timestamp range halves share one bracket kind; `tsmHasTime` alone decides
-  whether a time renders; the weekday is recomputed from the date.
+  whether a time renders; the weekday is recomputed from the date. Org's
+  same-day time range `<… 10:30-11:30>` does not parse — 1529 corpus stamps.
+- The planning line is the one line after the title line, before any drawer:
+  `SCHEDULED:`/`DEADLINE:`/`CLOSED:` uppercase-only, any order, last-wins per
+  keyword. `CLOCK:` is not one. The whole line backtracks when it is not a
+  planning line, and a `SCHEDULED:` further down the body stays body elements.
 - `orgParse` on error returns zero elements AND the caller's context untouched.
 - Context keyword sets are append-only; a `#+TODO:` affects only headlines
   below it; no Context merge operation exists — `defaultContext` seeds

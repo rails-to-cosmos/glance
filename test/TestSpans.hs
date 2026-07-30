@@ -30,6 +30,23 @@ clockDocument = T.intercalate "\n"
   , "SCHEDULED: <2024-01-15 Mon>--<2024-01-19 Fri>"
   ]
 
+-- | A planning line whose keywords run opposite to the record's field order,
+-- so the span table has to sort them back into source order.
+planningDocument :: Text
+planningDocument = T.intercalate "\n"
+  [ "* TODO Task :x:"
+  , "CLOSED: [2024-01-02 Tue 10:00] DEADLINE: <2024-01-03 Wed> SCHEDULED: <2024-01-01 Mon>"
+  ]
+
+planningDrawerDocument :: Text
+planningDrawerDocument = T.intercalate "\n"
+  [ "* Task"
+  , "DEADLINE: <2024-02-01 Thu>"
+  , ":PROPERTIES:"
+  , ":K: v"
+  , ":END:"
+  ]
+
 cases :: [Case]
 cases =
   [ Case "todo, priority, title and tags"   "** TODO [#A] Hello :a:b:c:"
@@ -45,6 +62,9 @@ cases =
   , Case "custom todo keyword"              "#+TODO: TODO | CANCELLED\n* CANCELLED Mess"
   , Case "mixed document"                   mixedDocument
   , Case "clock and scheduled ranges"       clockDocument
+  , Case "planning keywords out of order"   planningDocument
+  , Case "planning line before a drawer"    planningDrawerDocument
+  , Case "planning with a stale weekday"    "* Task\nSCHEDULED: <2024-01-15 Fri>"
   , Case "date-only timestamp in a title"   "* Due <2026-07-08 Wed>"
   , Case "trailing spaces before a newline" "* Hello  \n* Two"
   , Case "trailing tab at eof"              "* Hello\t"
@@ -69,6 +89,13 @@ propertyKeys :: Headline -> [Text]
 propertyKeys h = case properties h of
   Properties ps -> [k | Property (Keyword k) _ <- ps]
 
+-- | H's planning components: label, span, and the timestamp stored under it.
+planningParts :: Headline -> [(Text, Maybe Span, Maybe Timestamp)]
+planningParts h = [ ("hsSchedule", hsSchedule hs, schedule h)
+                  , ("hsDeadline", hsDeadline hs, deadline h)
+                  , ("hsClosed",   hsClosed hs,   closed h) ]
+  where hs = spans h
+
 -- | Describe LABEL of headline H inside INPUT for an assertion message.
 about :: Text -> Headline -> String -> String
 about input h label =
@@ -87,7 +114,9 @@ assertReparse label ctx expected slice = case orgParse ctx slice of
 
 -- | Every present sub-span slices back to the component it stands for, and
 -- every component the headline carries has a sub-span: a dropped one would
--- leave the slice assertions with nothing to check.
+-- leave the slice assertions with nothing to check.  Planning spans get the
+-- exact check 'headlineSpanParts' cannot state, having no parser to hand: the
+-- slice re-parses to the very timestamp the headline stores.
 assertSlices :: Text -> Headline -> Assertion
 assertSlices input h = do
   sequence_ [ assertBool (say (T.unpack label <> " sliced " <> show slice)) (ok slice)
@@ -96,12 +125,18 @@ assertSlices input h = do
   sequence_ [ assertBool (say (T.unpack label <> " is missing")) (isJust s)
             | (label, s, _ok) <- headlineSpanParts h
             , carried label ]
+  sequence_ [ assertEqual (say (T.unpack label <> " reparse"))
+                          [ETimestamp ts] (bareParse defaultContext (sliceSpan input s))
+            | (label, Just s, Just ts) <- planningParts h ]
   maybe (pure ()) assertKeys (hsProperties (spans h))
   where say = about input h
         carried "hsTodo"       = isJust (todo h)
         carried "hsPriority"   = isJust (priority h)
         carried "hsTitle"      = title h /= Title []
         carried "hsTags"       = tags h /= Tags []
+        carried "hsSchedule"   = isJust (schedule h)
+        carried "hsDeadline"   = isJust (deadline h)
+        carried "hsClosed"     = isJust (closed h)
         carried "hsProperties" = properties h /= mempty
         carried _              = False
         assertKeys s = mapM_ (assertKey (sliceSpan input s)) (propertyKeys h)

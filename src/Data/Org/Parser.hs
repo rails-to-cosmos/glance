@@ -10,8 +10,8 @@ import Control.Monad (void, guard, when)
 import Control.Monad.State (StateT)
 import qualified Control.Monad.State as State
 import Data.Char (isAlpha, isAlphaNum, isSpace)
-import Data.List (foldl')
-import Data.Maybe (catMaybes, fromMaybe, isJust)
+import Data.List (foldl', sortOn)
+import Data.Maybe (catMaybes, fromMaybe, isJust, maybeToList)
 import Data.Org.Types
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -116,16 +116,24 @@ instance Parse Headline where
     priority' <- optional $ try priorityP
     (titleSpan, title') <- titleP
     (tagsSpan, tags') <- option (Nothing, mempty) $ try tagsP
+    planning' <- option noPlanning $ try planningP
     properties' <- optional $ try propertiesP
 
     let propsSpan = spanOf <$> properties'
+        -- The three planning entries come in whatever order the line spelled
+        -- them; sorting puts PRESENT in source order for the fold below.
+        planningSpans = sortOn spanStart $ catMaybes [ spanOf <$> plScheduled planning'
+                                                     , spanOf <$> plDeadline planning'
+                                                     , spanOf <$> plClosed planning'
+                                                     ]
         -- Source order: the fold below runs from the stars to the last part.
         present = spanOf indent' : catMaybes [ spanOf <$> todo'
                                              , spanOf <$> priority'
                                              , titleSpan
                                              , tagsSpan
-                                             , propsSpan
                                              ]
+                                ++ planningSpans
+                                ++ maybeToList propsSpan
 
         headline = Headline { indent = valueOf indent'
                             , todo = valueOf <$> todo'
@@ -133,14 +141,18 @@ instance Parse Headline where
                             , title = title'
                             , tags = tags'
                             , properties = maybe mempty valueOf properties'
-                            , schedule = Nothing
-                            , deadline = Nothing
+                            , schedule = valueOf <$> plScheduled planning'
+                            , deadline = valueOf <$> plDeadline planning'
+                            , closed = valueOf <$> plClosed planning'
                             , spans = HeadlineSpans
                                 { hsFull = foldr1 (<>) present
                                 , hsTodo = spanOf <$> todo'
                                 , hsPriority = spanOf <$> priority'
                                 , hsTitle = titleSpan
                                 , hsTags = tagsSpan
+                                , hsSchedule = spanOf <$> plScheduled planning'
+                                , hsDeadline = spanOf <$> plDeadline planning'
+                                , hsClosed = spanOf <$> plClosed planning'
                                 , hsProperties = propsSpan
                                 }
                             }
@@ -183,6 +195,48 @@ instance Parse Pragma where
         val <- parse :: StatefulParser OrgLine
         when (kText == "CATEGORY") $ State.modify $ setCategory $ TS.showt val
         return $ Pragma key val
+
+-- | The keywords a planning line may carry.
+data PlanningKeyword = PlanScheduled | PlanDeadline | PlanClosed
+  deriving (Enum, Bounded)
+
+-- | The text org writes KW with, colon included.  Uppercase only: emacs never
+-- writes another casing, and folding would swallow prose starting with
+-- "closed:".
+planningText :: PlanningKeyword -> Text
+planningText PlanScheduled = "SCHEDULED:"
+planningText PlanDeadline = "DEADLINE:"
+planningText PlanClosed = "CLOSED:"
+
+-- | What a planning line yielded: at most one timestamp per keyword.
+data Planning = Planning { plScheduled :: !(Maybe (Spanned Timestamp))
+                         , plDeadline  :: !(Maybe (Spanned Timestamp))
+                         , plClosed    :: !(Maybe (Spanned Timestamp))
+                         }
+
+noPlanning :: Planning
+noPlanning = Planning Nothing Nothing Nothing
+
+-- | Parse the planning line: the one line right after a headline's title line,
+-- holding SCHEDULED:, DEADLINE: and CLOSED: in any order.  A keyword repeated
+-- on the line keeps its last timestamp, which is how org reads one.  Each span
+-- covers the timestamp alone, so rescheduling replaces exactly that text.
+--
+-- The leading eol is consumed and the line's own eol is left to 'propertiesP',
+-- so a drawer follows either spelling.  A failed entry backtracks over the
+-- horizontal space it skipped, leaving it to separate whatever trails the last
+-- timestamp: the top loop requires whitespace between elements, and eating it
+-- here would fail the whole document.
+planningP :: StatefulParser Planning
+planningP = foldl' assign noPlanning <$> (MPC.eol *> some (try entryP))
+  where entryP = do
+          kw <- MPC.hspace *> choice [k <$ MPC.string (planningText k) | k <- [minBound ..]]
+          ts <- MPC.hspace1 *> spannedP (parse :: StatefulParser Timestamp)
+          return (kw, ts)
+
+        assign pl (PlanScheduled, ts) = pl { plScheduled = Just ts }
+        assign pl (PlanDeadline, ts) = pl { plDeadline = Just ts }
+        assign pl (PlanClosed, ts) = pl { plClosed = Just ts }
 
 -- | Parse "[#X]", spanning it alone; the trailing space is still consumed.
 priorityP :: StatefulParser (Spanned Priority)
