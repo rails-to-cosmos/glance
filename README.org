@@ -9,12 +9,41 @@
 - *License:* BSD3
 - *Upstream:* https://github.com/rails-to-cosmos/glance
 
+** Quickstart — headlines in a browser tab
+
+#+begin_src sh
+cabal run glance -- serve --dir ~/org
+#+end_src
+
+Then open =http://127.0.0.1:7777/=. The page fetches =/headlines= and mounts
+=table-view.js= on it: one row per headline, with the state badge, priority,
+title, tags and the scheduled/deadline dates. Click a column header to sort,
+type in the filter box to narrow.
+
+- =--port N= — default =7777=.
+- =--assets PATH= — the directory holding =table-view.js=, default the sibling
+  =table-view/web= checkout. When it is missing, =/= says so and =/headlines=
+  keeps working; the JSON stands on its own:
+
+#+begin_src sh
+curl -s localhost:7777/headlines | jq '.rows | length'
+#+end_src
+
+The response body is the table-view View object and nothing else — the load
+counts ride in =X-Glance-*= headers (rows, files, parse, decode and read
+failures). The directory is walked and parsed per request; there is no index.
+
+The listener binds =127.0.0.1= and nothing else. Authentication and the
+read/write/automate tiers arrive with the protocol step (S7 in
+=docs/plan-org-console-web.md=); until then the loopback interface is the whole
+access-control story.
+
 ** Directory Structure
 
 #+begin_src
 glance/
 ├── app/
-│   ├── Main.hs          ← CLI entry point
+│   ├── Main.hs          ← CLI entry point (repl · scan · serve)
 │   └── Scan.hs          ← Corpus scan and span-invariant report
 ├── src/                  ← glance-internal (private sublibrary)
 │   ├── Data/
@@ -28,6 +57,9 @@ glance/
 ├── src-query/            ← glance (public library)
 │   └── Glance/
 │       └── Query.hs     ← Records and table-view JSON: the whole public API
+├── src-web/              ← glance-web (private sublibrary, facade-only deps)
+│   └── Glance/
+│       └── Web.hs       ← WAI app: /headlines, the demo shell, assets
 ├── test/
 │   ├── Spec.hs
 │   ├── Test*.hs
@@ -69,6 +101,8 @@ A Haskeline-powered REPL that:
 
 - *No argument* → starts the REPL
 - *File argument* → parses the file, displays resulting ~Context~, then drops into the REPL
+- ~scan DIR…~ → corpus walk with the span-invariant report
+- ~serve --dir DIR~ → the web view; see Quickstart
 - History stored in =~/.config/glance/.history=
 
 ** Key Dependencies

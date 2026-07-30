@@ -161,6 +161,21 @@ on.
   snapshot) + atomic temp-then-rename.
 - The web layer depends only on the `Glance.Query` facade (S2), enforced at
   the cabal-stanza level; `Display`/`TextShow` stay out of the wire.
+- **The web layer is one stanza, and the constraint lives on it.**
+  `glance-web` (`src-web/`, `Glance.Web`) lists `glance:glance` and the HTTP
+  packages; `glance-internal` is absent and cannot be added without the
+  addition showing in that `build-depends`. The CLI is the only target naming
+  both sublibraries, and it names them to dispatch — `serve` reaches
+  `Glance.Web`, `scan` and the REPL reach the internals, and no code path
+  crosses. Checkable without building: `jq` over
+  `dist-newstyle/cache/plan.json` for the `lib:glance-web` unit's depends.
+  **test** (it would not build otherwise) / **docs** (the one-binary shape)
+- **The listener binds 127.0.0.1.** `Warp.setHost "127.0.0.1"` in
+  `Glance.Web.serve`, no flag to widen it. Every request is served at the same
+  privilege — the read/write/automate split is S7 — so a bind on `0.0.0.0`
+  would hand the whole store to the network, and after S8 hand it write-back
+  too. The address moves when auth arrives, not before. **none** (no test
+  binds a socket; the call site is the only guard)
 - **The wire is built in `Glance.Query`, out of spans.** The public library
   exposes that one module over the private `glance-internal` sublibrary, so no
   outside target can name `Data.Org.*` at all. Title and tag cells are sliced
@@ -180,11 +195,13 @@ on.
 - `glance.cabal` is hand-maintained; hpack/package.yaml were removed after
   diverging (regeneration dropped `OverloadedRecordDot` and deps and broke
   the build). Do not reintroduce without making it authoritative again.
-- **Four components, one direction.** `glance-internal` (`src/`) holds the
+- **Five components, one direction.** `glance-internal` (`src/`) holds the
   parser, the AST and the file walk at `visibility: private`; the public
-  `library` (`src-query/`) exposes `Glance.Query` and depends on it; the CLI
-  and the suite name the sublibrary (`glance:{glance, glance-internal}` in the
-  suite, which pins internals in the older modules and exercises the facade
-  alone in `TestQuery`). Putting `Data.Org.*` in a web or daemon target's
-  build-depends is impossible from outside the package — the S2 exit bar,
-  enforced by the solver rather than by review. **test** (it would not build)
+  `library` (`src-query/`) exposes `Glance.Query` and depends on it;
+  `glance-web` (`src-web/`) is private and depends on the public library
+  alone; the CLI depends on the two sublibraries and the suite on all three
+  (`glance:{glance, glance-internal, glance-web}`, which pins internals in the
+  older modules and exercises the facade alone in `TestQuery`/`TestServe`).
+  Putting `Data.Org.*` in a web or daemon target's build-depends is impossible
+  from outside the package — the S2 exit bar, enforced by the solver rather
+  than by review. **test** (it would not build)

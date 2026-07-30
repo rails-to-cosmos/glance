@@ -14,6 +14,7 @@ build-type:     Simple
 extra-source-files:
     CHANGELOG.md
     test/fixtures/*.json
+    test/fixtures/assets/*.js
     test/fixtures/broken/*.org
     test/fixtures/view/*.org
 
@@ -74,6 +75,32 @@ library
     , time
   default-language: Haskell2010
 
+-- The web layer.  Private, and depends on the public library alone: the
+-- facade constraint (docs/invariants.md, Architecture) is a solver error here
+-- rather than a review note -- adding Data.Org.* to this stanza is impossible
+-- without naming glance-internal, which would show up in this build-depends.
+library glance-web
+  visibility: private
+  exposed-modules:
+      Glance.Web
+  hs-source-dirs:
+      src-web
+  default-extensions:
+      OverloadedStrings
+      RecordWildCards
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
+  build-depends:
+      base >=4.7 && <5
+    , bytestring
+    , directory
+    , filepath
+    , glance:glance
+    , http-types
+    , text
+    , wai
+    , warp
+  default-language: Haskell2010
+
 executable glance
   main-is: Main.hs
   other-modules:
@@ -90,7 +117,7 @@ executable glance
     , bytestring
     , directory
     , filepath
-    , glance:glance-internal
+    , glance:{glance-internal, glance-web}
     , haskeline
     , megaparsec
     , text
@@ -106,6 +133,7 @@ test-suite glance-test
       TestParser
       TestQuery
       TestRoundtrip
+      TestServe
       TestTimestamp
       TestContext
       TestNegative
@@ -121,11 +149,17 @@ test-suite glance-test
   build-depends:
       base >=4.7 && <5
     , aeson
+    , bytestring
     , containers
-    , glance:{glance, glance-internal}
+    , directory
+    , filepath
+    , glance:{glance, glance-internal, glance-web}
+    , http-types
     , tasty
     , tasty-hunit
     , text
     , text-show
     , time
+    , wai
+    , wai-extra
   default-language: Haskell2010

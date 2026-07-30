@@ -9,6 +9,7 @@ import qualified TestNegative as Negative
 import qualified TestTextShow as TextShow
 import qualified TestSpans as Spans
 import qualified TestQuery as Query
+import qualified TestServe as Serve
 
 tests :: TestTree
 tests = testGroup "Tests"
@@ -20,6 +21,7 @@ tests = testGroup "Tests"
   , TextShow.spec
   , Spans.spec
   , Query.spec
+  , Serve.spec
   ]
 
 main :: IO ()

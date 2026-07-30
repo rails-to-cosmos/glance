@@ -1,5 +1,6 @@
 module Main (main) where
 
+import Data.List (isPrefixOf)
 import System.Environment
 import System.Exit
 
@@ -15,8 +16,12 @@ import Text.Megaparsec (errorBundlePretty)
 import Repl.Org
 import Scan (runScan)
 
+import Glance.Web (ServeOptions (..), defaultAssetsDir, defaultPort, serve)
+
 import System.Directory
 import System.FilePath
+import System.IO (hPutStrLn, stderr)
+import Text.Read (readMaybe)
 import qualified System.Console.Haskeline as Haskeline
 
 -- | Haskeline settings backed by a history file under ~/.config/glance.
@@ -56,6 +61,15 @@ parse ("scan":dirs) = do
   runScan (if null dirs then ["."] else dirs)
   exitSuccess
 
+parse ("serve":args) = case serveOptions args of
+  Left err -> do
+    hPutStrLn stderr ("glance serve: " <> err)
+    hPutStrLn stderr serveUsage
+    exitFailure
+  Right opts -> do
+    serve opts
+    exitSuccess
+
 parse (filename:_) = do
   settings <- replSettings
   content <- Text.pack . BSChar8.unpack <$> BS.readFile filename
@@ -70,3 +84,22 @@ parse (filename:_) = do
 
   runRepl settings context
   exitSuccess
+
+serveUsage :: String
+serveUsage = "usage: glance serve --dir DIR [--port N (default "
+          <> show defaultPort <> ")] [--assets PATH]"
+
+-- | ARGS as serve options, or what is wrong with them.  Hand-rolled: three
+-- flags do not earn an option-parsing dependency.
+serveOptions :: [String] -> Either String ServeOptions
+serveOptions = go (ServeOptions "" defaultPort defaultAssetsDir)
+  where
+    go opts [] | null (soDir opts) = Left "--dir is required"
+               | otherwise         = Right opts
+    go opts ("--dir":dir:rest)     = go opts { soDir = dir } rest
+    go opts ("--assets":path:rest) = go opts { soAssets = path } rest
+    go opts ("--port":port:rest)   = case readMaybe port of
+      Just n | n > 0 && n < 65536 -> go opts { soPort = n } rest
+      _                           -> Left ("not a port number: " <> port)
+    go _ [flag] | "--" `isPrefixOf` flag = Left (flag <> " needs a value")
+    go _ (arg:_)                   = Left ("unknown argument: " <> arg)

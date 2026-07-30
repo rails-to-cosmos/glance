@@ -92,16 +92,59 @@ edit above a headline renames its row, which S5's watch has to answer.
 
 ## S3 — M0: headlines in a browser tab
 
-`scotty`/`warp`. `GET /headlines?dir=…` → view JSON. Serve
-`web/table-view.js` + a demo page.
+`warp`. `GET /headlines` → view JSON. Serve `web/table-view.js` + a demo page.
 
 Exit:
-- [ ] `curl :PORT/headlines?dir=$ORG | jq '.rows | length'` equals S1 corpus
-      headline count.
-- [ ] Browser tab renders the table; renderer sort works on it.
-- [ ] Full-store request wall time ≤ S1 baseline + 20%. Actual: _—_
-- [ ] `glance serve --dir DIR` documented in README quickstart; works from a
-      clean checkout.
+- [x] `curl :PORT/headlines | jq '.rows | length'` equals the corpus headline
+      count. Actual: `glance serve --dir ~/sync --port 7799` →
+      **13344 rows**, which is S2's 13343 plus the one headline this step's
+      README quickstart section adds (this repo sits inside `~/sync`; no new
+      `.org` file, `git show HEAD:README.org` counts 12 headlines against 13
+      now). Headers on the same response: 6308 files, 14 parse failures, 17
+      decode failures, 0 read failures — S2's numbers unchanged.
+- [~] Browser tab renders the table; renderer sort works on it. **Not
+      clicked** — no browser in this environment. Verified headlessly instead:
+      `/` serves the shell as `text/html; charset=utf-8` referencing
+      `src="table-view.js"`, `fetch("/headlines")` and `TableView.mount(`
+      once each; `/table-view.js` comes back `text/javascript; charset=utf-8`
+      and byte-identical to `table-view/web/table-view.js` (17678 B); both the
+      renderer and the shell's extracted inline glue pass `node --check`
+      (node v26.2.0). Sorting is the renderer's own behaviour, covered by
+      table-view's suite; DOM rendering of *our* document is honestly an S4
+      item — the shared fixtures are where a glance view gets executed by both
+      renderers.
+- [x] Full-store request wall time ≤ S1 baseline + 20% (13.6 s + 20% ≈
+      16.3 s). Actual: **14.74 s** first request, **14.64 s** / **14.53 s**
+      warm, 3057971 B of JSON over loopback. +7.6% on the S1 scan baseline for
+      a walk that also builds and encodes the view.
+- [x] `glance serve --dir DIR` documented in README quickstart; works from a
+      clean checkout. Actual: README "Quickstart — headlines in a browser tab"
+      covers the flags, the `X-Glance-*` headers and the loopback bind.
+
+**Landed during S3** — `glance-web`, a second private sublibrary (`src-web/`,
+`Glance.Web`) whose `build-depends` names the public library and the HTTP
+packages and cannot name `glance-internal` without saying so. One user-facing
+binary still: the `glance` executable depends on both sublibraries and does
+nothing but dispatch — `serve` to `Glance.Web`, `scan` and the REPL to the
+internals. `wai` + `warp` + `http-types` rather than `scotty`: four routes and
+a static file need no routing DSL, and a bare `Application` is what
+`Network.Wai.Test` drives, so the suite binds no port (`wai-extra` is a
+test-only dep). The view document stays SCHEMA.md's four fields — the load
+counts ride as `X-Glance-Rows/Files/Parse-Failures/Decode-Failures/Read-Failures`
+response headers rather than as a `meta` sibling.
+
+**Decision: 127.0.0.1 only.** `Warp.setHost "127.0.0.1"`, with no flag to
+widen it. Every request is served at one privilege level until S7 splits
+read/write/automate, and S8 adds write-back behind the same door; a bind on
+`0.0.0.0` today would publish the whole store to the network and later hand it
+edits. The address changes when authentication exists, not before.
+
+**Parse-on-request.** No index, no cache: each request walks and parses the
+directory. At 14.6 s for 6308 files that is plainly a page load you wait for,
+and the persistence gate is already written down — full-store parse > 1 s is
+one of the two triggers, and it is met — but the gate is checked at S5, where
+the watch's re-parse latency is the other half of the decision. S3 records the
+number and keeps the flat design.
 
 ## S4 — Contract fixtures (parallel, after S2)
 
@@ -192,7 +235,10 @@ Exit:
   spike branch proving the chosen path on one real encrypted subtree.
 - **Persistence (SQLite)** — trigger metric, checked at S5: full-store parse
   > 1 s or watch re-parse > 200 ms per event ⇒ schedule incremental index;
-  otherwise `Persist.Org` stays a stub.
+  otherwise `Persist.Org` stays a stub. **First half already fired** (S3:
+  14.6 s per full-store request over 6308 files); the decision waits for S5's
+  re-parse number, since an incremental watch that never re-reads the store is
+  a different index from one that does.
 
 ## Dependency order
 

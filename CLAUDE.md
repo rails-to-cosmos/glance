@@ -67,8 +67,10 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - Org files are the single source of truth; no second authoritative store.
 - Write-back (S8) = surgical span replacement, optimistic lock, atomic
   temp+rename; untouched bytes stay byte-identical.
-- `Display`/`TextShow` stay out of the wire contract; the web layer depends
-  only on the `Glance.Query` facade (S2+).
+- `Display`/`TextShow` stay out of the wire contract; the web layer is the
+  private sublibrary `glance-web` (`src-web/`, `Glance.Web`) with the public
+  library alone in its `build-depends`, and it binds 127.0.0.1 until S7 brings
+  privilege tiers.
 - The public library exposes `Glance.Query` alone over the private
   `glance-internal` sublibrary; cells are sliced from spans and the view
   `Value` is hand-built — no `ToJSON` on an internal type
@@ -81,5 +83,7 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - `glance.cabal` is hand-maintained; package.yaml/hpack removed — do not
   regenerate.
 - Components: private sublibrary `glance-internal` (`src/`), public library
-  `glance` (`src-query/`, `Glance.Query` only), CLI and suite on the
-  sublibrary. A new web or daemon target depends on the public library alone.
+  `glance` (`src-query/`, `Glance.Query` only), private sublibrary
+  `glance-web` (`src-web/`) on the public library alone, one CLI dispatching
+  to both sublibraries, one suite naming all three. A new web or daemon target
+  depends on the public library alone.
