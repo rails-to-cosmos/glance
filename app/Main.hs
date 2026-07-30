@@ -15,6 +15,7 @@ import qualified Data.Text.IO as TIO
 import Text.Megaparsec (errorBundlePretty)
 
 import Repl.Org
+import Scan (runScan)
 
 import System.Directory
 import System.FilePath
@@ -51,6 +52,10 @@ parse :: [String] -> IO a
 parse [] = do
   config <- defaultConfig
   repl config mempty
+  exitSuccess
+
+parse ("scan":dirs) = do
+  runScan (if null dirs then ["."] else dirs)
   exitSuccess
 
 parse (filename:_) = do

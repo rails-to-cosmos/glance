@@ -5,6 +5,7 @@ module Data.Org.Types ( Context (..)
                       , HashID (..)
                       , Headline (..)
                       , HeadlineID
+                      , HeadlineSpans (..)
                       , IAS (..)
                       , Identity (..)
                       , Indent (..)
@@ -17,6 +18,8 @@ module Data.Org.Types ( Context (..)
                       , Property (..)
                       , Ref (..)
                       , RefKind (..)
+                      , Span (..)
+                      , Spanned (..)
                       , Tags (..)
                       , Timestamp (..)
                       , TimestampRepeaterInterval (..)
@@ -27,7 +30,9 @@ module Data.Org.Types ( Context (..)
                       , Title (..)
                       , Todo (..)
                       , Token (..)
+                      , TsMoment (..)
                       , defaultHeadline
+                      , emptyHeadlineSpans
                       , getProperty
                       , getTodo
                       , headlineIdProperty
@@ -36,6 +41,8 @@ module Data.Org.Types ( Context (..)
                       , resolveHeadline
                       , setCategory
                       , setTodo
+                      , sliceSpan
+                      , stripSpans
                       , tsFormat
                       ) where
 
@@ -67,6 +74,29 @@ class Identity a where
 
 class Hashable a where
   hash :: a -> HashID
+
+-- Span / Spanned
+
+-- | Half-open character span [start, end) into the text given to 'orgParse'.
+data Span = Span { spanStart :: !Int, spanEnd :: !Int }
+  deriving (Show, Eq)
+
+-- | Value with the source span it was parsed from.
+data Spanned a = Spanned { spanOf :: !Span, valueOf :: !a }
+  deriving (Show, Eq)
+
+instance TextShow a => TextShow (Spanned a) where
+  showb = showb . valueOf
+
+instance Display a => Display (Spanned a) where
+  display = display . valueOf
+
+instance Identity a => Identity (Spanned a) where
+  identity = identity . valueOf
+
+-- | Extract the text SPAN covers out of T.
+sliceSpan :: Text -> Span -> Text
+sliceSpan t (Span s e) = T.take (e - s) (T.drop s t)
 
 -- HashID / IAS
 
@@ -168,6 +198,11 @@ instance TextShow Element where
   showb (ETimestamp a) = TS.showb a
   showb (EToken a) = TS.showb a
 
+-- | Reset the spans an element carries, for span-insensitive comparison.
+stripSpans :: Element -> Element
+stripSpans (EHeadline a) = EHeadline a { spans = emptyHeadlineSpans }
+stripSpans e = e
+
 -- RefKind / Ref
 
 data RefKind
@@ -218,7 +253,22 @@ data Headline = Headline { indent     :: !Indent
                          , properties :: !Properties
                          , refs       :: ![Ref]
                          , hashRefs   :: ![HashID]
+                         , spans      :: !HeadlineSpans
                          } deriving (Show, Eq)
+
+-- | Spans of a headline's mutable parts.  'hsFull' covers stars through the
+-- last parsed component.  Sub-spans are tight: no surrounding whitespace.
+data HeadlineSpans = HeadlineSpans
+  { hsFull       :: !Span
+  , hsTodo       :: !(Maybe Span)  -- ^ keyword text exactly, e.g. "TODO".
+  , hsPriority   :: !(Maybe Span)  -- ^ "[#A]" exactly.
+  , hsTitle      :: !(Maybe Span)  -- ^ first to last title element; Nothing when title empty.
+  , hsTags       :: !(Maybe Span)  -- ^ ":a:b:" exactly; Nothing when no tags.
+  , hsProperties :: !(Maybe Span)  -- ^ line start of ":PROPERTIES:" through end of ":END:".
+  } deriving (Show, Eq)
+
+emptyHeadlineSpans :: HeadlineSpans
+emptyHeadlineSpans = HeadlineSpans (Span 0 0) Nothing Nothing Nothing Nothing Nothing
 
 defaultHeadline :: Headline
 defaultHeadline = Headline { indent     = Indent 1
@@ -231,6 +281,7 @@ defaultHeadline = Headline { indent     = Indent 1
                            , properties = mempty
                            , refs       = mempty
                            , hashRefs   = mempty
+                           , spans      = emptyHeadlineSpans
                            }
 
 resolveHeadline :: Headline -> Headline -> Headline
@@ -406,53 +457,34 @@ instance Monoid Tags where
 
 -- Timestamp
 
+-- | One end of a timestamp: the moment, and whether the source spelled a time
+-- of day.  Date-only timestamps hold midnight with 'tsmHasTime' unset.
+data TsMoment = TsMoment { tsmTime :: !Time.UTCTime
+                         , tsmHasTime :: !Bool
+                         } deriving (Show, Eq)
+
+-- | A timestamp; 'tsEnd' set makes it the "start--end" range org writes on
+-- CLOCK lines.  Both ends share the bracket kind 'tsStatus' names.
 data Timestamp = Timestamp { tsStatus :: !TimestampStatus
                            , tsInterval :: !(Maybe TimestampRepeaterInterval)
-                           , tsTime :: !Time.UTCTime
+                           , tsStart :: !TsMoment
+                           , tsEnd :: !(Maybe TsMoment)
                            } deriving (Show, Eq)
 
 instance Ord Timestamp where
-  compare a b = compare (tsTime a) (tsTime b)
+  compare a b = compare (tsmTime (tsStart a)) (tsmTime (tsStart b))
 
 instance Identity Timestamp where
   identity = Just . TS.showt
 
 instance TextShow Timestamp where
-  showb ts = openBracket
-    <> TS.fromText timeText
-    <> TS.fromText repeaterSeparator
-    <> TS.fromText repeaterText
-    <> closeBracket
-
-    where openBracket = case tsStatus ts of
-            TimestampActive -> "<"
-            TimestampInactive -> "["
-          closeBracket = case tsStatus ts of
-            TimestampActive -> ">"
-            TimestampInactive -> "]"
-          timeText = tsFormat (tsTime ts)
-          repeaterTypeText = case tsInterval ts of
-            Nothing -> ""
-            Just TimestampRepeaterInterval { repeaterType = Restart } -> ""
-            Just TimestampRepeaterInterval { repeaterType = Cumulative } -> "."
-            Just TimestampRepeaterInterval { repeaterType = CatchUp } -> "+"
-          repeaterSignText = case tsInterval ts of
-            Nothing -> ""
-            Just TimestampRepeaterInterval { repeaterSign = TRSPlus } -> "+"
-            Just TimestampRepeaterInterval { repeaterSign = TRSMinus } -> "-"
-          repeaterUnitText = case tsInterval ts of
-            Nothing -> ""
-            Just TimestampRepeaterInterval { repeaterUnit = Days } -> "d"
-            Just TimestampRepeaterInterval { repeaterUnit = Weeks } -> "w"
-            Just TimestampRepeaterInterval { repeaterUnit = Months } -> "m"
-            Just TimestampRepeaterInterval { repeaterUnit = Years } -> "y"
-          repeaterValText = case tsInterval ts of
-            Nothing -> ""
-            Just TimestampRepeaterInterval { repeaterValue = v } -> TS.showt v
-          repeaterText = repeaterTypeText <> repeaterSignText <> repeaterValText <> repeaterUnitText
-          repeaterSeparator = case repeaterText of
-            "" -> ""
-            _repeater -> " "
+  showb ts = bracketed (tsFormat (tsStart ts) <> repeaterText)
+          <> maybe mempty (\end -> "--" <> bracketed (tsFormat end)) (tsEnd ts)
+    where bracketed body = fromText (openBracket <> body <> closeBracket)
+          (openBracket, closeBracket) = case tsStatus ts of
+            TimestampActive -> ("<", ">")
+            TimestampInactive -> ("[", "]")
+          repeaterText = maybe "" ((" " <>) . repeaterFormat) (tsInterval ts)
 
 instance Display Timestamp where
   display = showt
@@ -476,12 +508,31 @@ data TimestampRepeaterType = CatchUp | Restart | Cumulative
 data TimestampUnit = Days | Weeks | Months | Years
   deriving (Show, Eq)
 
-tsFormat :: Time.UTCTime -> Text
-tsFormat ts = T.pack (Time.formatTime Time.defaultTimeLocale timeFormat ts)
-  where timeFormat = if (seconds::Integer) `mod` 60 == 0
-                     then "%Y-%m-%d %a %H:%M"
-                     else "%Y-%m-%d %a %H:%M:%S"
-        seconds = floor $ Time.utctDayTime ts
+-- | Render M as org writes it: date, recomputed weekday, and a time of day
+-- only when the source carried one.
+tsFormat :: TsMoment -> Text
+tsFormat (TsMoment time hasTime) = T.pack (Time.formatTime Time.defaultTimeLocale timeFormat time)
+  where timeFormat | not hasTime           = "%Y-%m-%d %a"
+                   | seconds `mod` 60 == 0 = "%Y-%m-%d %a %H:%M"
+                   | otherwise             = "%Y-%m-%d %a %H:%M:%S"
+        seconds = floor (Time.utctDayTime time) :: Integer
+
+-- | Render INTERVAL the way org writes a repeater, e.g. ".+3d".
+repeaterFormat :: TimestampRepeaterInterval -> Text
+repeaterFormat TimestampRepeaterInterval{..} =
+  typeText <> signText <> showt repeaterValue <> unitText
+  where typeText = case repeaterType of
+          Restart    -> ""
+          Cumulative -> "."
+          CatchUp    -> "+"
+        signText = case repeaterSign of
+          TRSPlus  -> "+"
+          TRSMinus -> "-"
+        unitText = case repeaterUnit of
+          Days   -> "d"
+          Weeks  -> "w"
+          Months -> "m"
+          Years  -> "y"
 
 -- Title
 

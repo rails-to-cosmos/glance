@@ -9,7 +9,7 @@ import Test.Tasty.HUnit (testCase, assertBool, assertEqual)
 
 parsesAs :: Text -> (Element -> Bool) -> Bool
 parsesAs input predicate = case orgParse mempty input of
-  (e:_, _, _) -> predicate e
+  (e:_, _, _) -> predicate (valueOf e)
   _           -> False
 
 isToken :: Element -> Bool
@@ -37,7 +37,7 @@ spec = testGroup "Negative / Edge cases"
 
     , testCase "Incomplete tags become part of title" $ do
         let (elems, _, _) = orgParse mempty "* Hello :incomplete"
-        case elems of
+        case map valueOf elems of
           [EHeadline h] ->
             assertEqual "Incomplete tags should be in title"
               (Title [OrgLineToken (Token "Hello"), OrgLineToken (Token ":incomplete")])
@@ -46,7 +46,7 @@ spec = testGroup "Negative / Edge cases"
 
     , testCase "Unknown pragma keyword becomes generic pragma" $ do
         let (elems, _, _) = orgParse mempty "#+FOOBAR: some value"
-        case elems of
+        case map valueOf elems of
           [EPragma (Pragma (Keyword "FOOBAR") _)] -> return ()
           _ -> assertBool ("Expected generic pragma, got: " <> show elems) False
 
@@ -74,19 +74,19 @@ spec = testGroup "Negative / Edge cases"
   , testGroup "Headline edge cases"
     [ testCase "Headline with only stars and space is valid headline" $ do
         let (elems, _, _) = orgParse mempty "* "
-        case elems of
+        case map valueOf elems of
           [EHeadline h] -> assertEqual "Title should be empty" (Title []) (title h)
           _ -> assertBool ("Expected headline with empty title, got: " <> show elems) False
 
     , testCase "Very deep nesting" $ do
         let (elems, _, _) = orgParse mempty "********** Deep"
-        case elems of
+        case map valueOf elems of
           [EHeadline h] -> assertEqual "Should have indent 10" (Indent 10) (indent h)
           _ -> assertBool "Expected headline" False
 
     , testCase "Headline without title text after TODO" $ do
         let (elems, _, _) = orgParse mempty "* TODO"
-        case elems of
+        case map valueOf elems of
           [EHeadline h] -> do
             assertEqual "Should have TODO" (Just (Todo "TODO" True)) (todo h)
             assertEqual "Title should be empty" (Title []) (title h)
@@ -94,7 +94,7 @@ spec = testGroup "Negative / Edge cases"
 
     , testCase "Priority without TODO" $ do
         let (elems, _, _) = orgParse mempty "* [#A] Hello"
-        case elems of
+        case map valueOf elems of
           [EHeadline h] -> do
             assertEqual "No TODO" Nothing (todo h)
             assertEqual "Has priority" (Just (Priority 'A')) (priority h)
@@ -103,6 +103,29 @@ spec = testGroup "Negative / Edge cases"
     , testCase "Multiple headlines in sequence" $ do
         let input = T.intercalate "\n" ["* First", "** Second", "*** Third"]
         assertEqual "Should parse 3 headlines" 3 (elementCount input)
+    ]
+
+  , testGroup "Headlines are anchored to column 1"
+    [ testCase "Mid-line emphasis is not a headline" $ do
+        let (elems, _, _) = orgParse mempty "word *done* word"
+        assertEqual "Should be three tokens"
+          [EToken (Token "word"), EToken (Token "*done*"), EToken (Token "word")]
+          (map valueOf elems)
+
+    , testCase "Mid-line emphasized keyword is not a headline" $ do
+        let (elems, _, _) = orgParse mempty "see *TODO* below"
+        assertBool "No headline expected" (not (any (isHeadline . valueOf) elems))
+
+    , testCase "Emphasis on a later body line is not a headline" $ do
+        let (elems, _, _) = orgParse mempty (T.intercalate "\n" ["* Task", "body *TODO* text"])
+        assertEqual "Only the real headline" 1 (length (filter (isHeadline . valueOf) elems))
+
+    , testCase "Stars after a newline still open a headline" $ do
+        let (elems, _, _) = orgParse mempty "body\n* Task"
+        assertEqual "One headline" 1 (length (filter (isHeadline . valueOf) elems))
+
+    , testCase "Indented stars are not a headline" $
+        assertBool "Should be token" (parsesAs "  * Task" isToken)
     ]
 
   , testGroup "Timestamp edge cases"
@@ -119,7 +142,7 @@ spec = testGroup "Negative / Edge cases"
   , testGroup "Pragma edge cases"
     [ testCase "Pragma with no value" $ do
         let (elems, _, _) = orgParse mempty "#+TODO: "
-        case elems of
+        case map valueOf elems of
           [EPragma (PTodo _ _)] -> return ()
           _ -> assertBool ("Expected TODO pragma, got: " <> show elems) False
 

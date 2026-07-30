@@ -84,8 +84,8 @@ testCases = [ TestCase { description = "Headline"
 
             , TestCase { description = "TODO pragma (active only)"
                        , inputs = ["#+TODO: foo"]
-                       , expected = Result { elements = [ Org.EPragma (PTodo (Set.fromList ["FOO"]) (Set.fromList [])) ]
-                                           , context = initialState `withTodo` (["TODO", "FOO"], ["DONE"])}}
+                       , expected = Result { elements = [ Org.EPragma (PTodo (Set.fromList ["foo"]) (Set.fromList [])) ]
+                                           , context = initialState `withTodo` (["TODO", "foo"], ["DONE"])}}
 
             -- , TestCase { description = "Messed active/inactive todo states"
             --            , inputs = [ "#+TODO: CANCELLED | CANCELLED"
@@ -113,8 +113,16 @@ testCases = [ TestCase { description = "Headline"
             , TestCase { description = "Timestamp"
                        , inputs = [ "<2024-01-01>"
                                   , "<2024-01-01 Mon>" ]
-                       , expected = Result { elements = [ Org.ETimestamp Timestamp {tsStatus = TimestampActive, tsInterval = Nothing, tsTime = strptime "2024-01-01 00:00:00"}
-                                                        , Org.ETimestamp Timestamp {tsStatus = TimestampActive, tsInterval = Nothing, tsTime = strptime "2024-01-01 00:00:00"}]
+                       , expected = Result { elements = [ Org.ETimestamp day2024
+                                                        , Org.ETimestamp day2024 ]
+                                           , context = initialState }}
+
+            , TestCase { description = "Timestamp range"
+                       , inputs = ["[2023-07-15 Sat 15:54]--[2023-07-15 Sat 17:10]"]
+                       , expected = Result { elements = [ Org.ETimestamp Timestamp { tsStatus = TimestampInactive
+                                                                                   , tsInterval = Nothing
+                                                                                   , tsStart = TsMoment (strptime "2023-07-15 15:54:00") True
+                                                                                   , tsEnd = Just (TsMoment (strptime "2023-07-15 17:10:00") True) }]
                                            , context = initialState }}
 
             -- , TestCase { description = "Parse schedule property"
@@ -315,9 +323,16 @@ testCases = [ TestCase { description = "Headline"
             --           }
             --     }
 
+-- | 2024-01-01, date only.
+day2024 :: Org.Timestamp
+day2024 = Timestamp { tsStatus = TimestampActive
+                    , tsInterval = Nothing
+                    , tsStart = TsMoment (strptime "2024-01-01 00:00:00") False
+                    , tsEnd = Nothing }
+
 spec :: TestTree
 spec = testGroup "Parser" assertMany
   where assert tc = testCase (description tc) $ assertEqual [] (expected tc) (result tc)
         result tc = case orgParse mempty (intercalate "\n" (inputs tc)) of
-          (headlines, context, maybeError) -> Result headlines context
+          (headlines, context, maybeError) -> Result (map (stripSpans . valueOf) headlines) context
         assertMany = map assert testCases

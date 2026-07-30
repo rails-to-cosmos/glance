@@ -170,9 +170,9 @@ parser; the graph needs refs — sequence accordingly.
   per-view: decrypt client-side (key handling) or serve already-decrypted
   (trust the server). Affects the share driver.
 - **Write-back.** Glance = navigate/browse first; browser stays read-mostly
-  until M4, and all writes flow through the daemon. The early enabler is span
-  retention: thread source offsets through the AST now, while the parser is
-  ~280 lines — retrofitting offsets later is the expensive path. Freeform
+  until M4, and all writes flow through the daemon. The early enabler — span
+  retention — landed with S1: offsets through the AST, tight sub-spans per
+  headline, zero slice violations across the 6305-file corpus. Freeform
   editing stays out of the browser permanently; structured commands only.
 - **Prerequisites gate milestones.** M2's mindmap needs `RefKind` wired into
   parsing (currently defined, not wired) and enough graph assembly. Do not block

@@ -13,6 +13,13 @@ import Test.Tasty.HUnit (assertEqual, testCase, assertBool)
 strptime :: Text -> UTCTime
 strptime t = parseTimeOrError True defaultTimeLocale "%Y-%m-%d %H:%M:%S" (T.unpack t) :: UTCTime
 
+-- | An active date-only timestamp at T, as a schedule carries one.
+scheduled :: Text -> Timestamp
+scheduled t = Timestamp { tsStatus = TimestampActive
+                        , tsInterval = Nothing
+                        , tsStart = TsMoment (strptime t) False
+                        , tsEnd = Nothing }
+
 spec :: TestTree
 spec = testGroup "Context"
   [ testGroup "IAS registration"
@@ -73,7 +80,7 @@ spec = testGroup "Context"
     , testCase "TODO keywords persist across calls" $ do
         let (_, ctx1, _) = orgParse mempty "#+TODO: WAITING | CANCELLED"
         let (elems, _, _) = orgParse ctx1 "* WAITING Something"
-        case elems of
+        case map valueOf elems of
           [EHeadline h] -> assertEqual "Should recognize WAITING as todo" (Just (Todo "WAITING" True)) (todo h)
           _ -> assertBool "Expected single headline" False
 
@@ -97,15 +104,15 @@ spec = testGroup "Context"
   , testGroup "resolveHeadline"
     [ testCase "Keeps headline with later schedule" $ do
         let h1 = defaultHeadline { title = Title [OrgLineToken (Token "Later")]
-                                 , schedule = Just (Timestamp TimestampActive Nothing (strptime "2024-06-01 00:00:00")) }
+                                 , schedule = Just (scheduled "2024-06-01 00:00:00") }
         let h2 = defaultHeadline { title = Title [OrgLineToken (Token "Earlier")]
-                                 , schedule = Just (Timestamp TimestampActive Nothing (strptime "2024-01-01 00:00:00")) }
+                                 , schedule = Just (scheduled "2024-01-01 00:00:00") }
         assertEqual "Should keep h1 (later schedule)" (title h1) (title (resolveHeadline h1 h2))
 
     , testCase "Keeps h2 when h1 has no schedule" $ do
         let h1 = defaultHeadline { title = Title [OrgLineToken (Token "No schedule")] }
         let h2 = defaultHeadline { title = Title [OrgLineToken (Token "Has schedule")]
-                                 , schedule = Just (Timestamp TimestampActive Nothing (strptime "2024-01-01 00:00:00")) }
+                                 , schedule = Just (scheduled "2024-01-01 00:00:00") }
         assertEqual "Should keep h2" (title h2) (title (resolveHeadline h1 h2))
 
     , testCase "Keeps h2 when both have no schedule" $ do
@@ -137,8 +144,42 @@ spec = testGroup "Context"
 
     , testCase "Unregistered keyword is not parsed as TODO" $ do
         let (elems, _, _) = orgParse mempty "* CUSTOM Something"
-        case elems of
+        case map valueOf elems of
           [EHeadline h] -> assertEqual "Should not have todo" Nothing (todo h)
+          _ -> assertBool "Expected single headline" False
+
+    , testCase "Keyword casing must match: Done stays in the title" $ do
+        let (elems, _, _) = orgParse mempty "* Done with it"
+        case map valueOf elems of
+          [EHeadline h] -> do
+            assertEqual "Should not have todo" Nothing (todo h)
+            assertEqual "Should keep Done in the title"
+              (Title [OrgLineToken (Token "Done"), OrgLineToken (Token "with"), OrgLineToken (Token "it")])
+              (title h)
+          _ -> assertBool "Expected single headline" False
+
+    , testCase "Lowercase keywords register as written" $ do
+        let (_, ctx, _) = orgParse mempty "#+TODO: wip | done"
+        assertBool "wip should be active" (Set.member "wip" (todoActive ctx))
+        assertBool "done should be inactive" (Set.member "done" (todoInactive ctx))
+        assertBool "WIP should not be registered" (not (Set.member "WIP" (todoActive ctx)))
+
+    , testCase "Lowercase keyword matches as written" $ do
+        let (_, ctx, _) = orgParse mempty "#+TODO: wip | done"
+        let (elems, _, _) = orgParse ctx "* wip Task"
+        case map valueOf elems of
+          [EHeadline h] -> assertEqual "Should recognize wip" (Just (Todo "wip" True)) (todo h)
+          _ -> assertBool "Expected single headline" False
+
+    , testCase "Uppercase spelling of a lowercase keyword does not match" $ do
+        let (_, ctx, _) = orgParse mempty "#+TODO: wip | done"
+        let (elems, _, _) = orgParse ctx "* WIP Task"
+        case map valueOf elems of
+          [EHeadline h] -> do
+            assertEqual "Should not have todo" Nothing (todo h)
+            assertEqual "Should keep WIP in the title"
+              (Title [OrgLineToken (Token "WIP"), OrgLineToken (Token "Task")])
+              (title h)
           _ -> assertBool "Expected single headline" False
     ]
 

@@ -23,14 +23,35 @@ drawer, body extent (append point), full headline extent (capture/refile
 point).
 
 Exit:
-- [ ] Slice test: for every fixture, `slice raw span == rendered element` for
-      each span kind — property test in suite.
-- [ ] Corpus run: parse the full real org store; zero failures, or every
-      failure enumerated in a committed known-failures list.
-- [ ] Baseline recorded in this file: file count, headline count, wall time.
-- [ ] Existing 9 test modules pass.
+- [x] Slice test: TestSpans.hs — exact slices (todo/priority/tags), words-check
+      (title), structural (properties), full-span and element-span reparse,
+      invariants (bounds, containment, ordering). Mutation-checked (span shifts
+      break 11–24 tests).
+- [x] Corpus run: `glance scan ~/sync` — 6305 files, 6276 ok, 13 parse
+      failures (enumerated below), 16 decode failures (macOS AppleDouble
+      sidecars, junk). Zero span violations corpus-wide.
+- [x] Baseline recorded below.
+- [x] Test suite green: 108 → 221 tests (span suite + fidelity fixes).
 
-Baseline: _files: — · headlines: — · parse wall time: —_
+Baseline (2026-07-30): _files: 6305 · headlines: 13338 · elements: 567697 ·
+wall: 13.6 s warm / ~34 s cold · 464 files/s · max residency 19 MB_
+
+**Landed during S1 beyond span threading** — corpus truth forced four parser
+fixes: trailing-hspace / indented-drawer handling (silent headline and drawer
+destruction); timestamp ranges `[a]--[b]` (`Timestamp` now carries `TsMoment`
+start/end with a has-time flag; CLOCK files were 97% of parse failures);
+headline anchoring to column 1 (mid-line `*bold*` no longer a fake headline;
+O(1) begin-of-line flag, no `getSourcePos`); case-sensitive TODO keywords
+stored verbatim. Known divergence kept: indented stars are no longer
+headlines (org's column-1 rule).
+
+**Known parse failures (13, one class)** — an element parser stops mid-word
+and leaves a non-space char where the top level expects whitespace: 6×
+`" :: "` inside a title, 2× title ending in `:)`, 3× timestamp glued to
+punctuation (`<…>,` `<…>]` `[…]]`), 2× hyphenated word in a commented
+`#+TODO:` line. Fix direction (S2-adjacent): tags parse only at end of line;
+timestamp closes on bracket regardless of following char. Emacs intra-day
+time ranges `<… 10:30-12:00>` degrade to tokens (no file failure).
 
 ## S2 — `Glance.Query` facade + JSON layer
 

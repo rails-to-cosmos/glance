@@ -36,6 +36,7 @@ spec = testGroup "Lexer" assertMany
           $ assertEqual [] expected
           $ result tc
         result (TestCase _ input _) = case orgParse mempty inputLines of
-          (tokens, context, Nothing) -> Result tokens Nothing
-          (tokens, context, Just err) -> Result tokens (Just $ T.replace "\n" " " $ T.pack $ errorBundlePretty err)
+          (tokens, context, Nothing) -> Result (bare tokens) Nothing
+          (tokens, context, Just err) -> Result (bare tokens) (Just $ T.replace "\n" " " $ T.pack $ errorBundlePretty err)
           where inputLines = T.intercalate "\n" input
+                bare = map (Org.stripSpans . Org.valueOf)

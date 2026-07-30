@@ -69,6 +69,7 @@ library
 executable glance
   main-is: Main.hs
   other-modules:
+      Scan
       Paths_glance
   hs-source-dirs:
       app
@@ -123,6 +124,7 @@ test-suite glance-test
       TestContext
       TestNegative
       TestTextShow
+      TestSpans
       Paths_glance
   hs-source-dirs:
       test

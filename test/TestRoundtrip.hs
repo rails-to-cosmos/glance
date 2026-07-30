@@ -13,7 +13,8 @@ roundtrip input =
   let (elems, _ctx, _err) = orgParse mempty input
       rendered = T.intercalate " " (map TS.showt elems)
       (elems2, _ctx2, _err2) = orgParse mempty rendered
-  in (rendered, elems == elems2)
+      bare = map (stripSpans . valueOf)
+  in (rendered, bare elems == bare elems2)
 
 roundtripExact :: Text -> (Text, Bool)
 roundtripExact input =
@@ -37,6 +38,9 @@ spec = testGroup "Roundtrip"
     , stable "Active timestamp"        "<2024-01-15 Mon 10:30>"
     , stable "Inactive timestamp"      "[2024-06-01 Sat 09:00]"
     , stable "Timestamp no time"       "<2024-01-01 Mon 00:00>"
+    , stable "Date-only timestamp"     "<2026-07-08 Wed>"
+    , stable "Clock range"             "[2023-07-15 Sat 15:54]--[2023-07-15 Sat 17:10]"
+    , stable "Date range"              "<2024-01-15 Mon>--<2024-01-19 Fri>"
     , stable "Deep indent"             "**** Deep headline"
     ]
   , testGroup "showt . parse == identity (exact roundtrip)"
@@ -46,6 +50,10 @@ spec = testGroup "Roundtrip"
     , exact "Headline priority"        "** TODO [#A] Hello"
     , exact "Headline tags"            "* Hello :tag1:tag2:"
     , exact "Full headline"            "** TODO [#B] My task :work:urgent:"
+    , exact "Timestamp with time"      "<2024-01-15 Mon 10:30>"
+    , exact "Date-only timestamp"      "<2026-07-08 Wed>"
+    , exact "Clock range"              "[2023-07-15 Sat 15:54]--[2023-07-15 Sat 17:10]"
+    , exact "Date-only in a title"     "* Due <2026-07-08 Wed>"
     ]
   ]
 

@@ -7,6 +7,14 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertEqual, testCase)
 import TextShow (showt)
 
+-- | The moment T names, as a source that spelled a time of day.
+timed :: String -> TsMoment
+timed t = TsMoment (read t) True
+
+-- | The moment T names, as a date-only source.
+dated :: String -> TsMoment
+dated t = TsMoment (read t) False
+
 spec :: TestTree
 spec = testGroup "TextShow"
   [ testGroup "Headline rendering"
@@ -53,23 +61,35 @@ spec = testGroup "TextShow"
   , testGroup "Timestamp rendering"
     [ testCase "Active timestamp" $
         assertEqual "" "<2024-01-01 Mon 00:00>"
-          (showt $ Timestamp TimestampActive Nothing (read "2024-01-01 00:00:00 UTC"))
+          (showt $ Timestamp TimestampActive Nothing (timed "2024-01-01 00:00:00 UTC") Nothing)
 
     , testCase "Inactive timestamp" $
         assertEqual "" "[2024-06-15 Sat 00:00]"
-          (showt $ Timestamp TimestampInactive Nothing (read "2024-06-15 00:00:00 UTC"))
+          (showt $ Timestamp TimestampInactive Nothing (timed "2024-06-15 00:00:00 UTC") Nothing)
+
+    , testCase "Date-only timestamp" $
+        assertEqual "" "<2024-01-01 Mon>"
+          (showt $ Timestamp TimestampActive Nothing (dated "2024-01-01 00:00:00 UTC") Nothing)
+
+    , testCase "Timestamp range" $
+        assertEqual "" "[2024-01-01 Mon 09:00]--[2024-01-01 Mon 17:30]"
+          (showt $ Timestamp TimestampInactive Nothing
+                    (timed "2024-01-01 09:00:00 UTC")
+                    (Just (timed "2024-01-01 17:30:00 UTC")))
 
     , testCase "Timestamp with repeater" $
         assertEqual "" "<2024-01-01 Mon 00:00 +1w>"
           (showt $ Timestamp TimestampActive
                     (Just (TimestampRepeaterInterval Restart 1 Weeks TRSPlus))
-                    (read "2024-01-01 00:00:00 UTC"))
+                    (timed "2024-01-01 00:00:00 UTC")
+                    Nothing)
 
     , testCase "Timestamp with cumulative repeater" $
         assertEqual "" "<2024-01-01 Mon 00:00 .+3d>"
           (showt $ Timestamp TimestampActive
                     (Just (TimestampRepeaterInterval Cumulative 3 Days TRSPlus))
-                    (read "2024-01-01 00:00:00 UTC"))
+                    (timed "2024-01-01 00:00:00 UTC")
+                    Nothing)
     ]
 
   , testGroup "Component rendering"
