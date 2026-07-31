@@ -132,6 +132,12 @@ headlinePath rid = "/headline" <> renderQuery True [("id", Just (TE.encodeUtf8 r
 commitBody :: T.Text -> T.Text -> BL.ByteString
 commitBody org digest = encode (object ["org" .= org, "digest" .= digest])
 
+-- | A commit body in the other shape: the two panes a lens client edits, and
+-- the same digest.  The server composes them back into one subtree.
+splitBody :: T.Text -> [[T.Text]] -> T.Text -> BL.ByteString
+splitBody body props digest =
+  encode (object ["body" .= body, "properties" .= props, "digest" .= digest])
+
 -- | Run K over a server holding 'committable' with its first headline already
 -- materialized: the app, the file on disk, and the materialize response a
 -- commit to it has to present back.  Six cases opened with those five lines.
@@ -206,6 +212,12 @@ decoded r = either (\e -> assertFailure ("response JSON: " <> e)) pure
 rowsOf :: SResponse -> IO [Value]
 rowsOf r = listAt "rows" =<< decoded r
 
+-- | KEY of V as pairs of strings — the shape @\/headline@ carries a drawer in.
+pairsAt :: T.Text -> Value -> IO [[T.Text]]
+pairsAt key v = do
+  raw <- field key v
+  either (\e -> assertFailure (T.unpack key <> ": " <> e)) pure (parseEither parseJSON raw)
+
 -- | V's own field names.  An absent field is an answer here rather than a
 -- failure — @sort@ is the one the document order leaves out.
 fieldsOf :: Value -> IO [T.Text]
@@ -271,8 +283,8 @@ spec = withResource (body <$> get assetsDir "/") (const (pure ())) $ \shell ->
     , bootstrapSpec, materializeSpec, commitSpec, commandSpec, indexingSpec
     , pageSpec shell, keymapSpec shell
     , glueSpec shell, bootSpec shell, liveSpec shell, paletteSpec shell, markSpec shell
-    , commandKeySpec shell, touchSpec shell, shellFontSpec shell, assetSpec
-    , errorSpec ]
+    , commandKeySpec shell, sheetSpec shell, touchSpec shell, shellFontSpec shell
+    , assetSpec, errorSpec ]
 
 -- | One boot of the shell's glue, run: the address bar it opens on, what the
 -- server answers as @X-Glance-Total@, the @\/headlines@ URLs that have to
@@ -579,6 +591,101 @@ commandKeySpec shell = testGroup "Shell commands"
           =<< textAt "phead" answer
   ]
 
+-- | The sheet's two panes, driven through the keys a reader presses.  What is
+-- asserted here is the half the page owns: what the panel shows, how it grows,
+-- what an emptied key means, what a sync sends, and which of the two shapes the
+-- sheet is in.  The cut between the panes is the server's and is @TestQuery@'s
+-- subject; nothing here re-states it.
+--
+-- @Enter@ materializes the first row, which is where every case starts.
+sheetSpec :: IO T.Text -> TestTree
+sheetSpec shell = testGroup "Shell sheet"
+  [ testCase "materialize opens two panes over one subtree" $
+      bootOf shell "" 500 "Enter" "" $ \answer -> do
+        assertEqual "the textarea holds the body, drawer and all gone"
+                    "* TODO one\n" =<< textAt "sheet" answer
+        -- File order, key field then value field — which is the tab order,
+        -- since nothing sets a tab index and the fields are in the DOM in the
+        -- order the drawer writes them.  The trailing empty row is the add
+        -- affordance and is always there.
+        assertEqual "the panel holds the drawer, in file order, plus the empty row"
+                    [["ORG_GLANCE_ID", "r1"], ["EFFORT", "0:30"], ["", ""]]
+                    =<< pairsAt "props" answer
+        assertEqual "and the sheet is in its two-pane shape" "" =<< textAt "shape" answer
+
+    -- The row id IS this value, so the panel says what editing it costs rather
+    -- than hiding the row — a hidden one would make the panel disagree with the
+    -- file.
+  , testCase "the identity row is shown, with a line saying what it is" $
+      bootOf shell "" 500 "Enter" "" $
+        assertEqual "one note, on the one row that earns it"
+                    ["identity — renaming this renames the row"] <=< textsAt "notes"
+
+  , testCase "typing in the last row puts another empty one under it" $
+      bootOf shell "" 500 "Enter" "pkey:2=ADDED pval:2=yes" $ \answer ->
+        assertEqual "the added row, and a fresh empty one after it"
+                    [["ORG_GLANCE_ID", "r1"], ["EFFORT", "0:30"], ["ADDED", "yes"], ["", ""]]
+                    =<< pairsAt "props" answer
+
+  , testCase "a sync sends the two panes apart, and the empty row is not one" $
+      bootOf shell "" 500 "Enter" "pval:1=0:45 press:C-x press:C-s" $ \answer -> do
+        assertEqual "one write" ["* TODO one\n"] =<< traverse (textAt "body")
+                                                 =<< listAt "writes" answer
+        assertEqual "carrying the panel, edit and all"
+                    [[["ORG_GLANCE_ID", "r1"], ["EFFORT", "0:45"]]]
+                    =<< traverse (pairsAt "properties") =<< listAt "writes" answer
+        assertEqual "and it landed" "synced" =<< textAt "state" answer
+
+    -- Emptying a key is how a property is deleted: there is no key to press for
+    -- it, and none is owed — the row simply stops naming anything.
+  , testCase "an emptied key is a property deleted" $
+      bootOf shell "" 500 "Enter" "pkey:1= press:C-x press:C-s" $
+        assertEqual "the drawer the write asks for"
+                    [[["ORG_GLANCE_ID", "r1"]]]
+                    <=< (traverse (pairsAt "properties") <=< listAt "writes")
+
+    -- C-c ' is org's `edit-special' rhyme.  It re-materializes rather than
+    -- converting anything locally, which is what keeps an org parser out of
+    -- this page: the raw text it shows is the server's `org', not a join done
+    -- here.
+  , testCase "C-c ' shows the raw subtree, and again shows the panes" $ do
+      bootOf shell "" 500 "Enter" "press:C-c press:'" $ \answer -> do
+        assertEqual "the whole subtree, drawer spelled out"
+                    "* TODO one\n:PROPERTIES:\n:ORG_GLANCE_ID: r1\n:EFFORT: 0:30\n:END:\n"
+                    =<< textAt "sheet" answer
+        assertEqual "the panel is off the sheet" "raw" =<< textAt "shape" answer
+        assertEqual "and the pill says which way it went" "C-c ' → raw org"
+                    =<< textAt "echo" answer
+      bootOf shell "" 500 "Enter" "press:C-c press:' press:C-c press:'" $ \answer -> do
+        assertEqual "back to the body alone" "* TODO one\n" =<< textAt "sheet" answer
+        assertEqual "with the panel back" "" =<< textAt "shape" answer
+        assertEqual "the pill" "C-c ' → properties panel" =<< textAt "echo" answer
+
+    -- A re-read cannot carry unsaved work, and converting locally would need the
+    -- parser this design exists to avoid.  So the toggle is refused, and says
+    -- which key would let it through.
+  , testCase "a dirty sheet is refused the toggle, in either pane" $ do
+      bootOf shell "" 500 "Enter" "sheet:hello press:C-c press:'" $ \answer -> do
+        assertEqual "the text stands" "hello" =<< textAt "sheet" answer
+        assertEqual "and the shape with it" "" =<< textAt "shape" answer
+        assertEqual "named the key" "C-c ' → sync first — C-x C-s"
+                    =<< textAt "echo" answer
+      bootOf shell "" 500 "Enter" "pval:1=0:45 press:C-c press:'" $ \answer -> do
+        assertEqual "a panel edit is dirty too" "" =<< textAt "shape" answer
+        assertEqual "same refusal" "C-c ' → sync first — C-x C-s" =<< textAt "echo" answer
+
+    -- A remount takes the sheet down and puts it back: both panes, and the work
+    -- in either of them.
+  , testCase "a remount carries the panel across it" $
+      bootOf shell "" 500 "Enter" "pval:1=0:45 close:view-changed" $ \answer -> do
+        assertEqual "mounted twice" 2 =<< intAt "mounts" answer
+        assertEqual "the panel is back, edit and all"
+                    [["ORG_GLANCE_ID", "r1"], ["EFFORT", "0:45"], ["", ""]]
+                    =<< pairsAt "props" answer
+        assertEqual "still dirty against the file, and still synced-looking"
+                    "synced" =<< textAt "state" answer
+  ]
+
 -- | The commands the page posted, as the name and the ids each one named.
 postedOf :: Value -> IO [(T.Text, [T.Text])]
 postedOf answer = traverse one =<< listAt "commands" answer
@@ -791,14 +898,16 @@ shellGlue =
       ["socket.onclose = () => {", "setTimeout(start,"]
 
   -- What a remount takes down goes back up: the palette with what was typed in
-  -- it, the sheet with text the reader has not saved.  The sheet's digest is
-  -- re-read rather than remembered, so a file that moved underneath opens the
-  -- conflict flow instead of being overwritten by the restore.
+  -- it, the sheet with work the reader has not saved — both panes of it, in the
+  -- shape it was showing.  The sheet's digest is re-read rather than remembered,
+  -- so a file that moved underneath opens the conflict flow instead of being
+  -- overwritten by the restore.
   , glue "a real remount carries the sheet and the palette across it"
       [ "function remount() { stash(); start(); }"
       , "function stash() {"
       , "sheet: editing && dirty()"
-      , "{ id: editing.id, text: el(\"mtext\").value, digest: editing.digest }"
+      , "? { id: editing.id, raw, text: el(\"mtext\").value, props: props(),"
+      , "digest: editing.digest }"
       , "palette: typedFilter(),"
       , "return box && document.activeElement === box ? box.value || \"\" : null;"
       , "function restore() {"
@@ -806,6 +915,7 @@ shellGlue =
       , "if (was.sheet) reopen(was.sheet);"
       , "headline(s.id).then((h) => {"
       , "el(\"mtext\").value = s.text;"
+      , "if (!s.raw) drawProps(s.props);"
       , "if (h.digest !== s.digest) sync(\"conflict\");"
       -- The one place a new table appears, so the one place a restore belongs.
       , "restore();" ]
@@ -826,6 +936,38 @@ shellGlue =
       -- The sheet's exits are keymap rows: ESC closes it, C-x C-s syncs it from
       -- inside the textarea.
       , "keyboard-quit", "C-x C-s" ]
+
+  -- Two panes over one subtree, and the cut between them is the SERVER's: this
+  -- page reads `body' and `properties' off the route and hands them back the
+  -- same way.  Nothing here looks for a drawer in org text — there is no parser
+  -- on this side, and C-c ' re-materializes rather than converting locally.
+  , Glue "the sheet is a body pane and a property panel"
+      [ "<div id=\"mpanes\">", "<div id=\"mprops\"></div>"
+      , "base = raw ? h.org : h.body;"
+      , "drawProps(raw ? [] : h.properties || []);"
+      , "{ body: el(\"mtext\").value, properties: props() }"
+      -- The panel: a row of two fields, the trailing empty one that grows the
+      -- next, and the emptied key that deletes.
+      , "row.className = \"prow\";"
+      , "addRow(\"\", \"\");   // the one that grows the next"
+      , "if (last && (last.key.value || last.val.value)) addRow(\"\", \"\");"
+      -- Trimmed both sides, since the server hands them over trimmed: what the
+      -- panel can show is exactly what it can write.
+      , "[r.key.value.trim(), r.val.value.trim()]"
+      , ".filter((p) => p[0] !== \"\");"
+      , "const IDENTITY = \"ORG_GLANCE_ID\";"
+      -- The toggle re-reads rather than converting, and refuses a dirty sheet.
+      , "if (dirty()) { echo(`${b.seq} → sync first — C-x C-s`); return; }"
+      , "headline(h.id).then((fresh) => {"
+      -- The panel stacks under the text when there is no room beside it, which
+      -- is a wrap rather than a second breakpoint to keep in step.
+      , "#mpanes{flex:1;min-height:0;display:flex;flex-wrap:wrap;gap:10px}"
+      , "#sheet.raw #mprops{display:none}"
+      , ".pnote:empty{display:none}" ]
+      -- Tab order is the DOM's: the fields are in the order the drawer writes
+      -- them and nothing reorders the focus.  And no parser: the page never
+      -- goes looking for a drawer in the text it holds.
+      [ "tabindex", ":PROPERTIES:", ":END:" ]
 
   -- The author's Emacs theme in one set of custom properties: white on true
   -- black in the dark variant, black on white in the light one.  The hairline is
@@ -1019,12 +1161,13 @@ shellGlue =
       , "focusFilter();" ]
 
   -- Under 16px, focusing a field zooms the page in and nothing zooms it back
-  -- out.  The renderer's own input is the renderer's problem; #mtext is this
-  -- page's, and it keeps its 12px everywhere else.
-  -- Both of this page's own fields, in the one block: under 16px iOS zooms in
-  -- on a focused one and never zooms back out.
+  -- out.  The renderer's own input is the renderer's problem; the sheet's
+  -- textarea and its property fields are this page's, and they keep their 12px
+  -- everywhere else.  All of them in the one block, which is where every rule
+  -- a touch device gets lives — the panes stacking there included.
   , glue "a coarse pointer gets fields iOS will not zoom into"
-      [ "#mtext,#pinput{font-size:16px}}", "font:12px/1.5 var(--dk-mono)" ]
+      [ "#mtext,#pinput,.prow input{font-size:16px}}", "font:12px/1.5 var(--dk-mono)"
+      , "#mpanes{flex-direction:column}" ]
 
   , glue "asks for one font stack, everywhere in the page"
       [ "--glance-mono:\"JetBrains Mono\", \"Fira Code\", \"SF Mono\", Menlo, Consolas, monospace"
@@ -1566,6 +1709,28 @@ materializeSpec = testGroup "GET /headline"
       assertEqual "id" rid back
       assertContains "subtree" "Привет мир" org
 
+    -- The same subtree, split: the drawer lifted out of the text and named
+    -- beside it, so a client can edit the two apart without an org parser.  The
+    -- whole `org' rides along untouched — the split is an addition, not a
+    -- replacement.
+  , testCase "the drawer arrives beside the body, lifted out of it" $ do
+      (a, _hub) <- serverOver viewDir
+      v <- getFrom a (headlinePath "ship-table-view") >>= decoded
+      assertEqual "the body is the subtree with the drawer's lines gone"
+                  (T.unlines [ "* NEXT [#A] Ship the table view :web:glance:"
+                             , "SCHEDULED: <2026-08-01 Sat 09:30> DEADLINE: <2026-08-05 Wed>" ])
+                  =<< textAt "body" v
+      assertEqual "and the drawer is pairs"
+                  [["ORG_GLANCE_ID", "ship-table-view"]] =<< pairsAt "properties" v
+      assertContains "while org is still the whole subtree" ":PROPERTIES:" =<< textAt "org" v
+
+  , testCase "a headline with no drawer is all body and no pairs" $ do
+      (a, _hub) <- serverOver viewDir
+      v <- getFrom a (headlinePath (T.pack sampleFile <> ":210")) >>= decoded
+      org <- textAt "org" v
+      assertEqual "the body is the whole subtree" org =<< textAt "body" v
+      assertEqual "with nothing to show beside it" [] =<< pairsAt "properties" v
+
   , testCase "an id no row carries is a 404" $ do
       (a, _hub) <- serverOver viewDir
       r <- getFrom a (headlinePath "no-such-headline")
@@ -1649,6 +1814,59 @@ commitSpec = testGroup "POST /headline"
         after <- document path
         assertEqual "untouched" committable after
 
+    -- The other shape of the same write: the body and the drawer named apart,
+    -- composed here.  What it buys is exactly the byte rule — the property
+    -- nobody touched goes back as the line it came in on.
+  , testCase "the split shape writes the same subtree, verbatim where nothing moved" $
+      withCommitted $ \a path v -> do
+        digest <- textAt "digest" v
+        body' <- textAt "body" v
+        props <- pairsAt "properties" v
+        r <- postTo a (headlinePath "first")
+               (splitBody body' (props <> [["EFFORT", "0:30"]]) digest)
+        assertEqual "status" 200 (status r)
+        after <- document path
+        assertEqual "the drawer, with the addition and nothing else re-spelled"
+                    (T.unlines [ "* TODO First :one:", ":PROPERTIES:"
+                               , ":ORG_GLANCE_ID: first", ":EFFORT: 0:30", ":END:"
+                               , "body of first" ])
+                    (T.unlines (take 6 (drop 1 (T.lines after))))
+        assertContains "and the next headline is untouched" "* TODO Second\ntail\n" after
+
+  , testCase "an emptied properties list takes the drawer away" $
+      withCommitted $ \a path v -> do
+        digest <- textAt "digest" v
+        body' <- textAt "body" v
+        r <- postTo a (headlinePath "first") (splitBody body' [] digest)
+        assertEqual "status" 200 (status r)
+        after <- document path
+        assertEqual "the subtree is its body alone"
+                    (T.unlines [ "#+CATEGORY: notes", "* TODO First :one:", "body of first"
+                               , "* TODO Second", "tail" ])
+                    after
+
+  , testCase "the split shape is drift-locked like the whole one" $
+      withCommitted $ \a path v -> do
+        body' <- textAt "body" v
+        props <- pairsAt "properties" v
+        let stale = T.replicate 64 "0"
+        r <- postTo a (headlinePath "first") (splitBody body' props stale)
+        assertEqual "status" 409 (status r)
+        assertEqual "reason" "stale" =<< textAt "reason" =<< decoded r
+        assertEqual "untouched" committable =<< document path
+
+  , testCase "and by the file on disk, not only by the store" $
+      withCommitted $ \a path v -> do
+        digest <- textAt "digest" v
+        body' <- textAt "body" v
+        props <- pairsAt "properties" v
+        let meddled = committable <> "* TODO Someone else\n"
+        TIO.writeFile path meddled
+        r <- postTo a (headlinePath "first") (splitBody body' props digest)
+        assertEqual "status" 409 (status r)
+        assertEqual "reason" "drift" =<< textAt "reason" =<< decoded r
+        assertEqual "the file is the meddler's" meddled =<< document path
+
   , testCase "a body that is not the two fields is a 400" $
       withCommitted $ \a _path _v -> do
         broken <- postTo a (headlinePath "first") "{not json"
@@ -1658,6 +1876,26 @@ commitSpec = testGroup "POST /headline"
         -- The parse error names the missing field, rather than the word
         -- appearing anywhere in a body that also carries the digest itself.
         assertContains "says which" "key \\\"digest\\\" not found" (body missing)
+
+    -- Which of two texts to write is not a thing to guess at, and a `body' with
+    -- no `properties' beside it would read as "drop the drawer" — too much to
+    -- infer from a field a client forgot to send.
+  , testCase "the two shapes are told apart, and neither is half-given" $
+      withCommitted $ \a path v -> do
+        digest <- textAt "digest" v
+        both <- postTo a (headlinePath "first")
+                  (encode (object [ "org" .= ("* x\n" :: T.Text), "body" .= ("* x\n" :: T.Text)
+                                  , "digest" .= digest ]))
+        lonely <- postTo a (headlinePath "first")
+                    (encode (object ["body" .= ("* x\n" :: T.Text), "digest" .= digest]))
+        neither <- postTo a (headlinePath "first") (encode (object ["digest" .= digest]))
+        assertEqual "both shapes at once" 400 (status both)
+        assertContains "says so" "not both" (body both)
+        assertEqual "a body with no properties" 400 (status lonely)
+        assertContains "names the missing field" "properties" (body lonely)
+        assertEqual "neither shape" 400 (status neither)
+        assertContains "names both" "no \\\"org\\\"" (body neither)
+        assertEqual "and nothing was written" committable =<< document path
 
   , testCase "a body over the cap is refused before it is read" $
       withCommitted $ \a _path _v -> do
@@ -2075,22 +2313,27 @@ pageSpec shell = testGroup "GET /"
   , testCase "with assets, the sheet is buttonless and syncs on the way out" $ do
       b <- shell
       holdsAll "sheet glue"
-            -- Dirty against the materialized original decides everything: a
-            -- pristine close is no request at all.
-            [ "const dirty = () => editing !== null && el(\"mtext\").value !== base;"
+            -- Dirty against the materialized original decides everything, and
+            -- EITHER pane moving is dirty: a pristine close is no request at all.
+            [ "const dirty = () => editing !== null"
+            , "&& (el(\"mtext\").value !== base"
+            , "|| (!raw && JSON.stringify(props()) !== baseProps));"
             , "if (!dirty()) { shut(); return; }"
             , "flush(editing.digest).then((ok) => ok && shut());"
             -- The backdrop is the mouse's ESC.
             , "if (e.target === el(\"modal\")) leave()"
-            -- The receipt chains: the 200's digest is the next flush's lock.
-            , "h.digest = a.body.digest; base = text;"
+            -- The receipt chains: the 200's digest is the next flush's lock, and
+            -- both baselines move to what was actually sent.
+            , "h.digest = a.body.digest;"
+            , "base = raw ? sent.org : sent.body;"
+            , "baseProps = raw ? null : JSON.stringify(sent.properties);"
             -- A conflict keeps the sheet open and names the two keys.
             , "if (a.status === 409) sync(\"conflict\");"
             , "conflict — C-x C-s overwrite · ESC discard"
             , "if (troubled()) { shut();"
             -- And a tab closing on an edited sheet still owes the file.
             , "addEventListener(\"beforeunload\""
-            , "post(editing.id, el(\"mtext\").value, editing.digest, { keepalive: true })" ] b
+            , "post(editing.id, editing.digest, asked(), { keepalive: true })" ] b
       -- One word carries the sheet's state, `sync' is its only writer, and the
       -- states that wait for a key say which key.  No buttons to reach them with.
       holdsAll "sync status"
@@ -2237,6 +2480,8 @@ expectedShared =
   , (["C-c", "C-d"], "C-c C-d", "org-glance-overview:deadline",    Nothing,               "table", Nothing)
   , (["C-x", "C-s"], "C-x C-s", "save-buffer",                     Just "save",           "modal",
        Just "sync the sheet now; again to overwrite a conflict")
+  , (["C-c", "'"],   "C-c '",   "org-edit-special",                Just "toggleRaw",      "modal",
+       Just "the sheet as raw org, or as body and properties; sync an edited one first")
   , (["ESC"],        "ESC",     "keyboard-quit",                   Just "cancel",         "any",
        Just "close the sheet, syncing an edited one; again to discard")
   ]

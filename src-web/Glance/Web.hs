@@ -110,11 +110,12 @@ import qualified Data.Text.Read as TR
 import qualified Network.Wai.Handler.Warp as Warp
 import qualified Network.WebSockets as WS
 
-import Glance.Query ( HeadlineRecord (hrDigest, hrFile, hrId, hrSubtree)
+import Glance.Query ( HeadlineParts (hpBody, hpProperties)
+                    , HeadlineRecord (hrDigest, hrFile, hrId, hrSubtree)
                     , IdCollision (..), QueryResult (..), Span (spanEnd, spanStart)
                     , ViewOrder (..), WalkOptions (..), WriteFailure (..)
-                    , archiveEdits, archived, orderedForView
-                    , replaceSpans, setStateEdits
+                    , archiveEdits, archived, headlineParts, orderedForView
+                    , recomposedSubtree, replaceSpans, setStateEdits
                     , subtreeText, viewJSONTextWith )
 import Glance.Web.Filter (archiveKey, matchesFilter, namesArchive)
 import Glance.Web.Store ( Client, Frame (ViewChanged), Hub, LoadState (..)
@@ -538,23 +539,38 @@ bodyLimit = 1024 * 1024
 -- re-reading the file here would answer with a digest for bytes the extent was
 -- never measured against, and the disagreement would only surface as a splice
 -- landing in the wrong place.
+--
+-- The same subtree arrives twice, whole and split.  @org@ is what it has always
+-- been; @body@ and @properties@ are 'Glance.Query.headlineParts' — the text with
+-- the headline's own drawer lifted out, and that drawer's pairs in file order —
+-- so a client can edit the two apart without holding an org parser of its own.
+-- The split is the server's for exactly that reason, and a client that wants
+-- neither ignores both fields.
 materialize :: Hub -> Maybe Text -> IO Response
 materialize _hub Nothing = pure (jsonError status400 "GET /headline?id=<row id>")
 materialize hub (Just rid) = do
   found <- storeHeadline rid <$> readTVarIO (hubStore hub)
   pure $ case found of
     Nothing -> jsonError status404 ("no headline with id " <> rid)
-    Just r  -> jsonResponse status200
-      [ "id"     .= hrId r
-      , "file"   .= hrFile r
-      , "org"    .= subtreeText r
-      , "digest" .= hrDigest r
-      , "span"   .= object [ "start" .= spanStart (hrSubtree r)
-                           , "end"   .= spanEnd (hrSubtree r) ]
+    Just r  -> let parts = headlineParts r in jsonResponse status200
+      [ "id"         .= hrId r
+      , "file"       .= hrFile r
+      , "org"        .= subtreeText r
+      , "body"       .= hpBody parts
+      , "properties" .= [ [key, value] | (key, value) <- hpProperties parts ]
+      , "digest"     .= hrDigest r
+      , "span"       .= object [ "start" .= spanStart (hrSubtree r)
+                               , "end"   .= spanEnd (hrSubtree r) ]
       ]
 
 -- | @POST \/headline?id=…@ with body @{"org": …, "digest": …}@: the headline's
 -- subtree replaced by the text the client edited.
+--
+-- Or @{"body": …, "properties": [[key, value], …], "digest": …}@, which is the
+-- same write with the drawer named apart: the subtree is recomposed here
+-- ('Glance.Query.recomposedSubtree') and everything past that point is
+-- identical, the drift lock and the digest chain included.  A body naming both
+-- shapes is a 400 — which of two texts to write is not a thing to guess at.
 --
 -- Two digest checks, one lock.  The client's digest must be the one the store
 -- holds, or the file has been re-parsed since and the client is editing a
@@ -594,9 +610,15 @@ prepare rid body found = case (body, found) of
   (_, Nothing) -> Left (jsonError status404 ("no headline with id " <> rid))
   (Just raw, Just r) -> case parseCommit raw of
     Left why -> Left (jsonError status400 why)
-    Right (org, digest)
+    Right (asked, digest)
       | digest /= hrDigest r -> Left (conflict "stale" (hrDigest r) reparsed)
-      | otherwise            -> Right (r, digest, org)
+      | otherwise            -> Right (r, digest, committed r asked)
+
+-- | The subtree ASKED for, over R: the raw text as given, or the body and the
+-- properties composed back into one.
+committed :: HeadlineRecord -> Commitment -> Text
+committed _r (WholeSubtree org)     = org
+committed r  (SplitSubtree body ps) = recomposedSubtree r body ps
 
 -- | A 409 spelling REASON, the digest the file carries now, and WHY.  The two
 -- ways a materialized subtree goes stale are told apart for a client that has
@@ -784,11 +806,37 @@ queryId request = case lookup "id" (queryString request) of
   Just (Just raw) -> either (const Nothing) Just (TE.decodeUtf8' raw)
   _absent         -> Nothing
 
--- | The @org@ and @digest@ a commit body carries, or what is wrong with it.
-parseCommit :: BL.ByteString -> Either Text (Text, Text)
+-- | The subtree a commit body asks to write.  Two spellings of one thing: the
+-- text whole, or the body and the drawer apart for a client editing them as two
+-- panes ('Glance.Query.recomposedSubtree' puts them back together).
+data Commitment
+  = WholeSubtree !Text                 -- ^ @org@: the subtree as it is to be written.
+  | SplitSubtree !Text ![(Text, Text)] -- ^ @body@ and @properties@, to be composed.
+  deriving (Eq, Show)
+
+-- | What a commit body asks for and the digest it pins the write to, or what is
+-- wrong with it.  @digest@ is read first, so a body missing it says so whichever
+-- of the two shapes it was reaching for; naming both shapes is refused rather
+-- than resolved, and @body@ owes @properties@ beside it — an absent one would
+-- read as "and drop the drawer", which is too much to infer from a field a
+-- client forgot.
+parseCommit :: BL.ByteString -> Either Text (Commitment, Text)
 parseCommit raw = first (("body: " <>) . T.pack) $ do
   value <- eitherDecode' raw
-  parseEither (withObject "commit" (\o -> (,) <$> o .: "org" <*> o .: "digest")) value
+  parseEither (withObject "commit" shape) value
+  where
+    shape o = do
+      digest <- o .: "digest"
+      org <- o .:? "org"
+      body <- o .:? "body"
+      asked <- case (org, body) of
+        (Just _, Just _)   -> fail "name either \"org\" or \"body\", not both"
+        (Just text, _)     -> pure (WholeSubtree text)
+        (_, Just text)     -> SplitSubtree text <$> (traverse pair =<< o .: "properties")
+        (Nothing, Nothing) -> fail "no \"org\", and no \"body\" with \"properties\" either"
+      pure (asked, digest)
+    pair [key, value] = pure (key, value)
+    pair _other       = fail "each property is a [key, value] pair"
 
 -- | At most LIMIT bytes of REQUEST's body, or 'Nothing' when there are more of
 -- them.  Chunk by chunk rather than through 'Network.Wai.strictRequestBody': a
@@ -1056,6 +1104,8 @@ sharedKeys =
   , bind ["C-c", "C-d"] "org-glance-overview:deadline"    Nothing                 "table"
   , bind ["C-x", "C-s"] "save-buffer"                     (Just "save")           "modal"
       `helps` "sync the sheet now; again to overwrite a conflict"
+  , bind ["C-c", "'"]   "org-edit-special"                (Just "toggleRaw")      "modal"
+      `helps` "the sheet as raw org, or as body and properties; sync an edited one first"
   , bind ["ESC"]        "keyboard-quit"                   (Just "cancel")         "any"
       `helps` "close the sheet, syncing an edited one; again to discard"
   ]
@@ -1273,7 +1323,7 @@ shellPage opts = do
 -- token goes.
 --
 -- The materialize sheet has no buttons.  @ESC@ or a click on the backdrop
--- closes it, flushing first when the text has moved and closing on the 200; a
+-- closes it, flushing first when either pane has moved and closing on the 200; a
 -- pristine sheet closes with no request at all, so opening one and reading it
 -- never touches the file.  @C-x C-s@ flushes mid-edit, and the receipt's digest
 -- becomes the next flush's lock.  A 409 leaves the sheet open saying
@@ -1283,6 +1333,22 @@ shellPage opts = do
 -- header carries the state in one word, @synced@ \/ @syncing…@ \/ @conflict@ \/
 -- @error@, and the sheet wears the author's Emacs theme (danneskjold) while the
 -- table keeps the page's.
+--
+-- It is two panes over one subtree.  The textarea holds the body and a panel
+-- beside it holds the property drawer, a row of two fields per property, with
+-- an empty row at the bottom that grows the next one as soon as it is typed in
+-- — the add affordance is that row, since a key-first page has nothing to
+-- press.  A row whose key is emptied is a property deleted, and @ORG_GLANCE_ID@
+-- is shown like any other with a line under it saying what editing it costs:
+-- the row id IS that value.  The cut between the panes is the SERVER's
+-- (@GET \/headline@ hands @body@ and @properties@ beside @org@, and @POST@ takes
+-- them back), because finding a drawer in org text is a parser's job and there
+-- is none in this page.  @C-c '@ — org's @edit-special@ rhyme — swaps the sheet
+-- between the two panes and the raw subtree, and does it by re-materializing:
+-- an edited sheet is refused with the key that would let it through, since a
+-- re-read cannot carry unsaved work and a local conversion would need the parser
+-- this design exists to avoid.  Narrow windows and coarse pointers stack the
+-- panel under the text.
 --
 -- Two keys write without a sheet.  @D@ archives and @C-c C-t@ sets a state,
 -- both over the marked set when there is one and the row at point otherwise —
@@ -1313,11 +1379,13 @@ shellPage opts = do
 -- the sheet's digest is re-read rather than remembered, so a file that moved
 -- underneath opens the conflict flow instead of being overwritten.
 --
--- The @materialize@ action opens the subtree over the table in a plain
--- @textarea@ filled by @GET \/headline@.  A commit never touches the table —
--- the row arrives over the socket when the watch has re-read the file, which is
--- the same way it would arrive had the edit come from an editor.  A real editor
--- component is M3.5; a textarea is what proves the round-trip.
+-- The @materialize@ action opens the subtree over the table: a @textarea@ for
+-- the body and a panel for the properties, both filled by @GET \/headline@.  A
+-- commit never touches the table — the row arrives over the socket when the
+-- watch has re-read the file, which is the same way it would arrive had the
+-- edit come from an editor.  A real editor component is M3.5; a textarea is
+-- what proves the round-trip, and the panel is what makes the drawer editable
+-- as the structure it is.
 --
 -- The keys are 'keyBindingsJSON', which the glue parses: row movement is the
 -- renderer's @selectStep@, which carries the column and crosses a page
@@ -1368,7 +1436,13 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "  <div id=\"modal\">"
   , "    <div id=\"sheet\">"
   , "      <div id=\"mhead\"><span id=\"mfile\"></span><span id=\"mnote\"></span></div>"
-  , "      <textarea id=\"mtext\" spellcheck=\"false\"></textarea>"
+  -- Two panes over one subtree: the body on the left, the property drawer on
+  -- the right.  The cut between them is the server's (`GET /headline' hands
+  -- both), so neither pane is derived here.
+  , "      <div id=\"mpanes\">"
+  , "        <textarea id=\"mtext\" spellcheck=\"false\"></textarea>"
+  , "        <div id=\"mprops\"></div>"
+  , "      </div>"
   , "    </div>"
   , "  </div>"
   , "  <div id=\"prompt\">"
@@ -1394,9 +1468,10 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    const dot = (name) => (document.getElementById(\"dot\").className = name);"
   , "    const el = (id) => document.getElementById(id);"
   , "    let table = null, socket = null, backoff = 1000, editing = null;"
-  , "    // The sheet's own state: the text the file holds as far as this page"
-  , "    // knows, and the one word saying where the sheet stands with it."
-  , "    let base = \"\", state = \"synced\";"
+  , "    // The sheet's own state: the two panes as the file holds them as far as"
+  , "    // this page knows, whether the drawer is a panel or spelled out in the"
+  , "    // text, and the one word saying where the sheet stands with the file."
+  , "    let base = \"\", baseProps = null, raw = false, state = \"synced\";"
   , "    // The server filters and pages; these hold the query it was last asked"
   , "    // with, the fetch still in flight for it, and the timer that re-asks"
   , "    // when a row frame lands while one is on."
@@ -1594,29 +1669,114 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "          if (!r.ok) throw new Error(b.error || r.status);"
   , "          return b;"
   , "        }));"
-  , "    const post = (id, org, digest, extra) =>"
+  , "    const post = (id, digest, asked, extra) =>"
   , "      fetch(`/headline?id=${encodeURIComponent(id)}`, {"
   , "        method: \"POST\","
   , "        headers: { \"content-type\": \"application/json\" },"
-  , "        body: JSON.stringify({ org, digest }),"
+  , "        body: JSON.stringify({ ...asked, digest }),"
   , "        ...extra,"
   , "      });"
   , "    function materialize(id) {"
-  , "      headline(id).then(show).catch((e) => log(`materialize failed: ${e.message}`));"
+  , "      headline(id).then((h) => show(h, false))"
+  , "        .catch((e) => log(`materialize failed: ${e.message}`));"
   , "    }"
-  , "    // The sheet is buttonless: it syncs on the way out.  `base' is the text"
-  , "    // the file holds as far as this page knows — the materialized original,"
-  , "    // then whatever the last 200 wrote — so `dirty()' is the whole of what"
-  , "    // decides whether closing costs a POST at all."
-  , "    function show(h) {"
-  , "      editing = h; base = h.org;"
+  , "    // The sheet is buttonless: it syncs on the way out.  It is also two"
+  , "    // panes over one subtree — the body in the textarea, the property drawer"
+  , "    // as a panel of rows — and the cut between them is the server's, since"
+  , "    // finding a drawer in org text is a parser's job and there is none here."
+  , "    // `base' and `baseProps' are what the file holds as far as this page"
+  , "    // knows: the materialized original, then whatever the last 200 wrote."
+  , "    // Either pane moving is `dirty()', which is the whole of what decides"
+  , "    // whether closing costs a POST."
+  , "    function show(h, asRaw) {"
+  , "      editing = h; raw = !!asRaw;"
   , "      el(\"mfile\").textContent = `${h.file}  ·  ${h.id}`;"
-  , "      el(\"mtext\").value = h.org;"
+  , "      fill(h);"
   , "      sync(\"synced\");"
   , "      el(\"modal\").className = \"on\";"
   , "      el(\"mtext\").focus();"
   , "    }"
-  , "    const dirty = () => editing !== null && el(\"mtext\").value !== base;"
+  , "    // Both panes filled from H, and the baselines taken off what landed in"
+  , "    // them rather than off H — so a value the panel shows trimmed is not"
+  , "    // dirty the moment it appears."
+  , "    function fill(h) {"
+  , "      base = raw ? h.org : h.body;"
+  , "      el(\"mtext\").value = base;"
+  , "      el(\"sheet\").className = raw ? \"raw\" : \"\";"
+  , "      drawProps(raw ? [] : h.properties || []);"
+  , "      baseProps = raw ? null : JSON.stringify(props());"
+  , "    }"
+  , "    const dirty = () => editing !== null"
+  , "      && (el(\"mtext\").value !== base"
+  , "          || (!raw && JSON.stringify(props()) !== baseProps));"
+    -- The property panel.  A row is two fields — key and value — so the drawer
+    -- is edited as what it is rather than as text that happens to look like a
+    -- drawer, and Tab walks it because the fields are in the order the file
+    -- writes them and nothing here reorders the focus.
+    --
+    -- The rows are held in this array rather than read back out of the DOM: the
+    -- panel is this page's own chrome, and a selector over it would be a second
+    -- description of a structure written three lines above.
+  , "    let prows = [];"
+  , "    function drawProps(list) {"
+  , "      el(\"mprops\").textContent = \"\";"
+  , "      prows = [];"
+  , "      for (const p of list) addRow(p[0], p[1]);"
+  , "      addRow(\"\", \"\");   // the one that grows the next"
+  , "    }"
+    -- The add-row affordance, and the whole of it: the last row is always
+    -- empty, typing into it puts another empty one under it, and a row whose key
+    -- is emptied is a property deleted.  Keyboard-first means no button here —
+    -- there is nothing to press, only somewhere to type.
+  , "    function addRow(key, value) {"
+  , "      const row = document.createElement(\"div\");"
+  , "      row.className = \"prow\";"
+  , "      const k = cell(\"pkey\", key, \"property\"), v = cell(\"pval\", value, \"value\");"
+  , "      const note = document.createElement(\"div\");"
+  , "      note.className = \"pnote\";"
+  , "      row.appendChild(k); row.appendChild(v); row.appendChild(note);"
+  , "      el(\"mprops\").appendChild(row);"
+  , "      const held = { key: k, val: v, note };"
+  , "      prows.push(held);"
+  , "      k.addEventListener(\"input\", () => { identify(held); grow(); });"
+  , "      v.addEventListener(\"input\", grow);"
+  , "      identify(held);"
+  , "      return held;"
+  , "    }"
+  , "    function cell(kind, value, hint) {"
+  , "      const input = document.createElement(\"input\");"
+  , "      input.className = kind;"
+  , "      input.value = value;"
+  , "      input.placeholder = hint;"
+  , "      input.spellcheck = false;"
+  , "      return input;"
+  , "    }"
+    -- The identity property is shown like any other and says what it is: the
+    -- row id IS this value, so renaming it here renames the row the table keys
+    -- updates off and the sheet is looking at a different headline afterwards.
+    -- Hiding it would be worse — the drawer would stop being what the file says.
+  , "    const IDENTITY = \"ORG_GLANCE_ID\";"
+  , "    const identify = (row) => (row.note.textContent ="
+  , "      row.key.value.trim() === IDENTITY"
+  , "        ? \"identity — renaming this renames the row\" : \"\");"
+  , "    function grow() {"
+  , "      const last = prows[prows.length - 1];"
+  , "      if (last && (last.key.value || last.val.value)) addRow(\"\", \"\");"
+  , "    }"
+    -- What the panel would write: every row carrying a key, in the order they
+    -- sit in.  A row whose key has been emptied is a deletion and the trailing
+    -- row is not a property yet — one rule covers both, and neither needs a key
+    -- of its own to press.  Both fields are trimmed, because the server hands
+    -- them over trimmed: what the panel can show is then exactly what it can
+    -- write, and a space nobody could ever see again cannot be typed into a file.
+  , "    const props = () => prows"
+  , "      .map((r) => [r.key.value.trim(), r.val.value.trim()])"
+  , "      .filter((p) => p[0] !== \"\");"
+    -- What a flush sends: the subtree whole in raw mode, the two panes apart
+    -- otherwise.  The server joins them, so this page never spells a drawer.
+  , "    const asked = () => raw"
+  , "      ? { org: el(\"mtext\").value }"
+  , "      : { body: el(\"mtext\").value, properties: props() };"
   , "    // Where the sheet stands is one word, and `sync' is its only writer:"
   , "    // the header wears it as text and as a class, and everything that asks"
   , "    // reads it back.  With no buttons the keys are the whole of the offer,"
@@ -1632,18 +1792,23 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    const troubled = () => state === \"conflict\" || state === \"error\";"
   , "    const flushing = () => state === \"syncing\";"
   , "    const stuck = (why) => sync(\"error\", why && `${why} — C-x C-s retry · ESC discard`);"
-  , "    function shut() { el(\"modal\").className = \"\"; editing = null; base = \"\"; }"
-  , "    // POST the textarea over the subtree, pinned to DIGEST.  A 200 carries"
+  , "    function shut() {"
+  , "      el(\"modal\").className = \"\"; editing = null; base = \"\"; baseProps = null;"
+  , "    }"
+  , "    // POST the sheet over the subtree, pinned to DIGEST.  A 200 carries"
   , "    // the file's new digest — the receipt chains, so the next flush needs no"
-  , "    // re-materialize — and the baseline moves with it."
+  , "    // re-materialize — and both baselines move with it."
   , "    function flush(digest) {"
-  , "      const h = editing, text = el(\"mtext\").value;"
+  , "      const h = editing, sent = asked();"
   , "      sync(\"syncing\");"
-  , "      return post(h.id, text, digest)"
+  , "      return post(h.id, digest, sent)"
   , "        .then((r) => r.json().then((b) => ({ status: r.status, body: b })))"
   , "        .then((a) => {"
   , "          if (a.status === 200) {"
-  , "            h.digest = a.body.digest; base = text; sync(\"synced\");"
+  , "            h.digest = a.body.digest;"
+  , "            base = raw ? sent.org : sent.body;"
+  , "            baseProps = raw ? null : JSON.stringify(sent.properties);"
+  , "            sync(\"synced\");"
   , "            return true;"
   , "          }"
   , "          if (a.status === 409) sync(\"conflict\");"
@@ -1673,12 +1838,31 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      if (!flushing()) flush(editing.digest).then((ok) => ok && shut());"
   , "    }"
   , "    el(\"modal\").addEventListener(\"click\", (e) => { if (e.target === el(\"modal\")) leave(); });"
+    -- C-c ' — org's `edit-special' rhyme, one subtree seen two ways: body and
+    -- panel, or the raw org the panes were cut out of.  The cut is the server's,
+    -- so the toggle RE-READS the headline rather than splitting or joining
+    -- anything here; that is what keeps an org parser out of this page.  A
+    -- re-read cannot carry unsaved work, so a dirty sheet is refused and told
+    -- which key would let it through.  The re-read is also a fresh materialize,
+    -- which is why it lands at `synced' whatever it was at before.
+  , "    function toggleRaw(b) {"
+  , "      if (!editing) return;"
+  , "      if (dirty()) { echo(`${b.seq} → sync first — C-x C-s`); return; }"
+  , "      const h = editing, want = !raw;"
+  , "      headline(h.id).then((fresh) => {"
+  , "        if (editing !== h) return;   // the sheet moved on while this was out"
+  , "        editing = fresh; raw = want;"
+  , "        fill(fresh);"
+  , "        sync(\"synced\");"
+  , "        el(\"mtext\").focus();"
+  , "        echo(`${b.seq} → ${raw ? \"raw org\" : \"properties panel\"}`);"
+  , "      }).catch((e) => stuck(e.message));"
+  , "    }"
   , "    // A tab closing on an edited sheet still owes the file the text:"
   , "    // `keepalive' outlives the document, and a pristine sheet sends nothing."
   , "    addEventListener(\"beforeunload\", () => {"
   , "      if (!dirty()) return;"
-  , "      post(editing.id, el(\"mtext\").value, editing.digest, { keepalive: true })"
-  , "        .catch(() => {});"
+  , "      post(editing.id, editing.digest, asked(), { keepalive: true }).catch(() => {});"
   , "    });"
   , ""
   , "    // Rows.  The renderer virtualizes, so a row outside the window has no"
@@ -1907,9 +2091,11 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    function stash() {"
   , "      stashed = {"
   , "        // A pristine sheet is the file, which the remount can re-read; what"
-  , "        // cannot be re-read is text the reader has not saved yet."
+  , "        // cannot be re-read is work the reader has not saved yet — in either"
+  , "        // pane, and in whichever of the two shapes the sheet was showing."
   , "        sheet: editing && dirty()"
-  , "          ? { id: editing.id, text: el(\"mtext\").value, digest: editing.digest }"
+  , "          ? { id: editing.id, raw, text: el(\"mtext\").value, props: props(),"
+  , "              digest: editing.digest }"
   , "          : null,"
   , "        palette: typedFilter(),"
   , "      };"
@@ -1927,16 +2113,18 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      }"
   , "      if (was.sheet) reopen(was.sheet);"
   , "    }"
-  , "    // The sheet, back open on the text that was in it.  The digest is"
-  , "    // re-asked for rather than carried over: a file that moved while the"
-  , "    // mount was rebuilt is the conflict flow, and flushing against a digest"
-  , "    // this page merely remembers is the silent overwrite that flow exists"
-  , "    // to stop.  The reader's text is put back either way — a restore never"
-  , "    // decides that an edit is worth less than the file."
+  , "    // The sheet, back open on what was in it — both panes, in the shape it"
+  , "    // was showing.  The digest is re-asked for rather than carried over: a"
+  , "    // file that moved while the mount was rebuilt is the conflict flow, and"
+  , "    // flushing against a digest this page merely remembers is the silent"
+  , "    // overwrite that flow exists to stop.  The reader's work is put back"
+  , "    // either way — a restore never decides that an edit is worth less than"
+  , "    // the file.  The baselines stay the file's, so what was dirty stays dirty."
   , "    function reopen(s) {"
   , "      headline(s.id).then((h) => {"
-  , "        show(h);   // which opens the sheet on the file and focuses it"
+  , "        show(h, s.raw);   // which opens the sheet on the file and focuses it"
   , "        el(\"mtext\").value = s.text;   // dirty again, against the file as it now is"
+  , "        if (!s.raw) drawProps(s.props);"
   , "        if (h.digest !== s.digest) sync(\"conflict\");"
   , "      }).catch((e) => log(`sheet restore failed: ${e.message}`));"
   , "    }"
@@ -2100,7 +2288,7 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "        table.clearMarks();"
   , "        echo(`${b.seq} → all marks cleared`);"
   , "      },"
-  , "      refresh, focusFilter, save,"
+  , "      refresh, focusFilter, save, toggleRaw,"
     -- D is dired's key and org-glance's `delete', and here it archives: the tag
     -- goes on, the headline stays, and the default view stops showing it.
   , "      archiveRows: (b) => {"
@@ -2432,9 +2620,32 @@ page head' title body = T.unlines
   , "  #mnote{text-align:right;color:var(--g-ok)}"
   , "  #mnote.syncing{color:var(--g-mute)}"
   , "  #mnote.conflict,#mnote.error{color:var(--g-bad)}"
-  , "  #mtext{flex:1;font:12px/1.5 var(--dk-mono);padding:8px;border-radius:4px;"
+  -- Two panes, wrapping rather than querying: a window too narrow to hold both
+  -- side by side puts the panel under the text, which is the same answer a
+  -- width breakpoint would give and costs no second place to keep it.  C-c '
+  -- takes the panel off the sheet outright, and then the text has the width.
+  , "  #mpanes{flex:1;min-height:0;display:flex;flex-wrap:wrap;gap:10px}"
+  , "  #mtext{flex:2 1 320px;min-width:0;font:12px/1.5 var(--dk-mono);padding:8px;"
+  , "    border-radius:4px;"
   , "    border:1px solid var(--g-border);background:transparent;color:inherit;resize:none}"
   , "  #mtext::selection{background:var(--g-sel);color:var(--g-fg)}"
+  -- The property panel: a row of two fields per property, the last one empty so
+  -- there is always somewhere to type the next.  Tab walks them in file order
+  -- because that is the order they are in — nothing here sets a tab index.
+  , "  #mprops{flex:1 1 240px;min-width:0;overflow-y:auto;"
+  , "    display:flex;flex-direction:column;gap:4px}"
+  , "  #sheet.raw #mprops{display:none}"
+  , "  .prow{display:flex;flex-wrap:wrap;gap:4px}"
+  , "  .prow input{font:12px/1.5 var(--dk-mono);padding:4px 6px;border-radius:4px;"
+  , "    border:1px solid var(--g-border);background:transparent;color:inherit;min-width:0}"
+  , "  .pkey{flex:1 1 40%}"
+  , "  .pval{flex:2 1 50%}"
+  , "  .prow input::selection{background:var(--g-sel);color:var(--g-fg)}"
+  -- The identity row's line, and the only thing on the panel that is not a
+  -- field: it says what editing that value costs.  Empty on every other row,
+  -- and taking no room there.
+  , "  .pnote{flex:1 0 100%;font-size:11px;color:var(--g-warn)}"
+  , "  .pnote:empty{display:none}"
   -- The value palette.  Narrow, since what it holds is a word: the title says
   -- what is being set and over how many rows, the field narrows the list, and
   -- the row under point wears the page's own selection colour.
@@ -2464,14 +2675,17 @@ page head' title body = T.unlines
   -- the query, so a mouse sees exactly what it saw before.
   --
   -- iOS zooms the page in on a focused field under 16px and does not zoom back
-  -- out; the sheet's textarea is the shell's own field, and the renderer's
-  -- input is the renderer's.
+  -- out; the sheet's textarea and its property fields are the shell's own, and
+  -- the renderer's input is the renderer's.  The panes stack here whatever the
+  -- width: a thumb wants the text full-width and the drawer under it, where the
+  -- wrap rule would keep them side by side on a wide tablet.
   , "  @media (pointer:coarse){"
   , "    #app .tv-chips{min-height:44px;cursor:pointer}"
   , "    #app .tv-chips:empty{display:flex!important;align-items:center}"
   , "    #app .tv-chips:empty::after{content:\"filter …\";color:var(--g-mute);"
   , "      font-size:12px}"
-  , "    #mtext,#pinput{font-size:16px}}"
+  , "    #mpanes{flex-direction:column}"
+  , "    #mtext,#pinput,.prow input{font-size:16px}}"
   , "</style>"
   -- The stored theme, applied before anything paints: a page that renders in
   -- the wrong one and corrects itself a frame later is a flash the selector

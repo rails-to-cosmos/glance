@@ -32,7 +32,8 @@
 -- copy it, and leave the cells where they are.  'hrDoc' names the same text
 -- 'hrHeadline' already shares, so materialize costs a pointer per row and no
 -- array: the file was retained before the field existed.
-module Glance.Query ( HeadlineRecord (..)
+module Glance.Query ( HeadlineParts (..)
+                    , HeadlineRecord (..)
                     , IdCollision (..)
                     , LoadFailure (..)
                     , QueryResult (..)
@@ -51,6 +52,7 @@ module Glance.Query ( HeadlineRecord (..)
                     , displayText
                     , documentPath
                     , filterKeys
+                    , headlineParts
                     , loadDir
                     , loadDirFilesSerially
                     , loadDirFilesWith
@@ -59,6 +61,7 @@ module Glance.Query ( HeadlineRecord (..)
                     , matchesSearch
                     , mergeKeywords
                     , orderedForView
+                    , recomposedSubtree
                     , replaceSpans
                     , resolveIds
                     , rowJSON
@@ -77,7 +80,7 @@ import Data.Aeson.Text (encodeToLazyText)
 import Data.Aeson.Types (Pair)
 import Data.Either (fromRight)
 import Data.List (foldl', sort, sortOn)
-import Data.Maybe (catMaybes, fromMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isJust)
 import Data.Text (Text)
 import TextShow (showt)
 
@@ -91,7 +94,8 @@ import qualified Data.Text.Lazy as TL
 import qualified Data.Time as Time
 
 import Data.Org ( Context, Element (EHeadline), Headline
-                , HeadlineSpans (hsPriority, hsStars, hsTags, hsTitle, hsTodo)
+                , HeadlineSpans ( hsClosed, hsDeadline, hsPriority, hsProperties
+                                , hsSchedule, hsStars, hsTags, hsTitle, hsTodo )
                 , Indent (Indent)
                 , Priority (Priority), Span (..), Spanned (valueOf)
                 , Timestamp (tsStart), Todo (name)
@@ -477,6 +481,193 @@ orderedForView DocumentOrder  = id
 -- caller encodes it into a response and drops it.
 subtreeText :: HeadlineRecord -> Text
 subtreeText r = sliceSpan (hrDoc r) (hrSubtree r)
+
+-- Lens
+--
+-- The properties drawer taken out of the subtree and put back into it.  One
+-- rule holds the pair together: every byte of a subtree has ONE owner.  The
+-- drawer's lines are the properties', everything else is the body's, and a
+-- property nobody edited goes back as the very line it came in on — odd
+-- spacing, odd casing and all.  So a client can edit the two halves apart
+-- without the half it did not touch being re-spelled underneath it.
+--
+-- A headline's OWN drawer only.  A child's drawer is body text here, since it
+-- belongs to the child's headline and this lens is over one.
+
+-- | A subtree split in two: its text without the headline's own property
+-- drawer, and that drawer's pairs in file order.  With no drawer the body is
+-- the whole subtree and the pairs are empty, which is the shape
+-- 'recomposedSubtree' reads back as "leave it without one".
+data HeadlineParts = HeadlineParts
+  { hpBody       :: !Text            -- ^ the subtree, the headline's own drawer lines gone.
+  , hpProperties :: ![(Text, Text)]  -- ^ the drawer's keys and values, in file order.
+  } deriving (Eq, Show)
+
+-- | R's subtree split into 'HeadlineParts'.
+--
+-- The cut is by WHOLE LINES: the drawer span starts at the beginning of the
+-- @:PROPERTIES:@ line and ends right after @:END:@, so the newline closing that
+-- line goes with it and the body is left as the lines that were around it,
+-- byte for byte.  Anything trailing @:END:@ on its own line belongs to the
+-- drawer too — it is on a drawer line.
+headlineParts :: HeadlineRecord -> HeadlineParts
+headlineParts r = case drawerSlice r subtree of
+  Nothing -> HeadlineParts subtree []
+  Just sp -> HeadlineParts (T.take (spanStart sp) subtree <> T.drop (spanEnd sp) subtree)
+                           [ (key, value)
+                           | (key, value, _raw) <- drawerRows (sliceSpan subtree sp) ]
+  where subtree = subtreeText r
+
+-- | BODY carrying PROPS, as the subtree R's file would then hold.
+--
+-- The drawer goes back on the line it was cut from — counted in lines from the
+-- start of the subtree, so an edit further down the body cannot move it — and a
+-- headline that never had one gets it where org puts it: after the title line,
+-- or after the planning line when there is one.  An empty PROPS writes no
+-- drawer at all, which is how a client deletes one.
+--
+-- What each property costs is decided by whether it moved.  A pair the drawer
+-- already held is written as the line it already was ('drawerRows' keeps them,
+-- one per pair, consumed in order so two spellings of one pair both survive);
+-- anything else is rendered @:KEY: value@ under the indentation the drawer's own
+-- lines carry.  The @:PROPERTIES:@ and @:END:@ lines are likewise the file's own
+-- where there were any.
+recomposedSubtree :: HeadlineRecord -> Text -> [(Text, Text)] -> Text
+recomposedSubtree _r body [] = body
+recomposedSubtree r body props = spliceLine (drawerLine r subtree) block body
+  where subtree = subtreeText r
+        block = drawerText (drawerStyle r subtree body) props
+
+-- | Where R's own drawer sits in SUBTREE, as a span of SUBTREE's own offsets
+-- covering whole lines.  'Nothing' when the headline carries no drawer — and,
+-- defensively, when the span is not inside the subtree, which the span
+-- invariants forbid.
+drawerSlice :: HeadlineRecord -> Text -> Maybe Span
+drawerSlice r subtree = do
+  sp <- hsProperties (spans (hrHeadline r))
+  let from = spanStart sp - spanStart (hrSubtree r)
+      to   = spanEnd sp - spanStart (hrSubtree r)
+  if from < 0 || to > T.length subtree || from > to then Nothing
+    else Just (Span from (pastLine subtree to))
+
+-- | Which line of SUBTREE R's drawer starts on, counted from zero.  With no
+-- drawer it is where org would write one: the line after the title line, or the
+-- one after that when the headline carries a planning line — which is the one
+-- line that can sit between them.
+drawerLine :: HeadlineRecord -> Text -> Int
+drawerLine r subtree = case drawerSlice r subtree of
+  Just sp -> T.count "\n" (T.take (spanStart sp) subtree)
+  Nothing | planned   -> 2
+          | otherwise -> 1
+  where hs = headlineSpans r
+        planned = any isJust [hsSchedule hs, hsDeadline hs, hsClosed hs]
+
+-- | How R's drawer is spelled, so a rewritten one reads like the file it goes
+-- back into.  BODY supplies the line ending for a headline that has no drawer
+-- to copy one from.
+data DrawerStyle = DrawerStyle
+  { dsOpen   :: !Text                    -- ^ the @:PROPERTIES:@ line, terminator and all.
+  , dsClose  :: !Text                    -- ^ the @:END:@ line, which ends the block.
+  , dsIndent :: !Text                    -- ^ what a rendered line is indented by.
+  , dsEol    :: !Text                    -- ^ what a rendered line ends with.
+  , dsRaw    :: ![((Text, Text), Text)]  -- ^ each pair already there, and its line.
+  }
+
+-- | How R's drawer in SUBTREE is spelled, BODY standing in for the parts a
+-- headline with no drawer has nothing to copy.
+drawerStyle :: HeadlineRecord -> Text -> Text -> DrawerStyle
+drawerStyle r subtree body = case drawerSlice r subtree of
+  Nothing -> DrawerStyle (":PROPERTIES:" <> eol) (":END:" <> eol) "" eol []
+    where eol = eolOf body
+  Just sp -> DrawerStyle open close (indentOf (firstOr open [ raw | (_k, _v, raw) <- rows ]))
+                         (eolOf close) [ ((key, value), raw) | (key, value, raw) <- rows ]
+    where block = sliceSpan subtree sp
+          ls    = linesWith block
+          open  = firstOr (":PROPERTIES:" <> eolOf body) ls
+          close = firstOr (":END:" <> eolOf body) (reverse ls)
+          rows  = drawerRows block
+
+-- | STYLE's drawer holding PROPS: the opening line, a line per property, the
+-- closing line.
+drawerText :: DrawerStyle -> [(Text, Text)] -> Text
+drawerText style props = T.concat (dsOpen style : go (dsRaw style) props <> [dsClose style])
+  where
+    go _raws []       = []
+    go raws (p : ps) = case taking p raws of
+      Just (raw, rest) -> raw : go rest ps
+      Nothing          -> rendered p : go raws ps
+    -- Consumed rather than looked up: one pair written twice with two spacings
+    -- keeps both, and a pair the client sent twice does not reuse one line.
+    taking p raws = case break ((== p) . fst) raws of
+      (before, (_p, raw) : after) -> Just (raw, before <> after)
+      _absent                     -> Nothing
+    rendered (key, value) =
+      dsIndent style <> ":" <> key <> ":"
+        <> (if T.null value then "" else " " <> value) <> dsEol style
+
+-- | BLOCK's property lines: everything between its @:PROPERTIES:@ and @:END:@
+-- lines, each as the key it names, the value it carries and the raw line it is.
+--
+-- Read by splitting lines rather than through the parser's own 'Properties': a
+-- parsed property has its key uppercased and its value re-tokenised, and the
+-- lens owes a client the file's own spelling of both.  A drawer that reached
+-- here came out of a document that parsed, so every line between the two is a
+-- property line; one that somehow is not comes back keyless, which a client
+-- reads as a row to drop.
+drawerRows :: Text -> [(Text, Text, Text)]
+drawerRows block = [ (key, value, raw) | raw <- inner (linesWith block)
+                                       , let (key, value) = propertyOf raw ]
+  where inner ls = drop 1 (take (length ls - 1) ls)
+
+-- | The key LINE names, as written between its colons, and the value it
+-- carries with the space around it stripped.  A line that is not a property at
+-- all comes back keyless.
+propertyOf :: Text -> (Text, Text)
+propertyOf line = case T.uncons (T.stripStart line) of
+  Just (':', rest) | (key, closed) <- T.breakOn ":" rest, not (T.null closed)
+                   -> (key, T.strip (T.drop 1 closed))
+  _notAProperty    -> ("", T.strip line)
+
+-- | BODY with BLOCK put back as its AT'th line, counting from zero.  A body
+-- with fewer lines than that takes it at the end, which is where a client that
+-- deleted the lines above the drawer has left room for it.  BLOCK is terminated
+-- only where something follows it, so a drawer that closed an unterminated file
+-- still closes one.
+spliceLine :: Int -> Text -> Text -> Text
+spliceLine at block body = terminated (T.concat before) <> rest
+  where (before, after) = splitAt at (linesWith body)
+        rest | null after = block
+             | otherwise  = terminated block <> T.concat after
+        terminated t | T.null t || "\n" `T.isSuffixOf` t = t
+                     | otherwise                         = t <> "\n"
+
+-- | T split into lines, each carrying the newline that ends it.  The last line
+-- carries one only where T does, so @T.concat . linesWith@ is @id@.
+linesWith :: Text -> [Text]
+linesWith t
+  | T.null t  = []
+  | otherwise = case T.breakOn "\n" t of
+      (line, rest) | T.null rest -> [line]
+                   | otherwise   -> (line <> "\n") : linesWith (T.drop 1 rest)
+
+-- | The offset in T past the newline ending the line offset AT sits on, or T's
+-- length when that line has none.
+pastLine :: Text -> Int -> Int
+pastLine t at = maybe (T.length t) (\i -> at + i + 1) (T.findIndex (== '\n') (T.drop at t))
+
+-- | The line ending T's first line uses, @"\\n"@ when it has none.
+eolOf :: Text -> Text
+eolOf t = case T.breakOn "\n" t of
+  (before, rest) | not (T.null rest), "\r" `T.isSuffixOf` before -> "\r\n"
+  _plain                                                         -> "\n"
+
+-- | The horizontal space LINE opens with.
+indentOf :: Text -> Text
+indentOf = T.takeWhile (\c -> c == ' ' || c == '\t')
+
+-- | XS's first element, or FALLBACK where it has none.
+firstOr :: a -> [a] -> a
+firstOr fallback xs = case xs of { (x : _rest) -> x; [] -> fallback }
 
 -- | Where each of HEADS runs, in the source order they arrive in, over a
 -- document of LEN characters.  A headline's subtree starts at its stars

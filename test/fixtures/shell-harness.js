@@ -17,7 +17,9 @@
 // is what happens after that, one verb at a time, each settled before the next:
 //
 //   close:REASON  the socket closes, the way the server closes one
-//   sheet:TEXT    TEXT typed into the open sheet
+//   sheet:TEXT    TEXT typed into the open sheet's textarea
+//   pkey:I=TEXT   TEXT typed into property row I's key field
+//   pval:I=TEXT   TEXT typed into property row I's value field
 //   filter:TEXT   TEXT typed into the raised palette
 //   moved         the store moves: a new ETag, and a row more to fetch
 //   recolumn      the store moves and its columns move with it
@@ -50,9 +52,17 @@ let columns = [
 ];
 let tag = "\"t0\"";
 let served = +total;
-// The subtree behind /headline, and the digest a write is pinned to.
-const org = "* TODO one\n";
+// The subtree behind /headline, in the two shapes the route serves it in — the
+// raw text, and the body with the drawer lifted out — plus the digest a write
+// is pinned to.  The split is the server's, so what the sheet gets here is what
+// a real one would hand it.
+const org = "* TODO one\n:PROPERTIES:\n:ORG_GLANCE_ID: r1\n:EFFORT: 0:30\n:END:\n";
+const body = "* TODO one\n";
+const properties = [["ORG_GLANCE_ID", "r1"], ["EFFORT", "0:30"]];
 let digest = "d0";
+// Every POST /headline body, which is the whole of what a sync can be observed
+// to have written: the rows come back over a socket this harness does not run.
+const writes = [];
 // Every structured command the page posted, as the body it sent — which is the
 // whole of what a key like `D' can be observed to have done, the rows coming
 // back over a socket this harness does not run.
@@ -94,8 +104,11 @@ globalThis.fetch = (url, init) => {
     });
   }
   if (String(url).startsWith("/headline?")) {
-    if ((init || {}).method === "POST") return answer(200, { digest });
-    return answer(200, { id: "r1", file: "a.org", org, digest });
+    if ((init || {}).method === "POST") {
+      writes.push(JSON.parse((init || {}).body || "{}"));
+      return answer(200, { digest });
+    }
+    return answer(200, { id: "r1", file: "a.org", org, body, properties, digest });
   }
   return answer(404, {});
 };
@@ -184,30 +197,46 @@ const node = new Proxy(
   }
 );
 // The few elements whose contents are the answer to a question asked here: the
-// sheet's text and its one-word state, and the renderer's filter field.  A
+// sheet's two panes and its one-word state, and the renderer's filter field.  A
 // proxy answering "" to everything cannot hold text a restore is checked
-// against, and `document.activeElement' is what tells a raised palette from a
-// committed query.
+// against, cannot hold a tree the property panel is built into, and
+// `document.activeElement' is what tells a raised palette from a committed
+// query.
 let active = null;
 const fields = {};
 // The tag matters: `typing()' reads it off `document.activeElement' to decide
 // whether a key belongs to the table or to whatever has focus.
-const TAGS = { mtext: "TEXTAREA", filter: "INPUT", pinput: "INPUT" };
-const field = (id) =>
-  (fields[id] = fields[id] || {
-    id, tagName: TAGS[id] || "DIV",
-    value: "", textContent: "", className: "", style: {}, dataset: {},
+const TAGS = { mtext: "textarea", filter: "input", pinput: "input" };
+/** A stand-in element, enough of one for the page to build its own chrome in. */
+const make = (tag) => {
+  const e = {
+    tagName: String(tag).toUpperCase(),
+    value: "", className: "", placeholder: "", spellcheck: false,
+    style: {}, dataset: {}, children: [],
     scrollTop: 0, clientHeight: 0, scrollHeight: 0,
     focus() { active = this; },
     blur() { if (active === this) active = null; },
     // Kept rather than dropped: the value palette narrows on its field's own
-    // `input' event, which no document-level press can stand in for.
+    // `input' event, and the property panel grows a row on one — neither of
+    // which a document-level press can stand in for.
     on: {},
     addEventListener(type, fn) { (this.on[type] = this.on[type] || []).push(fn); },
     fire(type, event) { for (const fn of this.on[type] || []) fn(event); },
-    select() {}, appendChild() {},
+    appendChild(child) { this.children.push(child); return child; },
+    select() {},
+  };
+  // The real one drops every child when it is set, which is how the panel is
+  // cleared before it is drawn again.
+  let text = "";
+  Object.defineProperty(e, "textContent", {
+    get: () => text,
+    set: (v) => { text = String(v); e.children.length = 0; },
   });
-const STATEFUL = ["mtext", "mnote", "mfile", "modal", "echo", "prompt", "phead", "pinput"];
+  return e;
+};
+const field = (id) => (fields[id] = fields[id] || make(TAGS[id] || "div"));
+const STATEFUL = [ "mtext", "mnote", "mfile", "modal", "mprops", "sheet"
+                 , "echo", "prompt", "phead", "pinput" ];
 // The page's own key dispatch, kept so a press can be delivered to it.
 const pressed = [];
 globalThis.document = {
@@ -216,7 +245,7 @@ globalThis.document = {
       : STATEFUL.indexOf(id) === -1 ? node : field(id),
   querySelector: (sel) => (sel === "#app .tv-filter" ? field("filter") : null),
   querySelectorAll: () => [],
-  createElement: () => node,
+  createElement: (tag) => make(tag),
   addEventListener: (type, handler) => {
     if (type === "keydown") pressed.push(handler);
   },
@@ -245,6 +274,18 @@ const press = (name) => {
 // The store moving is a new tag: a client holding the old one is answered with
 // a body rather than a 304, which is the reconnect that has rows to apply.
 const step = () => { tag = `"t${Number(tag.slice(2, -1)) + 1}"`; };
+/** WHICH field of the row ARG names, given ARG's `INDEX=TEXT', typed into. */
+const typeInto = (which, arg) => {
+  const at = arg.indexOf("=");
+  const row = field("mprops").children[Number(arg.slice(0, at))];
+  if (!row) throw new Error(`no property row ${arg}`);
+  const box = row.children[which];
+  box.value = arg.slice(at + 1);
+  box.fire("input", { target: box });
+};
+/** The property panel as it stands: a [key, value] pair per row it is showing. */
+const panel = () =>
+  field("mprops").children.map((row) => [row.children[0].value, row.children[1].value]);
 const ACTIONS = {
   close: (reason) => { if (socket && socket.onclose) socket.onclose({ reason }); },
   sheet: (text) => { field("mtext").value = text; },
@@ -262,6 +303,11 @@ const ACTIONS = {
     box.value = text;
     box.fire("input", { target: box });
   },
+  // Typing into the property panel: `pkey:1=EFFORT' is the key field of row 1,
+  // `pval:1=0:45' its value.  The `input' event is the whole point — the panel
+  // grows its next empty row on one.
+  pkey: (arg) => typeInto(0, arg),
+  pval: (arg) => typeInto(1, arg),
   refuse: () => { refusing = true; },
   // An asset that never had marking: the calls are simply not on the handle,
   // which is the shape the shell's feature detection is written against. It
@@ -292,6 +338,12 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     asked, tags, url: location.search, mounts, sets, raises,
     sheet: field("mtext").value, state: field("mnote").className,
     palette: field("filter").value,
+    // The sheet's other pane: every row the panel is showing, the lines it puts
+    // under one, which shape it is in, and every POST the syncs sent.
+    props: panel(),
+    notes: field("mprops").children.map((row) => row.children[2].textContent)
+      .filter(Boolean),
+    shape: field("sheet").className, writes,
     // The renderer's side of marking, and the last thing the echo pill said —
     // which is where a key that could not do what it was asked reports it.
     marksOn, marked: [...marks], cursor, echo: field("echo").textContent,

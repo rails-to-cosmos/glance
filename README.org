@@ -142,29 +142,61 @@ reconnecting.
 
 *Materialize a headline.* The view declares one action — =RET → materialize= —
 so hitting =RET= on the selected row (or double-clicking it) opens that
-headline's raw subtree over the table in a textarea: stars, planning line,
-drawer, body and every child, exactly as the file spells them. The sheet has no
-buttons. =ESC=, or a click outside the box, closes it — flushing first when the
-text has moved, and closing on the server's 200; a sheet you only read closes
-with no request at all and touches no file. The text goes back over the same
-character span, leaving every other byte alone, and the row arrives a moment
-later over the socket, because the file watch is what updates the table whoever
-did the writing. =C-x C-s= syncs mid-edit and chains the receipt's digest, so a
-long session of edits costs no re-materialize. If the file moved in between —
-Emacs saved it, a sync landed — the flush is refused and the sheet stays open
-saying =conflict=: =C-x C-s= then re-reads the file's digest and writes your
-text over it, and =ESC= discards. Closing the tab on an edited sheet flushes on
-the way out. The header says which of =synced= / =syncing…= / =conflict= /
-=error= it is in — the last two name the key that clears them — and the sheet
-wears Hack over the page's own danneskjold. The same round trip from a shell,
-=id= being the row id the view carries:
+headline over the table as *two panes*: a textarea holding the subtree's text —
+stars, planning line, body and every child, exactly as the file spells them —
+and a *properties panel* beside it holding the headline's own drawer, a row of
+two fields per property. Tab walks them in the order the file writes them. The
+last row is always empty: type in it and the next empty one appears under it,
+which is the whole of the "add" affordance, since there is nothing to press.
+Empty a key and that property is deleted on the next sync. =ORG_GLANCE_ID= is
+shown like any other row, with a line under it saying what it is — the row id
+*is* that value, so renaming it renames the row.
+
+The sheet has no buttons. =ESC=, or a click outside the box, closes it —
+flushing first when *either* pane has moved, and closing on the server's 200; a
+sheet you only read closes with no request at all and touches no file. The write
+goes back over the same character span, leaving every other byte alone, and the
+row arrives a moment later over the socket, because the file watch is what
+updates the table whoever did the writing. =C-x C-s= syncs mid-edit and chains
+the receipt's digest, so a long session of edits costs no re-materialize. If the
+file moved in between — Emacs saved it, a sync landed — the flush is refused and
+the sheet stays open saying =conflict=: =C-x C-s= then re-reads the file's digest
+and writes your text over it, and =ESC= discards. Closing the tab on an edited
+sheet flushes on the way out. The header says which of =synced= / =syncing…= /
+=conflict= / =error= it is in — the last two name the key that clears them — and
+the sheet wears Hack over the page's own danneskjold.
+
+=C-c '= — org's own =org-edit-special= — swaps the sheet between the two panes
+and the raw subtree with the drawer spelled out in the text. It works by asking
+the server for the headline again rather than by rearranging anything in the
+browser, so an edited sheet is refused with =sync first — C-x C-s=. That is
+deliberate: the split between body and drawer is the *server's*, and there is no
+org parser in the page to do it locally.
+
+A property nobody edited is written back as the very line it came in on —
+spacing, indentation and all. Only a value you changed is re-rendered, as
+=:KEY: value= under whatever indentation the drawer already uses. Decompose and
+recompose an untouched headline and the file is byte-identical. The same round
+trip from a shell, =id= being the row id the view carries:
 
 #+begin_src sh
 curl -s -G --data-urlencode 'id=ROW-ID' localhost:7777/headline
+# → {"org": …, "body": …, "properties": [["ORG_GLANCE_ID", "…"], …], "digest": …, "span": …}
+
+# The whole subtree, as before:
 curl -s -X POST -H 'content-type: application/json' \
      -G --data-urlencode 'id=ROW-ID' localhost:7777/headline \
      --data-binary '{"org": "* DONE …\n", "digest": "<the digest the GET returned>"}'
+
+# Or the two panes apart, which is what the sheet sends:
+curl -s -X POST -H 'content-type: application/json' \
+     -G --data-urlencode 'id=ROW-ID' localhost:7777/headline \
+     --data-binary '{"body": "* DONE …\n", "properties": [["EFFORT", "0:45"]],
+                     "digest": "<the digest the GET returned>"}'
 #+end_src
+
+Both shapes take the same optimistic lock and the same 409s; naming both in one
+body is a 400, and an empty =properties= list removes the drawer.
 
 The store stays a projection and the org files stay the source of truth: it is
 thrown away with the process, every row in it came out of a file, and a file
@@ -247,6 +279,7 @@ Both key profiles share everything that is not movement:
 | =q=       | =quit-window=                     | closes the sheet; never the tab           |
 | =DEL=     | =filter-drop-token=               | drops the filter's last token             |
 | =C-x C-s= | =save-buffer=                     | syncs the sheet; again to overwrite       |
+| =C-c '=   | =org-edit-special=                | sheet as raw org, or as body + properties |
 | =ESC=     | =keyboard-quit=                   | closes the sheet, syncing it first        |
 | =TAB=     | =org-cycle=                       | staged — daemon commands (M4)             |
 | =!=       | =org-glance-overview:open=        | staged                                    |
@@ -346,8 +379,9 @@ the key line hold their places whatever arrives.
 A staged key is recognized in full and then says what it is waiting for: the map
 is complete ahead of the commands that will back it, which reads better than a
 key that silently does nothing. The keys are inert while a text field has focus
-— typing in the palette or the sheet types — except =C-x C-s= and =ESC=,
-which is what makes the sheet's Emacs muscle memory work. =C-c= and =C-x= become
+— typing in the palette or the sheet types — except =C-x C-s=, =C-c '= and
+=ESC=, which is what makes the sheet's Emacs muscle memory work, in the
+properties panel's fields as much as in its textarea. =C-c= and =C-x= become
 prefixes only with the selection collapsed, so a copy or a cut is still one, and
 =C-l=, =C-r=, =C-t=, =C-w=, =C-n=, =C-p= and =<f5>= always reach the browser —
 which is why neither profile moves on =C-n= or =C-p=, however much Emacs would
@@ -356,10 +390,12 @@ like to.
 *On a touch device there are no keys*, which is the one exception the
 keyboard-first rule makes. A coarse pointer gets the chip row as a tap target —
 44px of it, reading =filter …= while nothing is applied — and tapping it summons
-the palette =/= summons. The sheet's textarea is 16px there, since iOS zooms the
-page in on anything smaller and does not zoom back out. A mouse or a trackpad
-sees none of this: every rule is inside =@media (pointer:coarse)= and the tap
-handler asks the same query before it runs.
+the palette =/= summons. The sheet's textarea and its property fields are 16px
+there, since iOS zooms the page in on anything smaller and does not zoom back
+out, and the two panes stack rather than sitting side by side. A mouse or a
+trackpad sees none of this: every rule is inside =@media (pointer:coarse)= and
+the tap handler asks the same query before it runs. A narrow window stacks them
+too, by wrapping rather than by a breakpoint of its own.
 
 The whole page is monospace — /JetBrains Mono/, /Fira Code/, /SF Mono/, Menlo,
 Consolas, whichever is installed. Nothing is fetched for it. Drop a

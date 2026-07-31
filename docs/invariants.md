@@ -744,8 +744,39 @@ on.
   guarantee), and both mean one thing to a client: materialize again, because
   the text it edited is not there any more. The committed text is taken as
   given — org validity is the author's business, and a file that stops parsing
-  keeps the rows it had, exactly as when the text came from an editor.
-  Evidence: `TestServe` "POST /headline" group. **test**
+  keeps the rows it had, exactly as when the text came from an editor. Both
+  request shapes go through the same two checks, since the recomposition happens
+  ahead of the write and nothing about the lock reads it. Evidence: `TestServe`
+  "POST /headline" group. **test**
+- **The properties lens: one owner per byte.** `GET /headline` serves the
+  subtree twice — `org` whole, and `body` + `properties` split — and `POST`
+  takes back either `{org, digest}` or `{body, properties, digest}`. The split
+  is `Glance.Query.headlineParts` and the join is
+  `Glance.Query.recomposedSubtree`, and the rule joining them is that every byte
+  of a subtree belongs to exactly one side: the headline's OWN drawer lines are
+  the properties', everything else is the body's. So a child's drawer is body
+  text (it belongs to the child's lens), the cut is by WHOLE lines including the
+  newline that ends `:END:`, and a property nobody edited is written back as the
+  very line it arrived on — `:A:one`, `:B:`, a padded value, an odd indent, all
+  of it. Only an edited or added pair is rendered, as `:KEY: value` under the
+  indentation the drawer's own lines carry; a dropped pair is simply not
+  written; an empty list removes the drawer outright. The raw lines are consumed
+  one per pair rather than looked up, so one pair spelled twice keeps both
+  spellings. The drawer goes back at the LINE INDEX it was cut from, counted
+  from the top of the subtree — the lines above it are the headline's own and
+  the planning line, which is the one place a client cannot have moved it from —
+  and a headline that never had one gets it where org puts it, after the title
+  line or after the planning line when there is one (`hsSchedule`/`hsDeadline`/
+  `hsClosed` decide which). Decompose followed by recompose is therefore the
+  identity on the file, byte for byte, which is the property the whole design
+  rests on. Pairs are read by splitting lines rather than through the parser's
+  `Properties`: that type uppercases keys and re-tokenises values, and the lens
+  owes a client the file's own spelling. A drawer that reaches here came out of a
+  document that parsed, so every line between the two markers is a property line
+  — one that somehow is not comes back keyless, which a client reads as a row to
+  drop. Evidence: `TestQuery` "Properties lens" (including the round trip over
+  drawered, planned, unicode, odd-spacing, indented and CRLF fixtures),
+  `TestServe` "GET /headline" and "POST /headline". **test**
 - **The `ETag` is the tree's fingerprint and the store's generation, and one tag
   covers every query variant.** `Store.stGen` moves in
   `Glance.Web.Store.guarded` — the single wrapper both update paths go through —
@@ -1233,7 +1264,7 @@ on.
   as hides, since a focused field nobody can see would leave `typing()` true and
   swallow every key after it. **test**
 - **The materialize sheet has no buttons, and closing it is the save.** Dirty is
-  the textarea against the text the file holds as far as the page knows — the
+  either pane against what the file holds as far as the page knows — the
   materialized original, then whatever the last 200 wrote — and it decides
   everything: `ESC` or a click on the backdrop flushes a dirty sheet and closes
   on the 200, while a pristine one closes with no request at all, so opening a
@@ -1250,6 +1281,34 @@ on.
   409 and a dropped connection are told apart on screen. Evidence: `TestServe`
   "the sheet is buttonless and syncs on the way out", plus the curl-level round
   trip. **test**
+- **The sheet is two panes over one subtree, and the cut is the server's.** The
+  textarea holds `body` and a panel beside it holds `properties`, both handed
+  over by `GET /headline`; a flush sends them back as `{body, properties}` and
+  the server joins them. The page never looks for a drawer in the text it is
+  holding — there is no org parser in this browser, and the whole point of the
+  route serving both shapes is that there does not have to be. A panel row is
+  two fields, key then value, in the order the file writes them, which IS the tab
+  order: nothing sets a `tabindex`. The last row is always empty and typing in it
+  grows the next, so the add affordance is that row rather than a button; a row
+  whose key is emptied is a property deleted, and the trailing row is not a
+  property yet — one filter covers both. `ORG_GLANCE_ID` is shown like every
+  other row with a line under it saying what editing it costs, because the row id
+  IS that value and hiding the row would make the panel disagree with the file.
+  `C-c '` — org's `org-edit-special` rhyme — swaps the sheet between the two
+  panes and the raw subtree, and does it by RE-MATERIALIZING: a dirty sheet is
+  refused with the key that would let it through (`sync first — C-x C-s`),
+  because a re-read cannot carry unsaved work and converting locally would need
+  exactly the parser this design keeps out. The re-read is a fresh materialize,
+  so it also lands the sheet at `synced`. Both panes are stashed and restored
+  across a remount, in the shape the sheet was showing, with the baselines
+  staying the file's so what was dirty stays dirty. The panes wrap rather than
+  querying a width: `flex-wrap` puts the panel under the text when there is no
+  room beside it, which is the same answer a breakpoint gives and is one less
+  place to keep in step — the `pointer:coarse` block pins the column outright,
+  since a thumb wants the text full-width whatever the tablet is. Evidence:
+  `TestServe` "Shell sheet" (the node harness: two panes, growth, deletion, the
+  identity note, both toggle directions, the dirty refusal, the remount) and "the
+  sheet is a body pane and a property panel". **test**
 - **The whole page wears danneskjold, through one `--g-*` palette.** Surface,
   text, muted text, border, selection, warn and bad are declared once and
   re-declared per theme, and every `var()` on the page reads one of them, the

@@ -269,6 +269,22 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   A byte-identical commit still rewrites the file (temp + rename, no equality
   short-circuit), so it costs an inotify event and a re-parse; `guarded` then
   finds nothing moved and the generation stays put.
+- The properties lens — ONE OWNER PER BYTE. `GET /headline` serves the subtree
+  twice, `org` whole and `body` + `properties` split
+  (`Glance.Query.headlineParts`); `POST` takes back `{org, digest}` or
+  `{body, properties, digest}` (`recomposedSubtree`), naming both is a 400 and a
+  `body` owes `properties` beside it. The headline's OWN drawer lines belong to
+  the properties, every other byte to the body — a child's drawer is body text.
+  The cut is by whole lines, the newline after `:END:` included. An untouched
+  pair goes back as the LINE it arrived on, verbatim; only an edited or added one
+  renders `:KEY: value`, under the drawer's own indentation; a dropped one is not
+  written and an empty list removes the drawer. Raw lines are consumed one per
+  pair, so one pair spelled twice keeps both. The drawer returns at the line
+  INDEX it was cut from; with no original it goes after the title line, or after
+  the planning line when the headline has one. Decompose → recompose is
+  byte-identical, which is the property the design rests on. Pairs are read by
+  splitting lines, never through the parser's `Properties` — that uppercases keys
+  and re-tokenises values.
 - `/headlines` carries `ETag: "<stPrint16>-g<stGen>"` under
   `Cache-Control: no-cache`; the generation moves only in `Store.guarded`, and
   only when frames were produced or a file's load outcome moved, and the
@@ -498,8 +514,8 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   the Emacs org-glance maps; buttons only where keys cannot reach; the echo
   widget must know every new binding (keymap-is-data blob is the single
   source).
-- The materialize sheet is buttonless and syncs itself. Dirty = textarea vs the
-  materialized original, moved by each successful flush; ESC or the backdrop
+- The materialize sheet is buttonless and syncs itself. Dirty = either pane vs
+  the materialized original, moved by each successful flush; ESC or the backdrop
   flushes a dirty sheet and closes on the 200, a pristine one closes with no
   request; `C-x C-s` flushes mid-edit and chains the receipt's digest; a 409
   keeps it open at `conflict`, where `C-x C-s` re-reads the digest and
@@ -507,6 +523,17 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   dirty. Header states: `synced` / `syncing…` / `conflict` / `error` — the last
   two are the ones that wait for a keystroke, so each spells the key that
   clears it.
+- The sheet is two panes over one subtree and the cut is the SERVER's: textarea
+  = `body`, panel = `properties`, a flush posts both back. The page holds no org
+  parser and must not grow one. A panel row is key then value in file order,
+  which is the tab order (no `tabindex` anywhere); the trailing empty row is the
+  add affordance and grows the next on input; an emptied key deletes;
+  `ORG_GLANCE_ID` is shown with a line saying the row id is that value. `C-c '`
+  (org's `org-edit-special`) swaps two-pane and raw org by RE-MATERIALIZING —
+  a dirty sheet is refused with `sync first — C-x C-s`, since a local conversion
+  would need the parser this keeps out, and the re-read lands at `synced`. Stash
+  and restore carry both panes and the shape. The panes wrap rather than querying
+  a width; the `pointer:coarse` block pins the column.
 - The whole page wears danneskjold, through one `--g-*` palette (surface, text,
   muted, border, selection, warn, bad) declared once and re-declared per theme.
   The sheet keeps exactly one variable of its own, `--dk-mono` (Hack first);
