@@ -42,6 +42,7 @@ module Glance.Query ( HeadlineRecord (..)
                     , documentPath
                     , filterKeys
                     , loadDir
+                    , loadDirFilesSerially
                     , loadDirFilesWith
                     , loadDirWith
                     , loadFile
@@ -86,7 +87,8 @@ import Data.Org ( Context, Element (EHeadline), Headline
                 , schedule, sliceSpan, spans, tags, title, todo, todoActive
                 , todoInactive )
 import Data.Org.Walk ( Found (..), WalkOptions (..), beatsForId, defaultWalk
-                     , findOrgFilesWith, isDerived, isDocument )
+                     , findOrgFilesWith, isDerived, isDocument
+                     , mapFilesConcurrently )
 
 import qualified Data.Org.Edit as Edit
 
@@ -175,18 +177,46 @@ loadDirWith opts dir = do
 -- have no path of their own to report).  The per-file breakdown 'loadDir' folds
 -- away is what a watcher needs to re-load a single file into a store built the
 -- same way.
+--
+-- The files are read on a pool ('Data.Org.Walk.mapFilesConcurrently'), which is
+-- sound because a file is parsed from 'defaultContext' and shares no state with
+-- any other.  The answer is the sorted path list zipped with its outcomes, so
+-- it is the sequence 'loadDirFilesSerially' produces whatever order the pool
+-- finished in — and everything downstream (id resolution, the store's walk
+-- order, the counts) reads that sequence rather than the completion order.
 loadDirFilesWith :: WalkOptions -> FilePath
                  -> IO ([(FilePath, Either LoadFailure [HeadlineRecord])], Int)
-loadDirFilesWith opts dir = do
+loadDirFilesWith = loadDirFilesUsing mapFilesConcurrently
+
+-- | 'loadDirFilesWith' with the pool taken out — one file after another on the
+-- calling thread.  It is the reference the parallel load is asserted equal to
+-- (@TestQuery@), and it is exported for that: every other answer this library
+-- gives over a directory is a fold of this pair, so two loads agreeing here
+-- agree everywhere.
+loadDirFilesSerially :: WalkOptions -> FilePath
+                     -> IO ([(FilePath, Either LoadFailure [HeadlineRecord])], Int)
+loadDirFilesSerially = loadDirFilesUsing mapM
+
+-- | 'loadDirFilesWith' with OVER deciding how the walk's files are crossed.
+loadDirFilesUsing :: ((FilePath -> IO (Either LoadFailure [HeadlineRecord]))
+                      -> [FilePath] -> IO [Either LoadFailure [HeadlineRecord]])
+                  -> WalkOptions -> FilePath
+                  -> IO ([(FilePath, Either LoadFailure [HeadlineRecord])], Int)
+loadDirFilesUsing over opts dir = do
   found <- findOrgFilesWith opts [dir]
-  files <- mapM withOutcome (sort (foundFiles found))
-  pure (files, length (foundDirErrs found))
-  where withOutcome path = (,) path <$> loadFile path
+  let paths = sort (foundFiles found)
+  outcomes <- over loadFile paths
+  pure (zip paths outcomes, length (foundDirErrs found))
 
 -- | PATH's headlines, or why it has none.  Reads the file strictly and parses
 -- it from 'defaultContext': a file's own @#+TODO:@ lines are the only ones that
--- reach its headlines, whether it is loaded with a directory or on its own
--- after an edit.
+-- reach its headlines, whether it is loaded with a directory on a pool or on
+-- its own after an edit.
+--
+-- The rows come back forced: a caller running this on a pool needs the work
+-- done by the worker that took the file, and a caller of any kind needs the
+-- document dropped rather than retained under an unevaluated cell
+-- (docs\/invariants.md, Scan).
 loadFile :: FilePath -> IO (Either LoadFailure [HeadlineRecord])
 loadFile path = do
   raw <- try (BS.readFile path) :: IO (Either IOException BS.ByteString)
@@ -196,7 +226,7 @@ loadFile path = do
       Left _err -> Left DecodeFailed
       Right doc -> case orgParse defaultContext doc of
         (_elems, _ctx, Just _err) -> Left ParseFailed
-        (elems, ctx, Nothing)     -> Right (forcing rs rs)
+        (elems, ctx, Nothing)     -> forcing rs (Right rs)
           -- The digest is of the very bytes these spans were computed against,
           -- taken here rather than by a later read: a write pinned to a digest
           -- read at some other moment would splice offsets into a document

@@ -3,20 +3,27 @@
 -- compile instead of failing a renderer.
 module TestQuery (spec) where
 
+import Control.Concurrent (getNumCapabilities, rtsSupportsBoundThreads)
+import Control.Monad (forM_, replicateM)
 import Data.Aeson (Value (Bool, Object, String), eitherDecodeFileStrict')
 import Data.Char (isDigit)
-import Data.List (sort)
+import Data.List (nub, sort)
 import Data.Text (Text)
+import System.FilePath ((</>))
+import System.Posix.Files (createSymbolicLink)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
-import TestDefaults (columnKeysOf, columnOf, field, listAt, textAt, viewDir)
+import TestDefaults ( columnKeysOf, columnOf, entryAs, field, listAt, orgFile
+                    , textAt, viewDir, withTempDirNamed )
 
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
+import qualified Data.ByteString as BS
 import qualified Data.Text as T
 
-import Glance.Query ( HeadlineRecord (..), QueryResult (..), displayText, loadDir
-                    , matchesSearch, viewJSON )
+import Glance.Query ( HeadlineRecord (..), LoadFailure (..), QueryResult (..)
+                    , defaultWalk, displayText, loadDir, loadDirFilesSerially
+                    , loadDirFilesWith, matchesSearch, viewJSON )
 
 -- Fixtures
 
@@ -66,7 +73,136 @@ maybeBoolAt key v = assertFailure ("expected an object with " <> show key
 -- Spec
 
 spec :: TestTree
-spec = testGroup "Query" [loadSpec, cellSpec, searchSpec, viewSpec, schemaSpec]
+spec = testGroup "Query"
+  [loadSpec, parallelSpec, cellSpec, searchSpec, viewSpec, schemaSpec]
+
+-- | The pool answers what one thread answered.
+--
+-- The load reads its files on a pool ('Data.Org.Walk.mapFilesConcurrently')
+-- and 'loadDirFilesSerially' is the same load with the pool taken out, so the
+-- two are comparable directly — and everything else the library says about a
+-- directory is a fold of that pair, which is why asserting it here covers the
+-- rows, the counts and the id resolution at once.
+--
+-- The fixture is deliberately wider than any pool: forty documents, so work is
+-- handed out rather than taken by one worker, plus one file of each failure
+-- kind so a bucket cannot be compared on the happy path alone.
+parallelSpec :: TestTree
+parallelSpec = testGroup "Parallel load"
+  [ testCase "the suite runs on the threaded runtime" $ do
+      -- A non-threaded runtime has one capability whatever @-N@ says, and the
+      -- pool silently degrades to a serial loop: every assertion below would
+      -- still pass and none of them would be about parallelism.
+      assertBool "-threaded" rtsSupportsBoundThreads
+      caps <- getNumCapabilities
+      assertBool ("capabilities: " <> show caps) (caps >= 1)
+
+  , testCase "record for record, the pool load is the serial load" $ withCorpus $ \dir -> do
+      (parallel, parErrs) <- loadDirFilesWith defaultWalk dir
+      (serial, serErrs) <- loadDirFilesSerially defaultWalk dir
+      assertEqual "unlistable directories" serErrs parErrs
+      assertEqual "paths, in order" (map fst serial) (map fst parallel)
+      assertEqual "outcomes, record for record"
+                  (map (outcomeShape . snd) serial)
+                  (map (outcomeShape . snd) parallel)
+
+  , testCase "and the failures bucket the same way, in the same order" $ withCorpus $ \dir -> do
+      (parallel, _) <- loadDirFilesWith defaultWalk dir
+      (serial, _) <- loadDirFilesSerially defaultWalk dir
+      -- Order-independent counts first — a bucket is a count in the wire
+      -- headers — then the listing, which is deterministic by path sort.
+      forM_ [ReadFailed, DecodeFailed, ParseFailed] $ \kind ->
+        assertEqual ("count of " <> show kind)
+                    (length (failuresOf kind serial)) (length (failuresOf kind parallel))
+      assertEqual "the failing paths, in order" (failures serial) (failures parallel)
+      assertEqual "one of each kind, so the comparison is not vacuous"
+                  [1, 1, 1]
+                  [ length (failuresOf kind parallel)
+                  | kind <- [ReadFailed, DecodeFailed, ParseFailed] ]
+
+  , testCase "a tree narrower than the pool loads whole" $ withTempDirNamed "narrow" $ \dir -> do
+      -- The chunking edge: fewer files than there are workers, so most of them
+      -- find the queue already empty.  One file is the file watch's own shape
+      -- and skips the pool outright; zero files must not hang or fabricate a row.
+      empty <- loadDirFilesWith defaultWalk dir
+      assertEqual "no files at all" ([], 0) (shapes empty)
+      _ <- orgFile dir "one.org" (entryAs "solo" "TODO solo")
+      poolEqualsSerial "one file" 1 dir
+      forM_ ["b.org", "c.org"] $ \name ->
+        orgFile dir name (entryAs (T.pack name) ("TODO " <> T.pack name))
+      poolEqualsSerial "three files" 3 dir
+
+  , testCase "the sequence is the same on every run, ids resolved and all" $
+      withCorpus $ \dir -> do
+        -- Determinism where completion order could reach an answer:
+        -- 'resolveIds' is first-wins over the sequence, and the corpus carries
+        -- two files claiming one id with neither of them canonical, so the
+        -- winner is decided by path sort alone.  A pool that reassembled by
+        -- completion order would hand the id to whichever thread finished first.
+        runs <- replicateM 5 (loadDir dir)
+        assertEqual "one row order" 1 (length (nub (map (map hrId . qrRecords) runs)))
+        assertEqual "one set of counts" 1
+                    (length (nub [ (qrFiles r, qrParseFailures r, qrDecodeFailures r
+                                   , qrReadFailures r) | r <- runs ]))
+        let kept = [ (hrId r, hrFile r) | r <- qrRecords (head runs), hrId r == "shared" ]
+        assertEqual "the shared id went to the file that sorts first"
+                    [("shared", dir </> "a-claims-shared.org")] kept
+        assertEqual "and it collides exactly once" 1
+                    (length (qrIdCollisions (head runs)))
+  ]
+
+-- | DIR loaded both ways under WHAT: the pool's answer is the serial one,
+-- record for record, and it carries FILES files.
+poolEqualsSerial :: String -> Int -> FilePath -> Assertion
+poolEqualsSerial what files dir = do
+  parallel <- shapes <$> loadDirFilesWith defaultWalk dir
+  serial <- shapes <$> loadDirFilesSerially defaultWalk dir
+  assertEqual what serial parallel
+  assertEqual (what <> ": all loaded") files (length (fst parallel))
+
+-- | A tree wider than any pool: forty documents, two files claiming one id
+-- between them, and one file of each failure kind — a parse failure, bytes that
+-- are not UTF-8, and a dangling symlink the walk keeps and the read refuses.
+withCorpus :: (FilePath -> IO a) -> IO a
+withCorpus act = withTempDirNamed "parallel" $ \dir -> do
+  forM_ [1 .. 40 :: Int] $ \i ->
+    let name = "doc-" <> pad i in
+    orgFile dir (name <> ".org")
+            (entryAs (T.pack name) ("TODO " <> T.pack name) <> entryAs (T.pack (name <> "-b")) "DONE second")
+  forM_ ["a-claims-shared.org", "z-claims-shared.org"] $ \name ->
+    orgFile dir name (entryAs "shared" ("TODO from " <> T.pack name))
+  _ <- orgFile dir "unparseable.org" "* A title with a :: double colon\n"
+  BS.writeFile (dir </> "bad-utf8.org") (BS.pack [0x2a, 0x20, 0xff, 0xfe, 0x0a])
+  createSymbolicLink "nowhere-at-all" (dir </> "dangling.org")
+  act dir
+  where pad i = let s = show i in replicate (2 - length s) '0' <> s
+
+-- | R as the strings a comparison reads it by: every cell the wire carries, the
+-- file it came from, and the extent and digest the write path pins to it.  The
+-- parsed headline stays out — the facade keeps its type private, and the cells
+-- and the extent are what a caller can see of it anyway.
+shapeOf :: HeadlineRecord -> [Text]
+shapeOf r = map T.pack
+  [ hrFile r, show (hrId r), show (hrCategory r), show (hrDigest r)
+  , show (hrSubtree r), show (hrKeywords r), show (hrState r), show (hrPriority r)
+  , show (hrTitle r), show (hrTags r), show (hrScheduled r), show (hrDeadline r)
+  , show (hrSearch r), show (T.length (hrDoc r)) ]
+
+outcomeShape :: Either LoadFailure [HeadlineRecord] -> Either LoadFailure [[Text]]
+outcomeShape = fmap (map shapeOf)
+
+-- | A per-file load as the pair a test compares: the shaped outcomes and the
+-- count of directories the walk could not list.
+shapes :: ([(FilePath, Either LoadFailure [HeadlineRecord])], Int)
+       -> ([(FilePath, Either LoadFailure [[Text]])], Int)
+shapes (files, dirErrs) = ([ (path, outcomeShape o) | (path, o) <- files ], dirErrs)
+
+-- | The files of FILES that failed, in the order they were loaded.
+failures :: [(FilePath, Either LoadFailure [HeadlineRecord])] -> [(FilePath, LoadFailure)]
+failures files = [ (path, why) | (path, Left why) <- files ]
+
+failuresOf :: LoadFailure -> [(FilePath, Either LoadFailure [HeadlineRecord])] -> [FilePath]
+failuresOf kind files = [ path | (path, why) <- failures files, why == kind ]
 
 -- | What a load reports about the files behind it.
 loadSpec :: TestTree

@@ -3,7 +3,6 @@
 module Scan (runScan) where
 
 import Control.Exception (IOException, SomeException, evaluate, try)
-import Control.Monad (foldM)
 import Data.List (foldl', sort)
 import Data.Text (Text)
 import Data.Time (diffUTCTime, getCurrentTime)
@@ -19,7 +18,7 @@ import qualified TextShow as TS
 
 import Data.Org
 import Data.Org.Walk ( Found (..), WalkOptions (..), beatsForId, errText
-                     , findOrgFilesWith )
+                     , findOrgFilesWith, mapFilesConcurrently )
 
 import qualified Data.Map.Strict as Map
 
@@ -31,6 +30,12 @@ sampleLimit = 20
 
 -- | Scan ROOTS for .org files as OPTS asks, parse each one, and print a
 -- summary report.
+--
+-- The files are read on the loader's own pool ('mapFilesConcurrently'), which
+-- forces each 'FileResult' in the worker that produced it; the fold that turns
+-- them into 'Totals' stays here and stays serial, over the sorted path list, so
+-- the id index, the capped failure listings and every count are what a
+-- one-file-at-a-time run produced.  The walk ahead of it is serial too.
 runScan :: WalkOptions -> [FilePath] -> IO ()
 runScan opts roots = do
   started <- getCurrentTime
@@ -38,14 +43,14 @@ runScan opts roots = do
   let paths = sort (foundFiles found)
       dirErrs = sort (foundDirErrs found)
       derived = sort (foundDerived found)
-  totals <- foldM visitFile emptyTotals paths
-  finished <- getCurrentTime
-  let secs = realToFrac (diffUTCTime finished started) :: Double
-  report roots (length paths) totals dirErrs derived secs
-  where visitFile t path = do
-          result <- scanFile path
-          let t' = merge t path result
-          t' `seq` pure t'
+  walked <- getCurrentTime
+  results <- mapFilesConcurrently scanFile paths
+  let totals = foldl' visitFile emptyTotals (zip paths results)
+  finished <- totals `seq` getCurrentTime
+  let elapsed from to = realToFrac (diffUTCTime to from) :: Double
+  report roots (length paths) totals dirErrs derived
+         (elapsed started walked) (elapsed started finished)
+  where visitFile t (path, result) = merge t path result
 
 -- Per-file scan
 
@@ -234,9 +239,12 @@ capped old new
 
 -- Reporting
 
-report :: [FilePath] -> Int -> Totals -> [(FilePath, Text)] -> [FilePath] -> Double
-       -> IO ()
-report roots files t dirErrs derived secs = do
+-- | The run's summary.  WALKSECS is how much of SECS the serial directory walk
+-- took, which is the half of the wall the pool cannot touch — worth a row of
+-- its own now that the reads are parallel and the walk stays serial.
+report :: [FilePath] -> Int -> Totals -> [(FilePath, Text)] -> [FilePath]
+       -> Double -> Double -> IO ()
+report roots files t dirErrs derived walkSecs secs = do
   TIO.putStrLn ("scan " <> T.intercalate " " (map T.pack roots))
   mapM_ TIO.putStrLn
     [ row "dirs scanned"    (num (length roots))
@@ -251,6 +259,7 @@ report roots files t dirErrs derived secs = do
     , row "headlines"       (num (tHeadlines t))
     , row "span violations" (num (tViolations t))
     , row "id collisions"   (num (tCollisions t))
+    , row "walk seconds"    (fixed 2 walkSecs)
     , row "wall seconds"    (fixed 2 secs)
     , row "files/sec"       (fixed 1 rate)
     ]

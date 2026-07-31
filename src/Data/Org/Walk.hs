@@ -1,6 +1,6 @@
--- | Discovery of .org files under a set of roots.  Shared by the CLI scan and
--- the 'Glance.Query' loader so both see the same file set; each adds its own
--- reporting on top.
+-- | Discovery of .org files under a set of roots, and the pool that reads
+-- them.  Shared by the CLI scan and the 'Glance.Query' loader so both see the
+-- same file set and cross it the same way; each adds its own reporting on top.
 --
 -- One thing the walk refuses by default: org-glance's own derived mirrors.
 -- @org-glance@ keeps a canonical store under @.org-glance\/data\/@ and writes
@@ -23,11 +23,15 @@ module Data.Org.Walk ( Found (..)
                      , isDocument
                      , isOrg
                      , isSidecar
+                     , mapFilesConcurrently
                      ) where
 
+import Control.Concurrent (getNumCapabilities)
+import Control.Concurrent.Async (replicateConcurrently)
 import Control.Exception (IOException, try)
 import Control.Monad (foldM)
-import Data.List (tails)
+import Data.IORef (atomicModifyIORef', newIORef)
+import Data.List (sortOn, tails)
 import Data.Text (Text)
 import System.Directory (doesDirectoryExist, doesFileExist, listDirectory, pathIsSymbolicLink)
 import System.FilePath (splitDirectories, takeExtension, takeFileName, (</>))
@@ -147,6 +151,58 @@ keepDirErr path why acc = acc { foundDirErrs = (path, why) : foundDirErrs acc }
 
 keepDerived :: FilePath -> Found -> Found
 keepDerived path acc = acc { foundDerived = path : foundDerived acc }
+
+-- Reading what the walk found
+
+-- | ACT over each of PATHS on a pool of 'getNumCapabilities' workers, answering
+-- in the order PATHS gave them whatever order they finished in.  The loader
+-- ('Glance.Query.loadDirFilesWith') and the CLI scan share this one pool; the
+-- walk above stays serial, and a single path skips the pool entirely, which is
+-- the shape of the file watch's re-read.
+--
+-- WHY THIS PARALLELIZES AT ALL: there is no shared parse state to race over.
+-- Every file is parsed from 'Data.Org.defaultContext' — the per-file context
+-- invariant (docs\/invariants.md, Parser) — so one file's @#+TODO:@ line cannot
+-- reach another's headlines whichever thread reads it, no accumulator threads
+-- between files, and nothing in the parser or the AST is mutable.  The serial
+-- loop was already a map over independent reads; this only decides which
+-- capability runs each one.
+--
+-- Two rules the callers rest on.
+--
+-- ORDER: workers pull from one queue and tag what they took, so the answer is
+-- reassembled by index and is record for record what a serial run produced.
+-- Id resolution ('Glance.Query.resolveIds' is first-wins), the served row
+-- order and the scan's capped failure listings all read that sequence, so
+-- completion order must not be able to reach any of them.
+--
+-- FORCING: ACT must return a value it has already forced — both callers end in
+-- an 'Control.Exception.evaluate' — so a worker's transient document dies with
+-- the file rather than in the caller's fold, and in-flight memory is the pool's
+-- width times one document rather than the tree.
+mapFilesConcurrently :: (FilePath -> IO a) -> [FilePath] -> IO [a]
+mapFilesConcurrently act paths = case paths of
+  []    -> pure []
+  [one] -> (: []) <$> act one
+  _more -> do
+    width <- getNumCapabilities
+    if width <= 1 then mapM act paths else pooled width
+  where
+    -- Workers past the last path find the queue empty and stop, so a tree with
+    -- fewer files than capabilities needs no special case.
+    pooled width = do
+      queue <- newIORef (zip [0 :: Int ..] paths)
+      taken <- replicateConcurrently width (drain queue)
+      pure (map snd (sortOn fst (concat taken)))
+    drain queue = go []
+      where go acc = do
+              next <- atomicModifyIORef' queue pop
+              case next of
+                Nothing        -> pure acc
+                Just (i, path) -> do y <- act path
+                                     go ((i, y) : acc)
+    pop []            = ([], Nothing)
+    pop (item : more) = (more, Just item)
 
 -- | Is PATH a file this walk reads?  An @.org@ name that is not one of Emacs's
 -- sidecars.  The watch asks this same question of an inotify event, through the

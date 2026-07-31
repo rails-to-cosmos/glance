@@ -178,9 +178,9 @@ Exit:
       first event, which pays for the cold read). The debounce is 100 ms of
       that; the parse is 4 ms. Delete direction: **105 ms**, three of three.
 - [x] Daemon restart: browser re-attaches and re-syncs the full view
-      unattended. Every close leads through one door — the shell re-fetches
-      `/headlines`, remounts, and reconnects, backing off 1 s → 30 s. That
-      covers a restart, a dropped slow client, and `view-changed` alike.
+      unattended. The shell re-fetches `/headlines` and reconnects, backing off
+      1 s → 30 s. *Revised since:* only `view-changed` remounts; a restart and a
+      `resync` revalidate and keep the mount. See docs/invariants.md.
 - [x] Create + delete file cases handled (row appears / disappears). Actual,
       against a live server over a scratch directory: a new two-headline file →
       `upsert-row` ×2; `rm` of it → `delete-row` ×2; a `#+TODO:` line
@@ -197,7 +197,9 @@ and a directory loaded in one call produce the same rows in the same order —
 which a test asserts and which is why `/headlines` is still byte-for-byte S3's
 document (3057971 B, 13344 rows, same `X-Glance-*` counts).
 
-**The store.** One walk at startup (**15 s**, 6308 files, 13344 rows), kept in a
+**The store.** One walk at startup (**15 s**, 6308 files, 13344 rows — 14.2 s
+since the reads went parallel, and the walk is nearly all of what is left; see
+"Parallel startup index" below), kept in a
 `TVar` keyed by path so `Map.elems` is walk order. `/headlines` renders it:
 **0.087–0.110 s** warm over loopback, against 14.53 s at S3 — the same bytes,
 150× faster. Residency is the price: **593 MB** RSS for the ~/sync store, since
@@ -218,15 +220,22 @@ applies the bootstrap over it.
 TODO keyword, which moves the state column's badge palette. SCHEMA.md streams
 rows; columns are initial-view only, and there is no op for this. Inventing one
 would put this producer outside the contract it exists to prove, so the server
-sends a websocket close with reason `view-changed` and the client's reconnect
-path re-fetches the whole view. Cheap, honest, and it reuses the restart path
-that had to exist anyway.
+sends a websocket close with reason `view-changed` and the client re-fetches the
+whole view. Cheap, honest, and it reuses the restart path that had to exist
+anyway. *Revised since:* it no longer shares that path — a remount is what
+`view-changed` alone gets, every other close being a revalidation that keeps the
+mount.
 
 **Decision: drop slow clients, never block the watcher.** Each socket has a
-bounded 256-frame mailbox, filled from the same STM transaction that updates the
-store. A mailbox with no room drops its client rather than retrying the
-transaction; the socket closes and the client resyncs on reconnect. Losing a
-stalled reader's frames is recoverable, stalling the file watch is not.
+bounded mailbox, filled from the same STM transaction that updates the store. A
+mailbox with no room drops its client rather than retrying the transaction; the
+socket closes and the client resyncs on reconnect. Losing a stalled reader's
+frames is recoverable, stalling the file watch is not.
+
+*Revised since:* the mailbox is 1024 frames and the close is named `resync`.
+S5's 256 was sized for one editor's save; an Emacs bulk write is a step per
+file with nothing coalescing across them, and overran it every few seconds.
+See docs/invariants.md.
 
 **Parse failure keeps the file's rows.** `orgParse` is all-or-nothing, so a save
 caught mid-write is indistinguishable from a file whose headlines all vanished.
@@ -757,6 +766,58 @@ numbers stand as measurements of a wider walk rather than as a regression to
 explain. Id collisions over the same tree: 522 with the mirrors, 9 without, and
 those nine are genuine duplicates between real files. `--include-derived`
 reproduces the old walk on `serve`, `desktop` and `scan`.
+
+## Parallel startup index (landed 2026-07-31) — and where the wall actually is
+
+The startup walk was 15–17 s over ~/sync and the whole of it ran on one thread.
+Per-file loading was already the shape of the code and the per-file
+`defaultContext` rule means two files share no parse state, so the reads move to
+a pool with nothing else moving with them: `Data.Org.Walk.mapFilesConcurrently`,
+`getNumCapabilities` workers over one queue, results reassembled by input index,
+each worker forcing its rows before it returns. One implementation, two callers
+— `Glance.Query.loadDirFilesWith` (so `loadDir`, `loadDirWith` and the store's
+`loadStoreWith` come with it) and `app/Scan.hs`. The file watch still reads one
+file on the calling thread and never touches the pool. Determinism is asserted
+rather than argued: `loadDirFilesSerially` is the same load with the pool taken
+out, and `TestQuery`'s "Parallel load" group compares the two record for record.
+Dependency cost: `async`, on `glance-internal` alone.
+
+Measured on this machine — 8 cores, warm page cache, medians of three:
+
+| | before | after |
+| --- | --- | --- |
+| `serve --dir ~/sync/views` → `loaded:` (6072 files) | 3.8 s | **1.7 s** |
+| `serve --dir ~/sync` → `loaded:` (6290 files) | 17.0 s | **14.2 s** |
+| `scan ~/sync` wall | 14.75 s | 14.36 s |
+| `scan ~/sync`, the per-file half alone | ~3.2 s | **1.2 s** |
+| `scan ~/sync` max residency (`+RTS -s`) | 24.4 MB | 38.5 MB |
+
+The per-file half is 2.7× faster on eight cores and the rows are identical
+(12863 for `serve`, 12872 headlines and 0 span violations for `scan`). What the
+table also says is that the 2–4 s target was met on ~/sync/views and missed on
+~/sync by a factor of four, and the reason is the half this work did not touch:
+**the serial walk is 11.8–13.5 s of the ~/sync run.** ~/sync holds 6290 org
+files inside 89874 directories and 702962 entries, and ~/sync/views holds almost
+as many files inside ~8700 directories — which is the whole of the difference
+between 1.7 s and 14.2 s. `scan` now prints a `walk seconds` row so the two
+halves are never again read as one number.
+
+The walk costs ~15 µs an entry against `find`'s ~0.5: two `stat`s per entry
+(`doesDirectoryExist`, then `pathIsSymbolicLink` on every directory), `String`
+marshalling on each, and `isDerived` re-splitting the whole path, which
+`--include-derived` short-circuits for ~1 s of the total. It also gets slower as
+`-N` rises (11.9 s at `-N1`, 13.5 s at `-N8`) with GC steady at 1.0 s elapsed at
+either width, so that cost sits in the syscalls too. That penalty eats most of the
+pool's gain on `scan`, which is why `scan`'s wall barely moves while `serve`'s
+drops 2.8 s. The next lever is one `getSymbolicLinkStatus` per entry answering
+both questions, and it moves the symlinked-directory rule
+(`docs/invariants.md`, Walk), so it is a decision rather than a tidy-up.
+
+Residency is the price and it is the priced-in one: pool width × one document,
+measured at 21.9 MB (`-N1`), 23.4 (`-N2`), 28.9 (`-N4`), 37.8 (`-N8`) — linear
+at ~2.3 MB a worker, which is the model rather than a leak. The flat ~19 MB the
+scan budget used to name was a single-threaded figure; it is quoted with a width
+now.
 
 ## Dependency order
 

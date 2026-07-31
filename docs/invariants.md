@@ -228,9 +228,57 @@ on.
 - **Strictness discipline.** Every accumulator forced per step (`$!`, strict
   fields, `seq`); `forceResult` inside `evaluate` + `try` so one pathological
   file cannot abort the run and no thunk retains a document. History: the
-  first walk version retained 1.4 GB; budget is ~19 MB max residency.
-  Invisible to `cabal test` — only `glance scan ~/sync` exposes regressions.
-  **comment + docs**
+  first walk version retained 1.4 GB; the budget was ~19 MB max residency while
+  the reads were serial and is now pool width × one document — see the parallel
+  entry below for the measured curve. Invisible to `cabal test` — only
+  `glance scan ~/sync` exposes regressions. **comment + docs**
+- **The per-file reads run on a pool, and three rules make that safe.**
+  `Data.Org.Walk.mapFilesConcurrently` is one implementation with two callers:
+  `Glance.Query.loadDirFilesWith` (hence `loadDir`, `loadDirWith` and
+  `Glance.Web.Store.loadStoreWith`) and `app/Scan.hs`'s fold. The walk ahead of
+  it stays serial, and so does every fold behind it.
+
+  WHY IT PARALLELIZES AT ALL: there is no shared parse state. Every file is
+  parsed from `defaultContext` — the per-file context invariant under Parser,
+  restated here because it is what this rests on — so no context, accumulator or
+  mutable structure threads between two files, and the serial version was
+  already a map over independent reads. Give the loader a shared long-lived
+  context and this stops being a scheduling choice and becomes a race.
+
+  BOUND: `getNumCapabilities` workers, no more, pulling from one queue. A path
+  list of one skips the pool outright (the file watch's shape,
+  `Glance.Web.Watch.reload`, which calls `loadFile` directly and never reaches
+  this at all); a runtime with one capability takes the serial loop.
+
+  DETERMINISM: workers tag what they take with its index and the answer is
+  reassembled by that index, so a parallel load is record for record the serial
+  one whatever order the reads finished in. Three things read that sequence and
+  would each answer differently off completion order: `resolveIds` is first-wins
+  over it, the store is keyed by path so `Map.elems` reproduces it, and the
+  scan's `capped` failure listings keep the first twenty of it.
+  `loadDirFilesSerially` is the same load with the pool removed and is exported
+  for the assertion — `TestQuery`'s "Parallel load" group compares the two
+  record for record over a forty-document fixture carrying one failure of each
+  kind, and re-runs the whole load five times to pin the id-resolution winner.
+
+  FORCING: a worker forces its rows before returning — `loadFile` now ends in
+  `forcing rs (Right rs)` under `evaluate` rather than handing back a thunk over
+  the parse, and `scanFile` already forced inside `evaluate`. Without it the
+  workers would build thunks in parallel and the caller's fold would do the work
+  serially, so this is what makes the parallelism real; it is also what bounds
+  in-flight memory to the pool's width times one document rather than the tree.
+  Measured over ~/sync (6290 files, `+RTS -s`, 2026-07-31): 21.9 MB at `-N1`,
+  23.4 at `-N2`, 28.9 at `-N4`, 37.8 at `-N8` — linear in the width at ~2.3 MB a
+  worker, which is the model holding rather than a leak. The flat ~19 MB figure
+  the budget used to name is a `-N1` number and does not survive a pool; quote
+  the width with it. **test** (equality, buckets, determinism, the narrow-tree
+  edge) / **docs** (the residency curve, which no test measures)
+- **The pool needs the threaded runtime, and both stanzas carry it.** The
+  executable and the test suite are built `-threaded -rtsopts -with-rtsopts=-N`.
+  Under a non-threaded runtime `getNumCapabilities` is 1 whatever `-N` says, the
+  pool degrades to the serial loop, and every assertion above still passes — the
+  failure mode is silence, so `TestQuery` asserts `rtsSupportsBoundThreads`
+  rather than trusting the stanza. **test**
 - **Forcing is necessary and not sufficient — residency needs `T.copy`.** A
   `Text` slice shares the array it was cut from, so a forced cell still pins the
   whole document. `Glance.Query.detach = T.copy` is what actually bounds it, and
@@ -349,6 +397,24 @@ on.
   reports `1` for a tree of any size, and `glance scan a b c` reports `3` even
   when `a` is a plain file. Read it as "arguments accepted", not as coverage.
   **none**
+- **The serial walk is most of the wall, and the row that says so is new.**
+  Measured 2026-07-31 over ~/sync, which is 6290 `.org` files inside 89874
+  directories and 702962 entries: the walk is 11.8–13.5 s of a 13.6–15.4 s
+  `glance scan`, and the parallel read of every file is 1.2 s of it. `serve` is
+  the same shape — 14.2 s to `loaded:` over ~/sync against 1.7 s over
+  ~/sync/views, which holds almost the same file count inside a tree of ~8700
+  directories. So a corpus's cost here is its DIRECTORY count, and the pool
+  cannot touch that half; `scan`'s `walk seconds` row exists to keep the two
+  apart. Two further facts, both measured: the walk costs ~15 µs an entry
+  against `find`'s ~0.5, which is two `stat`s per entry
+  (`doesDirectoryExist` then `pathIsSymbolicLink`) plus `String` marshalling
+  plus `isDerived` re-splitting the path — `--include-derived`, which
+  short-circuits that last one, takes ~1 s off; and it gets SLOWER as `-N` rises
+  (11.9 s at `-N1`, 13.5 s at `-N8`) with GC steady at 1.0 s elapsed either way,
+  so that cost sits in the syscalls. The lever, when this is worth pulling, is one
+  `getSymbolicLinkStatus` in `visit` answering both questions, and it would move
+  the symlinked-directory rule above, so it is a decision rather than an
+  optimization. **docs**
 - **One row per id, and the canonical file wins it.** A row id is what a
   renderer keys updates off (SCHEMA.md), so two rows cannot share one: the
   second would overwrite the first on every frame while the table showed the
@@ -509,12 +575,25 @@ on.
   answers a stronger question — which file wins, where the count said only how
   many claim it — so the field, its projection and its half of `stepIndex`'s two
   callers went with it. `stTags` remains, and remains a count of FILES per tag.
-- **A slow client is dropped and the watcher waits for no one.** Frames go into each socket's
-  bounded 256-frame mailbox from the same STM transaction that updates the
-  store. A full mailbox drops that client instead of retrying the transaction:
-  a stalled reader's frames are recoverable (it resyncs on reconnect), a stalled
-  file watch is not. Evidence: `TestStore` "a client that stops reading is
-  dropped". **test**
+- **An overflowing mailbox is a resync, and the watcher waits for no one.**
+  Frames go into each socket's bounded 1024-frame mailbox from the same STM
+  transaction that updates the store. A full mailbox abandons that client's
+  backlog and unregisters it instead of retrying the transaction: a stalled
+  reader's frames are recoverable (one `/headlines` says everything any backlog
+  could have), a stalled file watch is not. The close that follows is named
+  `resync` for exactly that, and the shell answers it by revalidating rather
+  than remounting — so a storm costs rows and never the page. Two things about
+  the size. It is counted in frames and `publish` coalesces WITHIN a step, so
+  one file's save is one transaction and a handful of frames; the overflow that
+  motivated the raise from 256 is across a BURST of steps, which an editor
+  writing a directory produces one per file and nothing coalesces. And the
+  backlog is never drained on the way out — `nextFrame` reads `clDropped` before
+  the queue, and the queue goes with the `Client` — so the cut is O(1) inside
+  the transaction. Evidence: `TestStore` "a client that stops reading is
+  dropped", "a burst four times the old mailbox is still delivered", "a burst of
+  steps overflows, and the resubscribe is the whole store"; live over a 3000-file
+  tree with the reader's receive window pinned at 4 KB, which closed with
+  `resync` after 319 frames and revalidated 200 then 304. **test + live**
 - **The bootstrap is taken where subscription happens.** `subscribe` registers
   the mailbox and snapshots the store in one transaction, so no update can land
   between the two and no journal is needed to catch a client up. Split them and
@@ -930,10 +1009,50 @@ on.
   textarea that stops iOS zooming in and never zooming back out. Keeping them in
   one block is what makes "a mouse sees none of this" checkable by reading a
   single place, and the tap handler asks the same query before it runs. **test**
-- **The server closes a socket for exactly two reasons, and names them.**
-  `dropped-slow-client` when a bounded mailbox fills, `view-changed` when the
-  columns move. Those two strings are the whole vocabulary of a server-initiated
-  close, and the client's reconnect path is the same for both. **test**
+- **The server closes a socket for exactly two reasons, and the client answers
+  them differently.** `resync` when a bounded mailbox fills — named for what the
+  client owes, since the backlog behind it is gone and one `/headlines` carries
+  everything it would have said — and `view-changed` when the columns move.
+  Those two strings are the whole vocabulary of a server-initiated close. Only
+  `view-changed` remounts. Everything else — `resync`, a restarted daemon, a
+  dead network — revalidates `/headlines` for the applied query against the tag
+  the last answer carried, re-attaches, and leaves the page standing: the sheet
+  open, the palette up, the selection where it was, the URL untouched. 304 means
+  the rows on screen are still the answer; 200 replaces them under the same
+  mount. The old arrangement — one door for both, `start()` — is what a user
+  reported as "a periodic page refresh resetting filters and popups", since an
+  Emacs bulk write overran the mailbox every few seconds and each overrun cost
+  the mount. Evidence splits by half. The CLIENT's two answers are pinned by
+  `TestServe` "Shell reconnect", where the harness delivers each reason and the
+  mount count is what the cases assert. The SERVER's two strings are `pump`'s
+  literals, reachable only over a real socket, and are live-verified by the
+  storm under the mailbox invariant; a suite-level claim on them would be a
+  string search over Haskell. **test (client) + live (server)**
+- **A cheap reconnect still checks the columns.** The reason a socket closed is
+  not enough to decide the mount can be kept: a daemon restarted while the page
+  was away had no socket to send `view-changed` down, and its palette can have
+  moved anyway. So a 200 on the revalidation compares the fetched columns to the
+  mounted ones — whole, by `JSON.stringify`, because the state column's badge
+  palette rides inside them and a key-by-key check would miss it — and takes the
+  remount door when they differ. A 304 needs no check: the generation did not
+  move, so nothing in the view did. **test** (`TestServe` "columns that moved
+  rebuild the mount, close reason or none")
+- **A real remount carries the sheet and the palette across it.** The table is
+  `#app`'s and goes when the mount is replaced; the palette is the renderer's
+  chrome inside it and goes with it; the sheet is a SIBLING of `#app` and
+  survives by where it sits — which is a fact about the layout rather than a
+  promise, so the shell stashes and restores both explicitly and depends on
+  neither. What is stashed is unsaved work only: a dirty sheet's `{id, text,
+  digest}`, and the palette's typed text when its field has focus, which is the
+  whole of what the shell may know about an overlay whose lifecycle is the
+  renderer's. The restore re-reads the sheet's digest with a `GET` rather than
+  carrying the stashed one over: a file that moved while the mount was rebuilt
+  lands at `conflict`, where `C-x C-s` overwrites deliberately and `ESC`
+  discards. Flushing against a digest the page merely remembers would be the
+  silent overwrite that flow exists to stop, and dropping the text would be the
+  loss. **test** (`TestServe` "view-changed mid-edit rebuilds the mount and keeps
+  the sheet's text", "a sheet restored over a moved file lands in the conflict
+  flow", "Shell palette")
 - **The wire is built in `Glance.Query`, out of spans.** The public library
   exposes that one module over the private `glance-internal` sublibrary, so no
   outside target can name `Data.Org.*` at all. Title and tag cells are sliced
@@ -990,13 +1109,25 @@ on.
   piece of chrome a reader navigates by position. **test**
 - **The applied filter query is in the URL, and `DEL` is its backspace.** A
   commit writes `?q=` with `replaceState` and leaves `keys` where it is, so a
-  filtered view is a link, a reload keeps it, and a reconnect comes back to it
+  filtered view is a link, a reload keeps it, and a remount comes back to it
   rather than to the whole store. `DEL` over the table drops the query's last
   token — through the renderer's `stripLastToken`/`getQuery`, never by
   recomposing the string here: the committed tokens are chips the renderer
   draws, and a shell-side strip would leave them on screen spelling a filter
   that is no longer applied. An asset without the pair says so instead of
   growing a second implementation. **test**
+- **An EMPTY applied query is written too, and that is what makes it intent.**
+  `remember` sets `q` unconditionally, so clearing the filter leaves `?q=` —
+  present and empty — where deleting the parameter would leave the same URL a
+  page nobody has filtered opens on. `bootQuery` reads exactly that difference:
+  absent gets `state:*active*` injected, present gets left alone whatever it
+  holds. The two are indistinguishable the moment the parameter is deleted, so
+  `DEL`-ing the last chip and then hitting any remount put the default straight
+  back — the "filters reset themselves" half of the reported bug, and the half a
+  cheap reconnect alone would not have fixed, since a reload is a remount
+  nothing can make cheap. **test** (`TestServe` "DEL over the table strips the
+  default and shows everything" settles on `?q=`, and its deep-link twin on
+  `?q=&keys=vim`; the `?q=` boot rows pin the absent-vs-present read)
 - **A filtered answer of zero to a virtual key is checked against the rows the
   page holds.** The renderer suggests keys from the vocabulary it derives; the
   server parses with the vocabulary it derives; if the two are different

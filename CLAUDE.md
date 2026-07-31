@@ -84,16 +84,22 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 ## Scan
 
 - Every accumulator is forced at each step; `forceResult` runs inside
-  `evaluate` + `try`. Budget: ~19 MB max residency over 6290 files. `Cursor`
-  assumes non-decreasing span starts.
+  `evaluate` + `try`. Budget: pool width × one document, 21.9 MB at `-N1` and
+  37.8 MB at `-N8` over 6290 files. `Cursor` assumes non-decreasing span starts.
+- Per-file reads run on a pool of `getNumCapabilities`
+  (`Data.Org.Walk.mapFilesConcurrently`, one implementation for
+  `Glance.Query.loadDirFilesWith` and the scan): sound because every file parses
+  from `defaultContext` and shares no state, deterministic because results
+  reassemble by input index, bounded because each worker forces before
+  returning. The walk itself stays serial and is most of the wall.
 - Forcing alone does not bound residency: a `Text` slice shares the document's
   array, so cells are `T.copy`'d out of it (`Glance.Query.detach`). `hrHeadline`
   and `hrDoc` deliberately keep the document, which is why a loaded store still
   retains what it parsed.
 - Corpus check: `cabal run -v0 glance -- scan ~/sync` — expect 0 span
-  violations, ~12.9k headlines, wall ~14 s warm. (2026-07-31: 13.4k → 12.9k
-  when the derived mirrors left the walk; a semantic correction rather than a
-  loss.)
+  violations, ~12.9k headlines, wall ~14 s warm of which the `walk seconds` row
+  is ~13. (2026-07-31: 13.4k → 12.9k when the derived mirrors left the walk; a
+  semantic correction rather than a loss.)
 - The `GLANCE_CORPUS` groups still PASS when the variable is unset, and say so:
   `TestDefaults.withCorpusSample` prints `SKIPPED — GLANCE_CORPUS is unset` on
   stderr for each. A green run without those two lines answered is unverified on
@@ -217,8 +223,12 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   The bootstrap `set-rows` is snapshotted inside the subscribing
   transaction, so there is no journal and no gap; `?bootstrap=off` drops that
   frame for a client that already fetched the rows, and trades the gap for it.
-  A client whose bounded mailbox fills is dropped — the watcher never waits on a
-  browser.
+  A client whose bounded 1024-frame mailbox fills loses its backlog and its
+  registration — the watcher never waits on a browser — and the close is named
+  `resync`, since one `/headlines` carries everything the backlog would have.
+  The size is counted in frames and `publish` coalesces within a step, so what
+  overruns it is a BURST of steps: an editor writing a directory is one step per
+  file and nothing coalesces across them.
 - The public library exposes `Glance.Query` alone over the private
   `glance-internal` sublibrary; cells are sliced from spans and the view
   `Value` is hand-built — no `ToJSON` on an internal type
@@ -382,9 +392,22 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - Every touch-device rule lives in ONE `@media (pointer:coarse)` block — the
   chip row as a 44px tap target, its empty-state label, and the sheet's 16px
   textarea that stops iOS zooming in.
-- A client whose mailbox fills is closed with the reason `dropped-slow-client`;
-  a column change closes with `view-changed`. Those two strings are the whole
-  vocabulary of a server-initiated close.
+- A client whose mailbox fills is closed with the reason `resync`; a column
+  change closes with `view-changed`. Those two strings are the whole vocabulary
+  of a server-initiated close, and the client answers them differently. Only
+  `view-changed` remounts. Everything else revalidates `/headlines` for the
+  applied query against the tag the last answer carried (`If-None-Match`,
+  `cache: no-store` so the 304 is this page's and not the browser cache's),
+  re-attaches, and keeps the mount — sheet, palette, selection, URL. 304 means
+  the rows on screen still stand; 200 replaces them in place. A 200 also
+  compares the fetched columns to the mounted ones (whole, by `JSON.stringify`,
+  since the badge palette rides inside them) and remounts when they differ: a
+  daemon restarted while the page was away had no socket to send `view-changed`
+  down. Across a real remount the shell stashes and restores a dirty sheet
+  (`{id, text, digest}`) and the palette's typed text, re-reading the sheet's
+  digest with a `GET` so a file that moved lands at `conflict` rather than being
+  overwritten. One door for both closes is what a user reported as "a periodic
+  page refresh resetting filters and popups".
 - The parity tripwire is loose in one direction. It only fires when the server
   returns zero, so the opposite skew is never reported; the local recount drops
   the key and tests the value against the whole row text, so a correct empty
@@ -439,7 +462,11 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - The applied filter query is in the URL (`replaceState`, `keys` preserved) and
   applied from it on load. `DEL` over the table drops the query's last token
   through the renderer (`stripLastToken`/`getQuery`) — the chips are the
-  renderer's, so the strip is too.
+  renderer's, so the strip is too. `remember` writes `q` unconditionally, so an
+  emptied query leaves `?q=` present-and-empty: that is what `bootQuery` reads
+  as intent and leaves alone, where an ABSENT `q` gets the default injected.
+  Deleting the parameter instead made a cleared filter come back filtered on the
+  next remount.
 - One status corner, top right, in this order: the connection dot (`live` /
   `wait` / `down`), `themesel`, `keysel`. Both are native `<select>`s — one over
   `auto`/`light`/`dark`, one over the keymap blob's movement profiles — and a
