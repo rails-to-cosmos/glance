@@ -71,11 +71,12 @@ import Numeric.Natural (Natural)
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import qualified Data.Text as T
 
-import Glance.Query ( HeadlineRecord (hrId, hrKeywords, hrTags), LoadFailure (..)
+import Glance.Query ( HeadlineRecord (hrDigest, hrId, hrKeywords, hrTags), LoadFailure (..)
                     , QueryResult (..), TodoKeywords, WalkOptions, defaultWalk
-                    , loadDirFilesWith, mergeKeywords, resolveIds, rowJSON
-                    , tagsOfCell )
+                    , digestOfText, loadDirFilesWith, mergeKeywords, resolveIds
+                    , rowJSON, tagsOfCell )
 
 -- The store
 
@@ -84,10 +85,10 @@ import Glance.Query ( HeadlineRecord (hrId, hrKeywords, hrTags), LoadFailure (..
 -- unlistable later is not noticed until a restart.
 data Store = Store
   { stFiles   :: !(Map FilePath FileEntry)  -- ^ path-keyed, hence walk-ordered.
-  , stIds     :: !(Map Text Int)            -- ^ row id → how many files carry it.
   , stTags    :: !(Map Text Int)            -- ^ org tag → how many files carry it; see 'storeTags'.
   , stDirErrs :: !Int                       -- ^ directories the startup walk could not list.
   , stGen     :: !Int                       -- ^ update counter; see 'guarded'.
+  , stPrint   :: !Text                      -- ^ which tree this is; see 'fingerprintOf'.
   }
 
 -- | What the store holds for one file: the rows it contributes, and how its
@@ -99,19 +100,43 @@ data FileEntry = FileEntry
   }
 
 emptyStore :: Store
-emptyStore = Store Map.empty Map.empty Map.empty 0 0
+emptyStore = Store Map.empty Map.empty 0 0 ""
 
 -- | DIR walked and parsed into a store: the same files 'Glance.Query.loadDir'
 -- visits, with the per-file breakdown kept instead of folded into counts.
 loadStore :: FilePath -> IO Store
 loadStore = loadStoreWith defaultWalk
 
--- | 'loadStore' over the tree OPTS asks for.
+-- | 'loadStore' over the tree OPTS asks for.  The fingerprint is taken here,
+-- over the finished store: it says which tree this is, and the walk is the one
+-- moment the answer is known to be the directory's.
 loadStoreWith :: WalkOptions -> FilePath -> IO Store
 loadStoreWith opts dir = do
   (files, dirErrs) <- loadDirFilesWith opts dir
-  pure $! foldl' seed (emptyStore { stDirErrs = dirErrs }) files
-  where seed st (path, outcome) = fst (putFile path outcome st)
+  let loaded = foldl' seed (emptyStore { stDirErrs = dirErrs }) files
+  pure $! loaded { stPrint = fingerprintOf loaded }
+  where seed st (path, outcome) = putFile path outcome st
+
+-- | What tree ST is: one digest over every file's path and the digest of the
+-- bytes it was parsed from ('Glance.Query.hrDigest', pinned at load).  Files
+-- fold in path order, so the value describes the tree rather than the walk that
+-- found it, and two loads of identical trees print identically.
+--
+-- This is the half of the @ETag@ that survives a restart.  'stGen' starts at
+-- zero in every process, so a tag of the generation alone tells a client
+-- holding @\"g0\"@ from a daemon that has since been restarted over a rewritten
+-- tree that nothing has changed.  Pairing the two answers both questions: the
+-- fingerprint says which tree, the generation says how far it has moved since
+-- it was loaded.
+--
+-- A file that contributed no rows — empty, or a load that failed — has no
+-- digest of its own and stands as its path alone.  It contributes no rows to a
+-- response either, so nothing a client can see hides behind the tag.
+fingerprintOf :: Store -> Text
+fingerprintOf st =
+  digestOfText (T.unlines [ T.pack path <> "\t" <> stamp entry
+                          | (path, entry) <- Map.toAscList (stFiles st) ])
+  where stamp = maybe "" hrDigest . listToMaybe . feRecords
 
 -- | Every row the store holds, in walk order, before the id resolution — what
 -- the files say, duplicates and all.
@@ -145,13 +170,12 @@ storeResult st = QueryResult
 -- text that extent was measured in, which is what makes a write back to it
 -- drift-checkable.
 --
--- A scan of the store rather than an index: 'stIds' counts ids to decide
--- deletions and holds no records, and an index that held them would be a
--- second structure to keep in step with 'stFiles' on every reload.  The scan
--- is ~2.4 ms over the 13359-row ~/sync store, which is most of a materialize
--- request and none of a user's attention; it is the lever if @\/headline@ ever
--- lands in a loop.  It runs over the resolved rows, so materializing an id two
--- files claim opens the one the table is showing.
+-- A scan of the store rather than an index: an index by id would be a second
+-- structure to keep in step with 'stFiles' on every reload, and 'resolvedRows'
+-- shows what the scan costs — ~2.4 ms over the 13359-row ~\/sync store, which is
+-- most of a materialize request and none of a user's attention.  It is the
+-- lever if @\/headline@ ever lands in a loop.  It runs over the resolved rows,
+-- so materializing an id two files claim opens the one the table is showing.
 storeHeadline :: Text -> Store -> Maybe HeadlineRecord
 storeHeadline rid = find ((== rid) . hrId) . storeRecords
 
@@ -159,9 +183,9 @@ storeHeadline rid = find ((== rid) . hrId) . storeRecords
 -- SCHEMA.md's virtual filter keys: each of these is a filter key of its own, so
 -- @contact:tanik@ narrows to rows tagged @contact@ that also match the text.
 --
--- Kept as a count per tag beside the id index rather than folded out of the
--- rows per request: the vocabulary is asked for on every @\/headlines@ and the
--- rows are 13k of them.  It moves only when a file's rows do, which is exactly
+-- Kept as a count per tag beside the rows rather than folded out of them per
+-- request: the vocabulary is asked for on every @\/headlines@ and the rows are
+-- 13k of them.  It moves only when a file's rows do, which is exactly
 -- when 'guarded' moves the generation the @ETag@ spells, so a client's cached
 -- answer can never be one the old vocabulary produced.
 storeTags :: Store -> [Text]
@@ -180,11 +204,11 @@ storeKeywords = mergeKeywords . mapMaybe (fmap hrKeywords . listToMaybe . feReco
 -- failure keeps the file's rows and streams nothing — nothing about them is
 -- known to have changed.
 applyFile :: FilePath -> Either LoadFailure [HeadlineRecord] -> Store -> (Store, [Frame])
-applyFile path outcome = guarded path (putFile path outcome)
+applyFile path outcome = guarded path (streamed path (putFile path outcome))
 
 -- | PATH gone from the store: every row only it carried goes with it.
 dropFile :: FilePath -> Store -> (Store, [Frame])
-dropFile path = guarded path (removeFile path)
+dropFile path = guarded path (streamed path (removeFile path))
 
 -- | STEP, with the columns watched and the generation moved.  The palette can
 -- only move when the file STEP touched changes what it declares, every other
@@ -208,62 +232,80 @@ guarded path step st = (if moved then next { stGen = stGen next + 1 } else next,
     declared = fmap hrKeywords . (listToMaybe . feRecords <=< Map.lookup path) . stFiles
     outcome  = fmap feFailure . Map.lookup path . stFiles
 
--- | PATH's outcome written into the store.  New rows and changed ones become
--- upserts, in file order; rows no file carries any more become deletes.
--- Upserts lead, so a client applying the batch never shows fewer rows than the
--- file has.
-putFile :: FilePath -> Either LoadFailure [HeadlineRecord] -> Store -> (Store, [Frame])
-putFile path outcome st = case outcome of
-  Left failure -> (st { stFiles = Map.insert path (FileEntry old (Just failure)) files }, [])
-  Right new    -> (next new, frames new)
+-- | UPDATE applied to the store, and the frames it owes for the ids under PATH.
+-- Both sides are read through the store's own id resolution, so a streamed row
+-- is the row @\/headlines@ would serve.  New and changed rows become upserts,
+-- in file order; an id gone from the RESOLVED store becomes a delete.  Upserts
+-- lead, so a client applying the batch never shows fewer rows than the store
+-- has.
+--
+-- Resolving here is the whole point.  Where two files claim one
+-- @ORG_GLANCE_ID@, an edit to the LOSING file streams the winner — which is to
+-- say nothing at all, the winner being unmoved — rather than painting the
+-- loser's cells over a row every other reader is shown differently; and a
+-- winner that goes away re-points its id at the row behind it rather than
+-- leaving a stale one until the client reconnects.
+--
+-- Cost: one pass over the store's rows per side, keeping only the ids the step
+-- touched — the same order of work as 'storeHeadline', paid per watch event
+-- rather than per request.  Measured at 5–6 ms for the whole step over a
+-- 14000-row store with a client attached, where the parse alone is 4 ms, and it
+-- buys the one thing an incremental view could not otherwise have: agreement
+-- with every other reader.
+streamed :: FilePath -> (Store -> Store) -> Store -> (Store, [Frame])
+streamed path update st = (next, upserts <> deletes)
   where
-    files   = stFiles st
-    old     = maybe [] feRecords (Map.lookup path files)
-    oldRows = rowsById old
-    next new = st { stFiles = Map.insert path (FileEntry new Nothing) files
-                  , stIds   = stepIndex idsOf old new (stIds st)
-                  , stTags  = stepIndex tagsOf old new (stTags st) }
-    frames new = upserts <> gone (idsOf old) (idsOf new) (next new)
-      where rows    = rowsById new
-            upserts = [ UpsertRow row
-                      | i <- nub (map hrId new)
-                      , Just row <- [Map.lookup i rows]
-                      , Map.lookup i oldRows /= Just row ]
+    next     = update st
+    touched  = nub (idsUnder next <> idsUnder st)
+    idsUnder = map hrId . recordsUnder path
+    before   = resolvedRows touched st
+    after    = resolvedRows touched next
+    upserts  = [ UpsertRow row | i <- touched, Just row <- [Map.lookup i after]
+                               , Map.lookup i before /= Just row ]
+    deletes  = [ DeleteRow i | i <- touched, Map.notMember i after ]
+
+-- | The row each of IDS resolves to in ST: the store's own resolution
+-- ('Glance.Query.resolveIds') over the rows carrying them, which is the call
+-- every served answer goes through.  Two rules come with using it here rather
+-- than keying one file's records by id.  Between files, a @.org-glance\/data\/@
+-- path wins and walk order breaks the rest; within one file, two headlines
+-- sharing an id leave the FIRST standing — the incumbent, since a file cannot
+-- outrank itself.  Both directions are the served view's, so a streamed row and
+-- a fetched one cannot contradict each other.
+resolvedRows :: [Text] -> Store -> Map Text Value
+resolvedRows ids st = Map.fromList [ (hrId r, rowJSON r) | r <- fst (resolveIds carrying) ]
+  where wanted   = Set.fromList ids
+        carrying = [ r | r <- storeRows st, Set.member (hrId r) wanted ]
+
+-- | The rows ST holds for PATH, or none.
+recordsUnder :: FilePath -> Store -> [HeadlineRecord]
+recordsUnder path = maybe [] feRecords . Map.lookup path . stFiles
+
+-- | PATH's outcome written into the store.  A failure keeps the rows the file's
+-- last good parse produced and records it beside them: 'Glance.Query.orgParse'
+-- is all-or-nothing, so a save caught mid-write says nothing about the
+-- headlines that were there a moment ago.
+putFile :: FilePath -> Either LoadFailure [HeadlineRecord] -> Store -> Store
+putFile path outcome st = case outcome of
+  Left failure -> st { stFiles = Map.insert path (FileEntry old (Just failure)) files }
+  Right new    -> st { stFiles = Map.insert path (FileEntry new Nothing) files
+                     , stTags  = stepIndex tagsOf old new (stTags st) }
+  where files = stFiles st
+        old   = recordsUnder path st
 
 -- | PATH's entry removed.  A file the store never held is not an error: the
 -- watcher reports every deletion it sees, including of files the walk skipped.
-removeFile :: FilePath -> Store -> (Store, [Frame])
-removeFile path st = case Map.lookup path (stFiles st) of
-  Nothing    -> (st, [])
-  Just entry -> (next, gone (idsOf held) Set.empty next)
-    where held = feRecords entry
-          next = st { stFiles = Map.delete path (stFiles st)
-                    , stIds   = stepIndex idsOf held [] (stIds st)
-                    , stTags  = stepIndex tagsOf held [] (stTags st) }
-
--- | Delete frames for the ids in OLD that NEW dropped and no file in ST still
--- carries.  Two files declaring one @ORG_GLANCE_ID@ share a row, and the
--- second of them to lose it is the one that deletes it.
-gone :: Set Text -> Set Text -> Store -> [Frame]
-gone old new st =
-  [ DeleteRow i | i <- Set.toList (Set.difference old new), Map.notMember i (stIds st) ]
+removeFile :: FilePath -> Store -> Store
+removeFile path st = st { stFiles = Map.delete path (stFiles st)
+                        , stTags  = stepIndex tagsOf (recordsUnder path st) [] (stTags st) }
 
 -- | One index with what OLD's records claimed released and what NEW's claim
--- taken, PROJ being what a file contributes to it.  The id index and the tag
--- index move identically and only the projection differs, so they share this.
+-- taken, PROJ being what a file contributes to it.
 stepIndex :: Ord k => ([HeadlineRecord] -> Set k)
           -> [HeadlineRecord] -> [HeadlineRecord] -> Map k Int -> Map k Int
 stepIndex proj old new ix = Set.foldl' claim (Set.foldl' release ix (proj old)) (proj new)
   where release m k = Map.update (\n -> if n <= 1 then Nothing else Just (n - 1)) k m
         claim   m k = Map.insertWith (+) k 1 m
-
--- | RECORDS keyed by row id, last one winning — which is how a renderer keying
--- updates off @id@ resolves a duplicate too.
-rowsById :: [HeadlineRecord] -> Map Text Value
-rowsById records = Map.fromList [ (hrId r, rowJSON r) | r <- records ]
-
-idsOf :: [HeadlineRecord] -> Set Text
-idsOf = Set.fromList . map hrId
 
 -- | The distinct tags RECORDS carry, deduplicated per file so 'stepIndex'
 -- counts files rather than rows.

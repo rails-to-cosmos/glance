@@ -16,10 +16,11 @@
 --
 -- @\/headlines@ takes @q@, @limit@ and @offset@, filters before it pages, and
 -- reports the match count and whether more follows in that same header family.
--- It carries an @ETag@ of the store's generation under @Cache-Control:
--- no-cache@, so a browser revalidates every time and pays for bytes only when
--- something in the tree moved; @gzip@ sits over the whole HTTP app.  See
--- 'headlines' for why one generation covers every query variant.
+-- It carries an @ETag@ of the tree's fingerprint and the store's generation
+-- under @Cache-Control: no-cache@, so a browser revalidates every time and pays
+-- for bytes only when something in the tree moved; @gzip@ sits over the whole
+-- HTTP app.  See 'headlines' for why one tag covers every query variant, and
+-- 'etagOf' for why the generation alone would not survive a restart.
 --
 -- Materialize is the one route that writes, and it writes through the store's
 -- own coordinates: the subtree extent and the digest of the text it was
@@ -110,7 +111,7 @@ import Glance.Query ( HeadlineRecord (hrDigest, hrFile, hrId, hrSubtree)
                     , subtreeText, viewJSONTextWith )
 import Glance.Web.Filter (matchesFilter)
 import Glance.Web.Store ( Client, Frame (ViewChanged), Hub, LoadState (..)
-                        , Store (stGen), finishLoading, frameText, hubLoad, hubStore
+                        , Store (stGen, stPrint), finishLoading, frameText, hubLoad, hubStore
                         , loadStoreWith, newLoadingHub, nextFrame, storeHeadline
                         , storeKeywords, storeResult, storeTags, subscribe
                         , unsubscribe )
@@ -348,9 +349,10 @@ safeName name = not (T.null name)
 -- the whole set itself, which is the full-fidelity mode; under a limit a
 -- client-side re-sort reorders the loaded page alone.
 --
--- Caching.  The @ETag@ is the store's generation, which the watcher moves
--- whenever a response would change, and @Cache-Control: no-cache@ makes every
--- browser revalidate rather than guess a lifetime.  One tag serves every query
+-- Caching.  The @ETag@ is the tree's fingerprint and the store's generation,
+-- which the watcher moves whenever a response would change, and
+-- @Cache-Control: no-cache@ makes every browser revalidate rather than guess a
+-- lifetime ('etagOf').  One tag serves every query
 -- variant: @q@, @limit@ and @offset@ are in the URL, and an HTTP cache is
 -- keyed by URL, so @?q=foo@ and @?q=bar@ are separate entries that each
 -- revalidate against their own stored tag.  A response is a function of
@@ -362,7 +364,7 @@ headlines opts hub request = case pageParams request of
   Left why -> pure (jsonError status400 why)
   Right (q, limit, offset) -> do
     st <- readTVarIO (hubStore hub)
-    let tag = etagOf (stGen st)
+    let tag = etagOf st
     if tag `elem` ifNoneMatch request
       then pure (responseLBS status304 (cacheHeaders tag) "")
       else do
@@ -391,10 +393,18 @@ headlines opts hub request = case pageParams request of
 limitCap :: Int
 limitCap = 20000
 
--- | GEN as an entity tag.  Opaque to a client, which only ever compares it to
--- the one it was given.
-etagOf :: Int -> BSC.ByteString
-etagOf gen = "\"g" <> BSC.pack (show gen) <> "\""
+-- | ST as an entity tag: which tree it was loaded from, and how far that tree
+-- has moved since.  Opaque to a client, which only ever compares it to the one
+-- it was given — but it has to mean the same thing across a restart, and the
+-- generation alone does not: it starts at zero in every process, so a client
+-- holding @\"g0\"@ from a daemon since restarted over a rewritten tree would be
+-- told 304 and keep a table that is no longer anywhere.  The fingerprint
+-- ('Glance.Web.Store.fingerprintOf') moves with the tree and the generation
+-- with the edits inside one process, so the pair revalidates only what is still
+-- true.  Sixteen hex digits of it: a cache key, not a signature.
+etagOf :: Store -> BSC.ByteString
+etagOf st = "\"" <> TE.encodeUtf8 (T.take 16 (stPrint st))
+              <> "-g" <> BSC.pack (show (stGen st)) <> "\""
 
 -- | The tags REQUEST would accept as unchanged.  @If-None-Match@ is a
 -- comma-separated list and each entry may be weak, so both are handled — a
@@ -958,6 +968,16 @@ shellPage opts = do
 -- @?bootstrap=off@: the rows are already here and the server's opening
 -- @set-rows@ would only send them again.
 --
+-- The page opens on a view rather than on everything: with no @q@ in the
+-- address bar the applied query is @state:*active*@, org-glance's own name for
+-- the keyword group a @#+TODO:@ line declares before the bar.  It is a query
+-- like any other — written into the URL, mounted as the renderer's chip, asked
+-- of the server — so @DEL@ takes it off and the whole store is one keystroke
+-- away.  A @q@ that IS in the address bar is the reader's own, empty or not,
+-- and nothing is injected over it.  Under either, the parity check gets its
+-- unfiltered baseline from a third fetch taken once behind the table (@arm@),
+-- since a filtered paint can never be its own control.
+--
 -- A cold daemon answers that first fetch with 503 while it walks the tree.
 -- The boot reads it as the state it is — amber dot, @indexing …@ with the
 -- elapsed seconds the body carries — and asks again a second later, so the
@@ -986,8 +1006,9 @@ shellPage opts = do
 -- the same palette through the same call.  A fine pointer sees none of it.
 --
 -- The applied query is page state.  It goes into the URL on every commit
--- (@replaceState@, leaving @keys@ where it is), so a filtered view is a link, a
--- reload keeps it and a reconnect comes back to it.  It is restored by handing
+-- (@replaceState@, leaving @keys@ where it is) and on the boot that injected
+-- the default, so a filtered view is a link, a reload keeps it and a reconnect
+-- comes back to it.  It is restored by handing
 -- it to @mount@ as @initialQuery@, which tokenizes it into the renderer's own
 -- committed chips and delivers nothing — the rows in hand are already the
 -- server's answer to it.  Every return through this door restores it the same
@@ -1155,6 +1176,17 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      if (!query) all = rows;"
   , "      parity(a.total);"
   , "    };"
+  , "    // The check needs an unfiltered set to check a filtered answer against,"
+  , "    // and this page can open filtered — a `?q=' link, or the default view"
+  , "    // below.  A paint under a query arms nothing, so a filtered session"
+  , "    // would keep the check dark for as long as it lasted.  Ask for the"
+  , "    // unfiltered set once, behind everything else, keep it as the baseline"
+  , "    // without touching the table, and re-run the check that had nothing to"
+  , "    // run against when TOTAL was painted."
+  , "    function arm(total) {"
+  , "      if (!query || all.length) return;"
+  , "      load(\"\").then((a) => { all = a.view.rows || []; parity(total); }).catch(quiet);"
+  , "    }"
   , "    // A suggestion must never silently offer what the applied path cannot"
   , "    // evaluate.  The keys that can differ between the two halves are the"
   , "    // producer's virtual ones — the columns are in the view both read — so"
@@ -1186,6 +1218,14 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    // — the grammar is the server's to parse (SCHEMA.md)."
   , "    const params = () => new URLSearchParams(location.search);"
   , "    const urlQuery = () => params().get(\"q\") || \"\";"
+  , "    // What the page opens on when the address bar says nothing: active"
+  , "    // work, in org-glance's own spelling of the group.  A `?q=' is the"
+  , "    // user's intent whatever it holds, an empty one included, so the"
+  , "    // default is injected only where there is no `q' at all — and then it"
+  , "    // is a query like any other, committed to the URL, shown as the"
+  , "    // renderer's chip and asked of the server."
+  , "    const DEFAULT_QUERY = \"state:*active*\";"
+  , "    const bootQuery = () => (params().has(\"q\") ? urlQuery() : DEFAULT_QUERY);"
   , "    function remember(q) {"
   , "      const p = params();"
   , "      if (q) p.set(\"q\", q); else p.delete(\"q\");"
@@ -1641,20 +1681,26 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      setTimeout(start, 1000);"
   , "    }"
   , "    function start() {"
-  , "      // A `?q=' in the address bar is a filtered view: the boot asks for it"
-  , "      // and `mount' opens the filter showing it.  Every return through this"
-  , "      // door — a reload, a reconnect, `view-changed', `g' — restores it the"
-  , "      // same way, since they all re-fetch and re-mount."
-  , "      const asked = (query = urlQuery());"
+  , "      // A `?q=' in the address bar is a filtered view, and so is a bare"
+  , "      // boot: the boot asks for whichever it is and `mount' opens the"
+  , "      // filter showing it.  Every return through this door — a reload, a"
+  , "      // reconnect, `view-changed', `g' — restores it the same way, since"
+  , "      // they all re-fetch and re-mount.  The default is written into the"
+  , "      // URL where it was injected, so what the page shows and what the"
+  , "      // address bar says are the same query from the first paint on."
+  , "      const asked = (query = bootQuery());"
+  , "      if (!params().has(\"q\")) remember(asked);"
   , "      const narrow = asked ? `?q=${encodeURIComponent(asked)}&` : \"?\";"
   , "      load(`${narrow}limit=${PAGE}`).then((a) => {"
   , "        mount(a.view);"
   , "        listen();"
   , "        // The rest behind the painted table: n/p, sort and materialize all"
-  , "        // want the whole set, and the renderer holds it without the DOM."
+  , "        // want the whole answer, and the renderer holds it without the DOM."
   , "        if (a.total > (a.view.rows || []).length)"
   , "          load(asked ? `?q=${encodeURIComponent(asked)}` : \"\")"
-  , "            .then((b) => table && query === asked && paint(b)).catch(quiet);"
+  , "            .then((b) => { if (table && query === asked) paint(b); arm(a.total); })"
+  , "            .catch(quiet);"
+  , "        else arm(a.total);"
   , "      }).catch((e) => {"
   , "        if (e.indexing) return indexing(e.indexing);"
   , "        dot(\"down\"); quiet(e); if (e.name !== \"AbortError\") again();"

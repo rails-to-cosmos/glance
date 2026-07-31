@@ -37,7 +37,9 @@ module Glance.Query ( HeadlineRecord (..)
                     , cellSep
                     , defaultWalk
                     , derivedPath
+                    , digestOfText
                     , displayText
+                    , documentPath
                     , filterKeys
                     , loadDir
                     , loadDirFilesWith
@@ -45,7 +47,6 @@ module Glance.Query ( HeadlineRecord (..)
                     , loadFile
                     , matchesSearch
                     , mergeKeywords
-                    , orgPath
                     , replaceSpan
                     , resolveIds
                     , rowJSON
@@ -85,7 +86,7 @@ import Data.Org ( Context, Element (EHeadline), Headline
                 , schedule, sliceSpan, spans, tags, title, todo, todoActive
                 , todoInactive )
 import Data.Org.Walk ( Found (..), WalkOptions (..), beatsForId, defaultWalk
-                     , findOrgFilesWith, isDerived, isOrg )
+                     , findOrgFilesWith, isDerived, isDocument )
 
 import qualified Data.Org.Edit as Edit
 
@@ -387,11 +388,14 @@ resolveIds records = (kept, reverse clashes)
 derivedPath :: FilePath -> Bool
 derivedPath = isDerived
 
--- | Is PATH an org file by name ('Data.Org.Walk.isOrg')?  Re-exported for the
--- same reason: a watcher decides what to re-read by the rule the walk decided
--- what to read by, rather than by a second copy of the extension test.
-orgPath :: FilePath -> Bool
-orgPath = isOrg
+-- | Is PATH a file the walk reads ('Data.Org.Walk.isDocument') — an @.org@ name
+-- that is not one of Emacs's sidecars?  Re-exported for the same reason: a
+-- watcher decides what to re-read by the rule the walk decided what to read by,
+-- rather than by a second copy of it.  One predicate is what keeps the two
+-- sides from disagreeing in either direction — a file the walk skipped arriving
+-- by inotify, or a file it read that no event can ever refresh.
+documentPath :: FilePath -> Bool
+documentPath = isDocument
 
 -- | RECORDS in the order 'viewJSON' declares them sorted: scheduled ascending,
 -- an unscheduled row first, ties left in walk order.  A page has to be cut out
@@ -477,6 +481,16 @@ forceRecord :: HeadlineRecord -> HeadlineRecord
 forceRecord r =
   forcing (hrId r : hrCategory r : hrTitle r : hrTags r : hrDigest r : hrSearch r : optional) r
   where optional = catMaybes [hrState r, hrPriority r, hrScheduled r, hrDeadline r]
+
+-- Digests
+
+-- | The SHA-256 of TEXT's UTF-8 bytes, lowercase hex: the digest a record pins
+-- its file with ('hrDigest'), over text a caller assembled itself.  Exported so
+-- a consumer summarising a set of them — a store fingerprinting the tree it
+-- loaded — hashes with the function that produced them rather than with one of
+-- its own.
+digestOfText :: Text -> Text
+digestOfText = Edit.digestOf . TE.encodeUtf8
 
 -- Write-back
 
@@ -576,12 +590,27 @@ columns palette =
   [ column key header kind (extra key) | (key, header, kind, _cell) <- viewColumns ]
   where
     extra key = case key of
-      "state"    -> sortable <> [ "badges" .= badges palette ]
+      "state"    -> sortable <> [ "badges" .= badges palette, "values" .= stateValues ]
       "priority" -> sortable <> [ "values" .= (["A", "B", "C"] :: [Text]) ]
       "title"    -> []
-      "tag"      -> []
+      -- Declared rather than left to be sampled: the renderer decides a
+      -- column's arity from up to 40 non-empty cells, so a page with fewer
+      -- than two tagged rows finds no multi-valued column at all and ORs
+      -- @tag:a tag:b@ where this producer ANDs it.  The declaration wins there.
+      "tag"      -> [ "multi" .= True ]
       _date      -> sortable
     sortable = [ "sortable" .= True ]
+
+-- | The state column's meta values: filter vocabulary rather than cell text.
+-- SCHEMA.md lets a producer add values over a column's own domain, and this one
+-- adds org-glance's two keyword groups — @*active*@ is every keyword a file's
+-- @#+TODO:@ line declares before the bar, @*inactive*@ every one after it
+-- ('Glance.Web.Filter').  No cell ever holds either, which is why they travel
+-- beside the badges rather than among them: a renderer completing the column
+-- offers the concrete keywords and these two, and the starred spelling is what
+-- says that a group is not a badge.
+stateValues :: [Text]
+stateValues = ["*active*", "*inactive*"]
 
 -- | A column object: KEY, HEADER and TYPE, then whatever EXTRA the kind needs.
 column :: Text -> Text -> Text -> [Pair] -> Value

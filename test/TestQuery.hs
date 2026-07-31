@@ -3,13 +3,13 @@
 -- compile instead of failing a renderer.
 module TestQuery (spec) where
 
-import Data.Aeson (Value (Object, String), eitherDecodeFileStrict')
+import Data.Aeson (Value (Bool, Object, String), eitherDecodeFileStrict')
 import Data.Char (isDigit)
 import Data.List (sort)
 import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
-import TestDefaults (columnKeysOf, columnOf, field, listAt, viewDir)
+import TestDefaults (columnKeysOf, columnOf, field, listAt, textAt, viewDir)
 
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
@@ -51,6 +51,17 @@ keysOf v = assertFailure ("expected an object, got " <> show v)
 -- | The value at KEY of every element of the array at ARR of V.
 each :: Text -> Text -> Value -> IO [Value]
 each arr k v = listAt arr v >>= mapM (field k)
+
+-- | KEY of V as a boolean, or 'Nothing' where V does not carry it — an
+-- optional flag, so its absence is an answer rather than a failure.
+maybeBoolAt :: Text -> Value -> IO (Maybe Bool)
+maybeBoolAt key (Object o) = case KM.lookup (Key.fromText key) o of
+  Nothing       -> pure Nothing
+  Just (Bool b) -> pure (Just b)
+  Just other    -> assertFailure ("expected a boolean at " <> show key
+                                    <> ", got " <> show other)
+maybeBoolAt key v = assertFailure ("expected an object with " <> show key
+                                     <> ", got " <> show v)
 
 -- Spec
 
@@ -216,6 +227,26 @@ schemaSpec = testGroup "Schema conformance"
       badges <- listAt "badges" state
       assertEqual "type" "badge" kind
       assertBool "badges are empty" (not (null badges))
+
+  , testCase "and the two group values a filter can name" $ withView $ \v -> do
+      -- Vocabulary rather than cell text: no row's state cell holds either, so
+      -- they travel as `values' beside the badges, and a renderer completing
+      -- the column offers the keywords and these.
+      state <- columnOf "state" v
+      values <- listAt "values" state >>= mapM text
+      assertEqual "values" ["*active*", "*inactive*"] values
+
+  , testCase "the multi-valued column says so, and it is the only one"
+      $ withView $ \v -> do
+      -- Declared rather than sampled: the renderer decides arity from up to 40
+      -- non-empty cells, and a page with fewer than two tagged rows finds no
+      -- multi-valued column at all — where `tag:a tag:b' would OR while this
+      -- producer ANDs.  The declaration is what settles it.
+      cols <- listAt "columns" v
+      keys <- mapM (textAt "key") cols
+      multi <- mapM (maybeBoolAt "multi") cols
+      assertEqual "the columns declaring multi" ["tag"]
+                  [ k | (k, Just True) <- zip keys multi ]
 
   , testCase "the sort column is one of the columns" $ withView $ \v -> do
       cols <- columnKeysOf v

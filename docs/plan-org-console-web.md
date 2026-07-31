@@ -415,7 +415,12 @@ Exit:
       event over a file nothing wrote leaves the tag alone and an idle tree
       revalidates to 304 forever. `GET /headlines` sends `ETag: "gN"` +
       `Cache-Control: no-cache`; `If-None-Match` is parsed as the list it is,
-      weak tags included.
+      weak tags included. (Superseded 2026-07-31: the tag is now
+      `"<fingerprint>-gN"`, the fingerprint a digest of the loaded tree taken in
+      `loadStoreWith`. The generation starts at zero in every process, so the
+      tag as shipped here 304'd a client into a stale table across a restart —
+      docs/invariants.md, Architecture. The measurements below are of the
+      generation-only tag they were taken with.)
 - [x] One tag for every query variant. `q`, `limit` and `offset` are in the URL
       and an HTTP cache is keyed by URL, so each variant is its own entry
       revalidating against the tag it was itself given, and the response is a

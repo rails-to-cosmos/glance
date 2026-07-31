@@ -24,13 +24,12 @@ import Control.Monad (forever, unless)
 import Data.Map.Strict (Map)
 import GHC.Clock (getMonotonicTime)
 import System.Directory (doesFileExist)
-import System.FilePath (takeFileName)
 import System.IO (hFlush, stdout)
 
 import qualified Data.Map.Strict as Map
 import qualified System.FSNotify as FS
 
-import Glance.Query (LoadFailure (..), WalkOptions (..), derivedPath, loadFile, orgPath)
+import Glance.Query (LoadFailure (..), WalkOptions (..), derivedPath, documentPath, loadFile)
 import Glance.Web.Store ( Frame (..), Hub, applyFile, dropFile, publish )
 
 -- | How long a path must stay quiet before it is re-parsed, in seconds.  An
@@ -73,17 +72,13 @@ watched :: WalkOptions -> FilePath -> Bool
 watched opts path = isWatchable path
                  && (woIncludeDerived opts || not (derivedPath path))
 
--- | Is PATH one this watch cares about?  An org file by the walk's own rule
--- ('Glance.Query.orgPath'), minus the two sidecars Emacs writes beside a
--- buffer: @.#name.org@ is a lock symlink that usually dangles, and @#name.org#@
--- is an auto-save file.  Neither is a document.  The walk's extension test
--- already passes over @#name.org#@; @.#name.org@ it does walk, and its load
--- fails as an unreadable file, so this rule is what keeps the churn out.
+-- | Is PATH one this watch cares about?  A document by the walk's own rule
+-- ('Glance.Query.documentPath'): an org file by extension, minus the two
+-- sidecars Emacs writes beside a buffer — @.#name.org@, a lock symlink that
+-- usually dangles, and @#name.org#@, an auto-save.  The walk keeps the same
+-- rule, so the set this filter accepts is the set the store was given.
 isWatchable :: FilePath -> Bool
-isWatchable path = orgPath path
-                && take 1 name /= "#"
-                && take 2 name /= ".#"
-  where name = takeFileName path
+isWatchable = documentPath
 
 -- | The paths in PENDING last touched at least DELAY seconds before NOW, and
 -- what is left pending.  Pure, and the whole of the debounce: a path that keeps

@@ -12,6 +12,7 @@ import Data.Aeson (Value (Object, String))
 import Data.Maybe (listToMaybe)
 import System.Directory (createDirectoryIfMissing, removeFile)
 import System.FilePath ((</>))
+import System.Posix.Files (createSymbolicLink)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 import TestDefaults (entry, entryAs, orgFile, recordsOf, withTempDir)
@@ -22,10 +23,11 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 
-import Glance.Query ( HeadlineRecord (hrFile, hrId), IdCollision (..), LoadFailure (..)
-                    , QueryResult (..), TodoKeywords (..), WalkOptions (..), defaultWalk
-                    , loadDir, loadDirWith, loadFile, rowJSON )
-import Glance.Web.Store ( Frame (..), Store (stGen), applyFile, bootstrapFrame
+import Glance.Query ( HeadlineRecord (hrFile, hrId, hrTitle), IdCollision (..)
+                    , LoadFailure (..), QueryResult (..), TodoKeywords (..)
+                    , WalkOptions (..), defaultWalk, loadDir, loadDirWith, loadFile
+                    , rowJSON )
+import Glance.Web.Store ( Frame (..), Store (stGen, stPrint), applyFile, bootstrapFrame
                         , clientCapacity, dropFile, frameJSON, loadStore
                         , loadStoreWith, newHub, nextFrame, publish, storeKeywords
                         , storeRecords, storeResult, storeTags, subscribe )
@@ -49,6 +51,18 @@ upsertIds, deleteIds :: [Frame] -> [T.Text]
 upsertIds frames = [ i | UpsertRow row <- frames, Just i <- [stringAt "id" row] ]
 deleteIds frames = [ i | DeleteRow i <- frames ]
 
+-- | The title cell of every row the frames upsert.  Which id a frame names says
+-- nothing about which file's row it carries, and that is the whole subject of
+-- the shared-id group: two files claiming one id stream under the same id and
+-- differ in the cells.
+upsertTitles :: [Frame] -> [T.Text]
+upsertTitles frames = [ t | UpsertRow row <- frames, Just t <- [cellIn "title" row] ]
+
+-- | KEY's cell of a row object, when it holds a string there.
+cellIn :: T.Text -> Value -> Maybe T.Text
+cellIn key (Object o) = KM.lookup "cells" o >>= stringAt key
+cellIn _key _row      = Nothing
+
 -- | A store step that changes nothing and streams FRAMES: delivery under test
 -- with the diff out of the way.
 streaming :: [Frame] -> Store -> (Store, [Frame])
@@ -65,8 +79,165 @@ stringAt _key _v = Nothing
 
 spec :: TestTree
 spec = testGroup "Store"
-  [ diffSpec, failureSpec, generationSpec, keywordSpec, tagSpec, derivedSpec
-  , bootstrapSpec, hubSpec, debounceSpec ]
+  [ diffSpec, failureSpec, generationSpec, fingerprintSpec, keywordSpec, tagSpec
+  , derivedSpec, sidecarSpec, sharedSpec, bootstrapSpec, hubSpec, debounceSpec ]
+
+-- | Emacs's sidecars, which the walk and the watch have to refuse together.
+-- The lock is the one that costs: it dangles, its extension is @.org@, and a
+-- watch that filters the path out can never clear the read failure a walk that
+-- keeps it books.
+sidecarSpec :: TestTree
+sidecarSpec = testGroup "Editor sidecars"
+  [ testCase "a dangling lock symlink is walked over, not read" $ withTempDir $ \dir -> do
+      _ <- orgFile dir "notes.org" "* TODO one\n"
+      -- What Emacs leaves beside an open buffer: a symlink to
+      -- `user@host.pid:boot' pointing at nothing, and an auto-save copy.
+      createSymbolicLink "dmitry@host.4242:1750000000" (dir </> ".#notes.org")
+      _ <- orgFile dir "#notes.org#" "* TODO an auto-save\n"
+      qr <- loadDir dir
+      assertEqual "files" 1 (qrFiles qr)
+      assertEqual "rows" 1 (length (qrRecords qr))
+      assertEqual "read failures" 0 (qrReadFailures qr)
+      st <- loadStore dir
+      assertEqual "the store agrees" 0 (qrReadFailures (storeResult st))
+      assertEqual "and holds the one document" 1 (qrFiles (storeResult st))
+
+  , testCase "and the watch refuses exactly what the walk did" $ withTempDir $ \dir -> do
+      _ <- orgFile dir "notes.org" "* TODO one\n"
+      createSymbolicLink "dmitry@host.4242:1750000000" (dir </> ".#notes.org")
+      _ <- orgFile dir "#notes.org#" "* TODO an auto-save\n"
+      qr <- loadDir dir
+      -- Everything the walk kept is a path an event for which is re-read, and
+      -- nothing it passed over is: one rule, so a file cannot be loaded and
+      -- unwatchable (a stale row nothing refreshes) or watched and unloaded (a
+      -- row the walk never granted).
+      mapM_ ((\p -> assertBool (p <> ": walked and not watched") (isWatchable p)) . hrFile)
+            (qrRecords qr)
+      mapM_ (\name -> assertBool (name <> ": watched though not walked")
+                                 (not (isWatchable (dir </> name))))
+            [".#notes.org", "#notes.org#"]
+  ]
+
+-- | What the wire carries where two rows claim one id.  Every served answer is
+-- resolved ('Glance.Query.resolveIds'), so the frames have to be resolved too:
+-- a client watching the tree must not be shown a row a refresh contradicts.
+sharedSpec :: TestTree
+sharedSpec = testGroup "Shared id"
+  [ testCase "an edit to the losing file streams nothing over the winner"
+      $ withShared $ \_pa pb store -> do
+      -- Neither path is canonical, so walk order decides and a.org holds the
+      -- id.  b.org's rows are invisible: editing one changes no answer this
+      -- server gives, and the wire says exactly that.
+      (next, frames) <- rewrite pb (entryAs "shared" "TODO from b, edited") store
+      assertEqual "frames" [] frames
+      assertEqual "the served row is still the winner's" ["from a"]
+                  (map hrTitle (storeRecords next))
+
+  , testCase "an edit to the winning file streams the winner's new cells"
+      $ withShared $ \pa _pb store -> do
+      (next, frames) <- rewrite pa (entryAs "shared" "TODO from a, edited") store
+      assertEqual "upserts" ["shared"] (upsertIds frames)
+      assertEqual "the cells" ["from a, edited"] (upsertTitles frames)
+      assertEqual "which is what is served" (map hrTitle (storeRecords next))
+                  (upsertTitles frames)
+
+  , testCase "the winning file going away re-points the id at the loser's row"
+      $ withShared $ \pa _pb store -> do
+      removeFile pa
+      let (next, frames) = dropFile pa store
+      -- The id is still carried, so it is not a deletion: it is the same row
+      -- id showing a different file's cells, which is one upsert.
+      assertEqual "deletes" [] (deleteIds frames)
+      assertEqual "upserts" ["shared"] (upsertIds frames)
+      assertEqual "the cells" ["from b"] (upsertTitles frames)
+      assertEqual "which is what is served" ["from b"] (map hrTitle (storeRecords next))
+
+  , testCase "two headlines of one file sharing an id are one row, the first"
+      $ withTempDir $ \dir -> do
+      -- Within one file no path outranks the other, so the incumbent stands —
+      -- the same rule, and the reason the stream cannot keep the last while
+      -- the table keeps the first.
+      path <- orgFile dir "a.org" (entryAs "dup" "TODO alpha" <> entryAs "dup" "TODO omega")
+      store <- loadStore dir
+      assertEqual "one row for the id" ["alpha"] (map hrTitle (storeRecords store))
+      (next, frames) <- rewrite path
+        (entryAs "dup" "TODO alpha edited" <> entryAs "dup" "TODO omega edited") store
+      assertEqual "the streamed row is the served row"
+                  [ UpsertRow (rowJSON r) | r <- storeRecords next ] frames
+      assertEqual "which is the first of the two" ["alpha edited"]
+                  (map hrTitle (storeRecords next))
+  ]
+
+-- | Two files claiming @shared@, and the store over them.  a.org wins it on
+-- walk order; K is handed both paths and that store.
+withShared :: (FilePath -> FilePath -> Store -> IO a) -> IO a
+withShared k = withTempDir $ \dir -> do
+  pa <- orgFile dir "a.org" (entryAs "shared" "TODO from a")
+  pb <- orgFile dir "b.org" (entryAs "shared" "TODO from b")
+  store <- loadStore dir
+  assertEqual "one row for the id" ["from a"] (map hrTitle (storeRecords store))
+  k pa pb store
+
+-- | The other half of the @ETag@: which tree the store was loaded from.  The
+-- generation counts changes inside one process and starts at zero in the next
+-- one, so this is what a client's cached copy is revalidated against across a
+-- restart.
+fingerprintSpec :: TestTree
+fingerprintSpec = testGroup "Fingerprint"
+  [ testCase "two loads of one unchanged tree print the same" $ withTempDir $ \dir -> do
+      -- Which is the restart: same directory, same bytes, a second process.
+      -- The generation is back at zero either way, so this is the whole of what
+      -- keeps that client's 304 honest.
+      _ <- orgFile dir "a.org" "* TODO one\n"
+      _ <- orgFile dir "b.org" "* NEXT two\n"
+      first' <- loadStore dir
+      second' <- loadStore dir
+      assertBool "no fingerprint at all" (not (T.null (stPrint first')))
+      assertEqual "fingerprint" (stPrint first') (stPrint second')
+
+  , testCase "a byte of difference prints differently" $ withTempDir $ \dir -> do
+      path <- orgFile dir "a.org" "* TODO one\n"
+      before <- loadStore dir
+      _ <- orgFile dir "a.org" "* TODO one!\n"
+      after <- loadStore dir
+      assertBool ("one fingerprint for two trees: " <> path)
+                 (stPrint before /= stPrint after)
+
+  , testCase "and so does a file renamed under the same content"
+      $ withTempDir $ \dir -> do
+      -- An id-less headline's row id is FILE:START, so the path IS part of the
+      -- answer: two trees of the same bytes under different names serve
+      -- different ids and must not share a tag.
+      path <- orgFile dir "a.org" "* TODO one\n"
+      before <- loadStore dir
+      _ <- orgFile dir "b.org" "* TODO one\n"
+      removeFile path
+      after <- loadStore dir
+      assertBool "renamed, same fingerprint" (stPrint before /= stPrint after)
+
+  , testCase "and so does the same tree served from another root"
+      $ withTempDir $ \one -> withTempDir $ \two -> do
+      -- Same reason, one level up: the paths the walk builds are the paths the
+      -- ids carry, so `--dir a' and `--dir b' are different documents even
+      -- byte for byte.  A daemon restarted onto another directory on the same
+      -- port cannot 304 a client into the old one.
+      mapM_ (\dir -> orgFile dir "a.org" "* TODO one\n") [one, two]
+      first' <- loadStore one
+      second' <- loadStore two
+      assertBool "two roots, one fingerprint" (stPrint first' /= stPrint second')
+
+  , testCase "an edit moves the generation and leaves the fingerprint"
+      $ withTempDir $ \dir -> do
+      -- The pair is the tag: the fingerprint says which tree was loaded, the
+      -- generation how far it has moved since.  Recomputing the fingerprint per
+      -- edit would say the same thing twice and cost a fold over every file.
+      path <- orgFile dir "a.org" "* TODO one\n"
+      store <- loadStore dir
+      (next, frames) <- rewrite path "* TODO one\n* TODO two\n" store
+      assertBool "a new headline is a row change" (not (null frames))
+      assertBool "generation stuck" (stGen next > stGen store)
+      assertEqual "fingerprint" (stPrint store) (stPrint next)
+  ]
 
 -- | The update counter @GET \/headlines@ spells as an @ETag@.  It has to move
 -- whenever a response would, and stay put whenever none would: an idle tree

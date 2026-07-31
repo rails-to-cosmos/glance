@@ -271,10 +271,11 @@ on.
   `overviews/c1f3df767330/overview.org`. `Data.Org.Walk.isDerived` is the one
   rule, applied where a directory is entered and where a watch event is
   accepted, so a file the store was never given cannot arrive by inotify and
-  appear in the table on its next rewrite. The watch reaches it — and `isOrg` —
-  through the facade re-exports `Glance.Query.derivedPath` and
-  `Glance.Query.orgPath`, which is how one rule serves both sides of the
-  `glance-web` boundary without `glance-web` naming `Data.Org.*`.
+  appear in the table on its next rewrite. The watch reaches it — and
+  `isDocument`, the extension-and-sidecar rule — through the facade re-exports
+  `Glance.Query.derivedPath` and `Glance.Query.documentPath`, which is how one
+  rule serves both sides of the `glance-web` boundary without `glance-web`
+  naming `Data.Org.*`.
 
   The rule is a DENYLIST, and stating it as an allowlist gets it wrong:
   `derivedDirs = ["overviews", "meta"]`, tested against the component sitting
@@ -318,15 +319,26 @@ on.
   makes the silence specific to this branch and easy to misread as "there was
   nothing there". The reason not to follow is a symlink loop, and counting one
   tree twice. **none**
-- **A dangling `.org` symlink is a permanent read failure.** The non-directory
-  branch keeps a path on `isOrg` alone, with no existence check — only a named
-  root is probed — so a broken link, or Emacs's `.#name.org` lock, is walked and
-  `loadFile` answers `ReadFailed`. The store keeps that as a `FileEntry` with a
-  failure and counts it for the life of the process. The watch cannot clear it:
-  `isWatchable` rejects the `.#` prefix, and that predicate IS the fsnotify
-  filter, so no event for the path is ever delivered and `dropFile` never runs,
-  even once the lock is released. It contributes no rows and one `read failures`
-  count that only a restart removes. **none**
+- **A dangling `.org` symlink is a permanent read failure — but Emacs's lock is
+  not one any more.** The non-directory branch keeps a path on `isDocument`,
+  with no existence check — only a named root is probed — so a broken link is
+  walked and `loadFile` answers `ReadFailed`. The store keeps that as a
+  `FileEntry` with a failure and counts it for the life of the process, because
+  the watch is filtered by the same rule and no event that would clear it is
+  ever delivered.
+
+  The common case of that was Emacs's `.#name.org`, a lock symlink to
+  `user@host.pid:boot` that dangles and whose extension is `.org`: every open
+  buffer in the tree cost one permanent `read failures` count. `isDocument` is
+  now `isOrg` minus `isSidecar` (`.#` prefix, `#` prefix), one predicate in
+  `Data.Org.Walk` serving the walk directly and the watch through
+  `Glance.Query.documentPath`, so the two sides refuse the same set by
+  construction rather than by two rules that agreed until one moved. What is
+  left uncovered is a genuine `.org` symlink the author made and broke, which is
+  a real file the walk is right to try. Evidence: `TestStore` "Editor sidecars"
+  (a dangling `.#notes.org` beside a real document: one file, one row, zero read
+  failures; and the walk's kept set is exactly what `isWatchable` accepts).
+  **test**
 - **`scan`'s argument parser eats unknown flags as roots.** It recognizes
   `--include-derived` and treats every other token as a directory, so
   `glance scan --dir ~/notes` walks two roots, one of them the literal string
@@ -343,12 +355,13 @@ on.
   headline twice. `Glance.Query.resolveIds` keeps one — a `.org-glance/data/`
   path beats one that is not, otherwise walk order does — and reports every
   loser rather than dropping it quietly, since a duplicate id is nearly always
-  a tree that should not have been walked. It has exactly three call sites —
-  `loadDir`'s `summarise`, `Glance.Web.Store.storeRecords` and
-  `Glance.Web.Store.storeResult` — which is what keeps the store equal to the
-  load it stands in for; `storeHeadline` and `bootstrapFrame` resolve
-  transitively through `storeRecords`, so materializing an id two files claim
-  opens the one the table is showing. The count rides as
+  a tree that should not have been walked. It has exactly four call sites —
+  `loadDir`'s `summarise`, `Glance.Web.Store.storeRecords`,
+  `Glance.Web.Store.storeResult` and `Glance.Web.Store.resolvedRows` — which is
+  what keeps the store equal to the load it stands in for and the stream equal
+  to both; `storeHeadline` and `bootstrapFrame` resolve transitively through
+  `storeRecords`, so materializing an id two files claim opens the one the table
+  is showing. The count rides as
   `X-Glance-Id-Collisions` and the pairs
   are listed by the scan (capped at 20). Corpus: 522 collisions with the
   mirrors walked, 9 without — those nine are genuine duplicates between real
@@ -426,12 +439,12 @@ on.
   all resolve to whatever is true when the drain runs. fsnotify's event types
   are never consulted, which is what keeps the behaviour the same across
   backends. **none**
-- **`stIds` and `stTags` count FILES, not rows.** Each is stepped by the
-  difference between a file's old and new projection, and both projections are
-  `Set`s built per file (`idsOf`, `tagsOf`), so a tag carried by forty rows of
-  one file contributes 1. The index answers "how many files claim this tag",
-  which is what the filter vocabulary needs and is NOT a row count. Reading it
-  as one overstates nothing and understates a lot. **none**
+- **`stTags` counts FILES, not rows.** It is stepped by the difference between a
+  file's old and new projection, and that projection is a `Set` built per file
+  (`tagsOf`), so a tag carried by forty rows of one file contributes 1. The index
+  answers "how many files claim this tag", which is what the filter vocabulary
+  needs and is NOT a row count. Reading it as one overstates nothing and
+  understates a lot. **none**
 - **`stDirErrs` is frozen at startup.** Written once by `loadStoreWith` from the
   walk, read by `storeResult`, and touched by nothing in `putFile`,
   `removeFile`, `guarded` or the watch. A directory that becomes unreadable
@@ -463,28 +476,39 @@ on.
   receives rows built against a palette that is already gone. Evidence:
   `TestStore`, Keyword-palette group; verified live against a running server.
   **test**
-- **KNOWN BUG (open): the frames the watch streams are not id-resolved.**
-  `putFile` builds its `upsert-row` and `delete-row` frames straight from one
-  file's records (`rowsById`, `nub . map hrId`), and `resolveIds` appears
-  nowhere on that path. Every HTTP response is resolved, and so is the
-  bootstrap `set-rows`, since both route through `storeRecords`/`storeResult`.
-  The divergence is therefore between a connected client's incremental view and
-  everything else. Two visible consequences over a tree with duplicate ids: an
-  edit to the LOSING file streams its row over the winning one, so the live
-  table shows what a refresh will contradict; and when the losing file drops the
-  id while the winner still carries it, `gone` emits nothing — the id is still
-  in `stIds` — so the stale row survives until the client reconnects. The fix is
-  to resolve where the frames are built, which costs a whole-store fold per
-  event and is why it has not been done. **none**
-- **A within-file duplicate id diverges by direction.** Two headlines in one
-  file sharing an `ORG_GLANCE_ID` are kept differently at each end: the stream
-  keeps the LAST, because `rowsById` is a `Map.fromList` and later entries
-  overwrite; the served view keeps the FIRST, because `beatsForId` cannot
-  separate two rows of the same path and the fold leaves the incumbent standing.
-  `stIds` and `stTags` see neither duplicate — the per-file projections are
-  `Set`s — so the store index does not record it at all, while
-  `X-Glance-Id-Collisions` reports one whose kept and dropped paths are the same
-  file. **none**
+- **The frames the watch streams are id-resolved, like every other answer.**
+  `applyFile` and `dropFile` both run their store update inside `streamed`,
+  which reads the ids the touched file claimed — before the update and after —
+  through `resolvedRows`, and `resolvedRows` is `Glance.Query.resolveIds` over
+  the store's rows carrying them. So an upsert carries the row `/headlines`
+  would serve and a delete is owed only where the id is gone from the RESOLVED
+  store. Three consequences over a tree with duplicate ids, each of them a case:
+  an edit to the LOSING file streams nothing (the winner did not move, so no
+  answer changed, and the generation stays put with it); an edit to the winner
+  streams the winner's new cells; and a winner that goes away re-points its id
+  at the row behind it with an upsert rather than leaving a stale one until the
+  client reconnects. Cost: one pass over the store's rows per side, kept to the
+  touched ids — the order of `storeHeadline`'s scan, and measured end to end at
+  5–6 ms for the whole watch step (read, parse, both folds, publish) over a
+  14000-row 2000-file store with a live subscriber, against the 4 ms the parse
+  alone cost at S5. Building the frames off one file's records is what made it
+  cheap and what made it wrong. Evidence: `TestStore` "Shared id"; verified
+  live over a two-file fixture with a real websocket client (loser edited: no
+  frame; winner edited: `from a, edited`; winner deleted: an upsert carrying
+  `from b, edited` and no `delete-row`). **test + live**
+- **A within-file duplicate id keeps the FIRST row, on both sides.**
+  `resolveIds` cannot separate two rows of the same path — `beatsForId` says a
+  file does not outrank itself — so the incumbent stands, and the streaming path
+  now goes through that same call. The `Map.fromList` that made the stream keep
+  the LAST is gone with `rowsById`. `stTags` still sees neither duplicate (the
+  per-file projection is a `Set`), and `X-Glance-Id-Collisions` still reports one
+  whose kept and dropped paths are the same file. **test** (`TestStore` "two
+  headlines of one file sharing an id are one row, the first")
+- **The store keeps no index by id.** `stIds` was one — a count of files per id
+  — and its only reader was the delete rule the resolution replaced. Resolution
+  answers a stronger question — which file wins, where the count said only how
+  many claim it — so the field, its projection and its half of `stepIndex`'s two
+  callers went with it. `stTags` remains, and remains a count of FILES per tag.
 - **A slow client is dropped and the watcher waits for no one.** Frames go into each socket's
   bounded 256-frame mailbox from the same STM transaction that updates the
   store. A full mailbox drops that client instead of retrying the transaction:
@@ -530,11 +554,12 @@ on.
   given — org validity is the author's business, and a file that stops parsing
   keeps the rows it had, exactly as when the text came from an editor.
   Evidence: `TestServe` "POST /headline" group. **test**
-- **The `ETag` is the store's generation, and one tag covers every query
-  variant.** `Store.stGen` moves in `Glance.Web.Store.guarded` — the single
-  wrapper both update paths go through — whenever the step produced frames or
-  moved the touched file's load outcome, which is exactly when a `/headlines`
-  response would change. `GET /headlines` sends it as `ETag: "gN"` under
+- **The `ETag` is the tree's fingerprint and the store's generation, and one tag
+  covers every query variant.** `Store.stGen` moves in
+  `Glance.Web.Store.guarded` — the single wrapper both update paths go through —
+  whenever the step produced frames or moved the touched file's load outcome,
+  which is exactly when a `/headlines` response would change. `GET /headlines`
+  sends it as `ETag: "<fingerprint>-gN"` under
   `Cache-Control: no-cache`, so a browser revalidates every time and an idle
   tree costs a 0.56 ms 304 instead of 3 MB. Every variant shares the tag on
   purpose: `q`, `limit` and `offset` are in the URL and an HTTP cache is keyed
@@ -547,15 +572,25 @@ on.
   change and the stats headers go stale behind a matching tag. Evidence:
   `TestServe` "GET /headlines cache validation" (including a published reload
   that changes nothing leaving the tag put). **test**
-- **KNOWN GAP (open): the generation is per process and starts at zero.**
-  `emptyStore` sets `stGen = 0`, `loadStoreWith` seeds through `putFile` (which
-  does not bump), and `finishLoading` bypasses `guarded` entirely — so a fully
-  loaded store still serves `ETag: "g0"`, and nothing persists the counter. A
-  browser holding `"g0"` from before a restart revalidates against a tree that
-  may have changed completely and is told 304. The generation is a
-  within-process change detector and cannot be read as an identity for the data.
-  A restart-surviving tag would have to mix in something the process does not
-  currently keep. **none**
+- **The generation is per process; the fingerprint is what survives a restart.**
+  `emptyStore` still sets `stGen = 0`, `loadStoreWith` still seeds through
+  `putFile` without bumping it, and `finishLoading` still bypasses `guarded` —
+  so a fully loaded store is at generation zero in every process, and the
+  counter is not persisted. What makes the tag mean something across a restart
+  is the other half: `stPrint`, taken once in `loadStoreWith` over the finished
+  store as `digestOfText` of each file's path and the digest of the bytes it was
+  parsed from, folded in path order. Identical tree, identical fingerprint, so a
+  client's 304 is honest; a byte, a name or a root moved, and it is a different
+  tag whatever the generation says. The path is in it because an id-less
+  headline's row id is `FILE:START` — same bytes under another name is a
+  different document. A file that contributed no rows (empty, or a failed load)
+  stands as its path alone, which is sound because it contributes no rows to a
+  response either. The fingerprint is deliberately NOT recomputed per edit: the
+  generation already says how far the tree has moved since it was loaded, and
+  the pair answers both questions for the cost of one fold at startup.
+  Evidence: `TestStore` "Fingerprint" (same tree twice, a changed byte, a
+  rename, another root) and `TestServe` "and so is one from another tree at this
+  very generation". **test**
 - **The stats and page headers ride the 200 alone.** `statsHeaders`
   (`X-Glance-Rows`, `-Files`, `-Parse-Failures`, `-Decode-Failures`,
   `-Read-Failures`, `-Id-Collisions`) and `pageHeaders` (`X-Glance-Total`,
@@ -610,7 +645,7 @@ on.
   `contact:x contact:y` is tagged `contact` and matching both texts. Dispatch is
   on the KEY NAME, never on the column's declared `kind` — `Glance.Web.Filter`
   does not import it. `state` is whole-value case-insensitive plus this
-  producer's `state:active`/`state:inactive` meta values, `priority` is exact
+  producer's `state:*active*`/`state:*inactive*` meta values, `priority` is exact
   equality, `scheduled`/`deadline` are prefix, everything else is substring; so
   a column declared `badge` but named something else is matched as text, and the
   `priority` column, declared `text`, is matched exactly. That last pair agrees
@@ -625,7 +660,7 @@ on.
   `tag`, singular, so the key a filter names and the tags it names read alike
   (`tag:travel`); the header stays `Tags` and `hrSearch`'s field order is
   unchanged, since only the name moved. The virtual keys are the store's org tags (`Glance.Web.Store.stTags`,
-  counted per tag beside `stIds` so a query costs no fold over 13k rows):
+  counted per tag beside the rows so a query costs no fold over 13k rows):
   `TAG:text` is tagged whole-`TAG` *and* matching text, an empty value being
   presence alone, and a column shadows a tag of its name. Two consequences to
   keep: a predicate reads one `\x1f` field of `hrSearch` rather than
@@ -640,7 +675,7 @@ on.
   `table-view.js`: no capability handshake, no schema version in the view
   document, no negotiation. Both sides read `SCHEMA.md` and are kept term for
   term by hand, and the only runtime check is the shell's parity tripwire —
-  loose, one-directional and armed late (its own entry below). Every divergence
+  loose and one-directional (its own entry below). Every divergence
   listed in the entries that follow is therefore silent by construction: the
   same query answers differently depending on which half evaluated it, and
   neither suite can see it, because each tests its own half. Read them as a
@@ -659,35 +694,46 @@ on.
   together: `viewColumns`, `recordOf`'s `searchTextOf` list, `Filter.dateKeys`,
   `Filter.keyTest`'s name switch with `tagsColumn`, and the test's own list.
   **none** (the guard exists and does not guard this)
-- **Arity is chosen by NAME here and by SAMPLED SHAPE there.** The server's
+- **Arity is chosen by NAME here and declared to the renderer.** The server's
   multi-valued column is `tagsColumn`, the index of the key literally named
-  `tag`. The renderer's is `multiColumn`, which samples up to 40 non-empty cells
-  and needs at least two shaped like `:a:b:` with none contrary, returning the
-  FIRST column in view order that qualifies. Three failure modes follow. With
-  fewer than two tagged rows loaded the renderer finds no multi-valued column at
-  all, so its tag vocabulary is empty and `tag:a tag:b` ORs where the server
-  always ANDs. One cell holding an unrelated colon — a `10:30`, a URL —
-  disqualifies the column outright. And a column earlier in view order whose
-  cells happen to look tag-shaped steals both the arity and the vocabulary. The
-  verdict is re-derived on every row-set change, so it can flip between two
-  pages of one session. Virtual keys are the single point of agreement:
-  multi-valued unconditionally on both sides. **none**
+  `tag`, and the `tag` column now emits `"multi": true` — SCHEMA's declaration,
+  which the renderer prefers over its own sampling. That sampling is what the
+  declaration exists to retire: `multiColumn` reads up to 40 non-empty cells and
+  needs at least two shaped like `:a:b:` with none contrary, returning the FIRST
+  column in view order that qualifies, so a page with fewer than two tagged rows
+  found no multi-valued column at all (`tag:a tag:b` ORing where the server
+  always ANDs), one cell holding an unrelated colon — a `10:30`, a URL —
+  disqualified the column outright, and a column earlier in view order whose
+  cells happened to look tag-shaped stole both the arity and the vocabulary.
+  The verdict was re-derived on every row-set change, so it could flip between
+  two pages of one session. What remains is the version skew this whole section
+  is about: an asset predating the field still samples. Virtual keys are the
+  other point of agreement: multi-valued unconditionally on both sides.
+  Evidence: `TestQuery` "the multi-valued column says so, and it is the only
+  one", plus the golden. **test**
 - **Date-ness is asymmetric the same way.** The server prefix-matches exactly
   two hardcoded key names; the renderer decides per column by sampling cells for
   date shape. A loaded set with under two dated rows makes the renderer treat
   `scheduled` as text, so `scheduled:10:00` matches `2026-08-15 10:00` there and
   nothing here; conversely any other column whose sample looks dated gets
   renderer-side prefix matching that the server never applies. **none**
-- **`state:active` / `state:inactive` are producer-only, and undiscoverable.**
-  SCHEMA.md blesses producer meta-values, and the server resolves these two
-  against the record's own `#+TODO:` sets. The renderer has no such logic: on a
-  badge column it compares the cell to the value, so it matches only a row whose
-  state literally reads `active`. SCHEMA's discovery route is that meta-values
-  arrive as ordinary `values` entries, but this producer's `state` column ships
-  `badges` and never `values`, so the renderer's autocomplete cannot offer them
-  either — while its own placeholder text advertises them. The asymmetry is
-  intended, since the server knows the keyword sets and the renderer does not;
-  the undiscoverability is an accident of the column shape. **none**
+- **`state:*active*` / `state:*inactive*` are producer-only, and now
+  discoverable.** SCHEMA.md blesses producer meta-values, and the server
+  resolves these two against the record's own `#+TODO:` sets. The starred form
+  is the canonical spelling — it is what org-glance calls the groups, and what
+  the default view boots on — and the bare `state:active` stays an alias: the
+  stars come off in `starless` before the two comparisons and NOWHERE else, so
+  `state:*TODO*` is the literal badge text `*todo*`, which no cell holds. It is
+  an alias on two values, not a glob; a half-starred value is literal too.
+  Discovery is the `values` array the state column now ships beside its
+  `badges`, holding exactly `["*active*", "*inactive*"]` — SCHEMA's own route
+  for meta-values, and the reason the starred spelling is the canonical one: it
+  cannot be mistaken for a keyword. The renderer still has no group logic of its
+  own, so a locally-filtered table matches these as literal badge text and finds
+  nothing; that half of the asymmetry is intended, since the server knows the
+  keyword sets and the renderer does not. Evidence: `TestFilter` "and answer to
+  org-glance's starred spelling of the same groups", `TestQuery` "and the two
+  group values a filter can name". **test**
 - **The two vocabularies have different scopes.** The server parses against
   `storeTags` — every tag in the tree, folded per file — so a predicate is a
   predicate whether or not any matching row is loaded. The renderer's
@@ -964,14 +1010,23 @@ on.
   nothing, because guessing which half is right is how the two drift.
   Column predicates are excluded from the check: both halves read the columns
   out of the same view document, so they cannot skew. **test**
-- **KNOWN GAP (open): the tripwire arms late and cries wolf.** Four limits, all
-  by construction, and none of them fixable without deciding which half is
-  right. It ARMS only against a remembered unfiltered answer — the remembered
-  set is assigned in exactly one place, on a paint with no query — and `start()`
-  sets the query from the URL BEFORE the first load, so a `?q=` boot never arms
-  it at all: a session that opens on a filtered link keeps the check dark until
-  the user clears the filter. It fires only when the server returned zero, so
-  the opposite skew — the server matching rows the renderer would not — is never
+- **KNOWN GAP (open): the tripwire cries wolf, though it no longer arms late.**
+  The baseline is an unfiltered answer, and the remembered set is still assigned
+  in exactly one place — a paint with no query. What changed is that a filtered
+  boot no longer leaves it empty: `arm(total)` fetches the unfiltered set once,
+  behind everything else, keeps it without painting it and re-runs the check
+  against the total that was painted before there was anything to check it
+  against. It is bounded to one fetch per page (`all.length` guards it) and runs
+  under a `?q=` link and under the default view alike — which matters more now
+  than it did, since with a default query every session opens filtered.
+  Evidence: `TestServe` "Shell boot", which runs the glue under node over a
+  stubbed browser and asserts the fetch sequence — the deep-link and default
+  boots both end in an unfiltered `/headlines`, while an explicit empty `?q=`
+  needs no arming fetch because its own paint is the baseline.
+
+  Three limits remain, all by construction and none fixable without deciding
+  which half is right. It fires only when the server returned zero, so the
+  opposite skew — the server matching rows the renderer would not — is never
   reported. The local recount DROPS THE KEY and tests the value against the
   whole joined row text, so a correct empty facet answer warns whenever the word
   happens to appear elsewhere: `contact:tanik` with no `contact`-tagged rows but
@@ -979,8 +1034,22 @@ on.
   virtual-key predicate is treated as suspect, while its `key:value` gate also
   admits ordinary text such as a bare URL. One more source of drift sits beside
   it: unfiltered frames splice into the renderer without updating the remembered
-  set, so the baseline ages over the life of the page. **test** (that it fires)
-  / **none** (that it fires correctly)
+  set, so the baseline ages over the life of the page. **test** (that it fires,
+  and that it is armed) / **none** (that it fires correctly)
+- **The page opens on the active view, and that is a real query.** With no `q`
+  in the address bar the shell boots on `state:*active*`: it goes into the URL
+  through the same `remember` every commit uses, into the mount as
+  `initialQuery` so the renderer shows its own chip, and into the boot fetch, so
+  the first page that arrives is already the answer to it. `DEL` strips it like
+  any other token and the whole store is one keystroke away. A `q` that IS in
+  the address bar is the reader's intent whatever it holds — an empty `?q=`
+  included — and nothing is injected over it. The cost is that a socket frame
+  now schedules a refetch rather than splicing, since a filter is on by default
+  (the shell cannot know whether a changed row still matches; only the server
+  can). Evidence: `TestServe` "Shell boot", seven rows over the node harness:
+  the default present on a bare boot and absent under any `?q=`, the fetch each
+  one makes, and `DEL` stripping the query back to the whole store while the
+  rest of the URL (`keys=`) stays where it was. **test**
 - Browser writes are commands over the bridge, of two kinds (proposal rev 3):
   structured commands, and raw replacement of a whole span under the same drift
   lock — materialize is the first of those. Semantic org editing stays out of
@@ -1036,3 +1105,14 @@ on.
   Putting `Data.Org.*` in a web or daemon target's build-depends is impossible
   from outside the package — the S2 exit bar, enforced by the solver rather
   than by review. **test** (it would not build)
+- **The suite shells out where a claim needs a real interpreter**, and degrades
+  where the machine has none: `node --check` over the extracted glue, and
+  `test/fixtures/shell-harness.js`, which boots that glue over a stubbed browser
+  and reports the fetches it made. Both answer `pure ()` when `node` is not on
+  `PATH`, so the suite is green either way and the boot contract is checked
+  wherever there is something to check it with.
+- **WATCH (2026-07-31): a test run hung once during the mutation pass and has
+  not reproduced.** Not seen again across the batches since, under `cabal test`
+  or `-p`; nothing in the suite waits on a socket, and the two node cases are
+  bounded by the child process. Recorded so a second sighting is a pattern
+  rather than a surprise. **none**

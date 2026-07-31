@@ -217,6 +217,21 @@ predicateSpec = testGroup "Predicates"
       -- A headline with no keyword is in neither group.
       matches "state:none" [Plain]
 
+  , testCase "and answer to org-glance's starred spelling of the same groups" $ do
+      -- `*active*' is what org-glance calls the group and what the view offers
+      -- for completion, so it is the canonical spelling; the bare one above
+      -- stays an alias.
+      matches "state:*active*" [Ship, Privet, Reply]
+      matches "state:*inactive*" [Drop, Schema]
+      matches "state:*ACTIVE*" [Ship, Privet, Reply]
+      -- Stars are not a glob: they come off these two values and nothing else,
+      -- so a starred keyword is the literal badge text, which no cell holds.
+      matches "state:*TODO*" []
+      matches "state:*none*" []
+      -- One matched pair, so a half-starred value is literal too.
+      matches "state:*active" []
+      matches "state:active*" []
+
   , testCase "priority is the letter, case-insensitively" $ do
       matches "priority:A" [Ship]
       matches "priority:a" [Ship]

@@ -30,6 +30,7 @@ import TestDefaults ( document, field, intAt, listAt, maybeTextAt, membersAt, or
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -148,6 +149,33 @@ status = statusCode . simpleStatus
 header :: HeaderName -> SResponse -> Maybe ByteString
 header name r = lookup name (simpleHeaders r)
 
+-- | The @ETag@ R carries.
+etagOf :: SResponse -> IO ByteString
+etagOf r = maybe (assertFailure "no ETag on the response") pure (header "ETag" r)
+
+-- | WHAT: is TAG the entity tag of a store at generation GEN — a quoted
+-- @\<fingerprint\>-g\<n\>@, the fingerprint being sixteen hex digits of the
+-- loaded tree's digest?  Written out here rather than taken from the server,
+-- since an oracle that formats the tag the way the server formats it agrees
+-- with whatever the server does.
+assertTreeTag :: String -> Int -> ByteString -> Assertion
+assertTreeTag what gen tag = do
+  assertBool (what <> ": no tree fingerprint in " <> show tag)
+             (BSC.length fingerprint == 16
+                && BSC.all (`elem` ("0123456789abcdef" :: String)) fingerprint)
+  assertEqual (what <> ": generation") ("-g" <> BSC.pack (show gen) <> "\"") rest
+  where (fingerprint, rest) = BSC.splitAt 16 (BSC.drop 1 tag)
+
+-- | TAG with its generation half replaced by N: what the same tree would carry
+-- N updates in.
+atGeneration :: Int -> ByteString -> ByteString
+atGeneration n tag = BSC.takeWhile (/= '-') tag <> "-g" <> BSC.pack (show n) <> "\""
+
+-- | A fingerprint no tree has: the tag half that stands for another daemon's
+-- store.
+zeroes :: ByteString
+zeroes = BSC.replicate 16 '0'
+
 body :: SResponse -> T.Text
 body = TE.decodeUtf8 . BL.toStrict . simpleBody
 
@@ -234,7 +262,119 @@ spec = withResource (body <$> get assetsDir "/") (const (pure ())) $ \shell ->
   testGroup "Serve"
     [ headlineSpec, statsSpec, cacheSpec, gzipSpec, querySpec, bootstrapSpec
     , materializeSpec, commitSpec, indexingSpec, pageSpec shell, keymapSpec shell
-    , glueSpec shell, touchSpec shell, shellFontSpec shell, assetSpec, errorSpec ]
+    , glueSpec shell, bootSpec shell, touchSpec shell, shellFontSpec shell
+    , assetSpec, errorSpec ]
+
+-- | One boot of the shell's glue, run: the address bar it opens on, what the
+-- server answers as @X-Glance-Total@, the @\/headlines@ URLs that have to
+-- follow in order, and the search string the page settles the URL on.
+--
+-- Reading the glue as text cannot answer this: a call that is written and never
+-- reached matches a string search exactly as well as one that runs.  The boot
+-- is where that matters most — which query the page opens on, and whether the
+-- parity baseline is ever fetched under a filtered one.
+data Boot = Boot
+  { boLabel  :: String
+  , boSearch :: T.Text
+  , boTotal  :: Int
+  , boKeys   :: T.Text   -- ^ keys pressed over the table once the boot settled.
+  , boAsked  :: [T.Text]
+  , boUrl    :: T.Text
+  }
+
+shellBoots :: [Boot]
+shellBoots =
+  [ Boot "a bare boot opens on the active view and arms the check"
+      "" 500 ""
+      -- The default, a page of it; the rest of that answer behind the paint;
+      -- and the unfiltered set the parity check needs, which no filtered paint
+      -- can supply.
+      [ "/headlines?q=state%3A*active*&limit=100"
+      , "/headlines?q=state%3A*active*"
+      , "/headlines" ]
+      "?q=state%3A*active*"
+
+  , Boot "with the whole answer on the first page there is no second fetch"
+      "" 1 ""
+      [ "/headlines?q=state%3A*active*&limit=100", "/headlines" ]
+      "?q=state%3A*active*"
+
+  , Boot "a deep link is asked for as it stands, and arms the check too"
+      "?q=tanik&keys=vim" 500 ""
+      [ "/headlines?q=tanik&limit=100", "/headlines?q=tanik", "/headlines" ]
+      -- Nothing is written over a URL the reader wrote: `keys' included.
+      "?q=tanik&keys=vim"
+
+  , Boot "an empty q is a reader asking for everything, and no default lands on it"
+      "?q=" 500 ""
+      -- Unfiltered from the first fetch, so the paint is its own baseline and
+      -- there is nothing to arm.
+      [ "/headlines?limit=100", "/headlines" ]
+      "?q="
+
+  -- DEL is the applied query's own backspace, and the default is subject to it
+  -- like any other token: one press and the whole store is on screen.
+  , Boot "DEL over the table strips the default and shows everything"
+      "" 500 "Backspace"
+      [ "/headlines?q=state%3A*active*&limit=100"
+      , "/headlines?q=state%3A*active*"
+      , "/headlines"
+      , "/headlines" ]
+      -- `remember(\"\")' takes `q' out of the URL, so a link to the empty query
+      -- is the page's own address.
+      ""
+
+  , Boot "and strips a deep link the same way, leaving the rest of the URL"
+      "?q=tanik&keys=vim" 500 "Backspace"
+      [ "/headlines?q=tanik&limit=100", "/headlines?q=tanik", "/headlines"
+      , "/headlines" ]
+      "?keys=vim"
+
+  , Boot "with no query to strip it asks for nothing"
+      "?q=" 500 "Backspace"
+      [ "/headlines?limit=100", "/headlines" ]
+      "?q="
+  ]
+
+-- | The boots above, run where the machine has a node to run them.
+bootSpec :: IO T.Text -> TestTree
+bootSpec shell = testGroup "Shell boot"
+  [ testCase boLabel $ do
+      run <- bootOf shell boSearch boTotal boKeys
+      case run of
+        -- No node here: the boot is checked wherever there is one, and the
+        -- glue group still reads the same page as text.
+        Nothing            -> pure ()
+        Just (asked', url) -> do
+          assertEqual (boLabel <> ": the fetches") boAsked asked'
+          assertEqual (boLabel <> ": the URL it settles on") boUrl url
+  | Boot{..} <- shellBoots ]
+
+-- | SHELL's glue booted under node on SEARCH, with the server reporting TOTAL
+-- matches and KEYS pressed over the table once it settled: the @\/headlines@
+-- URLs it asked for and the search string it left behind.  'Nothing' where
+-- there is no node.
+bootOf :: IO T.Text -> T.Text -> Int -> T.Text -> IO (Maybe ([T.Text], T.Text))
+bootOf shell search total keys = do
+  node <- findExecutable "node"
+  case node of
+    Nothing  -> pure Nothing
+    Just exe -> withTempDir $ \dir -> do
+      page <- shell
+      glueOf page >>= TIO.writeFile (dir </> "shell.js")
+      keysOf page >>= TIO.writeFile (dir </> "keys.json")
+      (code, out, err) <- readProcessWithExitCode exe
+                            [harness, dir, T.unpack search, show total, T.unpack keys] ""
+      case code of
+        ExitSuccess -> do
+          answer <- either (\e -> assertFailure ("the harness answered: " <> e)) pure
+                           (eitherDecode (BL.fromStrict (TE.encodeUtf8 (T.pack out))))
+          Just <$> ((,) <$> textsAt "asked" answer <*> textAt "url" answer)
+        _failed -> assertFailure ("the boot harness said: " <> err)
+
+-- | The browser the boot runs in, stubbed down to what it touches.
+harness :: FilePath
+harness = "test/fixtures/shell-harness.js"
 
 -- | A claim about a page this server serves: strings it must carry, and strings
 -- it must not.
@@ -261,7 +401,29 @@ shellGlue =
   [ glue "paints a page and loads the rest behind it"
       [ "const PAGE = 100;", "load(`${narrow}limit=${PAGE}`)"
       , "r.headers.get(\"X-Glance-Total\")", "a.total > (a.view.rows || []).length"
-      , "query === asked && paint(b)" ]
+      , "if (table && query === asked) paint(b)" ]
+
+  -- The page opens on a view rather than on everything.  It is a query like
+  -- any other: in the URL, mounted as a chip, asked of the server — so DEL
+  -- takes it off and the whole store is one keystroke away.
+  , glue "a bare boot opens on the active view"
+      [ "const DEFAULT_QUERY = \"state:*active*\";"
+      -- A `q' in the address bar is the reader's own, empty or not.
+      , "const bootQuery = () => (params().has(\"q\") ? urlQuery() : DEFAULT_QUERY);"
+      , "const asked = (query = bootQuery());"
+      -- Injected, then committed: what the page shows and what the address bar
+      -- says are the same query from the first paint on.
+      , "if (!params().has(\"q\")) remember(asked);"
+      , "initialQuery: query," ]
+
+  -- The check compares a filtered answer against an unfiltered one, and this
+  -- page can open filtered — a link, or the default view.  A paint under a
+  -- query arms nothing, so the baseline is fetched once behind the table.
+  , glue "the parity baseline is armed even when the boot was filtered"
+      [ "function arm(total) {", "if (!query || all.length) return;"
+      , "load(\"\").then((a) => { all = a.view.rows || []; parity(total); })"
+      , "arm(a.total); })"
+      , "else arm(a.total);" ]
 
   , glue "hands the filter to the server and aborts stale fetches"
       [ "onFilter: filter", "new AbortController()", "inflight.abort()"
@@ -286,8 +448,11 @@ shellGlue =
       -- `keys' rides in the same query string and has to survive a commit.
       , "new URLSearchParams(location.search)"
       , "const urlQuery = () => params().get(\"q\") || \"\";"
-      -- A ?q= in the address bar is applied on load.
-      , "const asked = (query = urlQuery());" ]
+      -- A ?q= in the address bar is applied on load, and DEL strips it token
+      -- by token through the renderer, default or not.
+      , "const asked = (query = bootQuery());"
+      , "table.stripLastToken()", "const left = table.getQuery().trim();"
+      , "commit(left);" ]
 
   -- `/' asks the renderer to raise its palette instead of reaching for a box on
   -- the page: `openFilter' is mode-agnostic, so the one call covers an asset in
@@ -631,8 +796,9 @@ indexingSpec = testGroup "Indexing (bind before load)"
       -- over the same directory; what is this case's is that the routes opened
       -- onto a loaded store rather than an empty one.
       assertEqual "the rows the walk found" (Just "6") (header "X-Glance-Rows" after)
-      -- The generation starts where a store loaded at startup starts it.
-      assertEqual "etag" (Just "\"g0\"") (header "ETag" after)
+      -- The tag is the loaded tree's, at the generation a store loaded at
+      -- startup starts on.
+      etagOf after >>= assertTreeTag "the store the walk landed" 0
   ]
 
 -- | A server whose startup walk has not finished — the state 'Glance.Web.serve'
@@ -701,15 +867,18 @@ statsSpec = testGroup "Load stats"
         _        -> assertFailure ("expected an object, got " <> show v)
   ]
 
--- | The @ETag@ is the store's generation, and the store's generation is what
--- the watcher moves.  Every query variant shares it — the parameters are in
--- the URL, and an HTTP cache is keyed by URL, so each variant revalidates
--- against the tag it was itself given.
+-- | The @ETag@ is the tree's fingerprint and the store's generation: which
+-- documents were loaded, and how far they have moved since.  The watcher moves
+-- the generation; a restart moves the fingerprint or leaves it, which is the
+-- half a client's cached copy is revalidated against across one.  Every query
+-- variant shares the tag — the parameters are in the URL, and an HTTP cache is
+-- keyed by URL, so each variant revalidates against the tag it was itself
+-- given.
 cacheSpec :: TestTree
 cacheSpec = testGroup "GET /headlines cache validation"
-  [ testCase "carries a generation tag, and says to revalidate every time" $ do
+  [ testCase "carries a tree tag and a generation, and says to revalidate" $ do
       r <- get assetsDir "/headlines"
-      assertEqual "ETag" (Just "\"g0\"") (header "ETag" r)
+      etagOf r >>= assertTreeTag "the fixture store" 0
       assertEqual "Cache-Control" (Just "no-cache") (header "Cache-Control" r)
 
   , testCase "the tag it just gave out is a 304 with no body" $ do
@@ -725,16 +894,33 @@ cacheSpec = testGroup "GET /headlines cache validation"
 
   , testCase "a weak tag, or one in a list, still matches" $ do
       a <- app assetsDir
-      weak <- getWith a "/headlines" [("If-None-Match", "W/\"g0\"")]
-      listed <- getWith a "/headlines" [("If-None-Match", "\"g9\", \"g0\"")]
+      tag <- etagOf =<< getFrom a "/headlines"
+      weak <- getWith a "/headlines" [("If-None-Match", "W/" <> tag)]
+      listed <- getWith a "/headlines" [("If-None-Match", "\"" <> zeroes <> "-g9\", " <> tag)]
       assertEqual "weak" 304 (status weak)
       assertEqual "listed" 304 (status listed)
 
   , testCase "a tag from another generation is the whole document again" $ do
       a <- app assetsDir
-      r <- getWith a "/headlines" [("If-None-Match", "\"g7\"")]
+      tag <- etagOf =<< getFrom a "/headlines"
+      r <- getWith a "/headlines" [("If-None-Match", atGeneration 7 tag)]
       assertEqual "status" 200 (status r)
       assertEqual "X-Glance-Rows" (Just "6") (header "X-Glance-Rows" r)
+
+  , testCase "and so is one from another tree at this very generation" $ do
+      -- The restart: a client holding the tag a daemon gave out before it was
+      -- restarted over a tree that has changed since.  The generation is back
+      -- at zero and says nothing about that, so the fingerprint is the whole of
+      -- what refuses the 304 — with the generation alone, both tags read "g0"
+      -- and the client keeps a table that is nowhere any more.
+      a <- app assetsDir
+      tag <- etagOf =<< getFrom a "/headlines"
+      let elsewhere = "\"" <> zeroes <> "-g0\""
+      assertBool "the fixture tree prints as all zeroes" (tag /= elsewhere)
+      stale <- getWith a "/headlines" [("If-None-Match", elsewhere)]
+      fresh <- getWith a "/headlines" [("If-None-Match", tag)]
+      assertEqual "another tree, same generation" 200 (status stale)
+      assertEqual "this tree" 304 (status fresh)
 
   , testCase "a store the watch moved is a fresh tag" $ withTempDir $ \dir -> do
       path <- orgFile dir "notes.org" committable
@@ -1360,11 +1546,15 @@ expectedProfiles =
 -- here, so the assertions below are over data rather than over the spelling of
 -- a JS literal.
 blobOf :: T.Text -> IO Value
-blobOf shell = do
-  raw <- maybe (assertFailure "no keymap blob in the shell") pure
-               (between "<script id=\"keys\" type=\"application/json\">" "</script>" shell)
+blobOf shell = keysOf shell >>= \raw ->
   either (\e -> assertFailure ("keymap JSON: " <> e)) pure
          (eitherDecode (BL.fromStrict (TE.encodeUtf8 raw)))
+
+-- | SHELL's keymap blob as it stands in the page, undecoded — what the glue
+-- itself parses out of the document.
+keysOf :: T.Text -> IO T.Text
+keysOf shell = maybe (assertFailure "no keymap blob in the shell") pure
+                     (between "<script id=\"keys\" type=\"application/json\">" "</script>" shell)
 
 -- | The resident key line's table out of SHELL: the commands it names, in the
 -- order the line reads them, each with its label.

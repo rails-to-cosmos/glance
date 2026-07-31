@@ -20,7 +20,9 @@ module Data.Org.Walk ( Found (..)
                      , findOrgFilesWith
                      , isCanonical
                      , isDerived
+                     , isDocument
                      , isOrg
+                     , isSidecar
                      ) where
 
 import Control.Exception (IOException, try)
@@ -28,7 +30,7 @@ import Control.Monad (foldM)
 import Data.List (tails)
 import Data.Text (Text)
 import System.Directory (doesDirectoryExist, doesFileExist, listDirectory, pathIsSymbolicLink)
-import System.FilePath (splitDirectories, takeExtension, (</>))
+import System.FilePath (splitDirectories, takeExtension, takeFileName, (</>))
 
 import qualified Data.Char as Char
 import qualified Data.Text as T
@@ -107,7 +109,7 @@ collect opts acc root = do
     then walk opts acc root
     else do
       isFile <- doesFileExist root
-      pure $! case (isFile, isOrg root) of
+      pure $! case (isFile, isDocument root) of
         (True, True)  -> keepFile root acc
         (True, False) -> acc
         (False, _)    -> keepDirErr root "no such file or directory" acc
@@ -133,7 +135,7 @@ visit opts dir acc name = do
       case link of
         Right False -> walk opts acc path
         _symlink    -> pure acc
-    else pure $! if isOrg path && not skip then keepFile path acc else acc
+    else pure $! if isDocument path && not skip then keepFile path acc else acc
   where path = dir </> name
         skip = not (woIncludeDerived opts) && isDerived path
 
@@ -146,8 +148,28 @@ keepDirErr path why acc = acc { foundDirErrs = (path, why) : foundDirErrs acc }
 keepDerived :: FilePath -> Found -> Found
 keepDerived path acc = acc { foundDerived = path : foundDerived acc }
 
+-- | Is PATH a file this walk reads?  An @.org@ name that is not one of Emacs's
+-- sidecars.  The watch asks this same question of an inotify event, through the
+-- facade re-export 'Glance.Query.documentPath', so the two sides cannot
+-- disagree about what a document is — a file the walk skips can never arrive by
+-- inotify, and a file it reads is never one no event can refresh.
+isDocument :: FilePath -> Bool
+isDocument path = isOrg path && not (isSidecar path)
+
 isOrg :: FilePath -> Bool
 isOrg path = map Char.toLower (takeExtension path) == ".org"
+
+-- | Is PATH one of the two sidecars Emacs writes beside a buffer — the lock
+-- @.#name.org@ and the auto-save @#name.org#@?  Neither is a document, and the
+-- lock is the one that has to be named here: it is a symlink to
+-- @user\@host.pid@ that usually dangles, and its extension is @.org@, so a walk
+-- keeping files on 'isOrg' alone reads it as a document and 'Glance.Query.loadFile'
+-- answers @ReadFailed@ — for the life of the process, since the watch filters
+-- the path out and no event ever arrives to clear it.  The auto-save fails
+-- 'isOrg' already and is named for the pair to be one rule.
+isSidecar :: FilePath -> Bool
+isSidecar path = take 2 name == ".#" || take 1 name == "#"
+  where name = takeFileName path
 
 -- | E's rendering, cut to its first line, as a one-line diagnostic.
 errText :: Show e => e -> Text

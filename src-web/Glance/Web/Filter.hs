@@ -50,7 +50,7 @@ module Glance.Web.Filter ( Term (..)
                          ) where
 
 import Data.List (elemIndex, nub)
-import Data.Maybe (isNothing)
+import Data.Maybe (fromMaybe, isNothing)
 import Data.Text (Text)
 
 import qualified Data.Text as T
@@ -240,11 +240,23 @@ keyTest key (Col i) value
     cell = cellOf i
     -- The two meta-values SCHEMA.md lets a producer add: membership in the
     -- record's own keyword sets, which are its file's `#+TODO:' line.  A
-    -- headline with no keyword is in neither.
-    state r | value == "active"   = grouped tkActive r
-            | value == "inactive" = grouped tkInactive r
-            | otherwise           = cell r == value     -- badge: whole value
+    -- headline with no keyword is in neither.  Each answers to two spellings —
+    -- org-glance writes the groups `*active*' and `*inactive*', and the view
+    -- offers those ('Glance.Query.stateValues') — so the stars come off before
+    -- the comparison and `state:active' stays the alias it always was.
+    state r | meta == "active"   = grouped tkActive r
+            | meta == "inactive" = grouped tkInactive r
+            | otherwise          = cell r == value      -- badge: whole value
+    meta = starless value
     grouped set r = maybe False (`elem` set (hrKeywords r)) (hrState r)
+
+-- | VALUE with one matched pair of asterisks taken off it.  The alias reaches
+-- the two state meta-values alone, where it is asked for the group names
+-- org-glance itself writes: @state:*active*@ and @state:active@ are one query.
+-- There is no glob here — @state:*TODO*@ comes out as the literal badge text
+-- @*todo*@, which no cell holds, and matches nothing.
+starless :: Text -> Text
+starless value = fromMaybe value (T.stripSuffix "*" =<< T.stripPrefix "*" value)
 
 -- | Field N of R's search text.
 cellOf :: Int -> HeadlineRecord -> Text

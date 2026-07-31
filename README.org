@@ -55,8 +55,9 @@ view's own declared sort (scheduled ascending), so page two is the rows the
 table would show after page one; sorting a /page/ in the browser reorders that
 page alone, while the no-limit mode keeps full-fidelity client-side sort.
 
-Every answer carries =ETag: "gN"= — =N= being the store's generation, which the
-file watch moves whenever a response would change — under =Cache-Control:
+Every answer carries =ETag: "<fingerprint>-gN"= — the fingerprint being a
+digest of the tree the daemon loaded, =N= the store's generation, which the file
+watch moves whenever a response would change — under =Cache-Control:
 no-cache=, so a browser revalidates every time and an unchanged tree costs a
 0.6 ms 304 instead of a 3 MB body. One tag serves every variant: the parameters
 are in the URL and an HTTP cache is keyed by URL, so =?q=foo= and =?q=bar= are
@@ -78,11 +79,20 @@ is the facet. Two predicates on one key combine by what the field holds: one
 value means either of them (=state:TODO state:DONE=, since no row is both),
 a list means all of them (=tag:web tag:glance= carries both, the way a label
 filter reads). =-token= negates, ="two words"= quotes, =key:none= asks for an
-empty cell, =scheduled:2026-08= is the month, and =state:active= /
-=state:inactive= are the keyword groups your =#+TODO:= lines declare. A query
+empty cell, =scheduled:2026-08= is the month, and =state:*active*= /
+=state:*inactive*= are the keyword groups your =#+TODO:= lines declare (=active=
+and =inactive= without the stars mean the same thing). A query
 with no predicate in it is the substring search it always was. The applied query
 rides in the URL, so a filtered view is a link; =DEL= over the table takes the
 last token back off.
+
+*The default view is your active work.* Open the page with nothing in the
+address bar and it applies =state:*active*= for you — every keyword your
+=#+TODO:= lines declare before the bar, which is the work still to do. It is a
+query like any you typed: it shows as a chip, it is in the URL, and =DEL= over
+the table strips it, at which point the whole tree is on screen. Ask for
+something else — =?q=tag:travel=, or an empty =?q== for everything — and that is
+what you get; the default is only ever injected when the URL says nothing.
 
 *The page stays tiny.* The shell is inline vanilla JavaScript — no framework, no
 build step, no dependency, nothing fetched off this server. It boots on
