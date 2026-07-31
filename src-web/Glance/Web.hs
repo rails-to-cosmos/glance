@@ -760,8 +760,10 @@ helps :: KeyBinding -> Text -> KeyBinding
 helps b text' = b { kbHelp = Just text' }
 
 -- | The rows both profiles carry: every command that is not movement, plus the
--- movement no editor argues about — the arrows, and org-glance's own
--- buffer-ends keys.
+-- movement no editor argues about — the arrows, org-glance's own buffer-ends
+-- keys, and the brackets that turn a page, which both editors spell alike.  The
+-- buffer-ends keys reach the ends of the page on show, since that is what
+-- @getVisible@ holds; the brackets are how a reader leaves it.
 --
 -- These are org-glance's command names (@org-glance-overview-mode-map@, plus
 -- @C-x C-s@ for the sheet, which is Emacs's).  A row with no handler is
@@ -787,6 +789,8 @@ sharedKeys =
   , bind ["<"]          "first-row"                       (Just "firstRow")       "table"
   , bind ["."]          "last-row"                        (Just "lastRow")        "table"
   , bind [">"]          "last-row"                        (Just "lastRow")        "table"
+  , bind ["]"]          "next-page"                       (Just "nextPage")       "table"
+  , bind ["["]          "previous-page"                   (Just "previousPage")   "table"
   , bind ["RET"]        "org-glance-overview:materialize" (Just "materializeRow") "table"
   , bind ["/"]          "filter-rows"                     (Just "focusFilter")    "table"
       `helps` "summon the filter palette"
@@ -887,10 +891,14 @@ onceCommands = ["filter-drop-token"]
 -- line cannot advertise a key nothing is bound to, and a profile switch
 -- rewrites it (@n@\/@p@ under emacs, @j@\/@k@ under vim).  These are the rows a
 -- reader needs in front of them; the rest is the echo pill's to name as it runs.
+--
+-- The page pair is listed backwards on purpose: a bracket pair reads open then
+-- close, so the line says @[\/]@ where the row and cell pairs say forward first.
 keyHints :: [([Text], Text)]
 keyHints =
   [ (["next-row", "previous-row"],         "rows")
   , (["next-column", "previous-column"],   "cells")
+  , (["previous-page", "next-page"],       "pages")
   , (["org-glance-overview:materialize"],  "materialize")
   , (["filter-rows"],                      "filter")
   , (["org-glance-overview:refresh"],      "refresh")
@@ -1013,11 +1021,12 @@ shellPage opts = do
 -- the same way it would arrive had the edit come from an editor.  A real editor
 -- component is M3.5; a textarea is what proves the round-trip.
 --
--- The keys are 'keyBindingsJSON', which the glue parses: row movement runs
--- over the renderer's @getVisible@ and @select@, since a virtualized row
--- outside the window has no element to click, and a sequence with no handler
--- echoes its org-glance command name and what it is waiting for.  Cell
--- movement is the same @select@ with a column: the column lives in the
+-- The keys are 'keyBindingsJSON', which the glue parses: row movement is the
+-- renderer's @selectStep@, which carries the column and crosses a page
+-- boundary the shell is not told about, and a sequence with no handler echoes
+-- its org-glance command name and what it is waiting for.  The set is shown a
+-- page at a time (@pageSize@), and @[@ and @]@ turn one, echoing the page they
+-- landed on.  Cell movement is @select@ with a column: the column lives in the
 -- renderer's selection rather than here, so it survives a profile switch,
 -- rides along with row movement, and goes when the selection does.  A
 -- whole-row selection has no column and keeps the look it always had until a
@@ -1040,8 +1049,9 @@ shellPage opts = do
 --
 -- The log is an event strip: connection, sync outcomes, the parity warning,
 -- errors.  What is loaded is the renderer's own hint line and which profile is
--- on is the corner's and the key line's, so neither is repeated there — with
--- nothing to report the strip collapses and the page is table, keys, done.
+-- on is the corner's and the key line's, so neither is repeated there.  The
+-- frame is resident: with nothing to report it is an empty strip holding its
+-- place, so the first event to arrive does not shift the key line under it.
 demoShell :: ServeOptions -> Maybe FilePath -> Text
 demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlines
   -- No heading: the view title is already the tab's, and printing it a second
@@ -1086,10 +1096,17 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    // with, the fetch still in flight for it, and the timer that re-asks"
   , "    // when a row frame lands while one is on."
   , "    let query = \"\", inflight = null, requeryAt = 0;"
-  , "    const PAGE = 100;   // rows in the first paint; the rest follows it"
+    -- One number, two jobs: the boot asks for this many rows and the renderer
+    -- shows this many at a time, so the first paint is exactly page one and
+    -- the set arriving behind it only adds pages to turn to.
+  , "    const PAGE = 100;   // rows in the first paint, and rows to a page"
   , "    function mount(view) {"
   , "      table = TableView.mount(document.getElementById(\"app\"), view, {"
   , "        palette: true,     // the filter is summoned, never resident"
+        -- The set is shown a page at a time: the renderer keeps the window,
+        -- the spacers and the pager in its own status line, and movement
+        -- crosses the boundary without this page knowing where one is.
+  , "        pageSize: PAGE,"
   , "        // The applied query, restored as the renderer's own committed"
   , "        // chips. It tokenizes them and delivers nothing — the rows in"
   , "        // hand are already the server's answer to this query, and a"
@@ -1321,9 +1338,34 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      // picks one, so a page nobody has moved sideways in keeps whole rows."
   , "      table.select(id, column());"
   , "    }"
+    -- A row step is the renderer's `selectStep': it carries the column, and it
+    -- turns the page at either end, which only the renderer knows there is —
+    -- `getVisible()' is one page's worth, so index arithmetic here would stop
+    -- dead at a boundary.  An asset predating the call has no pages either, so
+    -- the old walk over the visible ids is exactly right for it.
+  , "    const steps = () => !!table && typeof table.selectStep === \"function\";"
   , "    function move(step) {"
+  , "      if (steps()) {"
+  , "        if (visible().length) table.selectStep(step);"
+  , "        else log(\"no rows to move through\");"
+  , "        return;"
+  , "      }"
   , "      const list = visible(), at = list.findIndex((r) => r.id === focusedId());"
   , "      pick(list, at === -1 ? (step > 0 ? 0 : list.length - 1) : at + step);"
+  , "    }"
+    -- Pages.  The turn is the renderer's, and the echo says where it landed
+    -- rather than which key ran: `] → page 3/129' is the only thing a reader
+    -- wants back from a page key, and it reads the same at a stop as at a turn.
+  , "    const pager = () => !!table && typeof table.nextPage === \"function\""
+  , "      && typeof table.pageInfo === \"function\";"
+  , "    function turnPage(b, step) {"
+  , "      if (!pager()) {"
+  , "        echo(`${b.seq} → ${b.command} (this table-view.js has no pager)`);"
+  , "        return;"
+  , "      }"
+  , "      if (step > 0) table.nextPage(); else table.previousPage();"
+  , "      const at = table.pageInfo();"
+  , "      echo(`${b.seq} → page ${at.page}/${at.pages}`);"
   , "    }"
   , "    // Cells.  The column is part of the renderer's selection, so it needs no"
   , "    // state here: it survives a profile switch, rides along with row"
@@ -1509,6 +1551,8 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      previousRow: () => move(-1),"
   , "      nextColumn: (b) => moveCol(b, 1),"
   , "      previousColumn: (b) => moveCol(b, -1),"
+  , "      nextPage: (b) => turnPage(b, 1),"
+  , "      previousPage: (b) => turnPage(b, -1),"
   , "      firstRow: () => pick(visible(), 0),"
   , "      lastRow: () => pick(visible(), visible().length - 1),"
   , "      materializeRow: () => {"
@@ -1703,18 +1747,19 @@ page head' title body = T.unlines
   -- so its rule lands after this element and ties on specificity.  One more
   -- selector step settles it, and leaves the size and the leading it set.
   , "  #app .tv-root{font-family:var(--glance-mono)}"
-  , "  #app .tv-table tbody tr.tv-sel{box-shadow:inset 2px 0 0 var(--tv-accent)}"
+  -- The selected row is marked once, by the renderer's own secondary-highlight
+  -- background.  The accent stripe this page drew over it was a second mark for
+  -- the same fact, and the two disagreed about where the row began.
   -- The log is the table's own container repeated under it: same width,
   -- because this rule is the one place either width is set; same hairline,
   -- radius and surface tint as @.tv-root@.  It takes the height the table and
   -- the key line leave and scrolls inside it, so a long message cannot push
-  -- either of them off the page, and it collapses outright when there is
-  -- nothing to say rather than leaving an empty frame behind.
+  -- either of them off the page.  The frame is resident: it holds its place
+  -- with nothing to say, so an arriving event never moves the key line under it.
   , "  #app,#log{width:100%;box-sizing:border-box}"
   , "  #log{font-size:12px;color:var(--g-mute);padding:6px 10px;"
   , "    border:1px solid var(--g-border);border-radius:8px;"
   , "    background:var(--g-surface);flex:1 1 auto;overflow-y:auto}"
-  , "  #log:empty{display:none}"
   -- The resident key line, and the page's last: what can run, where the echo
   -- pill says what just did.  Slim and muted, so it reads as chrome rather
   -- than as content; one line that scrolls sideways instead of wrapping, so a

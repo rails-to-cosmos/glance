@@ -1070,13 +1070,17 @@ pageSpec = testGroup "GET /"
             -- It takes the height the table and the key line leave, and
             -- scrolls inside it rather than at a cap of its own.
             , "background:var(--g-surface);flex:1 1 auto;overflow-y:auto}"
-            -- Nothing to say, nothing on screen — no empty frame.
-            , "#log:empty{display:none}"
             -- The end of a long message is scrolled to unless the reader has
             -- scrolled up to hold a place.
             , "box.scrollTop + box.clientHeight >= box.scrollHeight - 4"
             , "if (end) box.scrollTop = box.scrollHeight;" ]
-      -- The reserved line the frame replaces is gone: an empty box collapses.
+      -- The frame is resident, so an arriving event cannot shift the key line
+      -- under it.  The collapse this replaces is a superseded design: an empty
+      -- strip is wanted, and `flex:1' above already gives it its height.
+      assertBool "the empty log still collapses"
+                 (not ("#log:empty" `T.isInfixOf` b))
+      -- A height reserved by hand is the same collapse read backwards; the
+      -- column decides it.
       assertBool "the log still reserves a line while empty"
                  (not ("min-height:1.4em" `T.isInfixOf` b))
       -- And the ten-line cap the flex rule replaces: the column decides the
@@ -1094,8 +1098,9 @@ pageSpec = testGroup "GET /"
             , "log(`load failed: ${e.message}`)"
             , "log(\"closed without writing — the file is as it was\")"
             , "filter parity divergence — asset/daemon version skew"
-            -- The boot placeholder is cleared by the mount, so a loaded page
-            -- with nothing to report shows no strip at all.
+            -- The boot placeholder is cleared by the mount: the frame stays,
+            -- and a loaded page with nothing to report shows it empty rather
+            -- than still saying it is loading.
             , "<div id=\"log\">loading …</div>"
             , "log(\"\");" ]
       -- The row count is the renderer's hint line and the profile is the
@@ -1142,6 +1147,9 @@ pageSpec = testGroup "GET /"
       assertEqual "the key line's table"
         [ (["next-row", "previous-row"], "rows")
         , (["next-column", "previous-column"], "cells")
+        -- The page pair reads open-then-close, so the line says `[/]' where
+        -- the two above it read forward first.
+        , (["previous-page", "next-page"], "pages")
         , (["org-glance-overview:materialize"], "materialize")
         , (["filter-rows"], "filter")
         , (["org-glance-overview:refresh"], "refresh")
@@ -1230,7 +1238,8 @@ type Row = ([T.Text], T.Text, T.Text, Maybe T.Text, T.Text, Maybe T.Text)
 -- code under test would agree with any of them.
 --
 -- What both profiles carry — every command that is not movement, plus the
--- arrows and org-glance's own buffer-ends keys.
+-- arrows, org-glance's own buffer-ends keys, and the brackets that turn a page,
+-- which both editors spell alike.
 expectedShared :: [Row]
 expectedShared =
   [ (["<down>"],     "<down>",  "next-row",                        Just "nextRow",        "table", Nothing)
@@ -1239,6 +1248,8 @@ expectedShared =
   , (["<"],          "<",       "first-row",                       Just "firstRow",       "table", Nothing)
   , (["."],          ".",       "last-row",                        Just "lastRow",        "table", Nothing)
   , ([">"],          ">",       "last-row",                        Just "lastRow",        "table", Nothing)
+  , (["]"],          "]",       "next-page",                       Just "nextPage",       "table", Nothing)
+  , (["["],          "[",       "previous-page",                   Just "previousPage",   "table", Nothing)
   , (["RET"],        "RET",     "org-glance-overview:materialize", Just "materializeRow", "table", Nothing)
   , (["/"],          "/",       "filter-rows",                     Just "focusFilter",    "table",
        Just "summon the filter palette")
@@ -1437,16 +1448,57 @@ keymapSpec = testGroup "Shell keymap"
 
   , testCase "row movement drives the renderer's own selection" $ do
       b <- body <$> get assetsDir "/"
-      -- The renderer virtualizes, so a row outside the window has no element:
-      -- movement is ids out of `getVisible()' handed back to `select(id)'.
-      -- Which row is on is the renderer's answer too, with the DOM read left as
-      -- the fallback for an asset predating the call.
+      -- A row step is `selectStep': it carries the column and turns the page at
+      -- either end, and `getVisible()' is one page's worth, so arithmetic over
+      -- it here would stop dead at a boundary.  The index walk stays as the
+      -- fallback for an asset predating the call — which has no pages either.
       mapM_ (\needle -> assertContains "row focus" needle b)
-        [ "tbody tr.tv-sel", "table.getVisible()", "table.select(id, column())", ".tv-filter"
+        [ "const steps = () => !!table && typeof table.selectStep === \"function\";"
+        , "if (visible().length) table.selectStep(step);"
+        -- Which row is on is the renderer's answer too, with the DOM read left
+        -- as the fallback for an asset predating that call.
+        , "tbody tr.tv-sel", "table.getVisible()", "table.select(id, column())", ".tv-filter"
         , "if (cells()) return table.getSelection().id;" ]
       mapM_ (\gone -> assertBool ("the DOM movement path survives: " <> show gone)
                                  (not (gone `T.isInfixOf` b)))
         [ "tr.click()", "scrollIntoView", "rowEls(" ]
+      -- The selected row is marked once, by the renderer's own
+      -- secondary-highlight background.  The accent stripe this page drew over
+      -- it is a superseded design (#26): a second mark for the same fact.
+      mapM_ (\gone -> assertBool ("the selection stripe survives: " <> show gone)
+                                 (not (gone `T.isInfixOf` b)))
+        [ "box-shadow:inset 2px 0 0 var(--tv-accent)", "tr.tv-sel{box-shadow" ]
+
+  , testCase "the set is paged, and the brackets turn one" $ do
+      b <- body <$> get assetsDir "/"
+      mapM_ (\needle -> assertContains "pager glue" needle b)
+        -- One number for the boot's limit and the renderer's page, so the
+        -- first paint is exactly page one.
+        [ "const PAGE = 100;   // rows in the first paint, and rows to a page"
+        , "pageSize: PAGE,"
+        , "load(`${narrow}limit=${PAGE}`)"
+        -- The turn is the renderer's, and the echo says where it landed:
+        -- `] → page 3/129'.
+        , "nextPage: (b) => turnPage(b, 1),"
+        , "previousPage: (b) => turnPage(b, -1),"
+        , "if (step > 0) table.nextPage(); else table.previousPage();"
+        , "echo(`${b.seq} → page ${at.page}/${at.pages}`);"
+        -- An asset without a pager says so rather than throwing.
+        , "typeof table.nextPage === \"function\""
+        , "typeof table.pageInfo === \"function\""
+        , "this table-view.js has no pager" ]
+      -- The rows are the blob's, shared by both profiles, and neither shadows
+      -- them: a bracket is spelled the same in either editor.
+      (shared, profiles) <- keymapOf b
+      assertEqual "the page keys, shared"
+        [(["]"], "next-page"), (["["], "previous-page")]
+        [ (k, c) | (k, _s, c, _h, _scope, _help) <- shared
+                 , c `elem` ["next-page", "previous-page"] ]
+      mapM_ (\(name, rows) ->
+               assertEqual (T.unpack name <> ": a profile claims a page key") []
+                 [ k | (k, _s, _c, _h, _scope, _help) <- rows
+                     , k `elem` [["["], ["]"]] ])
+            profiles
 
   , testCase "cell movement is that selection with a column, and no state here" $ do
       b <- body <$> get assetsDir "/"
