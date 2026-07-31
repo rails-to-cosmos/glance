@@ -97,11 +97,14 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   and one `<script src>` naming a file under `--assets`. No CDN, no web font, no
   analytics. The JetBrains Mono `@font-face` appears only when the assets
   directory holds the file, pointing at a bare name this server serves.
-- The shell's keymap is `Glance.Web.keyBindings` and nothing else: the page
-  carries it as a JSON blob and its own dispatch parses that blob. Sequences and
-  command names are org-glance's; a row with no handler is recognized and says
-  what will back it. `C-c`/`C-x` are prefixes only with the selection collapsed;
-  `C-l`, `C-r`, `C-t`, `C-w`, `C-n` and `<f5>` are never claimed.
+- The shell's keymap is `Glance.Web`'s `sharedKeys` + `keyProfiles` and nothing
+  else: the page carries them as a JSON blob and its own dispatch parses that
+  blob. Movement is the only thing a profile changes (`emacs` default, `vim`);
+  the effective map is `shared ++ profile`, and within one no sequence is bound
+  twice or opens a longer one. Sequences and command names are org-glance's; a
+  row with no handler is recognized and says what will back it. `C-c`/`C-x` are
+  prefixes only with the selection collapsed; `C-l`, `C-r`, `C-t`, `C-w`, `C-n`,
+  `C-p` and `<f5>` are never claimed, so no profile moves on `C-n`/`C-p`.
 - Browser writes are commands over the bridge: structured ones (toggle, retag,
   reschedule) and drift-locked raw replacement (materialize a subtree, later a
   file). Semantic org editing — refile, agenda logic — stays out of the browser.

@@ -32,9 +32,10 @@
 -- the socket is in the bootstrap rather than lost, and the server needs no
 -- journal to catch a client up.
 --
--- The page's keys are 'keyBindings' — org-glance's @overview-mode@ map under
--- org-glance's own command names — and it carries that table as JSON for its
--- own dispatch to parse, so the map and the handlers cannot drift apart.
+-- The page's keys are 'sharedKeys' — org-glance's @overview-mode@ map under
+-- org-glance's own command names — over a movement profile out of
+-- 'keyProfiles', and it carries both as JSON for its own dispatch to parse, so
+-- the map and the handlers cannot drift apart.
 -- Everything the shell needs comes from this server: inline styles, inline
 -- glue, one script by name, and a font only when the assets directory has one
 -- (docs\/invariants.md).
@@ -72,6 +73,7 @@ import System.Exit (die)
 import System.FilePath (takeExtension, (</>))
 import System.IO (hFlush, stdout)
 
+import qualified Data.Aeson.Key as Key
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy as BL
@@ -457,61 +459,117 @@ fontFace (Just name) = T.concat
 
 -- | One row of the shell's keymap.
 data KeyBinding = KeyBinding
-  { kbSeq     :: !Text          -- ^ the sequence, in Emacs notation.
+  { kbKeys    :: ![Text]        -- ^ the keys in order; what the dispatch matches.
+  , kbSeq     :: !Text          -- ^ how the echo widget and the docs spell them.
   , kbCommand :: !Text          -- ^ the command name the echo widget shows.
   , kbHandler :: !(Maybe Text)  -- ^ the shell function running it; 'Nothing' is staged.
   , kbScope   :: !Text          -- ^ @table@, @modal@ or @any@ — where it is live.
   }
 
--- | The shell's keymap, under org-glance's own command names
--- (@org-glance-overview-mode-map@, plus @C-x C-s@ for the sheet).  One table
--- drives all three consumers — the dispatch, the echo widget's notation, and
--- the JSON blob the page carries — because the shell parses that blob instead
--- of holding a second copy, so a key cannot be bound and undocumented.
+-- | KEYS bound to a command, spelled the way Emacs spells a sequence: one
+-- space between the keys.
+bind :: [Text] -> Text -> Maybe Text -> Text -> KeyBinding
+bind keys = KeyBinding keys (T.unwords keys)
+
+-- | 'bind', spelled SHOWN.  vi runs @gg@ together where Emacs would write
+-- @g g@, and the echo widget owes the reader the notation they typed in.
+bindAs :: Text -> [Text] -> Text -> Maybe Text -> Text -> KeyBinding
+bindAs shown keys = KeyBinding keys shown
+
+-- | The rows both profiles carry: every command that is not movement, plus the
+-- movement no editor argues about — the arrows, and org-glance's own
+-- buffer-ends keys.
 --
--- A row with no handler is recognized in full and then says what it is waiting
--- for.  The map is complete ahead of the daemon commands that will back it
--- (M4), which reads better than a key that silently does nothing.
+-- These are org-glance's command names (@org-glance-overview-mode-map@, plus
+-- @C-x C-s@ for the sheet, which is Emacs's).  A row with no handler is
+-- recognized in full and then says what it is waiting for: the map is complete
+-- ahead of the daemon commands that will back it (M4), which reads better than
+-- a key that silently does nothing.
 --
 -- Claimed chords, and only these.  @C-c@ becomes a prefix while no text field
 -- has focus and the selection is collapsed, so a copy is still a copy; @C-x@
 -- likewise, and only while the sheet is open, which is the only place @C-x
 -- C-s@ means anything.  @RET@, @TAB@ and @\/@ are taken while the table has
 -- focus.  Everything else reaches the browser — @C-l@, @C-r@, @C-t@, @C-w@,
--- @C-n@ and @\<f5\>@ even as the continuation of a prefix this map entered.
-keyBindings :: [KeyBinding]
-keyBindings =
-  [ KeyBinding "n"       "next-row"                        (Just "nextRow")        "table"
-  , KeyBinding "p"       "previous-row"                    (Just "previousRow")    "table"
-  , KeyBinding ","       "first-row"                       (Just "firstRow")       "table"
-  , KeyBinding "<"       "first-row"                       (Just "firstRow")       "table"
-  , KeyBinding "."       "last-row"                        (Just "lastRow")        "table"
-  , KeyBinding ">"       "last-row"                        (Just "lastRow")        "table"
-  , KeyBinding "RET"     "org-glance-overview:materialize" (Just "materializeRow") "table"
-  , KeyBinding "g"       "org-glance-overview:refresh"     (Just "refresh")        "table"
-  , KeyBinding "/"       "filter-rows"                     (Just "focusFilter")    "table"
-  , KeyBinding "q"       "quit-window"                     (Just "quitWindow")     "table"
-  , KeyBinding "TAB"     "org-cycle"                       Nothing                 "table"
-  , KeyBinding "j"       "org-glance-overview:open"        Nothing                 "table"
-  , KeyBinding "a"       "org-glance-agenda"               Nothing                 "table"
-  , KeyBinding "@"       "org-glance-overview:relations"   Nothing                 "table"
-  , KeyBinding "+"       "org-glance-overview:capture"     Nothing                 "table"
-  , KeyBinding "D"       "org-glance-overview:delete"      Nothing                 "table"
-  , KeyBinding "C-c C-t" "org-glance-overview:todo"        Nothing                 "table"
-  , KeyBinding "C-c C-s" "org-glance-overview:schedule"    Nothing                 "table"
-  , KeyBinding "C-c C-d" "org-glance-overview:deadline"    Nothing                 "table"
-  , KeyBinding "C-x C-s" "save-buffer"                     (Just "save")           "modal"
-  , KeyBinding "ESC"     "keyboard-quit"                   (Just "cancel")         "any"
+-- @C-n@, @C-p@ and @\<f5\>@ even as the continuation of a prefix this map
+-- entered, which is why neither profile moves on @C-n@ or @C-p@.
+sharedKeys :: [KeyBinding]
+sharedKeys =
+  [ bind ["<down>"]     "next-row"                        (Just "nextRow")        "table"
+  , bind ["<up>"]       "previous-row"                    (Just "previousRow")    "table"
+  , bind [","]          "first-row"                       (Just "firstRow")       "table"
+  , bind ["<"]          "first-row"                       (Just "firstRow")       "table"
+  , bind ["."]          "last-row"                        (Just "lastRow")        "table"
+  , bind [">"]          "last-row"                        (Just "lastRow")        "table"
+  , bind ["RET"]        "org-glance-overview:materialize" (Just "materializeRow") "table"
+  , bind ["/"]          "filter-rows"                     (Just "focusFilter")    "table"
+  , bind ["q"]          "quit-window"                     (Just "quitWindow")     "table"
+  , bind ["TAB"]        "org-cycle"                       Nothing                 "table"
+  , bind ["!"]          "org-glance-overview:open"        Nothing                 "table"
+  , bind ["a"]          "org-glance-agenda"               Nothing                 "table"
+  , bind ["@"]          "org-glance-overview:relations"   Nothing                 "table"
+  , bind ["+"]          "org-glance-overview:capture"     Nothing                 "table"
+  , bind ["D"]          "org-glance-overview:delete"      Nothing                 "table"
+  , bind ["C-c", "C-t"] "org-glance-overview:todo"        Nothing                 "table"
+  , bind ["C-c", "C-s"] "org-glance-overview:schedule"    Nothing                 "table"
+  , bind ["C-c", "C-d"] "org-glance-overview:deadline"    Nothing                 "table"
+  , bind ["C-x", "C-s"] "save-buffer"                     (Just "save")           "modal"
+  , bind ["ESC"]        "keyboard-quit"                   (Just "cancel")         "any"
   ]
 
--- | 'keyBindings' as the page carries it.  The two angle brackets are escaped
--- because two of the sequences are angle brackets: a blob that cannot spell a
--- tag cannot open one, whatever element it is sitting in, and @JSON.parse@
--- undoes both.
+-- | Movement as org-glance's overview binds it, and what a page starts on.
+-- @j@ is the overview's open-stub here, where vi needs it for down.
+emacsKeys :: [KeyBinding]
+emacsKeys =
+  [ bind ["n"] "next-row"                    (Just "nextRow")     "table"
+  , bind ["p"] "previous-row"                (Just "previousRow") "table"
+  , bind ["g"] "org-glance-overview:refresh" (Just "refresh")     "table"
+  , bind ["j"] "org-glance-overview:open"    Nothing              "table"
+  ]
+
+-- | Movement as vi binds it.  Two rows move to make room, and both moves are
+-- the reason this profile is data rather than a second dispatch: @j@ is down
+-- here, so the open-stub is left to @\!@ — which the overview map already
+-- carries, as its dired-execute rhyme — and @g@ is a prefix rather than a
+-- command, so refresh goes to @R@ and reads as vi's reload.  Nothing in this
+-- profile binds a bare @g@: a complete sequence that also opens a longer one
+-- would make the longer one unreachable.
+vimKeys :: [KeyBinding]
+vimKeys =
+  [ bind   ["j"]           "next-row"                    (Just "nextRow")     "table"
+  , bind   ["k"]           "previous-row"                (Just "previousRow") "table"
+  , bindAs "gg" ["g", "g"] "first-row"                   (Just "firstRow")    "table"
+  , bind   ["G"]           "last-row"                    (Just "lastRow")     "table"
+  , bind   ["R"]           "org-glance-overview:refresh" (Just "refresh")     "table"
+  ]
+
+-- | The movement profiles, by the name @?keys=@ and the toggle use.  Adding
+-- one is adding a row: the shell reads them out of the blob and its toggle
+-- cycles whatever it finds.
+keyProfiles :: [(Text, [KeyBinding])]
+keyProfiles = [("emacs", emacsKeys), ("vim", vimKeys)]
+
+-- | The profile a page starts on with nothing stored and nothing asked for.
+defaultProfile :: Text
+defaultProfile = "emacs"
+
+-- | The keymap as the page carries it: the shared rows once, the movement
+-- profiles beside them, and the name to start on.  The angle brackets are
+-- escaped because four of these sequences are angle brackets — a blob that
+-- cannot spell a tag cannot open one, whatever element it sits in, and
+-- @JSON.parse@ undoes them.
+--
+-- The shell parses this instead of holding a second copy, so a key cannot be
+-- bound and undocumented, and a profile cannot be offered and unbound.
 keyBindingsJSON :: Text
 keyBindingsJSON = T.replace "<" "\\u003c" . T.replace ">" "\\u003e"
-                . TE.decodeUtf8 . BL.toStrict . encode $ map row keyBindings
-  where row b = object [ "seq"     .= kbSeq b
+                . TE.decodeUtf8 . BL.toStrict . encode $ object
+  [ "shared"   .= map row sharedKeys
+  , "default"  .= defaultProfile
+  , "profiles" .= object [ Key.fromText name .= map row rows | (name, rows) <- keyProfiles ]
+  ]
+  where row b = object [ "keys"    .= kbKeys b
+                       , "seq"     .= kbSeq b
                        , "command" .= kbCommand b
                        , "handler" .= kbHandler b
                        , "scope"   .= kbScope b ]
@@ -549,15 +607,19 @@ shellPage opts = do
 -- had the edit come from an editor.  A real editor component is M3.5; a
 -- textarea is what proves the round-trip.
 --
--- The keys are 'keyBindings', which the page carries as JSON and the glue
--- parses: row movement drives the renderer's own selection by clicking the
--- row, since that is the model it exposes, and a sequence with no handler
--- echoes its org-glance command name and what it is waiting for.  The pill in
--- the corner is the echo area — the pending prefix while one is open, the
--- command on completion, @is undefined@ otherwise.
+-- The keys are 'keyBindingsJSON', which the glue parses: row movement drives
+-- the renderer's own selection by clicking the row, since that is the model it
+-- exposes, and a sequence with no handler echoes its org-glance command name
+-- and what it is waiting for.  The pill in the corner is the echo area — the
+-- pending prefix while one is open, the command on completion, @is undefined@
+-- otherwise.  A second pill by the heading names the movement profile and
+-- switches it in place, remembering the choice where the page can find it
+-- again.
 demoShell :: ServeOptions -> Maybe FilePath -> Text
 demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlines
-  [ "  <h1>" <> escape (viewTitleFor (soDir opts)) <> "<span id=\"dot\"></span></h1>"
+  [ "  <h1>" <> escape (viewTitleFor (soDir opts)) <> "<span id=\"dot\"></span>"
+      <> "<button id=\"keyset\" type=\"button\""
+      <> " title=\"movement profile — click to switch\"></button></h1>"
   , "  <div id=\"app\"></div>"
   , "  <div id=\"log\">loading …</div>"
   , "  <div id=\"modal\">"
@@ -586,7 +648,8 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "                                     : log(`action: ${command}  id=${id}`),"
   , "        onLink: (target) => log(`link: ${target}`),"
   , "      });"
-  , "      log(`${(view.rows || []).length} headlines · n/p moves · RET materializes · g refreshes`);"
+  , "      log(`${(view.rows || []).length} headlines · ${profile} keys"
+      <> " · RET materializes · / filters`);"
   , "    }"
   , "    function materialize(id) {"
   , "      fetch(`/headline?id=${encodeURIComponent(id)}`)"
@@ -666,14 +729,42 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    }"
   , ""
   , "    // Keys.  The map is the JSON above — dispatch and echo read the one blob."
-  , "    const KEYS = JSON.parse(el(\"keys\").textContent);"
+  , "    // Movement comes from the active profile; the rest is shared by all."
+  , "    const MAPS = JSON.parse(el(\"keys\").textContent);"
+  , "    const kept = {"
+  , "      get() { try { return localStorage.getItem(\"glance-keys\"); } catch (e) { return null; } },"
+  , "      set(v) { try { localStorage.setItem(\"glance-keys\", v); } catch (e) { /* denied */ } },"
+  , "    };"
+  , "    // `?keys=NAME' picks a profile and is remembered; otherwise what was"
+  , "    // remembered; otherwise the name the blob calls its default."
+  , "    function wanted() {"
+  , "      const asked = new URLSearchParams(location.search).get(\"keys\");"
+  , "      if (asked && MAPS.profiles[asked]) { kept.set(asked); return asked; }"
+  , "      const saved = kept.get();"
+  , "      return saved && MAPS.profiles[saved] ? saved : MAPS.default;"
+  , "    }"
+  , "    let profile = wanted(), KEYS = [];"
+  , "    function setProfile(name) {"
+  , "      profile = name;"
+  , "      KEYS = MAPS.shared.concat(MAPS.profiles[name]);"
+  , "      kept.set(name);"
+  , "      el(\"keyset\").textContent = `keys: ${name}`;"
+  , "    }"
+  , "    setProfile(profile);"
+  , "    el(\"keyset\").addEventListener(\"click\", (e) => {"
+  , "      const names = Object.keys(MAPS.profiles);"
+  , "      setProfile(names[(names.indexOf(profile) + 1) % names.length]);"
+  , "      prefix([]);"
+  , "      echo(`movement: ${profile}`);"
+  , "      e.currentTarget.blur();"
+  , "    });"
   , "    const NAMED = { Enter: \"RET\", Tab: \"TAB\", \" \": \"SPC\", Escape: \"ESC\","
   , "      Backspace: \"DEL\", Delete: \"<delete>\", ArrowUp: \"<up>\", ArrowDown: \"<down>\","
   , "      ArrowLeft: \"<left>\", ArrowRight: \"<right>\", Home: \"<home>\", End: \"<end>\","
   , "      PageUp: \"<prior>\", PageDown: \"<next>\" };"
   , "    // Chords the browser needs more than we do: never claimed, not even as"
   , "    // the continuation of a prefix this map has already entered."
-  , "    const RESERVED = [\"C-l\", \"C-r\", \"C-t\", \"C-w\", \"C-n\", \"<f5>\"];"
+  , "    const RESERVED = [\"C-l\", \"C-r\", \"C-t\", \"C-w\", \"C-n\", \"C-p\", \"<f5>\"];"
   , "    function keyName(e) {"
   , "      let base = NAMED[e.key], special = base !== undefined;"
   , "      if (!special && /^F\\d{1,2}$/.test(e.key))"
@@ -744,18 +835,20 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    document.addEventListener(\"keydown\", (e) => {"
   , "      const k = keyName(e);"
   , "      if (!k) return;"
-  , "      const seq = pending.concat([k]).join(\" \");"
+  , "      const keys = pending.concat([k]);"
   , "      const here = KEYS.filter(live);"
-  , "      const hit = here.find((b) => b.seq === seq);"
+  , "      // A row is in play while its keys open with the ones typed so far."
+  , "      const opens = (b) => keys.every((key, i) => b.keys[i] === key);"
+  , "      const hit = here.find((b) => b.keys.length === keys.length && opens(b));"
   , "      if (hit) { prefix([]); e.preventDefault(); run(hit); return; }"
-  , "      if (here.some((b) => b.seq.startsWith(`${seq} `))) {"
-  , "        if (!selecting()) { e.preventDefault(); prefix(pending.concat([k])); }"
+  , "      if (here.some((b) => b.keys.length > keys.length && opens(b))) {"
+  , "        if (!selecting()) { e.preventDefault(); prefix(keys); }"
   , "        return;"
   , "      }"
   , "      if (!pending.length) return;   // not ours; the browser keeps it"
   , "      prefix([]);"
   , "      if (RESERVED.indexOf(k) === -1) e.preventDefault();"
-  , "      echo(`${seq} is undefined`);"
+  , "      echo(`${keys.join(\" \")} is undefined`);"
   , "    });"
   , ""
   , "    function apply(frame) {"
@@ -836,6 +929,10 @@ page head' title body = T.unlines
   , "    margin-left:8px;vertical-align:middle;background:#9aa0ad;transition:background .3s}"
   , "  #dot.live{background:#9ece6a}"
   , "  #dot.down{background:#9aa0ad}"
+  , "  #keyset{font:inherit;font-size:11px;margin-left:10px;padding:1px 8px;"
+  , "    border-radius:999px;border:1px solid #8884;background:transparent;color:inherit;"
+  , "    opacity:.65;cursor:pointer;vertical-align:middle}"
+  , "  #keyset:hover{opacity:1}"
   , "  #modal{display:none;position:fixed;inset:0;padding:24px;background:#0009;"
   , "    align-items:center;justify-content:center}"
   , "  #modal.on{display:flex}"

@@ -281,16 +281,23 @@ on.
   directory holds the file, pointing at a bare name this server serves. Evidence:
   `TestServe` "no page this server serves reaches off it" — neither page
   contains `http://`, `https://` or `@import`. **test**
-- **The shell's keymap is data.** `Glance.Web.keyBindings` is the one table; the
-  page carries it as a `<script type="application/json">` blob and its own
-  dispatch parses that blob, so a binding cannot exist in the handler and not in
-  the map. Sequences and command names are org-glance's
-  (`org-glance-overview-mode-map`); a row with no handler is recognized in full
-  and says what backs it later. `C-c` and `C-x` are claimed as prefixes only
-  with the selection collapsed — the browser decides copy and cut on the same
-  keydown — and `C-l`, `C-r`, `C-t`, `C-w`, `C-n`, `<f5>` are never claimed,
-  including as the continuation of a prefix. Evidence: `TestServe` "Shell
-  keymap", which parses the blob and compares it to a written-down map. **test**
+- **The shell's keymap is data, and so are its profiles.** `Glance.Web`'s
+  `sharedKeys` plus `keyProfiles` are the one table; the page carries them as a
+  `<script type="application/json">` blob and its own dispatch parses that blob,
+  so a binding cannot exist in the handler and not in the map, and a profile
+  cannot be offered and unbound. Movement is the only thing a profile changes —
+  `emacs` (the default) and `vim` — and the effective map is always
+  `shared ++ profile`. Within one effective map no sequence is bound twice, and
+  no complete sequence opens a longer one (which would leave the longer one
+  unreachable — the reason `vim` binds no bare `g` beside its `gg`). Sequences
+  and command names are org-glance's (`org-glance-overview-mode-map`); a row
+  with no handler is recognized in full and says what backs it later. `C-c` and
+  `C-x` are claimed as prefixes only with the selection collapsed — the browser
+  decides copy and cut on the same keydown — and `C-l`, `C-r`, `C-t`, `C-w`,
+  `C-n`, `C-p`, `<f5>` are never claimed, including as the continuation of a
+  prefix, which is why neither profile moves on `C-n`/`C-p`. Evidence:
+  `TestServe` "Shell keymap", which parses the blob, compares both profiles to a
+  written-down map, and checks the two per-map uniqueness rules. **test**
 - **The wire is built in `Glance.Query`, out of spans.** The public library
   exposes that one module over the private `glance-internal` sublibrary, so no
   outside target can name `Data.Org.*` at all. Title and tag cells are sliced

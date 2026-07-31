@@ -72,21 +72,24 @@ and the tab re-fetches and re-mounts on its own, backing off from 1 s to 30 s.
 own command names, and echoes what it did in a pill in the corner — the pending
 prefix while one is open (=C-c -=), the command on completion (=C-c C-t →
 org-glance-overview:todo=), =C-c z is undefined= otherwise, and the prefix drops
-after two seconds. Movement drives the renderer's own row selection.
+after two seconds. Movement drives the renderer's own row selection, and comes
+in an =emacs= profile and a =vim= one.
+
+Both key profiles share everything that is not movement:
 
 | key       | command                           | now                                       |
 |-----------+-----------------------------------+-------------------------------------------|
-| =n= / =p= | =next-row= / =previous-row=       | moves the selected row                    |
+| =<down>=  | =next-row=                        | moves the selected row                    |
+| =<up>=    | =previous-row=                    | moves the selected row                    |
 | =,= =<=   | =first-row=                       | first row                                 |
 | =.= =>=   | =last-row=                        | last row                                  |
 | =RET=     | =org-glance-overview:materialize= | opens the sheet                           |
-| =g=       | =org-glance-overview:refresh=     | re-fetches, remounts, reconnects          |
 | =/=       | =filter-rows=                     | focuses the renderer's filter box         |
 | =q=       | =quit-window=                     | closes the sheet; never the tab           |
 | =C-x C-s= | =save-buffer=                     | saves the sheet, from inside the textarea |
 | =ESC=     | =keyboard-quit=                   | cancels the sheet                         |
 | =TAB=     | =org-cycle=                       | staged — daemon commands (M4)             |
-| =j=       | =org-glance-overview:open=        | staged                                    |
+| =!=       | =org-glance-overview:open=        | staged                                    |
 | =a=       | =org-glance-agenda=               | staged                                    |
 | =@=       | =org-glance-overview:relations=   | staged                                    |
 | =+=       | =org-glance-overview:capture=     | staged                                    |
@@ -95,13 +98,38 @@ after two seconds. Movement drives the renderer's own row selection.
 | =C-c C-s= | =org-glance-overview:schedule=    | staged                                    |
 | =C-c C-d= | =org-glance-overview:deadline=    | staged                                    |
 
+*Movement* is the part that differs. =emacs= is org-glance's overview map, and
+the default:
+
+| key  | =emacs=                                  | =vim=                            |
+|------+------------------------------------------+----------------------------------|
+| down | =n=                                      | =j=                              |
+| up   | =p=                                      | =k=                              |
+| top  | =,= =<=                                  | =,= =<= =gg=                     |
+| end  | =.= =>=                                  | =.= =>= =G=                      |
+|      | =g= → =org-glance-overview:refresh=      | =R= → same                       |
+|      | =j= → =org-glance-overview:open= (staged) | =!= carries it (shared)          |
+
+Two rows move to make room under =vim=, and both moves are why the profiles are
+data rather than a second dispatch: =j= is down there, so the open-stub is left
+to =!= — which =org-glance-overview-mode-map= already carries, as its
+dired-execute rhyme — and =g= is a prefix rather than a command, so refresh goes
+to =R= and reads as vi's reload. Nothing binds a bare =g= under =vim=: a
+complete sequence that also opens a longer one would leave =gg= unreachable.
+
+Switch with the =keys:= pill next to the connection dot — it rebinds in place,
+echoes =movement: vim=, and remembers the choice in =localStorage= under
+=glance-keys=. =?keys=vim= in the URL picks a profile and remembers it too.
+
 A staged key is recognized in full and then says what it is waiting for: the map
 is complete ahead of the commands that will back it, which reads better than a
 key that silently does nothing. The keys are inert while a text field has focus
 — typing in the filter box or the sheet types — except =C-x C-s= and =ESC=,
 which is what makes the sheet's Emacs muscle memory work. =C-c= and =C-x= become
 prefixes only with the selection collapsed, so a copy or a cut is still one, and
-=C-l=, =C-r=, =C-t=, =C-w=, =C-n= and =<f5>= always reach the browser.
+=C-l=, =C-r=, =C-t=, =C-w=, =C-n=, =C-p= and =<f5>= always reach the browser —
+which is why neither profile moves on =C-n= or =C-p=, however much Emacs would
+like to.
 
 The whole page is monospace — /JetBrains Mono/, /Fira Code/, /SF Mono/, Menlo,
 Consolas, whichever is installed. Nothing is fetched for it. Drop a

@@ -278,13 +278,20 @@ Exit:
       `GLANCE_CORPUS` sweep); `TestServe` gains the two route groups;
       `TestDefaults` now owns the temp-directory helper the file-writing suites
       share.
-- [x] Bindings parity and the echo widget landed on top: `Glance.Web.keyBindings`
+- [x] Bindings parity and the echo widget landed on top: `Glance.Web.sharedKeys`
       is org-glance's `overview-mode` map under org-glance's own command names,
       carried to the page as one JSON blob that both the dispatch and the
       corner echo pill read; nine sequences are staged behind M4's daemon
       commands and say so, `C-c`/`C-x` are claimed as prefixes only with the
       selection collapsed, and the shell is monospace with no font fetched.
       405 → **416 tests**.
+- [x] Movement is then a profile in that same blob — `emacs` (org-glance's
+      `n`/`p`/`g`, the default) and `vim` (`j`/`k`/`gg`/`G`, refresh on `R`),
+      picked by a pill beside the connection dot, by `?keys=`, or by what
+      `localStorage` remembers, and switched in place. `C-n`/`C-p` stay
+      reserved for the browser in both. The suite parses both effective maps
+      and asserts no profile row shadows a shared one or swallows its own
+      longer sequence. 416 → **419 tests**.
 
 **Measured** against `glance serve --dir ~/sync --port 7799` — 6313 files,
 13359 rows, 16.9 s startup — over a keep-alive loopback connection, 40 requests

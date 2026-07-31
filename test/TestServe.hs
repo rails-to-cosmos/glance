@@ -5,9 +5,11 @@
 -- are TestStore's subject.
 module TestServe (spec) where
 
-import Data.Aeson (Value (Null, Number, Object, String), eitherDecode, encode, object, (.=))
+import Data.Aeson ( Value (Null, Number, Object, String)
+                  , eitherDecode, encode, object, parseJSON, (.=) )
+import Data.Aeson.Types (parseEither)
 import Data.ByteString (ByteString)
-import Data.List (sort)
+import Data.List (nub, sort, sortOn)
 import Network.HTTP.Types (HeaderName, methodDelete, methodPost, renderQuery, statusCode)
 import Network.Wai (Application, defaultRequest, requestHeaders, requestMethod)
 import Network.Wai.Test ( SRequest (SRequest)
@@ -165,6 +167,25 @@ maybeTextAt k v = field k v >>= string
         string (String t) = pure (Just t)
         string other = assertFailure ("expected a string or null at " <> show k
                                         <> ", got " <> show other)
+
+-- | The array at KEY of V.
+listAt :: T.Text -> Value -> IO [Value]
+listAt k v = field k v >>= read'
+  where read' x = either (\e -> assertFailure ("array at " <> show k <> ": " <> e)) pure
+                         (parseEither parseJSON x)
+
+-- | The array of strings at KEY of V.
+textsAt :: T.Text -> Value -> IO [T.Text]
+textsAt k v = field k v >>= read'
+  where read' x = either (\e -> assertFailure ("strings at " <> show k <> ": " <> e)) pure
+                         (parseEither parseJSON x)
+
+-- | The object at KEY of V, as its members by name.
+membersAt :: T.Text -> Value -> IO [(T.Text, Value)]
+membersAt k v = field k v >>= members
+  where members (Object o) = pure [ (Key.toText name, x) | (name, x) <- KM.toList o ]
+        members other = assertFailure ("expected an object at " <> show k
+                                         <> ", got " <> show other)
 
 -- | What sits between OPEN and CLOSE in HAYSTACK, when both are in it.
 between :: T.Text -> T.Text -> T.Text -> Maybe T.Text
@@ -454,6 +475,11 @@ pageSpec = testGroup "GET /"
                  (not ("TableView.mount(" `T.isInfixOf` body r))
   ]
 
+-- | A keymap row as the suite spells it: the keys the dispatch matches, the
+-- notation the echo widget shows, the command name, the handler behind it (or
+-- none, for a binding no daemon command backs yet) and the scope it is live in.
+type Row = ([T.Text], T.Text, T.Text, Maybe T.Text, T.Text)
+
 -- | The shell's keymap, checked as the data it is.  The page carries the map
 -- as a JSON blob and its own dispatch parses that blob, so reading it here
 -- reads what the browser reads rather than what a grep for handler names would
@@ -463,41 +489,70 @@ pageSpec = testGroup "GET /"
 -- assertion is that the sequences and the org-glance command names are the
 -- ones @org-glance-overview-mode-map@ spells, and an oracle taken from the
 -- code under test would agree with any of them.
-expectedKeymap :: [(T.Text, T.Text, Maybe T.Text)]
-expectedKeymap =
-  [ ("n",       "next-row",                        Just "nextRow")
-  , ("p",       "previous-row",                    Just "previousRow")
-  , (",",       "first-row",                       Just "firstRow")
-  , ("<",       "first-row",                       Just "firstRow")
-  , (".",       "last-row",                        Just "lastRow")
-  , (">",       "last-row",                        Just "lastRow")
-  , ("RET",     "org-glance-overview:materialize", Just "materializeRow")
-  , ("g",       "org-glance-overview:refresh",     Just "refresh")
-  , ("/",       "filter-rows",                     Just "focusFilter")
-  , ("q",       "quit-window",                     Just "quitWindow")
-  , ("TAB",     "org-cycle",                       Nothing)
-  , ("j",       "org-glance-overview:open",        Nothing)
-  , ("a",       "org-glance-agenda",               Nothing)
-  , ("@",       "org-glance-overview:relations",   Nothing)
-  , ("+",       "org-glance-overview:capture",     Nothing)
-  , ("D",       "org-glance-overview:delete",      Nothing)
-  , ("C-c C-t", "org-glance-overview:todo",        Nothing)
-  , ("C-c C-s", "org-glance-overview:schedule",    Nothing)
-  , ("C-c C-d", "org-glance-overview:deadline",    Nothing)
-  , ("C-x C-s", "save-buffer",                     Just "save")
-  , ("ESC",     "keyboard-quit",                   Just "cancel")
+--
+-- What both profiles carry — every command that is not movement, plus the
+-- arrows and org-glance's own buffer-ends keys.
+expectedShared :: [Row]
+expectedShared =
+  [ (["<down>"],     "<down>",  "next-row",                        Just "nextRow",        "table")
+  , (["<up>"],       "<up>",    "previous-row",                    Just "previousRow",    "table")
+  , ([","],          ",",       "first-row",                       Just "firstRow",       "table")
+  , (["<"],          "<",       "first-row",                       Just "firstRow",       "table")
+  , (["."],          ".",       "last-row",                        Just "lastRow",        "table")
+  , ([">"],          ">",       "last-row",                        Just "lastRow",        "table")
+  , (["RET"],        "RET",     "org-glance-overview:materialize", Just "materializeRow", "table")
+  , (["/"],          "/",       "filter-rows",                     Just "focusFilter",    "table")
+  , (["q"],          "q",       "quit-window",                     Just "quitWindow",     "table")
+  , (["TAB"],        "TAB",     "org-cycle",                       Nothing,               "table")
+  , (["!"],          "!",       "org-glance-overview:open",        Nothing,               "table")
+  , (["a"],          "a",       "org-glance-agenda",               Nothing,               "table")
+  , (["@"],          "@",       "org-glance-overview:relations",   Nothing,               "table")
+  , (["+"],          "+",       "org-glance-overview:capture",     Nothing,               "table")
+  , (["D"],          "D",       "org-glance-overview:delete",      Nothing,               "table")
+  , (["C-c", "C-t"], "C-c C-t", "org-glance-overview:todo",        Nothing,               "table")
+  , (["C-c", "C-s"], "C-c C-s", "org-glance-overview:schedule",    Nothing,               "table")
+  , (["C-c", "C-d"], "C-c C-d", "org-glance-overview:deadline",    Nothing,               "table")
+  , (["C-x", "C-s"], "C-x C-s", "save-buffer",                     Just "save",           "modal")
+  , (["ESC"],        "ESC",     "keyboard-quit",                   Just "cancel",         "any")
   ]
 
--- | The keymap blob out of SHELL, as (sequence, command, handler) — the
--- handler being absent for a binding no daemon command backs yet.
-keymapOf :: T.Text -> IO [(T.Text, T.Text, Maybe T.Text)]
+-- | The movement each profile adds, and what it displaces.  @j@ is the
+-- overview's open-stub under emacs and down under vim; @g@ is refresh under
+-- emacs and the opening of @gg@ under vim, which sends refresh to @R@.
+expectedProfiles :: [(T.Text, [Row])]
+expectedProfiles =
+  [ ("emacs",
+      [ (["n"], "n", "next-row",                    Just "nextRow",     "table")
+      , (["p"], "p", "previous-row",                Just "previousRow", "table")
+      , (["g"], "g", "org-glance-overview:refresh", Just "refresh",     "table")
+      , (["j"], "j", "org-glance-overview:open",    Nothing,            "table")
+      ])
+  , ("vim",
+      [ (["j"],      "j",  "next-row",                    Just "nextRow",     "table")
+      , (["k"],      "k",  "previous-row",                Just "previousRow", "table")
+      , (["g", "g"], "gg", "first-row",                   Just "firstRow",    "table")
+      , (["G"],      "G",  "last-row",                    Just "lastRow",     "table")
+      , (["R"],      "R",  "org-glance-overview:refresh", Just "refresh",     "table")
+      ])
+  ]
+
+-- | The keymap blob out of SHELL: the shared rows, and the profiles by name.
+keymapOf :: T.Text -> IO ([Row], [(T.Text, [Row])])
 keymapOf shell = do
   raw <- maybe (assertFailure "no keymap blob in the shell") pure
                (between "<script id=\"keys\" type=\"application/json\">" "</script>" shell)
-  rows <- either (\e -> assertFailure ("keymap JSON: " <> e)) pure
+  blob <- either (\e -> assertFailure ("keymap JSON: " <> e)) pure
                  (eitherDecode (BL.fromStrict (TE.encodeUtf8 raw)))
-  traverse row rows
-  where row v = (,,) <$> textAt "seq" v <*> textAt "command" v <*> maybeTextAt "handler" v
+  shared <- traverse row =<< listAt "shared" blob
+  named <- traverse profile =<< membersAt "profiles" blob
+  pure (shared, sortOn fst named)
+  where
+    profile (name, v) = do
+      rows <- either (\e -> assertFailure (T.unpack name <> " profile: " <> e)) pure
+                     (parseEither parseJSON v)
+      (,) name <$> traverse row rows
+    row v = (,,,,) <$> textsAt "keys" v <*> textAt "seq" v <*> textAt "command" v
+                   <*> maybeTextAt "handler" v <*> textAt "scope" v
 
 -- | The shell's inline glue, on its own — what a syntax check is run over.
 glueOf :: T.Text -> IO T.Text
@@ -507,15 +562,43 @@ glueOf shell = maybe (assertFailure "no inline script in the shell") pure
 keymapSpec :: TestTree
 keymapSpec = testGroup "Shell keymap"
   [ testCase "is one JSON blob, in org-glance's own command names" $ do
-      keys <- keymapOf . body =<< get assetsDir "/"
-      assertEqual "sequence, command, handler" expectedKeymap keys
+      (shared, _profiles) <- keymapOf . body =<< get assetsDir "/"
+      assertEqual "the rows both profiles carry" expectedShared shared
+
+  , testCase "carries a movement profile per editor, emacs by default" $ do
+      (_shared, profiles) <- keymapOf . body =<< get assetsDir "/"
+      assertEqual "profiles" expectedProfiles profiles
+      assertContains "the default is named in the blob" "\"default\":\"emacs\""
+        . body =<< get assetsDir "/"
+
+  , testCase "no profile shadows a shared binding, or hides its own longer one" $ do
+      (shared, profiles) <- keymapOf . body =<< get assetsDir "/"
+      let keysOf rows = [ k | (k, _, _, _, _) <- rows ]
+      mapM_ (\(name, rows) -> do
+               let bound = keysOf (shared <> rows)
+                   twice = [ k | k <- nub bound, length (filter (== k) bound) > 1 ]
+                   -- A complete sequence that also opens a longer one would
+                   -- match first and leave the longer one unreachable.
+                   eaten = [ (k, l) | k <- bound, l <- bound
+                                    , k /= l, k == take (length k) l ]
+               assertEqual (T.unpack name <> ": bound twice") [] twice
+               assertEqual (T.unpack name <> ": swallows a longer sequence") [] eaten)
+            profiles
 
   , testCase "the dispatch and the echo widget read that blob and no other map" $ do
       b <- body <$> get assetsDir "/"
       mapM_ (\needle -> assertContains "keymap glue" needle b)
         [ "<script id=\"keys\" type=\"application/json\">"
         , "JSON.parse(el(\"keys\").textContent)"
+        , "MAPS.shared.concat(MAPS.profiles[name])"
         , "KEYS.filter(live)", "HANDLERS[b.handler]" ]
+
+  , testCase "the profile is remembered, askable, and switchable in place" $ do
+      b <- body <$> get assetsDir "/"
+      mapM_ (\needle -> assertContains "profile glue" needle b)
+        [ "localStorage.getItem(\"glance-keys\")", "localStorage.setItem(\"glance-keys\""
+        , "new URLSearchParams(location.search).get(\"keys\")"
+        , "<button id=\"keyset\"", "#keyset{", "keys: ${name}", "movement: ${profile}" ]
 
   , testCase "a binding with no handler names what it is waiting for" $ do
       b <- body <$> get assetsDir "/"
@@ -531,9 +614,10 @@ keymapSpec = testGroup "Shell keymap"
       b <- body <$> get assetsDir "/"
       mapM_ (\needle -> assertContains "chord policy" needle b)
         -- A selection keeps C-c and C-x as copy and cut; the reserved chords
-        -- reach the browser even as the continuation of a claimed prefix.
+        -- reach the browser even as the continuation of a claimed prefix, which
+        -- is why neither profile moves on C-n or C-p.
         [ "if (!selecting()) { e.preventDefault();"
-        , "const RESERVED = [\"C-l\", \"C-r\", \"C-t\", \"C-w\", \"C-n\", \"<f5>\"];"
+        , "const RESERVED = [\"C-l\", \"C-r\", \"C-t\", \"C-w\", \"C-n\", \"C-p\", \"<f5>\"];"
         , "if (RESERVED.indexOf(k) === -1) e.preventDefault();" ]
 
   , testCase "row movement drives the renderer's own selection" $ do
