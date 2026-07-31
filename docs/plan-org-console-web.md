@@ -6,7 +6,12 @@ Steps ship in order unless marked parallel. Each step has an exit bar: every
 box checked = step done. Perf budgets derive from the S1 baseline; steps
 record actual numbers next to the boxes as they close.
 
-## Current state (2026-07-30)
+## Starting state (2026-07-30) — historical
+
+The tree this plan was written against, kept as the baseline the steps below
+measure from. It is not a description of the repo today; for that, read
+[../CLAUDE.md](../CLAUDE.md) and [invariants.md](invariants.md), which are
+maintained against the code.
 
 - glance: parser 278 + types 531 lines, 9 test modules; no source offsets, no
   `aeson`/web deps, `RefKind` defined and unwired, `Persist.Org`/`Data.Config`
@@ -318,8 +323,9 @@ Exit:
       painted under both — while the corner (`3`) and the echo (`2`) stay under
       it and dim with the page. And the status log wears the table's own
       container: one rule sets both widths, the hairline, radius and surface
-      tint are `.tv-root`'s, it caps at `10em` and scrolls to the end unless
-      the reader has scrolled up, and it collapses outright when empty.
+      tint are `.tv-root`'s, and it takes the height the table and the key line
+      leave (`flex:1 1 auto`) and scrolls inside that, so a long message moves
+      neither of them.
 - [x] `DEL` runs once per press. Auto-repeat is what movement wants — a held
       `n` is how you cross a table, and the renderer coalesces those to a frame
       — but a held `DEL` walked the whole query off. The guard is by command

@@ -116,10 +116,10 @@ long session of edits costs no re-materialize. If the file moved in between —
 Emacs saved it, a sync landed — the flush is refused and the sheet stays open
 saying =conflict=: =C-x C-s= then re-reads the file's digest and writes your
 text over it, and =ESC= discards. Closing the tab on an edited sheet flushes on
-the way out. The header says which of =synced= / =syncing…= / =conflict= it is
-in, and the sheet wears danneskjold in Hack, the theme and font this author's
-Emacs runs, while the table keeps the page's own. The same round trip from a
-shell, =id= being the row id the view carries:
+the way out. The header says which of =synced= / =syncing…= / =conflict= /
+=error= it is in — the last two name the key that clears them — and the sheet
+wears Hack over the page's own danneskjold. The same round trip from a shell,
+=id= being the row id the view carries:
 
 #+begin_src sh
 curl -s -G --data-urlencode 'id=ROW-ID' localhost:7777/headline
@@ -147,8 +147,10 @@ Both key profiles share everything that is not movement:
 |-----------+-----------------------------------+-------------------------------------------|
 | =<down>=  | =next-row=                        | moves the selected row                    |
 | =<up>=    | =previous-row=                    | moves the selected row                    |
-| =,= =<=   | =first-row=                       | first row                                 |
-| =.= =>=   | =last-row=                        | last row                                  |
+| =,= =<=   | =first-row=                       | first row on the page                     |
+| =.= =>=   | =last-row=                        | last row on the page                      |
+| =]=       | =next-page=                       | turns a page; echoes =page 3/129=         |
+| =[=       | =previous-page=                   | turns one back                            |
 | =RET=     | =org-glance-overview:materialize= | opens the sheet                           |
 | =/=       | =filter-rows=                     | summons the filter palette                |
 | =q=       | =quit-window=                     | closes the sheet; never the tab           |
@@ -198,14 +200,37 @@ last)= at the edge. The column lives in the renderer's selection rather than in
 the page, so switching profiles mid-table keeps it and clearing the selection
 takes it with it.
 
-Switch in the status corner, top right: the connection dot and a =keys:=
-selector sit there together. It rebinds in place, echoes =movement: vim=, and
-remembers the choice in =localStorage= under =glance-keys=; =?keys=vim= in the
-URL picks a profile and remembers it too. A native =select=, so Tab reaches it
-and the arrows walk it without a chord of its own.
+The set is shown a *page* at a time — 100 rows, the same count the first paint
+asks the server for, so the opening screen is exactly page one and everything
+arriving behind it only adds pages to turn to. The pager reads in the renderer's
+own status line (=1–100 of 12,870 · ‹ prev · next ›=) and is absent while there
+is one page. =]= and =[= turn one and echo where they landed — =] → page 3/129=.
+Row movement crosses the boundary by itself: =n= off the last row of a page
+lands on the first row of the next, =p= off the first lands on the previous
+page's last, and the column rides along either way. Where the page ends is the
+renderer's to know, since only it knows there is one. The buffer-ends keys reach
+the ends of the page on show — =,= and =.=, and =gg= and =G= under =vim= — so
+=[= and =]= are how you leave it.
 
-The page's last line is that map, resident: =n/p rows · f/b cells · RET
-materialize · / filter · g refresh · DEL drop token · q quit= under =emacs=, and
+Switch in the status corner, top right: the connection dot, a =theme:= selector
+and a =keys:= selector sit there in that order. The keymap one rebinds in place,
+echoes =movement: vim=, and remembers the choice in =localStorage= under
+=glance-keys=; =?keys=vim= in the URL picks a profile and remembers it too. Both
+are native =select= elements, so Tab reaches them and the arrows walk them
+without a chord of their own.
+
+*Light or dark, and no flash either way.* =theme:= offers =auto=, =light= and
+=dark=. =auto= follows the system's =prefers-color-scheme= and is the default;
+the other two stamp =data-theme= on the document element and pin it, and
+choosing =auto= again takes the attribute back off. The choice is remembered in
+=localStorage= under =glance-theme=, and a one-line script in the =<head>= reads
+it and stamps the attribute before the first paint, so a dark-themed page never
+flashes light on the way in. The whole page wears danneskjold through one set of
+=--g-*= variables — surface, text, muted text, border, selection — and the
+materialize sheet keeps a single =--dk-mono= of its own, the Hack font stack.
+
+The page's last line is that map, resident: =n/p rows · f/b cells · [/] pages ·
+RET materialize · / filter · g refresh · DEL drop token · q quit= under =emacs=, and
 =j/k=, =l/h= and =R= in their places under =vim=. It is named by command and
 spelled from the same blob the dispatch reads, so switching profiles rewrites it
 and it can never offer a key nothing is bound to. The pill says what just ran;
@@ -302,7 +327,7 @@ at the loaded store — see below.
 ** Serving before the walk finishes
 
 The daemon binds and answers immediately, and walks the tree behind that: over
-6313 files that is ~16 s during which a browser would otherwise have got a
+~6.3k files that is ~16 s during which a browser would otherwise have got a
 refused connection. While the walk runs, =/headlines=, =/headline= and =/ws=
 answer =503= with =Retry-After: 1= and ={"loading": true, "elapsed": 3.4}=,
 and =/= plus the assets are served as usual — so the shell paints, shows
@@ -330,6 +355,7 @@ glance/
 │   │   └── Org/
 │   │       ├── Types.hs  ← Data model, rendering, context
 │   │       ├── Parser.hs ← Megaparsec grammar
+│   │       ├── Edit.hs   ← Span splice, drift lock, atomic rename
 │   │       └── Walk.hs   ← .org discovery, shared by scan and query
 │   └── Repl/
 │       └── Org.hs       ← Interactive REPL
@@ -341,6 +367,7 @@ glance/
 │       ├── Desktop.hs   ← glance desktop: browser discovery, app-mode window
 │       ├── Web.hs       ← WAI app: /headlines, /headline, /ws, the live shell, assets
 │       └── Web/
+│           ├── Filter.hs ← ?q= query language, parity port of table-view.js
 │           ├── Store.hs  ← In-memory store, row diff, frames, client hub
 │           └── Watch.hs  ← inotify watch, debounce, one re-parse per edit
 ├── test/
@@ -360,13 +387,15 @@ The heart of the project. Key design patterns:
 
 - *Type class-based parsing* via a ~Parse~ typeclass — extensible grammar
 - *Stateful parser monad*: ~StateT Context (Parsec Text)~ to track active TODO keywords, categories, and an /Indexed Article Store/ (IAS) across parses
-- *Existential types* (~Element~) for heterogeneous collections of parsed nodes
+- *A closed sum* (~Element~) over the four node kinds — headline, pragma, timestamp, token — so ~stripSpans~ and the ~TextShow~/~Display~ instances can be total over it
 
 Key types:
 
 #+begin_src haskell
--- Stateful parse with context threading
-orgParse :: Context -> Text -> ([Element], Context)
+-- Stateful parse with context threading; every element carries its source span,
+-- and a failure returns no elements and the caller's context untouched.
+orgParse :: Context -> Text
+         -> ([Spanned Element], Context, Maybe (ParseErrorBundle Text Void))
 
 -- The REPL monad stack
 type Repl a = StateT Org.Context (InputT IO) a
@@ -408,32 +437,3 @@ A Haskeline-powered REPL that:
 - ~:PROPERTIES: ... :END:~ blocks
 - Active ~<YYYY-MM-DD>~ and inactive ~[YYYY-MM-DD]~ timestamps with repeater intervals
 - ~#+CATEGORY:~ pragma
-
-** Reference / Graph System
-
-Supports typed relationships between headlines:
-
-#+begin_src haskell
-data RefKind
-  = CHILD_OF | PARENT_OF         -- hierarchy
-  | NEXT_SIBLING_OF | PREV_SIBLING_OF  -- sequence
-  | BLOCKS | BLOCKED_BY          -- dependencies
-  | RELATED_TO | CITES           -- knowledge graph
-  | ...
-#+end_src
-
-** Development Status
-
-The project roadmap (tracked in =glance.org= itself!) shows *16 of 23 parser tasks* complete. Remaining work includes:
-
-- [ ] Comment & link parsing
-- [ ] Table parsing
-- [ ] Pretty printing
-- [ ] CRUD operations on the DB
-- [ ] Emacs / browser integration
-- [ ] Full graph-based relation inheritance
-
-** Verdict
-
-This is a well-architected *research/experimental project* at an early stage (~v0.1.0.0~). It demonstrates sophisticated Haskell idioms (GADTs, monad transformers, existential types, TH-generated DB schemas) applied to the interesting problem of treating org-mode files as a *queryable, graph-structured database*.
-# --- [session: 0b6019bc-9704-43eb-81c6-404d94905880 | cost: $0.1680413 | model: sonnet] ---

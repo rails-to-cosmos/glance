@@ -11,23 +11,44 @@ on.
 - **Half-open char offsets.** `Span` indexes the exact `Text` given to
   `orgParse`, in characters (`sliceSpan` = `T.take`/`T.drop`). A byte-offset
   consumer splices mid-codepoint on the first unicode title. Evidence:
-  `Types.hs` `Span`/`sliceSpan` haddocks; unicode canary in `TestSpans`
-  ("Привет мир": 24 chars, 41 bytes). **test + corpus**
-- **Sub-spans tight, element spans loose.** Each headline sub-span slices to
-  exactly its component (`getOffset` taken before trailing-space consumption:
-  `indentP`, `priorityP`, `todoP`, `tagsP`, `propertiesP`); element spans may
-  carry consumed trailing whitespace and are only bounds-checked +
-  reparse-checked. S8 write-back replaces sub-spans verbatim — one blank in a
-  span breaks the one-hunk exit bar. Evidence: `headlineSpanParts` (single
-  source for scan + tests). **test + corpus**
-- **`hsFull` geometry.** Starts at the stars, ends at the max end of present
-  components (`foldr1 (<>)` over source-ordered spans — ordering guaranteed),
-  never trailing whitespace. Capture/refile insertion points derive from it.
-  **test** (`TestSpans` trailing-whitespace group)
+  `Types.hs` `Span`/`sliceSpan` haddocks. The counting canary is
+  `TestSubtree`'s unicode fixture, which asserts 61 characters against 105
+  bytes on the same document — the one place a char/byte mix-up fails a test.
+  `TestSpans` carries a `Привет мир` headline too, but it asserts no counts and
+  flows through the generic groups, so it is a shape fixture rather than the
+  canary. **test + corpus**
+- **Sub-spans tight, element spans loose — and tightness is per component.**
+  Each headline sub-span slices to exactly its component (`getOffset` taken
+  before trailing-space consumption: `indentP`, `priorityP`, `todoP`, `tagsP`,
+  `propertiesP`), but what "exactly" checks differs by part, and the one table
+  in `headlineSpanParts` says which: todo, priority and tags are string
+  equality against the rendered component; the title is equality up to word
+  normalization (`T.words t == T.words (showt (title h))`), so internal
+  whitespace may differ; each planning span is structural — longer than two
+  characters, opening and closing on its bracket pair — with `TestSpans` adding
+  the stronger check that the slice reparses to the same `ETimestamp`; and
+  properties is a prefix/suffix test on the stripped slice (`:PROPERTIES:` …
+  `:END:`), with `TestSpans` adding that every property key appears inside it.
+  Element spans may carry consumed trailing whitespace and are only
+  bounds-checked + reparse-checked. S8 write-back replaces sub-spans verbatim —
+  one blank in a span breaks the one-hunk exit bar. Evidence:
+  `headlineSpanParts` (single source for scan + tests). **test + corpus**
+- **`hsFull` geometry — derived, never stored.** `hsFull` is a function over
+  `HeadlineSpans`, not a field: `foldl' (<>) (hsStars hs) [ sp | (_, Just sp)
+  <- spanParts hs ]`. The field is `hsStars`, the stars alone. Since
+  `Span s _ <> Span _ e = Span s e` keeps the left start and the right end, the
+  start of `hsFull` is always the stars, and its end is the end of the LAST
+  present entry in `spanParts` order — an order-dependent fold, never a maximum
+  over ends. With no sub-span present it is the stars' own extent. It never
+  covers trailing whitespace. Capture/refile insertion points derive from it, so
+  a part appended to `spanParts` out of source order silently shortens every
+  extent past it. **test** (`TestSpans` trailing-whitespace group)
 - **Sub-span order.** todo < priority < title < tags < planning < properties.
   The three planning spans permute freely — org writes `SCHEDULED:`,
-  `DEADLINE:` and `CLOSED:` in any order on the line — so both
-  `headlineSpanParts` and the `hsFull` fold sort them by `spanStart`. Drop the
+  `DEADLINE:` and `CLOSED:` in any order on the line — so `spanParts` sorts
+  that triple by `spanStart` and leaves the other five in fixed positional
+  order. `hsFull` and `headlineSpanParts` both read that single ordering, which
+  is what keeps the derived extent and the checked parts in agreement. Drop the
   sort and `hsFull` ends at whichever entry the record lists last, leaving the
   others outside it. **test** (`TestSpans` "planning keywords out of order")
 - **Drawer placement.** When present, `hsProperties` starts past the newline
@@ -36,7 +57,15 @@ on.
   drawer if this breaks. **test**
 - **`stripSpans` totality.** Resets headline spans; every other constructor
   passes through. A new span-carrying `Element` constructor silently turns
-  ~150 span-insensitive assertions span-sensitive unless added here. **test**
+  ~150 span-insensitive assertions span-sensitive unless added here. The route
+  those assertions take is `TestDefaults`' `bare = map (stripSpans . valueOf)`,
+  the suite's one span-blind lens over a parse; `bareParse` is the same thing
+  wrapped around `orgParse`. **test**
+- **`Element` is a closed sum**, not an existential: `EHeadline`, `EPragma`,
+  `ETimestamp`, `EToken`. That is what lets `stripSpans` and the `TextShow` /
+  `Display` instances be written as total case analyses rather than dispatched
+  through a class dictionary. Any doc calling it existential is describing a
+  design that no longer exists. **none** (the type declaration is the guard)
 - **Subtree extents.** `Glance.Query.hrSubtree` runs from `spanStart (hsFull …)`
   to the start of the next headline in the same file at the headline's own
   level or shallower, and to the end of the document when there is none —
@@ -58,10 +87,16 @@ on.
 - **Whitespace-or-EOF element boundary.** Token = maximal non-space run; the
   top loop separates by whitespace and requires EOF. A sub-parser stopping on
   a non-space char fails the whole document — the entire residual corpus
-  failure class (13/6305 files: `::` in titles, `:)`, timestamp glued to
-  punctuation, hyphen in commented `#+TODO:`). Any recovery mechanism
-  (`withRecovery`) changes `orgParse`'s all-or-nothing contract and every
-  caller. **test + docs**
+  failure class, 11 files of 6290 as measured on 2026-07-31. The per-cause
+  breakdown once written down here (`::` in titles, `:)`, timestamp glued to
+  punctuation, hyphen in a commented `#+TODO:`) was taken over the 13 failures
+  of the pre-exclusion walk and has not been re-derived since the derived
+  mirrors left it; two of the old thirteen are gone and the remaining split is
+  unknown, so the taxonomy NEEDS RE-MEASURING before it is quoted again. Any
+  recovery mechanism (`withRecovery`) changes `orgParse`'s all-or-nothing
+  contract and every caller — this is a pinned invariant, and a proposal to add
+  one is a proposal to change the contract, not a refinement of it.
+  **test + docs**
 - **Column-1 headlines, O(1) begin-of-line.** `elementsP` threads a Bool
   computed from the consumed separator (`startsLine`); the headline branch is
   absent from `choice` when not at line start. `getSourcePos` re-scans from
@@ -103,7 +138,16 @@ on.
   `Exact` clock-range roundtrip row pins. The compact branch additionally
   requires both ends to carry a time on one day, so a hand-built timestamp
   cannot render its end date away. `Eq` includes the flag; `Ord` still compares
-  start moments only. **test**
+  start moments only. **test** (the flag) / **none** (the two defensive
+  conjuncts: nothing renders a value that sets `tsCompactRange` with a missing
+  time or two different days, so the guard against a hand-built timestamp
+  losing its end date is asserted by the comment alone)
+- **`spanRange` forces at every step.** `foldl' (\acc sp -> Just $! maybe sp
+  (<>) acc) Nothing` — the `$!` is the invariant, not decoration. A lazy
+  accumulator here is a thunk chain holding `Span`s that reference the document,
+  which is exactly the retention the scan budget exists to prevent, and it
+  cannot be seen from `cabal test`. `Span`'s own `Int` fields are strict
+  independently. **comment**
 - **Range end versus negative repeater.** Both open with `-` and only the
   time's colon separates them. The end time is tried first: `-1d` gets through
   `MPL.decimal` and fails at the missing `:`, backtracking whole and leaving
@@ -115,15 +159,28 @@ on.
   last timestamp, the way org reads one. `CLOCK:` is not one of them. The whole
   line backtracks when it is not a planning line, so a body line parses exactly
   as it did before and a `SCHEDULED:` further down the body stays a Token +
-  Timestamp pair. Each span covers the timestamp text alone, keyword excluded:
-  S8 reschedules by replacing that slice and nothing else. Corpus: 4661 planning
-  lines in parseable files carry 7220 entries, 7161 of which attach. The ~70
-  stragglers are stamps the timestamp parser still rejects — two-letter weekday
-  abbreviations, unit-less repeaters (`10:00+2`), a repeater written before the
-  time, diary sexps, and a repeater followed by a warning period — and since
-  the entry loop stops at the first failure, later entries on that line are
-  stranded with it. A further 2642 planning lines sit inside the 13 files that
-  fail to parse outright. **test + corpus**
+  Timestamp pair. The backtracking is `try` around each entry inside a `some`,
+  plus `try` around the line as a whole, and what it must roll back is the
+  LEADING HORIZONTAL SPACE the entry already skipped: the top element loop
+  separates elements by whitespace, so an entry that fails after eating the gap
+  leaves nothing to separate what follows and fails the entire document. The
+  keyword and its timestamp are held apart by a required `hspace1`, which is
+  also what makes a failed entry recoverable. Each span covers the timestamp
+  text alone, keyword excluded: S8 reschedules by replacing that slice and
+  nothing else. **test**
+
+  *Historical corpus figures, not reproducible from this repo:* an earlier
+  measurement over `~/sync` found 4661 planning lines in parseable files
+  carrying 7220 entries, 7161 of which attached, with ~70 stragglers the
+  timestamp parser rejects — two-letter weekday abbreviations, unit-less
+  repeaters (`10:00+2`), a repeater written before the time, diary sexps, a
+  repeater followed by a warning period — and, since the entry loop stops at
+  the first failure, later entries on those lines stranded with them; a further
+  2642 planning lines sat inside the files that fail to parse outright. Those
+  numbers predate the derived-mirror exclusion and nothing in the tree
+  re-derives them: `app/Scan.hs` has no planning counters and the
+  `GLANCE_CORPUS` groups assert geometry rather than counts. Treat them as a
+  dated observation against one private tree. **none**
 - **All-or-nothing parse.** On error `orgParse` returns zero elements and the
   caller's context unchanged — scan buckets, the REPL, and pragma
   half-application all rely on it. **test**
@@ -137,19 +194,24 @@ on.
   half) / **none** (no-retroactive half)
 - **IAS registration.** Keyed on the `ORG_GLANCE_ID` property, opt-in,
   last-writer-wins — re-parsing a file is idempotent. **test**
+- **`resolveHeadline` is test-only.** It keeps h1 only when both are scheduled
+  and h1 is strictly later, and yields h2 otherwise — but `registerHeadline`
+  reaches the IAS by a plain `Map.insert`, so nothing in the library, the CLI or
+  the daemon ever consults it; `TestContext` is its one caller. Read it as a
+  proposed merge rule under test rather than as behaviour the store exhibits,
+  and do not cite it when reasoning about what a re-parse does. **test** (of the
+  function) / **none** (of any production behaviour)
 
 ## Render
 
 - **`TextShow` is lossy by design.** Whitespace collapses to single spaces,
   pragma keys uppercase, `#+TODO:` sets re-emit in Set (alphabetical) order.
-  `TestRoundtrip`'s `Fidelity` column (11 `Exact` rows, 8 `Stable`) is the
-  documented budget: promoting a `Stable` case to `Exact` asserts fidelity the
-  renderer lacks. Write-back and the future wire contract must never route
+  `TestRoundtrip`'s `Fidelity` column — 23 rows, 15 `Exact` and 8 `Stable` — is
+  the documented budget: promoting a `Stable` case to `Exact` asserts fidelity
+  the renderer lacks. Write-back and the future wire contract must never route
   through it — spans are the lossless channel. **test**
 - **`Ord Timestamp` ≠ `Eq Timestamp`.** Ord compares start moments only;
   Set/Map keys would deduplicate distinct timestamps sharing a start. **none**
-- **`resolveHeadline` last-wins.** Keeps h1 only when both scheduled and h1
-  strictly later; everything else yields h2. **test**
 - **Planning stays out of the render.** `TextShow Headline` emits the title
   line only, so a headline carrying `schedule`/`deadline`/`closed` re-renders
   without its planning line. Round-tripping a planning line through `showt`
@@ -163,9 +225,28 @@ on.
   first walk version retained 1.4 GB; budget is ~19 MB max residency.
   Invisible to `cabal test` — only `glance scan ~/sync` exposes regressions.
   **comment + docs**
+- **Forcing is necessary and not sufficient — residency needs `T.copy`.** A
+  `Text` slice shares the array it was cut from, so a forced cell still pins the
+  whole document. `Glance.Query.detach = T.copy` is what actually bounds it, and
+  it is applied to every cell the row keeps; `app/Scan.hs` copies the same way.
+  Forcing alone (`forcing`, `forceRecord`) closes the other half of the problem
+  — an unforced cell retains the file as a thunk over it — so the two are a pair
+  and neither substitutes for the other. Two fields deliberately opt out:
+  `hrHeadline` holds the parser's own slices and `hrDoc` names the same text, so
+  a loaded store retains the documents it parsed on purpose, and that field is
+  the lever if full-store residency ever exceeds the scan budget. No test
+  measures residency; only `glance scan` does. **comment + docs**
 - **Cursor linearity.** Left-to-right slicing assumes non-decreasing span
   starts; out-of-order visits silently degrade to O(start) per slice.
   **comment**
+- **The corpus gates pass silently when unset.** `TestSubtree`'s geometry-over-
+  real-files group and `TestEdit`'s splice canary both end `Nothing -> pure ()`
+  on a missing `GLANCE_CORPUS`, so they report as PASSING rather than as
+  skipped. On any machine without that variable, every claim marked
+  **test + corpus** here rests on the fixture half alone, and a green suite is
+  not evidence for the corpus half. A variable naming a directory that does not
+  exist does fail loudly, which is the one misconfiguration that is caught.
+  **none** (by construction — the gate is what makes it silent)
 
 ## Walk
 
@@ -179,24 +260,85 @@ on.
   `overviews/c1f3df767330/overview.org`. `Data.Org.Walk.isDerived` is the one
   rule, applied where a directory is entered and where a watch event is
   accepted, so a file the store was never given cannot arrive by inotify and
-  appear in the table on its next rewrite. `data` stays: it is the store, not a
-  render of it. `--include-derived` turns the exclusion off on `serve`,
-  `desktop` and `scan` for someone who wants to look at them, and the scan
-  reports `derived skipped`. Corpus, 2026-07-31: 6313 → 6290 files, 13384 →
-  12870 headlines, 14 → 11 parse failures (`overviews/agenda.org` was one of
-  them). Evidence: `TestStore` "Derived mirrors" over a fixture tree of the same
-  shape. **test + corpus**
+  appear in the table on its next rewrite. The watch reaches it — and `isOrg` —
+  through the facade re-exports `Glance.Query.derivedPath` and
+  `Glance.Query.orgPath`, which is how one rule serves both sides of the
+  `glance-web` boundary without `glance-web` naming `Data.Org.*`.
+
+  The rule is a DENYLIST, and stating it as an allowlist gets it wrong:
+  `derivedDirs = ["overviews", "meta"]`, tested against the component sitting
+  directly under a `.org-glance` component, with the remainder unconstrained so
+  the entire subtree under either name goes. `data` is therefore not privileged
+  in the walk — it survives by not being on the list, exactly as any other name
+  under `.org-glance` would. Where `data` IS privileged is `beatsForId`
+  (`Data.Org.Walk`), a separate rule answering a separate question: which of two
+  files claiming one id wins. Conflating them makes the walk look as though it
+  understands the store, which it does not.
+
+  `--include-derived` turns the exclusion off on `serve`, `desktop` and `scan`
+  for someone who wants to look at them, and the scan reports `derived skipped`
+  — a count of DIRECTORIES declined, never of files. `keepDerived` runs only in
+  the directory branch; a file excluded on its own path is dropped with no
+  record at all, which is reachable only in the textual-defeat case below, where
+  the run therefore reports nothing.
+
+  Corpus, 2026-07-31: 6313 → 6290 files, 13384 → 12870 headlines, 14 → 11 parse
+  failures (`overviews/agenda.org` was one of them). Evidence: `TestStore`
+  "Derived mirrors" over a fixture tree of the same shape. **test + corpus**
+- **The exclusion is textual, and a root inside the tree defeats it.**
+  `isDerived` splits the path the walk built — `dir </> name`, rooted at the
+  string the caller typed — and looks for a `.org-glance` component. Nothing
+  canonicalizes or absolutizes the root. So `cd ~/notes/.org-glance && glance
+  scan .` produces paths like `./overviews/x.org` carrying no `.org-glance`
+  component; `isDerived` is `False` and every mirror is walked and served as
+  truth. A symlink or bind mount that renames the component away does the same.
+  The complementary spelling fails the other way and just as quietly: a root
+  that KEEPS the component, `--dir /x/.org-glance/overviews`, is entered — a
+  named root is never itself tested — and then yields nothing, because every
+  child is excluded on its full path. Zero files, no error, no `derived
+  skipped` entry. A comment in `Walk.hs` claiming a mirror named as a root is
+  read describes that second spelling and is wrong about it. **none** — no test
+  builds a root inside a `.org-glance` tree.
+- **Symlinked directories are never followed, and a failed probe looks exactly
+  like one.** The walk asks `pathIsSymbolicLink` inside `try` and treats
+  everything but `Right False` as "skip", so a symlinked directory and a
+  directory whose probe raised are both dropped with no `dirErrs` entry, no
+  `derived` entry and no counter. An unlistable directory IS reported, which
+  makes the silence specific to this branch and easy to misread as "there was
+  nothing there". The reason not to follow is a symlink loop, and counting one
+  tree twice. **none**
+- **A dangling `.org` symlink is a permanent read failure.** The non-directory
+  branch keeps a path on `isOrg` alone, with no existence check — only a named
+  root is probed — so a broken link, or Emacs's `.#name.org` lock, is walked and
+  `loadFile` answers `ReadFailed`. The store keeps that as a `FileEntry` with a
+  failure and counts it for the life of the process. The watch cannot clear it:
+  `isWatchable` rejects the `.#` prefix, and that predicate IS the fsnotify
+  filter, so no event for the path is ever delivered and `dropFile` never runs,
+  even once the lock is released. It contributes no rows and one `read failures`
+  count that only a restart removes. **none**
+- **`scan`'s argument parser eats unknown flags as roots.** It recognizes
+  `--include-derived` and treats every other token as a directory, so
+  `glance scan --dir ~/notes` walks two roots, one of them the literal string
+  `--dir`, which lands in `unreadable dirs`. `serve` and `desktop` reject
+  unknown arguments and carry a usage string; `scan` has neither. **none**
+- **`dirs scanned` is the number of ROOTS given.** Nothing counts traversed
+  directories — `Found` has no such field — so `glance scan` with no arguments
+  reports `1` for a tree of any size, and `glance scan a b c` reports `3` even
+  when `a` is a plain file. Read it as "arguments accepted", not as coverage.
+  **none**
 - **One row per id, and the canonical file wins it.** A row id is what a
   renderer keys updates off (SCHEMA.md), so two rows cannot share one: the
   second would overwrite the first on every frame while the table showed the
   headline twice. `Glance.Query.resolveIds` keeps one — a `.org-glance/data/`
   path beats one that is not, otherwise walk order does — and reports every
   loser rather than dropping it quietly, since a duplicate id is nearly always
-  a tree that should not have been walked. `loadDir` and
-  `Glance.Web.Store.storeResult` both call it, which is what keeps the store
-  equal to the load it stands in for; `storeHeadline` and `bootstrapFrame` read
-  the resolved rows, so materializing an id two files claim opens the one the
-  table is showing. The count rides as `X-Glance-Id-Collisions` and the pairs
+  a tree that should not have been walked. It has exactly three call sites —
+  `loadDir`'s `summarise`, `Glance.Web.Store.storeRecords` and
+  `Glance.Web.Store.storeResult` — which is what keeps the store equal to the
+  load it stands in for; `storeHeadline` and `bootstrapFrame` resolve
+  transitively through `storeRecords`, so materializing an id two files claim
+  opens the one the table is showing. The count rides as
+  `X-Glance-Id-Collisions` and the pairs
   are listed by the scan (capped at 20). Corpus: 522 collisions with the
   mirrors walked, 9 without — those nine are genuine duplicates between real
   files (an elpa working copy of a checkout; documents whose `data.org` repeats
@@ -221,8 +363,8 @@ on.
   listens first and walks the tree on a background thread, so the window between
   `bind` and a loaded store is served rather than refused — 16 s of it over
   ~/sync. Through it, `/headlines`, `/headline` and `/ws` answer `503` with
-  `Retry-After: 1` and `{"loading": true, "elapsed": S}`, and the websocket
-  upgrade is refused with the same status rather than accepted: a `set-rows` of
+  `Retry-After: 1`, and the websocket upgrade is refused with the same status
+  rather than accepted: a `set-rows` of
   an empty store is a claim that the tree has no headlines in it, and a client
   that mounts one has to be told to throw it away later. `/` and the assets are
   served the whole time, since the page carrying the indexing state is the
@@ -232,15 +374,64 @@ on.
   quietly rather than loudly. The state is one `LoadState` in the `Hub`, flipped
   by `finishLoading` in one transaction, and the watch starts after that flip:
   an event folded into a store that is about to be replaced wholesale would be
-  lost with it. Evidence: `TestServe` "Indexing (bind before load)", including
-  the same `Application` answering 503 and then 200 across a `finishLoading`.
-  **test**
+  lost with it. `finishLoading` is deliberately the SECOND writer of the store
+  TVar — `publish` is the other, and there are no more — and it bypasses
+  `guarded` because there is nothing to publish: no client can have subscribed
+  while the socket was answering 503. Installing the store and opening the
+  routes in one transaction is what stops a request seeing the loaded store
+  still described as loading. Evidence: `TestServe` "Indexing (bind before
+  load)", including the same `Application` answering 503 and then 200 across a
+  `finishLoading`. **test**
+- **The two 503 bodies differ, and the difference is per route rather than per
+  state.** The HTTP one is `{"loading":true,"elapsed":S}` where S is a JSON
+  number of SECONDS rounded to a tenth; the websocket rejection carries the
+  shorter `{"loading":true}` and no elapsed at all, because a rejected upgrade
+  has no reader that would use it. A plain, non-upgrade request to `/ws` is
+  routed as HTTP and gets the long body — the short one is the upgrade path
+  alone. The load gate is checked AHEAD of the method check, so while the walk
+  runs every method on `/ws` answers 503; once loaded, GET and HEAD answer 400
+  with an upgrade hint and everything else 405. A client keying on body shape
+  rather than on status has to know which of the two it asked for. Evidence:
+  `TestServe` "Indexing (bind before load)" drives the HTTP path. **test** (long
+  body) / **none** (the short one)
 - **The watch parses one file, from `defaultContext`.** `Glance.Web.Watch.reload`
   calls `Glance.Query.loadFile`, which seeds every parse from `defaultContext`.
   A shared long-lived context would let one file's `#+TODO:` line reach another
   file's headlines — the Context-discipline invariant above, restated where a
   daemon is the thing that could break it. **test** (per-file context) /
   **docs** (the watch's use of it)
+- **The debounce is per path, trailing edge, and has no ceiling.** 100 ms
+  (`debounceDelay = 0.1`) measured on `GHC.Clock.getMonotonicTime` — MONOTONIC
+  SECONDS as a `Double`, so it cannot be moved by a clock adjustment — with a
+  25 ms poll (`tick`) draining whatever has ripened. Every event OVERWRITES the
+  path's timestamp, so a path receiving events faster than every 100 ms is
+  deferred for as long as that continues: there is no maximum wait and no
+  leading-edge fire. A generator writing a file in a tight loop is invisible
+  until it stops, which is the intended behaviour for an editor's autosave and
+  the wrong one for a log. It is a debounce, not a rate limit. **none**
+- **Deletion is decided by `doesFileExist`, not by the event kind.** `reload`
+  probes the path and picks `dropFile` or `applyFile` from the answer, so a
+  rename-away, a delete and a delete-then-recreate inside one debounce window
+  all resolve to whatever is true when the drain runs. fsnotify's event types
+  are never consulted, which is what keeps the behaviour the same across
+  backends. **none**
+- **`stIds` and `stTags` count FILES, not rows.** Each is stepped by the
+  difference between a file's old and new projection, and both projections are
+  `Set`s built per file (`idsOf`, `tagsOf`), so a tag carried by forty rows of
+  one file contributes 1. The index answers "how many files claim this tag",
+  which is what the filter vocabulary needs and is NOT a row count. Reading it
+  as one overstates nothing and understates a lot. **none**
+- **`stDirErrs` is frozen at startup.** Written once by `loadStoreWith` from the
+  walk, read by `storeResult`, and touched by nothing in `putFile`,
+  `removeFile`, `guarded` or the watch. A directory that becomes unreadable
+  after the walk, or becomes readable again, is invisible until a restart. The
+  count in `X-Glance-*` therefore describes the startup walk, not the tree now.
+  **none**
+- **`storeKeywords` merges one record per file.** `listToMaybe . feRecords` over
+  each entry, then one `mergeKeywords` across files — an N-file fold rather than
+  an N-row one. It is sound because every row of a file shares that file's
+  keyword sets by construction; the day a record carries its own keywords, this
+  becomes a silent truncation rather than an optimization. **none**
 - **A failed load keeps the file's rows.** `orgParse` is all-or-nothing, so a
   save caught mid-write looks exactly like a file whose headlines all vanished.
   The store keeps the last good parse's records, marks the entry with the
@@ -250,11 +441,39 @@ on.
 - **A column change closes the socket.** SCHEMA.md's streaming ops carry rows;
   columns are initial-view only. The state column's badge palette is the TODO
   keyword union, which a changed file can move, so the store answers with
-  `ViewChanged` — a websocket close with reason `view-changed`, not a frame —
-  and the client's reconnect path re-fetches `/headlines`. Inventing an op here
-  would put the producer outside the contract it exists to prove. Evidence:
+  `ViewChanged` and the client's reconnect path re-fetches `/headlines`.
+  Inventing an op here would put the producer outside the contract it exists to
+  prove. Two details that are easy to get backwards. `ViewChanged` IS a `Frame`,
+  the fourth constructor beside the three row ops; what makes it a close rather
+  than a message is `frameJSON` answering `Nothing` for it, so every consumer
+  that encodes a frame has to handle the absence. And `guarded` REPLACES the
+  step's frames with `[ViewChanged]` rather than appending it, so a change that
+  both moved rows and moved the palette ships the close alone — a client never
+  receives rows built against a palette that is already gone. Evidence:
   `TestStore`, Keyword-palette group; verified live against a running server.
   **test**
+- **KNOWN BUG (open): the frames the watch streams are not id-resolved.**
+  `putFile` builds its `upsert-row` and `delete-row` frames straight from one
+  file's records (`rowsById`, `nub . map hrId`), and `resolveIds` appears
+  nowhere on that path. Every HTTP response is resolved, and so is the
+  bootstrap `set-rows`, since both route through `storeRecords`/`storeResult`.
+  The divergence is therefore between a connected client's incremental view and
+  everything else. Two visible consequences over a tree with duplicate ids: an
+  edit to the LOSING file streams its row over the winning one, so the live
+  table shows what a refresh will contradict; and when the losing file drops the
+  id while the winner still carries it, `gone` emits nothing — the id is still
+  in `stIds` — so the stale row survives until the client reconnects. The fix is
+  to resolve where the frames are built, which costs a whole-store fold per
+  event and is why it has not been done. **none**
+- **A within-file duplicate id diverges by direction.** Two headlines in one
+  file sharing an `ORG_GLANCE_ID` are kept differently at each end: the stream
+  keeps the LAST, because `rowsById` is a `Map.fromList` and later entries
+  overwrite; the served view keeps the FIRST, because `beatsForId` cannot
+  separate two rows of the same path and the fold leaves the incumbent standing.
+  `stIds` and `stTags` see neither duplicate — the per-file projections are
+  `Set`s — so the store index does not record it at all, while
+  `X-Glance-Id-Collisions` reports one whose kept and dropped paths are the same
+  file. **none**
 - **A slow client is dropped and the watcher waits for no one.** Frames go into each socket's
   bounded 256-frame mailbox from the same STM transaction that updates the
   store. A full mailbox drops that client instead of retrying the transaction:
@@ -317,6 +536,33 @@ on.
   change and the stats headers go stale behind a matching tag. Evidence:
   `TestServe` "GET /headlines cache validation" (including a published reload
   that changes nothing leaving the tag put). **test**
+- **KNOWN GAP (open): the generation is per process and starts at zero.**
+  `emptyStore` sets `stGen = 0`, `loadStoreWith` seeds through `putFile` (which
+  does not bump), and `finishLoading` bypasses `guarded` entirely — so a fully
+  loaded store still serves `ETag: "g0"`, and nothing persists the counter. A
+  browser holding `"g0"` from before a restart revalidates against a tree that
+  may have changed completely and is told 304. The generation is a
+  within-process change detector and cannot be read as an identity for the data.
+  A restart-surviving tag would have to mix in something the process does not
+  currently keep. **none**
+- **The stats and page headers ride the 200 alone.** `statsHeaders`
+  (`X-Glance-Rows`, `-Files`, `-Parse-Failures`, `-Decode-Failures`,
+  `-Read-Failures`, `-Id-Collisions`) and `pageHeaders` (`X-Glance-Total`,
+  `X-Glance-Has-Next`) are applied in the 200 branch only; a 304 carries the
+  `ETag` and `Cache-Control` and nothing else. This is deliberate — the counts
+  describe a body that a 304 does not send — but it couples them to the cache:
+  a client that reads counts off headers gets nothing from a revalidation, and
+  must either ignore the cache or keep the last 200's numbers. **test**
+  (`TestServe` cache validation asserts the 304's header set)
+- **A commit that changes nothing still rewrites the file.** `Data.Org.Edit`'s
+  `editFile` has no equality short-circuit: it re-reads, drift-checks, splices
+  and then writes unconditionally, temp file + `fileSynchronise` + rename. An
+  empty batch does the same. The engine writes what it is told to, and deciding
+  that a write is unnecessary is the caller's business — but the consequence
+  reaches the daemon, since the rename fires an inotify event, the watch
+  re-parses the file, and only then does `guarded` find that nothing moved and
+  leave the generation alone. So a no-op `POST /headline` costs a parse and an
+  mtime, and never a spurious `ETag` bump. **test** (`TestEdit`)
 - **The server is the authority on the filtered set, and a page comes out of the
   view's own sort.** `?q=` is matched against `hrSearch`, built at load beside
   the cells: a Haskell mirror of `table-view.js`'s `displayText` (bracket link
@@ -345,16 +591,26 @@ on.
   (`=` alias) is a predicate only when the key is a column key or one of the
   producer's virtual keys, which is what keeps org cell text — `:work:`,
   `=code=` — from becoming one by accident; a token that *opens* with a quote is
-  free text; a leading `-` negates. Same-key predicates OR, distinct keys and
-  free text AND, negations AND regardless. Predicates sharing one key combine
+  free text; a leading `-` negates. Distinct keys and free text AND, and
+  negations AND regardless. Predicates sharing one key combine
   by the field's arity: single-valued fields OR, since a badge cell ANDed with
   itself is always empty, and multi-valued ones AND — the `tag` column and
   every virtual tag key, where `tag:a tag:b` is a row carrying both and
-  `contact:x contact:y` is tagged `contact` and matching both texts. Per column
-  type: badge whole-value case-insensitive plus this producer's
-  `state:active`/`state:inactive` meta values, text substring, dates prefix;
-  and three uniform rules — `key:none` is the empty cell whatever the type,
-  `key:` narrows nothing, a value may be quoted. The tags column's key is
+  `contact:x contact:y` is tagged `contact` and matching both texts. Dispatch is
+  on the KEY NAME, never on the column's declared `kind` — `Glance.Web.Filter`
+  does not import it. `state` is whole-value case-insensitive plus this
+  producer's `state:active`/`state:inactive` meta values, `priority` is exact
+  equality, `scheduled`/`deadline` are prefix, everything else is substring; so
+  a column declared `badge` but named something else is matched as text, and the
+  `priority` column, declared `text`, is matched exactly. That last pair agrees
+  with the renderer only because the cell is one character long, where a
+  substring test and an equality test cannot differ. Then two uniform rules —
+  `key:` narrows nothing, a value may be quoted — and one that is NOT uniform:
+  `key:none` is the empty cell on the COLUMN keys only. `tag:none` is untagged
+  because `tag` is a column; on a virtual key there is no `none` branch at all,
+  so `contact:none` reads as "tagged `contact` AND the row text contains
+  `none`". SCHEMA.md's blanket phrasing overstates that; the renderer agrees
+  with the code rather than with the schema. The tags column's key is
   `tag`, singular, so the key a filter names and the tags it names read alike
   (`tag:travel`); the header stays `Tags` and `hrSearch`'s field order is
   unchanged, since only the name moved. The virtual keys are the store's org tags (`Glance.Web.Store.stTags`,
@@ -368,8 +624,100 @@ on.
   the old vocabulary produced. Evidence: `TestFilter` (tokens, predicates,
   virtual keys, shape, degenerate parity with `matchesSearch`), `TestServe`
   "GET /headlines filter and paging". **test**
-- **The watch is the only channel that updates the store.** A commit writes the
-  file and returns; no path through the route touches the `Hub` or the `Store`.
+- **There is no schema revision mechanism, so parity is discipline plus one
+  tripwire.** Nothing versions the agreement between this producer and
+  `table-view.js`: no capability handshake, no schema version in the view
+  document, no negotiation. Both sides read `SCHEMA.md` and are kept term for
+  term by hand, and the only runtime check is the shell's parity tripwire —
+  loose, one-directional and armed late (its own entry below). Every divergence
+  listed in the entries that follow is therefore silent by construction: the
+  same query answers differently depending on which half evaluated it, and
+  neither suite can see it, because each tests its own half. Read them as a
+  standing list to re-check whenever either file moves. **none**
+- **Column lockstep is three-way, and `hrSearch`'s field order sits outside
+  it.** `Glance.Query.viewColumns` is the single source for three things — the
+  `columns` array, `rowJSON`'s cells, and `filterKeys`. The fourth thing that
+  must agree, the order of fields inside `hrSearch`, is a hand-written
+  positional list in `recordOf` and is NOT derived from `viewColumns`. The guard
+  that looks as though it closes the loop does not: `TestFilter`'s layout group
+  compares `hrSearch`'s fields against its OWN hardcoded list, so it catches
+  `recordOf` drifting from the test and is blind to `viewColumns` drifting from
+  both. Reorder `viewColumns` alone — swap `title` and `tag`, say — and
+  `filterKeys` and `tagsColumn` move while `hrSearch` stays put; every predicate
+  then reads the wrong `\x1f` field, and the suite stays green. Five places move
+  together: `viewColumns`, `recordOf`'s `searchTextOf` list, `Filter.dateKeys`,
+  `Filter.keyTest`'s name switch with `tagsColumn`, and the test's own list.
+  **none** (the guard exists and does not guard this)
+- **Arity is chosen by NAME here and by SAMPLED SHAPE there.** The server's
+  multi-valued column is `tagsColumn`, the index of the key literally named
+  `tag`. The renderer's is `multiColumn`, which samples up to 40 non-empty cells
+  and needs at least two shaped like `:a:b:` with none contrary, returning the
+  FIRST column in view order that qualifies. Three failure modes follow. With
+  fewer than two tagged rows loaded the renderer finds no multi-valued column at
+  all, so its tag vocabulary is empty and `tag:a tag:b` ORs where the server
+  always ANDs. One cell holding an unrelated colon — a `10:30`, a URL —
+  disqualifies the column outright. And a column earlier in view order whose
+  cells happen to look tag-shaped steals both the arity and the vocabulary. The
+  verdict is re-derived on every row-set change, so it can flip between two
+  pages of one session. Virtual keys are the single point of agreement:
+  multi-valued unconditionally on both sides. **none**
+- **Date-ness is asymmetric the same way.** The server prefix-matches exactly
+  two hardcoded key names; the renderer decides per column by sampling cells for
+  date shape. A loaded set with under two dated rows makes the renderer treat
+  `scheduled` as text, so `scheduled:10:00` matches `2026-08-15 10:00` there and
+  nothing here; conversely any other column whose sample looks dated gets
+  renderer-side prefix matching that the server never applies. **none**
+- **`state:active` / `state:inactive` are producer-only, and undiscoverable.**
+  SCHEMA.md blesses producer meta-values, and the server resolves these two
+  against the record's own `#+TODO:` sets. The renderer has no such logic: on a
+  badge column it compares the cell to the value, so it matches only a row whose
+  state literally reads `active`. SCHEMA's discovery route is that meta-values
+  arrive as ordinary `values` entries, but this producer's `state` column ships
+  `badges` and never `values`, so the renderer's autocomplete cannot offer them
+  either — while its own placeholder text advertises them. The asymmetry is
+  intended, since the server knows the keyword sets and the renderer does not;
+  the undiscoverability is an accident of the column shape. **none**
+- **The two vocabularies have different scopes.** The server parses against
+  `storeTags` — every tag in the tree, folded per file — so a predicate is a
+  predicate whether or not any matching row is loaded. The renderer's
+  `tagVocab` iterates the rows it currently holds and is rebuilt on every
+  row-set change. A tag present in the store but absent from the page is
+  therefore a predicate on one side and free text on the other, which is exactly
+  the divergence the tripwire was built for. **none**
+- **Keys are case-sensitive on both sides; values are folded on both.** The
+  server tests membership of `filterKeys` and the tag vocabulary by exact
+  `elem`, and every real key is lowercase — `filterKeys` are written that way
+  and tags are lowercased by `tagsOfCell`; the renderer does the same with a
+  `Set` over lowercased text. So `Tag:x` and `TAG:x` are predicates on NEITHER
+  side, degrading to free text for the literal string. Values go through
+  `T.toLower` against a haystack lowercased at load, and `toLowerCase` against
+  one lowercased on the way in. Symmetric, and surprising enough to write down.
+  **test** (`TestFilter`)
+- **Separators are `&`, space, tab and newline — `\r` is not one.** Both
+  implementations spell the predicate out character by character, and the two
+  spellings are identical. A CRLF-pasted query therefore carries `\r` into the
+  last token's value on both sides, as would a vertical tab, a form feed or a
+  non-breaking space. Substituting a general "is this whitespace" test on either
+  side breaks parity in the direction hardest to notice. **test**
+- **A lone `-` empties the result set.** The scanner emits an empty token for
+  it, an empty token has no key so it is free text, an empty free-text term
+  matches every row, and the leading `-` negates it: nothing matches. Both sides
+  arrive there by the same four steps. It is a consequence rather than a
+  decision, so an "ignore empty terms" simplification silently changes the
+  answer. **test**
+- **`key:value` splits on the FIRST `:` or `=`, whichever comes first.** So
+  `tag:a=b` is key `tag` with value `a=b`, and a body opening with a separator
+  has no key at all — which is precisely what leaves `:work:` and `=code=` as
+  the org text they are. A token opening with a quote skips the split entirely.
+  Both sides agree, one by `T.break` and one by `min` of two `indexOf`s.
+  **test**
+- **The watch is the only channel that WRITES the store.** A commit writes the
+  file and returns; no path through the route writes the `Hub` or the `Store`.
+  It does READ them — `storeHeadline` is where the extent and the pinned digest
+  come from — and that read is the point: the write is measured against what the
+  store already holds. The invariant is one-directional, and stating it as "the
+  route does not touch the store" is wrong in a way that makes the digest lock
+  look impossible.
   The watch re-reads what was written and streams the rows, so a browser save
   reaches every open tab by the path an editor's save already takes. Updating
   the store from the write path too would be a second producer of row frames,
@@ -393,6 +741,33 @@ on.
   would hand the whole store to the network, and after S8 hand it write-back
   too. The address moves when auth arrives, not before. **none** (no test
   binds a socket; the call site is the only guard)
+- **The HTTP surface is a fixed route table, and the method rule is uniform.**
+  Each entry declares whether it needs a loaded store and whether it is
+  read-only, and the load gate runs first. GET and HEAD are the whole surface
+  except `POST /headline`; anything else is 405, spelled as JSON on `/headline`
+  and as plain text elsewhere, so a client parsing a refusal gets the shape the
+  route always uses. An upgrade aimed at any path but `/ws` is rejected rather
+  than routed. **test** (`TestServe`)
+- **`POST /headline` caps the body at 1 MiB, and the cap outranks the lookup.**
+  The body is counted chunk-wise and a larger one is 413. Because the cap is
+  checked before the id is resolved, an oversized POST to an unknown id is a 413
+  rather than a 404 — the server declines to read a megabyte in order to
+  discover it had nowhere to put it. **test**
+- **`?limit=` is capped at 20000 and a larger one is a 400.** Absent, it serves
+  the whole store, which is the mode the shell settles into; the cap exists to
+  bound one request's encode, not to bound the store. It is a page-size cap and
+  has nothing to do with the body limit above. **test**
+- **The asset route takes ONE path segment, through `safeName`.** Rejected: the
+  empty name, `.`, `..`, and any name carrying `/` or `\`. One segment and one
+  guard is the whole of the traversal defence, so an asset directory laid out in
+  subdirectories cannot be served without revisiting it. **test**
+- **`Content-Length` comes from `sized`, and `Vary` from the gzip middleware.**
+  `sized` writes the length on every JSON, HTML and plain response, the HTTP 503
+  included; warp supplies it for the 304 and for `responseFile`. The gzip
+  middleware writes `Vary: Accept-Encoding` on every HTTP response, 304s
+  included — and NOT on the websocket rejection, which sits outside it. A client
+  caching the WS refusal has no `Vary` to key on, which is harmless only because
+  nothing caches a 503. **test** (the HTTP half)
 - **The served pages fetch nothing off this server.** Styles are inline, the
   glue is inline, and the one `<script src>` is a file name the asset route
   resolves inside `--assets`. No CDN, no web font, no analytics — a page that
@@ -415,10 +790,93 @@ on.
   with no handler is recognized in full and says what backs it later. `C-c` and
   `C-x` are claimed as prefixes only with the selection collapsed — the browser
   decides copy and cut on the same keydown — and `C-l`, `C-r`, `C-t`, `C-w`,
-  `C-n`, `C-p`, `<f5>` are never claimed, including as the continuation of a
-  prefix, which is why neither profile moves on `C-n`/`C-p`. Evidence:
+  `C-n`, `C-p`, `<f5>` are never claimed on their own, which is why neither
+  profile moves on `C-n`/`C-p`. A reserved key reaches the browser UNLESS it
+  completes a bound sequence, which is exactly what keeps `C-c C-t` working
+  while `C-x C-l` still opens a new window. What the list actually buys is the
+  ABANDONED prefix: a chord that opens nothing would otherwise be swallowed as
+  undefined. The collapsed-selection test is `selecting()`, one predicate over
+  the focused field's range and the document selection, and it guards the
+  generic prefix-OPENING branch rather than `C-c`/`C-x` by name, so vim's `g`
+  obeys it too. Each row carries `kbKeys`, `kbCommand`, a `kbScope` of `table`,
+  `modal` or `any` that the dispatch filters on, and an optional `kbHelp` the
+  echo widget reads when the command name does not say enough. Auto-repeat
+  belongs to movement, so the keys that must run once per press are named by
+  COMMAND in `ONCE` — currently `filter-drop-token` — which holds under every
+  profile that binds them and takes the repeat off nothing else. Evidence:
   `TestServe` "Shell keymap", which parses the blob, compares both profiles to a
   written-down map, and checks the two per-map uniqueness rules. **test**
+- **The echo widget's key hints are data too.** `Glance.Web.keyHints` is a table
+  of key-list/label pairs serialized into the same JSON blob the dispatch reads,
+  under `hints`, and rendered into the resident key line from there. So the line
+  cannot offer a key nothing is bound to, and a new binding that should appear
+  in it is one table entry rather than an edit to a string. **test**
+- **One fetch is in flight at a time.** A single `AbortController` is aborted
+  and replaced by whoever asks next, so the background full-set pull yields to a
+  filter commit instead of racing it, and a late response is discarded by
+  comparing the query it was asked for against the query in force. Without the
+  abort, the whole-set answer lands after the filtered one and paints the
+  unfiltered table under an applied filter. **none**
+- **A row frame under a filter schedules a refetch 250 ms out.** Only the server
+  knows whether a changed row still matches, so the shell re-asks rather than
+  splicing — and coalesces, since a burst of saves would otherwise be a burst of
+  whole-set requests. Unfiltered frames splice straight into the renderer.
+  **none**
+- **The shell's z-index bands must clear the renderer's.** Four values, all of
+  them here: echo `2`, corner `3`, modal backdrop `100`, sheet `101`. The
+  cross-repo constraint is the backdrop pair clearing the renderer's sticky
+  header (`1`) and its completion list (`5`) — an unnumbered backdrop painted
+  under both. The corner and the echo sit BELOW the backdrop deliberately, so
+  they dim with the page; a consequence worth knowing is that they also sit
+  below the completion list, which paints over them. The filter palette carries
+  no shell z-index at all: the overlay is entirely the renderer's, and the suite
+  forbids this page naming its parts. **test** (`TestServe` pins the four
+  values)
+- **`--g-border` and `--g-sel` are hand-copied literals.** `--g-border` is the
+  renderer's own `--tv-border` written out (`#E3E6EA` light, `#2A2D3D` dark)
+  rather than read through `var()`, because the shell's frames have to match the
+  table's hairline and danneskjold's border faces framed each element at 1.8:1
+  instead of receding. `--g-sel` is likewise a literal, and danneskjold's rather
+  than the renderer's. The cost is real and worth stating: a renderer border
+  change needs a matching edit here, and nothing detects the drift. **none**
+- **The renderer internals this page may touch are enumerated by the suite, as
+  must-not-appear lists.** There is no allowlist comment; the enforcement is
+  negative. The shell may not name `closeFilter`, `tv-veil` or `tv-panel` (the
+  palette is the renderer's); may not reach rows by `tr.click()`,
+  `scrollIntoView` or `rowEls(` (the DOM-walking path is gone); and may not keep
+  a column of its own under any of the names that path used. What it does touch
+  is `.tv-root`'s font, `.tv-chips`/`.tv-chip` under a coarse pointer, and the
+  selected-row read kept as the legacy-asset fallback. **test**
+- **Every optional renderer capability is feature-detected before use.**
+  `parseQuery`, `stripLastToken` together with `getQuery`, `selectStep`,
+  `nextPage` together with `pageInfo`, `getSelection`, `openFilter`, plus
+  `matchMedia` for the coarse-pointer branch. The one exception is deliberate:
+  `initialQuery` is passed to `mount` unguarded and detected AFTERWARDS by
+  asking `getQuery()` whether it took, because an option an older asset ignores
+  cannot be probed for. An asset that drops a capability degrades to the older
+  path rather than throwing. **test**
+- **The ownership split: the renderer owns the selection, both halves of it.**
+  The shell keeps no cursor — the row id comes from `getSelection().id` and the
+  column from the same call, and the DOM read of the selected row survives only
+  as the fallback for an asset without it. That is what makes a selection
+  survive a profile switch and clear when the renderer clears it, and it is
+  enforced negatively by the suite's must-not-appear list. **test**
+- **The page never scrolls; the boxes inside it do.** `body` is `100vh`,
+  `overflow:hidden`, a flex column of table, log and key line. The table takes a
+  fixed share, the log takes what is left (`flex:1 1 auto`) and scrolls inside
+  itself, and the key line is `flex:none` and scrolls sideways rather than
+  wrapping. So an arriving message moves neither the corner nor the key line,
+  which is the whole point: the two pieces of chrome a reader looks for hold
+  their places. **test**
+- **Every touch-device rule lives in ONE `@media (pointer:coarse)` block.** The
+  chip row as a 44px tap target, its empty-state label, and the sheet's 16px
+  textarea that stops iOS zooming in and never zooming back out. Keeping them in
+  one block is what makes "a mouse sees none of this" checkable by reading a
+  single place, and the tap handler asks the same query before it runs. **test**
+- **The server closes a socket for exactly two reasons, and names them.**
+  `dropped-slow-client` when a bounded mailbox fills, `view-changed` when the
+  columns move. Those two strings are the whole vocabulary of a server-initiated
+  close, and the client's reconnect path is the same for both. **test**
 - **The wire is built in `Glance.Query`, out of spans.** The public library
   exposes that one module over the private `glance-internal` sublibrary, so no
   outside target can name `Data.Org.*` at all. Title and tag cells are sliced
@@ -441,10 +899,38 @@ on.
   `C-x C-s` re-reads the file's digest and posts the author's text over it —
   last writer wins, on a deliberate keystroke — and `ESC` discards. Closing the
   tab on an edited sheet flushes with `fetch(keepalive)`, and only when dirty.
-  The header carries one word, `synced` / `syncing…` / `conflict`, because with
-  no buttons the keys are the whole of the offer and the two states that wait
-  for one have to name their key. Evidence: `TestServe` "the sheet is buttonless
-  and syncs on the way out", plus the curl-level round trip. **test**
+  The header carries one word — `synced` / `syncing…` / `conflict` / `error` —
+  because with no buttons the keys are the whole of the offer, and the two
+  states that wait for one, `conflict` and `error`, each spell the key that
+  clears it. A failed request lands in `error` rather than in `conflict`, so a
+  409 and a dropped connection are told apart on screen. Evidence: `TestServe`
+  "the sheet is buttonless and syncs on the way out", plus the curl-level round
+  trip. **test**
+- **The whole page wears danneskjold, through one `--g-*` palette.** Surface,
+  text, muted text, border, selection, warn and bad are declared once and
+  re-declared per theme, and every `var()` on the page reads one of them, the
+  monospace stack, or the sheet's own. The sheet keeps exactly ONE variable of
+  its own, `--dk-mono` (Hack first); it stopped carrying a private `--dk-*`
+  palette when the page grew one. So "the sheet alone wears the author's theme"
+  is the old arrangement, and a change to the page's colours is one block rather
+  than two. **test** (`TestServe` pins the declarations)
+- **The theme is a `data-theme` handshake with a pre-paint boot.** `themesel`
+  offers `auto`, `light` and `dark`. `auto` follows `prefers-color-scheme` and
+  is the default, and choosing it REMOVES the attribute rather than writing a
+  value; the other two stamp `data-theme` on the document element, and the
+  attribute rules are written so they beat the media query in both directions.
+  The choice lives in `localStorage` under `glance-theme` — distinct from the
+  keymap's `glance-keys` — and `themeBoot` reads it and stamps the attribute in
+  `<head>`, before the first paint, because a dark page that resolves its theme
+  after paint flashes light. `themeBoot` is emitted on one unindented line so
+  the suite's glue extractor, which finds the shell's inline block by a
+  newline-plus-indent delimiter, cannot mistake it for that block. **test**
+- **The status corner holds three things, in order: the dot, `themesel`,
+  `keysel`.** The dot carries `live` / `wait` / `down`. Both selectors are
+  native `<select>`s, so Tab reaches them and their own arrows walk them without
+  a chord — and a focused `SELECT` counts as typing, which is what stops the
+  keymap eating those arrows. The order is asserted, since the corner is the one
+  piece of chrome a reader navigates by position. **test**
 - **The applied filter query is in the URL, and `DEL` is its backspace.** A
   commit writes `?q=` with `replaceState` and leaves `keys` where it is, so a
   filtered view is a link, a reload keeps it, and a reconnect comes back to it
@@ -467,11 +953,56 @@ on.
   nothing, because guessing which half is right is how the two drift.
   Column predicates are excluded from the check: both halves read the columns
   out of the same view document, so they cannot skew. **test**
+- **KNOWN GAP (open): the tripwire arms late and cries wolf.** Four limits, all
+  by construction, and none of them fixable without deciding which half is
+  right. It ARMS only against a remembered unfiltered answer — the remembered
+  set is assigned in exactly one place, on a paint with no query — and `start()`
+  sets the query from the URL BEFORE the first load, so a `?q=` boot never arms
+  it at all: a session that opens on a filtered link keeps the check dark until
+  the user clears the filter. It fires only when the server returned zero, so
+  the opposite skew — the server matching rows the renderer would not — is never
+  reported. The local recount DROPS THE KEY and tests the value against the
+  whole joined row text, so a correct empty facet answer warns whenever the word
+  happens to appear elsewhere: `contact:tanik` with no `contact`-tagged rows but
+  "tanik" in a title fires it. And it consults column keys alone, so every
+  virtual-key predicate is treated as suspect, while its `key:value` gate also
+  admits ordinary text such as a bare URL. One more source of drift sits beside
+  it: unfiltered frames splice into the renderer without updating the remembered
+  set, so the baseline ages over the life of the page. **test** (that it fires)
+  / **none** (that it fires correctly)
 - Browser writes are commands over the bridge, of two kinds (proposal rev 3):
   structured commands, and raw replacement of a whole span under the same drift
   lock — materialize is the first of those. Semantic org editing stays out of
   the browser. Automation: reviewed deterministic scripts behind a separate
   privilege tier; no LLM in the loop.
+
+## Desktop
+
+- **The window opens at the socket, not at the loaded store.** `glance desktop`
+  is `serve` with a browser window launched as soon as the listener is up, which
+  is only defensible because of the bind-before-load contract above: the page
+  the window lands on is served immediately, `/headlines` answers 503 with
+  `Retry-After: 1`, and the shell paints its indexing state and polls out of it.
+  Wait for the store instead and the user watches a blank screen for the length
+  of the walk — 16 s over ~/sync — with nothing saying why. The order is fixed:
+  bind, window, walk, watch. **test** (the 503 contract) / **docs** (the
+  ordering)
+- **Browser resolution is a fixed ladder, environment first.**
+  `$GLANCE_BROWSER`, then `--browser`, then the first of `chromium`,
+  `chromium-browser`, `google-chrome-stable`, `google-chrome`, `brave`,
+  `vivaldi` found on `PATH`, each run as `CMD --app=URL`. The environment leads
+  the flag on purpose: a machine whose browser is on none of those lists is set
+  up once in a shell profile and obeyed by every launcher. What it names has to
+  be chromium-family, since `--app` is the flag that drops the chrome and
+  Firefox no longer has it. Failing all of that, `xdg-open URL`; failing that,
+  the URL is printed. **No window failure ever fails the daemon** — the server
+  is the product and the window is a convenience, so every step degrades rather
+  than aborts. **test**
+- **`--dry-run` resolves and exits before binding.** It prints the command it
+  would run and the URL it would open, and starts nothing, so it is the way to
+  ask what a machine resolves to without taking the port. Anything that moves
+  the resolution has to move this output with it, or the flag stops answering
+  the question it exists for. **test**
 
 ## Build
 
@@ -485,10 +1016,12 @@ on.
   alone; the CLI depends on the two sublibraries and the suite on all three
   (`glance:{glance, glance-internal, glance-web}`, which pins internals in the
   older modules and exercises the facade alone in
-  `TestQuery`/`TestServe`/`TestStore`). `glance-web` gained modules at S5 and
-  no new direction: `Glance.Web.Store` and `Glance.Web.Watch` sit in the same
-  stanza, and what they needed — per-file loading, row JSON, the keyword merge —
-  was added to `Glance.Query` rather than reached for behind it.
+  `TestQuery`/`TestServe`/`TestStore`). `glance-web` exposes five modules and
+  declares no `other-modules`: `Glance.Desktop`, `Glance.Web`,
+  `Glance.Web.Filter`, `Glance.Web.Store`, `Glance.Web.Watch`. It gained every
+  one of them past `Glance.Web` without gaining a direction — what they needed,
+  per-file loading, row JSON, the keyword merge, the derived and org path
+  predicates, was added to `Glance.Query` rather than reached for behind it.
   Putting `Data.Org.*` in a web or daemon target's build-depends is impossible
   from outside the package — the S2 exit bar, enforced by the solver rather
   than by review. **test** (it would not build)
