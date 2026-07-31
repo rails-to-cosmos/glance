@@ -655,14 +655,59 @@ capture. Optimistic lock (hash vs parse snapshot), atomic replace
 (temp + rename).
 
 Exit:
-- [ ] Surgical property: after any command, `diff before after` = exactly one
+- [x] Surgical property: after any command, `diff before after` = exactly one
       hunk and the hunk equals the target span — automated across corpus
-      samples.
-- [ ] Conflict: file mutated between parse and write → daemon rejects with a
-      drift error, file untouched — automated test.
+      samples. Actual: the engine-level half is `TestEdit`'s surgical property
+      plus the ~/sync canary (33 files, 214 spans); the command-level half is
+      `TestQuery`'s "Commands" group, which splices with its own oracle and
+      asserts the WHOLE document each time, and `TestServe`'s route cases, which
+      state the file after a command as the file before it with one `T.replace`
+      applied. Live over a four-row two-file tree: three keystroke-equivalents
+      moved 4 of 26 lines and left the other 22 byte-identical.
+- [x] Conflict: file mutated between parse and write → daemon rejects with a
+      drift error, file untouched — automated test. Actual: `TestServe`
+      "POST /headline" for the raw path and "a file that moved refuses its rows
+      while the others land" for the command path, where the moved file's rows
+      error and the untouched file's land in the same request.
 - [ ] Round-trip demo: toggle TODO in browser → Emacs `auto-revert` shows it;
-      edit in Emacs → browser row updates. Both directions.
+      edit in Emacs → browser row updates. Both directions. Half of it is done:
+      the browser→file→watch→row leg is live-verified below. The Emacs leg is
+      S5's and has been since, but the two have not been demonstrated in one
+      sitting.
 - [ ] Capture from a phone browser appends an entry to the inbox file.
+      Untouched: capture is `+` and still staged, and it is the one command that
+      needs an insertion point rather than a span of an existing headline.
+- [ ] `C-c C-s` / `C-c C-d` reschedule. Untouched, and the cheapest of what is
+      left: `hsSchedule`/`hsDeadline` already cover the timestamp text alone, so
+      a reschedule is one span replacement plus a date picker.
+
+**Toggle-state and archive landed (the command layer's first two).** One route,
+`POST /command {name, id | ids, args, digests?}`, and two names —
+`set-state {"keyword": KW | null}` and `archive {}`. Ids group by FILE and each
+file is one drift-locked `Glance.Query.replaceSpans` call, so a marked set over
+three files is three atomic writes and two rows of one file are one; there is no
+cross-file rollback and the answer is per id. The span math is `Glance.Query`'s
+(`setStateEdits`, `archiveEdits`), because `HeadlineSpans` never leaves
+`glance-internal` — the facade constraint deciding a design rather than
+obstructing one. Keyword legality is per file and refuses the whole request.
+`archive` is idempotent. The store is still written by the watch alone.
+
+In the shell: `D` archives the marked set (else the row at point) and `C-c C-t`
+raises a value palette over the same rows — the two staged rows that now have
+handlers. Confirm-free; the drift lock is the safety and `D` archives rather
+than deletes.
+
+And the half that makes an archive worth having: `/headlines` leaves archived
+rows out unless the query names the `archive` key, reporting what it took in
+`X-Glance-Archived`. The vocabulary stays the whole store's, so the exclusion
+can never hide the key that reaches what it hid.
+
+Suite: 610 → **664 tests**. Live over a two-file fixture: `set-state` over one
+row, over two rows of one file (one digest back, so one write) and `archive`
+over two files (two digests); 4 of 26 lines changed and 22 byte-identical; the
+watch streamed 5 upserts across 4 re-parses, and the idempotent second `archive`
+produced no frame at all — the file was rewritten with the same bytes and
+`guarded` found nothing moved.
 
 **Engine landed early (S8 core).** `Data.Org.Edit`, exposed by
 `glance-internal`: `applyEdits :: Text -> [Edit] -> Either EditError Text` over
@@ -705,8 +750,8 @@ Corpus canary behind `GLANCE_CORPUS=<root>` — the walk alone is 12.8 s against
 Each sampled file is digest-checked before and after, which is what proves the
 run never wrote to the corpus.
 
-Suite: 301 → **378 tests**. The exit bars above stay open: the commands, the
-one-hunk diff assertion that goes with them, the round-trip demo and capture.
+Suite: 301 → **378 tests** at the engine. The bars the engine alone could not
+close are answered by the command layer above.
 
 ## S9 — Automation extension
 

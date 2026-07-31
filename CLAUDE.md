@@ -233,6 +233,35 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `glance-internal` sublibrary; cells are sliced from spans and the view
   `Value` is hand-built — no `ToJSON` on an internal type
   (table-view/SCHEMA.md is the contract).
+- Commands: one route, `POST /command {name, id | ids, args, digests?}`, two
+  names — `set-state {keyword: KW | null}` and `archive {}`. Ids group by FILE
+  and each file is one drift-locked `replaceSpans` call, so a marked set over
+  three files is three atomic writes; there is no cross-file rollback and the
+  answer is per id (`{results: [{id, ok, digest | error}]}`, in the order the
+  ids were named). Request-shape refusals are 400 with nothing written — a bad
+  body, an unimplemented name, no ids, and a keyword ANY named row's file does
+  not declare, which refuses the whole request rather than moving the rows whose
+  files do. Per id: an unknown id, and a client digest the store no longer holds
+  (per file, since a digest is). 413 outranks everything. The route never writes
+  the store — the watch is still the sole updater.
+- The span math is `Glance.Query`'s, because `HeadlineSpans` is
+  `glance-internal`'s: `setStateEdits` replaces the keyword span, inserts
+  `" KW"` at `spanEnd hsStars` when there is none, or deletes the keyword plus
+  the HORIZONTAL run behind it (so a keyword ending its line keeps the newline);
+  `archiveEdits` inserts `ARCHIVE:` at `spanEnd hsTags`, else `" :ARCHIVE:"` at
+  the end of the TITLE LINE — the max end of stars/todo/priority/title, since
+  `hsFull` ends at a planning timestamp or a drawer on a later line. Keyword
+  legality is per file (`hrKeywords`); `*active*`/`*inactive*` are in no keyword
+  set and are refused like any other word. An already-archived row costs no
+  edit, which is what makes `archive` idempotent.
+- `/headlines` hides archived rows unless the query names the `archive` key
+  (`Glance.Web.Filter.namesArchive`, any spelling — negated, valued, whatever),
+  and `X-Glance-Archived` counts what it took. The predicate is exactly
+  `-archive:`. The vocabulary a query is parsed against stays the WHOLE store's
+  (`storeTags`), so the exclusion can never hide the key that reaches what it
+  hid. The socket is NOT filtered: it carries row ops whatever the client's
+  query, so an unfiltered client splices in an archived row `/headlines` would
+  not have served — the shell's default query makes it refetch instead.
 - Materialize: `GET`/`POST /headline?id=…` serves and replaces a headline's raw
   subtree. The digest is pinned at load, any divergence is a 409 with the file
   untouched, and the write path never WRITES the store — it reads it for the
@@ -249,8 +278,9 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   writes the `Accept-Encoding` one itself.
 - The HTTP surface is a fixed route table, each entry declaring whether it needs
   a loaded store and whether it is read-only. GET/HEAD are the whole of it
-  except `POST /headline`; anything else is 405 — JSON on `/headline`, plain
-  text elsewhere. An upgrade aimed at any path but `/ws` is rejected.
+  except `POST /headline` and `POST /command`; anything else is 405 — JSON on
+  those two, plain text elsewhere. An upgrade aimed at any path but `/ws` is
+  rejected.
 - `POST /headline` caps the body at 1 MiB and answers 413 past it. The cap is
   checked before the id lookup, so 413 outranks 404.
 - `?limit=` is capped at 20000 and a larger one is a 400; no `limit` serves the
@@ -364,7 +394,8 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   refetch 250 ms out, coalescing a burst into one request. Unfiltered frames
   splice straight into the renderer.
 - Shell z-indexes are four: echo `2`, corner `3`, modal backdrop `100`, sheet
-  `101`. The cross-repo constraint is the backdrop pair clearing the renderer's
+  `101`. The value palette shares the pair with the sheet (`#modal,#prompt` and
+  `#pbox`), so the four values stand whatever else is added. The cross-repo constraint is the backdrop pair clearing the renderer's
   sticky header (`1`) and completion list (`5`); the corner and the echo sit
   below both on purpose, so they dim under the backdrop. The filter palette
   carries no shell z-index at all — the overlay is entirely the renderer's, and
@@ -435,6 +466,18 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   Auto-repeat is movement's — a held `n` crosses the table — so the keys that
   must run once per press are named by COMMAND in `ONCE` (`filter-drop-token`
   and `unmark-all`), which holds under any profile that binds them.
+- Two keys write without a sheet, both `POST /command` over the marked set when
+  there is one and the row at point otherwise (dired's rule; `getMarked()` is
+  asked for AT command time and no set is kept here). `D` is
+  `org-glance-overview:delete` and archives — the help line says so, since the
+  name is wider than the behaviour — and is in `ONCE` because it writes files.
+  `C-c C-t` raises a value palette of the shell's OWN — the state column's
+  `badges` plus `clear`, never its `values` (`*active*` is not a keyword) —
+  typed to narrow, `C-n`/`C-p` and the arrows to walk, `RET` to commit, `ESC`
+  through the keymap's `cancel`. Its keys live in a SECOND document listener
+  behind the dispatch, which is safe because `typing()` has already killed every
+  `table` row. Confirm-free: the drift lock is the safety. The pill counts what
+  landed, the log carries a line per refusal, and the rows arrive over the watch.
 - Row marks are the RENDERER's, behind `marks: true`: it draws the checkbox
   column, keys the marks by id and counts them, so a mark survives a `setRows`,
   a filter that hides its row and a page it is not on, and this page keeps no

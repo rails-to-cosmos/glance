@@ -613,6 +613,119 @@ on.
   Evidence: `TestEdit`, plus the ~/sync canary behind `GLANCE_CORPUS=<root>`
   (33 files, 214 spans, each file digest-checked before and after to prove the
   check never wrote). **test + corpus**
+- **The command layer is one route, and its unit of work is a FILE.**
+  `POST /command` takes `{name, id | ids, args, digests?}` and implements two
+  names, `set-state {"keyword": KW | null}` and `archive {}`. The ids it is
+  given are grouped by the file their rows came from, and each file is written
+  ONCE — one `Glance.Query.replaceSpans` call carrying every span that file
+  owes, under that file's own pinned digest. So a marked set of five rows in
+  two files is two writes, each of them atomic: `Data.Org.Edit.applyEdits`
+  validates the whole batch before a byte is written and `editFile` renames
+  once, so a file takes all of its edits or none. Two rows of one file MUST land
+  in the same write: a write per row would pin the second to the digest the
+  first had just invalidated, and the second would drift. There is no rollback
+  ACROSS files and none is possible, a rename that has happened being
+  unrecoverable, so the answer reports per id instead:
+  `{results: [{id, ok, digest | error}]}`, in the order the ids were named. A 200 therefore means "the command ran", never "every row
+  moved". Evidence: `TestServe` "POST /command", where two rows of one file
+  come back with one digest and rows in two files come back with two, and the
+  live run below. **test + live**
+- **Refusals split by whose mistake they are.** 400 with nothing written: a
+  body that is not a command, a name nothing implements, no ids at all, and a
+  `set-state` keyword that ANY named row's file does not declare — that last
+  one refuses the WHOLE request deliberately, because half a state change over
+  a marked set is worse than none of one, and because `#+TODO:` legality is per
+  file so the alternative is a command that means different things to different
+  rows of one keystroke. 413 outranks all of it, the way it does on
+  `POST /headline`. Per id: an id the store has no row for (a marked set
+  outliving its rows is ordinary), and a digest the client pinned that the store
+  no longer holds — the same `stale` check the materialize commit makes, and
+  applied per FILE because a digest is per file, so one stale pin refuses that
+  file's whole group. **test**
+- **The command route does not write the store either.** It reads it — for the
+  row, the file, the spans and the digest — and writes the file; the watch
+  re-reads what was written and streams the rows. Same invariant as
+  `POST /headline`, restated because a second write path is exactly where a
+  second producer of row frames would appear. Evidence: `TestServe` "leaves the
+  store alone — the watch is what updates rows", which shows the store still
+  answering the pre-command subtree and digest. A consequence with teeth in a
+  suite that runs no watcher: a second command against a file the first one
+  wrote drifts, because the store still holds the old digest. That is the live
+  behaviour too, minus the drift, since a live daemon's watch has re-read the
+  file by then. **test**
+- **The span math lives in `Glance.Query`, and could not live anywhere else.**
+  `HeadlineSpans` belongs to `glance-internal`, which `glance-web` may not name,
+  so `setStateEdits` and `archiveEdits` are facade functions handing back
+  `[(Span, Text)]` — the same currency `replaceSpans` takes. Neither reads or
+  writes a file. Three shapes for `set-state`: a keyword over one already there
+  is that keyword's span; a keyword where there is none is an insertion of
+  `" KW"` at `spanEnd (hsStars …)`, which is org's own place for it and the one
+  offset every headline has, priority, title and tags all being optional; and a
+  null keyword deletes the keyword plus the run of HORIZONTAL space behind it,
+  so `* TODO Title` closes up to `* Title` while `* TODO` at the end of a line
+  keeps the newline that ends it. Two for `archive`: with tags present the tag
+  joins the list at `spanEnd (hsTags …)`, which is past the closing colon, so
+  the insertion is `ARCHIVE:` and the tags already there stay byte-identical;
+  with none it is `" :ARCHIVE:"` at the end of the TITLE LINE, computed as the
+  greatest end among stars, todo, priority and title. `hsFull` cannot serve
+  there and the reason is its own invariant above: its end is the last part in
+  span order, which for a scheduled headline is a timestamp on the next line and
+  for one with a drawer is its `:END:`. Evidence: `TestQuery` "Commands", which
+  splices with its own three-line oracle rather than through the engine and
+  asserts the whole document each time. **test**
+- **Keyword legality is per file, and the group meta-values are not keywords.**
+  `setStateEdits` refuses anything outside `tkActive ++ tkInactive` of the
+  record's own `hrKeywords`, which is its file's `#+TODO:` line plus org's
+  TODO/DONE seed. The same word is a keyword in one document and the first word
+  of a title in the next, and writing one a file does not declare makes a
+  headline the parser reads differently than the writer meant.
+  `state:*active*`/`state:*inactive*` are filter vocabulary the state column
+  ships beside its badges and are in no keyword set, so they are refused here
+  like any other word — which is why the shell's value palette offers `badges`
+  and never `values`. **test**
+- **`archive` is idempotent because an archived row costs no edit.**
+  `archiveEdits` answers `[]` for a row already carrying the tag, matched
+  through `Glance.Query.archived`, which reads `tagsOfCell . hrTags` — the same
+  folding the filter vocabulary is built with, so "archived" means exactly what
+  the query `archive:` means and a file spelling the tag `:archive:` counts. The
+  file is still rewritten (the engine has no equality short-circuit), so the
+  cost of archiving a marked set twice is an inotify event and a re-parse per
+  file, and `guarded` then finds nothing moved and leaves the generation alone.
+  Evidence: `TestServe` "archive is idempotent", which steps the watch by hand
+  between the two runs and compares the file byte for byte. **test**
+- **`D` archives and never deletes, and the default view is what makes that
+  work.** `/headlines` drops rows carrying the archive tag unless the query
+  names the `archive` key — any spelling of it, `archive:`, `-archive:`,
+  `archive:draft`, since all of them are a reader who has said something about
+  archived rows and layering a default exclusion under any of them would answer
+  a different question than the one asked. The predicate is exactly what
+  `-archive:` spells, and `X-Glance-Archived` reports how many rows it took, so
+  a client can tell "nothing matches" from "the matches are all archived". The
+  header is zero whenever the query named the key: a reader who asked is never
+  told anything was withheld. Without the exclusion an org tree accumulates rows
+  that are done with rather than gone and the default table grows without bound,
+  which is the whole reason `D` can be an archive rather than a delete.
+  Evidence: `TestServe` "GET /headlines and the archive", `TestFilter`
+  "Archive key". **test**
+- **The vocabulary is derived from the UNFILTERED store, and that is what keeps
+  the key reachable.** `?q=` is parsed against `storeTags`, every tag in the
+  tree, and the exclusion is applied to the ROWS afterwards. Derive the
+  vocabulary from the rows a query left standing and the default view would take
+  `archive` out of the keys a query may name, so the one query that reaches the
+  hidden rows would degrade to free text — and free text finds them too, badly,
+  since every archived row's tag cell holds the word. The test that tells the
+  two apart is a valued predicate: `archive:filed` matches as a facet and
+  matches nothing as text, because no row spells `archive:filed` anywhere.
+  **test**
+- **The socket is NOT filtered, and the exclusion is `/headlines`' alone.** Row
+  frames carry whatever moved; the store has no client's query to apply and
+  `resolvedRows` is the served view's own resolution rather than a per-client
+  one. So a client with an EMPTY query splices in an archived row the same
+  server would not have served it. The shell does not hit this, since it boots
+  on `state:*active*` and a filtered client answers a frame by re-asking; a
+  client that cleared its filter can. Stated rather than fixed: making the
+  stream query-aware would mean a per-client projection of the store, which is
+  the second authoritative structure this design does not have. **none**
 - **Materialize pins its digest at load.** `hrDigest` is the SHA-256 of the very
   bytes `loadFile` decoded and parsed (`Data.Org.Edit.digestOf`, taken there
   rather than by a later read), and `GET /headline` answers with that digest
@@ -880,9 +993,9 @@ on.
 - **The HTTP surface is a fixed route table, and the method rule is uniform.**
   Each entry declares whether it needs a loaded store and whether it is
   read-only, and the load gate runs first. GET and HEAD are the whole surface
-  except `POST /headline`; anything else is 405, spelled as JSON on `/headline`
-  and as plain text elsewhere, so a client parsing a refusal gets the shape the
-  route always uses. An upgrade aimed at any path but `/ws` is rejected rather
+  except `POST /headline` and `POST /command`; anything else is 405, spelled as
+  JSON on those two and as plain text elsewhere, so a client parsing a refusal
+  gets the shape the route always uses. An upgrade aimed at any path but `/ws` is rejected rather
   than routed. **test** (`TestServe`)
 - **`POST /headline` caps the body at 1 MiB, and the cap outranks the lookup.**
   The body is counted chunk-wise and a larger one is 413. Because the cap is
@@ -938,8 +1051,12 @@ on.
   `modal` or `any` that the dispatch filters on, and an optional `kbHelp` the
   echo widget reads when the command name does not say enough. Auto-repeat
   belongs to movement, so the keys that must run once per press are named by
-  COMMAND in `ONCE` — `filter-drop-token` and `unmark-all` — which holds under
-  every profile that binds them and takes the repeat off nothing else. `m` and
+  COMMAND in `ONCE` — `filter-drop-token`, `unmark-all` and
+  `org-glance-overview:delete` — which holds under every profile that binds them
+  and takes the repeat off nothing else.  The third is there for a different
+  reason than the other two: it writes files, and a held key must not be a
+  hundred `/command` requests.  Archiving is idempotent, so what the repeat
+  would cost is the traffic and the rewrites rather than the tree. `m` and
   `u` stay off that list on purpose: both advance, so a held one walks a column
   laying marks down rather than working the same row twice. Evidence:
   `TestServe` "Shell keymap", which parses the blob, compares both profiles to a
@@ -948,7 +1065,10 @@ on.
   true` and the renderer does the rest: the leading checkbox column, the wash on
   a marked row, and a set of ids that keys them — which is why a mark outlives a
   `setRows`, a filter that hides its row, a page it is not on and a re-sort, and
-  why this page keeps no set, no count and no membership test of its own. What
+  why this page keeps no set, no count and no membership test of its own.  A
+  command asks `getMarked()` at the moment it runs, which is the opposite of
+  keeping a copy: the suite's must-not-appear list forbids a set or a count
+  here and not that call. What
   the shell owns is the keys: `m` toggles and echoes the state `toggleMark`
   answers with, `u` toggles and immediately puts back anything that turned a
   mark ON — so it can only ever clear, and the flip is never drawn, the renderer
@@ -976,7 +1096,9 @@ on.
   whole-set requests. Unfiltered frames splice straight into the renderer.
   **none**
 - **The shell's z-index bands must clear the renderer's.** Four values, all of
-  them here: echo `2`, corner `3`, modal backdrop `100`, sheet `101`. The
+  them here: echo `2`, corner `3`, modal backdrop `100`, sheet `101`.  The value
+  palette shares that pair rather than adding to it (`#modal,#prompt` and
+  `#pbox`), so a second overlay costs no band. The
   cross-repo constraint is the backdrop pair clearing the renderer's sticky
   header (`1`) and its completion list (`5`) — an unnumbered backdrop painted
   under both. The corner and the echo sit BELOW the backdrop deliberately, so
@@ -1081,6 +1203,35 @@ on.
   carries a `ToJSON` instance: deriving one would make the AST the contract,
   and `SCHEMA.md` is. **test** (`TestQuery` imports the facade only; golden +
   schema-conformance groups)
+- **Two keys write without a sheet, and neither asks for confirmation.** `D`
+  archives and `C-c C-t` sets a state, both over the marked set when there is
+  one and the row at point otherwise — dired's rule, and org-glance's. They are
+  `POST /command`: the page sends row ids and a name, the server computes the
+  spans, and the table is not touched at all, the rows arriving over the socket
+  once the watch has re-read the files. There is no confirmation step and there
+  should not be: the drift lock is the safety, `D` archives rather than deletes,
+  and org-glance's own rhythm is a key that acts. The pill counts what landed
+  and the log carries a line per refusal, which is what a per-file answer
+  needs — a marked set spanning three files can come back two-thirds applied.
+  `D` keeps org-glance's command name, `org-glance-overview:delete`, and earns a
+  `kbHelp` because the name is wider than the behaviour. Evidence: `TestServe`
+  "Shell commands", which drives both keys through the node harness and asserts
+  the bodies they posted. **test**
+- **The value palette is the shell's own, and the filter's is still the
+  renderer's.** `C-c C-t` raises `#prompt`: the state column's `badges` plus a
+  `clear` entry, typed to narrow, `C-n`/`C-p` and the arrows to walk, `RET` to
+  commit. It is a second overlay rather than a reuse of `openFilter` because
+  that one belongs to the filter and this page may not reach into its chrome —
+  the same must-not-appear list that forbids `tv-veil` forbids driving it. What
+  it offers is `badges` and never `values`: the two group meta-values are filter
+  vocabulary, no file declares one, and offering a value the server will refuse
+  is worse than not offering it. Its keys sit in a SECOND document listener
+  registered behind the dispatch, which is safe rather than lucky: with its
+  field focused `typing()` has already made every `table` row dead, so the only
+  row that can have fired ahead of it is `ESC`, which is the one that should —
+  `cancel` closes whichever overlay is up, prompt first. `unask` blurs as well
+  as hides, since a focused field nobody can see would leave `typing()` true and
+  swallow every key after it. **test**
 - **The materialize sheet has no buttons, and closing it is the save.** Dirty is
   the textarea against the text the file holds as far as the page knows — the
   materialized original, then whatever the last 200 wrote — and it decides

@@ -144,6 +144,56 @@ that stops parsing keeps the rows it had — including one saved from the browse
 with a typo in it, which is the same deal any editor offers. Restart the daemon
 and the tab re-fetches and re-mounts on its own, backing off from 1 s to 30 s.
 
+*Two keys write without opening anything.* =D= archives and =C-c C-t= sets a
+state, and both run over the *marked set* when there is one and over the row at
+point when there is not — dired's rule, and org-glance's. Mark a run of rows
+with =m=, press =D=, and the pill says =D → archived (5)=. There is no
+confirmation: the page sends row ids and a name, the server works out which
+characters to move, and the rows come back over the socket a moment later
+because the file watch is still the only thing that updates the table. What
+makes that safe is the same optimistic lock the sheet uses — a file that moved
+under you refuses its rows and says so in the log, while the rest land.
+
+=C-c C-t= raises a small palette of the states your files declare, plus =clear=
+to take a keyword off. Type to narrow it, =C-n= / =C-p= or the arrows to walk
+it, =RET= to commit, =ESC= to leave. A keyword is legal per *file*: the palette
+offers the union of every =#+TODO:= line loaded, and a command naming one that a
+row's own file does not declare is refused whole rather than applied to the rows
+whose files do. The same two commands from a shell:
+
+#+begin_src sh
+curl -s -X POST -H 'content-type: application/json' localhost:7777/command \
+     -d '{"name": "set-state", "ids": ["ROW-ID", "OTHER-ID"], "args": {"keyword": "DONE"}}'
+curl -s -X POST -H 'content-type: application/json' localhost:7777/command \
+     -d '{"name": "archive", "id": "ROW-ID"}'
+#+end_src
+
+Rows are grouped by the file they live in and each file is written *once*, so a
+marked set spanning three files is three atomic writes rather than one per row.
+The answer is per id — =[{"id": …, "ok": true, "digest": …}]=, or an =error=
+where a file had moved — in the order you named them.
+
+*=D= archives; it never deletes.* The tag org uses goes on the headline
+(=:web:glance:= becomes =:web:glance:ARCHIVE:=, and a headline with no tags gets
+=:ARCHIVE:= appended to its title line) and everything else about the file stays
+where it was. Pressing =D= twice costs nothing: a row already carrying the tag
+is left alone. What makes an archive worth having is the other half — the table
+leaves archived rows out unless you ask for them:
+
+| query              | what you get                                 |
+|--------------------+----------------------------------------------|
+| (nothing)          | everything except archived rows              |
+| =archive:=         | the archived rows                            |
+| =-archive:=        | everything except them — the default, spelled |
+| =archive:tanik=    | archived rows matching =tanik=                |
+
+Any query that mentions the =archive= key at all turns the default off, and the
+response's =X-Glance-Archived= header says how many rows were left out, so an
+empty table can be told from one whose matches are all filed away. The key stays
+in the vocabulary whether or not the default is hiding its rows, which is what
+makes it reachable at all: the filter is parsed against every tag in the tree,
+and only the rows are narrowed.
+
 *Keys.* The page carries org-glance's =overview-mode= map, under org-glance's
 own command names, and echoes what it did in a pill in the bottom corner — the
 pending prefix while one is open (=C-c -=), the command and its help line on
@@ -175,8 +225,8 @@ Both key profiles share everything that is not movement:
 | =a=       | =org-glance-agenda=               | staged                                    |
 | =@=       | =org-glance-overview:relations=   | staged                                    |
 | =+=       | =org-glance-overview:capture=     | staged                                    |
-| =D=       | =org-glance-overview:delete=      | staged                                    |
-| =C-c C-t= | =org-glance-overview:todo=        | staged                                    |
+| =D=       | =org-glance-overview:delete=      | archives the marked rows, or the one at point |
+| =C-c C-t= | =org-glance-overview:todo=        | asks which state, and sets it on them     |
 | =C-c C-s= | =org-glance-overview:schedule=    | staged                                    |
 | =C-c C-d= | =org-glance-overview:deadline=    | staged                                    |
 
@@ -352,8 +402,9 @@ at the loaded store — see below.
 
 The daemon binds and answers immediately, and walks the tree behind that: over
 ~6.3k files that is ~16 s during which a browser would otherwise have got a
-refused connection. While the walk runs, =/headlines=, =/headline= and =/ws=
-answer =503= with =Retry-After: 1= and ={"loading": true, "elapsed": 3.4}=,
+refused connection. While the walk runs, =/headlines=, =/headline=, =/command=
+and =/ws= answer =503= with =Retry-After: 1= and
+={"loading": true, "elapsed": 3.4}=,
 and =/= plus the assets are served as usual — so the shell paints, shows
 =indexing … 3.4s= against an amber dot, and polls once a second until the store
 is there. Then it mounts exactly as a warm start does.
@@ -389,7 +440,7 @@ glance/
 ├── src-web/              ← glance-web (private sublibrary, facade-only deps)
 │   └── Glance/
 │       ├── Desktop.hs   ← glance desktop: browser discovery, app-mode window
-│       ├── Web.hs       ← WAI app: /headlines, /headline, /ws, the live shell, assets
+│       ├── Web.hs       ← WAI app: /headlines, /headline, /command, /ws, the shell, assets
 │       └── Web/
 │           ├── Filter.hs ← ?q= query language, parity port of table-view.js
 │           ├── Store.hs  ← In-memory store, row diff, frames, client hub

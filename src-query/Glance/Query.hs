@@ -6,10 +6,16 @@
 --
 -- The write path is the read path run backwards.  A record carries the extent
 -- of its subtree ('hrSubtree') in the text it was parsed from ('hrDoc') and
--- the digest of that text ('hrDigest'); 'replaceSpan' splices new text over
--- that extent and refuses unless the file still digests to the pinned value.
--- So a client materializes what the load model holds, and a file that moved
--- underneath it costs a refusal rather than a corrupted splice.
+-- the digest of that text ('hrDigest'); 'replaceSpans' splices new text over
+-- spans of that text and refuses unless the file still digests to the pinned
+-- value.  So a client materializes what the load model holds, and a file that
+-- moved underneath it costs a refusal rather than a corrupted splice.
+--
+-- Structured commands are the other half of it, and the reason the span math
+-- lives here rather than in the daemon: 'HeadlineSpans' is the private
+-- sublibrary's, so a web layer computing its own insertion points would have to
+-- reach past this facade.  'setStateEdits' and 'archiveEdits' hand back span
+-- edits in the same currency 'replaceSpans' takes, and neither of them writes.
 --
 -- Two rules the wire depends on.  Cell text comes from the source spans, cut
 -- once at load time, so the JSON carries what the file says rather than what
@@ -34,6 +40,9 @@ module Glance.Query ( HeadlineRecord (..)
                     , TodoKeywords (..)
                     , WalkOptions (..)
                     , WriteFailure (..)
+                    , archiveEdits
+                    , archiveTag
+                    , archived
                     , cellSep
                     , defaultWalk
                     , derivedPath
@@ -48,9 +57,10 @@ module Glance.Query ( HeadlineRecord (..)
                     , loadFile
                     , matchesSearch
                     , mergeKeywords
-                    , replaceSpan
+                    , replaceSpans
                     , resolveIds
                     , rowJSON
+                    , setStateEdits
                     , sortedForView
                     , subtreeText
                     , tagsOfCell
@@ -79,7 +89,8 @@ import qualified Data.Text.Lazy as TL
 import qualified Data.Time as Time
 
 import Data.Org ( Context, Element (EHeadline), Headline
-                , HeadlineSpans (hsTags, hsTitle), Indent (Indent)
+                , HeadlineSpans (hsPriority, hsStars, hsTags, hsTitle, hsTodo)
+                , Indent (Indent)
                 , Priority (Priority), Span (..), Spanned (valueOf)
                 , Timestamp (tsStart), Todo (name)
                 , TsMoment (tsmHasTime, tsmTime), deadline, defaultContext
@@ -524,24 +535,28 @@ digestOfText = Edit.digestOf . TE.encodeUtf8
 
 -- Write-back
 
--- | Why a 'replaceSpan' did not land.  Either way the file is byte-identical
+-- | Why a 'replaceSpans' did not land.  Either way the file is byte-identical
 -- to what it held before the call (docs/invariants.md, Architecture).
 data WriteFailure
   = WriteDrift !Text    -- ^ the digest the file holds now, which is not the pinned one.
   | WriteRefused !Text  -- ^ read, decode, splice or rename trouble, spelled for a caller to show.
   deriving (Eq, Show)
 
--- | Replace SP of FILE with NEW, provided FILE still digests to DIGEST; the
--- file's new digest comes back, so a caller chains an edit without re-reading.
+-- | Replace each span of FILE with the text beside it, provided FILE still
+-- digests to DIGEST; the file's new digest comes back, so a caller chains an
+-- edit without re-reading.
 --
 -- The lock is the point.  DIGEST is the one a record was loaded with
--- ('hrDigest'), and SP indexes that same text, so either the file is still the
--- document the offsets were measured in or nothing is written — a browser and
--- an editor writing the same file cannot silently splice over each other.
--- The write itself is 'Data.Org.Edit.editFile': one span, atomic replace.
-replaceSpan :: FilePath -> Text -> Span -> Text -> IO (Either WriteFailure Text)
-replaceSpan path digest sp new =
-  report <$> Edit.editFile (Edit.Snapshot path digest) [Edit.Edit sp new]
+-- ('hrDigest'), and every span indexes that same text, so either the file is
+-- still the document the offsets were measured in or nothing is written — a
+-- browser and an editor writing the same file cannot silently splice over each
+-- other.  The write itself is 'Data.Org.Edit.editFile': one drift check, one
+-- pass over the document whatever the batch size, one atomic replace.  So a
+-- command over several rows of one file is ONE write, and either all of its
+-- edits land or none of them do.
+replaceSpans :: FilePath -> Text -> [(Span, Text)] -> IO (Either WriteFailure Text)
+replaceSpans path digest edits =
+  report <$> Edit.editFile (Edit.Snapshot path digest) [ Edit.Edit sp new | (sp, new) <- edits ]
   where
     report = either (Left . failure) (Right . Edit.snapDigest . Edit.receiptSnapshot)
     failure err = case err of
@@ -552,6 +567,95 @@ replaceSpan path digest sp new =
                                                        <> ": " <> T.pack (show editError))
       Edit.WriteFailed _path why     -> WriteRefused ("cannot write " <> named <> ": " <> why)
     named = T.pack path
+
+-- Commands
+--
+-- What a structured command costs a file, as span edits over the text the
+-- record was parsed from.  Nothing here reads or writes a file: a caller hands
+-- the result to 'replaceSpans', which is where the drift lock is, and a caller
+-- collecting several rows of one file hands it ONE batch.
+--
+-- The span math is here because 'Data.Org.HeadlineSpans' is the private
+-- sublibrary's.  It is also the only place that can be right about it: the
+-- insertion points below are not derivable from the cells the wire carries.
+
+-- | The org tag a headline wears once it is archived, as org spells it.  The
+-- filter key that hides it is this folded ('Glance.Web.Filter'), so one literal
+-- serves the write and the predicate over what it wrote.
+archiveTag :: Text
+archiveTag = "ARCHIVE"
+
+-- | Does R carry 'archiveTag'?  Read off the tags cell through the same
+-- 'tagsOfCell' the filter vocabulary is built with, so "archived" means exactly
+-- what the query @archive:@ means.  Two readers: 'archiveEdits', which owes
+-- nothing to a row that is already there, and the served view, which hides one
+-- unless asked.
+archived :: HeadlineRecord -> Bool
+archived r = T.toLower archiveTag `elem` tagsOfCell (hrTags r)
+
+-- | The span edits @set-state@ makes to R.
+--
+-- Three shapes, decided by what the headline carries.  A keyword over one
+-- already there is that keyword's own span and nothing else.  A keyword where
+-- there is none is an insertion right after the stars — org's own place for it,
+-- and the one offset every headline has, present or empty.  And 'Nothing'
+-- deletes the keyword together with the horizontal space behind it, so
+-- @* TODO Title@ closes up to @* Title@ rather than keeping the gap; the run
+-- deleted is horizontal only, so a keyword that is the last thing on its line
+-- keeps the newline that ends it.  A headline with no keyword asked to drop one
+-- costs no edit.
+--
+-- KEYWORD is refused unless R's own file declares it ('hrKeywords').  Legality
+-- is per file because @#+TODO:@ is: a word is a keyword in one document and the
+-- first word of a title in the next, and writing one a file does not declare
+-- makes a headline the parser will read differently than the writer meant.  The
+-- state column's group meta-values (@*active*@, @*inactive*@) are in no keyword
+-- set, so they are refused here like any other word that is not one.
+setStateEdits :: Maybe Text -> HeadlineRecord -> Either Text [(Span, Text)]
+setStateEdits Nothing r = Right [ (Span (spanStart sp) (spanEnd sp + trailing sp), "")
+                                | Just sp <- [hsTodo (headlineSpans r)] ]
+  where trailing sp = T.length (T.takeWhile horizontal (T.drop (spanEnd sp) (hrDoc r)))
+        horizontal c = c == ' ' || c == '\t'
+setStateEdits (Just keyword) r
+  | keyword `notElem` declared = Left (keyword <> " is not a TODO keyword of " <> T.pack (hrFile r)
+                                        <> "; it declares " <> T.intercalate ", " declared)
+  | otherwise = Right [placed (hsTodo hs)]
+  where hs = headlineSpans r
+        declared = tkActive (hrKeywords r) <> tkInactive (hrKeywords r)
+        placed (Just sp) = (sp, keyword)
+        placed Nothing   = (insertAt (spanEnd (hsStars hs)), " " <> keyword)
+
+-- | The span edits @archive@ makes to R: 'archiveTag' added to its tag list.  A
+-- row already carrying it costs no edit at all, which is what makes the command
+-- idempotent — archiving a marked set twice writes each file twice and changes
+-- it once.
+--
+-- Two shapes.  With tags present the tag joins the list as its own last entry
+-- (@:a:b:@ becomes @:a:b:ARCHIVE:@): the span ends past the closing colon, so
+-- the whole insertion is the tag and one colon at that offset, which leaves the
+-- tags already there byte-identical.  With none it is appended to the title
+-- line, after the last
+-- part that line carries — the title, or the priority, or the keyword, or the
+-- stars themselves.  'hsFull' cannot serve there: its end is the last part in
+-- span order, which for a scheduled headline is a timestamp on the NEXT line
+-- and for one with a drawer is its @:END:@.
+archiveEdits :: HeadlineRecord -> [(Span, Text)]
+archiveEdits r
+  | archived r           = []
+  | Just sp <- hsTags hs = [ (insertAt (spanEnd sp), archiveTag <> ":") ]
+  | otherwise            = [ (insertAt titleLineEnd, " :" <> archiveTag <> ":") ]
+  where
+    hs = headlineSpans r
+    titleLineEnd = foldl' max (spanEnd (hsStars hs))
+                     [ spanEnd sp | Just sp <- [hsTodo hs, hsPriority hs, hsTitle hs] ]
+
+-- | R's headline spans, which is where every command's offsets come from.
+headlineSpans :: HeadlineRecord -> HeadlineSpans
+headlineSpans = spans . hrHeadline
+
+-- | The zero-width span at AT: an edit over it inserts and deletes nothing.
+insertAt :: Int -> Span
+insertAt at' = Span at' at'
 
 -- View JSON
 

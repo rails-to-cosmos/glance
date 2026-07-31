@@ -7,12 +7,14 @@
 -- reading the stanza sees it.  That is the facade invariant
 -- (docs/invariants.md, Architecture), kept where the solver can check it.
 --
--- Five routes: @GET \/headlines@ is the view JSON, @GET \/@ a demo shell that
+-- Six routes: @GET \/headlines@ is the view JSON, @GET \/@ a demo shell that
 -- fetches it, @GET \/ws@ the live row stream, @GET \/NAME@ an asset out of the
--- @--assets@ directory, and @\/headline@ the materialize round-trip — @GET@ for
--- one headline's raw subtree, @POST@ to write an edited one back.  The view's
--- field set is the contract (@table-view\/SCHEMA.md@), so the load counts ride
--- along as @X-Glance-*@ response headers and leave the body's shape alone.
+-- @--assets@ directory, @\/headline@ the materialize round-trip — @GET@ for
+-- one headline's raw subtree, @POST@ to write an edited one back — and
+-- @POST \/command@ the structured writes, which name rows and let the server
+-- compute the spans.  The view's field set is the contract
+-- (@table-view\/SCHEMA.md@), so the load counts ride along as @X-Glance-*@
+-- response headers and leave the body's shape alone.
 --
 -- @\/headlines@ takes @q@, @limit@ and @offset@, filters before it pages, and
 -- reports the match count and whether more follows in that same header family.
@@ -72,10 +74,12 @@ module Glance.Web ( ServeOptions (..)
 import Control.Concurrent (forkIO, killThread, newEmptyMVar, takeMVar, tryPutMVar)
 import Control.Concurrent.STM (atomically, readTVarIO)
 import Control.Exception (SomeException, displayException, evaluate, finally, try)
-import Control.Monad (filterM, forever, unless, void, when)
-import Data.Aeson (eitherDecode', encode, object, withObject, (.:), (.=))
+import Control.Monad (filterM, forever, join, unless, void, when)
+import Data.Aeson (Value, eitherDecode', encode, object, withObject, (.:), (.:?), (.=))
 import Data.Aeson.Types (Pair, parseEither)
 import Data.Bifunctor (first)
+import Data.List (nub)
+import Data.Map.Strict (Map)
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import GHC.Clock (getMonotonicTime)
@@ -98,6 +102,7 @@ import qualified Data.Aeson.Key as Key
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Lazy.Encoding as TLE
@@ -107,9 +112,10 @@ import qualified Network.WebSockets as WS
 
 import Glance.Query ( HeadlineRecord (hrDigest, hrFile, hrId, hrSubtree)
                     , IdCollision (..), QueryResult (..), Span (spanEnd, spanStart)
-                    , WalkOptions (..), WriteFailure (..), replaceSpan, sortedForView
+                    , WalkOptions (..), WriteFailure (..), archiveEdits, archived
+                    , replaceSpans, setStateEdits, sortedForView
                     , subtreeText, viewJSONTextWith )
-import Glance.Web.Filter (matchesFilter)
+import Glance.Web.Filter (archiveKey, matchesFilter, namesArchive)
 import Glance.Web.Store ( Client, Frame (ViewChanged), Hub, LoadState (..)
                         , Store (stGen, stPrint), finishLoading, frameText, hubLoad, hubStore
                         , loadStoreWith, newLoadingHub, nextFrame, storeHeadline
@@ -276,6 +282,7 @@ httpApp opts hub request respond = route >>= respond
       [ ([],            False, readOnly (shellPage opts))
       , (["headlines"], True,  readOnly (headlines opts hub request))
       , (["headline"],  True,  headline)
+      , (["command"],   True,  commandRoute)
       , (["ws"],        True,  readOnly (pure (plain status400 wsHint)))
       ]
     route = case [ (needs, act) | (path, needs, act) <- named, path == pathInfo request ] of
@@ -290,6 +297,10 @@ httpApp opts hub request respond = route >>= respond
     headline | reading              = materialize hub (queryId request)
              | method == methodPost = commit hub (queryId request) request
              | otherwise            = pure (jsonError status405 "/headline takes GET and POST")
+    -- @/command@ writes and only writes: there is nothing to read back, since
+    -- the rows a command moved arrive over the socket like any other edit.
+    commandRoute | method == methodPost = runCommand hub request
+                 | otherwise            = pure (jsonError status405 "/command takes POST")
     readOnly act | reading   = act
                  | otherwise = pure (plain status405 writeHint)
     -- Every one-segment path lands on the assets directory, so the miss below
@@ -298,8 +309,8 @@ httpApp opts hub request respond = route >>= respond
       [name] | safeName name -> asset opts (T.unpack name)
       _other                 -> pure (plain status404 notFound)
     wsHint    = "/ws is a websocket endpoint; connect with Upgrade: websocket"
-    writeHint = "method not allowed; POST /headline?id=… is the one route that writes"
-    notFound  = "not found: /, /headlines, /headline, /ws, or an asset name"
+    writeHint = "method not allowed; POST /headline?id=… and POST /command write"
+    notFound  = "not found: /, /headlines, /headline, /command, /ws, or an asset name"
 
 -- | The answer a store route gives while the startup walk is still running: a
 -- 503 that says when to come back and how long it has been going.
@@ -343,6 +354,16 @@ safeName name = not (T.null name)
 -- The body stays a View: SCHEMA.md fixes its fields, so paging metadata rides
 -- in the same @X-Glance-*@ family the load counts already use.
 --
+-- Archived rows are left out unless the query says otherwise.  @D@ archives
+-- rather than deletes ('runCommand'), so an org tree accumulates rows that are
+-- done with rather than gone, and a view that showed them by default would
+-- grow without bound.  The rule is one predicate, applied after @q@ and spelled
+-- exactly as @-archive:@ would be: any query naming the @archive@ key at all
+-- turns it off ('Glance.Web.Filter.namesArchive'), and @X-Glance-Archived@
+-- reports how many rows the exclusion took.  The vocabulary a query is parsed
+-- against stays the WHOLE store's, so hiding the rows never hides the key that
+-- reaches them.
+--
 -- A page is cut out of the view's declared sort ('Glance.Query.sortedForView'),
 -- never out of walk order — page two has to be the rows the table would show
 -- after page one.  With no @limit@ the walk order stands and the client sorts
@@ -369,7 +390,18 @@ headlines opts hub request = case pageParams request of
       then pure (responseLBS status304 (cacheHeaders tag) "")
       else do
         let qr      = storeResult st
-            matched = filter (matchesFilter (storeTags st) q) (qrRecords qr)
+            -- The vocabulary is the whole store's, filtered set or not: the
+            -- exclusion below must not be able to take `archive:' out of the
+            -- keys a query may name, or the only way back to what it hides
+            -- would be gone with it.
+            vocab   = storeTags st
+            asked   = filter (matchesFilter vocab q) (qrRecords qr)
+            matched = if hiding then filter (not . archived) asked else asked
+            -- A tree with nothing archived in it pays no pass over the answer:
+            -- the vocabulary already knows whether the tag is anywhere, and
+            -- without it the query could not have named the key either.
+            hiding  = archiveKey `elem` vocab && not (namesArchive vocab q)
+            hidden  = length asked - length matched
             total   = length matched
             shown   = maybe matched (\n -> take n (drop offset (sortedForView matched))) limit
             hasNext = maybe False (\n -> offset + n < total) limit
@@ -381,7 +413,8 @@ headlines opts hub request = case pageParams request of
         pure $ case forced of
           Left err -> plain status500 (renderError err)
           Right _n -> sized status200
-            (jsonType : cacheHeaders tag <> statsHeaders qr <> pageHeaders total hasNext) body
+            (jsonType : cacheHeaders tag <> statsHeaders qr <> pageHeaders total hasNext hidden)
+            body
   where dir = soDir opts
         renderError :: SomeException -> Text
         renderError e = "headline render failed: " <> T.pack (displayException e)
@@ -421,11 +454,17 @@ ifNoneMatch request =
 cacheHeaders :: BSC.ByteString -> [Header]
 cacheHeaders tag = [(hETag, tag), (hCacheControl, "no-cache")]
 
--- | What the page covers of the filtered set.
-pageHeaders :: Int -> Bool -> [Header]
-pageHeaders total hasNext =
+-- | What the page covers of the filtered set, and what the answer left out.
+-- @X-Glance-Archived@ is how many rows matched the query and were dropped for
+-- carrying the archive tag: the count is the only trace of an exclusion nobody
+-- asked for, and a client showing it can tell "nothing matches" from "the
+-- matches are all archived".  It is zero whenever the query named the key, so a
+-- reader who asked for archived rows is never told any were withheld.
+pageHeaders :: Int -> Bool -> Int -> [Header]
+pageHeaders total hasNext hidden =
   [ ("X-Glance-Total", BSC.pack (show total))
-  , ("X-Glance-Has-Next", if hasNext then "true" else "false") ]
+  , ("X-Glance-Has-Next", if hasNext then "true" else "false")
+  , ("X-Glance-Archived", BSC.pack (show hidden)) ]
 
 -- | @q@, @limit@ and @offset@ out of REQUEST's query string, or what is wrong
 -- with one of them.  An absent parameter is its default — no filter, no limit,
@@ -497,7 +536,7 @@ materialize hub (Just rid) = do
 --
 -- Two digest checks, one lock.  The client's digest must be the one the store
 -- holds, or the file has been re-parsed since and the client is editing a
--- subtree measured at offsets that have moved; and 'replaceSpan' re-digests
+-- subtree measured at offsets that have moved; and 'replaceSpans' re-digests
 -- the file itself, which catches a change that has not reached the store yet.
 -- Both are a 409 with the file untouched, and both mean the same thing to a
 -- client: materialize again, because the text it edited is not there any more.
@@ -517,7 +556,7 @@ commit hub (Just rid) request = do
   case prepare rid body found of
     Left refusal -> pure refusal
     Right (r, digest, org) -> do
-      written <- replaceSpan (hrFile r) digest (hrSubtree r) org
+      written <- replaceSpans (hrFile r) digest [(hrSubtree r, org)]
       pure $ case written of
         Right fresh              -> jsonResponse status200 ["digest" .= fresh]
         Left (WriteDrift onDisk) -> conflict "drift" onDisk rewritten
@@ -550,6 +589,172 @@ conflict reason current why = jsonResponse status409
 reparsed, rewritten :: Text
 reparsed  = "the file was re-read since this subtree was materialized"
 rewritten = "the file changed on disk since this subtree was materialized"
+
+-- Commands
+
+-- | What a command request asks for: a name, the rows it names, its arguments,
+-- and any digests the client wants the write pinned to.
+data Command = Command
+  { cmdName    :: !Text
+  , cmdIds     :: ![Text]                -- ^ in the order named, deduplicated.
+  , cmdArgs    :: !(Maybe (Maybe Text))  -- ^ @set-state@'s keyword: absent, present, or null.
+  , cmdDigests :: !(Map Text Text)       -- ^ id to the digest the client holds for its file.
+  }
+
+-- | One file's share of a command: the write it costs, and the ids it answers
+-- for.  Every row of a file shares the file's digest, so the plan carries one.
+data FilePlan = FilePlan
+  { fpPath   :: !FilePath
+  , fpDigest :: !Text
+  , fpRows   :: ![(Text, [(Span, Text)])]  -- ^ row id, and the spans it moves.
+  }
+
+-- | The commands this route implements, which is also the whole of what @args@
+-- can mean: @set-state@ takes @{"keyword": "DONE"}@ or @{"keyword": null}@,
+-- @archive@ takes nothing.
+commandNames :: [Text]
+commandNames = ["archive", "set-state"]
+
+-- | @POST \/command@ with body @{"name": …, "ids": […], "args": {…}}@: a
+-- structured write over the rows the client names.  @"id"@ is accepted for an
+-- @"ids"@ of one, since a command over the row at point is the common one.
+--
+-- The edits themselves are computed in 'Glance.Query'
+-- ('Glance.Query.setStateEdits', 'Glance.Query.archiveEdits') — a headline's
+-- spans are the private sublibrary's and this layer cannot see them, which is
+-- the facade invariant doing its job rather than an inconvenience.  What this
+-- route owns is which rows, which file, and what the answer says.
+--
+-- Batching is per FILE, and is the point of the route.  Ids are grouped by the
+-- file their rows came from and each file is written ONCE
+-- ('Glance.Query.replaceSpans') under that file's own digest, so a marked set
+-- spanning three files is three atomic writes rather than one per row, and each
+-- of the three is all-or-nothing — a rejected batch writes nothing.  There is
+-- no rollback ACROSS files and none is possible: a rename that has happened
+-- cannot be undone by a later failure.  The answer reports per id instead,
+-- which is what a client showing @archived (5)@ and a line per refusal needs.
+--
+-- Refusals split by whose mistake they are.  A body that is not a command, a
+-- name nothing implements, no ids at all, and a keyword some named row's file
+-- does not declare are all 400 with nothing written — the last one refuses the
+-- WHOLE request deliberately, since half a state change over a marked set is
+-- worse than none of one.  Per id: an id the store has no row for, and a file
+-- whose digest moved.  A 200 is therefore "the command ran", never "every row
+-- moved"; the results say which did.
+--
+-- Nothing here touches the store, exactly as with @POST \/headline@: the write
+-- goes to the file, the watch re-reads it and streams the rows, so a browser
+-- command reaches every open tab by the path an editor's save takes.
+runCommand :: Hub -> Request -> IO Response
+runCommand hub request = do
+  body <- takeBody bodyLimit request
+  st <- readTVarIO (hubStore hub)
+  -- The cap outranks every other refusal, the way it does on the other write
+  -- route: this server declines to read a megabyte to find out what it says.
+  case body of
+    Nothing  -> pure (jsonError status413 tooBig)
+    -- Everything that can refuse the request is decided before a file is
+    -- opened, so what the plan hands back is either the 400 or the IO that
+    -- writes: one Left branch, and the ordering of the answer stays beside the
+    -- command that named the ids.
+    Just raw -> either (pure . jsonError status400) id (planned st raw)
+  where
+    tooBig = "body over " <> T.pack (show bodyLimit) <> " bytes"
+    planned st raw = do
+      cmd <- parseCommand raw
+      (plans, said) <- planCommand st cmd
+      pure $ do
+        written <- mapM writeOne plans
+        -- Answered in the order the client named the ids, so a caller can zip
+        -- the results against what it asked for.
+        let outcomes = said <> concat written
+        pure (jsonResponse status200
+                ["results" .= [ v | rid <- cmdIds cmd, Just v <- [lookup rid outcomes] ]])
+
+-- | PLAN's file written once, and what that came to for each of its ids.  Both
+-- outcomes are shared by the whole group, because the write is: the batch lands
+-- or the file is untouched.
+writeOne :: FilePlan -> IO [(Text, Value)]
+writeOne plan = report <$> replaceSpans (fpPath plan) (fpDigest plan) spliced
+  where
+    spliced = concatMap snd (fpRows plan)
+    report written = [ (rid, either (refused rid . why) (done rid) written)
+                     | (rid, _edits) <- fpRows plan ]
+    why (WriteDrift found) = T.pack (fpPath plan) <> " changed on disk (it digests to "
+                               <> T.take 12 found <> "… now); nothing was written to it"
+    why (WriteRefused spelled) = spelled
+
+-- | CMD as the files to write and the ids refused without opening one, or as
+-- the 400 that stops it.  Two refusals are decided here
+-- rather than in the IO above: an id the store has no row for, and a digest the
+-- client pinned that the store no longer holds, which is the same @stale@ check
+-- @POST \/headline@ makes and is per file because a digest is per file.
+planCommand :: Store -> Command -> Either Text ([FilePlan], [(Text, Value)])
+planCommand st cmd = do
+  rows <- mapM withEdits [ r | rid <- cmdIds cmd, Just r <- [storeHeadline rid st] ]
+  let groups = groupOn (hrFile . fst) rows
+  pure ( [ FilePlan path (hrDigest r0) [ (hrId r, edits) | (r, edits) <- rs ]
+         | (path, rs@((r0, _) : _)) <- groups, not (stale rs) ]
+       , missing <> [ (hrId r, refused (hrId r) (staleWhy path))
+                    | (path, rs) <- groups, stale rs, (r, _edits) <- rs ] )
+  where
+    withEdits r = (,) r <$> commandEdits cmd r
+    missing = [ (rid, refused rid ("no headline with id " <> rid))
+              | rid <- cmdIds cmd, Nothing <- [storeHeadline rid st] ]
+    stale rs = or [ pinned /= hrDigest r
+                  | (r, _edits) <- rs, Just pinned <- [Map.lookup (hrId r) (cmdDigests cmd)] ]
+    staleWhy path = T.pack path
+                      <> " has been re-read since these rows were fetched; ask for them again"
+
+-- | The span edits CMD asks for on R, or why the request cannot be served at
+-- all.  Only 'setStateEdits' refuses, and its refusal is the whole request's:
+-- a keyword one named row's file does not declare stops the command rather than
+-- moving the rows whose files do declare it.
+commandEdits :: Command -> HeadlineRecord -> Either Text [(Span, Text)]
+commandEdits cmd r
+  | cmdName cmd == "set-state" = setStateEdits (join (cmdArgs cmd)) r
+  | otherwise                  = Right (archiveEdits r)
+
+-- | One row's outcome: the file's new digest, so a caller can pin its next
+-- write without re-reading.
+done :: Text -> Text -> Value
+done rid digest = object [ "id" .= rid, "ok" .= True, "digest" .= digest ]
+
+-- | One row's refusal, shaped like the success it replaces.
+refused :: Text -> Text -> Value
+refused rid why = object [ "id" .= rid, "ok" .= False, "error" .= why ]
+
+-- | XS grouped by KEY: each group in arrival order, the groups in first-seen
+-- order.  Quadratic in the number of distinct files, which is the marked set's
+-- size and not the store's.
+groupOn :: Eq k => (a -> k) -> [a] -> [(k, [a])]
+groupOn key xs = [ (k, [ x | x <- xs, key x == k ]) | k <- nub (map key xs) ]
+
+-- | RAW as a command, or what is wrong with it.  Every refusal that is the
+-- request's shape rather than the tree's state is decided here, so what reaches
+-- 'planCommand' is a name it implements with rows to run it over.
+parseCommand :: BL.ByteString -> Either Text Command
+parseCommand raw =
+  first (("body: " <>) . T.pack) (eitherDecode' raw >>= parseEither command) >>= checked
+  where
+    command = withObject "command" $ \o -> do
+      name <- o .: "name"
+      one <- o .:? "id"
+      several <- o .:? "ids"
+      args <- o .:? "args"
+      digests <- o .:? "digests"
+      keyword <- traverse (withObject "args" (.:? "keyword")) args
+      pure (Command name (nub (maybe [] pure one <> fromMaybe [] several))
+                    keyword (fromMaybe Map.empty digests))
+    checked cmd
+      | cmdName cmd `notElem` commandNames =
+          Left ("no such command: " <> cmdName cmd <> "; this server runs "
+                  <> T.intercalate " and " commandNames)
+      | null (cmdIds cmd) =
+          Left "a command names rows: {\"ids\": [\"…\"]}, or {\"id\": \"…\"} for one"
+      | cmdName cmd == "set-state", Nothing <- cmdArgs cmd =
+          Left "set-state wants args {\"keyword\": \"DONE\"}, or a null keyword to clear it"
+      | otherwise = Right cmd
 
 -- | The @id@ parameter of REQUEST, when it carries one with a value.
 queryId :: Request -> Maybe Text
@@ -821,8 +1026,10 @@ sharedKeys =
   , bind ["a"]          "org-glance-agenda"               Nothing                 "table"
   , bind ["@"]          "org-glance-overview:relations"   Nothing                 "table"
   , bind ["+"]          "org-glance-overview:capture"     Nothing                 "table"
-  , bind ["D"]          "org-glance-overview:delete"      Nothing                 "table"
-  , bind ["C-c", "C-t"] "org-glance-overview:todo"        Nothing                 "table"
+  , bind ["D"]          "org-glance-overview:delete"      (Just "archiveRows")    "table"
+      `helps` "archive the marked rows, or the row at point — never a delete"
+  , bind ["C-c", "C-t"] "org-glance-overview:todo"        (Just "setState")       "table"
+      `helps` "set the state of the marked rows, or the row at point"
   , bind ["C-c", "C-s"] "org-glance-overview:schedule"    Nothing                 "table"
   , bind ["C-c", "C-d"] "org-glance-overview:deadline"    Nothing                 "table"
   , bind ["C-x", "C-s"] "save-buffer"                     (Just "save")           "modal"
@@ -903,9 +1110,12 @@ reservedChords = ["C-l", "C-r", "C-t", "C-w", "C-n", "C-p", "<f5>"]
 -- under every profile that binds it.
 --
 -- @m@ and @u@ stay off it: both advance, so a held one walks a column rather
--- than working one row twice (docs\/invariants.md).
+-- than working one row twice (docs\/invariants.md).  @D@ is on it for a
+-- different reason: it writes files, and a held key must not be a hundred
+-- @\/command@ requests.  Archiving is idempotent, so what the repeat would cost
+-- is the traffic and the rewrites rather than the tree.
 onceCommands :: [Text]
-onceCommands = ["filter-drop-token", "unmark-all"]
+onceCommands = ["filter-drop-token", "unmark-all", "org-glance-overview:delete"]
 
 -- | The resident key line, in the order it reads: the commands worth naming
 -- ahead of the echo pill, each with the word the line shows for it.  Commands
@@ -923,6 +1133,9 @@ keyHints =
   , (["previous-page", "next-page"],       "pages")
   , (["org-glance-overview:materialize"],  "materialize")
   , (["mark-toggle", "unmark", "unmark-all"], "mark")
+  -- The two structured commands, beside the keys that pick what they run over.
+  , (["org-glance-overview:todo"],         "state")
+  , (["org-glance-overview:delete"],       "archive")
   , (["filter-rows"],                      "filter")
   , (["org-glance-overview:refresh"],      "refresh")
   , (["filter-drop-token"],                "drop token")
@@ -1049,6 +1262,19 @@ shellPage opts = do
 -- @error@, and the sheet wears the author's Emacs theme (danneskjold) while the
 -- table keeps the page's.
 --
+-- Two keys write without a sheet.  @D@ archives and @C-c C-t@ sets a state,
+-- both over the marked set when there is one and the row at point otherwise —
+-- dired's rule, and org-glance's.  They are @POST \/command@ ('runCommand'):
+-- the page sends row ids and a name, the server computes the spans, and the
+-- table is not touched at all, since the rows come back over the socket once
+-- the watch has re-read the files.  There is no confirmation step; the drift
+-- lock is the safety, and @D@ archives rather than deletes, so the worst a
+-- mis-key costs is a tag and another keystroke.  @C-c C-t@ raises a value
+-- palette of this page's own — the state column's badges plus @clear@, typed
+-- to narrow, @C-n@\/@C-p@ or the arrows to walk, @RET@ to commit — because the
+-- renderer's overlay is the filter's and this page does not reach into it.  The
+-- pill counts what landed and the log carries a line per refusal.
+--
 -- A lost socket costs rows, and only @view-changed@ costs the mount.  The
 -- reconnect asks @\/headlines@ for the applied query with the tag the last
 -- answer carried: 304 and the rows on screen are still current, 200 and they
@@ -1121,6 +1347,13 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    <div id=\"sheet\">"
   , "      <div id=\"mhead\"><span id=\"mfile\"></span><span id=\"mnote\"></span></div>"
   , "      <textarea id=\"mtext\" spellcheck=\"false\"></textarea>"
+  , "    </div>"
+  , "  </div>"
+  , "  <div id=\"prompt\">"
+  , "    <div id=\"pbox\">"
+  , "      <div id=\"phead\"></div>"
+  , "      <input id=\"pinput\" spellcheck=\"false\" autocomplete=\"off\">"
+  , "      <div id=\"plist\"></div>"
   , "    </div>"
   , "  </div>"
   , "  <div id=\"echo\" role=\"status\" aria-live=\"polite\"></div>"
@@ -1512,6 +1745,103 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      echo(`${b.seq} → ${on ? \"marked\" : \"unmarked\"} (${table.markedCount()})`);"
   , "      move(1);"
   , "    }"
+    -- Commands.  A structured write names ROWS and lets the server compute the
+    -- spans, so nothing here knows what a headline looks like — and nothing
+    -- here touches the table afterwards either: the rows arrive over the socket
+    -- once the watch has re-read the files, the way an editor's save arrives.
+    --
+    -- Which rows is dired's rule, and the same one `D' has in an org-glance
+    -- overview: the marked set when there is one, the row at point otherwise.
+    -- The marks are the renderer's, so they are asked for when the command runs
+    -- rather than tracked here.
+  , "    const targets = () => {"
+  , "      const marked = marking() ? table.getMarked() : [];"
+  , "      if (marked.length) return marked;"
+  , "      const id = focusedId();"
+  , "      return id ? [id] : [];"
+  , "    };"
+    -- A partial answer is ordinary here: each file is its own write, so one
+    -- that moved on disk refuses its rows while the rest land.  The count goes
+    -- in the pill and every refusal in the log.
+  , "    function fire(b, name, ids, args, verb) {"
+  , "      fetch(\"/command\", {"
+  , "        method: \"POST\","
+  , "        headers: { \"content-type\": \"application/json\" },"
+  , "        body: JSON.stringify({ name, ids, args }),"
+  , "      }).then((r) => r.json().then((answer) => {"
+  , "        if (!r.ok) throw new Error(answer.error || r.status);"
+  , "        const results = answer.results || [];"
+  , "        const bad = results.filter((x) => !x.ok);"
+  , "        echo(`${b.seq} → ${verb} (${results.length - bad.length})`);"
+  , "        if (bad.length) log(bad.map((x) => `${x.id}: ${x.error}`).join(\" · \"));"
+  , "      })).catch((e) => { said(b, e.message); log(`${name} failed: ${e.message}`); });"
+  , "    }"
+    -- The value palette: a prompt of this page's own, since the renderer's
+    -- overlay belongs to the filter and this page may not reach into it.  Type
+    -- to narrow, C-n/C-p or the arrows to walk, RET to commit; ESC is the
+    -- keymap's own `keyboard-quit', which closes whichever overlay is up.
+    --
+    -- The keys are handled in a second document listener rather than on the
+    -- field, and that is safe because it runs after the dispatch: with a field
+    -- focused `typing()' has already made every `table' row dead, so the only
+    -- row that can fire ahead of this is the one that should.
+  , "    let prompting = null;"
+  , "    function ask(title, choices, commit) {"
+  , "      prompting = { choices, shown: choices, at: 0, commit };"
+  , "      el(\"phead\").textContent = title;"
+  , "      el(\"pinput\").value = \"\";"
+  , "      el(\"prompt\").className = \"on\";"
+  , "      drawChoices();"
+  , "      el(\"pinput\").focus();"
+  , "    }"
+    -- Blurred as well as hidden: a focused field nobody can see would leave
+    -- `typing()' true and swallow every key after it.
+  , "    function unask() {"
+  , "      prompting = null;"
+  , "      el(\"prompt\").className = \"\";"
+  , "      el(\"pinput\").blur();"
+  , "    }"
+  , "    function drawChoices() {"
+  , "      const list = el(\"plist\");"
+  , "      list.textContent = \"\";"
+  , "      prompting.shown.forEach((c, i) => {"
+  , "        const row = document.createElement(\"div\");"
+  , "        row.className = i === prompting.at ? \"pat\" : \"\";"
+  , "        row.textContent = c.label;"
+  , "        list.appendChild(row);"
+  , "      });"
+  , "    }"
+  , "    function narrowTo(text) {"
+  , "      const want = text.trim().toLowerCase();"
+  , "      prompting.shown = prompting.choices.filter((c) => c.label.toLowerCase().includes(want));"
+  , "      prompting.at = 0;"
+  , "      drawChoices();"
+  , "    }"
+  , "    function walkChoices(step) {"
+  , "      const n = prompting.shown.length;"
+  , "      if (n) prompting.at = Math.max(0, Math.min(n - 1, prompting.at + step));"
+  , "      drawChoices();"
+  , "    }"
+  , "    function takeChoice() {"
+  , "      const chosen = prompting.shown[prompting.at];"
+  , "      if (!chosen) return;"
+  , "      const act = prompting.commit;"
+  , "      unask();"
+  , "      act(chosen);"
+  , "    }"
+  , "    el(\"pinput\").addEventListener(\"input\", (e) => prompting && narrowTo(e.target.value));"
+  , "    el(\"prompt\").addEventListener(\"click\", (e) =>"
+  , "      { if (e.target === el(\"prompt\")) unask(); });"
+    -- What C-c C-t offers: the state column's badges, which are the keyword
+    -- union of every file loaded, plus the entry that takes a keyword off.  The
+    -- column's `values' are the filter's group meta-values (`*active*') and are
+    -- deliberately absent — no file declares one, so the server refuses every
+    -- one of them, and offering a value that cannot be set is worse than not
+    -- offering it.
+  , "    const stateChoices = () =>"
+  , "      ((cols.filter((c) => c.key === \"state\")[0] || {}).badges || [])"
+  , "        .map((x) => ({ label: x.value, keyword: x.value }))"
+  , "        .concat([{ label: \"clear\", keyword: null }]);"
   , "    // `/' summons the filter.  `openFilter' is the renderer's one entry point"
   , "    // for it whatever mode it is in — in palette mode it raises the overlay,"
   , "    // elsewhere it takes the box already on the page — so the shell asks for"
@@ -1749,10 +2079,30 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "        echo(`${b.seq} → all marks cleared`);"
   , "      },"
   , "      refresh, focusFilter, save,"
+    -- D is dired's key and org-glance's `delete', and here it archives: the tag
+    -- goes on, the headline stays, and the default view stops showing it.
+  , "      archiveRows: (b) => {"
+  , "        const ids = targets();"
+  , "        if (ids.length) fire(b, \"archive\", ids, {}, \"archived\");"
+  , "        else said(b, \"no row\");"
+  , "      },"
+    -- C-c C-t asks which state, over whatever the command would run on, and
+    -- the server refuses a keyword the row's own file does not declare.
+  , "      setState: (b) => {"
+  , "        const ids = targets();"
+  , "        if (!ids.length) { said(b, \"no row\"); return; }"
+  , "        ask(`set state · ${ids.length} row${ids.length === 1 ? \"\" : \"s\"}`,"
+  , "            stateChoices(),"
+  , "            (c) => fire(b, \"set-state\", ids, { keyword: c.keyword },"
+  , "                        c.keyword === null ? \"cleared\" : c.keyword));"
+  , "      },"
   , "      quitWindow: () =>"
   , "        (editing ? leave() : log(\"q closes the sheet; there is no window to quit\")),"
+    -- One key out of whichever overlay is up: the prompt first, since it is the
+    -- one that can be raised over an open sheet.
   , "      cancel: () => {"
-  , "        if (editing) leave();"
+  , "        if (prompting) unask();"
+  , "        else if (editing) leave();"
   , "        else if (typing()) document.activeElement.blur();"
   , "      },"
   , "      // The filter's own backspace: the renderer drops the token and the"
@@ -1798,6 +2148,21 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      prefix([]);"
   , "      if (MAPS.reserved.indexOf(k) === -1) e.preventDefault();"
   , "      echo(`${keys.join(\" \")} is undefined`);"
+  , "    });"
+    -- The prompt's own keys, behind the dispatch above: while its field has
+    -- focus the only row that can have fired already is ESC, which is the one
+    -- that should.  C-n and C-p are reserved chords the map never claims, and
+    -- claiming them HERE is the field's business rather than the map's — the
+    -- same way a focused select keeps its arrows.
+  , "    document.addEventListener(\"keydown\", (e) => {"
+  , "      if (!prompting) return;"
+  , "      const k = keyName(e);"
+  , "      const step = k === \"<down>\" || k === \"C-n\" ? 1"
+  , "                 : k === \"<up>\" || k === \"C-p\" ? -1 : 0;"
+  , "      if (step) walkChoices(step);"
+  , "      else if (k === \"RET\") takeChoice();"
+  , "      else return;"
+  , "      e.preventDefault();"
   , "    });"
   , ""
   , "    function apply(frame) {"
@@ -2027,10 +2392,15 @@ page head' title body = T.unlines
   -- @z-index:1@ and its completion list @5@, and an unnumbered backdrop paints
   -- under both.  The sheet is a flex item, so its own level would apply
   -- anyway; @position@ says so without relying on that.
-  , "  #modal{--dk-mono:\"Hack\", var(--glance-mono);"
+  -- The two overlays share the backdrop and the two levels: the sheet is the
+  -- subtree's and the prompt is a command's, and a reader has one of them open
+  -- at a time.  The prompt sits high rather than centred — a list that grows
+  -- downward should not move the line above it.
+  , "  #modal,#prompt{--dk-mono:\"Hack\", var(--glance-mono);"
   , "    display:none;position:fixed;inset:0;z-index:100;padding:24px;background:#0009;"
   , "    align-items:center;justify-content:center}"
-  , "  #modal.on{display:flex}"
+  , "  #modal.on,#prompt.on{display:flex}"
+  , "  #prompt{align-items:flex-start;padding-top:15vh}"
   , "  #sheet{display:flex;flex-direction:column;gap:8px;padding:14px;border-radius:6px;"
   , "    position:relative;z-index:101;"
   , "    width:min(900px,100%);height:min(80vh,100%);font-family:var(--dk-mono);"
@@ -2043,6 +2413,19 @@ page head' title body = T.unlines
   , "  #mtext{flex:1;font:12px/1.5 var(--dk-mono);padding:8px;border-radius:4px;"
   , "    border:1px solid var(--g-border);background:transparent;color:inherit;resize:none}"
   , "  #mtext::selection{background:var(--g-sel);color:var(--g-fg)}"
+  -- The value palette.  Narrow, since what it holds is a word: the title says
+  -- what is being set and over how many rows, the field narrows the list, and
+  -- the row under point wears the page's own selection colour.
+  , "  #pbox{display:flex;flex-direction:column;gap:6px;padding:10px;border-radius:6px;"
+  , "    position:relative;z-index:101;"
+  , "    width:min(420px,100%);font-family:var(--dk-mono);"
+  , "    background:var(--g-bg);color:var(--g-fg);border:1px solid var(--g-border)}"
+  , "  #phead{font-size:12px;color:var(--g-mute)}"
+  , "  #pinput{font:12px/1.5 var(--dk-mono);padding:5px 7px;border-radius:4px;"
+  , "    border:1px solid var(--g-border);background:transparent;color:inherit}"
+  , "  #plist{max-height:40vh;overflow-y:auto;font-size:12px}"
+  , "  #plist div{padding:2px 7px;border-radius:4px}"
+  , "  #plist .pat{background:var(--g-sel);color:var(--g-fg)}"
   -- The echo area and the status corner are the page's, and the backdrop dims
   -- the page: both sit under it (2 and 3 against the modal's 100) and grey out
   -- with everything else while the sheet is open.  They stay above the table.
@@ -2066,7 +2449,7 @@ page head' title body = T.unlines
   , "    #app .tv-chips:empty{display:flex!important;align-items:center}"
   , "    #app .tv-chips:empty::after{content:\"filter …\";color:var(--g-mute);"
   , "      font-size:12px}"
-  , "    #mtext{font-size:16px}}"
+  , "    #mtext,#pinput{font-size:16px}}"
   , "</style>"
   -- The stored theme, applied before anything paints: a page that renders in
   -- the wrong one and corrects itself a frame later is a flash the selector

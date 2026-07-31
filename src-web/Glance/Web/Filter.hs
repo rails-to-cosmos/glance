@@ -42,9 +42,11 @@
 -- rather than by two implementations of @displayText@ staying in step.
 module Glance.Web.Filter ( Term (..)
                          , Token (..)
+                         , archiveKey
                          , cellAt
                          , filterKeys
                          , matchesFilter
+                         , namesArchive
                          , parseFilter
                          , scanQuery
                          ) where
@@ -56,8 +58,8 @@ import Data.Text (Text)
 import qualified Data.Text as T
 
 import Glance.Query ( HeadlineRecord (hrKeywords, hrSearch, hrState)
-                    , TodoKeywords (tkActive, tkInactive), cellSep, filterKeys
-                    , tagsOfCell )
+                    , TodoKeywords (tkActive, tkInactive), archiveTag, cellSep
+                    , filterKeys, tagsOfCell )
 
 -- Grammar
 --
@@ -141,6 +143,30 @@ parseFilter vocabulary = map resolve . scanQuery
           _notAPredicate                -> free t
     known key = key `elem` filterKeys || key `elem` vocabulary
     free t = Term (tkNegated t) Nothing (tkBody t)
+
+-- | The virtual key an archived row answers to: 'Glance.Query.archiveTag'
+-- folded, the way every tag reaches the vocabulary ('tagsOfCell').  It is an
+-- ordinary tag key in every respect — @archive:@, @-archive:@ and
+-- @archive:draft@ all parse and match as they would for @:work:@ — and the one
+-- thing that is not ordinary about it is who names it: @\/headlines@ hides
+-- archived rows unless the query does ('namesArchive'), so this is the key that
+-- turns the default view off.
+archiveKey :: Text
+archiveKey = T.toLower archiveTag
+
+-- | Does Q name 'archiveKey' as a predicate, given VOCABULARY?  Any spelling
+-- counts — @archive:@, a negated one, one carrying a value — because all of
+-- them are a reader who has said something about archived rows, and a default
+-- exclusion layered under any of them would answer a different question than
+-- the one asked.
+--
+-- Resolved through 'parseFilter' rather than by scanning the string, so the
+-- word only counts where it is a key: with no archived row loaded, @archive@ is
+-- not in the vocabulary, @archive:x@ is free text, and this is 'False' — which
+-- is sound, since there is nothing to hide either.
+namesArchive :: [Text] -> Text -> Bool
+namesArchive vocabulary q =
+  any ((== Just archiveKey) . tmKey) (parseFilter vocabulary q)
 
 -- | BODY at its first @:@ or @=@, when the separator has a key ahead of it and
 -- is there at all.  A body opening with the separator has none, which is what

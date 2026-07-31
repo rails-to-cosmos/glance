@@ -18,8 +18,8 @@ import qualified Data.Text as T
 
 import Glance.Query ( HeadlineRecord (..), QueryResult (qrRecords), displayText
                     , loadDir, matchesSearch, tagsOfCell, viewJSON )
-import Glance.Web.Filter ( Term (..), Token (..), cellAt, filterKeys, matchesFilter
-                         , parseFilter, scanQuery )
+import Glance.Web.Filter ( Term (..), Token (..), archiveKey, cellAt, filterKeys
+                         , matchesFilter, namesArchive, parseFilter, scanQuery )
 
 -- Fixtures
 --
@@ -63,7 +63,39 @@ matches q rows = assertEqual (T.unpack q) rows =<< matching q
 
 spec :: TestTree
 spec = testGroup "Filter"
-  [ tokenSpec, predicateSpec, virtualSpec, shapeSpec, degenerateSpec, layoutSpec ]
+  [ tokenSpec, predicateSpec, virtualSpec, archiveSpec, shapeSpec, degenerateSpec
+  , layoutSpec ]
+
+-- | Which queries turn the served view's archive exclusion off
+-- ('Glance.Web.Filter.namesArchive').  The exclusion itself is
+-- @\/headlines@'s (@TestServe@); what belongs here is the reading of the
+-- query, since it is the grammar answering.
+archiveSpec :: TestTree
+archiveSpec = testGroup "Archive key"
+  [ testCase "is an ordinary tag key, folded like every other one" $
+      assertEqual "the key" "archive" archiveKey
+
+  , testCase "every spelling of the key counts as naming it" $
+      mapM_ (\q -> assertBool (show q <> " did not read as naming the key")
+                             (namesArchive [archiveKey] q))
+            [ "archive:", "-archive:", "archive:draft", "state:DONE archive:"
+            , "archive=", "archive:\"two words\"" ]
+
+  , testCase "and a query that says nothing about it does not" $
+      mapM_ (\q -> assertBool (show q <> " read as naming the key")
+                             (not (namesArchive [archiveKey] q)))
+            -- Free text is not a predicate, quoted text never is, and a
+            -- longer key is a different key.
+            [ "", "archive", "\"archive:\"", "archived:yes", "state:DONE"
+            , "title:archive" ]
+
+    -- With no archived row loaded the word is not in the vocabulary, so it is
+    -- free text and this is False — which is sound, since there is nothing for
+    -- the exclusion to hide either.
+  , testCase "with the tag nowhere in the tree, the word is only text" $
+      assertBool "read as a predicate against an empty vocabulary"
+                 (not (namesArchive [] "archive:draft"))
+  ]
 
 -- Virtual keys
 

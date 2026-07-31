@@ -23,6 +23,8 @@
 //   recolumn      the store moves and its columns move with it
 //   rewritten     the file behind the open sheet moves: a new digest
 //   press:KEY     KEY pressed, so a key can follow an act rather than precede it
+//   type:TEXT     TEXT typed into the raised value palette, which narrows it
+//   refuse        the next /command answers that every row was refused
 //   bare          the mounted handle loses its mark calls, the way an older
 //                 table-view.js never had them
 //
@@ -40,12 +42,22 @@ const tags = [];
 // one-row store cannot tell marking from advancing.
 let rows = ["one", "two", "three"].map((title, i) =>
   ({ id: `r${i + 1}`, cells: { state: "TODO", title, tag: ":web:" } }));
-let columns = [{ key: "state" }, { key: "tag" }];
+// The state column carries its badge palette, since that is where the value
+// palette C-c C-t raises gets its keywords from.
+let columns = [
+  { key: "state", badges: [{ value: "TODO" }, { value: "DONE" }] },
+  { key: "tag" },
+];
 let tag = "\"t0\"";
 let served = +total;
 // The subtree behind /headline, and the digest a write is pinned to.
 const org = "* TODO one\n";
 let digest = "d0";
+// Every structured command the page posted, as the body it sent — which is the
+// whole of what a key like `D' can be observed to have done, the rows coming
+// back over a socket this harness does not run.
+const commands = [];
+let refusing = false;
 
 globalThis.location = { search, protocol: "http:", host: "h", pathname: "/" };
 globalThis.history = {
@@ -71,6 +83,15 @@ globalThis.fetch = (url, init) => {
     if (sent === tag) return answer(304, null, {});
     return answer(200, { title: "t", columns, rows },
                   { "x-glance-total": String(served), etag: tag });
+  }
+  if (String(url) === "/command") {
+    const sent = JSON.parse((init || {}).body || "{}");
+    commands.push(sent);
+    return answer(200, {
+      results: (sent.ids || []).map((id) =>
+        refusing ? { id, ok: false, error: "a.org changed on disk" }
+                 : { id, ok: true, digest: "d1" }),
+    });
   }
   if (String(url).startsWith("/headline?")) {
     if ((init || {}).method === "POST") return answer(200, { digest });
@@ -171,7 +192,7 @@ let active = null;
 const fields = {};
 // The tag matters: `typing()' reads it off `document.activeElement' to decide
 // whether a key belongs to the table or to whatever has focus.
-const TAGS = { mtext: "TEXTAREA", filter: "INPUT" };
+const TAGS = { mtext: "TEXTAREA", filter: "INPUT", pinput: "INPUT" };
 const field = (id) =>
   (fields[id] = fields[id] || {
     id, tagName: TAGS[id] || "DIV",
@@ -179,9 +200,14 @@ const field = (id) =>
     scrollTop: 0, clientHeight: 0, scrollHeight: 0,
     focus() { active = this; },
     blur() { if (active === this) active = null; },
-    select() {}, addEventListener() {}, appendChild() {},
+    // Kept rather than dropped: the value palette narrows on its field's own
+    // `input' event, which no document-level press can stand in for.
+    on: {},
+    addEventListener(type, fn) { (this.on[type] = this.on[type] || []).push(fn); },
+    fire(type, event) { for (const fn of this.on[type] || []) fn(event); },
+    select() {}, appendChild() {},
   });
-const STATEFUL = ["mtext", "mnote", "mfile", "modal", "echo"];
+const STATEFUL = ["mtext", "mnote", "mfile", "modal", "echo", "prompt", "phead", "pinput"];
 // The page's own key dispatch, kept so a press can be delivered to it.
 const pressed = [];
 globalThis.document = {
@@ -204,9 +230,13 @@ globalThis.addEventListener = () => {};
 
 eval(fs.readFileSync(dir + "/shell.js", "utf8"));
 
-const press = (key) => {
+// A `C-' prefix is the chord the page's own `keyName' spells that way, so a
+// sequence like `C-c C-t' is two of these and needs no other notation here.
+const press = (name) => {
+  const ctrl = name.startsWith("C-");
   const event = {
-    key, ctrlKey: false, altKey: false, metaKey: false, shiftKey: false,
+    key: ctrl ? name.slice(2) : name,
+    ctrlKey: ctrl, altKey: false, metaKey: false, shiftKey: false,
     repeat: false, target: node, preventDefault: () => {},
   };
   for (const handler of pressed) handler(event);
@@ -227,6 +257,12 @@ const ACTIONS = {
   recolumn: () => { step(); columns = columns.concat([{ key: "deadline" }]); },
   rewritten: () => { digest = "d1"; },
   press: (key) => press(key),
+  type: (text) => {
+    const box = field("pinput");
+    box.value = text;
+    box.fire("input", { target: box });
+  },
+  refuse: () => { refusing = true; },
   // An asset that never had marking: the calls are simply not on the handle,
   // which is the shape the shell's feature detection is written against. It
   // sticks, so a remount later in the same script does not hand them back and
@@ -259,6 +295,8 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     // The renderer's side of marking, and the last thing the echo pill said —
     // which is where a key that could not do what it was asked reports it.
     marksOn, marked: [...marks], cursor, echo: field("echo").textContent,
+    // The value palette, and what the keys posted through it.
+    prompt: field("prompt").className, phead: field("phead").textContent, commands,
   });
   // Exit on the write's own callback: a keystroke leaves the echo pill's timer
   // pending, and node would otherwise sit out its second and a half.

@@ -5,7 +5,7 @@
 -- are TestStore's subject.
 module TestServe (spec) where
 
-import Control.Monad ((<=<))
+import Control.Monad (filterM, (<=<))
 import Data.Aeson ( Value (Bool, Number, Object, String)
                   , eitherDecode, encode, object, parseJSON, (.=) )
 import Data.Aeson.Types (parseEither)
@@ -261,10 +261,12 @@ digestOnDisk path = snapDigest . snapshotOf path <$> document path
 spec :: TestTree
 spec = withResource (body <$> get assetsDir "/") (const (pure ())) $ \shell ->
   testGroup "Serve"
-    [ headlineSpec, statsSpec, cacheSpec, gzipSpec, querySpec, bootstrapSpec
-    , materializeSpec, commitSpec, indexingSpec, pageSpec shell, keymapSpec shell
+    [ headlineSpec, statsSpec, cacheSpec, gzipSpec, querySpec, archiveViewSpec
+    , bootstrapSpec, materializeSpec, commitSpec, commandSpec, indexingSpec
+    , pageSpec shell, keymapSpec shell
     , glueSpec shell, bootSpec shell, liveSpec shell, paletteSpec shell, markSpec shell
-    , touchSpec shell, shellFontSpec shell, assetSpec, errorSpec ]
+    , commandKeySpec shell, touchSpec shell, shellFontSpec shell, assetSpec
+    , errorSpec ]
 
 -- | One boot of the shell's glue, run: the address bar it opens on, what the
 -- server answers as @X-Glance-Total@, the @\/headlines@ URLs that have to
@@ -499,6 +501,88 @@ markSpec shell = testGroup "Shell marks"
                     =<< textAt "echo" answer
   ]
 
+-- | The two structured commands, driven through the keys a reader presses.
+-- What is asserted is this page's half: which rows a command names — dired's
+-- rule, the marked set winning over the row at point — what the value palette
+-- offers and commits, and what the pill says when the server refuses.  The
+-- edits themselves are @TestQuery@'s subject and the route is
+-- @POST \/command@'s; nothing here re-states either.
+commandKeySpec :: IO T.Text -> TestTree
+commandKeySpec shell = testGroup "Shell commands"
+  [ testCase "D archives the row at point" $
+      bootOf shell "" 500 "D" "" $ \answer -> do
+        assertEqual "one archive, over the selected row"
+                    [("archive", ["r1"])] =<< postedOf answer
+        assertEqual "and the pill counts it" "D → archived (1)" =<< textAt "echo" answer
+
+    -- The marked set wins, and it is the renderer's: the shell asks for it when
+    -- the command runs rather than keeping one.
+  , testCase "D over a marked set archives the set, not the row at point" $
+      bootOf shell "" 500 "m m D" "" $ \answer -> do
+        assertEqual "the marked rows, and only those"
+                    [("archive", ["r1", "r2"])] =<< postedOf answer
+        assertEqual "counted" "D → archived (2)" =<< textAt "echo" answer
+        assertEqual "and the cursor is where the marking left it" 2
+          =<< intAt "cursor" answer
+
+  , testCase "a server that refuses is counted out and logged" $
+      bootOf shell "" 500 "" "refuse press:D" $ \answer -> do
+        assertEqual "the command still went" 1 . length =<< postedOf answer
+        assertEqual "nothing landed" "D → archived (0)" =<< textAt "echo" answer
+
+    -- C-c C-t is a chord, so this also exercises the prefix path: the first key
+    -- opens it and the second completes it, over a table with no field focused.
+  , testCase "C-c C-t raises the palette and RET commits what is under point" $
+      bootOf shell "" 500 "C-c C-t" "press:Enter" $ \answer -> do
+        assertEqual "the palette said what it was setting and over how many"
+                    "set state · 1 row" =<< textAt "phead" answer
+        assertEqual "the first badge" [("set-state", ["r1"])] =<< postedOf answer
+        assertEqual "as the keyword" [Just "TODO"] =<< keywordsOf answer
+        assertEqual "the pill names the state" "C-c C-t → TODO (1)"
+          =<< textAt "echo" answer
+        assertEqual "and the overlay is down" "" =<< textAt "prompt" answer
+
+  , testCase "typing narrows it, and RET takes what is left" $
+      bootOf shell "" 500 "C-c C-t" "type:done press:Enter" $ \answer -> do
+        assertEqual "the narrowed choice" [Just "DONE"] =<< keywordsOf answer
+        assertEqual "the pill" "C-c C-t → DONE (1)" =<< textAt "echo" answer
+
+    -- C-n is a reserved chord the map never claims; the palette claims it while
+    -- its own field has focus, the way a focused select keeps its arrows.
+  , testCase "C-n walks the list, and the arrows do the same" $
+      mapM_ (\key -> bootOf shell "" 500 "C-c C-t" ("press:" <> key)
+               (assertEqual (T.unpack key <> ": stepped to the second badge")
+                            [Just "DONE"] <=< keywordsOf))
+            ["C-n press:Enter", "ArrowDown press:Enter"]
+
+  , testCase "the last choice clears the keyword rather than setting one" $
+      bootOf shell "" 500 "C-c C-t" "type:clear press:Enter" $ \answer -> do
+        assertEqual "a null keyword" [Nothing] =<< keywordsOf answer
+        assertEqual "and the pill says so" "C-c C-t → cleared (1)"
+          =<< textAt "echo" answer
+
+  , testCase "ESC leaves the palette and writes nothing" $
+      bootOf shell "" 500 "C-c C-t" "press:Escape" $ \answer -> do
+        assertEqual "no command went" [] =<< postedOf answer
+        assertEqual "the overlay is down" "" =<< textAt "prompt" answer
+
+  , testCase "over a marked set it names the whole set" $
+      bootOf shell "" 500 "m m C-c C-t" "press:Enter" $ \answer -> do
+        assertEqual "the rows" [("set-state", ["r1", "r2"])] =<< postedOf answer
+        assertEqual "and the title counts them" "set state · 2 rows"
+          =<< textAt "phead" answer
+  ]
+
+-- | The commands the page posted, as the name and the ids each one named.
+postedOf :: Value -> IO [(T.Text, [T.Text])]
+postedOf answer = traverse one =<< listAt "commands" answer
+  where one v = (,) <$> textAt "name" v <*> textsAt "ids" v
+
+-- | The keyword each posted command carried, for the @set-state@ cases.
+keywordsOf :: Value -> IO [Maybe T.Text]
+keywordsOf answer =
+  traverse (maybeTextAt "keyword" <=< field "args") =<< listAt "commands" answer
+
 -- | SHELL's glue booted under node on SEARCH, with the server reporting TOTAL
 -- matches, KEYS pressed over the table once it settled and ACTS run after
 -- those, then CHECK over the harness's whole answer.  A machine with no node
@@ -645,9 +729,10 @@ shellGlue =
       [ "marks: true,"
       , "let on = table.toggleMark(id);"
       , "(${table.markedCount()})" ]
-      -- And second, that no set, count or membership test is kept on this side:
-      -- an absence has no behaviour to observe.
-      ["let marked", "const marked = new Set", "table.getMarked()"]
+      -- And second, that no set, count or membership test is kept on this side.
+      -- `getMarked()' is not one: a command asks the renderer which rows are
+      -- marked at the moment it runs, which is the opposite of keeping a copy.
+      ["let marked", "const marked = new Set", "marks.add", "marks.has"]
 
   -- The overlay is raised and dissolved by the renderer, whose own input stops
   -- ESC and DEL before this page's document handler sees them.  What keeps the
@@ -930,8 +1015,10 @@ shellGlue =
   -- Under 16px, focusing a field zooms the page in and nothing zooms it back
   -- out.  The renderer's own input is the renderer's problem; #mtext is this
   -- page's, and it keeps its 12px everywhere else.
-  , glue "a coarse pointer gets a sheet iOS will not zoom into"
-      [ "#mtext{font-size:16px}}", "font:12px/1.5 var(--dk-mono)" ]
+  -- Both of this page's own fields, in the one block: under 16px iOS zooms in
+  -- on a focused one and never zooms back out.
+  , glue "a coarse pointer gets fields iOS will not zoom into"
+      [ "#mtext,#pinput{font-size:16px}}", "font:12px/1.5 var(--dk-mono)" ]
 
   , glue "asks for one font stack, everywhere in the page"
       [ "--glance-mono:\"JetBrains Mono\", \"Fira Code\", \"SF Mono\", Menlo, Consolas, monospace"
@@ -1535,6 +1622,348 @@ commitSpec = testGroup "POST /headline"
         assertContains "the hint" "POST /headline?id=<row id>" (body anonymous)
   ]
 
+-- | The rows a structured command names, and the two files they live in.  Ids
+-- are in drawers so they survive both the temp directory's name and every edit
+-- made to the text above them.
+commandable :: T.Text
+commandable = T.unlines
+  [ "#+TODO: NEXT WAITING | CANCELLED"
+  , "* NEXT First :one:"
+  , ":PROPERTIES:"
+  , ":ORG_GLANCE_ID: first"
+  , ":END:"
+  , "* Second"
+  , ":PROPERTIES:"
+  , ":ORG_GLANCE_ID: second"
+  , ":END:"
+  ]
+
+-- | A second file, declaring no keywords of its own — so a keyword legal in
+-- 'commandable' is illegal here, which is what makes legality per file
+-- observable.
+elsewhereOrg :: T.Text
+elsewhereOrg = T.unlines
+  [ "* TODO Third"
+  , ":PROPERTIES:"
+  , ":ORG_GLANCE_ID: third"
+  , ":END:"
+  ]
+
+-- | A command as the shell sends one.
+command :: T.Text -> [T.Text] -> Value -> BL.ByteString
+command name ids args = encode (object ["name" .= name, "ids" .= ids, "args" .= args])
+
+-- | @set-state@'s argument, a keyword or the null that clears one.
+keywordArg :: Maybe T.Text -> Value
+keywordArg keyword = object ["keyword" .= keyword]
+
+-- | Run K over a server holding both files: the app, the hub whose store it
+-- answers from — the write cases look at that store afterwards, and the
+-- idempotence case steps it the way the watch would — and the two paths.
+withCommandable :: (Application -> Hub -> FilePath -> FilePath -> Assertion) -> Assertion
+withCommandable k = withTempDir $ \dir -> do
+  here <- orgFile dir "notes.org" commandable
+  there <- orgFile dir "other.org" elsewhereOrg
+  (a, hub) <- serverOver dir
+  k a hub here there
+
+-- | The watch's own step, taken here without a watcher: PATH re-loaded into HUB
+-- and published, which is the one path that updates the store.  A command
+-- computes its spans and its digest from the store, so a second command over a
+-- file the first one wrote needs this in between — exactly as a live daemon
+-- does, and refuses with a drift error without it.
+watchStep :: Hub -> FilePath -> Assertion
+watchStep hub path = do
+  outcome <- loadFile path
+  _ <- publish hub (applyFile path outcome)
+  pure ()
+
+-- | R's results as id and whether the row landed, in the order they arrived.
+outcomesOf :: SResponse -> IO [(T.Text, Bool)]
+outcomesOf r = do
+  results <- listAt "results" =<< decoded r
+  traverse (\v -> (,) <$> textAt "id" v <*> boolAt "ok" v) results
+
+-- | The digest R reports for each row that landed.
+digestsOf :: SResponse -> IO [T.Text]
+digestsOf r = do
+  results <- listAt "results" =<< decoded r
+  ok <- filterM (boolAt "ok") results
+  traverse (textAt "digest") ok
+
+-- | @POST \/command@: the structured writes, per file and per id.
+commandSpec :: TestTree
+commandSpec = testGroup "POST /command"
+  [ testCase "set-state replaces the keyword and moves no other byte" $
+      withCommandable $ \a _hub path _other -> do
+        before <- document path
+        r <- postTo a "/command" (command "set-state" ["first"] (keywordArg (Just "WAITING")))
+        assertEqual "status" 200 (status r)
+        assertEqual "the row landed" [("first", True)] =<< outcomesOf r
+        after <- document path
+        -- Stated as the whole file: everything ahead of the keyword and past it
+        -- is the same string it was, by the same assertion as the edit.
+        assertEqual "the file is the old one with one word replaced"
+                    (T.replace "* NEXT First" "* WAITING First" before) after
+        onDisk <- digestOnDisk path
+        assertEqual "the digest it reports is the file's" [onDisk] =<< digestsOf r
+
+  , testCase "a keyword where there was none is inserted after the stars" $
+      withCommandable $ \a _hub path _other -> do
+        before <- document path
+        r <- postTo a "/command" (command "set-state" ["second"] (keywordArg (Just "NEXT")))
+        assertEqual "status" 200 (status r)
+        after <- document path
+        assertEqual "inserted, and nothing else"
+                    (T.replace "* Second" "* NEXT Second" before) after
+
+  , testCase "a null keyword takes the word and its space off" $
+      withCommandable $ \a _hub path _other -> do
+        before <- document path
+        r <- postTo a "/command" (command "set-state" ["first"] (keywordArg Nothing))
+        assertEqual "status" 200 (status r)
+        assertEqual "the file closed up" (T.replace "* NEXT First" "* First" before)
+          =<< document path
+
+    -- Two rows of one file are ONE editFile, and the proof is that the second
+    -- one landed at all: a write per row would pin the second to the digest the
+    -- first invalidated, and drift.  The shared digest says the same thing.
+  , testCase "two rows of one file are one write, and both land" $
+      withCommandable $ \a _hub path _other -> do
+        before <- document path
+        r <- postTo a "/command"
+               (command "set-state" ["first", "second"] (keywordArg (Just "CANCELLED")))
+        assertEqual "status" 200 (status r)
+        assertEqual "both rows" [("first", True), ("second", True)] =<< outcomesOf r
+        digests <- digestsOf r
+        after <- document path
+        assertEqual "both edits, in one file"
+                    (T.replace "* Second" "* CANCELLED Second"
+                       (T.replace "* NEXT First" "* CANCELLED First" before))
+                    after
+        onDisk <- digestOnDisk path
+        assertEqual "a digest per row" 2 (length digests)
+        assertEqual "one write, so one digest, and it is the file's" [onDisk] (nub digests)
+
+  , testCase "rows in two files are two writes, and each is its own" $
+      withCommandable $ \a _hub path other -> do
+        r <- postTo a "/command" (command "archive" ["first", "third"] (object []))
+        assertEqual "status" 200 (status r)
+        assertEqual "both rows" [("first", True), ("third", True)] =<< outcomesOf r
+        assertEqual "two files, two digests" 2 . length . nub =<< digestsOf r
+        assertContains "the tag joined the list" "* NEXT First :one:ARCHIVE:" =<< document path
+        assertContains "and started one" "* TODO Third :ARCHIVE:" =<< document other
+
+    -- No cross-file rollback, and none is possible: the answer says which rows
+    -- landed instead.
+  , testCase "a file that moved refuses its rows while the others land" $
+      withCommandable $ \a _hub path other -> do
+        meddled <- (<> "* TODO Someone else\n") <$> document other
+        TIO.writeFile other meddled
+        r <- postTo a "/command" (command "archive" ["first", "third"] (object []))
+        assertEqual "status" 200 (status r)
+        assertEqual "one landed, one did not"
+                    [("first", True), ("third", False)] =<< outcomesOf r
+        assertContains "the untouched file took its edit" ":one:ARCHIVE:" =<< document path
+        assertEqual "and the moved one is the meddler's" meddled =<< document other
+
+  , testCase "an id no row carries is refused on its own" $
+      withCommandable $ \a _hub path _other -> do
+        r <- postTo a "/command" (command "archive" ["nowhere", "first"] (object []))
+        assertEqual "status" 200 (status r)
+        -- Answered in the order the ids were named, whichever of them was work.
+        assertEqual "in the order asked"
+                    [("nowhere", False), ("first", True)] =<< outcomesOf r
+        assertContains "the real row still landed" ":one:ARCHIVE:" =<< document path
+
+    -- Legality is per file, and a set-state some named row would refuse is
+    -- refused whole: half a state change over a marked set is worse than none.
+  , testCase "a keyword one named file does not declare refuses the request" $
+      withCommandable $ \a _hub path other -> do
+        before <- document path
+        r <- postTo a "/command"
+               (command "set-state" ["first", "third"] (keywordArg (Just "WAITING")))
+        assertEqual "status" 400 (status r)
+        assertContains "names the keyword" "WAITING" (body r)
+        assertEqual "the first file is untouched" before =<< document path
+        assertEqual "and so is the second" elsewhereOrg =<< document other
+
+  , testCase "the state column's group values are refused like any other word" $
+      withCommandable $ \a _hub path _other -> do
+        before <- document path
+        mapM_ (\meta -> do
+                 r <- postTo a "/command"
+                        (command "set-state" ["first"] (keywordArg (Just meta)))
+                 assertEqual (T.unpack meta <> ": status") 400 (status r))
+              ["*active*", "*inactive*"]
+        assertEqual "nothing written" before =<< document path
+
+  , testCase "archive is idempotent — the second run changes nothing" $
+      withCommandable $ \a hub path _other -> do
+        _ <- postTo a "/command" (command "archive" ["first"] (object []))
+        once <- document path
+        watchStep hub path   -- the store learns what the first command wrote
+        again <- postTo a "/command" (command "archive" ["first"] (object []))
+        assertEqual "status" 200 (status again)
+        assertEqual "the row still landed" [("first", True)] =<< outcomesOf again
+        assertEqual "and the file is byte for byte what it was" once =<< document path
+        assertEqual "one tag, not two" 1 (T.count "ARCHIVE" once)
+
+  , testCase "a digest the store no longer holds refuses that file's rows" $
+      withCommandable $ \a _hub path _other -> do
+        before <- document path
+        let stale = encode (object [ "name" .= ("archive" :: T.Text)
+                                   , "ids" .= (["first", "second"] :: [T.Text])
+                                   , "digests" .= object ["first" .= T.replicate 64 "0"] ])
+        r <- postTo a "/command" stale
+        assertEqual "status" 200 (status r)
+        -- The digest is per FILE, so a stale pin on one row refuses the file.
+        assertEqual "both rows of that file"
+                    [("first", False), ("second", False)] =<< outcomesOf r
+        assertEqual "untouched" before =<< document path
+
+  , testCase "a digest the store does hold is written as usual" $
+      withCommandable $ \a _hub path _other -> do
+        held <- textAt "digest" =<< decoded =<< getFrom a (headlinePath "first")
+        let pinned = encode (object [ "name" .= ("archive" :: T.Text)
+                                    , "ids" .= (["first"] :: [T.Text])
+                                    , "digests" .= object ["first" .= held] ])
+        r <- postTo a "/command" pinned
+        assertEqual "the row landed" [("first", True)] =<< outcomesOf r
+        assertContains "and the tag is on it" ":one:ARCHIVE:" =<< document path
+
+  , testCase "leaves the store alone — the watch is what updates rows" $
+      withCommandable $ \a _hub path _other -> do
+        before <- decoded =<< getFrom a (headlinePath "first")
+        r <- postTo a "/command" (command "archive" ["first"] (object []))
+        assertEqual "status" 200 (status r)
+        after <- decoded =<< getFrom a (headlinePath "first")
+        -- No watcher runs in this suite, so the store still holds the load it
+        -- started with: the route wrote to the file and to nothing else.
+        assertEqual "the store answers exactly what it did" before after
+        onDisk <- digestOnDisk path
+        pinned <- textAt "digest" before
+        assertBool "the file was written" (onDisk /= pinned)
+
+  , testCase "a body that is not a command is a 400, and says what one is" $
+      withCommandable $ \a _hub _path _other -> do
+        mapM_ (\(what, payload, needle) -> do
+                 r <- postTo a "/command" payload
+                 assertEqual (what <> ": status") 400 (status r)
+                 assertContains what needle (body r))
+              [ ("malformed", "{not json", "body")
+              , ("no name", encode (object ["ids" .= (["first"] :: [T.Text])]), "body")
+              , ("no such command", command "explode" ["first"] (object []), "no such command")
+              , ("no rows", command "archive" [] (object []), "names rows")
+              , ("set-state with no args"
+                , encode (object [ "name" .= ("set-state" :: T.Text)
+                                 , "ids" .= (["first"] :: [T.Text]) ])
+                , "keyword") ]
+
+  , testCase "one id is spelled id, the way a command on the row at point is" $
+      withCommandable $ \a _hub path _other -> do
+        r <- postTo a "/command" (encode (object [ "name" .= ("archive" :: T.Text)
+                                                 , "id" .= ("first" :: T.Text) ]))
+        assertEqual "status" 200 (status r)
+        assertEqual "the row landed" [("first", True)] =<< outcomesOf r
+        assertContains "written" ":one:ARCHIVE:" =<< document path
+
+  , testCase "an id named twice is written once" $
+      withCommandable $ \a _hub path _other -> do
+        r <- postTo a "/command" (command "archive" ["first", "first"] (object []))
+        assertEqual "one result" [("first", True)] =<< outcomesOf r
+        assertEqual "one tag" 1 . T.count "ARCHIVE" =<< document path
+
+  , testCase "a body over the cap is refused before it is read" $
+      withCommandable $ \a _hub _path _other -> do
+        r <- postTo a "/command" (BL.fromStrict (BS.replicate (1024 * 1024 + 1) 0x78))
+        assertEqual "status" 413 (status r)
+
+  , testCase "the route takes POST and nothing else" $
+      withCommandable $ \a _hub _path _other -> do
+        r <- getFrom a "/command"
+        assertEqual "status" 405 (status r)
+        assertContains "hint" "/command takes POST" (body r)
+  ]
+
+-- | Archived rows are out of the view unless the query asks for them.  @D@
+-- archives rather than deletes, so this is what keeps the default table from
+-- growing without bound — and what must never hide the key that reaches them.
+archiveViewSpec :: TestTree
+archiveViewSpec = testGroup "GET /headlines and the archive"
+  [ testCase "an archived row is out of the default answer, and counted" $
+      withArchived $ \a -> do
+        r <- getFrom a "/headlines"
+        assertEqual "the rows that are left" ["plain", "shipped"] . sort . map rowId
+          =<< rowsOf r
+        assertEqual "X-Glance-Total" (Just "2") (header "X-Glance-Total" r)
+        assertEqual "X-Glance-Archived" (Just "1") (header "X-Glance-Archived" r)
+
+  , testCase "the exclusion is exactly what -archive: spells" $
+      withArchived $ \a -> do
+        implicit <- rowsOf =<< getFrom a "/headlines"
+        explicit <- getFrom a "/headlines?q=-archive%3A"
+        assertEqual "the same rows" (map rowId implicit) . map rowId =<< rowsOf explicit
+        -- A query that says it itself is not one this server also says: the
+        -- count is zero because nothing was withheld from it.
+        assertEqual "nothing hidden from it" (Just "0")
+                    (header "X-Glance-Archived" explicit)
+
+  , testCase "naming the key at all shows them" $
+      withArchived $ \a ->
+        mapM_ (\(path, wanted) -> do
+                 r <- getFrom a path
+                 assertEqual (show path <> ": the rows") wanted . sort . map rowId
+                   =<< rowsOf r
+                 assertEqual (show path <> ": nothing hidden") (Just "0")
+                             (header "X-Glance-Archived" r))
+              [ ("/headlines?q=archive%3A", ["filed"])
+              , ("/headlines?q=archive%3Afiled", ["filed"])
+              , ("/headlines?q=state%3ADONE%20archive%3A", ["filed"]) ]
+
+    -- The vocabulary is the WHOLE store's, which is what makes the key reach
+    -- what the default hides.  A value no row spells as text is the proof: as
+    -- free text `archive:filed' matches nothing, so a match is a predicate.
+  , testCase "the key survives the exclusion that hides its rows" $
+      withArchived $ \a -> do
+        faceted <- getFrom a "/headlines?q=archive%3Afiled"
+        text' <- getFrom a "/headlines?q=%22archive%3Afiled%22"
+        assertEqual "as a predicate" (Just "1") (header "X-Glance-Total" faceted)
+        assertEqual "as free text" (Just "0") (header "X-Glance-Total" text')
+
+  , testCase "a tree with nothing archived says so" $ do
+      r <- get assetsDir "/headlines"
+      assertEqual "X-Glance-Archived" (Just "0") (header "X-Glance-Archived" r)
+      assertEqual "and every row is served" (Just "6") (header "X-Glance-Total" r)
+
+  , testCase "the exclusion runs before the page, like the filter" $
+      withArchived $ \a -> do
+        r <- getFrom a "/headlines?limit=1"
+        assertEqual "the total is what is left after it" (Just "2")
+                    (header "X-Glance-Total" r)
+        assertEqual "the page" 1 . length =<< rowsOf r
+        assertEqual "and more follows" (Just "true") (header "X-Glance-Has-Next" r)
+  ]
+
+-- | Run K over a server holding three rows, one of them tagged @ARCHIVE@.
+withArchived :: (Application -> Assertion) -> Assertion
+withArchived k = withTempDir $ \dir -> do
+  _ <- orgFile dir "notes.org" (T.unlines
+         [ "* TODO Plain"
+         , ":PROPERTIES:"
+         , ":ORG_GLANCE_ID: plain"
+         , ":END:"
+         , "* DONE Shipped :web:"
+         , ":PROPERTIES:"
+         , ":ORG_GLANCE_ID: shipped"
+         , ":END:"
+         , "* DONE Filed :web:ARCHIVE:"
+         , ":PROPERTIES:"
+         , ":ORG_GLANCE_ID: filed"
+         , ":END:" ])
+  (a, _hub) <- serverOver dir
+  k a
+
 -- | @\/@ in both modes: a shell that mounts the renderer, and a page that
 -- explains where the renderer went.
 pageSpec :: IO T.Text -> TestTree
@@ -1580,8 +2009,10 @@ pageSpec shell = testGroup "GET /"
             -- One press, one token: a held DEL claims the key and runs once,
             -- where held movement keeps repeating.  The table is the blob's.
             , "if (!(e.repeat && MAPS.once.indexOf(hit.command) !== -1)) run(hit);" ]
+      -- `D' is on the list for a different reason than the other two: it
+      -- writes files, so a held key must not be a hundred /command requests.
       onceOf b >>= assertEqual "the commands auto-repeat is off for"
-                     ["filter-drop-token", "unmark-all"]
+                     ["filter-drop-token", "unmark-all", "org-glance-overview:delete"]
       -- The guard is per command, so it cannot take auto-repeat off movement.
       assertBool "the repeat guard is blanket rather than per command"
                  (not ("if (e.repeat) return" `T.isInfixOf` b))
@@ -1662,6 +2093,10 @@ pageSpec shell = testGroup "GET /"
         -- Three keys, one word: the line says `m/u/U mark' the way it says
         -- `n/p rows', since the trio is one idea.
         , (["mark-toggle", "unmark", "unmark-all"], "mark")
+        -- The two structured commands, beside the keys that choose what they
+        -- run over: both read the marked set first and the row at point after.
+        , (["org-glance-overview:todo"], "state")
+        , (["org-glance-overview:delete"], "archive")
         , (["filter-rows"], "filter")
         , (["org-glance-overview:refresh"], "refresh")
         , (["filter-drop-token"], "drop token")
@@ -1739,8 +2174,12 @@ expectedShared =
   , (["a"],          "a",       "org-glance-agenda",               Nothing,               "table", Nothing)
   , (["@"],          "@",       "org-glance-overview:relations",   Nothing,               "table", Nothing)
   , (["+"],          "+",       "org-glance-overview:capture",     Nothing,               "table", Nothing)
-  , (["D"],          "D",       "org-glance-overview:delete",      Nothing,               "table", Nothing)
-  , (["C-c", "C-t"], "C-c C-t", "org-glance-overview:todo",        Nothing,               "table", Nothing)
+  -- org-glance's own name for dired's key, and a help line because what it
+  -- does here is narrower than the name: the headline is tagged, never removed.
+  , (["D"],          "D",       "org-glance-overview:delete",      Just "archiveRows",    "table",
+       Just "archive the marked rows, or the row at point \8212 never a delete")
+  , (["C-c", "C-t"], "C-c C-t", "org-glance-overview:todo",        Just "setState",       "table",
+       Just "set the state of the marked rows, or the row at point")
   , (["C-c", "C-s"], "C-c C-s", "org-glance-overview:schedule",    Nothing,               "table", Nothing)
   , (["C-c", "C-d"], "C-c C-d", "org-glance-overview:deadline",    Nothing,               "table", Nothing)
   , (["C-x", "C-s"], "C-x C-s", "save-buffer",                     Just "save",           "modal",
@@ -1947,7 +2386,7 @@ touchSpec shell = testGroup "Touch"
       assertBool "no coarse block in the page" (not (T.null coarse'))
       mapM_ (\needle -> assertBool ("a touch rule outside the query: " <> show needle)
                                    (not (needle `T.isInfixOf` before)))
-            ["min-height:44px", "#mtext{font-size:16px}", "tv-chips:empty"]
+            ["min-height:44px", "#mtext,#pinput{font-size:16px}", "tv-chips:empty"]
       assertEqual "one coarse block, and one gate on it" 1
                   (T.count "@media (pointer:coarse){" b)
   ]

@@ -7,7 +7,7 @@ import Control.Concurrent (getNumCapabilities, rtsSupportsBoundThreads)
 import Control.Monad (forM_, replicateM)
 import Data.Aeson (Value (Bool, Object, String), eitherDecodeFileStrict')
 import Data.Char (isDigit)
-import Data.List (nub, sort)
+import Data.List (foldl', nub, sort)
 import Data.Text (Text)
 import System.FilePath ((</>))
 import System.Posix.Files (createSymbolicLink)
@@ -22,8 +22,9 @@ import qualified Data.ByteString as BS
 import qualified Data.Text as T
 
 import Glance.Query ( HeadlineRecord (..), LoadFailure (..), QueryResult (..)
-                    , defaultWalk, displayText, loadDir, loadDirFilesSerially
-                    , loadDirFilesWith, matchesSearch, viewJSON )
+                    , Span (..), archiveEdits, archived, defaultWalk, displayText
+                    , loadDir, loadDirFilesSerially, loadDirFilesWith, loadFile
+                    , matchesSearch, setStateEdits, viewJSON )
 
 -- Fixtures
 
@@ -74,7 +75,7 @@ maybeBoolAt key v = assertFailure ("expected an object with " <> show key
 
 spec :: TestTree
 spec = testGroup "Query"
-  [loadSpec, parallelSpec, cellSpec, searchSpec, viewSpec, schemaSpec]
+  [loadSpec, parallelSpec, cellSpec, searchSpec, viewSpec, schemaSpec, commandSpec]
 
 -- | The pool answers what one thread answered.
 --
@@ -398,4 +399,153 @@ schemaSpec = testGroup "Schema conformance"
       assertEqual "commands" ["materialize"] commands
       assertEqual "labels" ["Materialize"] labels
       assertEqual "fields" [["command", "key", "label"]] (map sort fields)
+  ]
+
+-- Commands
+--
+-- The span math the structured commands run on.  It lives in the facade
+-- because 'Data.Org.HeadlineSpans' does not leave the private sublibrary, and
+-- it is asserted here for the same reason: this module imports no parser
+-- internals, so what these cases see is what the daemon sees.
+--
+-- Every case splices the edits itself rather than through
+-- 'Data.Org.Edit.applyEdits' — an oracle that shares the engine would agree
+-- with a wrong offset — and then asserts the WHOLE document, so the bytes
+-- around the edit are checked by the same assertion as the edit.
+
+-- | DOC with EDITS applied, right to left so an earlier offset is never moved
+-- by a later splice.  The suite's own splice: three lines, no engine.
+splice :: Text -> [(Span, Text)] -> Text
+splice = foldl' one
+  where one doc (Span s e, new) = T.take s doc <> new <> T.drop e doc
+
+-- | Run K over the one record DOC parses to, written into a file of its own so
+-- the load path is the ordinary one.
+withRecord :: Text -> (HeadlineRecord -> Assertion) -> Assertion
+withRecord doc k = withTempDirNamed "command" $ \dir -> do
+  path <- orgFile dir "one.org" doc
+  loadFile path >>= either (assertFailure . show) one
+  where one [r] = k r
+        one rs  = assertFailure ("expected one headline, got " <> show (length rs))
+
+-- | WHAT: DOC with @set-state KEYWORD@ applied to its one headline is WANTED.
+setStateIs :: String -> Text -> Maybe Text -> Text -> Assertion
+setStateIs what doc keyword wanted = withRecord doc $ \r ->
+  case setStateEdits keyword r of
+    Left why    -> assertFailure (what <> ": refused: " <> T.unpack why)
+    Right edits -> assertEqual what wanted (splice doc edits)
+
+-- | WHAT: DOC with @archive@ applied to its one headline is WANTED.
+archiveIs :: String -> Text -> Text -> Assertion
+archiveIs what doc wanted =
+  withRecord doc (assertEqual what wanted . splice doc . archiveEdits)
+
+-- | A document declaring keywords past org's own two, so the legality check
+-- has something to be right about.
+keyworded :: Text -> Text
+keyworded rest = "#+TODO: NEXT WAITING | CANCELLED\n" <> rest
+
+commandSpec :: TestTree
+commandSpec = testGroup "Commands"
+  [ testGroup "set-state"
+    [ testCase "over a keyword, replaces exactly that word" $
+        setStateIs "replaced" (keyworded "* NEXT [#A] Ship it :web:\n") (Just "WAITING")
+                              (keyworded "* WAITING [#A] Ship it :web:\n")
+
+      -- The insertion point is the stars', which is the one offset a headline
+      -- always has: a priority, a title and tags are each optional.
+    , testCase "with no keyword, inserts one right after the stars" $
+        setStateIs "inserted" "* [#B] Plain :tag:\n" (Just "TODO")
+                              "* TODO [#B] Plain :tag:\n"
+
+    , testCase "into a headline that is stars and nothing else" $
+        setStateIs "bare" "*\n" (Just "TODO") "* TODO\n"
+
+      -- The space behind the keyword goes with it, so the title closes up
+      -- rather than starting a column late.
+    , testCase "a null keyword takes the word and the space behind it" $
+        setStateIs "cleared" (keyworded "* NEXT Ship it :web:\n") Nothing
+                             (keyworded "* Ship it :web:\n")
+
+    , testCase "and the whole run of it, however wide" $
+        setStateIs "cleared wide" (keyworded "*   NEXT   Ship it\n") Nothing
+                                  (keyworded "*   Ship it\n")
+
+      -- Horizontal only: a keyword at the end of its line keeps the newline
+      -- that ends it, or the headline would swallow the line below.
+    , testCase "a keyword ending its line keeps the newline" $
+        setStateIs "cleared at eol" (keyworded "* NEXT\n* NEXT Second\n") Nothing
+                                    (keyworded "* \n* NEXT Second\n")
+
+    , testCase "clearing a headline that has no keyword costs no edit" $
+        withRecord "* Plain\n" $ \r ->
+          assertEqual "no edits" (Right []) (setStateEdits Nothing r)
+
+      -- Per file, because `#+TODO:' is: the same word is a keyword in one
+      -- document and the first word of a title in the next.
+    , testCase "a keyword the file does not declare is refused, by name" $
+        withRecord "* TODO Plain\n" $ \r ->
+          case setStateEdits (Just "WAITING") r of
+            Right edits -> assertFailure ("expected a refusal, got " <> show edits)
+            Left why -> do
+              assertBool ("names the keyword: " <> T.unpack why) ("WAITING" `T.isInfixOf` why)
+              assertBool ("names what is declared: " <> T.unpack why)
+                         ("TODO" `T.isInfixOf` why && "DONE" `T.isInfixOf` why)
+
+    , testCase "the same keyword is legal once the file declares it" $
+        setStateIs "declared" (keyworded "* TODO Plain\n") (Just "WAITING")
+                              (keyworded "* WAITING Plain\n")
+
+      -- The state column ships these two as filter vocabulary beside its
+      -- badges.  No file declares one, so no file can be put into one.
+    , testCase "the state column's group meta-values are not keywords" $
+        withRecord (keyworded "* NEXT Plain\n") $ \r ->
+          mapM_ (\meta -> case setStateEdits (Just meta) r of
+                   Right edits -> assertFailure (T.unpack meta <> ": " <> show edits)
+                   Left _why   -> pure ())
+                ["*active*", "*inactive*", "active"]
+    ]
+
+  , testGroup "archive"
+    [ testCase "goes inside the tag list, ahead of its closing colon" $
+        archiveIs "tagged" "* TODO Ship it :web:glance:\n"
+                           "* TODO Ship it :web:glance:ARCHIVE:\n"
+
+    , testCase "with no tags, is appended to the title line" $
+        archiveIs "untagged" "* TODO Ship it\n" "* TODO Ship it :ARCHIVE:\n"
+
+      -- `hsFull' ends at the LAST part in span order, which here is a timestamp
+      -- on the next line and a drawer two lines below that.  Appending there
+      -- would put the tag inside the drawer.
+    , testCase "past a planning line and a drawer, still on the title line" $
+        archiveIs "planned" (T.unlines
+                    [ "* TODO Ship it"
+                    , "SCHEDULED: <2026-08-01 Sat>"
+                    , ":PROPERTIES:"
+                    , ":ORG_GLANCE_ID: ship"
+                    , ":END:" ])
+                  (T.unlines
+                    [ "* TODO Ship it :ARCHIVE:"
+                    , "SCHEDULED: <2026-08-01 Sat>"
+                    , ":PROPERTIES:"
+                    , ":ORG_GLANCE_ID: ship"
+                    , ":END:" ])
+
+    , testCase "onto a headline with no title either" $
+        archiveIs "titleless" "* TODO\n" "* TODO :ARCHIVE:\n"
+
+    , testCase "a row already carrying the tag costs no edit" $
+        withRecord "* TODO Ship it :web:ARCHIVE:\n" $ \r -> do
+          assertBool "reads as archived" (archived r)
+          assertEqual "no edits" [] (archiveEdits r)
+
+      -- The tag is matched the way the filter matches one, which folds case.
+    , testCase "however the file spells the tag" $
+        withRecord "* TODO Ship it :archive:\n" $ \r ->
+          assertEqual "no edits" [] (archiveEdits r)
+
+    , testCase "and an untagged row does not read as archived" $
+        withRecord "* TODO Ship it :web:\n"
+                   (assertBool "not archived" . not . archived)
+    ]
   ]
