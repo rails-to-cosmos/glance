@@ -42,8 +42,18 @@ rejected (see Non-goals).
   the write-back rules below.
 - **Building our own browser (Nyxt-style)** — Nyxt's *browser* is the weak part
   (WebKit jank, unpolished UX). Its *extension model* is the good part. Keep the
-  model, use a real browser.
+  model, use a real browser. Rev 4 nuance: a **desktop shell** — a native
+  window hosting the *system* webview pointed at the local daemon — is not an
+  own browser (we never own the engine) and is now planned (see Desktop
+  shell). The automation driver stays in the user's real browser regardless:
+  a webview shell has no logged-in sessions, cookies live in the real browser.
 - **WASM in general** — only offline needs it, and offline is not a driver.
+  Rev 4, performance verdict: measured, not needed. The 13k-row filter freeze
+  was DOM churn (874 ms of innerHTML rebuild + 33k listener re-attachment per
+  keystroke); after renderer surgery the same keystroke is 19 ms of work and
+  the server filter is 7–10 ms. WASM cannot touch the DOM and would add
+  marshalling on top of a compute cost that is already noise. Standing
+  verdict: WASM buys nothing here.
 - **LLM in the automation loop** — a model steering a cookie-bearing browser
   session is a prompt-injection and session-theft surface. Automation runs as
   deterministic scripts: auditable, replayable, reviewed before they ever hold
@@ -170,6 +180,21 @@ parser; the graph needs refs — sequence accordingly.
   terminal: xterm.js over the bridge WS to a daemon PTY. The terminal is the
   most privileged capability the bridge will ever carry — automate tier,
   never earlier than the tier system itself.
+
+**Desktop shell (rev 4).** glance as a desktop application, in two stages,
+architecture unchanged (daemon + bridge + web UI; the shell is one more
+client):
+
+1. *Now, zero code:* `glance desktop` — start the daemon, open an app-mode
+   window (`chromium --app=http://127.0.0.1:PORT` / equivalent; fallback
+   `xdg-open`). No browser chrome, dock icon, feels native.
+2. *Later, single binary:* Haskell webview bindings over the system engine
+   (WebKitGTK here) — one `glance` binary that opens its own window. A spike,
+   only if stage 1 chafes; Electron is rejected outright (a bundled Chromium
+   per app contradicts the tiny-frontend rule).
+
+The phone, the shared read-only slice, and the automation extension keep
+using real browsers; the desktop shell adds a surface, replacing none.
 
 **Materialize (landed early, ahead of M3/M4).** The subtree round-trip —
 click a row, see the raw subtree, edit, commit back drift-locked — runs on
