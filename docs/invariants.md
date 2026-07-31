@@ -346,11 +346,18 @@ on.
   producer's virtual keys, which is what keeps org cell text — `:work:`,
   `=code=` — from becoming one by accident; a token that *opens* with a quote is
   free text; a leading `-` negates. Same-key predicates OR, distinct keys and
-  free text AND, negations AND regardless. Per column type: badge whole-value
-  case-insensitive plus this producer's `state:active`/`state:inactive` meta
-  values, text substring, dates prefix; and three uniform rules — `key:none` is
-  the empty cell whatever the type, `key:` narrows nothing, a value may be
-  quoted. The virtual keys are the store's org tags (`Glance.Web.Store.stTags`,
+  free text AND, negations AND regardless. Predicates sharing one key combine
+  by the field's arity: single-valued fields OR, since a badge cell ANDed with
+  itself is always empty, and multi-valued ones AND — the `tag` column and
+  every virtual tag key, where `tag:a tag:b` is a row carrying both and
+  `contact:x contact:y` is tagged `contact` and matching both texts. Per column
+  type: badge whole-value case-insensitive plus this producer's
+  `state:active`/`state:inactive` meta values, text substring, dates prefix;
+  and three uniform rules — `key:none` is the empty cell whatever the type,
+  `key:` narrows nothing, a value may be quoted. The tags column's key is
+  `tag`, singular, so the key a filter names and the tags it names read alike
+  (`tag:travel`); the header stays `Tags` and `hrSearch`'s field order is
+  unchanged, since only the name moved. The virtual keys are the store's org tags (`Glance.Web.Store.stTags`,
   counted per tag beside `stIds` so a query costs no fold over 13k rows):
   `TAG:text` is tagged whole-`TAG` *and* matching text, an empty value being
   presence alone, and a column shadows a tag of its name. Two consequences to

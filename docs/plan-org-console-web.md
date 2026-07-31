@@ -69,7 +69,7 @@ Exit:
       an id, no `actions` yet.
 - [x] Rows carry: state badge, title, tags, priority, scheduled date.
       Actual columns: `state` (badge, sortable), `priority` (sortable, values
-      A/B/C), `title`, `tags`, `scheduled` (sortable), `deadline` (sortable —
+      A/B/C), `title`, `tag` (`tags` until 2026-07-31), `scheduled` (sortable), `deadline` (sortable —
       our addition, schema-legal). Sort: scheduled ascending.
 - [x] Web/daemon code imports only `Glance.Query` — enforced by a separate
       cabal library stanza (daemon target lacks `Data.Org.*` in build-depends).
@@ -292,6 +292,40 @@ Exit:
       reserved for the browser in both. The suite parses both effective maps
       and asserts no profile row shadows a shared one or swallows its own
       longer sequence. 416 → **419 tests**.
+- [x] Movement reaches the cell. `f`/`b` under `emacs` — org-glance's
+      same-level rhyme one granularity down — and `l`/`h` under `vim`, under
+      one pair of command names (`next-column`, `previous-column`). The column
+      is held in the renderer's own selection rather than in the page, which is
+      the whole of the persistence: `select(id, col)` carries it through row
+      movement, a profile switch cannot touch it, and clearing the selection
+      clears it. A row selection has no column and looks as it always did until
+      the first horizontal key, which lands on the first column from either
+      direction; walking off an edge stays on it. The echo names the landing
+      column by its header (`f → next-column (Headline)`) or the edge it
+      stopped at (`f → next-column (at last)`). Neither key collided: `f`/`b`
+      were free in the emacs map and `h`/`l` in the vim one, so no staged row
+      had to move.
+- [x] Shell chrome, four smaller corrections landed with it. The page's
+      hairline is the renderer's — `--g-border` is `table-view.js`'s own
+      `--tv-border` (`#E3E6EA` / `#2a2d3d`), where danneskjold's border faces
+      were framing each element at 1.8:1 instead of receding. The `?q=` restore
+      hands the query to `mount` as `initialQuery`, so it comes back as the
+      renderer's committed chips rather than as text stuffed into the box; an
+      asset predating the option drops it silently, so the mount asks
+      `getQuery()` whether it took and falls back to the old path. The sheet's
+      backdrop takes `z-index:100` and the sheet `101` — the renderer's sticky
+      header is `1` and its completion list `5`, and an unnumbered backdrop
+      painted under both — while the corner (`3`) and the echo (`2`) stay under
+      it and dim with the page. And the status log wears the table's own
+      container: one rule sets both widths, the hairline, radius and surface
+      tint are `.tv-root`'s, it caps at `10em` and scrolls to the end unless
+      the reader has scrolled up, and it collapses outright when empty.
+- [x] `DEL` runs once per press. Auto-repeat is what movement wants — a held
+      `n` is how you cross a table, and the renderer coalesces those to a frame
+      — but a held `DEL` walked the whole query off. The guard is by command
+      name (`ONCE`), beside `RESERVED`, so it holds under every profile and
+      takes the repeat off nothing else; the key stays claimed either way.
+      540 → **545 tests** for the five above, hlint clean, no new warnings.
 
 **Measured** against `glance serve --dir ~/sync --port 7799` — 6313 files,
 13359 rows, 16.9 s startup — over a keep-alive loopback connection, 40 requests

@@ -886,8 +886,27 @@ pageSpec = testGroup "GET /"
             -- `keys' rides in the same query string and has to survive a commit.
             , "new URLSearchParams(location.search)"
             , "const urlQuery = () => params().get(\"q\") || \"\";"
-            -- A ?q= in the address bar is applied on load, box and all.
-            , "const asked = (query = urlQuery());", "showQuery();" ]
+            -- A ?q= in the address bar is applied on load.
+            , "const asked = (query = urlQuery());" ]
+
+  , testCase "with assets, the restored query is the renderer's own chips" $ do
+      b <- body <$> get assetsDir "/"
+      -- The mount is handed the applied query; the renderer tokenizes it into
+      -- committed chips and delivers nothing, since the rows in hand are
+      -- already the server's answer to it.
+      mapM_ (\needle -> assertContains "restore glue" needle b)
+            [ "initialQuery: query,"
+            -- An asset predating the option drops it silently, so the mount
+            -- asks whether it took and stuffs the box when it did not.
+            , "const holds = (q) => typeof table.getQuery === \"function\""
+            , "&& table.getQuery() === q;"
+            , "if (query && !holds(query)) showQuery();"
+            , "function showQuery() {" ]
+      -- One restoration point: `start' re-fetches and re-mounts for every way
+      -- back in, so it does not restore the query a second time itself.
+      assertEqual "showQuery is called from the mount alone" 1
+                  (T.count "!holds(query)) showQuery();" b)
+      assertEqual "showQuery is defined once" 1 (T.count "function showQuery()" b)
 
   , testCase "with assets, DEL takes the last token off through the renderer" $ do
       b <- body <$> get assetsDir "/"
@@ -899,7 +918,14 @@ pageSpec = testGroup "GET /"
             , "DEL → filter: ${JSON.stringify(left)}", "DEL → filter cleared"
             -- An asset without the pair says so instead of guessing.
             , "typeof table.stripLastToken === \"function\""
-            , "this table-view.js has no filter tokens" ]
+            , "this table-view.js has no filter tokens"
+            -- One press, one token: a held DEL claims the key and runs once,
+            -- where held movement keeps repeating.
+            , "const ONCE = [\"filter-drop-token\"];"
+            , "if (!(e.repeat && ONCE.indexOf(hit.command) !== -1)) run(hit);" ]
+      -- The guard is per command, so it cannot take auto-repeat off movement.
+      assertBool "the repeat guard is blanket rather than per command"
+                 (not ("if (e.repeat) return" `T.isInfixOf` b))
       -- Neither of the two designs this replaced survives.
       mapM_ (\gone -> assertBool ("a superseded filter path survives: " <> show gone)
                                  (not (gone `T.isInfixOf` b)))
@@ -971,16 +997,52 @@ pageSpec = testGroup "GET /"
       -- The author's Emacs theme in one set of custom properties: white on
       -- true black in the dark variant, black on white in the light one.
       mapM_ (\needle -> assertContains "palette" needle b)
-            [ "--g-bg:#FFFFFF;--g-fg:#000000;--g-border:#BDC3C7"
+            [ "--g-bg:#FFFFFF;--g-fg:#000000;--g-border:#E3E6EA"
             , "@media (prefers-color-scheme:dark){:root{--g-bg:#000000;--g-fg:#FFFFFF;"
-            , "--g-border:#223959;--g-mute:#A4C2EB;--g-surface:#21252B;--g-sel:#373D4F;"
+            , "--g-border:#2A2D3D;--g-mute:#A4C2EB;--g-surface:#21252B;--g-sel:#373D4F;"
             , "background:var(--g-bg);color:var(--g-fg)"
             , "#mtext::selection{background:var(--g-sel);color:var(--g-fg)}"
             , "#mnote.conflict,#mnote.error{color:var(--g-bad)}" ]
+      -- The hairline is the renderer's own `--tv-border', so the page draws
+      -- one weight of chrome; danneskjold's own border faces frame instead.
+      mapM_ (\gone -> assertBool ("a framing border colour survives: " <> show gone)
+                                 (not (gone `T.isInfixOf` b)))
+            ["--g-border:#BDC3C7", "--g-border:#223959"]
+      mapM_ (\needle -> assertContains "hairline weight" needle b)
+            [ "border:1px solid var(--g-border)" ]
       -- The sheet asks for the author's Emacs font by name; the page keeps the
       -- stack it had.
       assertContains "the sheet's stack" "--dk-mono:\"Hack\", var(--glance-mono)" b
       assertContains "the page's stack" "font:14px/1.5 var(--glance-mono)" b
+
+  , testCase "with assets, the log wears the table's container under it" $ do
+      b <- body <$> get assetsDir "/"
+      mapM_ (\needle -> assertContains "log strip" needle b)
+            -- One rule sets both widths, so the strip cannot drift from the
+            -- table above it; the hairline, the radius and the surface tint
+            -- are `.tv-root''s, which is what makes it read as the same thing.
+            [ "#app,#log{width:100%;box-sizing:border-box}"
+            , "border:1px solid var(--g-border);border-radius:8px;"
+            , "background:var(--g-surface);max-height:10em;overflow-y:auto}"
+            -- Nothing to say, nothing on screen — no empty frame.
+            , "#log:empty{display:none}"
+            -- Capped, so the end of a long message is scrolled to unless the
+            -- reader has scrolled up to hold a place.
+            , "box.scrollTop + box.clientHeight >= box.scrollHeight - 4"
+            , "if (end) box.scrollTop = box.scrollHeight;" ]
+      -- The reserved line the frame replaces is gone: an empty box collapses.
+      assertBool "the log still reserves a line while empty"
+                 (not ("min-height:1.4em" `T.isInfixOf` b))
+
+  , testCase "with assets, the sheet's backdrop covers the renderer's chrome" $ do
+      b <- body <$> get assetsDir "/"
+      -- `table-view.js' gives its sticky header `z-index:1' and its completion
+      -- list `5'; an unnumbered backdrop painted under both.  The page's own
+      -- corner and echo stay below the backdrop and dim with everything else.
+      mapM_ (\needle -> assertContains "stacking" needle b)
+            [ "position:fixed;inset:0;z-index:100;", "position:relative;z-index:101;"
+            , "#corner{position:fixed;top:12px;right:14px;z-index:3;"
+            , "#echo{position:fixed;right:14px;bottom:12px;z-index:2;" ]
 
   , testCase "with assets, the theme is a three-way switch the page honours" $ do
       b <- body <$> get assetsDir "/"
@@ -1066,23 +1128,31 @@ expectedShared =
 
 -- | The movement each profile adds, and what it displaces.  @j@ is the
 -- overview's open-stub under emacs and down under vim; @g@ is refresh under
--- emacs and the opening of @gg@ under vim, which sends refresh to @R@.
+-- emacs and the opening of @gg@ under vim, which sends refresh to @R@.  Cell
+-- movement is @f@\/@b@ under emacs — org-glance's same-level rhyme, one
+-- granularity down — and @h@\/@l@ under vim, under the same two command names.
 expectedProfiles :: [(T.Text, [Row])]
 expectedProfiles =
   [ ("emacs",
-      [ (["n"], "n", "next-row",                    Just "nextRow",     "table", Nothing)
-      , (["p"], "p", "previous-row",                Just "previousRow", "table", Nothing)
-      , (["g"], "g", "org-glance-overview:refresh", Just "refresh",     "table", Nothing)
-      , (["j"], "j", "org-glance-overview:open",    Nothing,            "table", Nothing)
+      [ (["n"], "n", "next-row",                    Just "nextRow",         "table", Nothing)
+      , (["p"], "p", "previous-row",                Just "previousRow",     "table", Nothing)
+      , (["f"], "f", "next-column",                 Just "nextColumn",      "table", rightHelp)
+      , (["b"], "b", "previous-column",             Just "previousColumn",  "table", leftHelp)
+      , (["g"], "g", "org-glance-overview:refresh", Just "refresh",         "table", Nothing)
+      , (["j"], "j", "org-glance-overview:open",    Nothing,                "table", Nothing)
       ])
   , ("vim",
-      [ (["j"],      "j",  "next-row",                    Just "nextRow",     "table", Nothing)
-      , (["k"],      "k",  "previous-row",                Just "previousRow", "table", Nothing)
-      , (["g", "g"], "gg", "first-row",                   Just "firstRow",    "table", Nothing)
-      , (["G"],      "G",  "last-row",                    Just "lastRow",     "table", Nothing)
-      , (["R"],      "R",  "org-glance-overview:refresh", Just "refresh",     "table", Nothing)
+      [ (["j"],      "j",  "next-row",                    Just "nextRow",        "table", Nothing)
+      , (["k"],      "k",  "previous-row",                Just "previousRow",    "table", Nothing)
+      , (["l"],      "l",  "next-column",                 Just "nextColumn",     "table", rightHelp)
+      , (["h"],      "h",  "previous-column",             Just "previousColumn", "table", leftHelp)
+      , (["g", "g"], "gg", "first-row",                   Just "firstRow",       "table", Nothing)
+      , (["G"],      "G",  "last-row",                    Just "lastRow",        "table", Nothing)
+      , (["R"],      "R",  "org-glance-overview:refresh", Just "refresh",        "table", Nothing)
       ])
   ]
+  where rightHelp = Just "the cell to the right; row movement keeps the column"
+        leftHelp  = Just "the cell to the left; from a whole row, the first column"
 
 -- | The keymap blob out of SHELL: the shared rows, and the profiles by name.
 keymapOf :: T.Text -> IO ([Row], [(T.Text, [Row])])
@@ -1206,10 +1276,46 @@ keymapSpec = testGroup "Shell keymap"
       -- The renderer virtualizes, so a row outside the window has no element:
       -- movement is ids out of `getVisible()' handed back to `select(id)'.
       mapM_ (\needle -> assertContains "row focus" needle b)
-        [ "tbody tr.tv-sel", "table.getVisible()", "table.select(id)", ".tv-filter" ]
+        [ "tbody tr.tv-sel", "table.getVisible()", "table.select(id, column())", ".tv-filter" ]
       mapM_ (\gone -> assertBool ("the DOM movement path survives: " <> show gone)
                                  (not (gone `T.isInfixOf` b)))
         [ "tr.click()", "scrollIntoView", "rowEls(" ]
+
+  , testCase "cell movement is that selection with a column, and no state here" $ do
+      b <- body <$> get assetsDir "/"
+      -- The column is the renderer's to hold: the shell reads it back out of
+      -- `getSelection()' every time, which is why it survives a profile switch
+      -- and goes when the selection does.
+      mapM_ (\needle -> assertContains "cell glue" needle b)
+        [ "const column = () => (cells() ? table.getSelection().col : null);"
+        , "nextColumn: (b) => moveCol(b, 1),"
+        , "previousColumn: (b) => moveCol(b, -1),"
+        -- A whole-row selection has no column, and either direction lands on
+        -- the first one from there.
+        , "const at = column(), want = at === null ? 0 : at + step;"
+        , "table.select(id, want)"
+        -- An asset without cell selection says so rather than throwing.
+        , "typeof table.getSelection === \"function\""
+        , "this table-view.js has no cell selection"
+        -- The row is handed to its handler so the echo can open the same way.
+        , "if (handler) handler(b);" ]
+      -- No second copy of the column: nothing here remembers it between keys.
+      mapM_ (\gone -> assertBool ("the shell keeps its own column: " <> show gone)
+                                 (not (gone `T.isInfixOf` b)))
+        ["let col = ", "selCol", "lastColumn"]
+
+  , testCase "the landing column is echoed by its header, or the edge it stopped at" $ do
+      b <- body <$> get assetsDir "/"
+      mapM_ (\needle -> assertContains "cell echo" needle b)
+        -- `f → next-column (Headline)', and `f → next-column (at last)' where
+        -- the walk ran out of columns.
+        [ "const say = (what) => echo(`${b.seq} → ${b.command} (${what})`);"
+        , "say(cols[want].header || cols[want].key);"
+        , "say(want < 0 ? \"at first\" : \"at last\")"
+        , "say(\"no row\")"
+        -- The headers are the mounted view's, beside the keys parity reads.
+        , "cols = view.columns || [];"
+        , "columnKeys = cols.map((c) => c.key);" ]
 
   , testCase "the inline glue is JavaScript, where there is a node to say so" $ do
       node <- findExecutable "node"

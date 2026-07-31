@@ -67,12 +67,15 @@ separate entries revalidating against their own tags. Responses are gzipped
 *Filtering is a query language.* The filter box speaks
 [[file:../table-view/SCHEMA.md][SCHEMA.md]]'s micro-syntax and the server parses
 it: =state:TODO state:DONE tanik= is either state and the text, because
-predicates sharing a key OR while distinct keys and free text AND. A =key:value=
+distinct keys and free text AND. A =key:value=
 is a predicate only when =key= names a column — =state=, =priority=, =title=,
-=tags=, =scheduled=, =deadline= — or one of your own org tags, so =:work:= and
+=tag=, =scheduled=, =deadline= — or one of your own org tags, so =:work:= and
 ==code== stay the org text they are. Tags are keys of their own:
 =contact:tanik= is "tagged =contact= and matching =tanik=", and =contact:= alone
-is the facet. =-token= negates, ="two words"= quotes, =key:none= asks for an
+is the facet. Two predicates on one key combine by what the field holds: one
+value means either of them (=state:TODO state:DONE=, since no row is both),
+a list means all of them (=tag:web tag:glance= carries both, the way a label
+filter reads). =-token= negates, ="two words"= quotes, =key:none= asks for an
 empty cell, =scheduled:2026-08= is the month, and =state:active= /
 =state:inactive= are the keyword groups your =#+TODO:= lines declare. A query
 with no predicate in it is the substring search it always was. The applied query
@@ -163,14 +166,16 @@ Both key profiles share everything that is not movement:
 *Movement* is the part that differs. =emacs= is org-glance's overview map, and
 the default:
 
-| key  | =emacs=                                  | =vim=                            |
-|------+------------------------------------------+----------------------------------|
-| down | =n=                                      | =j=                              |
-| up   | =p=                                      | =k=                              |
-| top  | =,= =<=                                  | =,= =<= =gg=                     |
-| end  | =.= =>=                                  | =.= =>= =G=                      |
-|      | =g= → =org-glance-overview:refresh=      | =R= → same                       |
-|      | =j= → =org-glance-overview:open= (staged) | =!= carries it (shared)          |
+| key   | =emacs=                                   | =vim=                   |
+|-------+-------------------------------------------+-------------------------|
+| down  | =n=                                       | =j=                     |
+| up    | =p=                                       | =k=                     |
+| right | =f= → =next-column=                       | =l= → same              |
+| left  | =b= → =previous-column=                   | =h= → same              |
+| top   | =,= =<=                                   | =,= =<= =gg=            |
+| end   | =.= =>=                                   | =.= =>= =G=             |
+|       | =g= → =org-glance-overview:refresh=       | =R= → same              |
+|       | =j= → =org-glance-overview:open= (staged) | =!= carries it (shared) |
 
 Two rows move to make room under =vim=, and both moves are why the profiles are
 data rather than a second dispatch: =j= is down there, so the open-stub is left
@@ -178,6 +183,18 @@ to =!= — which =org-glance-overview-mode-map= already carries, as its
 dired-execute rhyme — and =g= is a prefix rather than a command, so refresh goes
 to =R= and reads as vi's reload. Nothing binds a bare =g= under =vim=: a
 complete sequence that also opens a longer one would leave =gg= unreachable.
+
+Horizontal movement selects a *cell*. =f= and =b= are org-glance's same-level
+keys one granularity down — where the overview walks headlines with them, a
+table walks the cells of a row — and =vim= spells the same two commands =l= and
+=h=. A row selection starts with no column and looks exactly as it always did;
+the first horizontal key lands on the first column whichever direction asked
+for it, and from there =n=/=p= (=j=/=k=) carry that column down the table.
+Walking off either edge stays on it. The echo names where it landed by the
+column's own header — =f → next-column (Headline)=, or =f → next-column (at
+last)= at the edge. The column lives in the renderer's selection rather than in
+the page, so switching profiles mid-table keeps it and clearing the selection
+takes it with it.
 
 Switch in the status corner, top right: the connection dot and a =keys:=
 selector sit there together. It rebinds in place, echoes =movement: vim=, and

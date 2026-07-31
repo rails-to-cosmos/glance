@@ -784,12 +784,19 @@ sharedKeys =
 
 -- | Movement as org-glance's overview binds it, and what a page starts on.
 -- @j@ is the overview's open-stub here, where vi needs it for down.
+--
+-- @f@ and @b@ are the same-level rhyme one granularity down: where org-glance
+-- walks headlines with them, a table walks the cells of a row.
 emacsKeys :: [KeyBinding]
 emacsKeys =
-  [ bind ["n"] "next-row"                    (Just "nextRow")     "table"
-  , bind ["p"] "previous-row"                (Just "previousRow") "table"
-  , bind ["g"] "org-glance-overview:refresh" (Just "refresh")     "table"
-  , bind ["j"] "org-glance-overview:open"    Nothing              "table"
+  [ bind ["n"] "next-row"                    (Just "nextRow")        "table"
+  , bind ["p"] "previous-row"                (Just "previousRow")    "table"
+  , bind ["f"] "next-column"                 (Just "nextColumn")     "table"
+      `helps` nextColumnHelp
+  , bind ["b"] "previous-column"             (Just "previousColumn") "table"
+      `helps` previousColumnHelp
+  , bind ["g"] "org-glance-overview:refresh" (Just "refresh")        "table"
+  , bind ["j"] "org-glance-overview:open"    Nothing                 "table"
   ]
 
 -- | Movement as vi binds it.  Two rows move to make room, and both moves are
@@ -799,14 +806,29 @@ emacsKeys =
 -- command, so refresh goes to @R@ and reads as vi's reload.  Nothing in this
 -- profile binds a bare @g@: a complete sequence that also opens a longer one
 -- would make the longer one unreachable.
+--
+-- @h@ and @l@ are the cell movement @f@ and @b@ are under @emacs@; the command
+-- names are shared, so only the keys differ.
 vimKeys :: [KeyBinding]
 vimKeys =
-  [ bind   ["j"]           "next-row"                    (Just "nextRow")     "table"
-  , bind   ["k"]           "previous-row"                (Just "previousRow") "table"
-  , bindAs "gg" ["g", "g"] "first-row"                   (Just "firstRow")    "table"
-  , bind   ["G"]           "last-row"                    (Just "lastRow")     "table"
-  , bind   ["R"]           "org-glance-overview:refresh" (Just "refresh")     "table"
+  [ bind   ["j"]           "next-row"                    (Just "nextRow")        "table"
+  , bind   ["k"]           "previous-row"                (Just "previousRow")    "table"
+  , bind   ["l"]           "next-column"                 (Just "nextColumn")     "table"
+      `helps` nextColumnHelp
+  , bind   ["h"]           "previous-column"             (Just "previousColumn") "table"
+      `helps` previousColumnHelp
+  , bindAs "gg" ["g", "g"] "first-row"                   (Just "firstRow")       "table"
+  , bind   ["G"]           "last-row"                    (Just "lastRow")        "table"
+  , bind   ["R"]           "org-glance-overview:refresh" (Just "refresh")        "table"
   ]
+
+-- | The cell-movement help lines, one pair for both profiles: the keys differ,
+-- what they do does not.  Between them they say the whole rule — the column
+-- rides along with row movement, and a whole-row selection starts at the first
+-- column whichever direction asks for one.
+nextColumnHelp, previousColumnHelp :: Text
+nextColumnHelp     = "the cell to the right; row movement keeps the column"
+previousColumnHelp = "the cell to the left; from a whole row, the first column"
 
 -- | The movement profiles, by the name @?keys=@ and the toggle use.  Adding
 -- one is adding a row: the shell reads them out of the blob and its toggle
@@ -881,9 +903,17 @@ shellPage opts = do
 --
 -- The applied query is page state.  It goes into the URL on every commit
 -- (@replaceState@, leaving @keys@ where it is), so a filtered view is a link, a
--- reload keeps it and a reconnect comes back to it.  @DEL@ over the table is
--- that query's own backspace: it takes the last token off — quotes and all —
--- and commits what is left, which clears the filter once the last token goes.
+-- reload keeps it and a reconnect comes back to it.  It is restored by handing
+-- it to @mount@ as @initialQuery@, which tokenizes it into the renderer's own
+-- committed chips and delivers nothing — the rows in hand are already the
+-- server's answer to it.  Every return through this door restores it the same
+-- way, since a reload, a reconnect, @view-changed@ and @g@ all re-fetch and
+-- re-mount.  An asset predating that option drops it silently, so the mount
+-- asks @getQuery@ whether it took and falls back to writing the query into the
+-- filter box, which is how this worked before chips could carry it.  @DEL@ over
+-- the table is that query's own backspace: it takes the last token off — quotes
+-- and all — and commits what is left, which clears the filter once the last
+-- token goes.
 --
 -- The materialize sheet has no buttons.  @ESC@ or a click on the backdrop
 -- closes it, flushing first when the text has moved and closing on the 200; a
@@ -910,7 +940,13 @@ shellPage opts = do
 -- The keys are 'keyBindingsJSON', which the glue parses: row movement runs
 -- over the renderer's @getVisible@ and @select@, since a virtualized row
 -- outside the window has no element to click, and a sequence with no handler
--- echoes its org-glance command name and what it is waiting for.  The pill in
+-- echoes its org-glance command name and what it is waiting for.  Cell
+-- movement is the same @select@ with a column: the column lives in the
+-- renderer's selection rather than here, so it survives a profile switch,
+-- rides along with row movement, and goes when the selection does.  A
+-- whole-row selection has no column and keeps the look it always had until a
+-- horizontal key lands on the first one; the echo names the column it arrived
+-- at by the header over it, or says which edge it stopped at.  The pill in
 -- the bottom corner is the echo area — the pending prefix while one is open,
 -- the command and its help line on completion, @is undefined@ otherwise.  The
 -- top corner holds the connection dot and a @select@ of the movement profiles
@@ -941,7 +977,15 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "  <script id=\"keys\" type=\"application/json\">" <> keyBindingsJSON <> "</script>"
   , "  <script src=\"" <> T.pack rendererAsset <> "\"></script>"
   , "  <script>"
-  , "    const log = (m) => (document.getElementById(\"log\").textContent = m);"
+  -- The strip is capped, so the end of a long message can be out of sight.
+  -- Keep it in sight — unless the reader has scrolled up, which is a place
+  -- they are holding on purpose.
+  , "    function log(m) {"
+  , "      const box = document.getElementById(\"log\");"
+  , "      const end = box.scrollTop + box.clientHeight >= box.scrollHeight - 4;"
+  , "      box.textContent = m;"
+  , "      if (end) box.scrollTop = box.scrollHeight;"
+  , "    }"
   , "    const dot = (state) => (document.getElementById(\"dot\").className = state);"
   , "    const el = (id) => document.getElementById(id);"
   , "    let table = null, socket = null, backoff = 1000, editing = null;"
@@ -955,16 +999,28 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    function mount(view) {"
   , "      table = TableView.mount(document.getElementById(\"app\"), view, {"
   , "        omnibox: true,     // the filter is the page's one hero input"
+  , "        // The applied query, restored as the renderer's own committed"
+  , "        // chips. It tokenizes them and delivers nothing — the rows in"
+  , "        // hand are already the server's answer to this query, and a"
+  , "        // delivery here would ask for them a second time."
+  , "        initialQuery: query,"
   , "        onAction: (command, id) =>"
   , "          command === \"materialize\" ? materialize(id)"
   , "                                     : log(`action: ${command}  id=${id}`),"
   , "        onLink: (target) => log(`link: ${target}`),"
   , "        onFilter: filter,   // the server narrows; the renderer shows what it is given"
   , "      });"
+  , "      // An asset older than `initialQuery' drops it silently, which would"
+  , "      // leave the page showing no filter over rows that are filtered."
+  , "      // `getQuery()' says whether it took: when it did not, put the query"
+  , "      // back in the box the way this did before chips could carry it."
+  , "      if (query && !holds(query)) showQuery();"
   , "      cursor = null;"
-  , "      // The columns are the view's, and the one thing both halves of a"
-  , "      // filter read out of it (`parity')."
-  , "      columnKeys = (view.columns || []).map((c) => c.key);"
+  , "      // The columns are the view's: both halves of a filter read the keys"
+  , "      // out of them (`parity'), and cell movement names its landing column"
+  , "      // by the header sitting over it."
+  , "      cols = view.columns || [];"
+  , "      columnKeys = cols.map((c) => c.key);"
   , "      say();"
   , "    }"
   , "    const say = () => log(`${table ? table.getRows().length : 0}`"
@@ -985,7 +1041,7 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    const quiet = (e) => { if (e.name !== \"AbortError\") log(`load failed: ${e.message}`); };"
   , "    // The unfiltered answer is kept: with a filter on, the loaded rows are"
   , "    // the server's answer to it and cannot be used to check that answer."
-  , "    let all = [], columnKeys = [];"
+  , "    let all = [], cols = [], columnKeys = [];"
   , "    const paint = (a) => {"
   , "      const rows = a.view.rows || [];"
   , "      table.setRows(rows);"
@@ -1048,8 +1104,13 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    // have the pair says so rather than growing a second implementation."
   , "    const strips = () => table && typeof table.stripLastToken === \"function\""
   , "      && typeof table.getQuery === \"function\";"
-  , "    // The box is the renderer's; setting its value fires no input event, so"
-  , "    // showing a restored query there does not commit it a second time."
+  , "    // Whether the mounted renderer is carrying Q as its own query."
+  , "    const holds = (q) => typeof table.getQuery === \"function\""
+  , "      && table.getQuery() === q;"
+  , "    // The fallback for an asset without `initialQuery': the query goes in"
+  , "    // the box rather than into chips.  The box is the renderer's, and"
+  , "    // setting its value fires no input event, so a restored query shown"
+  , "    // there is not committed a second time."
   , "    function showQuery() {"
   , "      const box = document.querySelector(\"#app .tv-filter\");"
   , "      if (box) box.value = query;"
@@ -1163,11 +1224,31 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    function pick(list, i) {"
   , "      if (!list.length) { log(\"no rows to move through\"); return; }"
   , "      const id = list[Math.max(0, Math.min(list.length - 1, i))].id;"
-  , "      if (table.select(id)) cursor = id;"
+  , "      // Row movement carries the column along: null until a horizontal key"
+  , "      // picks one, so a page nobody has moved sideways in keeps whole rows."
+  , "      if (table.select(id, column())) cursor = id;"
   , "    }"
   , "    function move(step) {"
   , "      const list = visible(), at = list.findIndex((r) => r.id === focusedId());"
   , "      pick(list, at === -1 ? (step > 0 ? 0 : list.length - 1) : at + step);"
+  , "    }"
+  , "    // Cells.  The column is part of the renderer's selection, so it needs no"
+  , "    // state here: it survives a profile switch, rides along with row"
+  , "    // movement, and goes when the selection that holds it goes.  A whole-row"
+  , "    // selection has none, and the first horizontal key lands on the first"
+  , "    // column whichever direction asked."
+  , "    const cells = () => !!table && typeof table.getSelection === \"function\";"
+  , "    const column = () => (cells() ? table.getSelection().col : null);"
+  , "    function moveCol(b, step) {"
+  , "      const say = (what) => echo(`${b.seq} → ${b.command} (${what})`);"
+  , "      if (!cells()) { say(\"this table-view.js has no cell selection\"); return; }"
+  , "      const at = column(), want = at === null ? 0 : at + step;"
+  , "      // Clamped, never wrapped: walking off an edge stays on it and says so."
+  , "      if (want < 0 || want >= cols.length) { say(want < 0 ? \"at first\" : \"at last\"); return; }"
+  , "      const id = focusedId();"
+  , "      if (!id || !table.select(id, want)) { say(\"no row\"); return; }"
+  , "      cursor = id;"
+  , "      say(cols[want].header || cols[want].key);"
   , "    }"
   , "    const focusFilter = () => {"
   , "      const box = document.querySelector(\"#app .tv-filter\");"
@@ -1247,6 +1328,12 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    // Chords the browser needs more than we do: never claimed, not even as"
   , "    // the continuation of a prefix this map has already entered."
   , "    const RESERVED = [\"C-l\", \"C-r\", \"C-t\", \"C-w\", \"C-n\", \"C-p\", \"<f5>\"];"
+  , "    // Commands that take auto-repeat off: one press, one token.  Movement"
+  , "    // wants the repeat — a held n is how you cross a table, and the renderer"
+  , "    // coalesces those to a frame — but a held DEL would walk the whole query"
+  , "    // away between one glance at the chips and the next.  By command name,"
+  , "    // so it holds under every profile that binds it."
+  , "    const ONCE = [\"filter-drop-token\"];"
   , "    function keyName(e) {"
   , "      let base = NAMED[e.key], special = base !== undefined;"
   , "      if (!special && /^F\\d{1,2}$/.test(e.key))"
@@ -1297,6 +1384,8 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    const HANDLERS = {"
   , "      nextRow: () => move(1),"
   , "      previousRow: () => move(-1),"
+  , "      nextColumn: (b) => moveCol(b, 1),"
+  , "      previousColumn: (b) => moveCol(b, -1),"
   , "      firstRow: () => pick(visible(), 0),"
   , "      lastRow: () => pick(visible(), visible().length - 1),"
   , "      materializeRow: () => {"
@@ -1320,10 +1409,13 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "        echo(left ? `DEL → filter: ${JSON.stringify(left)}` : \"DEL → filter cleared\");"
   , "      },"
   , "    };"
+  , "    // The row is handed to its handler: one that names what it landed on"
+  , "    // — the filter left, the column arrived at — echoes over this line with"
+  , "    // the same `seq → command' opening."
   , "    function run(b) {"
   , "      echo(`${b.seq} → ${b.command}${b.help ? ` · ${b.help}` : \"\"}`);"
   , "      const handler = b.handler && HANDLERS[b.handler];"
-  , "      if (handler) handler();"
+  , "      if (handler) handler(b);"
   , "      else log(`${b.seq} (${b.command}) — arrives with daemon commands (M4)`);"
   , "    }"
   , "    document.addEventListener(\"keydown\", (e) => {"
@@ -1334,7 +1426,14 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      // A row is in play while its keys open with the ones typed so far."
   , "      const opens = (b) => keys.every((key, i) => b.keys[i] === key);"
   , "      const hit = here.find((b) => b.keys.length === keys.length && opens(b));"
-  , "      if (hit) { prefix([]); e.preventDefault(); run(hit); return; }"
+  , "      // A held key still belongs to this map — it is claimed either way —"
+  , "      // but a destructive one runs once per press."
+  , "      if (hit) {"
+  , "        prefix([]);"
+  , "        e.preventDefault();"
+  , "        if (!(e.repeat && ONCE.indexOf(hit.command) !== -1)) run(hit);"
+  , "        return;"
+  , "      }"
   , "      if (here.some((b) => b.keys.length > keys.length && opens(b))) {"
   , "        if (!selecting()) { e.preventDefault(); prefix(keys); }"
   , "        return;"
@@ -1377,12 +1476,13 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    }"
   , "    function start() {"
   , "      // A `?q=' in the address bar is a filtered view: the boot asks for it"
-  , "      // and the filter box opens showing it."
+  , "      // and `mount' opens the filter showing it.  Every return through this"
+  , "      // door — a reload, a reconnect, `view-changed', `g' — restores it the"
+  , "      // same way, since they all re-fetch and re-mount."
   , "      const asked = (query = urlQuery());"
   , "      const narrow = asked ? `?q=${encodeURIComponent(asked)}&` : \"?\";"
   , "      load(`${narrow}limit=${PAGE}`).then((a) => {"
   , "        mount(a.view);"
-  , "        showQuery();"
   , "        listen();"
   , "        // The rest behind the painted table: n/p, sort and materialize all"
   , "        // want the whole set, and the renderer holds it without the DOM."
@@ -1431,26 +1531,33 @@ page head' title body = T.unlines
   -- of custom properties the whole page reads.  Source:
   -- danneskjold-theme.el (../danneskjold-theme,
   -- github.com/rails-to-cosmos/danneskjold-theme).  Dark variant: `default'
-  -- #FFFFFF on #000000, `vertical-border' #223959, `region' #373D4F,
-  -- `font-lock-comment-face' #A4C2EB, `company-tooltip' #21252B,
-  -- `org-done'/success #B6E63E, `error' #E74C3C, `accent' #4CB5F5.  Light
-  -- variant: #000000 on #FFFFFF, `light-dim' #BDC3C7, `light-comment' #7F8C8D,
-  -- `light-surface' #F8F8FF, `light-golden' #FFD600 for selection, and
-  -- `green-dark' #27AE60 where a white background needs the darker green.
+  -- #FFFFFF on #000000, `region' #373D4F, `font-lock-comment-face' #A4C2EB,
+  -- `company-tooltip' #21252B, `org-done'/success #B6E63E, `error' #E74C3C,
+  -- `accent' #4CB5F5.  Light variant: #000000 on #FFFFFF, `light-comment'
+  -- #7F8C8D, `light-surface' #F8F8FF, `light-golden' #FFD600 for selection,
+  -- and `green-dark' #27AE60 where a white background needs the darker green.
+  --
+  -- @--g-border@ is the one value taken off palette, and it is the renderer's:
+  -- @table-view.js@ draws every rule it owns in @--tv-border@, #E3E6EA light
+  -- and #2a2d3d dark, so the page's own hairlines are now the same weight as
+  -- the table's instead of a second, heavier chrome around it.  danneskjold's
+  -- `vertical-border' #223959 and `light-dim' #BDC3C7 frame what they edge —
+  -- 1.8:1 against their own ground, where these are 1.25:1 and 1.5:1.  Text
+  -- contrast is untouched; only the rules recede.
   --
   -- Three ways, the renderer's own pattern: the media query is the default and
   -- @data-theme@ on the root pins it, which is the attribute the @theme:@
   -- selector writes and the renderer's overrides key off too.
   , "  :root{--glance-mono:" <> monoStack <> ";"
-  , "    --g-bg:#FFFFFF;--g-fg:#000000;--g-border:#BDC3C7;--g-mute:#7F8C8D;"
+  , "    --g-bg:#FFFFFF;--g-fg:#000000;--g-border:#E3E6EA;--g-mute:#7F8C8D;"
   , "    --g-surface:#F8F8FF;--g-sel:#FFD600;--g-accent:#4CB5F5;"
   , "    --g-ok:#27AE60;--g-warn:#FFA500;--g-bad:#E74C3C}"
   , "  @media (prefers-color-scheme:dark){:root{--g-bg:#000000;--g-fg:#FFFFFF;"
-  , "    --g-border:#223959;--g-mute:#A4C2EB;--g-surface:#21252B;--g-sel:#373D4F;"
+  , "    --g-border:#2A2D3D;--g-mute:#A4C2EB;--g-surface:#21252B;--g-sel:#373D4F;"
   , "    --g-ok:#B6E63E}}"
-  , "  :root[data-theme=\"light\"]{--g-bg:#FFFFFF;--g-fg:#000000;--g-border:#BDC3C7;"
+  , "  :root[data-theme=\"light\"]{--g-bg:#FFFFFF;--g-fg:#000000;--g-border:#E3E6EA;"
   , "    --g-mute:#7F8C8D;--g-surface:#F8F8FF;--g-sel:#FFD600;--g-ok:#27AE60}"
-  , "  :root[data-theme=\"dark\"]{--g-bg:#000000;--g-fg:#FFFFFF;--g-border:#223959;"
+  , "  :root[data-theme=\"dark\"]{--g-bg:#000000;--g-fg:#FFFFFF;--g-border:#2A2D3D;"
   , "    --g-mute:#A4C2EB;--g-surface:#21252B;--g-sel:#373D4F;--g-ok:#B6E63E}"
   , "  body{margin:0;font:14px/1.5 var(--glance-mono);"
   , "    background:var(--g-bg);color:var(--g-fg);"
@@ -1466,7 +1573,17 @@ page head' title body = T.unlines
   -- selector step settles it, and leaves the size and the leading it set.
   , "  #app .tv-root{font-family:var(--glance-mono)}"
   , "  #app .tv-table tbody tr.tv-sel{box-shadow:inset 2px 0 0 var(--tv-accent)}"
-  , "  #log{font-size:12px;color:var(--g-mute);min-height:1.4em}"
+  -- The log is the table's own container repeated under it: same width,
+  -- because this rule is the one place either width is set and they are the
+  -- body column's two items; same hairline, radius and surface tint as
+  -- @.tv-root@.  It is capped at ten lines and scrolls inside that, so a long
+  -- message cannot push the table up the page, and it collapses outright when
+  -- there is nothing to say rather than leaving an empty frame behind.
+  , "  #app,#log{width:100%;box-sizing:border-box}"
+  , "  #log{font-size:12px;color:var(--g-mute);padding:6px 10px;"
+  , "    border:1px solid var(--g-border);border-radius:8px;"
+  , "    background:var(--g-surface);max-height:10em;overflow-y:auto}"
+  , "  #log:empty{display:none}"
   -- The status corner: the connection dot, the theme and the movement profile,
   -- together, clear of the table and out of the heading.
   , "  #corner{position:fixed;top:12px;right:14px;z-index:3;display:flex;gap:6px;"
@@ -1484,11 +1601,19 @@ page head' title body = T.unlines
   -- The sheet is the one place the author's Emacs font is asked for by name:
   -- the subtree reads there as it reads in the buffer it came out of.  The
   -- colours are the page's, which are already danneskjold's.
+  --
+  -- The backdrop is a direct child of the body, which is neither transformed
+  -- nor positioned, so these two levels are the root stacking context's and
+  -- clear the renderer's chrome outright — its sticky @th@ carries
+  -- @z-index:1@ and its completion list @5@, and an unnumbered backdrop paints
+  -- under both.  The sheet is a flex item, so its own level would apply
+  -- anyway; @position@ says so without relying on that.
   , "  #modal{--dk-mono:\"Hack\", var(--glance-mono);"
-  , "    display:none;position:fixed;inset:0;padding:24px;background:#0009;"
+  , "    display:none;position:fixed;inset:0;z-index:100;padding:24px;background:#0009;"
   , "    align-items:center;justify-content:center}"
   , "  #modal.on{display:flex}"
   , "  #sheet{display:flex;flex-direction:column;gap:8px;padding:14px;border-radius:6px;"
+  , "    position:relative;z-index:101;"
   , "    width:min(900px,100%);height:min(80vh,100%);font-family:var(--dk-mono);"
   , "    background:var(--g-bg);color:var(--g-fg);border:1px solid var(--g-border)}"
   , "  #mhead{display:flex;justify-content:space-between;gap:12px;font-size:12px}"
@@ -1499,8 +1624,9 @@ page head' title body = T.unlines
   , "  #mtext{flex:1;font:12px/1.5 var(--dk-mono);padding:8px;border-radius:4px;"
   , "    border:1px solid var(--g-border);background:transparent;color:inherit;resize:none}"
   , "  #mtext::selection{background:var(--g-sel);color:var(--g-fg)}"
-  -- The echo area, over the sheet's backdrop: the sheet takes no z-index, so
-  -- one is enough to keep the pending prefix readable while the sheet is open.
+  -- The echo area and the status corner are the page's, and the backdrop dims
+  -- the page: both sit under it (2 and 3 against the modal's 100) and grey out
+  -- with everything else while the sheet is open.  They stay above the table.
   , "  #echo{position:fixed;right:14px;bottom:12px;z-index:2;padding:4px 10px;"
   , "    border-radius:999px;border:1px solid var(--g-border);font-size:12px;"
   , "    white-space:pre;background:var(--g-surface);color:var(--g-fg);opacity:0;"

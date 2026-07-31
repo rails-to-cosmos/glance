@@ -140,12 +140,15 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   contract. Tokens split on whitespace and `&`; `key:value` (`=` alias) is a
   predicate only for a column key or a producer virtual key, so `:work:` and
   `=code=` stay text; a token opening with `"` is free text; `-` negates.
-  Same-key predicates OR, everything else ANDs. Per type: badge whole-value
-  case-insensitive plus `state:active`/`inactive`; text substring; dates prefix;
-  `key:none` is the empty cell on every type; `key:` narrows nothing. The
-  virtual keys are the store's org tags (`storeTags`, kept per tag beside
-  `stIds`): `TAG:text` is tagged whole-TAG and matching text, empty text being
-  presence; a column shadows a tag of its name. A predicate reads one `\x1f`
+  Same-key predicates combine by field arity — single-valued OR (`state:`),
+  multi-valued AND (the `tag` column and every virtual tag key) — and
+  everything else ANDs. Per type: badge whole-value case-insensitive plus
+  `state:active`/`inactive`; text substring; dates prefix; `key:none` is the
+  empty cell on every type; `key:` narrows nothing. The virtual keys are the
+  store's org tags (`storeTags`, kept per tag beside `stIds`): `TAG:text` is
+  tagged whole-TAG and matching text, empty text being presence; a column
+  shadows a tag of its name. The tags column's key is `tag`, singular (header
+  stays `Tags`). A predicate reads one `\x1f`
   field of `hrSearch`, so per-cell matching and free text agree by construction.
 - The served pages fetch nothing off this server: inline styles, inline glue,
   and one `<script src>` naming a file under `--assets`. No CDN, no web font, no
@@ -155,8 +158,13 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   and shrinking it beats adding to it. It boots on `?limit=1000`, pulls the rest
   in behind the painted table, mounts with `onFilter` so the server narrows, and
   opens its socket with `?bootstrap=off`. Rows are virtualized, so movement is
-  ids out of `getVisible()` handed to `select(id)` — the DOM-walking path is
-  gone, as are the frame branches `bootstrap=off` makes unreachable.
+  ids out of `getVisible()` handed to `select(id, col)` — the DOM-walking path
+  is gone, as are the frame branches `bootstrap=off` makes unreachable. The
+  column is the renderer's selection, never a second copy here: row movement
+  passes back whatever `getSelection()` reports, so it survives a profile
+  switch and clears when the selection does. The applied `?q=` is restored the
+  same way — handed to `mount` as `initialQuery`, with the box-stuffing path
+  kept only as the fallback for an asset that drops the option.
 - The shell's keymap is `Glance.Web`'s `sharedKeys` + `keyProfiles` and nothing
   else: the page carries them as a JSON blob and its own dispatch parses that
   blob. Movement is the only thing a profile changes (`emacs` default, `vim`);
@@ -165,6 +173,8 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   row with no handler is recognized and says what will back it. `C-c`/`C-x` are
   prefixes only with the selection collapsed; `C-l`, `C-r`, `C-t`, `C-w`, `C-n`,
   `C-p` and `<f5>` are never claimed, so no profile moves on `C-n`/`C-p`.
+  Auto-repeat is movement's — a held `n` crosses the table — so the keys that
+  must run once per press are named by command in `ONCE`, beside `RESERVED`.
 - Browser writes are commands over the bridge: structured ones (toggle, retag,
   reschedule) and drift-locked raw replacement (materialize a subtree, later a
   file). Semantic org editing — refile, agenda logic — stays out of the browser.
