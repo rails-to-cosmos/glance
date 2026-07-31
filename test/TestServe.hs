@@ -1,13 +1,15 @@
--- | The M0 server, driven as a WAI 'Application'.  No socket is bound: every
--- case here is a request handed straight to the app, so the suite stays free
--- of ports and of the races that come with them.
+-- | The server, driven as a WAI 'Application'.  No socket is bound: every case
+-- here is a request handed straight to the app, so the suite stays free of
+-- ports and of the races that come with them.  The websocket route is the one
+-- thing an upgrade-less request cannot reach, and the frames it would carry
+-- are TestStore's subject.
 module TestServe (spec) where
 
 import Data.Aeson (Value (Object), eitherDecode)
 import Data.ByteString (ByteString)
 import Data.List (sort)
 import Network.HTTP.Types (HeaderName, methodPost, statusCode)
-import Network.Wai (defaultRequest, requestMethod)
+import Network.Wai (Application, defaultRequest, requestMethod)
 import Network.Wai.Test ( SResponse (simpleBody, simpleHeaders, simpleStatus)
                         , request, runSession, setPath )
 import Test.Tasty (TestTree, testGroup)
@@ -21,6 +23,7 @@ import qualified Data.Text.Encoding as TE
 
 import Glance.Query (QueryResult (qrRecords), loadDir, viewJSON)
 import Glance.Web (ServeOptions (..), application, defaultPort, viewTitleFor)
+import Glance.Web.Store (loadStore, newHub)
 
 -- Fixtures
 
@@ -40,10 +43,17 @@ missingAssetsDir = "test/fixtures/assets-not-here"
 served :: FilePath -> ServeOptions
 served assets = ServeOptions { soDir = viewDir, soPort = defaultPort, soAssets = assets }
 
+-- | The app a server with ASSETS runs, over a store loaded the way 'serve'
+-- loads one.  A fresh store per request is the suite's convenience; the server
+-- keeps one for its lifetime.
+app :: FilePath -> IO Application
+app assets = application (served assets) <$> (newHub =<< loadStore viewDir)
+
 -- | GET PATH from a server configured with ASSETS.
 get :: FilePath -> ByteString -> IO SResponse
-get assets path = runSession (request (setPath defaultRequest path))
-                             (application (served assets))
+get assets path = do
+  application' <- app assets
+  runSession (request (setPath defaultRequest path)) application'
 
 -- Assertions
 
@@ -75,7 +85,7 @@ spec = testGroup "Serve" [headlineSpec, statsSpec, pageSpec, assetSpec, errorSpe
 -- builds from the same directory, so the server adds nothing to the wire.
 headlineSpec :: TestTree
 headlineSpec = testGroup "GET /headlines"
-  [ testCase "is the view JSON for the served directory" $ do
+  [ testCase "is the view JSON for the served directory, rendered from the store" $ do
       r <- get assetsDir "/headlines"
       expected <- viewJSON (viewTitleFor viewDir) . qrRecords <$> loadDir viewDir
       assertEqual "status" 200 (status r)
@@ -131,6 +141,17 @@ pageSpec = testGroup "GET /"
       assertContains "fetch glue" "fetch(\"/headlines\")" (body r)
       assertContains "mount" "TableView.mount(" (body r)
 
+  , testCase "with assets, opens a socket and applies the streaming ops" $ do
+      r <- get assetsDir "/"
+      mapM_ (\needle -> assertContains "live glue" needle (body r))
+            [ "new WebSocket(", "/ws", "\"set-rows\"", "table.setRows("
+            , "\"upsert-row\"", "table.upsertRow(", "\"delete-row\"", "table.deleteRow(" ]
+
+  , testCase "with assets, re-fetches and remounts after a close" $ do
+      r <- get assetsDir "/"
+      mapM_ (\needle -> assertContains "reconnect glue" needle (body r))
+            [ "socket.onclose", "setTimeout(start,", "Math.min(backoff * 2, 30000)" ]
+
   , testCase "without assets, explains JSON-only mode" $ do
       r <- get missingAssetsDir "/"
       assertEqual "status" 200 (status r)
@@ -169,6 +190,12 @@ errorSpec = testGroup "Errors"
 
   , testCase "a write method is refused until the command tier exists" $ do
       let req = (setPath defaultRequest "/headlines") { requestMethod = methodPost }
-      r <- runSession (request req) (application (served assetsDir))
+      application' <- app assetsDir
+      r <- runSession (request req) application'
       assertEqual "status" 405 (status r)
+
+  , testCase "/ws without an upgrade says what it wants" $ do
+      r <- get assetsDir "/ws"
+      assertEqual "status" 400 (status r)
+      assertContains "hint" "websocket" (body r)
   ]

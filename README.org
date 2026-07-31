@@ -31,7 +31,21 @@ curl -s localhost:7777/headlines | jq '.rows | length'
 
 The response body is the table-view View object and nothing else — the load
 counts ride in =X-Glance-*= headers (rows, files, parse, decode and read
-failures). The directory is walked and parsed per request; there is no index.
+failures).
+
+*The tab stays live.* The directory is walked and parsed once, at startup, into
+an in-memory store; a request then costs an encode rather than a walk (0.09 s
+for 13344 rows against 14.5 s per request before). A file watcher re-parses one
+=.org= file per edit — 4 ms — and pushes the difference over =ws://.../ws= as
+table-view's streaming ops: =set-rows= once on connect, then =upsert-row= and
+=delete-row= per change. Edit a headline in Emacs and the open tab moves in
+about 100 ms, no reload; create or delete a file and its rows appear or go. A
+green dot by the heading says the socket is up, grey that it is reconnecting.
+
+The store stays a projection and the org files stay the source of truth: it is
+thrown away with the process, every row in it came out of a file, and a file
+that stops parsing keeps the rows it had. Restart the daemon and
+the tab re-fetches and re-mounts on its own, backing off from 1 s to 30 s.
 
 The listener binds =127.0.0.1= and nothing else. Authentication and the
 read/write/automate tiers arrive with the protocol step (S7 in
@@ -59,7 +73,10 @@ glance/
 │       └── Query.hs     ← Records and table-view JSON: the whole public API
 ├── src-web/              ← glance-web (private sublibrary, facade-only deps)
 │   └── Glance/
-│       └── Web.hs       ← WAI app: /headlines, the demo shell, assets
+│       ├── Web.hs       ← WAI app: /headlines, /ws, the live shell, assets
+│       └── Web/
+│           ├── Store.hs  ← In-memory store, row diff, frames, client hub
+│           └── Watch.hs  ← inotify watch, debounce, one re-parse per edit
 ├── test/
 │   ├── Spec.hs
 │   ├── Test*.hs
@@ -110,9 +127,10 @@ A Haskeline-powered REPL that:
 | Category | Libraries |
 |---|---|
 | Parsing | ~megaparsec~, ~text~ |
-| State/Monads | ~mtl~ |
+| State/Monads | ~mtl~, ~stm~ |
 | Rendering | ~text-show~ |
 | REPL | ~haskeline~ |
+| Web | ~wai~, ~warp~, ~aeson~, ~websockets~, ~wai-websockets~, ~fsnotify~ |
 | Testing | ~tasty~, ~tasty-hunit~ |
 
 ** Org-Mode Features Supported

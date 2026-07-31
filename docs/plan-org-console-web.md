@@ -144,7 +144,8 @@ directory. At 14.6 s for 6308 files that is plainly a page load you wait for,
 and the persistence gate is already written down — full-store parse > 1 s is
 one of the two triggers, and it is met — but the gate is checked at S5, where
 the watch's re-parse latency is the other half of the decision. S3 records the
-number and keeps the flat design.
+number and keeps the flat design. **Superseded at S5**: the directory is parsed
+once at startup into an in-memory store and a request costs an encode (0.09 s).
 
 ## S4 — Contract fixtures (parallel, after S2)
 
@@ -164,11 +165,76 @@ WS endpoint + file watch (`fsnotify`) → row upsert frames in the same shape
 repos/ray already stream.
 
 Exit:
-- [ ] Edit an org file in any editor → open browser tab updates the row with
-      no reload. Watch-to-render latency ≤ 1 s. Actual: _—_
-- [ ] Daemon restart: browser re-attaches and re-syncs the full view
-      unattended.
-- [ ] Create + delete file cases handled (row appears / disappears).
+- [x] Edit an org file in any editor → open browser tab updates the row with
+      no reload. Watch-to-render latency ≤ 1 s. Actual: **105–107 ms** from
+      `write()` to the `upsert-row` frame arriving at a socket client, measured
+      three times against `glance serve --dir ~/sync --port 7799` by appending a
+      headline to `glance.org` and removing it again (426 ms on a process's
+      first event, which pays for the cold read). The debounce is 100 ms of
+      that; the parse is 4 ms. Delete direction: **105 ms**, three of three.
+- [x] Daemon restart: browser re-attaches and re-syncs the full view
+      unattended. Every close leads through one door — the shell re-fetches
+      `/headlines`, remounts, and reconnects, backing off 1 s → 30 s. That
+      covers a restart, a dropped slow client, and `view-changed` alike.
+- [x] Create + delete file cases handled (row appears / disappears). Actual,
+      against a live server over a scratch directory: a new two-headline file →
+      `upsert-row` ×2; `rm` of it → `delete-row` ×2; a `#+TODO:` line
+      introducing `WAITING` → socket close with reason `view-changed`.
+
+**Landed during S5** — `fsnotify` + `websockets` + `wai-websockets` (and `stm`
+from the global package db). Two modules join `glance-web`, both on the public
+facade alone: `Glance.Web.Store` (the store, the diff, the frames, the hub) and
+`Glance.Web.Watch` (inotify, debounce, one re-parse per event). The facade grew
+what they needed rather than being reached around: `loadFile`, `loadDirFiles`,
+`LoadFailure`, `rowJSON` and `mergeKeywords` are new exports of `Glance.Query`,
+and `loadDir` is now those pieces folded together, so a store built file by file
+and a directory loaded in one call produce the same rows in the same order —
+which a test asserts and which is why `/headlines` is still byte-for-byte S3's
+document (3057971 B, 13344 rows, same `X-Glance-*` counts).
+
+**The store.** One walk at startup (**15 s**, 6308 files, 13344 rows), kept in a
+`TVar` keyed by path so `Map.elems` is walk order. `/headlines` renders it:
+**0.087–0.110 s** warm over loopback, against 14.53 s at S3 — the same bytes,
+150× faster. Residency is the price: **593 MB** RSS for the ~/sync store, since
+`hrHeadline` still holds the parser's slices (the lever is written down in
+`Glance.Query`'s haddock). The watch costs **89413** inotify watches for the
+~/sync tree, one per directory, well inside the 524288 limit here.
+
+**Frames.** SCHEMA.md's streaming ops and nothing else:
+`{"op":"set-rows","rows":[…]}`, `{"op":"upsert-row","row":{…}}`,
+`{"op":"delete-row","id":"…"}`. A socket opens with one `set-rows` of the whole
+store — taken inside the transaction that subscribes, so an edit landing between
+the client's `/headlines` fetch and its socket is in the bootstrap rather than
+lost, and the server keeps no journal to replay from. Bootstrap of 13344 rows:
+**164–180 ms**. The shell mounts `/headlines` for the columns and the sort, then
+applies the bootstrap over it.
+
+**Decision: a column change closes the socket.** A changed file can introduce a
+TODO keyword, which moves the state column's badge palette. SCHEMA.md streams
+rows; columns are initial-view only, and there is no op for this. Inventing one
+would put this producer outside the contract it exists to prove, so the server
+sends a websocket close with reason `view-changed` and the client's reconnect
+path re-fetches the whole view. Cheap, honest, and it reuses the restart path
+that had to exist anyway.
+
+**Decision: drop slow clients, never block the watcher.** Each socket has a
+bounded 256-frame mailbox, filled from the same STM transaction that updates the
+store. A mailbox with no room drops its client rather than retrying the
+transaction; the socket closes and the client resyncs on reconnect. Losing a
+stalled reader's frames is recoverable, stalling the file watch is not.
+
+**Parse failure keeps the file's rows.** `orgParse` is all-or-nothing, so a save
+caught mid-write is indistinguishable from a file whose headlines all vanished.
+The store keeps the last good parse's rows, counts the file as a parse failure
+(the count `/headlines` already reports), logs one line, and streams nothing.
+
+**Row-id churn, unchanged and documented.** A headline without an
+`ORG_GLANCE_ID` is `FILE:START`, so text inserted above it renames its row and
+the store cannot tell that from a deletion plus an insertion — it emits both.
+Marked headlines edit in place under one id. S8's write-back is where a stable
+id for an unmarked headline would have to come from.
+
+Suite: 274 → **301 tests**.
 
 ## S6 — M2: graph + mindmap (parallel with S5, after S2)
 
@@ -235,10 +301,15 @@ Exit:
   spike branch proving the chosen path on one real encrypted subtree.
 - **Persistence (SQLite)** — trigger metric, checked at S5: full-store parse
   > 1 s or watch re-parse > 200 ms per event ⇒ schedule incremental index;
-  otherwise `Persist.Org` stays a stub. **First half already fired** (S3:
-  14.6 s per full-store request over 6308 files); the decision waits for S5's
-  re-parse number, since an incremental watch that never re-reads the store is
-  a different index from one that does.
+  otherwise `Persist.Org` stays a stub. **Checked at S5: no index scheduled.**
+  The first half fired at S3 (14.6 s per full-store request over 6308 files) and
+  S5 answered it with the memory store instead — one 15 s parse at startup, then
+  0.09 s per request, so the cost is a startup wait rather than a page load. The
+  second half did not fire: watch re-parse is **4 ms** warm and 11 ms cold per
+  event over the ~/sync corpus, 20–50× inside the 200 ms budget, because an
+  event re-reads one file and leaves the store alone. `Persist.Org` stays a
+  stub. Residency is what would reopen this — 593 MB for 13344 rows — and the
+  cheaper lever there is `hrHeadline`, ahead of SQLite.
 
 ## Dependency order
 

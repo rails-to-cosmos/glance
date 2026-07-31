@@ -1,0 +1,119 @@
+-- | The file watch: inotify events in, store updates and frames out.
+--
+-- Three rules the loop keeps.  A changed file is re-parsed on its own, from
+-- 'Glance.Query.defaultContext' by way of 'Glance.Query.loadFile' — per-file
+-- context is a parser invariant, and a long-lived shared context would let one
+-- file's @#+TODO:@ line reach another's headlines.  Events are debounced per
+-- path, because an editor writes a file in a flurry of syscalls and each one
+-- would otherwise cost a parse.  And a file that fails to parse keeps the rows
+-- it had: 'Glance.Query.orgParse' is all-or-nothing, so a save caught mid-write
+-- looks exactly like a file whose headlines all vanished, and dropping them
+-- would empty the table until the next keystroke.
+module Glance.Web.Watch
+  ( debounceDelay
+  , due
+  , isWatchable
+  , reload
+  , watchOrgTree
+  ) where
+
+import Control.Concurrent (threadDelay)
+import Control.Concurrent.STM (atomically, modifyTVar', newTVarIO, readTVar, writeTVar)
+import Control.Monad (forever, unless)
+import Data.Map.Strict (Map)
+import Data.Time (NominalDiffTime, UTCTime, diffUTCTime, getCurrentTime)
+import GHC.Clock (getMonotonicTime)
+import System.Directory (doesFileExist)
+import System.FilePath (takeExtension, takeFileName)
+import System.IO (hFlush, stdout)
+
+import qualified Data.Char as Char
+import qualified Data.Map.Strict as Map
+import qualified System.FSNotify as FS
+
+import Glance.Query (LoadFailure (..), loadFile)
+import Glance.Web.Store ( Frame (..), Hub, applyFile, dropFile, publish )
+
+-- | How long a path must stay quiet before it is re-parsed.  An editor's save
+-- is several events (truncate, write, rename, chmod) inside a few milliseconds;
+-- 100 ms collapses them into one parse and is invisible against the 1 s
+-- watch-to-render budget.
+debounceDelay :: NominalDiffTime
+debounceDelay = 0.1
+
+-- | How often the drain loop looks for work.  Small enough that the delay a
+-- path waits is 'debounceDelay' and not much more.
+tick :: Int
+tick = 25000
+
+-- | Watch DIR and fold every org edit under it into HUB.  Blocks forever: the
+-- manager lives as long as this call, so run it in its own thread.
+watchOrgTree :: FilePath -> Hub -> IO ()
+watchOrgTree dir hub = do
+  pending <- newTVarIO Map.empty
+  FS.withManager $ \mgr -> do
+    _stop <- FS.watchTree mgr dir (isWatchable . FS.eventPath) (note pending)
+    forever $ do
+      threadDelay tick
+      now <- getCurrentTime
+      paths <- atomically $ do
+        (ripe, rest) <- due debounceDelay now <$> readTVar pending
+        writeTVar pending rest
+        pure ripe
+      mapM_ (reload hub) paths
+  where note pending event = do
+          now <- getCurrentTime
+          atomically (modifyTVar' pending (Map.insert (FS.eventPath event) now))
+
+-- | Is PATH one this watch cares about?  @.org@ and nothing else, minus the
+-- two sidecars Emacs writes beside a buffer: @.#name.org@ is a lock symlink
+-- that usually dangles, and @#name.org#@ is an auto-save file.  Neither is a
+-- document, and the walk that built the store passed over neither.
+isWatchable :: FilePath -> Bool
+isWatchable path = map Char.toLower (takeExtension path) == ".org"
+                && take 1 name /= "#"
+                && take 2 name /= ".#"
+  where name = takeFileName path
+
+-- | The paths in PENDING last touched at least DELAY before NOW, and what is
+-- left pending.  Pure, and the whole of the debounce: a path that keeps
+-- receiving events keeps being deferred, and is parsed once the writes stop.
+due :: NominalDiffTime -> UTCTime -> Map FilePath UTCTime
+    -> ([FilePath], Map FilePath UTCTime)
+due delay now pending = (Map.keys ripe, rest)
+  where (ripe, rest) = Map.partition ((>= delay) . diffUTCTime now) pending
+
+-- | Re-read PATH into HUB and stream what changed.  A path that no longer
+-- exists is a deletion, whatever event brought us here: a rename arrives as an
+-- add, a remove or both depending on how the editor saves, and asking the
+-- filesystem is the answer that holds for all of them.
+reload :: Hub -> FilePath -> IO ()
+reload hub path = do
+  started <- getMonotonicTime
+  exists <- doesFileExist path
+  outcome <- if exists then Just <$> loadFile path else pure Nothing
+  frames <- publish hub (maybe (dropFile path) (applyFile path) outcome)
+  finished <- getMonotonicTime
+  report path outcome frames (finished - started)
+
+-- | One line per event, when there was anything to say.  The elapsed time is
+-- the re-parse metric the persistence gate is decided on
+-- (docs/plan-org-console-web.md), so it is on every line that did work.
+report :: FilePath -> Maybe (Either LoadFailure [a]) -> [Frame] -> Double -> IO ()
+report path outcome frames elapsed = unless (null note && null frames) $ do
+  putStrLn ("glance watch: " <> path <> " " <> summary <> " " <> millis elapsed)
+  hFlush stdout
+  where
+    summary | not (null note)           = note
+            | ViewChanged `elem` frames = "keywords changed — clients reconnect"
+            | otherwise                 = show (length ups) <> " upsert, "
+                                       <> show (length frames - length ups) <> " delete"
+    ups  = [ () | UpsertRow _ <- frames ]
+    note = case outcome of
+      Just (Left ReadFailed)   -> "unreadable — rows kept"
+      Just (Left DecodeFailed) -> "not UTF-8 — rows kept"
+      Just (Left ParseFailed)  -> "parse failed — rows kept"
+      _loaded                  -> ""
+
+millis :: Double -> String
+millis seconds = "(" <> show (round (seconds * 1000) :: Int) <> " ms)"

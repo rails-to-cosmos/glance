@@ -17,18 +17,23 @@
 -- residency ever exceed the scan budget, the lever is that field — drop it or
 -- copy it, and leave the cells where they are.
 module Glance.Query ( HeadlineRecord (..)
+                    , LoadFailure (..)
                     , QueryResult (..)
                     , TodoKeywords (..)
                     , loadDir
+                    , loadDirFiles
+                    , loadFile
+                    , mergeKeywords
+                    , rowJSON
                     , viewJSON
                     , viewJSONText
                     ) where
 
 import Control.Exception (IOException, evaluate, try)
-import Control.Monad (foldM)
 import Data.Aeson (Value, object, (.=))
 import Data.Aeson.Text (encodeToLazyText)
 import Data.Aeson.Types (Pair)
+import Data.Either (fromRight)
 import Data.List (foldl', nub, sort)
 import Data.Maybe (catMaybes)
 import Data.Text (Text)
@@ -87,6 +92,15 @@ data QueryResult = QueryResult
   , qrReadFailures   :: !Int               -- ^ files that could not be read, plus unlistable directories.
   } deriving (Show)
 
+-- | Why one file yielded no rows.  A load reports these as counts; a watcher
+-- reports them per file, and decides what to keep on the strength of which one
+-- it got.
+data LoadFailure
+  = ReadFailed    -- ^ the bytes could not be read.
+  | DecodeFailed  -- ^ the bytes are not valid UTF-8.
+  | ParseFailed   -- ^ 'orgParse' rejected the document, which is all-or-nothing.
+  deriving (Eq, Show)
+
 emptyResult :: QueryResult
 emptyResult = QueryResult [] 0 0 0 0
 
@@ -97,24 +111,50 @@ emptyResult = QueryResult [] 0 0 0 0
 -- context is an invariant: keywords declared in one file never reach another.
 loadDir :: FilePath -> IO QueryResult
 loadDir dir = do
-  found <- findOrgFiles [dir]
-  loaded <- foldM loadFile (emptyResult { qrReadFailures = length (foundDirErrs found) })
-                           (sort (foundFiles found))
-  pure loaded { qrRecords = reverse (qrRecords loaded) }
+  (files, dirErrs) <- loadDirFiles dir
+  pure (summarise dirErrs files)
 
--- | Add PATH's headlines to ACC, or count the way it failed.
-loadFile :: QueryResult -> FilePath -> IO QueryResult
-loadFile acc path = do
+-- | DIR loaded one file at a time: every @*.org@ path in walk order with its
+-- rows or its failure, plus the number of directories the walk could not list
+-- (those count as read failures too, and have no path of their own to report).
+-- The per-file breakdown 'loadDir' folds away is what a watcher needs to
+-- re-load a single file into a store built the same way.
+loadDirFiles :: FilePath -> IO ([(FilePath, Either LoadFailure [HeadlineRecord])], Int)
+loadDirFiles dir = do
+  found <- findOrgFiles [dir]
+  files <- mapM withOutcome (sort (foundFiles found))
+  pure (files, length (foundDirErrs found))
+  where withOutcome path = (,) path <$> loadFile path
+
+-- | PATH's headlines, or why it has none.  Reads the file strictly and parses
+-- it from 'defaultContext': a file's own @#+TODO:@ lines are the only ones that
+-- reach its headlines, whether it is loaded with a directory or on its own
+-- after an edit.
+loadFile :: FilePath -> IO (Either LoadFailure [HeadlineRecord])
+loadFile path = do
   raw <- try (BS.readFile path) :: IO (Either IOException BS.ByteString)
   evaluate $ case raw of
-    Left _err -> seen { qrReadFailures = qrReadFailures seen + 1 }
+    Left _err -> Left ReadFailed
     Right bytes -> case TE.decodeUtf8' bytes of
-      Left _err -> seen { qrDecodeFailures = qrDecodeFailures seen + 1 }
+      Left _err -> Left DecodeFailed
       Right doc -> case orgParse defaultContext doc of
-        (_elems, _ctx, Just _err) -> seen { qrParseFailures = qrParseFailures seen + 1 }
-        (elems, ctx, Nothing)     -> foldl' keep seen (recordsOf path doc ctx elems)
-  where seen = acc { qrFiles = qrFiles acc + 1 }
-        keep res r = r `seq` res { qrRecords = r : qrRecords res }
+        (_elems, _ctx, Just _err) -> Left ParseFailed
+        (elems, ctx, Nothing)     -> Right (forcing rs rs)
+          where rs = recordsOf path doc ctx elems
+
+-- | FILES folded into one result, with DIRERRS unlistable directories already
+-- counted as read failures.
+summarise :: Int -> [(FilePath, Either LoadFailure [HeadlineRecord])] -> QueryResult
+summarise dirErrs files =
+  (foldl' count (emptyResult { qrReadFailures = dirErrs }) files) { qrRecords = forcing rows rows }
+  where
+    rows = concatMap (fromRight [] . snd) files
+    count acc (_path, outcome) = case outcome of
+      Left ReadFailed   -> seen { qrReadFailures = qrReadFailures seen + 1 }
+      Left DecodeFailed -> seen { qrDecodeFailures = qrDecodeFailures seen + 1 }
+      Left ParseFailed  -> seen { qrParseFailures = qrParseFailures seen + 1 }
+      Right _rs         -> seen
+      where seen = acc { qrFiles = qrFiles acc + 1 }
 
 -- | The rows FILE contributes, cells cut out of DOC, categorised by CTX — the
 -- context the file parsed to, so a @#+CATEGORY@ anywhere in it labels the
@@ -175,10 +215,10 @@ isoStamp ts = T.pack (Time.formatTime Time.defaultTimeLocale fmt (tsmTime moment
 detach :: Text -> Text
 detach = T.copy
 
--- | Force every text in TS, then yield X.  A strict field forces a 'Maybe' to
--- its constructor only, and a cell left as a thunk retains the file it would
--- have been cut from.
-forcing :: [Text] -> a -> a
+-- | Force TS spine and elements, then yield X.  A strict field forces a
+-- 'Maybe' to its constructor only, and a cell left as a thunk retains the file
+-- it would have been cut from.
+forcing :: [a] -> b -> b
 forcing ts x = foldr seq x ts
 
 -- | R with every cell evaluated, so the record can outlive its document.
@@ -220,6 +260,10 @@ column :: Text -> Text -> Text -> [Pair] -> Value
 column key header kind extra =
   object ([ "key" .= key, "header" .= header, "type" .= kind ] <> extra)
 
+-- | One row: the identity a renderer keys updates off, and its cells.  Exported
+-- because a live producer streams rows one at a time — a @upsert-row@ frame
+-- carries exactly this object, so the streamed row and the row in the initial
+-- view are built by the same code.
 rowJSON :: HeadlineRecord -> Value
 rowJSON r = object
   [ "id" .= hrId r
@@ -235,16 +279,23 @@ rowJSON r = object
 -- | The state palette: every TODO keyword the loaded files declared, actives
 -- ahead of the done-like ones.  Palette order is also sort priority
 -- (SCHEMA.md), so a sort on the state column puts work before its aftermath.
--- Order within a group is first-seen across the walk; a keyword declared both
--- ways somewhere counts as active.
 badges :: [HeadlineRecord] -> [Value]
 badges records = zipWith badge (cycled activeColors actives) actives
              <> zipWith badge (cycled inactiveColors inactives) inactives
-  where actives   = declared tkActive
-        inactives = filter (`notElem` actives) (declared tkInactive)
-        declared f = nub (concatMap (f . hrKeywords) records)
+  where TodoKeywords actives inactives = mergeKeywords (map hrKeywords records)
         cycled palette ks = take (length ks) (cycle palette)
         badge color value = object [ "value" .= value, "color" .= color ]
+
+-- | The keyword sets of several files as one palette: first-seen order across
+-- the list, a keyword declared both ways anywhere counting as active.  This is
+-- the only thing a view's columns vary on, so a caller watching for a column
+-- change watches this value.  Deduplication makes runs irrelevant: passing one
+-- record per file gives the same answer as passing every record.
+mergeKeywords :: [TodoKeywords] -> TodoKeywords
+mergeKeywords keywords = TodoKeywords actives inactives
+  where actives   = declared tkActive
+        inactives = filter (`notElem` actives) (declared tkInactive)
+        declared f = nub (concatMap f keywords)
 
 -- | Warm hues for keywords that still want work.
 activeColors :: [Text]

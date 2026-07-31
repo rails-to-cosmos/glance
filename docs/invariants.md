@@ -157,6 +157,47 @@ on.
 - Org files are the single source of truth; the daemon keeps no second
   authoritative store. Persistence returns only on the plan's trigger metric
   (parse > 1 s or watch re-parse > 200 ms) and stays a flat projection.
+  Checked at S5: watch re-parse is 4 ms, so no index is scheduled.
+- **The store is a projection, keyed by path.** `Glance.Web.Store.Store` holds
+  one `FileEntry` per `.org` file, so `Map.elems` is walk order — the same order
+  `loadDir` produces, since it sorts the paths it walked. `storeResult` therefore
+  equals the load it stands in for, rows and counts both, which is what lets
+  `/headlines` serve from memory and still be S3's document. Key the map on
+  anything but the path, or build it from an unsorted walk, and the served row
+  order silently diverges from the loader's. Evidence: `TestStore` "the store
+  still equals the load it stands in for", `TestServe` "/headlines … rendered
+  from the store". **test**
+- **The watch parses one file, from `defaultContext`.** `Glance.Web.Watch.reload`
+  calls `Glance.Query.loadFile`, which seeds every parse from `defaultContext`.
+  A shared long-lived context would let one file's `#+TODO:` line reach another
+  file's headlines — the Context-discipline invariant above, restated where a
+  daemon is the thing that could break it. **test** (per-file context) /
+  **docs** (the watch's use of it)
+- **A failed load keeps the file's rows.** `orgParse` is all-or-nothing, so a
+  save caught mid-write looks exactly like a file whose headlines all vanished.
+  The store keeps the last good parse's records, marks the entry with the
+  failure so the counts report it, and streams nothing. Dropping the rows
+  instead empties the table between two keystrokes. Evidence: `TestStore`,
+  Load-failure group. **test**
+- **A column change closes the socket.** SCHEMA.md's streaming ops carry rows;
+  columns are initial-view only. The state column's badge palette is the TODO
+  keyword union, which a changed file can move, so the store answers with
+  `ViewChanged` — a websocket close with reason `view-changed`, not a frame —
+  and the client's reconnect path re-fetches `/headlines`. Inventing an op here
+  would put the producer outside the contract it exists to prove. Evidence:
+  `TestStore`, Keyword-palette group; verified live against a running server.
+  **test**
+- **A slow client is dropped and the watcher waits for no one.** Frames go into each socket's
+  bounded 256-frame mailbox from the same STM transaction that updates the
+  store. A full mailbox drops that client instead of retrying the transaction:
+  a stalled reader's frames are recoverable (it resyncs on reconnect), a stalled
+  file watch is not. Evidence: `TestStore` "a client that stops reading is
+  dropped". **test**
+- **The bootstrap is taken where subscription happens.** `subscribe` registers
+  the mailbox and snapshots the store in one transaction, so no update can land
+  between the two and no journal is needed to catch a client up. Split them and
+  a row that changes between the snapshot and the registration is lost until the
+  next edit to its file. **test**
 - Write-back is surgical span replacement + optimistic lock (hash vs parse
   snapshot) + atomic temp-then-rename.
 - The web layer depends only on the `Glance.Query` facade (S2), enforced at
@@ -201,7 +242,11 @@ on.
   `glance-web` (`src-web/`) is private and depends on the public library
   alone; the CLI depends on the two sublibraries and the suite on all three
   (`glance:{glance, glance-internal, glance-web}`, which pins internals in the
-  older modules and exercises the facade alone in `TestQuery`/`TestServe`).
+  older modules and exercises the facade alone in
+  `TestQuery`/`TestServe`/`TestStore`). `glance-web` gained modules at S5 and
+  no new direction: `Glance.Web.Store` and `Glance.Web.Watch` sit in the same
+  stanza, and what they needed — per-file loading, row JSON, the keyword merge —
+  was added to `Glance.Query` rather than reached for behind it.
   Putting `Data.Org.*` in a web or daemon target's build-depends is impossible
   from outside the package — the S2 exit bar, enforced by the solver rather
   than by review. **test** (it would not build)

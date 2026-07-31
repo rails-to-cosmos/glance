@@ -68,9 +68,18 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - Write-back (S8) = surgical span replacement, optimistic lock, atomic
   temp+rename; untouched bytes stay byte-identical.
 - `Display`/`TextShow` stay out of the wire contract; the web layer is the
-  private sublibrary `glance-web` (`src-web/`, `Glance.Web`) with the public
+  private sublibrary `glance-web` (`src-web/`, `Glance.Web*`) with the public
   library alone in its `build-depends`, and it binds 127.0.0.1 until S7 brings
   privilege tiers.
+- The served store is an in-memory projection keyed by path, so `Map.elems` is
+  walk order and `/headlines` equals a fresh `loadDir`. The watch re-parses one
+  file per event from `defaultContext`; a failed load keeps that file's rows and
+  streams nothing.
+- The socket carries SCHEMA.md's row ops alone. A column change (the TODO
+  keyword union moving) closes it with reason `view-changed` and the client
+  re-fetches. The bootstrap `set-rows` is snapshotted inside the subscribing
+  transaction, so there is no journal and no gap. A client whose bounded mailbox
+  fills is dropped — the watcher never waits on a browser.
 - The public library exposes `Glance.Query` alone over the private
   `glance-internal` sublibrary; cells are sliced from spans and the view
   `Value` is hand-built — no `ToJSON` on an internal type
