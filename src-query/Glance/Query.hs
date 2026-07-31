@@ -32,15 +32,20 @@ module Glance.Query ( HeadlineRecord (..)
                     , Span (..)
                     , TodoKeywords (..)
                     , WriteFailure (..)
+                    , displayText
                     , loadDir
                     , loadDirFiles
                     , loadFile
+                    , matchesSearch
                     , mergeKeywords
                     , replaceSpan
                     , rowJSON
+                    , sortedForView
                     , subtreeText
                     , viewJSON
                     , viewJSONText
+                    , viewJSONTextWith
+                    , viewJSONWith
                     ) where
 
 import Control.Exception (IOException, evaluate, try)
@@ -48,8 +53,8 @@ import Data.Aeson (Value, object, (.=))
 import Data.Aeson.Text (encodeToLazyText)
 import Data.Aeson.Types (Pair)
 import Data.Either (fromRight)
-import Data.List (foldl', nub, sort)
-import Data.Maybe (catMaybes)
+import Data.List (foldl', sort, sortOn)
+import Data.Maybe (catMaybes, fromMaybe)
 import Data.Text (Text)
 import TextShow (showt)
 
@@ -92,6 +97,7 @@ data HeadlineRecord = HeadlineRecord
   , hrTags      :: !Text            -- ^ @":a:b:"@, empty when untagged.
   , hrScheduled :: !(Maybe Text)    -- ^ ISO date, see 'isoStamp'.
   , hrDeadline  :: !(Maybe Text)    -- ^ ISO date, see 'isoStamp'.
+  , hrSearch    :: !Text            -- ^ the cells as they display, lowercased; see 'searchTextOf'.
   } deriving (Show)
 
 -- | The TODO keywords one file's context declared, active ones apart from the
@@ -202,18 +208,113 @@ recordOf path doc digest category keywords h subtree = forceRecord HeadlineRecor
   , hrDoc       = doc
   , hrDigest    = digest
   , hrSubtree   = subtree
-  , hrState     = detach . name <$> todo h
-  , hrPriority  = (\(Priority c) -> T.singleton c) <$> priority h
-  , hrTitle     = cut (hsTitle sp) (showt (title h))
-  , hrTags      = cut (hsTags sp) (showt (tags h))
-  , hrScheduled = isoStamp <$> schedule h
-  , hrDeadline  = isoStamp <$> deadline h
+  , hrState     = state
+  , hrPriority  = pri
+  , hrTitle     = titleCell
+  , hrTags      = tagsCell
+  , hrScheduled = scheduled
+  , hrDeadline  = due
+  , hrSearch    = searchTextOf [ opt state, opt pri, titleCell, tagsCell
+                               , opt scheduled, opt due ]
   }
   where sp = spans h
         -- The span is the lossless channel; the render is what is left when a
         -- headline carries no span for a component, which is to say when the
         -- component is empty.
         cut mspan render = detach (maybe render (sliceSpan doc) mspan)
+        opt = fromMaybe ""
+        state     = detach . name <$> todo h
+        pri       = (\(Priority c) -> T.singleton c) <$> priority h
+        titleCell = cut (hsTitle sp) (showt (title h))
+        tagsCell  = cut (hsTags sp) (showt (tags h))
+        scheduled = isoStamp <$> schedule h
+        due       = isoStamp <$> deadline h
+
+-- Search text
+
+-- | The separator cells are joined by, and the one character a cell cannot
+-- hold: 'displayText' turns every control character into a space, so a query
+-- can never span two cells.
+cellSep :: Text
+cellSep = "\US"
+
+-- | CELLS as one lowercase haystack, in column order, joined by 'cellSep' and
+-- copied out of the document like every other cell.  Built at load beside the
+-- row's JSON so a filter is one 'T.isInfixOf' per row rather than a re-render.
+--
+-- This is @table-view.js@'s own row text: the renderer caches
+-- @cells.map(displayText).map(toLowerCase).join(\"\\x1f\")@ and searches it with
+-- the trimmed, lowercased filter box.  Server-side filtering has to agree with
+-- it exactly, or the same query answers differently depending on who ran it.
+searchTextOf :: [Text] -> Text
+searchTextOf = detach . T.toLower . T.intercalate cellSep . map displayText
+
+-- | CELL as a table-view renderer displays it: org bracket links shown by
+-- their description, and every run of control characters as one space.  The
+-- JS mirror is @displayText@ (@web\/table-view.js@), which drives that
+-- renderer's widths, sort and filter alike.
+displayText :: Text -> Text
+displayText = squashControls . showLinks
+
+-- | S with each org bracket link replaced by what it shows: @[[T][D]]@ becomes
+-- @D@, @[[T]]@ and @[[T][]]@ become @T@.  Text that does not close a link is
+-- left exactly as it is, the way the renderer's regex leaves an unmatched
+-- @[[@ alone.
+showLinks :: Text -> Text
+showLinks s | not ("[[" `T.isInfixOf` s) = s   -- the common cell, scanned once
+            | otherwise                  = T.concat (go s)
+  where
+    go rest
+      | T.null after = [before]
+      | otherwise    = case linkAt (T.drop 2 after) of
+          Just (shown, more) -> before : shown : go more
+          Nothing            -> before : "[[" : go (T.drop 2 after)
+      where (before, after) = T.breakOn "[[" rest
+
+-- | The link opening TEXT — which starts past its @[[@ — as it displays, with
+-- whatever follows it.  'Nothing' when TEXT does not close one.
+linkAt :: Text -> Maybe (Text, Text)
+linkAt text
+  | T.null target || T.null rest = Nothing
+  | otherwise = case T.uncons (T.drop 1 rest) of
+      Just (']', more) -> Just (target, more)                  -- [[TARGET]]
+      Just ('[', more) | "]]" `T.isPrefixOf` after'            -- [[TARGET][DESC]]
+                       -> Just (if T.null desc then target else desc, T.drop 2 after')
+        where (desc, after') = T.break (== ']') more
+      _notALink        -> Nothing
+  where (target, rest) = T.break (== ']') text
+
+-- | S with every run of C0 control characters, and DEL, standing as one space
+-- — so a cell is one line and a multi-line one cannot be matched across the
+-- break that is not there on screen.
+squashControls :: Text -> Text
+squashControls = T.concat . go
+  where
+    go s | T.null s    = []
+         | T.null rest = [keep]
+         | otherwise   = keep : " " : go (T.dropWhile control rest)
+      where (keep, rest) = T.break control s
+    control c = c < ' ' || c == '\DEL'
+
+-- | Does a row's display text contain Q?  Q is trimmed and lowercased the way
+-- the renderer trims and lowercases its filter box, and an empty query matches
+-- every row.
+--
+-- Written to take Q alone and hand back the test, so @filter (matchesSearch q)@
+-- normalises the query once rather than once per row: over 13k rows that
+-- rewrite is the difference between a 19 ms filter and a sub-millisecond one.
+matchesSearch :: Text -> HeadlineRecord -> Bool
+matchesSearch q
+  | T.null needle = const True
+  | otherwise     = T.isInfixOf needle . hrSearch
+  where needle = T.toLower (T.strip q)
+
+-- | RECORDS in the order 'viewJSON' declares them sorted: scheduled ascending,
+-- an unscheduled row first, ties left in walk order.  A page has to be cut out
+-- of this order rather than out of the walk, or page two is a different set of
+-- rows than the table's own sort would put there.
+sortedForView :: [HeadlineRecord] -> [HeadlineRecord]
+sortedForView = sortOn (fromMaybe "" . hrScheduled)
 
 -- Subtrees
 
@@ -290,7 +391,7 @@ forcing ts x = foldr seq x ts
 -- are the one thing a loaded record has no other reason to keep.
 forceRecord :: HeadlineRecord -> HeadlineRecord
 forceRecord r =
-  forcing (hrId r : hrCategory r : hrTitle r : hrTags r : hrDigest r : optional) r
+  forcing (hrId r : hrCategory r : hrTitle r : hrTags r : hrDigest r : hrSearch r : optional) r
   where optional = catMaybes [hrState r, hrPriority r, hrScheduled r, hrDeadline r]
 
 -- Write-back
@@ -327,11 +428,19 @@ replaceSpan path digest sp new =
 -- View JSON
 
 -- | The table-view document for RECORDS under TITLE, per
--- @table-view/SCHEMA.md@.
+-- @table-view/SCHEMA.md@, with the state palette taken from RECORDS themselves.
 viewJSON :: Text -> [HeadlineRecord] -> Value
-viewJSON viewTitle records = object
+viewJSON viewTitle records =
+  viewJSONWith viewTitle (mergeKeywords (map hrKeywords records)) records
+
+-- | 'viewJSON' with the state column's PALETTE given rather than derived.  A
+-- server answering a page has to pass the whole store's palette: the badge
+-- list is what a client watches for a column change, and deriving it from the
+-- rows that happen to be on this page would move it every time the page did.
+viewJSONWith :: Text -> TodoKeywords -> [HeadlineRecord] -> Value
+viewJSONWith viewTitle palette records = object
   [ "title"   .= viewTitle
-  , "columns" .= columns records
+  , "columns" .= columns palette
   , "actions" .= actions
   , "sort"    .= object [ "column" .= ("scheduled" :: Text), "ascending" .= True ]
   , "rows"    .= map rowJSON records
@@ -352,10 +461,14 @@ actions =
 viewJSONText :: Text -> [HeadlineRecord] -> TL.Text
 viewJSONText viewTitle = encodeToLazyText . viewJSON viewTitle
 
-columns :: [HeadlineRecord] -> [Value]
-columns records =
+-- | 'viewJSONWith' encoded.
+viewJSONTextWith :: Text -> TodoKeywords -> [HeadlineRecord] -> TL.Text
+viewJSONTextWith viewTitle palette = encodeToLazyText . viewJSONWith viewTitle palette
+
+columns :: TodoKeywords -> [Value]
+columns palette =
   [ column "state"     "State"     "badge" [ "sortable" .= True
-                                           , "badges" .= badges records ]
+                                           , "badges" .= badges palette ]
   , column "priority"  "Pri"       "text"  [ "sortable" .= True
                                            , "values" .= (["A", "B", "C"] :: [Text]) ]
   , column "title"     "Headline"  "text"  []
@@ -388,11 +501,11 @@ rowJSON r = object
 -- | The state palette: every TODO keyword the loaded files declared, actives
 -- ahead of the done-like ones.  Palette order is also sort priority
 -- (SCHEMA.md), so a sort on the state column puts work before its aftermath.
-badges :: [HeadlineRecord] -> [Value]
-badges records = zipWith badge (cycled activeColors actives) actives
-             <> zipWith badge (cycled inactiveColors inactives) inactives
-  where TodoKeywords actives inactives = mergeKeywords (map hrKeywords records)
-        cycled palette ks = take (length ks) (cycle palette)
+badges :: TodoKeywords -> [Value]
+badges (TodoKeywords actives inactives) =
+  zipWith badge (cycled activeColors actives) actives
+    <> zipWith badge (cycled inactiveColors inactives) inactives
+  where cycled hues ks = take (length ks) (cycle hues)
         badge color value = object [ "value" .= value, "color" .= color ]
 
 -- | The keyword sets of several files as one palette: first-seen order across
@@ -404,7 +517,17 @@ mergeKeywords :: [TodoKeywords] -> TodoKeywords
 mergeKeywords keywords = TodoKeywords actives inactives
   where actives   = declared tkActive
         inactives = filter (`notElem` actives) (declared tkInactive)
-        declared f = nub (concatMap f keywords)
+        declared f = firstSeen (concatMap f keywords)
+
+-- | XS deduplicated, each element kept where it first appeared.
+-- 'Data.List.nub' reads the same and costs O(n · distinct); this merge runs
+-- over one entry per file on every @\/headlines@ request, and at 6300 files
+-- that quadratic was most of the request.
+firstSeen :: Ord a => [a] -> [a]
+firstSeen = go Set.empty
+  where go _ [] = []
+        go seen (x : xs) | Set.member x seen = go seen xs
+                         | otherwise         = x : go (Set.insert x seen) xs
 
 -- | Warm hues for keywords that still want work.
 activeColors :: [Text]

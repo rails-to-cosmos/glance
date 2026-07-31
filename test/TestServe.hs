@@ -9,8 +9,10 @@ import Data.Aeson ( Value (Null, Number, Object, String)
                   , eitherDecode, encode, object, parseJSON, (.=) )
 import Data.Aeson.Types (parseEither)
 import Data.ByteString (ByteString)
-import Data.List (nub, sort, sortOn)
-import Network.HTTP.Types (HeaderName, methodDelete, methodPost, renderQuery, statusCode)
+import Data.List (find, nub, sort, sortOn)
+import Data.Maybe (fromMaybe)
+import Network.HTTP.Types ( HeaderName, RequestHeaders, methodDelete, methodPost
+                          , renderQuery, statusCode )
 import Network.Wai (Application, defaultRequest, requestHeaders, requestMethod)
 import Network.Wai.Test ( SRequest (SRequest)
                         , SResponse (simpleBody, simpleHeaders, simpleStatus)
@@ -33,8 +35,9 @@ import qualified Data.Text.IO as TIO
 
 import Glance.Query ( HeadlineRecord (hrDigest, hrId), QueryResult (qrRecords)
                     , loadDir, loadFile, viewJSON )
-import Glance.Web (ServeOptions (..), application, defaultPort, viewTitleFor)
-import Glance.Web.Store (Hub, loadStore, newHub)
+import Glance.Web ( ServeOptions (..), application, bootstrapWanted, defaultPort
+                  , viewTitleFor )
+import Glance.Web.Store (Hub, applyFile, loadStore, newHub, publish)
 
 -- Fixtures
 
@@ -101,7 +104,13 @@ get assets path = do
 
 -- | GET PATH from APPLICATION'.
 getFrom :: Application -> ByteString -> IO SResponse
-getFrom application' path = runSession (request (setPath defaultRequest path)) application'
+getFrom application' path = getWith application' path []
+
+-- | GET PATH from APPLICATION', sending HEADERS — the conditional and the
+-- content-negotiation cases are all one request header apart.
+getWith :: Application -> ByteString -> RequestHeaders -> IO SResponse
+getWith application' path headers =
+  runSession (request (setPath defaultRequest path) { requestHeaders = headers }) application'
 
 -- | POST PAYLOAD to PATH on APPLICATION', as JSON.
 postTo :: Application -> ByteString -> BL.ByteString -> IO SResponse
@@ -187,6 +196,39 @@ membersAt k v = field k v >>= members
         members other = assertFailure ("expected an object at " <> show k
                                          <> ", got " <> show other)
 
+-- | R's @rows@ array.
+rowsOf :: SResponse -> IO [Value]
+rowsOf r = listAt "rows" =<< decoded r
+
+-- | ROW's @id@, or the whole row when it has none — a failure that reads.
+rowId :: Value -> T.Text
+rowId row = case row of
+  Object o -> case KM.lookup "id" o of
+    Just (String i) -> i
+    _noId           -> T.pack (show row)
+  _notARow -> T.pack (show row)
+
+-- | ROW's @scheduled@ cell, empty when it has none.  The key the view declares
+-- its sort on, so a page has to come out of this order.
+scheduledOf :: Value -> T.Text
+scheduledOf row = case row of
+  Object o -> case KM.lookup "cells" o of
+    Just (Object cells) -> case KM.lookup "scheduled" cells of
+      Just (String s) -> s
+      _unscheduled    -> ""
+    _noCells -> ""
+  _notARow -> ""
+
+-- | The state column's badge values, in palette order.
+badgeValues :: Value -> IO [T.Text]
+badgeValues view = do
+  cols <- listAt "columns" view
+  state <- maybe (assertFailure "no state column") pure
+                 (find (keyIs "state") cols)
+  traverse (textAt "value") =<< listAt "badges" state
+  where keyIs k (Object o) = KM.lookup "key" o == Just (String k)
+        keyIs _ _notAColumn = False
+
 -- | What sits between OPEN and CLOSE in HAYSTACK, when both are in it.
 between :: T.Text -> T.Text -> T.Text -> Maybe T.Text
 between open close haystack
@@ -212,7 +254,8 @@ digestOf path = loadFile path >>= first'
 
 spec :: TestTree
 spec = testGroup "Serve"
-  [ headlineSpec, statsSpec, materializeSpec, commitSpec, pageSpec, keymapSpec
+  [ headlineSpec, statsSpec, cacheSpec, gzipSpec, querySpec, bootstrapSpec
+  , materializeSpec, commitSpec, pageSpec, keymapSpec
   , shellFontSpec, assetSpec, errorSpec ]
 
 -- | @\/headlines@ is the facade's view document — the same 'Value' 'viewJSON'
@@ -261,6 +304,242 @@ statsSpec = testGroup "Load stats"
                                 ["actions", "columns", "rows", "sort", "title"]
                                 (sort (map Key.toText (KM.keys o)))
         _        -> assertFailure ("expected an object, got " <> show v)
+  ]
+
+-- | The @ETag@ is the store's generation, and the store's generation is what
+-- the watcher moves.  Every query variant shares it — the parameters are in
+-- the URL, and an HTTP cache is keyed by URL, so each variant revalidates
+-- against the tag it was itself given.
+cacheSpec :: TestTree
+cacheSpec = testGroup "GET /headlines cache validation"
+  [ testCase "carries a generation tag, and says to revalidate every time" $ do
+      r <- get assetsDir "/headlines"
+      assertEqual "ETag" (Just "\"g0\"") (header "ETag" r)
+      assertEqual "Cache-Control" (Just "no-cache") (header "Cache-Control" r)
+
+  , testCase "the tag it just gave out is a 304 with no body" $ do
+      a <- app assetsDir
+      first' <- getFrom a "/headlines"
+      let tag = fromMaybe "" (header "ETag" first')
+      again <- getWith a "/headlines" [("If-None-Match", tag)]
+      assertEqual "status" 304 (status again)
+      assertEqual "body" "" (simpleBody again)
+      assertEqual "the tag comes back" (Just tag) (header "ETag" again)
+      -- Nothing else is owed on a 304, and Content-Type least of all.
+      assertEqual "no content type" Nothing (header "Content-Type" again)
+
+  , testCase "a weak tag, or one in a list, still matches" $ do
+      a <- app assetsDir
+      weak <- getWith a "/headlines" [("If-None-Match", "W/\"g0\"")]
+      listed <- getWith a "/headlines" [("If-None-Match", "\"g9\", \"g0\"")]
+      assertEqual "weak" 304 (status weak)
+      assertEqual "listed" 304 (status listed)
+
+  , testCase "a tag from another generation is the whole document again" $ do
+      a <- app assetsDir
+      r <- getWith a "/headlines" [("If-None-Match", "\"g7\"")]
+      assertEqual "status" 200 (status r)
+      assertEqual "X-Glance-Rows" (Just "6") (header "X-Glance-Rows" r)
+
+  , testCase "a store the watch moved is a fresh tag" $ withTempDir $ \dir -> do
+      path <- orgFile dir "notes.org" committable
+      (a, hub) <- serverOver dir
+      before <- getFrom a "/headlines"
+      let tag = fromMaybe "" (header "ETag" before)
+      -- The watch's own step, taken here without a watcher: re-load the file
+      -- and publish it, which is the one path that updates the store.
+      _ <- orgFile dir "notes.org" (committable <> "* TODO Third\n")
+      outcome <- loadFile path
+      _ <- publish hub (applyFile path outcome)
+      after <- getWith a "/headlines" [("If-None-Match", tag)]
+      assertEqual "status" 200 (status after)
+      assertBool "the tag moved with the store"
+                 (header "ETag" after /= Just tag)
+      assertEqual "and the new row is in it" (Just "3") (header "X-Glance-Rows" after)
+
+  , testCase "a re-load that changes nothing leaves the tag where it was" $
+      withTempDir $ \dir -> do
+        path <- orgFile dir "notes.org" committable
+        (a, hub) <- serverOver dir
+        before <- getFrom a "/headlines"
+        outcome <- loadFile path
+        _ <- publish hub (applyFile path outcome)
+        after <- getFrom a "/headlines"
+        assertEqual "the tag" (header "ETag" before) (header "ETag" after)
+
+  , testCase "one tag serves every variant, which the URL keeps apart" $ do
+      a <- app assetsDir
+      full <- getFrom a "/headlines"
+      paged <- getFrom a "/headlines?limit=2"
+      filtered <- getFrom a "/headlines?q=table"
+      assertEqual "the paged tag" (header "ETag" full) (header "ETag" paged)
+      assertEqual "the filtered tag" (header "ETag" full) (header "ETag" filtered)
+      -- The bodies differ, which is what the distinct URLs are for.
+      assertBool "one URL's answer served for another"
+                 (simpleBody full /= simpleBody paged)
+  ]
+
+-- | Compression: on for the text this server sends, off for a body too small
+-- to gain by it, and always with the @Vary@ that keeps the two encodings from
+-- being confused for each other.
+gzipSpec :: TestTree
+gzipSpec = testGroup "Compression"
+  [ testCase "the view JSON is gzipped for a client that asks" $ do
+      a <- app assetsDir
+      plain' <- getFrom a "/headlines"
+      zipped <- getWith a "/headlines" [("Accept-Encoding", "gzip")]
+      assertEqual "status" 200 (status zipped)
+      assertEqual "Content-Encoding" (Just "gzip") (header "Content-Encoding" zipped)
+      assertBool "compressed to no less than it was"
+                 (BL.length (simpleBody zipped) < BL.length (simpleBody plain'))
+
+  , testCase "and left alone for a client that does not" $ do
+      r <- get assetsDir "/headlines"
+      assertEqual "Content-Encoding" Nothing (header "Content-Encoding" r)
+      assertContains "the body is JSON" "\"rows\"" (body r)
+
+  , testCase "every answer varies on the encoding, 304s included" $ do
+      a <- app assetsDir
+      r <- getFrom a "/headlines"
+      notModified <- getWith a "/headlines"
+        [("If-None-Match", fromMaybe "" (header "ETag" r))]
+      assertEqual "on the 200" (Just "Accept-Encoding") (header "Vary" r)
+      assertEqual "on the 304" (Just "Accept-Encoding") (header "Vary" notModified)
+
+  , testCase "a body under the threshold is not worth compressing" $ do
+      a <- app assetsDir
+      r <- getWith a "/headline" [("Accept-Encoding", "gzip")]
+      assertEqual "status" 400 (status r)
+      assertBool "the error JSON is small" (BL.length (simpleBody r) < 860)
+      assertEqual "Content-Encoding" Nothing (header "Content-Encoding" r)
+
+  , testCase "the renderer is compressed too, though it is a file" $ do
+      a <- app assetsDir
+      r <- getWith a "/table-view.js" [("Accept-Encoding", "gzip")]
+      assertEqual "status" 200 (status r)
+      assertEqual "Content-Encoding" (Just "gzip") (header "Content-Encoding" r)
+  ]
+
+-- | @q@, @limit@ and @offset@: filter first, then page, and report what the
+-- page covers in the header family the load counts already use.
+querySpec :: TestTree
+querySpec = testGroup "GET /headlines filter and paging"
+  [ testCase "no parameters is the whole set, as it always was" $ do
+      r <- get assetsDir "/headlines"
+      assertEqual "X-Glance-Total" (Just "6") (header "X-Glance-Total" r)
+      assertEqual "X-Glance-Has-Next" (Just "false") (header "X-Glance-Has-Next" r)
+      assertEqual "rows" 6 . length =<< rowsOf r
+
+  , testCase "q narrows on the row as it displays, case-insensitively" $ do
+      a <- app assetsDir
+      r <- getFrom a "/headlines?q=SHIP%20THE%20TABLE"
+      assertEqual "X-Glance-Total" (Just "1") (header "X-Glance-Total" r)
+      ids <- map rowId <$> rowsOf r
+      assertEqual "the matching row" ["ship-table-view"] ids
+
+  , testCase "q matches a bracket link by its description, not its target" $
+      withTempDir $ \dir -> do
+        -- What the row shows is what a filter searches, the way the renderer
+        -- searches its own cached display text (table-view.js `displayText').
+        _ <- orgFile dir "links.org"
+               "* TODO Read [[file:table-view/SCHEMA.md][the schema]]\n"
+        (a, _hub) <- serverOver dir
+        shown <- getFrom a "/headlines?q=the%20schema"
+        target <- getFrom a "/headlines?q=SCHEMA.md"
+        assertEqual "the description matches" (Just "1") (header "X-Glance-Total" shown)
+        assertEqual "the target does not" (Just "0") (header "X-Glance-Total" target)
+
+  , testCase "q matching nothing is an empty page under a 200" $ do
+      a <- app assetsDir
+      r <- getFrom a "/headlines?q=no-such-headline-anywhere"
+      assertEqual "status" 200 (status r)
+      assertEqual "X-Glance-Total" (Just "0") (header "X-Glance-Total" r)
+      assertEqual "rows" 0 . length =<< rowsOf r
+
+  , testCase "limit cuts a page out of the view's own sort" $ do
+      a <- app assetsDir
+      whole <- rowsOf =<< getFrom a "/headlines"
+      page <- rowsOf =<< getFrom a "/headlines?limit=3"
+      assertEqual "page size" 3 (length page)
+      -- The page is the first three by scheduled ascending, which is what the
+      -- view declares — not the first three the walk found.
+      assertEqual "the sort the view declares"
+                  (take 3 (map rowId (sortOn scheduledOf whole)))
+                  (map rowId page)
+
+  , testCase "offset walks the pages, and has-next says when to stop" $ do
+      a <- app assetsDir
+      whole <- map rowId . sortOn scheduledOf <$> (rowsOf =<< getFrom a "/headlines")
+      one <- getFrom a "/headlines?limit=4&offset=0"
+      two <- getFrom a "/headlines?limit=4&offset=4"
+      past <- getFrom a "/headlines?limit=4&offset=6"
+      assertEqual "page one" (take 4 whole) . map rowId =<< rowsOf one
+      assertEqual "page two" (drop 4 whole) . map rowId =<< rowsOf two
+      assertEqual "more follows page one" (Just "true") (header "X-Glance-Has-Next" one)
+      assertEqual "nothing follows page two" (Just "false") (header "X-Glance-Has-Next" two)
+      assertEqual "past the end is empty" 0 . length =<< rowsOf past
+      assertEqual "and says so" (Just "false") (header "X-Glance-Has-Next" past)
+
+  , testCase "the filter runs before the page, so the total is the match count" $ do
+      a <- app assetsDir
+      r <- getFrom a "/headlines?q=e&limit=2&offset=1"
+      matched <- length <$> (rowsOf =<< getFrom a "/headlines?q=e")
+      assertEqual "the total is what matched" (Just (T.pack (show matched)))
+                  (fmap TE.decodeUtf8 (header "X-Glance-Total" r))
+      assertBool "the fixture would not exercise the arithmetic" (matched > 3)
+      page <- rowsOf r
+      assertEqual "the page is a slice of it" 2 (length page)
+      assertEqual "and more follows" (Just "true") (header "X-Glance-Has-Next" r)
+
+  , testCase "the state palette is the store's, whatever the page holds" $ do
+      a <- app assetsDir
+      whole <- badgeValues =<< decoded =<< getFrom a "/headlines"
+      page <- badgeValues =<< decoded =<< getFrom a "/headlines?limit=1"
+      none <- badgeValues =<< decoded =<< getFrom a "/headlines?q=no-such-headline"
+      assertEqual "the paged palette" whole page
+      assertEqual "the empty page's palette" whole none
+      assertBool "the fixture declares keywords" (length whole > 2)
+
+  , testCase "a limit past the cap is refused, and named" $ do
+      a <- app assetsDir
+      r <- getFrom a "/headlines?limit=20001"
+      ok <- getFrom a "/headlines?limit=20000"
+      assertEqual "over" 400 (status r)
+      assertContains "the cap" "20000" (body r)
+      assertEqual "at the cap" 200 (status ok)
+
+  , testCase "a parameter that is not a number is a 400 saying which" $ do
+      a <- app assetsDir
+      mapM_ (\(path, named) -> do
+               r <- getFrom a path
+               assertEqual (show path <> " status") 400 (status r)
+               assertContains "names the parameter" named (body r))
+            [ ("/headlines?limit=lots", "limit")
+            , ("/headlines?limit=-1", "limit")
+            , ("/headlines?offset=x", "offset")
+            , ("/headlines?offset=-3", "offset") ]
+
+  , testCase "a bare parameter reads as an absent one" $ do
+      a <- app assetsDir
+      r <- getFrom a "/headlines?limit&q"
+      assertEqual "status" 200 (status r)
+      assertEqual "rows" 6 . length =<< rowsOf r
+  ]
+
+-- | @\/ws?bootstrap=off@: the opening @set-rows@ dropped for a client that
+-- fetched the rows over HTTP.  Checked on the parser, since the suite binds no
+-- socket — the decision is the whole of what the query controls.
+bootstrapSpec :: TestTree
+bootstrapSpec = testGroup "Socket bootstrap control"
+  [ testCase "is wanted by default, and by every query but the one" $
+      mapM_ (\path -> assertBool (show path <> " skipped the bootstrap")
+                                 (bootstrapWanted path))
+            ["/ws", "/ws?", "/ws?keys=vim", "/ws?bootstrap=on", "/ws?bootstrap="]
+
+  , testCase "bootstrap=off drops it, wherever it sits in the query" $
+      mapM_ (\path -> assertBool (show path <> " still sent the bootstrap")
+                                 (not (bootstrapWanted path)))
+            ["/ws?bootstrap=off", "/ws?keys=vim&bootstrap=off", "/ws?bootstrap=off&x=1"]
   ]
 
 -- | @GET \/headline@: one subtree out of the read model, with the coordinates
@@ -440,14 +719,35 @@ pageSpec = testGroup "GET /"
       assertEqual "status" 200 (status r)
       assertEqual "content type" (Just "text/html; charset=utf-8") (header "Content-Type" r)
       assertContains "renderer" "src=\"table-view.js\"" (body r)
-      assertContains "fetch glue" "fetch(\"/headlines\")" (body r)
+      assertContains "fetch glue" "fetch(`/headlines${params}`" (body r)
       assertContains "mount" "TableView.mount(" (body r)
+
+  , testCase "with assets, paints a page and loads the rest behind it" $ do
+      b <- body <$> get assetsDir "/"
+      mapM_ (\needle -> assertContains "paging glue" needle b)
+            [ "const PAGE = 1000;", "load(`?limit=${PAGE}`)"
+            , "r.headers.get(\"X-Glance-Total\")", "a.total > (a.view.rows || []).length"
+            , "load(\"\").then(" ]
+
+  , testCase "with assets, hands the filter to the server and aborts stale fetches" $ do
+      b <- body <$> get assetsDir "/"
+      mapM_ (\needle -> assertContains "filter glue" needle b)
+            [ "onFilter: filter", "new AbortController()", "inflight.abort()"
+            , "signal: inflight.signal", "?q=${encodeURIComponent(query)}"
+            , "e.name !== \"AbortError\"" ]
 
   , testCase "with assets, opens a socket and applies the streaming ops" $ do
       r <- get assetsDir "/"
       mapM_ (\needle -> assertContains "live glue" needle (body r))
-            [ "new WebSocket(", "/ws", "\"set-rows\"", "table.setRows("
-            , "\"upsert-row\"", "table.upsertRow(", "\"delete-row\"", "table.deleteRow(" ]
+            [ "new WebSocket(", "/ws?bootstrap=off", "table.setRows("
+            , "\"upsert-row\"", "table.upsertRow(", "\"delete-row\"", "table.deleteRow("
+            -- Under a filter the rows are the server's answer to a query, so a
+            -- row frame is re-asked for rather than spliced into them.
+            , "setTimeout(() => filter(query), 250)" ]
+      -- With `bootstrap=off' no `set-rows' frame can arrive, so the branch that
+      -- would have applied one is gone rather than left unreachable.
+      assertBool "a branch for a frame this shell cannot receive"
+                 (not ("\"set-rows\"" `T.isInfixOf` body r))
 
   , testCase "with assets, re-fetches and remounts after a close" $ do
       r <- get assetsDir "/"
@@ -622,9 +922,13 @@ keymapSpec = testGroup "Shell keymap"
 
   , testCase "row movement drives the renderer's own selection" $ do
       b <- body <$> get assetsDir "/"
+      -- The renderer virtualizes, so a row outside the window has no element:
+      -- movement is ids out of `getVisible()' handed back to `select(id)'.
       mapM_ (\needle -> assertContains "row focus" needle b)
-        [ "tbody tr.tv-sel", "tr.click()", "scrollIntoView({ block: \"nearest\" })"
-        , ".tv-filter" ]
+        [ "tbody tr.tv-sel", "table.getVisible()", "table.select(id)", ".tv-filter" ]
+      mapM_ (\gone -> assertBool ("the DOM movement path survives: " <> show gone)
+                                 (not (gone `T.isInfixOf` b)))
+        [ "tr.click()", "scrollIntoView", "rowEls(" ]
 
   , testCase "the inline glue is JavaScript, where there is a node to say so" $ do
       node <- findExecutable "node"

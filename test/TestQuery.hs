@@ -16,7 +16,8 @@ import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Text as T
 
-import Glance.Query ( HeadlineRecord (..), QueryResult (..), loadDir, viewJSON )
+import Glance.Query ( HeadlineRecord (..), QueryResult (..), displayText, loadDir
+                    , matchesSearch, viewJSON )
 
 -- Fixtures
 
@@ -82,7 +83,7 @@ columnOf key v = do
 -- Spec
 
 spec :: TestTree
-spec = testGroup "Query" [loadSpec, cellSpec, viewSpec, schemaSpec]
+spec = testGroup "Query" [loadSpec, cellSpec, searchSpec, viewSpec, schemaSpec]
 
 -- | What a load reports about the files behind it.
 loadSpec :: TestTree
@@ -103,6 +104,53 @@ loadSpec = testGroup "Load"
 
   , testCase "records carry the file's category" $ withRecords $ \recs ->
       assertEqual "categories" (replicate 6 "sample") (map hrCategory recs)
+  ]
+
+-- | The search text a filter runs over, and the display semantics it mirrors.
+--
+-- The expected strings are written down rather than taken from the renderer,
+-- because agreeing with it is the whole point: @table-view.js@'s @displayText@
+-- shows a bracket link by its description and squashes every run of control
+-- characters to one space, and a server-side filter that did anything else
+-- would answer a query differently from the same query typed into a renderer
+-- holding its own rows.
+searchSpec :: TestTree
+searchSpec = testGroup "Search text"
+  [ testCase "a bracket link shows its description" $ do
+      assertEqual "described" "table-view" (displayText "[[https://x/y][table-view]]")
+      assertEqual "bare" "https://x/y" (displayText "[[https://x/y]]")
+      assertEqual "empty description" "file:a.org" (displayText "[[file:a.org][]]")
+
+  , testCase "text around a link is kept, and several links resolve" $
+      assertEqual "interleaved" "see readme and notes."
+                  (displayText "see [[file:R.md][readme]] and [[file:N.org][notes]].")
+
+  , testCase "an unclosed link is left as it is" $ do
+      assertEqual "no closing bracket" "[[oops" (displayText "[[oops")
+      assertEqual "not a link" "[[a]x]" (displayText "[[a]x]")
+
+  , testCase "a run of control characters is one space" $ do
+      assertEqual "newlines" "a b" (displayText "a\n\n\tb")
+      assertEqual "a lone tab" "a b" (displayText "a\tb")
+      assertEqual "trailing" "a " (displayText "a\n")
+
+  , testCase "the row's search text is its cells, lowercased" $ withRecords $ \recs -> do
+      let first' = head recs
+      assertEqual "the whole row, cell by cell"
+                  "next\SUBa\SUBship the table view\SUB:web:glance:\SUB2026-08-01 09:30\SUB2026-08-05"
+                  (T.replace "\US" "\SUB" (hrSearch first'))
+
+  , testCase "a query matches case-insensitively, trimmed, and never across cells" $
+      withRecords $ \recs -> do
+        let matching q = length (filter (matchesSearch q) recs)
+        assertEqual "case" 1 (matching "SHIP THE TABLE")
+        assertEqual "trimmed" 1 (matching "  ship the table  ")
+        assertEqual "unicode" 2 (matching "печатник" + matching "Привет")
+        assertEqual "an empty query is every row" 6 (matching "")
+        assertEqual "blank is empty too" 6 (matching "   ")
+        -- The cells are joined by a character no cell can hold, so the end of
+        -- one and the start of the next never read as one string.
+        assertEqual "across the join" 0 (matching "next a")
   ]
 
 -- | Cells are cut from the source, and dates are spelled the way the wire

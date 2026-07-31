@@ -75,6 +75,7 @@ data Store = Store
   { stFiles   :: !(Map FilePath FileEntry)  -- ^ path-keyed, hence walk-ordered.
   , stIds     :: !(Map Text Int)            -- ^ row id → how many files carry it.
   , stDirErrs :: !Int                       -- ^ directories the startup walk could not list.
+  , stGen     :: !Int                       -- ^ update counter; see 'guarded'.
   }
 
 -- | What the store holds for one file: the rows it contributes, and how its
@@ -86,7 +87,7 @@ data FileEntry = FileEntry
   }
 
 emptyStore :: Store
-emptyStore = Store Map.empty Map.empty 0
+emptyStore = Store Map.empty Map.empty 0 0
 
 -- | DIR walked and parsed into a store: the same files 'Glance.Query.loadDir'
 -- visits, with the per-file breakdown kept instead of folded into counts.
@@ -151,17 +152,27 @@ applyFile path outcome = guarded path (putFile path outcome)
 dropFile :: FilePath -> Store -> (Store, [Frame])
 dropFile path = guarded path (removeFile path)
 
--- | STEP, with the columns watched.  The palette can only move when the file
--- STEP touched changes what it declares, every other file's contribution being
--- untouched and the merge being a function of them; that check is a lookup,
--- and the full merge runs only when it fires.
+-- | STEP, with the columns watched and the generation moved.  The palette can
+-- only move when the file STEP touched changes what it declares, every other
+-- file's contribution being untouched and the merge being a function of them;
+-- that check is a lookup, and the full merge runs only when it fires.
+--
+-- The generation is what @\/headlines@ spells as an @ETag@, so it has to move
+-- whenever a response would: when rows changed (there are frames, 'ViewChanged'
+-- among them) or when the file's load outcome did, which is a stats header
+-- moving with no row to show for it.  A watch event over a file nothing wrote
+-- leaves it alone, so an idle tree revalidates to 304 forever.
 guarded :: FilePath -> (Store -> (Store, [Frame])) -> Store -> (Store, [Frame])
-guarded path step st
-  | declared st == declared next           = (next, frames)
-  | storeKeywords st == storeKeywords next = (next, frames)
-  | otherwise                              = (next, [ViewChanged])
-  where (next, frames) = step st
-        declared = fmap hrKeywords . (listToMaybe . feRecords <=< Map.lookup path) . stFiles
+guarded path step st = (if moved then next { stGen = stGen next + 1 } else next, out)
+  where
+    (next, frames) = step st
+    -- '&&' short-circuits, so the full merge runs only when the touched file's
+    -- own declaration moved.
+    palette  = declared st /= declared next && storeKeywords st /= storeKeywords next
+    out      = if palette then [ViewChanged] else frames
+    moved    = not (null out) || outcome st /= outcome next
+    declared = fmap hrKeywords . (listToMaybe . feRecords <=< Map.lookup path) . stFiles
+    outcome  = fmap feFailure . Map.lookup path . stFiles
 
 -- | PATH's outcome written into the store.  New rows and changed ones become
 -- upserts, in file order; rows no file carries any more become deletes.

@@ -14,6 +14,13 @@
 -- field set is the contract (@table-view\/SCHEMA.md@), so the load counts ride
 -- along as @X-Glance-*@ response headers and leave the body's shape alone.
 --
+-- @\/headlines@ takes @q@, @limit@ and @offset@, filters before it pages, and
+-- reports the match count and whether more follows in that same header family.
+-- It carries an @ETag@ of the store's generation under @Cache-Control:
+-- no-cache@, so a browser revalidates every time and pays for bytes only when
+-- something in the tree moved; @gzip@ sits over the whole HTTP app.  See
+-- 'headlines' for why one generation covers every query variant.
+--
 -- Materialize is the one route that writes, and it writes through the store's
 -- own coordinates: the subtree extent and the digest of the text it was
 -- measured in, both taken at load.  A commit that does not present that digest
@@ -48,6 +55,8 @@ module Glance.Web ( ServeOptions (..)
                   , defaultAssetsDir
                   , defaultPort
                   , application
+                  , bootstrapWanted
+                  , limitCap
                   , serve
                   , viewTitleFor
                   ) where
@@ -55,19 +64,23 @@ module Glance.Web ( ServeOptions (..)
 import Control.Concurrent (forkIO, killThread, newEmptyMVar, takeMVar, tryPutMVar)
 import Control.Concurrent.STM (atomically, readTVarIO)
 import Control.Exception (SomeException, displayException, evaluate, finally, try)
-import Control.Monad (filterM, forever, unless, void)
+import Control.Monad (filterM, forever, unless, void, when)
 import Data.Aeson (eitherDecode', encode, object, withObject, (.:), (.=))
 import Data.Aeson.Types (Pair, parseEither)
 import Data.Bifunctor (first)
-import Data.Maybe (listToMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import GHC.Clock (getMonotonicTime)
-import Network.HTTP.Types ( Header, Status, hContentType, methodGet, methodHead
-                          , methodPost, status200, status400, status404, status405
-                          , status409, status413, status500 )
-import Network.Wai ( Application, Request (pathInfo, queryString, requestMethod)
+import Network.HTTP.Types ( Header, Status, hCacheControl, hContentType, methodGet
+                          , methodHead, methodPost, parseQuery, status200, status304
+                          , status400, status404, status405, status409, status413
+                          , status500 )
+import Network.HTTP.Types.Header (hContentLength, hETag, hIfNoneMatch)
+import Network.Wai ( Application, Request (pathInfo, queryString, requestHeaders, requestMethod)
                    , Response, getRequestBodyChunk, responseFile, responseLBS )
 import Network.Wai.Handler.WebSockets (websocketsOr)
+import Network.Wai.Middleware.Gzip ( GzipFiles (GzipCompress), defaultGzipSettings
+                                   , gzip, gzipFiles )
 import System.Directory (doesDirectoryExist, doesFileExist)
 import System.Exit (die)
 import System.FilePath (takeExtension, (</>))
@@ -80,15 +93,17 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Lazy.Encoding as TLE
+import qualified Data.Text.Read as TR
 import qualified Network.Wai.Handler.Warp as Warp
 import qualified Network.WebSockets as WS
 
 import Glance.Query ( HeadlineRecord (hrDigest, hrFile, hrId, hrSubtree)
                     , QueryResult (..), Span (spanEnd, spanStart)
-                    , WriteFailure (..), replaceSpan, subtreeText, viewJSONText )
-import Glance.Web.Store ( Client, Frame (ViewChanged), Hub, frameText, hubStore
-                        , loadStore, newHub, nextFrame, storeHeadline, storeResult
-                        , subscribe, unsubscribe )
+                    , WriteFailure (..), matchesSearch, replaceSpan, sortedForView
+                    , subtreeText, viewJSONTextWith )
+import Glance.Web.Store ( Client, Frame (ViewChanged), Hub, Store (stGen), frameText
+                        , hubStore, loadStore, newHub, nextFrame, storeHeadline
+                        , storeKeywords, storeResult, subscribe, unsubscribe )
 import Glance.Web.Watch (watchOrgTree)
 
 -- Options
@@ -164,7 +179,20 @@ hasRenderer opts = doesFileExist (soAssets opts </> rendererAsset)
 -- 'Network.Wai.Test' can drive this unchanged.
 application :: ServeOptions -> Hub -> Application
 application opts hub =
-  websocketsOr WS.defaultConnectionOptions (liveSocket hub) (httpApp opts hub)
+  websocketsOr WS.defaultConnectionOptions (liveSocket hub) (compressed (httpApp opts hub))
+
+-- | The HTTP app under @gzip@.  Inside the websocket branch rather than around
+-- it: an upgrade is not a response to rewrite.
+--
+-- Everything this server sends is text — JSON, HTML, one script — and
+-- @defaultGzipSettings@ already names those types and skips a body under 860
+-- bytes, below which the header costs more than the compression saves.  What
+-- it does not do by default is compress a @responseFile@, and the renderer is
+-- one: 'GzipCompress' puts the asset route in too.  The middleware adds
+-- @Vary: Accept-Encoding@ to every response it passes, 304s included, which is
+-- what keeps a shared cache from serving one encoding for the other.
+compressed :: Application -> Application
+compressed = gzip defaultGzipSettings { gzipFiles = GzipCompress }
 
 -- | Everything that is not a websocket upgrade: the read routes, the one route
 -- that writes, and the 405 for every other method.
@@ -180,7 +208,7 @@ httpApp opts hub request respond = route (pathInfo request) >>= respond
     route _
       | not reading          = pure (plain status405 writeHint)
     route []                 = shellPage opts
-    route ["headlines"]      = headlines opts hub
+    route ["headlines"]      = headlines opts hub request
     route ["ws"]             = pure (plain status400 wsHint)
     route [name]
       | safeName name        = asset opts (T.unpack name)
@@ -199,23 +227,123 @@ safeName name = not (T.null name)
 
 -- Routes
 
--- | The view JSON for the configured directory, with the load counts as
--- headers.  Rendered from the store rather than from a fresh walk: the rows
--- are the ones the startup parse produced, kept current by the watcher, so the
--- response costs an encode instead of a directory walk.
-headlines :: ServeOptions -> Hub -> IO Response
-headlines opts hub = do
-  qr <- storeResult <$> readTVarIO (hubStore hub)
-  let body = TLE.encodeUtf8 (viewJSONText (viewTitleFor dir) (qrRecords qr))
-  -- The encode is lazy, so it needs its own 'try': an exception raised inside
-  -- warp's sender would truncate a 200 that has already gone out.
-  forced <- try (evaluate (BL.length body))
-  pure $ case forced of
-    Left err -> plain status500 (renderError err)
-    Right _n -> responseLBS status200 (jsonType : statsHeaders qr) body
+-- | The view JSON for the configured directory, filtered and paged as REQUEST
+-- asks, with the load counts and the page's metadata as headers.  Rendered
+-- from the store rather than from a fresh walk: the rows are the ones the
+-- startup parse produced, kept current by the watcher, so the response costs a
+-- filter and an encode instead of a directory walk.
+--
+-- @q@ is a case-insensitive substring of the row as it displays
+-- ('Glance.Query.matchesSearch'), @limit@ a page size — absent means the whole
+-- set, which is what every client before this asked for — and @offset@ where
+-- the page starts.  Filtering happens before paging, so @X-Glance-Total@ is
+-- the match count and @X-Glance-Has-Next@ says whether a further page exists.
+-- The body stays a View: SCHEMA.md fixes its fields, so paging metadata rides
+-- in the same @X-Glance-*@ family the load counts already use.
+--
+-- A page is cut out of the view's declared sort ('Glance.Query.sortedForView'),
+-- never out of walk order — page two has to be the rows the table would show
+-- after page one.  With no @limit@ the walk order stands and the client sorts
+-- the whole set itself, which is the full-fidelity mode; under a limit a
+-- client-side re-sort reorders the loaded page alone.
+--
+-- Caching.  The @ETag@ is the store's generation, which the watcher moves
+-- whenever a response would change, and @Cache-Control: no-cache@ makes every
+-- browser revalidate rather than guess a lifetime.  One tag serves every query
+-- variant: @q@, @limit@ and @offset@ are in the URL, and an HTTP cache is
+-- keyed by URL, so @?q=foo@ and @?q=bar@ are separate entries that each
+-- revalidate against their own stored tag.  A response is a function of
+-- (generation, URL) and nothing else in the request, so no @Vary@ is owed for
+-- them — the one header the answer does turn on is @Accept-Encoding@, and the
+-- gzip middleware writes that @Vary@ itself.
+headlines :: ServeOptions -> Hub -> Request -> IO Response
+headlines opts hub request = case pageParams request of
+  Left why -> pure (jsonError status400 why)
+  Right (q, limit, offset) -> do
+    st <- readTVarIO (hubStore hub)
+    let tag = etagOf (stGen st)
+    if tag `elem` ifNoneMatch request
+      then pure (responseLBS status304 (cacheHeaders tag) "")
+      else do
+        let qr      = storeResult st
+            matched = filter (matchesSearch q) (qrRecords qr)
+            total   = length matched
+            shown   = maybe matched (\n -> take n (drop offset (sortedForView matched))) limit
+            hasNext = maybe False (\n -> offset + n < total) limit
+            body    = TLE.encodeUtf8
+                        (viewJSONTextWith (viewTitleFor dir) (storeKeywords st) shown)
+        -- The encode is lazy, so it needs its own 'try': an exception raised
+        -- inside warp's sender would truncate a 200 that has already gone out.
+        forced <- try (evaluate (BL.length body))
+        pure $ case forced of
+          Left err -> plain status500 (renderError err)
+          Right _n -> sized status200
+            (jsonType : cacheHeaders tag <> statsHeaders qr <> pageHeaders total hasNext) body
   where dir = soDir opts
         renderError :: SomeException -> Text
         renderError e = "headline render failed: " <> T.pack (displayException e)
+
+-- | The largest page a client may ask for in one request.  Well past a
+-- screenful and well short of a number that means the caller lost track: an
+-- explicit @limit@ over this is a mistake worth naming rather than silently
+-- trimming.  Asking for no limit at all still serves the whole store.
+limitCap :: Int
+limitCap = 20000
+
+-- | GEN as an entity tag.  Opaque to a client, which only ever compares it to
+-- the one it was given.
+etagOf :: Int -> BSC.ByteString
+etagOf gen = "\"g" <> BSC.pack (show gen) <> "\""
+
+-- | The tags REQUEST would accept as unchanged.  @If-None-Match@ is a
+-- comma-separated list and each entry may be weak, so both are handled — a
+-- browser echoes the one tag it holds, and a proxy in between may not.
+ifNoneMatch :: Request -> [BSC.ByteString]
+ifNoneMatch request =
+  [ strong (BSC.dropWhile (== ' ') entry)
+  | raw <- maybe [] pure (lookup hIfNoneMatch (requestHeaders request))
+  , entry <- BSC.split ',' raw ]
+  where strong t = fromMaybe t (BSC.stripPrefix "W/" t)
+
+-- | What every @\/headlines@ answer carries, 304 included: revalidate always,
+-- and the tag to revalidate with.
+cacheHeaders :: BSC.ByteString -> [Header]
+cacheHeaders tag = [(hETag, tag), (hCacheControl, "no-cache")]
+
+-- | What the page covers of the filtered set.
+pageHeaders :: Int -> Bool -> [Header]
+pageHeaders total hasNext =
+  [ ("X-Glance-Total", BSC.pack (show total))
+  , ("X-Glance-Has-Next", if hasNext then "true" else "false") ]
+
+-- | @q@, @limit@ and @offset@ out of REQUEST's query string, or what is wrong
+-- with one of them.  An absent parameter is its default — no filter, no limit,
+-- the top of the set — and a present one that is not a number is a 400 rather
+-- than a silent fallback to it, since a mistyped page size that quietly serves
+-- the whole store looks like a working request.
+pageParams :: Request -> Either Text (Text, Maybe Int, Int)
+pageParams request = do
+  q      <- maybe (Right "") text (raw "q")
+  limit  <- traverse count (raw "limit")
+  offset <- maybe (Right 0) count (raw "offset")
+  case limit of
+    Just n | n > limitCap -> Left ("limit is at most " <> T.pack (show limitCap)
+                                     <> "; page with offset for more")
+    _within                -> Right (q, limit, offset)
+  where
+    -- A parameter with no @=@ reads as absent, so @?limit@ is not a zero page.
+    raw name = case lookup (TE.encodeUtf8 name) (queryString request) of
+      Just (Just bytes) -> Just (name, bytes)
+      _absent           -> Nothing
+    text (name, bytes) = first (const (name <> " is not UTF-8")) (TE.decodeUtf8' bytes)
+    -- Read as an 'Integer' first: a query string can spell a number no 'Int'
+    -- holds, and wrapping one would page from a negative offset.
+    count named@(name, _bytes) = do
+      t <- text named
+      case TR.decimal t :: Either String (Integer, Text) of
+        Right (n, rest) | T.null rest, n >= 0, n <= toInteger (maxBound :: Int)
+                            -> Right (fromInteger n)
+        _notANumber         -> Left (name <> " must be a whole number, 0 or more")
 
 -- Materialize
 
@@ -330,16 +458,31 @@ takeBody limit request = go 0 []
 -- | @\/ws@: one @set-rows@ with everything the store holds, then a frame per
 -- change.  Anything else is refused, so a mistyped path fails loudly rather
 -- than sitting open sending nothing.
+--
+-- @?bootstrap=off@ drops that opening frame for a client that already has the
+-- rows — the shell fetches @\/headlines@ and would otherwise be sent the whole
+-- store a second time.  The subscription is unchanged: the mailbox is
+-- registered in the same transaction, so the snapshot is still taken and only
+-- thrown away.  What such a client gives up is the gap the snapshot closes —
+-- an edit landing between its fetch and its subscribe reaches it on the next
+-- write to that file rather than at once — which is why the default stands.
 liveSocket :: Hub -> WS.ServerApp
 liveSocket hub pending
   | wsPath == "/ws" = do
       conn <- WS.acceptRequest pending
       WS.withPingThread conn 30 (pure ()) $ do
         (cid, client, boot) <- atomically (subscribe hub)
-        send conn boot
+        when (bootstrapWanted requested) (send conn boot)
         pump conn client `finally` unsubscribe hub cid
   | otherwise = WS.rejectRequest pending "glance streams rows at /ws"
-  where wsPath = BSC.takeWhile (/= '?') (WS.requestPath (WS.pendingRequest pending))
+  where requested = WS.requestPath (WS.pendingRequest pending)
+        wsPath    = BSC.takeWhile (/= '?') requested
+
+-- | Does the socket opened at PATH want the @set-rows@ bootstrap?  Everything
+-- but @bootstrap=off@ does, so the default survives a typo.
+bootstrapWanted :: BSC.ByteString -> Bool
+bootstrapWanted path = ("bootstrap", Just "off") `notElem` parseQuery query
+  where query = BSC.dropWhile (/= '?') path
 
 -- | Feed CLIENT's mailbox to CONN until one of them ends it.  The socket is
 -- also drained in the background: nothing arrives on it (the view is read-only
@@ -585,15 +728,28 @@ shellPage opts = do
   font <- localFont opts
   pure (html (if ok then demoShell opts font else assetsMissing opts))
 
--- | The page a browser gets: load the renderer, fetch the view, mount it, then
--- hold a socket open and apply what it sends.  The glue is inline so the shell
--- has exactly one asset to find.
+-- | The page a browser gets: load the renderer, fetch a page of the view,
+-- mount it, then hold a socket open and apply what it sends.  The glue is
+-- inline so the shell has exactly one asset to find.
 --
--- The mount is two-step on purpose.  @\/headlines@ gives the columns, the sort
--- and a set of rows; the socket then opens with a @set-rows@ of its own, which
--- is what the store held at the moment of subscription.  Applying the second
--- over the first closes the gap between the two requests without the server
--- keeping a journal.
+-- The boot is two fetches, and both are @\/headlines@.  The first asks for
+-- 1000 rows so the table paints without waiting on the whole store; the
+-- response's @X-Glance-Total@ says whether there are more, and the rest is
+-- fetched behind the painted table.  The full local set is what keeps @n@,
+-- @p@, sorting and materialize coherent — the renderer virtualizes, so holding
+-- 13k rows costs memory and no DOM.  The socket then opens with
+-- @?bootstrap=off@: the rows are already here and the server's opening
+-- @set-rows@ would only send them again.
+--
+-- Filtering is the server's.  The renderer's @onFilter@ hands over the
+-- debounced query instead of narrowing its own list, the shell asks
+-- @\/headlines?q=@ for it, and the answer replaces the rows — the store holds
+-- the search text, so a query costs a substring scan there rather than 3 MB of
+-- JSON here.  One fetch is in flight at a time and a new one aborts the last,
+-- so a fast typist's earlier answers cannot land after a later one.  While a
+-- filter is on, a row frame off the socket is answered by re-asking rather
+-- than by splicing: the loaded rows are the server's answer to a query and
+-- only it knows whether the changed row still matches.
 --
 -- Every close leads back through the same door: re-fetch, re-mount, reconnect.
 -- That covers a daemon restart, a dropped slow client, and @view-changed@ —
@@ -607,9 +763,10 @@ shellPage opts = do
 -- had the edit come from an editor.  A real editor component is M3.5; a
 -- textarea is what proves the round-trip.
 --
--- The keys are 'keyBindingsJSON', which the glue parses: row movement drives
--- the renderer's own selection by clicking the row, since that is the model it
--- exposes, and a sequence with no handler echoes its org-glance command name
+-- The keys are 'keyBindingsJSON', which the glue parses: row movement runs
+-- over the renderer's @getVisible@ and @select@, since a virtualized row
+-- outside the window has no element to click, and a sequence with no handler
+-- echoes its org-glance command name
 -- and what it is waiting for.  The pill in the corner is the echo area — the
 -- pending prefix while one is open, the command on completion, @is undefined@
 -- otherwise.  A second pill by the heading names the movement profile and
@@ -641,16 +798,38 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    const dot = (state) => (document.getElementById(\"dot\").className = state);"
   , "    const el = (id) => document.getElementById(id);"
   , "    let table = null, socket = null, backoff = 1000, editing = null;"
+  , "    // The server filters and pages; these hold the query it was last asked"
+  , "    // with, the fetch still in flight for it, and the selected row's id."
+  , "    let query = \"\", inflight = null, cursor = null, requeryAt = 0;"
+  , "    const PAGE = 1000;   // rows in the first paint; the rest follows it"
   , "    function mount(view) {"
   , "      table = TableView.mount(document.getElementById(\"app\"), view, {"
   , "        onAction: (command, id) =>"
   , "          command === \"materialize\" ? materialize(id)"
   , "                                     : log(`action: ${command}  id=${id}`),"
   , "        onLink: (target) => log(`link: ${target}`),"
+  , "        onFilter: filter,   // the server narrows; the renderer shows what it is given"
   , "      });"
-  , "      log(`${(view.rows || []).length} headlines · ${profile} keys"
-      <> " · RET materializes · / filters`);"
+  , "      cursor = null;"
+  , "      say();"
   , "    }"
+  , "    const say = () => log(`${table ? table.getRows().length : 0}`"
+  , "      + ` ${query ? `matching ${query}` : \"headlines\"} · ${profile} keys`"
+  , "      + \" · RET materializes · / filters\");"
+  , "    // One /headlines at a time: a keystroke aborts the fetch before it, so"
+  , "    // an earlier answer can never land over a later one."
+  , "    function load(params) {"
+  , "      if (inflight) inflight.abort();"
+  , "      inflight = new AbortController();"
+  , "      return fetch(`/headlines${params}`, { signal: inflight.signal }).then((r) =>"
+  , "        r.ok ? r.json().then((view) => ({ view, total: +r.headers.get(\"X-Glance-Total\") }))"
+  , "             : r.text().then((t) => { throw new Error(t); }));"
+  , "    }"
+  , "    const quiet = (e) => { if (e.name !== \"AbortError\") log(`load failed: ${e.message}`); };"
+  , "    const paint = (a) => { table.setRows(a.view.rows || []); say(); };"
+  , "    const filter = (q) =>"
+  , "      load((query = q.trim()) ? `?q=${encodeURIComponent(query)}` : \"\")"
+  , "        .then((a) => table && paint(a)).catch(quiet);"
   , "    function materialize(id) {"
   , "      fetch(`/headline?id=${encodeURIComponent(id)}`)"
   , "        .then((r) => r.json().then((b) => {"
@@ -692,33 +871,28 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    el(\"mcancel\").addEventListener(\"click\", shut);"
   , "    el(\"mredo\").addEventListener(\"click\", () => editing && materialize(editing.id));"
   , ""
-  , "    // Rows.  The renderer owns selection — the `tv-sel' class, and the"
-  , "    // toolbar buttons it enables — and exposes no setter, so the keys drive"
-  , "    // it the way a user does, by clicking the row.  It survives set-rows and"
-  , "    // upsert: table-view re-applies the selected id after every render."
-  , "    const rowEls = () =>"
-  , "      Array.prototype.slice.call(document.querySelectorAll(\"#app .tv-table tbody tr\"));"
+  , "    // Rows.  The renderer virtualizes, so a row outside the window has no"
+  , "    // element: movement is ids out of `getVisible()' handed to `select(id)'."
+  , "    // The class is still read — a click moves the selection without telling"
+  , "    // us — and `cursor' carries it while the row is scrolled out of sight."
+  , "    const visible = () => (table ? table.getVisible() : []);"
   , "    const focusedId = () => {"
   , "      const tr = document.querySelector(\"#app .tv-table tbody tr.tv-sel\");"
-  , "      return tr ? tr.dataset.id : null;"
+  , "      return (cursor = tr ? tr.dataset.id : cursor);"
   , "    };"
-  , "    function focusRow(i) {"
-  , "      const rows = rowEls();"
-  , "      if (!rows.length) { log(\"no rows to move through\"); return; }"
-  , "      const tr = rows[Math.max(0, Math.min(rows.length - 1, i))];"
-  , "      tr.click();"
-  , "      tr.scrollIntoView({ block: \"nearest\" });"
+  , "    function pick(list, i) {"
+  , "      if (!list.length) { log(\"no rows to move through\"); return; }"
+  , "      const id = list[Math.max(0, Math.min(list.length - 1, i))].id;"
+  , "      if (table.select(id)) cursor = id;"
   , "    }"
-  , "    function moveRow(step) {"
-  , "      const rows = rowEls();"
-  , "      const at = rows.findIndex((tr) => tr.dataset.id === focusedId());"
-  , "      focusRow(at === -1 ? (step > 0 ? 0 : rows.length - 1) : at + step);"
+  , "    function move(step) {"
+  , "      const list = visible(), at = list.findIndex((r) => r.id === focusedId());"
+  , "      pick(list, at === -1 ? (step > 0 ? 0 : list.length - 1) : at + step);"
   , "    }"
-  , "    function focusFilter() {"
+  , "    const focusFilter = () => {"
   , "      const box = document.querySelector(\"#app .tv-filter\");"
   , "      if (box) { box.focus(); box.select(); }"
-  , "      else log(\"this renderer has no filter box\");"
-  , "    }"
+  , "    };"
   , "    // `start' is the fetch, the mount and the socket; reuse it whole."
   , "    // Dropping onclose first stops the reconnect timer opening a second one."
   , "    function refresh() {"
@@ -810,10 +984,10 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      return !!s && !s.isCollapsed;"
   , "    }"
   , "    const HANDLERS = {"
-  , "      nextRow: () => moveRow(1),"
-  , "      previousRow: () => moveRow(-1),"
-  , "      firstRow: () => focusRow(0),"
-  , "      lastRow: () => focusRow(rowEls().length - 1),"
+  , "      nextRow: () => move(1),"
+  , "      previousRow: () => move(-1),"
+  , "      firstRow: () => pick(visible(), 0),"
+  , "      lastRow: () => pick(visible(), visible().length - 1),"
   , "      materializeRow: () => {"
   , "        const id = focusedId();"
   , "        if (id) materialize(id); else log(\"no row focused — n or p picks one\");"
@@ -853,15 +1027,18 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , ""
   , "    function apply(frame) {"
   , "      if (!table) return;"
-  , "      if (frame.op === \"set-rows\") table.setRows(frame.rows);"
-  , "      else if (frame.op === \"upsert-row\") table.upsertRow(frame.row);"
+  , "      // Under a filter the loaded rows are the server's answer to a query,"
+  , "      // and only it knows whether the changed row still matches: ask again."
+  , "      if (query) return void (clearTimeout(requeryAt),"
+  , "        requeryAt = setTimeout(() => filter(query), 250));"
+  , "      if (frame.op === \"upsert-row\") table.upsertRow(frame.row);"
   , "      else if (frame.op === \"delete-row\") table.deleteRow(frame.id);"
-  , "      else if (frame.op === \"apply-delta\") table.applyDelta(frame.ops);"
-  , "      log(`${table.getRows().length} headlines · live`);"
+  , "      say();"
   , "    }"
   , "    function listen() {"
   , "      const scheme = location.protocol === \"https:\" ? \"wss\" : \"ws\";"
-  , "      socket = new WebSocket(`${scheme}://${location.host}/ws`);"
+  , "      // The rows came over HTTP; the socket's own set-rows would resend them."
+  , "      socket = new WebSocket(`${scheme}://${location.host}/ws?bootstrap=off`);"
   , "      socket.onopen = () => { backoff = 1000; dot(\"live\"); };"
   , "      socket.onmessage = (e) => apply(JSON.parse(e.data));"
   , "      socket.onclose = () => { socket = null; dot(\"down\"); again(); };"
@@ -872,11 +1049,15 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      backoff = Math.min(backoff * 2, 30000);"
   , "    }"
   , "    function start() {"
-  , "      fetch(\"/headlines\")"
-  , "        .then((r) => r.ok ? r.json()"
-  , "                          : r.text().then((t) => { throw new Error(t); }))"
-  , "        .then((view) => { mount(view); listen(); })"
-  , "        .catch((e) => { dot(\"down\"); log(`load failed: ${e.message}`); again(); });"
+  , "      query = \"\";"
+  , "      load(`?limit=${PAGE}`).then((a) => {"
+  , "        mount(a.view);"
+  , "        listen();"
+  , "        // The rest behind the painted table: n/p, sort and materialize all"
+  , "        // want the whole set, and the renderer holds it without the DOM."
+  , "        if (a.total > (a.view.rows || []).length)"
+  , "          load(\"\").then((b) => table && !query && paint(b)).catch(quiet);"
+  , "      }).catch((e) => { dot(\"down\"); quiet(e); if (e.name !== \"AbortError\") again(); });"
   , "    }"
   , "    start();"
   , "  </script>"
@@ -975,10 +1156,20 @@ escape = T.concatMap esc
 jsonType :: Header
 jsonType = (hContentType, "application/json; charset=utf-8")
 
+-- | STATUS with HEADERS and BODY, the body's length among them.  Warp writes a
+-- @Content-Length@ too, but downstream of every middleware; the gzip threshold
+-- reads that header off the response, so a body too small to be worth
+-- compressing is only recognisable as one when the length is written here.
+-- 'Network.Wai.Middleware.Gzip.gzip' drops it again on the responses it does
+-- compress.
+sized :: Status -> [Header] -> BL.ByteString -> Response
+sized status headers body =
+  responseLBS status ((hContentLength, BSC.pack (show (BL.length body))) : headers) body
+
 -- | STATUS with FIELDS as its JSON body.  Hand-built the way the view document
 -- is: these objects are a contract with the shell, not a projection of a type.
 jsonResponse :: Status -> [Pair] -> Response
-jsonResponse status fields = responseLBS status [jsonType] (encode (object fields))
+jsonResponse status fields = sized status [jsonType] (encode (object fields))
 
 -- | STATUS carrying MSG as @{"error": …}@, so a refusal parses the way the
 -- success it replaces does.
@@ -986,13 +1177,13 @@ jsonError :: Status -> Text -> Response
 jsonError status msg = jsonResponse status ["error" .= msg]
 
 html :: Text -> Response
-html body = responseLBS status200 [(hContentType, "text/html; charset=utf-8")] (utf8 body)
+html body = sized status200 [(hContentType, "text/html; charset=utf-8")] (utf8 body)
 
 -- | STATUS with MSG as its whole body — errors read in a terminal as well as
 -- in a browser.
 plain :: Status -> Text -> Response
 plain status msg =
-  responseLBS status [(hContentType, "text/plain; charset=utf-8")] (utf8 (msg <> "\n"))
+  sized status [(hContentType, "text/plain; charset=utf-8")] (utf8 (msg <> "\n"))
 
 utf8 :: Text -> BL.ByteString
 utf8 = BL.fromStrict . TE.encodeUtf8

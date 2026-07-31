@@ -247,6 +247,43 @@ on.
   given — org validity is the author's business, and a file that stops parsing
   keeps the rows it had, exactly as when the text came from an editor.
   Evidence: `TestServe` "POST /headline" group. **test**
+- **The `ETag` is the store's generation, and one tag covers every query
+  variant.** `Store.stGen` moves in `Glance.Web.Store.guarded` — the single
+  wrapper both update paths go through — whenever the step produced frames or
+  moved the touched file's load outcome, which is exactly when a `/headlines`
+  response would change. `GET /headlines` sends it as `ETag: "gN"` under
+  `Cache-Control: no-cache`, so a browser revalidates every time and an idle
+  tree costs a 0.56 ms 304 instead of 3 MB. Every variant shares the tag on
+  purpose: `q`, `limit` and `offset` are in the URL and an HTTP cache is keyed
+  by URL, so `?q=foo` and `?q=bar` are separate entries each revalidating
+  against the tag it was itself given, and the response is a function of
+  (generation, URL) alone. That is why no `Vary` is owed for them — the one
+  header the answer turns on is `Accept-Encoding`, and the gzip middleware
+  writes that `Vary` itself, on the 304s too. Bump the generation from anywhere
+  but `guarded` and two producers race it; skip the bump on a load-outcome
+  change and the stats headers go stale behind a matching tag. Evidence:
+  `TestServe` "GET /headlines cache validation" (including a published reload
+  that changes nothing leaving the tag put). **test**
+- **The server is the authority on the filtered set, and a page comes out of the
+  view's own sort.** `?q=` is matched against `hrSearch`, built at load beside
+  the cells: a Haskell mirror of `table-view.js`'s `displayText` (bracket link
+  shown by its description, runs of control characters as one space),
+  lowercased, cells joined by `\x1f` so a query cannot span two of them. The two
+  implementations have to agree or the same query answers differently depending
+  on who ran it, which is why `TestQuery`'s expected strings are written down
+  rather than taken from the renderer. Filtering runs before paging, so
+  `X-Glance-Total` is the match count; and a page is `take limit . drop offset`
+  over `sortedForView` rather than over walk order, because page two has to be
+  the rows the table would show after page one. With no `limit` the walk order
+  stands and the client sorts the whole set — the full-fidelity mode, and the
+  one the shell settles into. The shell mirrors the same rule live: with a
+  filter on, a row frame off the socket is answered by re-asking the server
+  rather than by splicing, since only it knows whether the changed row still
+  matches. The state palette is the store's (`viewJSONWith` takes it
+  explicitly), never the page's — deriving it from the rows on a page would move
+  the badge list a client watches for a column change every time the page moved.
+  Evidence: `TestServe` "GET /headlines filter and paging", `TestQuery` "Search
+  text". **test**
 - **The watch is the only channel that updates the store.** A commit writes the
   file and returns; no path through the route touches the `Hub` or the `Store`.
   The watch re-reads what was written and streams the rows, so a browser save

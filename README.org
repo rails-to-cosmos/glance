@@ -33,11 +33,50 @@ The response body is the table-view View object and nothing else — the load
 counts ride in =X-Glance-*= headers (rows, files, parse, decode and read
 failures).
 
+*Filter and page it, and pay for bytes only when something moved.* =/headlines=
+takes three parameters and answers with the same View object:
+
+#+begin_src sh
+curl -s 'localhost:7777/headlines?q=meeting' | jq '.rows | length'
+curl -sD - -o /dev/null 'localhost:7777/headlines?limit=1000&offset=2000'
+#+end_src
+
+- =q= — a case-insensitive substring of the row /as it displays/: a bracket link
+  matches by its description, and a query never spans two cells. The store keeps
+  that text per row, so filtering 13k rows costs one substring scan rather than
+  3 MB of JSON on the wire.
+- =limit= — page size, at most 20000. Absent means the whole set, which is what
+  a client that wants to sort and move locally should ask for.
+- =offset= — where the page starts, default 0.
+
+The filter runs before the page, so =X-Glance-Total= is the match count and
+=X-Glance-Has-Next= says whether another page follows. A page is cut out of the
+view's own declared sort (scheduled ascending), so page two is the rows the
+table would show after page one; sorting a /page/ in the browser reorders that
+page alone, while the no-limit mode keeps full-fidelity client-side sort.
+
+Every answer carries =ETag: "gN"= — =N= being the store's generation, which the
+file watch moves whenever a response would change — under =Cache-Control:
+no-cache=, so a browser revalidates every time and an unchanged tree costs a
+0.6 ms 304 instead of a 3 MB body. One tag serves every variant: the parameters
+are in the URL and an HTTP cache is keyed by URL, so =?q=foo= and =?q=bar= are
+separate entries revalidating against their own tags. Responses are gzipped
+(3.06 MB → 580 KB for the whole set, 34 KB → 15 KB for the renderer) with the
+=Vary: Accept-Encoding= that goes with it.
+
+*The page stays tiny.* The shell is inline vanilla JavaScript — no framework, no
+build step, no dependency, nothing fetched off this server. It boots on
+=?limit=1000= for a fast first paint (~90 ms against ~250 ms for the whole set),
+pulls the rest in behind the painted table so movement and sorting see
+everything, hands the filter box to the server rather than narrowing locally,
+and opens its socket with =?bootstrap=off= because it already has the rows.
+
 *The tab stays live.* The directory is walked and parsed once, at startup, into
 an in-memory store; a request then costs an encode rather than a walk (0.09 s
 for 13344 rows against 14.5 s per request before). A file watcher re-parses one
 =.org= file per edit — 4 ms — and pushes the difference over =ws://.../ws= as
-table-view's streaming ops: =set-rows= once on connect, then =upsert-row= and
+table-view's streaming ops: =set-rows= once on connect (=?bootstrap=off= drops
+it for a client that fetched the rows over HTTP), then =upsert-row= and
 =delete-row= per change. Edit a headline in Emacs and the open tab moves in
 about 100 ms, no reload; create or delete a file and its rows appear or go. A
 green dot by the heading says the socket is up, grey that it is reconnecting.

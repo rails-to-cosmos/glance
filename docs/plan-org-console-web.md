@@ -357,6 +357,131 @@ and streams nothing, which is S5's rule unchanged. And the route is as
 privileged as every other one until S7: loopback is still the whole access
 story, and a write route is the reason that stops being enough.
 
+## S5.6 — The HTTP layer: validation, compression, server-side filter + paging (landed)
+
+The renderer virtualized its rows, which moved the cost that was left onto the
+wire: the shell was fetching 3.06 MB before it painted anything, filtering it in
+the tab, and being sent the same rows a second time down the socket. This is the
+standard HTTP answer to all three — a conditional GET, `Content-Encoding`, and
+query parameters — plus the two client changes they imply.
+
+Exit:
+- [x] `ETag` + 304. Actual: `Glance.Web.Store.Store` gains `stGen`, bumped in
+      `guarded` — the one wrapper both update paths go through — whenever the
+      step produced frames or moved the touched file's load outcome. So a watch
+      event over a file nothing wrote leaves the tag alone and an idle tree
+      revalidates to 304 forever. `GET /headlines` sends `ETag: "gN"` +
+      `Cache-Control: no-cache`; `If-None-Match` is parsed as the list it is,
+      weak tags included.
+- [x] One tag for every query variant. `q`, `limit` and `offset` are in the URL
+      and an HTTP cache is keyed by URL, so each variant is its own entry
+      revalidating against the tag it was itself given, and the response is a
+      function of (generation, URL) alone. No `Vary` is owed for them; the one
+      header the answer does turn on is `Accept-Encoding`, and the gzip
+      middleware writes that `Vary` itself, on the 304s too.
+- [x] gzip. Actual: `wai-extra`'s middleware on the HTTP branch (inside
+      `websocketsOr`, since an upgrade is not a response to rewrite), with
+      `GzipFiles = GzipCompress` so the renderer — a `responseFile` — is
+      compressed as well. The default 860-byte threshold needs a
+      `Content-Length` to fire and `responseLBS` writes none, so every response
+      this module builds now carries one (`sized`); gzip drops it again on what
+      it compresses.
+- [x] `q` / `limit` / `offset`, filter before page. Actual: `HeadlineRecord`
+      gains `hrSearch`, built at load beside the cells and forced with them —
+      every cell through a Haskell mirror of `table-view.js`'s `displayText`
+      (bracket link → description, runs of control characters → one space),
+      lowercased, joined by `\x1f`. `matchesSearch` takes the query alone and
+      returns the test, so `filter (matchesSearch q)` normalises once rather
+      than once per row. Metadata rides in `X-Glance-Total` and
+      `X-Glance-Has-Next`, beside the load counts, because SCHEMA.md fixes the
+      View's fields.
+- [x] Pages come out of the view's declared sort (`sortedForView`), never out of
+      walk order. With no `limit` the walk order stands and the client sorts the
+      whole set — the full-fidelity mode the shell ends up in.
+- [x] The palette stays the whole store's. `viewJSONWith` takes the
+      `TodoKeywords` explicitly and the server passes `storeKeywords`, so the
+      badge list a client watches for a column change does not move every time
+      the page does. `mergeKeywords` lost its `nub` for an order-preserving
+      Set dedup on the way — quadratic over one entry per file was most of a
+      `/headlines` request at 6313 files.
+- [x] `/ws?bootstrap=off`. The subscription is unchanged — the mailbox is
+      registered and the snapshot taken in the same transaction — and the
+      snapshot is thrown away. What such a client gives up is the gap that
+      snapshot closes; the default stands.
+- [x] `table-view` gained one option: `MountOptions.onFilter`. With it the
+      debounced filter box hands the query to the producer instead of narrowing
+      locally, `state.filter` stays empty so `order` is `sorted`, and nothing
+      else changes. `make web-check` and `make web-perf` green, one new
+      perf-driver check.
+- [x] Key movement migrated off the DOM. Virtualized rows outside the window
+      have no element, so `rowEls()`/`tr.click()` is gone outright and `n`/`p`/`,`/`.` compute the next id from
+      `getVisible()` and hand it to `select(id)`. The shell tracks the
+      selection itself for the case where it has scrolled out of the window.
+      The `set-rows` and `apply-delta` branches went with it: under
+      `bootstrap=off` neither frame can arrive.
+- [x] Suite: 419 → **452 tests**, hlint clean, no new warnings. Inline glue
+      243 → 267 lines for four new behaviours.
+
+**Measured** against `glance serve --dir ~/sync --port 7801` — 6313 files,
+13377 rows — medians of 20–40 `curl` requests, and an end-to-end run of the real
+shell glue over the real `table-view.js` against that server (three passes,
+`scratchpad/s6-shell-drive.js`).
+
+| payload | plain | gzip |
+|---|---|---|
+| `/headlines` — 13377 rows | 3 064 357 B | **580 154 B** (5.3×) |
+| `/headlines?limit=1000` — the first paint | 230 248 B | **22 096 B** (10.4×) |
+| `/headlines?q=meeting` — 1035 of 13377 | 245 395 B | **61 471 B** |
+| `table-view.js` | 34 144 B | **15 493 B** |
+| `/` — the shell | 18 201 B | **8 525 B** |
+
+| request | latency |
+|---|---|
+| `/ws` 400 — the bare HTTP round trip | **0.56 ms** |
+| `/headlines` **304** — revalidate an unchanged store | **0.56 ms** |
+| `/headline` 404 — the 13377-row id scan, for scale | 3.50 ms |
+| `/headlines?q=zzz` — filter, nothing matched | 16.9 ms |
+| `/headlines?limit=1000` — sort + page + encode | **24.6 ms** |
+| `/headlines` — the whole 3.06 MB set | 102 ms |
+
+| end to end, in the shell | new | old |
+|---|---|---|
+| boot to first paint | **~90 ms** (1000 rows, 50 in the DOM) | ~250 ms (13377 rows) |
+| whole set loaded and held | ~375 ms | — |
+| filter keystroke → rows painted, 42 matches | **140 ms** | — |
+| filter keystroke → rows painted, 1035 matches | 168 ms | — |
+| `n`, warm | 2.2 ms | — |
+| `n`, first press after a `setRows` | 440 ms (the renderer sorting 13377 and measuring widths) | — |
+
+So **first paint is 2.7× sooner** and costs 22 KB instead of 580 KB, the whole
+set is in the tab a third of a second later, and a revalidation of an unchanged
+tree is 0.56 ms against 102 ms. A filter keystroke is 140–168 ms end to end, of
+which **120 ms is the renderer's own debounce** — the target was 150 ms, met for
+narrow queries and missed by ~18 ms for one matching 1035 rows, where the extra
+is the 61 KB of it and the `setRows` behind it.
+
+Two honest notes. Compressing the *whole* set is a net loss over loopback — 102
+ms plain against ~120 ms gzipped, the compressor costing more than 2.5 MB of
+localhost transfer saves — and it is worth it anyway, because the shell never
+asks for it over a real link and every other response gains. And the filter is
+not the sub-millisecond scan the plan guessed at: `T.isInfixOf` over 13377 rows
+is ~7–10 ms, roughly 0.6 µs a row, which disappears into the debounce but is the
+lever if `q` ever lands in a loop.
+
+**Live.** `?bootstrap=off` sends no opening frame where the default sends
+`set-rows (13377 rows)`, and frames still stream on it: a scratch file created
+under `~/sync` reached a `bootstrap=off` client as `upsert-row` in 1.2 s, moved
+the tag `"g0"` → `"g1"` (the old tag then re-served 200, the new one 304), was
+findable through `?q=`, and left as `delete-row` when removed. `~/sync` was
+byte-identical afterwards.
+
+**Left open.** The generation is per-store, so any write anywhere invalidates
+every client's tag; a per-query tag would need the filter result cached, which
+is a second structure to keep in step. `storeKeywords` and `storeResult` are
+recomputed per request — ~13 ms of the paged request — and caching them in the
+`Store` beside `stGen` is the obvious next lever, held back for the same reason
+`storeHeadline` is still a scan.
+
 ## S6 — M2: graph + mindmap (parallel with S5, after S2)
 
 Wire `RefKind` in parsing, assemble `fgl` graph, `GET /graph` → graph JSON,

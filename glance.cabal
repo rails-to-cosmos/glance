@@ -110,6 +110,7 @@ library glance-web
     , text
     , time
     , wai
+    , wai-extra
     , wai-websockets
     , warp
     , websockets

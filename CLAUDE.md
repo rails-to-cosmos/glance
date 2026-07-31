@@ -83,8 +83,10 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - The socket carries SCHEMA.md's row ops alone. A column change (the TODO
   keyword union moving) closes it with reason `view-changed` and the client
   re-fetches. The bootstrap `set-rows` is snapshotted inside the subscribing
-  transaction, so there is no journal and no gap. A client whose bounded mailbox
-  fills is dropped — the watcher never waits on a browser.
+  transaction, so there is no journal and no gap; `?bootstrap=off` drops that
+  frame for a client that already fetched the rows, and trades the gap for it.
+  A client whose bounded mailbox fills is dropped — the watcher never waits on a
+  browser.
 - The public library exposes `Glance.Query` alone over the private
   `glance-internal` sublibrary; cells are sliced from spans and the view
   `Value` is hand-built — no `ToJSON` on an internal type
@@ -93,10 +95,29 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   subtree. The digest is pinned at load, any divergence is a 409 with the file
   untouched, and the write path never touches the store — the file watch is the
   only thing that updates rows.
+- `/headlines` carries `ETag: "g<stGen>"` under `Cache-Control: no-cache`; the
+  generation moves only in `Store.guarded`, and only when frames were produced
+  or a file's load outcome moved. One tag covers every query variant: the
+  parameters are in the URL and an HTTP cache is keyed by URL, so the response
+  is a function of (generation, URL) and no `Vary` is owed for them — gzip
+  writes the `Accept-Encoding` one itself.
+- `?q=` matches `hrSearch`, a load-time mirror of `table-view.js`'s
+  `displayText` (link → DESC, control-char runs → one space) lowercased and
+  `\x1f`-joined, so server and renderer answer a query alike. Filter runs before
+  page; a page slices `sortedForView`, never walk order; no `limit` means the
+  whole set in walk order for the client to sort. The palette stays the store's
+  whatever the page holds, and the shell re-asks the server for a row frame that
+  lands while a filter is on.
 - The served pages fetch nothing off this server: inline styles, inline glue,
   and one `<script src>` naming a file under `--assets`. No CDN, no web font, no
   analytics. The JetBrains Mono `@font-face` appears only when the assets
   directory holds the file, pointing at a bare name this server serves.
+- The shell is vanilla inline JS with no framework, build step or dependency,
+  and shrinking it beats adding to it. It boots on `?limit=1000`, pulls the rest
+  in behind the painted table, mounts with `onFilter` so the server narrows, and
+  opens its socket with `?bootstrap=off`. Rows are virtualized, so movement is
+  ids out of `getVisible()` handed to `select(id)` — the DOM-walking path is
+  gone, as are the frame branches `bootstrap=off` makes unreachable.
 - The shell's keymap is `Glance.Web`'s `sharedKeys` + `keyProfiles` and nothing
   else: the page carries them as a JSON blob and its own dispatch parses that
   blob. Movement is the only thing a profile changes (`emacs` default, `vim`);
