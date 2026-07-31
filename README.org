@@ -181,12 +181,74 @@ read/write/automate tiers arrive with the protocol step (S7 in
 =docs/plan-org-console-web.md=); until then the loopback interface is the whole
 access-control story.
 
+** Desktop — the same server, in a window of its own
+
+#+begin_src sh
+cabal run glance -- desktop --dir ~/org
+#+end_src
+
+The same daemon =serve= runs, with an app-mode browser window opened on it the
+moment the socket is listening: no address bar, no tabs, no chrome. It takes
+=serve='s flags — =--dir=, =--port= (default 7777), =--assets= — plus two of its
+own:
+
+- =--browser CMD= — what to open the window with.
+- =--dry-run= — print the command that would be run and the URL it would open,
+  then exit. Nothing is bound and nothing is started, so it is the way to see
+  what this machine resolves to:
+
+#+begin_src sh
+cabal run -v0 glance -- desktop --dir ~/org --port 7797 --dry-run
+# glance desktop — http://127.0.0.1:7797/
+#   window:  /usr/bin/chromium --app=http://127.0.0.1:7797/
+#   dry run — nothing started.
+#+end_src
+
+*Which browser.* =$GLANCE_BROWSER= first, then =--browser=, then the first of
+=chromium=, =chromium-browser=, =google-chrome-stable=, =google-chrome=,
+=brave=, =vivaldi= found on =PATH= — each run as =CMD --app=http://127.0.0.1:PORT/=.
+The environment leads so a machine whose browser is on none of those lists can
+be set up once, in a shell profile, and be obeyed by every launcher too. What it
+names has to be a chromium-family browser: =--app= is the flag that drops the
+chrome, and Firefox no longer has it.
+
+With none of them installed, =xdg-open= opens the URL as a plain tab instead —
+a worse window and a working one. With no =xdg-open= either, the URL is printed
+and the server keeps serving: a missing browser never takes the daemon with it.
+
+*Closing the window leaves the daemon running.* It is a browser window, and the
+server behind it is a server — closing it is closing a tab. =C-c= in the
+terminal is what stops the daemon, and it releases the port with it. Re-open the
+window by pointing anything at =http://127.0.0.1:PORT/=, or by running =desktop=
+again against the same directory on a free port.
+
+*It opens before the tree is indexed.* The window is opened at the socket, not
+at the loaded store — see below.
+
+** Serving before the walk finishes
+
+The daemon binds and answers immediately, and walks the tree behind that: over
+6313 files that is ~16 s during which a browser would otherwise have got a
+refused connection. While the walk runs, =/headlines=, =/headline= and =/ws=
+answer =503= with =Retry-After: 1= and ={"loading": true, "elapsed": 3.4}=,
+and =/= plus the assets are served as usual — so the shell paints, shows
+=indexing … 3.4s= against an amber dot, and polls once a second until the store
+is there. Then it mounts exactly as a warm start does.
+
+#+begin_src sh
+curl -sD - -o /dev/null localhost:7777/headlines   # HTTP/1.1 503, Retry-After: 1
+#+end_src
+
+The order is fixed: bind, window, walk, watch. The file watch starts after the
+walk lands, so its first event cannot fold into a store that is about to be
+replaced wholesale.
+
 ** Directory Structure
 
 #+begin_src
 glance/
 ├── app/
-│   ├── Main.hs          ← CLI entry point (repl · scan · serve)
+│   ├── Main.hs          ← CLI entry point (repl · scan · serve · desktop)
 │   └── Scan.hs          ← Corpus scan and span-invariant report
 ├── src/                  ← glance-internal (private sublibrary)
 │   ├── Data/
@@ -202,6 +264,7 @@ glance/
 │       └── Query.hs     ← Records and table-view JSON: the whole public API
 ├── src-web/              ← glance-web (private sublibrary, facade-only deps)
 │   └── Glance/
+│       ├── Desktop.hs   ← glance desktop: browser discovery, app-mode window
 │       ├── Web.hs       ← WAI app: /headlines, /headline, /ws, the live shell, assets
 │       └── Web/
 │           ├── Store.hs  ← In-memory store, row diff, frames, client hub

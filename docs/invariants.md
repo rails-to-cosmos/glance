@@ -182,6 +182,24 @@ on.
   order silently diverges from the loader's. Evidence: `TestStore` "the store
   still equals the load it stands in for", `TestServe` "/headlines … rendered
   from the store". **test**
+- **The socket binds before the store exists, and says so.** `Glance.Web.serve`
+  listens first and walks the tree on a background thread, so the window between
+  `bind` and a loaded store is served rather than refused — 16 s of it over
+  ~/sync. Through it, `/headlines`, `/headline` and `/ws` answer `503` with
+  `Retry-After: 1` and `{"loading": true, "elapsed": S}`, and the websocket
+  upgrade is refused with the same status rather than accepted: a `set-rows` of
+  an empty store is a claim that the tree has no headlines in it, and a client
+  that mounts one has to be told to throw it away later. `/` and the assets are
+  served the whole time, since the page carrying the indexing state is the
+  reason to listen early. Clients rest on the `Retry-After` semantics — the
+  shell polls at exactly that second and any other client is entitled to — so
+  answering `200` with an empty view, or dropping the header, breaks them
+  quietly rather than loudly. The state is one `LoadState` in the `Hub`, flipped
+  by `finishLoading` in one transaction, and the watch starts after that flip:
+  an event folded into a store that is about to be replaced wholesale would be
+  lost with it. Evidence: `TestServe` "Indexing (bind before load)", including
+  the same `Application` answering 503 and then 200 across a `finishLoading`.
+  **test**
 - **The watch parses one file, from `defaultContext`.** `Glance.Web.Watch.reload`
   calls `Glance.Query.loadFile`, which seeds every parse from `defaultContext`.
   A shared long-lived context would let one file's `#+TODO:` line reach another

@@ -482,6 +482,85 @@ recomputed per request — ~13 ms of the paged request — and caching them in t
 `Store` beside `stGen` is the obvious next lever, held back for the same reason
 `storeHeadline` is still a scan.
 
+## Desktop stage 1 (landed) — `glance desktop`, and serving before the walk
+
+Proposal rev 4's desktop shell, stage 1: no new architecture, one more client.
+`glance desktop` starts the daemon and opens an app-mode browser window on it —
+`chromium --app=http://127.0.0.1:PORT/` and its relatives — so there is no
+address bar, no tab strip and nothing to find. Stage 2 (a webview binding, one
+binary that owns its window) stays a spike, wanted only if this chafes.
+
+The window wants the server listening — the store can land later — which is
+what turned the startup walk inside out: `serve` used to parse ~/sync for 16 s and
+bind afterwards, so everything before that was a refused connection. Now it
+binds first and the walk runs behind it, which improves `serve` by itself.
+
+Exit:
+- [x] Bind before load. Actual: `Warp.setBeforeMainLoop` prints the banner and
+      runs the caller's hook; `Glance.Web.Store.Hub` gains `hubLoad`, a
+      `LoadState` that starts as `Loading <monotonic start>` over `emptyStore`;
+      the walk runs in one background thread and `finishLoading` swaps the
+      result in, in one transaction. The watch starts on that same thread after
+      the swap, so it is still impossible for a watch event to fold into a store
+      that is about to be replaced wholesale, and killing the one thread still
+      stops both.
+- [x] A 503 contract while indexing. `GET /headlines`, `/headline` (both
+      methods) and `/ws` answer `503` + `Retry-After: 1` +
+      `{"loading": true, "elapsed": S}`; the websocket upgrade is refused with
+      the same status and header rather than accepted onto an empty store, since
+      a `set-rows` of one is a claim about the tree. `/` and the assets serve
+      throughout — the page that shows the state is the point of listening early.
+      No file count in the body: the walk hands its files over in one batch, and
+      complicating it to count them is not worth a progress bar.
+- [x] The shell renders the state and polls out of it. `load()` reads a 503 as
+      the state it is, `start()` shows `indexing … 3.4s` against an amber dot
+      (`#dot.wait`) and retries in 1 s, and the successful path is untouched.
+      Nine lines of glue.
+- [x] Window command resolves and spawns app-mode. `Glance.Desktop.resolveBrowser`
+      takes (env, flag, path list, url) and is unit-tested over a temp directory
+      of fake executables handed in as that path list — `setEnv "PATH"` would be
+      process-global, so the path list is a parameter. Order: `$GLANCE_BROWSER`,
+      `--browser`, then chromium, chromium-browser, google-chrome-stable,
+      google-chrome, brave, vivaldi. A named browser is taken at its word (a
+      bare name the path lacks is still what gets spawned) — falling back to
+      something else silently runs a browser nobody asked for.
+- [x] No-browser fallback never kills the daemon. `xdg-open URL` when no
+      candidate is on the path, the URL printed when there is no `xdg-open`
+      either, and a spawn that throws is caught and reported. `openWindow` runs
+      on its own thread, so the accept loop waits for no window.
+- [x] `--dry-run` prints the resolved command line and the URL and exits 0
+      before anything is bound: it answers what would be run and leaves the serving
+      to `serve`. Tested through the
+      built binary with a controlled `PATH`; the binary returning at all is the
+      assertion about the socket, since a run that bound the port would still be
+      serving on it.
+- [x] Suite: 452 → **474 tests**, hlint clean, no new warnings. No GUI is opened
+      anywhere in it: the one spawning case runs a shell script that writes its
+      argv to a file.
+
+**Live**, against `~/sync` (6313 files, 13379 rows) with `GLANCE_BROWSER` set to
+a script that records its arguments:
+
+| moment | what answered |
+|---|---|
+| t+0.7 s | window spawned with `--app=http://127.0.0.1:7797/`, argv recorded |
+| t+0.8 s | `/headlines` → `503`, `Retry-After: 1`, `{"elapsed":0.8,"loading":true}` |
+| t+0.8 s | `/` → `200`, 18 669 B — the shell, indexing glue and all |
+| t+0.8 s | `/ws` upgrade → `503`, `Retry-After: 1` |
+| t+16.2 s | `loaded: 13379 rows from 6313 files in 16.2 s`; `/headlines` → `200`, `ETag: "g0"` |
+| `C-c` | process gone, port 7797 free |
+
+On the development machine there is no chromium-family browser installed, so
+`--dry-run` resolves `/usr/bin/xdg-open http://127.0.0.1:7797/` — the fallback
+path, exercised by the same live check that the app-mode path was.
+
+**Left open.** The elapsed seconds are the only progress there is; a file
+counter needs the walk to yield per file, which is a `Glance.Query` change and
+not obviously worth it. The window is opened once, at the socket: a daemon whose
+window is closed has no way to re-open it short of another `desktop` run. And
+`--app` ties the good window to chromium-family browsers, which is the argument
+stage 2 will be made with.
+
 ## S6 — M2: graph + mindmap (parallel with S5, after S2)
 
 Wire `RefKind` in parsing, assemble `fgl` graph, `GET /graph` → graph JSON,
@@ -605,4 +684,6 @@ Exit:
 
 S1 → S2 → S3 → S5 → S5.5 → S7 → S8 → S9; S4 after S2; S6 after S2. S4/S5/S6 can
 run in parallel. S5.5 needed only S5's store and the S8 engine, which is why it
-landed ahead of the tiers it will eventually sit behind.
+landed ahead of the tiers it will eventually sit behind. Desktop stage 1 needed
+S5's store and nothing else, and its bind-before-load half is a `serve`
+improvement that happens to be what a window wants.

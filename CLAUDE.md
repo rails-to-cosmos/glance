@@ -80,6 +80,18 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   walk order and `/headlines` equals a fresh `loadDir`. The watch re-parses one
   file per event from `defaultContext`; a failed load keeps that file's rows and
   streams nothing.
+- The server binds before it walks: the store starts `Loading`, the walk runs on
+  its own thread, and the watch starts after `finishLoading`. Until then
+  `/headlines`, `/headline` and `/ws` answer 503 + `Retry-After: 1` +
+  `{"loading": true, "elapsed": S}` (the WS upgrade is refused, never accepted
+  onto an empty store) while `/` and the assets serve, so the shell renders the
+  indexing state and polls out of it.
+- `glance desktop` = the same daemon with an app-mode window opened as soon as
+  the socket listens, ahead of the loaded store. Browser order: `$GLANCE_BROWSER`,
+  `--browser`, then chromium/chromium-browser/google-chrome-stable/google-chrome/brave/vivaldi
+  on PATH, run as `CMD --app=URL`; then `xdg-open URL`; then the URL printed. No
+  window failure ever fails the daemon. `--dry-run` prints the resolved command
+  and exits before binding.
 - The socket carries SCHEMA.md's row ops alone. A column change (the TODO
   keyword union moving) closes it with reason `view-changed` and the client
   re-fetches. The bootstrap `set-rows` is snapshotted inside the subscribing

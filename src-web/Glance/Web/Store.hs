@@ -14,6 +14,12 @@
 -- all-or-nothing and a half-written file that fails to parse says nothing
 -- about the headlines that were in it a moment ago.
 --
+-- That one parse takes seconds over a real tree, and the server listens ahead
+-- of it: a hub starts in 'Loading' over an empty store, the walk runs in its
+-- own thread, and 'finishLoading' swaps the result in.  The routes that read
+-- the store answer 503 until then ('Glance.Web'), so a browser is served the
+-- indexing page rather than a refused connection.
+--
 -- Frames are SCHEMA.md's streaming ops.  'ViewChanged' is the one thing that
 -- is not: the columns carry the TODO-keyword palette, SCHEMA.md has no op for
 -- a column change, and inventing one would put this producer outside the
@@ -37,10 +43,13 @@ module Glance.Web.Store
   , frameText
   , bootstrapFrame
     -- * The hub
-  , Hub (hubStore)
+  , Hub (hubStore, hubLoad)
+  , LoadState (..)
   , Client
   , clientCapacity
   , newHub
+  , newLoadingHub
+  , finishLoading
   , subscribe
   , unsubscribe
   , nextFrame
@@ -259,12 +268,24 @@ bootstrapFrame = SetRows . map rowJSON . storeRecords
 
 -- The hub
 
--- | The live store and its sockets.
+-- | The live store and its sockets.  'hubLoad' says whether the store is the
+-- directory yet: the server binds its socket before the walk runs, so every
+-- route that reads the store has to be able to answer that it cannot.
 data Hub = Hub
   { hubStore   :: !(TVar Store)
   , hubClients :: !(TVar (Map Int Client))
   , hubNextId  :: !(TVar Int)
+  , hubLoad    :: !(TVar LoadState)
   }
+
+-- | How far the startup load got.  'Loading' carries the monotonic time it
+-- started, which is the only thing the 503 has to say about how long it has
+-- been going: the walk hands its files over in one batch, so there is no
+-- per-file count to report and inventing one would mean rewriting the walk.
+data LoadState
+  = Loading !Double  -- ^ walking and parsing since this monotonic second.
+  | Loaded           -- ^ the store is the directory.
+  deriving (Eq, Show)
 
 -- | One socket's mailbox.  Bounded on purpose: the watcher hands frames to
 -- every client from the transaction that updates the store, and a browser that
@@ -283,8 +304,27 @@ data Client = Client
 clientCapacity :: Natural
 clientCapacity = 256
 
+-- | A hub over ST, ready to serve it.
 newHub :: Store -> IO Hub
-newHub st = Hub <$> newTVarIO st <*> newTVarIO Map.empty <*> newTVarIO 0
+newHub st = hubOver st Loaded
+
+-- | A hub with no store yet, loading since STARTED.  What 'Glance.Web.serve'
+-- binds its socket over: 'finishLoading' installs the walk's result when it
+-- lands, and until then every store route answers 503.
+newLoadingHub :: Double -> IO Hub
+newLoadingHub started = hubOver emptyStore (Loading started)
+
+hubOver :: Store -> LoadState -> IO Hub
+hubOver st load =
+  Hub <$> newTVarIO st <*> newTVarIO Map.empty <*> newTVarIO 0 <*> newTVarIO load
+
+-- | Install ST as HUB's store and open the store routes.  One transaction, so
+-- no request sees the new store still described as loading.  Nothing is
+-- published: a client cannot have subscribed while the socket answered 503.
+finishLoading :: Hub -> Store -> IO ()
+finishLoading hub st = atomically $ do
+  writeTVar (hubStore hub) st
+  writeTVar (hubLoad hub) Loaded
 
 -- | Register a client and take its bootstrap snapshot in one transaction, so
 -- no update can land between the two.  Yields the registration id

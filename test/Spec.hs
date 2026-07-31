@@ -6,6 +6,7 @@ import qualified TestParser as Parser
 import qualified TestRoundtrip as Roundtrip
 import qualified TestTimestamp as Timestamp
 import qualified TestContext as Context
+import qualified TestDesktop as Desktop
 import qualified TestNegative as Negative
 import qualified TestTextShow as TextShow
 import qualified TestSpans as Spans
@@ -28,6 +29,7 @@ tests = testGroup "Tests"
   , Subtree.spec
   , Serve.spec
   , Store.spec
+  , Desktop.spec
   ]
 
 main :: IO ()

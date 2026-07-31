@@ -5,12 +5,13 @@
 -- are TestStore's subject.
 module TestServe (spec) where
 
-import Data.Aeson ( Value (Null, Number, Object, String)
+import Data.Aeson ( Value (Bool, Null, Number, Object, String)
                   , eitherDecode, encode, object, parseJSON, (.=) )
 import Data.Aeson.Types (parseEither)
 import Data.ByteString (ByteString)
 import Data.List (find, nub, sort, sortOn)
 import Data.Maybe (fromMaybe)
+import GHC.Clock (getMonotonicTime)
 import Network.HTTP.Types ( HeaderName, RequestHeaders, methodDelete, methodPost
                           , renderQuery, statusCode )
 import Network.Wai (Application, defaultRequest, requestHeaders, requestMethod)
@@ -37,7 +38,8 @@ import Glance.Query ( HeadlineRecord (hrDigest, hrId), QueryResult (qrRecords)
                     , loadDir, loadFile, viewJSON )
 import Glance.Web ( ServeOptions (..), application, bootstrapWanted, defaultPort
                   , viewTitleFor )
-import Glance.Web.Store (Hub, applyFile, loadStore, newHub, publish)
+import Glance.Web.Store ( Hub, applyFile, finishLoading, loadStore, newHub
+                       , newLoadingHub, publish )
 
 -- Fixtures
 
@@ -255,8 +257,77 @@ digestOf path = loadFile path >>= first'
 spec :: TestTree
 spec = testGroup "Serve"
   [ headlineSpec, statsSpec, cacheSpec, gzipSpec, querySpec, bootstrapSpec
-  , materializeSpec, commitSpec, pageSpec, keymapSpec
+  , materializeSpec, commitSpec, indexingSpec, pageSpec, keymapSpec
   , shellFontSpec, assetSpec, errorSpec ]
+
+-- | The window between @bind@ and the end of the startup walk.  The server
+-- listens through it, so every route has an answer: the three that read the
+-- store say they cannot yet, and the page that says so is served.
+indexingSpec :: TestTree
+indexingSpec = testGroup "Indexing (bind before load)"
+  [ testCase "/headlines is a 503 that says when to come back" $ do
+      application' <- indexingApp
+      r <- getFrom application' "/headlines"
+      assertEqual "status" 503 (status r)
+      assertEqual "retry" (Just "1") (header "Retry-After" r)
+      assertEqual "content type"
+                  (Just "application/json; charset=utf-8") (header "Content-Type" r)
+      loading <- decoded r
+      assertEqual "loading" (Bool True) =<< field "loading" loading
+      elapsed <- field "elapsed" loading
+      assertBool ("elapsed is a number of seconds: " <> show elapsed) (isNumber elapsed)
+
+  , testCase "no query parameter makes the store readable" $ do
+      application' <- indexingApp
+      r <- getFrom application' "/headlines?q=meeting&limit=10&offset=5"
+      assertEqual "status" 503 (status r)
+
+  , testCase "materialize and commit wait for the load too" $ do
+      application' <- indexingApp
+      r <- getFrom application' (headlinePath "sample.org:0")
+      assertEqual "GET /headline" 503 (status r)
+      -- A commit before the load would be refused as a headline the file does
+      -- have: the 503 is the honest answer, and the retriable one.
+      w <- postTo application' (headlinePath "sample.org:0") (commitBody "* x\n" "deadbeef")
+      assertEqual "POST /headline" 503 (status w)
+      assertEqual "retry" (Just "1") (header "Retry-After" w)
+
+  , testCase "/ws says the same, so a client reconnects rather than mounts" $ do
+      application' <- indexingApp
+      r <- getFrom application' "/ws"
+      assertEqual "status" 503 (status r)
+
+  , testCase "the shell and its assets are served the whole time" $ do
+      application' <- indexingApp
+      r <- getFrom application' "/"
+      assertEqual "status" 200 (status r)
+      assertContains "the shell itself" "TableView.mount" (body r)
+      js <- getFrom application' "/table-view.js"
+      assertEqual "the renderer" 200 (status js)
+
+  , testCase "the load landing opens the store routes, on the same server" $ do
+      hub <- newLoadingHub =<< getMonotonicTime
+      let application' = application (served assetsDir) hub
+      before <- getFrom application' "/headlines"
+      assertEqual "before" 503 (status before)
+      finishLoading hub =<< loadStore viewDir
+      after <- getFrom application' "/headlines"
+      assertEqual "after" 200 (status after)
+      expected <- viewJSON (viewTitleFor viewDir) . qrRecords <$> loadDir viewDir
+      got <- decoded after
+      assertEqual "the view the load produced" expected got
+      -- The generation starts where a store loaded at startup starts it.
+      assertEqual "etag" (Just "\"g0\"") (header "ETag" after)
+  ]
+
+-- | A server whose startup walk has not finished — the state 'Glance.Web.serve'
+-- binds its socket in.
+indexingApp :: IO Application
+indexingApp = application (served assetsDir) <$> (newLoadingHub =<< getMonotonicTime)
+
+isNumber :: Value -> Bool
+isNumber (Number _) = True
+isNumber _other     = False
 
 -- | @\/headlines@ is the facade's view document — the same 'Value' 'viewJSON'
 -- builds from the same directory, so the server adds nothing to the wire.
@@ -753,6 +824,15 @@ pageSpec = testGroup "GET /"
       r <- get assetsDir "/"
       mapM_ (\needle -> assertContains "reconnect glue" needle (body r))
             [ "socket.onclose", "setTimeout(start,", "Math.min(backoff * 2, 30000)" ]
+
+  , testCase "with assets, shows the indexing state and polls out of it" $ do
+      b <- body <$> get assetsDir "/"
+      -- A cold daemon answers the boot fetch with 503 while it walks the tree;
+      -- the page it is answering is this one, so it says so and asks again.
+      mapM_ (\needle -> assertContains "indexing glue" needle b)
+            [ "r.status === 503", "{ indexing: b }", "if (e.indexing) return indexing("
+            , "indexing … ${b.elapsed}s", "setTimeout(start, 1000)"
+            , "dot(\"wait\")", "#dot.wait{" ]
 
   , testCase "with assets, materializes a row and posts it back" $ do
       r <- get assetsDir "/"

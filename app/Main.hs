@@ -16,6 +16,7 @@ import Text.Megaparsec (errorBundlePretty)
 import Repl.Org
 import Scan (runScan)
 
+import Glance.Desktop (DesktopOptions (..), desktop)
 import Glance.Web (ServeOptions (..), defaultAssetsDir, defaultPort, serve)
 
 import System.Directory
@@ -61,14 +62,9 @@ parse ("scan":dirs) = do
   runScan (if null dirs then ["."] else dirs)
   exitSuccess
 
-parse ("serve":args) = case serveOptions args of
-  Left err -> do
-    hPutStrLn stderr ("glance serve: " <> err)
-    hPutStrLn stderr serveUsage
-    exitFailure
-  Right opts -> do
-    serve opts
-    exitSuccess
+parse ("serve":args) = run "serve" serveUsage serve (serveOptions args)
+
+parse ("desktop":args) = run "desktop" desktopUsage desktop (desktopOptions args)
 
 parse (filename:_) = do
   settings <- replSettings
@@ -85,21 +81,50 @@ parse (filename:_) = do
   runRepl settings context
   exitSuccess
 
+-- | OPTIONS through ACT, or NAME's complaint and USAGE on stderr.
+run :: String -> String -> (a -> IO ()) -> Either String a -> IO b
+run name usage act parsed = case parsed of
+  Left err -> do
+    hPutStrLn stderr ("glance " <> name <> ": " <> err)
+    hPutStrLn stderr usage
+    exitFailure
+  Right opts -> do
+    act opts
+    exitSuccess
+
 serveUsage :: String
 serveUsage = "usage: glance serve --dir DIR [--port N (default "
           <> show defaultPort <> ")] [--assets PATH]"
 
--- | ARGS as serve options, or what is wrong with them.  Hand-rolled: three
+desktopUsage :: String
+desktopUsage = "usage: glance desktop --dir DIR [--port N (default "
+            <> show defaultPort <> ")] [--assets PATH] [--browser CMD] [--dry-run]"
+
+-- | ARGS as desktop options, or what is wrong with them.  Hand-rolled: five
 -- flags do not earn an option-parsing dependency.
-serveOptions :: [String] -> Either String ServeOptions
-serveOptions = go (ServeOptions "" defaultPort defaultAssetsDir)
+desktopOptions :: [String] -> Either String DesktopOptions
+desktopOptions = go (DesktopOptions (ServeOptions "" defaultPort defaultAssetsDir) Nothing False)
   where
-    go opts [] | null (soDir opts) = Left "--dir is required"
-               | otherwise         = Right opts
-    go opts ("--dir":dir:rest)     = go opts { soDir = dir } rest
-    go opts ("--assets":path:rest) = go opts { soAssets = path } rest
-    go opts ("--port":port:rest)   = case readMaybe port of
-      Just n | n > 0 && n < 65536 -> go opts { soPort = n } rest
-      _                           -> Left ("not a port number: " <> port)
+    go opts [] | null (soDir (doServe opts)) = Left "--dir is required"
+               | otherwise                   = Right opts
+    go opts ("--dir":dir:rest)      = serving opts (\s -> s { soDir = dir }) rest
+    go opts ("--assets":path:rest)  = serving opts (\s -> s { soAssets = path }) rest
+    go opts ("--browser":cmd:rest)  = go opts { doBrowser = Just cmd } rest
+    go opts ("--dry-run":rest)      = go opts { doDryRun = True } rest
+    go opts ("--port":port:rest)    = case readMaybe port of
+      Just n | n > 0 && n < 65536  -> serving opts (\s -> s { soPort = n }) rest
+      _                            -> Left ("not a port number: " <> port)
     go _ [flag] | "--" `isPrefixOf` flag = Left (flag <> " needs a value")
-    go _ (arg:_)                   = Left ("unknown argument: " <> arg)
+    go _ (arg:_)                    = Left ("unknown argument: " <> arg)
+    serving opts f = go opts { doServe = f (doServe opts) }
+
+-- | ARGS as serve options: the desktop parser, minus the two flags that only
+-- mean something with a window in front of the server.  One flag table for the
+-- two commands, and a rejection that names the command the flag belongs to.
+serveOptions :: [String] -> Either String ServeOptions
+serveOptions args = do
+  opts <- desktopOptions args
+  case (doBrowser opts, doDryRun opts) of
+    (Just _, _) -> Left "--browser is a desktop flag; serve opens no window"
+    (_, True)   -> Left "--dry-run is a desktop flag; serve opens no window"
+    _serving    -> Right (doServe opts)

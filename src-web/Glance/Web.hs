@@ -33,6 +33,13 @@
 -- (S5).  Org files stay the single source of truth — the store is a projection
 -- that dies with the process.
 --
+-- The socket opens ahead of that parse.  @serve@ binds, hands the walk to a
+-- background thread and starts the watch when it lands; until then the three
+-- routes that read the store answer @503@ with @Retry-After: 1@ and
+-- @{"loading": true, "elapsed": S}@, while @\/@ and the assets serve normally
+-- so the shell can render the indexing state and poll.  A 15-second walk used
+-- to be 15 seconds of refused connections.
+--
 -- A page mounts in two steps: @\/headlines@ for the columns and the sort, then
 -- the socket's opening @set-rows@ for the rows.  The bootstrap frame is taken
 -- in the transaction that subscribes, so an edit landing between the fetch and
@@ -58,6 +65,7 @@ module Glance.Web ( ServeOptions (..)
                   , bootstrapWanted
                   , limitCap
                   , serve
+                  , serveWith
                   , viewTitleFor
                   ) where
 
@@ -74,7 +82,7 @@ import GHC.Clock (getMonotonicTime)
 import Network.HTTP.Types ( Header, Status, hCacheControl, hContentType, methodGet
                           , methodHead, methodPost, parseQuery, status200, status304
                           , status400, status404, status405, status409, status413
-                          , status500 )
+                          , status500, status503 )
 import Network.HTTP.Types.Header (hContentLength, hETag, hIfNoneMatch)
 import Network.Wai ( Application, Request (pathInfo, queryString, requestHeaders, requestMethod)
                    , Response, getRequestBodyChunk, responseFile, responseLBS )
@@ -101,8 +109,9 @@ import Glance.Query ( HeadlineRecord (hrDigest, hrFile, hrId, hrSubtree)
                     , QueryResult (..), Span (spanEnd, spanStart)
                     , WriteFailure (..), matchesSearch, replaceSpan, sortedForView
                     , subtreeText, viewJSONTextWith )
-import Glance.Web.Store ( Client, Frame (ViewChanged), Hub, Store (stGen), frameText
-                        , hubStore, loadStore, newHub, nextFrame, storeHeadline
+import Glance.Web.Store ( Client, Frame (ViewChanged), Hub, LoadState (..)
+                        , Store (stGen), finishLoading, frameText, hubLoad, hubStore
+                        , loadStore, newLoadingHub, nextFrame, storeHeadline
                         , storeKeywords, storeResult, subscribe, unsubscribe )
 import Glance.Web.Watch (watchOrgTree)
 
@@ -131,41 +140,75 @@ rendererAsset = "table-view.js"
 
 -- Server
 
--- | Serve OPTS until killed.  A missing org directory fails here rather than
--- per request: the operator learns at startup, not from a 500.  The one full
--- parse happens here too, before the socket opens, so a request never waits
--- for a walk.
+-- | Serve OPTS until killed.
 serve :: ServeOptions -> IO ()
-serve opts = do
+serve opts = serveWith opts (pure ())
+
+-- | Serve OPTS until killed, running LISTENING once the socket is bound and
+-- accepting.  A missing org directory fails here rather than per request: the
+-- operator learns at startup, not from a 500.
+--
+-- The walk does not happen first.  Warp binds, @LISTENING@ runs, and the one
+-- full parse runs in its own thread — over @~\/sync@ that is 15 seconds during
+-- which a request would otherwise be a refused connection instead of a page
+-- saying what the server is doing.  The store routes answer 503 until the
+-- parse lands ('indexing'), and the watch starts after it, on the same thread,
+-- so it never sees a store the walk has not finished writing.
+--
+-- LISTENING is what @glance desktop@ opens its window from, and the socket is
+-- where a window is wanted: the indexing page is the point of serving before the
+-- load.  It runs on its own thread — the accept loop waits for no window.
+serveWith :: ServeOptions -> IO () -> IO ()
+serveWith opts listening = do
   ok <- doesDirectoryExist (soDir opts)
   unless ok (die ("glance serve: no such directory: " <> soDir opts))
   assets <- hasRenderer opts
   started <- getMonotonicTime
+  hub <- newLoadingHub started
+  loader <- forkIO (indexTree opts hub started)
+  Warp.runSettings (settings (announce assets)) (application opts hub)
+    `finally` killThread loader
+  where
+    settings ready = Warp.setHost "127.0.0.1"
+                   . Warp.setPort (soPort opts)
+                   . Warp.setBeforeMainLoop ready
+                   $ Warp.defaultSettings
+    announce assets = do
+      mapM_ putStrLn
+        [ "glance serve — http://127.0.0.1:" <> show (soPort opts) <> "/"
+        , "  org dir: " <> soDir opts
+        , "  assets:  " <> soAssets opts <> if assets then "" else "  (missing — /headlines only)"
+        , "  live:    ws://127.0.0.1:" <> show (soPort opts) <> "/ws, watching " <> soDir opts
+        , "  bound to 127.0.0.1; no auth tier before S7."
+        , "  indexing — /headlines, /headline and /ws answer 503 until the walk lands."
+        ]
+      -- Redirected stdout is block-buffered, and the process then blocks in warp
+      -- until it is killed: without this the banner never reaches the log.
+      hFlush stdout
+      void (forkIO listening)
+
+-- | Walk and parse OPTS's directory into HUB, then watch it.  Runs off the
+-- main thread from STARTED, and keeps the two in order: the watch's first
+-- event must land on a store the walk has finished building, or a re-parse
+-- would be folded into a store that is about to be replaced wholesale.
+indexTree :: ServeOptions -> Hub -> Double -> IO ()
+indexTree opts hub started = do
   store <- loadStore (soDir opts)
   loaded <- getMonotonicTime
+  finishLoading hub store
   let stats = storeResult store
-  hub <- newHub store
-  mapM_ putStrLn
-    [ "glance serve — http://127.0.0.1:" <> show (soPort opts) <> "/"
-    , "  org dir: " <> soDir opts
-    , "  assets:  " <> soAssets opts <> if assets then "" else "  (missing — /headlines only)"
-    , "  loaded:  " <> show (length (qrRecords stats)) <> " rows from "
-                    <> show (qrFiles stats) <> " files in " <> seconds (loaded - started)
-    , "  live:    ws://127.0.0.1:" <> show (soPort opts) <> "/ws, watching " <> soDir opts
-    , "  bound to 127.0.0.1; no auth tier before S7."
-    ]
-  -- Redirected stdout is block-buffered, and the process then blocks in warp
-  -- until it is killed: without this the banner never reaches the log.
+  putStrLn ("  loaded:  " <> show (length (qrRecords stats)) <> " rows from "
+              <> show (qrFiles stats) <> " files in " <> seconds (loaded - started))
   hFlush stdout
-  watcher <- forkIO (watchOrgTree (soDir opts) hub)
-  Warp.runSettings settings (application opts hub) `finally` killThread watcher
-  where settings = Warp.setHost "127.0.0.1"
-                 . Warp.setPort (soPort opts)
-                 $ Warp.defaultSettings
+  watchOrgTree (soDir opts) hub
 
 -- | S to a tenth of a second, which is the resolution a startup banner earns.
 seconds :: Double -> String
-seconds s = show (fromIntegral (round (s * 10) :: Int) / 10 :: Double) <> " s"
+seconds s = show (tenths s) <> " s"
+
+-- | S rounded the way a banner and an indexing body both want it.
+tenths :: Double -> Double
+tenths s = fromIntegral (round (s * 10) :: Int) / 10
 
 -- | Does the assets directory hold the renderer?  Checked per request as well
 -- as at startup, so pointing @--assets@ at a directory that fills up later
@@ -196,26 +239,53 @@ compressed = gzip defaultGzipSettings { gzipFiles = GzipCompress }
 
 -- | Everything that is not a websocket upgrade: the read routes, the one route
 -- that writes, and the 405 for every other method.
+--
+-- While the startup walk is still running the three routes that read the store
+-- answer 'indexing' whatever the method — a commit against a store that is not
+-- the directory yet would 404 on a headline the file does have.  @\/@ and the
+-- assets are served the whole time: the page they carry is what shows the
+-- indexing state and polls for the end of it.
 httpApp :: ServeOptions -> Hub -> Application
 httpApp opts hub request respond = route (pathInfo request) >>= respond
   where
     method  = requestMethod request
     reading = method `elem` [methodGet, methodHead]
-    route ["headline"]
+    route path = do
+      load <- readTVarIO (hubLoad hub)
+      case load of
+        Loading since | path `elem` storeRoutes -> indexing since
+        _ready                                  -> ready path
+    storeRoutes = [["headlines"], ["headline"], ["ws"]]
+    ready ["headline"]
       | reading              = materialize hub (queryId request)
       | method == methodPost = commit hub (queryId request) request
       | otherwise            = pure (jsonError status405 "/headline takes GET and POST")
-    route _
+    ready _
       | not reading          = pure (plain status405 writeHint)
-    route []                 = shellPage opts
-    route ["headlines"]      = headlines opts hub request
-    route ["ws"]             = pure (plain status400 wsHint)
-    route [name]
+    ready []                 = shellPage opts
+    ready ["headlines"]      = headlines opts hub request
+    ready ["ws"]             = pure (plain status400 wsHint)
+    ready [name]
       | safeName name        = asset opts (T.unpack name)
-    route _                  = pure (plain status404 notFound)
+    ready _                  = pure (plain status404 notFound)
     wsHint    = "/ws is a websocket endpoint; connect with Upgrade: websocket"
     writeHint = "method not allowed; POST /headline?id=… is the one route that writes"
     notFound  = "not found: /, /headlines, /headline, /ws, or an asset name"
+
+-- | The answer a store route gives while the startup walk is still running: a
+-- 503 that says when to come back and how long it has been going.
+--
+-- 503 with @Retry-After@ rather than an empty 200: an empty view is a tree with
+-- no headlines in it, and a client that mounts one has to be told to throw it
+-- away later.  The delay is a second because that is the poll the shell runs,
+-- and the body carries the elapsed seconds so the page can show them — the walk
+-- hands its files over in one batch, so there is no file count to report
+-- ('Glance.Web.Store.LoadState').
+indexing :: Double -> IO Response
+indexing since = do
+  now <- getMonotonicTime
+  pure . sized status503 [jsonType, ("Retry-After", "1")] . encode
+       $ object ["loading" .= True, "elapsed" .= tenths (now - since)]
 
 -- | Is NAME a plain file name, safe to look up inside the assets directory?
 -- 'pathInfo' has split the separators away already; what is left to reject is
@@ -466,15 +536,30 @@ takeBody limit request = go 0 []
 -- thrown away.  What such a client gives up is the gap the snapshot closes —
 -- an edit landing between its fetch and its subscribe reaches it on the next
 -- write to that file rather than at once — which is why the default stands.
+--
+-- An upgrade arriving before the startup walk lands is refused with the same
+-- 503 and @Retry-After@ the HTTP routes give, rather than accepted onto a store
+-- that is not the directory yet — a @set-rows@ of an empty store is a claim
+-- about the tree.  Refusing is also what the shell already handles: it opens
+-- its socket only after @\/headlines@ has answered.
 liveSocket :: Hub -> WS.ServerApp
 liveSocket hub pending
-  | wsPath == "/ws" = do
-      conn <- WS.acceptRequest pending
-      WS.withPingThread conn 30 (pure ()) $ do
-        (cid, client, boot) <- atomically (subscribe hub)
-        when (bootstrapWanted requested) (send conn boot)
-        pump conn client `finally` unsubscribe hub cid
-  | otherwise = WS.rejectRequest pending "glance streams rows at /ws"
+  | wsPath /= "/ws" = WS.rejectRequest pending "glance streams rows at /ws"
+  | otherwise = do
+      load <- readTVarIO (hubLoad hub)
+      case load of
+        Loading _since -> WS.rejectRequestWith pending WS.defaultRejectRequest
+          { WS.rejectCode    = 503
+          , WS.rejectMessage = "Service Unavailable"
+          , WS.rejectHeaders = [("Retry-After", "1")]
+          , WS.rejectBody    = "{\"loading\":true}"
+          }
+        Loaded -> do
+          conn <- WS.acceptRequest pending
+          WS.withPingThread conn 30 (pure ()) $ do
+            (cid, client, boot) <- atomically (subscribe hub)
+            when (bootstrapWanted requested) (send conn boot)
+            pump conn client `finally` unsubscribe hub cid
   where requested = WS.requestPath (WS.pendingRequest pending)
         wsPath    = BSC.takeWhile (/= '?') requested
 
@@ -741,6 +826,11 @@ shellPage opts = do
 -- @?bootstrap=off@: the rows are already here and the server's opening
 -- @set-rows@ would only send them again.
 --
+-- A cold daemon answers that first fetch with 503 while it walks the tree.
+-- The boot reads it as the state it is — amber dot, @indexing …@ with the
+-- elapsed seconds the body carries — and asks again a second later, so the
+-- page a browser opened at once is the page that fills in when the walk lands.
+--
 -- Filtering is the server's.  The renderer's @onFilter@ hands over the
 -- debounced query instead of narrowing its own list, the shell asks
 -- @\/headlines?q=@ for it, and the answer replaces the rows — the store holds
@@ -823,6 +913,9 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      inflight = new AbortController();"
   , "      return fetch(`/headlines${params}`, { signal: inflight.signal }).then((r) =>"
   , "        r.ok ? r.json().then((view) => ({ view, total: +r.headers.get(\"X-Glance-Total\") }))"
+  , "        // 503 is the startup walk: the server is listening and says so"
+  , "        // in the body.  `start' polls it; nothing else can see it."
+  , "        : r.status === 503 ? r.json().then((b) => { throw Object.assign(new Error(\"indexing\"), { indexing: b }); })"
   , "             : r.text().then((t) => { throw new Error(t); }));"
   , "    }"
   , "    const quiet = (e) => { if (e.name !== \"AbortError\") log(`load failed: ${e.message}`); };"
@@ -1048,6 +1141,13 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      setTimeout(start, backoff);"
   , "      backoff = Math.min(backoff * 2, 30000);"
   , "    }"
+  , "    // The server binds before it walks the tree, so the first fetch of a"
+  , "    // cold daemon is a 503: show what it is doing and ask again in a second."
+  , "    function indexing(b) {"
+  , "      dot(\"wait\");"
+  , "      log(`indexing … ${b.elapsed}s · the table opens when the walk lands`);"
+  , "      setTimeout(start, 1000);"
+  , "    }"
   , "    function start() {"
   , "      query = \"\";"
   , "      load(`?limit=${PAGE}`).then((a) => {"
@@ -1057,7 +1157,10 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "        // want the whole set, and the renderer holds it without the DOM."
   , "        if (a.total > (a.view.rows || []).length)"
   , "          load(\"\").then((b) => table && !query && paint(b)).catch(quiet);"
-  , "      }).catch((e) => { dot(\"down\"); quiet(e); if (e.name !== \"AbortError\") again(); });"
+  , "      }).catch((e) => {"
+  , "        if (e.indexing) return indexing(e.indexing);"
+  , "        dot(\"down\"); quiet(e); if (e.name !== \"AbortError\") again();"
+  , "      });"
   , "    }"
   , "    start();"
   , "  </script>"
@@ -1109,6 +1212,7 @@ page head' title body = T.unlines
   , "  #dot{display:inline-block;width:7px;height:7px;border-radius:50%;"
   , "    margin-left:8px;vertical-align:middle;background:#9aa0ad;transition:background .3s}"
   , "  #dot.live{background:#9ece6a}"
+  , "  #dot.wait{background:#e0af68}"
   , "  #dot.down{background:#9aa0ad}"
   , "  #keyset{font:inherit;font-size:11px;margin-left:10px;padding:1px 8px;"
   , "    border-radius:999px;border:1px solid #8884;background:transparent;color:inherit;"

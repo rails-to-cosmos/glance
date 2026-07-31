@@ -87,6 +87,7 @@ library
 library glance-web
   visibility: private
   exposed-modules:
+      Glance.Desktop
       Glance.Web
       Glance.Web.Store
       Glance.Web.Watch
@@ -106,6 +107,7 @@ library glance-web
     , fsnotify
     , glance:glance
     , http-types
+    , process
     , stm
     , text
     , time
@@ -154,6 +156,7 @@ test-suite glance-test
       TestSubtree
       TestTimestamp
       TestContext
+      TestDesktop
       TestNegative
       TestTextShow
       TestSpans
