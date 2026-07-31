@@ -93,6 +93,15 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   subtree. The digest is pinned at load, any divergence is a 409 with the file
   untouched, and the write path never touches the store — the file watch is the
   only thing that updates rows.
+- The served pages fetch nothing off this server: inline styles, inline glue,
+  and one `<script src>` naming a file under `--assets`. No CDN, no web font, no
+  analytics. The JetBrains Mono `@font-face` appears only when the assets
+  directory holds the file, pointing at a bare name this server serves.
+- The shell's keymap is `Glance.Web.keyBindings` and nothing else: the page
+  carries it as a JSON blob and its own dispatch parses that blob. Sequences and
+  command names are org-glance's; a row with no handler is recognized and says
+  what will back it. `C-c`/`C-x` are prefixes only with the selection collapsed;
+  `C-l`, `C-r`, `C-t`, `C-w`, `C-n` and `<f5>` are never claimed.
 - Browser writes are commands over the bridge: structured ones (toggle, retag,
   reschedule) and drift-locked raw replacement (materialize a subtree, later a
   file). Semantic org editing — refile, agenda logic — stays out of the browser.

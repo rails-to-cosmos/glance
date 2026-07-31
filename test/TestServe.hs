@@ -5,7 +5,7 @@
 -- are TestStore's subject.
 module TestServe (spec) where
 
-import Data.Aeson (Value (Number, Object, String), eitherDecode, encode, object, (.=))
+import Data.Aeson (Value (Null, Number, Object, String), eitherDecode, encode, object, (.=))
 import Data.ByteString (ByteString)
 import Data.List (sort)
 import Network.HTTP.Types (HeaderName, methodDelete, methodPost, renderQuery, statusCode)
@@ -13,6 +13,10 @@ import Network.Wai (Application, defaultRequest, requestHeaders, requestMethod)
 import Network.Wai.Test ( SRequest (SRequest)
                         , SResponse (simpleBody, simpleHeaders, simpleStatus)
                         , request, runSession, setPath, srequest )
+import System.Directory (findExecutable)
+import System.Exit (ExitCode (ExitSuccess))
+import System.FilePath ((</>))
+import System.Process (readProcessWithExitCode)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
 import TestDefaults (orgFile, withTempDir)
@@ -23,6 +27,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import qualified Data.Text.IO as TIO
 
 import Glance.Query ( HeadlineRecord (hrDigest, hrId), QueryResult (qrRecords)
                     , loadDir, loadFile, viewJSON )
@@ -153,6 +158,23 @@ intAt k v = field k v >>= number
         number other = assertFailure ("expected a number at " <> show k
                                         <> ", got " <> show other)
 
+-- | The string at KEY of V, where the key is there and its value may be null.
+maybeTextAt :: T.Text -> Value -> IO (Maybe T.Text)
+maybeTextAt k v = field k v >>= string
+  where string Null = pure Nothing
+        string (String t) = pure (Just t)
+        string other = assertFailure ("expected a string or null at " <> show k
+                                        <> ", got " <> show other)
+
+-- | What sits between OPEN and CLOSE in HAYSTACK, when both are in it.
+between :: T.Text -> T.Text -> T.Text -> Maybe T.Text
+between open close haystack
+  | T.null after = Nothing
+  | T.null rest  = Nothing
+  | otherwise    = Just inner
+  where (_before, after) = T.breakOn open haystack
+        (inner, rest)    = T.breakOn close (T.drop (T.length open) after)
+
 -- | PATH's text, decoded the way the loader decodes it.
 document :: FilePath -> IO T.Text
 document path = TE.decodeUtf8 <$> BS.readFile path
@@ -169,7 +191,8 @@ digestOf path = loadFile path >>= first'
 
 spec :: TestTree
 spec = testGroup "Serve"
-  [ headlineSpec, statsSpec, materializeSpec, commitSpec, pageSpec, assetSpec, errorSpec ]
+  [ headlineSpec, statsSpec, materializeSpec, commitSpec, pageSpec, keymapSpec
+  , shellFontSpec, assetSpec, errorSpec ]
 
 -- | @\/headlines@ is the facade's view document — the same 'Value' 'viewJSON'
 -- builds from the same directory, so the server adds nothing to the wire.
@@ -415,7 +438,10 @@ pageSpec = testGroup "GET /"
       mapM_ (\needle -> assertContains "materialize glue" needle (body r))
             [ "\"materialize\"", "/headline?id=${encodeURIComponent(", "<textarea id=\"mtext\""
             , "method: \"POST\"", "digest: editing.digest", "a.status === 409"
-            , "File changed since materialize", "Re-materialize", "\"Escape\"" ]
+            -- The sheet's two exits are keymap rows now: ESC cancels it,
+            -- C-x C-s saves it from inside the textarea.
+            , "File changed since materialize", "Re-materialize"
+            , "keyboard-quit", "C-x C-s" ]
 
   , testCase "without assets, explains JSON-only mode" $ do
       r <- get missingAssetsDir "/"
@@ -426,6 +452,150 @@ pageSpec = testGroup "GET /"
       assertContains "endpoint" "/headlines" (body r)
       assertBool "mounts a renderer it has not got"
                  (not ("TableView.mount(" `T.isInfixOf` body r))
+  ]
+
+-- | The shell's keymap, checked as the data it is.  The page carries the map
+-- as a JSON blob and its own dispatch parses that blob, so reading it here
+-- reads what the browser reads rather than what a grep for handler names would
+-- find.
+--
+-- The expected map is written down rather than imported: the point of the
+-- assertion is that the sequences and the org-glance command names are the
+-- ones @org-glance-overview-mode-map@ spells, and an oracle taken from the
+-- code under test would agree with any of them.
+expectedKeymap :: [(T.Text, T.Text, Maybe T.Text)]
+expectedKeymap =
+  [ ("n",       "next-row",                        Just "nextRow")
+  , ("p",       "previous-row",                    Just "previousRow")
+  , (",",       "first-row",                       Just "firstRow")
+  , ("<",       "first-row",                       Just "firstRow")
+  , (".",       "last-row",                        Just "lastRow")
+  , (">",       "last-row",                        Just "lastRow")
+  , ("RET",     "org-glance-overview:materialize", Just "materializeRow")
+  , ("g",       "org-glance-overview:refresh",     Just "refresh")
+  , ("/",       "filter-rows",                     Just "focusFilter")
+  , ("q",       "quit-window",                     Just "quitWindow")
+  , ("TAB",     "org-cycle",                       Nothing)
+  , ("j",       "org-glance-overview:open",        Nothing)
+  , ("a",       "org-glance-agenda",               Nothing)
+  , ("@",       "org-glance-overview:relations",   Nothing)
+  , ("+",       "org-glance-overview:capture",     Nothing)
+  , ("D",       "org-glance-overview:delete",      Nothing)
+  , ("C-c C-t", "org-glance-overview:todo",        Nothing)
+  , ("C-c C-s", "org-glance-overview:schedule",    Nothing)
+  , ("C-c C-d", "org-glance-overview:deadline",    Nothing)
+  , ("C-x C-s", "save-buffer",                     Just "save")
+  , ("ESC",     "keyboard-quit",                   Just "cancel")
+  ]
+
+-- | The keymap blob out of SHELL, as (sequence, command, handler) — the
+-- handler being absent for a binding no daemon command backs yet.
+keymapOf :: T.Text -> IO [(T.Text, T.Text, Maybe T.Text)]
+keymapOf shell = do
+  raw <- maybe (assertFailure "no keymap blob in the shell") pure
+               (between "<script id=\"keys\" type=\"application/json\">" "</script>" shell)
+  rows <- either (\e -> assertFailure ("keymap JSON: " <> e)) pure
+                 (eitherDecode (BL.fromStrict (TE.encodeUtf8 raw)))
+  traverse row rows
+  where row v = (,,) <$> textAt "seq" v <*> textAt "command" v <*> maybeTextAt "handler" v
+
+-- | The shell's inline glue, on its own — what a syntax check is run over.
+glueOf :: T.Text -> IO T.Text
+glueOf shell = maybe (assertFailure "no inline script in the shell") pure
+                     (between "\n  <script>\n" "  </script>" shell)
+
+keymapSpec :: TestTree
+keymapSpec = testGroup "Shell keymap"
+  [ testCase "is one JSON blob, in org-glance's own command names" $ do
+      keys <- keymapOf . body =<< get assetsDir "/"
+      assertEqual "sequence, command, handler" expectedKeymap keys
+
+  , testCase "the dispatch and the echo widget read that blob and no other map" $ do
+      b <- body <$> get assetsDir "/"
+      mapM_ (\needle -> assertContains "keymap glue" needle b)
+        [ "<script id=\"keys\" type=\"application/json\">"
+        , "JSON.parse(el(\"keys\").textContent)"
+        , "KEYS.filter(live)", "HANDLERS[b.handler]" ]
+
+  , testCase "a binding with no handler names what it is waiting for" $ do
+      b <- body <$> get assetsDir "/"
+      assertContains "staged toast" "arrives with daemon commands (M4)" b
+
+  , testCase "the echo widget is mounted, in Emacs wording" $ do
+      b <- body <$> get assetsDir "/"
+      mapM_ (\needle -> assertContains "echo widget" needle b)
+        [ "<div id=\"echo\"", "#echo{position:fixed", "is undefined", "timed out"
+        , "Enter: \"RET\"", "Escape: \"ESC\"", "ArrowUp: \"<up>\"" ]
+
+  , testCase "the prefix keys are claimed only where they are ours" $ do
+      b <- body <$> get assetsDir "/"
+      mapM_ (\needle -> assertContains "chord policy" needle b)
+        -- A selection keeps C-c and C-x as copy and cut; the reserved chords
+        -- reach the browser even as the continuation of a claimed prefix.
+        [ "if (!selecting()) { e.preventDefault();"
+        , "const RESERVED = [\"C-l\", \"C-r\", \"C-t\", \"C-w\", \"C-n\", \"<f5>\"];"
+        , "if (RESERVED.indexOf(k) === -1) e.preventDefault();" ]
+
+  , testCase "row movement drives the renderer's own selection" $ do
+      b <- body <$> get assetsDir "/"
+      mapM_ (\needle -> assertContains "row focus" needle b)
+        [ "tbody tr.tv-sel", "tr.click()", "scrollIntoView({ block: \"nearest\" })"
+        , ".tv-filter" ]
+
+  , testCase "the inline glue is JavaScript, where there is a node to say so" $ do
+      node <- findExecutable "node"
+      case node of
+        -- No node on this machine: the syntax of the glue is checked wherever
+        -- there is one, and the rest of this group still reads it as text.
+        Nothing  -> pure ()
+        Just exe -> withTempDir $ \dir -> do
+          glue <- glueOf . body =<< get assetsDir "/"
+          let path = dir </> "shell.js"
+          TIO.writeFile path glue
+          (code, _out, err) <- readProcessWithExitCode exe ["--check", path] ""
+          assertEqual ("node --check said: " <> err) ExitSuccess code
+  ]
+
+-- | The shell is monospace, and gets there without asking the network for it.
+shellFontSpec :: TestTree
+shellFontSpec = testGroup "Shell type"
+  [ testCase "asks for one font stack, everywhere in the page" $ do
+      b <- body <$> get assetsDir "/"
+      assertContains "stack"
+        "--glance-mono:\"JetBrains Mono\", \"Fira Code\", \"SF Mono\", Menlo, Consolas, monospace"
+        b
+      -- The renderer injects `.tv-root{font:…}' from its own script, which
+      -- lands after this page's style element; the extra selector step wins.
+      assertContains "the renderer's font, overridden"
+                     "#app .tv-root{font-family:var(--glance-mono)}" b
+      mapM_ (\needle -> assertContains "monospace widget" needle b)
+            ["font:14px/1.5 var(--glance-mono)", "font:12px/1.5 var(--glance-mono)"]
+
+  , testCase "with no font file to serve, says nothing about one" $ do
+      b <- body <$> get assetsDir "/"
+      assertBool "an @font-face with no file behind it"
+                 (not ("@font-face" `T.isInfixOf` b))
+
+  , testCase "a font in the assets directory is declared and served" $
+      withTempDir $ \dir -> do
+        TIO.writeFile (dir </> "table-view.js") ""
+        BS.writeFile (dir </> "JetBrainsMono-Regular.woff2") "wOF2"
+        b <- body <$> get dir "/"
+        assertContains "declared" "@font-face{font-family:\"JetBrains Mono\"" b
+        assertContains "from this server, by name"
+                       "src:url(\"JetBrainsMono-Regular.woff2\") format(\"woff2\")" b
+        r <- get dir "/JetBrainsMono-Regular.woff2"
+        assertEqual "status" 200 (status r)
+        assertEqual "content type" (Just "font/woff2") (header "Content-Type" r)
+
+  , testCase "no page this server serves reaches off it" $ do
+      shell <- body <$> get assetsDir "/"
+      bare <- body <$> get missingAssetsDir "/"
+      mapM_ (\(what, page') ->
+               mapM_ (\scheme -> assertBool (what <> " fetches " <> show scheme)
+                                            (not (scheme `T.isInfixOf` page')))
+                     ["http://", "https://", "@import"])
+            [("the shell", shell), ("the JSON-only page", bare)]
   ]
 
 -- | Assets come out of the configured directory, and only from there.

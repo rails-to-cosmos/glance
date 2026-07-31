@@ -32,6 +32,13 @@
 -- the socket is in the bootstrap rather than lost, and the server needs no
 -- journal to catch a client up.
 --
+-- The page's keys are 'keyBindings' — org-glance's @overview-mode@ map under
+-- org-glance's own command names — and it carries that table as JSON for its
+-- own dispatch to parse, so the map and the handlers cannot drift apart.
+-- Everything the shell needs comes from this server: inline styles, inline
+-- glue, one script by name, and a font only when the assets directory has one
+-- (docs\/invariants.md).
+--
 -- The listener binds 127.0.0.1 and nothing else.  Read, write and automate
 -- tiers arrive at S7 (docs\/plan-org-console-web.md); until an unauthenticated
 -- connection is a read-only one by construction, the loopback interface is the
@@ -47,10 +54,11 @@ module Glance.Web ( ServeOptions (..)
 import Control.Concurrent (forkIO, killThread, newEmptyMVar, takeMVar, tryPutMVar)
 import Control.Concurrent.STM (atomically, readTVarIO)
 import Control.Exception (SomeException, displayException, evaluate, finally, try)
-import Control.Monad (forever, unless, void)
+import Control.Monad (filterM, forever, unless, void)
 import Data.Aeson (eitherDecode', encode, object, withObject, (.:), (.=))
 import Data.Aeson.Types (Pair, parseEither)
 import Data.Bifunctor (first)
+import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import GHC.Clock (getMonotonicTime)
 import Network.HTTP.Types ( Header, Status, hContentType, methodGet, methodHead
@@ -408,7 +416,105 @@ mimeOf name = case takeExtension name of
   ".png"   -> "image/png"
   ".ico"   -> "image/x-icon"
   ".woff2" -> "font/woff2"
+  ".woff"  -> "font/woff"
+  ".ttf"   -> "font/ttf"
   _        -> "application/octet-stream"
+
+-- Type
+
+-- | The type stack the shell asks for, in the table, the sheet and the widgets
+-- alike.  Nothing is fetched for it: these are names looked up on the machine,
+-- and 'fontFace' adds an @\@font-face@ only when the assets directory holds a
+-- file to point at.  A page that reaches the network for a font is a page that
+-- renders differently offline, and this one is served over loopback to a
+-- machine that may have none (docs\/invariants.md).
+monoStack :: Text
+monoStack = "\"JetBrains Mono\", \"Fira Code\", \"SF Mono\", Menlo, Consolas, monospace"
+
+-- | The font files the shell will use when the assets directory holds one,
+-- best first.  With neither there, 'monoStack' falls through to whatever is
+-- installed and the page says nothing about it.
+fontAssets :: [FilePath]
+fontAssets = ["JetBrainsMono-Regular.woff2", "JetBrainsMono-Regular.ttf"]
+
+-- | The first of 'fontAssets' under OPTS's assets directory.  Looked up per
+-- request, the way the renderer is: dropping the file in needs no restart.
+localFont :: ServeOptions -> IO (Maybe FilePath)
+localFont opts = listToMaybe <$> filterM (doesFileExist . (soAssets opts </>)) fontAssets
+
+-- | An @\@font-face@ for NAME, which the asset route serves out of the same
+-- directory the renderer comes from.  The @src@ is a bare file name, resolved
+-- against this server the way the renderer's own @src@ is.
+fontFace :: Maybe FilePath -> Text
+fontFace Nothing     = ""
+fontFace (Just name) = T.concat
+  [ "  @font-face{font-family:\"JetBrains Mono\";font-display:swap;"
+  , "src:url(\"", T.pack name, "\") format(\"", format, "\")}" ]
+  where format | takeExtension name == ".woff2" = "woff2"
+               | otherwise                      = "truetype"
+
+-- Keymap
+
+-- | One row of the shell's keymap.
+data KeyBinding = KeyBinding
+  { kbSeq     :: !Text          -- ^ the sequence, in Emacs notation.
+  , kbCommand :: !Text          -- ^ the command name the echo widget shows.
+  , kbHandler :: !(Maybe Text)  -- ^ the shell function running it; 'Nothing' is staged.
+  , kbScope   :: !Text          -- ^ @table@, @modal@ or @any@ — where it is live.
+  }
+
+-- | The shell's keymap, under org-glance's own command names
+-- (@org-glance-overview-mode-map@, plus @C-x C-s@ for the sheet).  One table
+-- drives all three consumers — the dispatch, the echo widget's notation, and
+-- the JSON blob the page carries — because the shell parses that blob instead
+-- of holding a second copy, so a key cannot be bound and undocumented.
+--
+-- A row with no handler is recognized in full and then says what it is waiting
+-- for.  The map is complete ahead of the daemon commands that will back it
+-- (M4), which reads better than a key that silently does nothing.
+--
+-- Claimed chords, and only these.  @C-c@ becomes a prefix while no text field
+-- has focus and the selection is collapsed, so a copy is still a copy; @C-x@
+-- likewise, and only while the sheet is open, which is the only place @C-x
+-- C-s@ means anything.  @RET@, @TAB@ and @\/@ are taken while the table has
+-- focus.  Everything else reaches the browser — @C-l@, @C-r@, @C-t@, @C-w@,
+-- @C-n@ and @\<f5\>@ even as the continuation of a prefix this map entered.
+keyBindings :: [KeyBinding]
+keyBindings =
+  [ KeyBinding "n"       "next-row"                        (Just "nextRow")        "table"
+  , KeyBinding "p"       "previous-row"                    (Just "previousRow")    "table"
+  , KeyBinding ","       "first-row"                       (Just "firstRow")       "table"
+  , KeyBinding "<"       "first-row"                       (Just "firstRow")       "table"
+  , KeyBinding "."       "last-row"                        (Just "lastRow")        "table"
+  , KeyBinding ">"       "last-row"                        (Just "lastRow")        "table"
+  , KeyBinding "RET"     "org-glance-overview:materialize" (Just "materializeRow") "table"
+  , KeyBinding "g"       "org-glance-overview:refresh"     (Just "refresh")        "table"
+  , KeyBinding "/"       "filter-rows"                     (Just "focusFilter")    "table"
+  , KeyBinding "q"       "quit-window"                     (Just "quitWindow")     "table"
+  , KeyBinding "TAB"     "org-cycle"                       Nothing                 "table"
+  , KeyBinding "j"       "org-glance-overview:open"        Nothing                 "table"
+  , KeyBinding "a"       "org-glance-agenda"               Nothing                 "table"
+  , KeyBinding "@"       "org-glance-overview:relations"   Nothing                 "table"
+  , KeyBinding "+"       "org-glance-overview:capture"     Nothing                 "table"
+  , KeyBinding "D"       "org-glance-overview:delete"      Nothing                 "table"
+  , KeyBinding "C-c C-t" "org-glance-overview:todo"        Nothing                 "table"
+  , KeyBinding "C-c C-s" "org-glance-overview:schedule"    Nothing                 "table"
+  , KeyBinding "C-c C-d" "org-glance-overview:deadline"    Nothing                 "table"
+  , KeyBinding "C-x C-s" "save-buffer"                     (Just "save")           "modal"
+  , KeyBinding "ESC"     "keyboard-quit"                   (Just "cancel")         "any"
+  ]
+
+-- | 'keyBindings' as the page carries it.  The two angle brackets are escaped
+-- because two of the sequences are angle brackets: a blob that cannot spell a
+-- tag cannot open one, whatever element it is sitting in, and @JSON.parse@
+-- undoes both.
+keyBindingsJSON :: Text
+keyBindingsJSON = T.replace "<" "\\u003c" . T.replace ">" "\\u003e"
+                . TE.decodeUtf8 . BL.toStrict . encode $ map row keyBindings
+  where row b = object [ "seq"     .= kbSeq b
+                       , "command" .= kbCommand b
+                       , "handler" .= kbHandler b
+                       , "scope"   .= kbScope b ]
 
 -- Pages
 
@@ -418,7 +524,8 @@ mimeOf name = case takeExtension name of
 shellPage :: ServeOptions -> IO Response
 shellPage opts = do
   ok <- hasRenderer opts
-  pure (html (if ok then demoShell opts else assetsMissing opts))
+  font <- localFont opts
+  pure (html (if ok then demoShell opts font else assetsMissing opts))
 
 -- | The page a browser gets: load the renderer, fetch the view, mount it, then
 -- hold a socket open and apply what it sends.  The glue is inline so the shell
@@ -441,8 +548,15 @@ shellPage opts = do
 -- when the watch has re-read the file, which is the same way it would arrive
 -- had the edit come from an editor.  A real editor component is M3.5; a
 -- textarea is what proves the round-trip.
-demoShell :: ServeOptions -> Text
-demoShell opts = page (viewTitleFor (soDir opts)) $ T.unlines
+--
+-- The keys are 'keyBindings', which the page carries as JSON and the glue
+-- parses: row movement drives the renderer's own selection by clicking the
+-- row, since that is the model it exposes, and a sequence with no handler
+-- echoes its org-glance command name and what it is waiting for.  The pill in
+-- the corner is the echo area — the pending prefix while one is open, the
+-- command on completion, @is undefined@ otherwise.
+demoShell :: ServeOptions -> Maybe FilePath -> Text
+demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlines
   [ "  <h1>" <> escape (viewTitleFor (soDir opts)) <> "<span id=\"dot\"></span></h1>"
   , "  <div id=\"app\"></div>"
   , "  <div id=\"log\">loading …</div>"
@@ -457,6 +571,8 @@ demoShell opts = page (viewTitleFor (soDir opts)) $ T.unlines
   , "      </div>"
   , "    </div>"
   , "  </div>"
+  , "  <div id=\"echo\" role=\"status\" aria-live=\"polite\"></div>"
+  , "  <script id=\"keys\" type=\"application/json\">" <> keyBindingsJSON <> "</script>"
   , "  <script src=\"" <> T.pack rendererAsset <> "\"></script>"
   , "  <script>"
   , "    const log = (m) => (document.getElementById(\"log\").textContent = m);"
@@ -470,7 +586,7 @@ demoShell opts = page (viewTitleFor (soDir opts)) $ T.unlines
   , "                                     : log(`action: ${command}  id=${id}`),"
   , "        onLink: (target) => log(`link: ${target}`),"
   , "      });"
-  , "      log(`${(view.rows || []).length} headlines · RET or double-click to materialize`);"
+  , "      log(`${(view.rows || []).length} headlines · n/p moves · RET materializes · g refreshes`);"
   , "    }"
   , "    function materialize(id) {"
   , "      fetch(`/headline?id=${encodeURIComponent(id)}`)"
@@ -512,8 +628,136 @@ demoShell opts = page (viewTitleFor (soDir opts)) $ T.unlines
   , "    el(\"msave\").addEventListener(\"click\", save);"
   , "    el(\"mcancel\").addEventListener(\"click\", shut);"
   , "    el(\"mredo\").addEventListener(\"click\", () => editing && materialize(editing.id));"
-  , "    document.addEventListener(\"keydown\","
-  , "      (e) => { if (e.key === \"Escape\" && editing) shut(); });"
+  , ""
+  , "    // Rows.  The renderer owns selection — the `tv-sel' class, and the"
+  , "    // toolbar buttons it enables — and exposes no setter, so the keys drive"
+  , "    // it the way a user does, by clicking the row.  It survives set-rows and"
+  , "    // upsert: table-view re-applies the selected id after every render."
+  , "    const rowEls = () =>"
+  , "      Array.prototype.slice.call(document.querySelectorAll(\"#app .tv-table tbody tr\"));"
+  , "    const focusedId = () => {"
+  , "      const tr = document.querySelector(\"#app .tv-table tbody tr.tv-sel\");"
+  , "      return tr ? tr.dataset.id : null;"
+  , "    };"
+  , "    function focusRow(i) {"
+  , "      const rows = rowEls();"
+  , "      if (!rows.length) { log(\"no rows to move through\"); return; }"
+  , "      const tr = rows[Math.max(0, Math.min(rows.length - 1, i))];"
+  , "      tr.click();"
+  , "      tr.scrollIntoView({ block: \"nearest\" });"
+  , "    }"
+  , "    function moveRow(step) {"
+  , "      const rows = rowEls();"
+  , "      const at = rows.findIndex((tr) => tr.dataset.id === focusedId());"
+  , "      focusRow(at === -1 ? (step > 0 ? 0 : rows.length - 1) : at + step);"
+  , "    }"
+  , "    function focusFilter() {"
+  , "      const box = document.querySelector(\"#app .tv-filter\");"
+  , "      if (box) { box.focus(); box.select(); }"
+  , "      else log(\"this renderer has no filter box\");"
+  , "    }"
+  , "    // `start' is the fetch, the mount and the socket; reuse it whole."
+  , "    // Dropping onclose first stops the reconnect timer opening a second one."
+  , "    function refresh() {"
+  , "      if (socket) { socket.onclose = null; socket.close(); socket = null; }"
+  , "      backoff = 1000;"
+  , "      log(\"refreshing …\");"
+  , "      start();"
+  , "    }"
+  , ""
+  , "    // Keys.  The map is the JSON above — dispatch and echo read the one blob."
+  , "    const KEYS = JSON.parse(el(\"keys\").textContent);"
+  , "    const NAMED = { Enter: \"RET\", Tab: \"TAB\", \" \": \"SPC\", Escape: \"ESC\","
+  , "      Backspace: \"DEL\", Delete: \"<delete>\", ArrowUp: \"<up>\", ArrowDown: \"<down>\","
+  , "      ArrowLeft: \"<left>\", ArrowRight: \"<right>\", Home: \"<home>\", End: \"<end>\","
+  , "      PageUp: \"<prior>\", PageDown: \"<next>\" };"
+  , "    // Chords the browser needs more than we do: never claimed, not even as"
+  , "    // the continuation of a prefix this map has already entered."
+  , "    const RESERVED = [\"C-l\", \"C-r\", \"C-t\", \"C-w\", \"C-n\", \"<f5>\"];"
+  , "    function keyName(e) {"
+  , "      let base = NAMED[e.key], special = base !== undefined;"
+  , "      if (!special && /^F\\d{1,2}$/.test(e.key))"
+  , "        { base = `<${e.key.toLowerCase()}>`; special = true; }"
+  , "      if (!special) { base = e.key; if (base.length !== 1) return null; }"
+  , "      let mods = \"\";"
+  , "      if (e.ctrlKey) mods += \"C-\";"
+  , "      if (e.altKey || e.metaKey) mods += \"M-\";"
+  , "      if (special && e.shiftKey) mods += \"S-\";"
+  , "      return mods + base;"
+  , "    }"
+  , "    let echoAt = null, pending = [], pendingAt = null;"
+  , "    function echo(text, hold) {"
+  , "      const pill = el(\"echo\");"
+  , "      pill.textContent = text;"
+  , "      pill.style.opacity = \"1\";"
+  , "      clearTimeout(echoAt);"
+  , "      if (!hold) echoAt = setTimeout(() => (pill.style.opacity = \"0\"), 1500);"
+  , "    }"
+  , "    function prefix(keys) {"
+  , "      pending = keys;"
+  , "      clearTimeout(pendingAt);"
+  , "      if (!keys.length) return;"
+  , "      const shown = keys.join(\" \");"
+  , "      echo(`${shown} -`, true);"
+  , "      pendingAt = setTimeout(() => { pending = []; echo(`${shown} - timed out`); }, 2000);"
+  , "    }"
+  , "    const typing = () => {"
+  , "      const a = document.activeElement;"
+  , "      return !!a && (a.tagName === \"INPUT\" || a.tagName === \"TEXTAREA\""
+  , "                     || a.isContentEditable);"
+  , "    };"
+  , "    const live = (b) => b.scope === \"any\""
+  , "      || (b.scope === \"modal\" && editing !== null)"
+  , "      || (b.scope === \"table\" && !typing());"
+  , "    // A live selection means C-c and C-x are copy and cut, and the browser"
+  , "    // decides that on this keydown — so the prefix does not claim them."
+  , "    function selecting() {"
+  , "      const a = document.activeElement;"
+  , "      if (a && typeof a.selectionStart === \"number\")"
+  , "        return a.selectionStart !== a.selectionEnd;"
+  , "      const s = document.getSelection();"
+  , "      return !!s && !s.isCollapsed;"
+  , "    }"
+  , "    const HANDLERS = {"
+  , "      nextRow: () => moveRow(1),"
+  , "      previousRow: () => moveRow(-1),"
+  , "      firstRow: () => focusRow(0),"
+  , "      lastRow: () => focusRow(rowEls().length - 1),"
+  , "      materializeRow: () => {"
+  , "        const id = focusedId();"
+  , "        if (id) materialize(id); else log(\"no row focused — n or p picks one\");"
+  , "      },"
+  , "      refresh, focusFilter, save,"
+  , "      quitWindow: () =>"
+  , "        (editing ? shut() : log(\"q closes the sheet; there is no window to quit\")),"
+  , "      cancel: () => {"
+  , "        if (editing) shut();"
+  , "        else if (typing()) document.activeElement.blur();"
+  , "      },"
+  , "    };"
+  , "    function run(b) {"
+  , "      echo(`${b.seq} → ${b.command}`);"
+  , "      const handler = b.handler && HANDLERS[b.handler];"
+  , "      if (handler) handler();"
+  , "      else log(`${b.seq} (${b.command}) — arrives with daemon commands (M4)`);"
+  , "    }"
+  , "    document.addEventListener(\"keydown\", (e) => {"
+  , "      const k = keyName(e);"
+  , "      if (!k) return;"
+  , "      const seq = pending.concat([k]).join(\" \");"
+  , "      const here = KEYS.filter(live);"
+  , "      const hit = here.find((b) => b.seq === seq);"
+  , "      if (hit) { prefix([]); e.preventDefault(); run(hit); return; }"
+  , "      if (here.some((b) => b.seq.startsWith(`${seq} `))) {"
+  , "        if (!selecting()) { e.preventDefault(); prefix(pending.concat([k])); }"
+  , "        return;"
+  , "      }"
+  , "      if (!pending.length) return;   // not ours; the browser keeps it"
+  , "      prefix([]);"
+  , "      if (RESERVED.indexOf(k) === -1) e.preventDefault();"
+  , "      echo(`${seq} is undefined`);"
+  , "    });"
+  , ""
   , "    function apply(frame) {"
   , "      if (!table) return;"
   , "      if (frame.op === \"set-rows\") table.setRows(frame.rows);"
@@ -548,7 +792,7 @@ demoShell opts = page (viewTitleFor (soDir opts)) $ T.unlines
 -- | The page a browser gets when the renderer is missing: what still works,
 -- and the flag that fixes it.
 assetsMissing :: ServeOptions -> Text
-assetsMissing opts = page "glance — JSON only" $ T.unlines
+assetsMissing opts = page "" "glance — JSON only" $ T.unlines
   [ "  <h1>glance — JSON-only mode</h1>"
   , "  <p>No <code>" <> T.pack rendererAsset <> "</code> under <code>"
       <> escape (T.pack (soAssets opts)) <> "</code>, so there is no table to"
@@ -562,25 +806,32 @@ assetsMissing opts = page "glance — JSON only" $ T.unlines
       <> " --assets /path/to/table-view/web</code></p>"
   ]
 
--- | BODY wrapped in a document titled TITLE.  Styles inline, no asset but the
--- renderer, dark and light both.
-page :: Text -> Text -> Text
-page title body = T.unlines
+-- | BODY wrapped in a document titled TITLE, with HEAD opening the style block.
+-- Styles inline, no asset but the renderer and whatever HEAD names on this same
+-- server, dark and light both.
+page :: Text -> Text -> Text -> Text
+page head' title body = T.unlines
   [ "<!doctype html>"
   , "<html lang=\"en\">"
   , "<head>"
   , "<meta charset=\"utf-8\">"
   , "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
   , "<title>" <> escape title <> "</title>"
-  , "<style>"
-  , "  body{margin:0;font:14px/1.5 system-ui,sans-serif;background:#eceef2;color:#1c1e26;"
+  , "<style>" <> (if T.null head' then "" else "\n" <> head')
+  , "  :root{--glance-mono:" <> monoStack <> "}"
+  , "  body{margin:0;font:14px/1.5 var(--glance-mono);background:#eceef2;color:#1c1e26;"
   , "    padding:24px;display:flex;flex-direction:column;gap:14px}"
   , "  @media (prefers-color-scheme:dark){body{background:#13141c;color:#c8ccd4}}"
   , "  h1{font-size:16px;margin:0}"
   , "  p{margin:0;max-width:70ch}"
-  , "  code{font:12px ui-monospace,monospace;opacity:.9}"
+  , "  code{font-size:12px;opacity:.9}"
   , "  #app{height:80vh}"
-  , "  #log{font:12px ui-monospace,monospace;opacity:.75;min-height:1.4em}"
+  -- The renderer injects its own `.tv-root' font, and injects it from a script,
+  -- so its rule lands after this element and ties on specificity.  One more
+  -- selector step settles it, and leaves the size and the leading it set.
+  , "  #app .tv-root{font-family:var(--glance-mono)}"
+  , "  #app .tv-table tbody tr.tv-sel{box-shadow:inset 2px 0 0 var(--tv-accent)}"
+  , "  #log{font-size:12px;opacity:.75;min-height:1.4em}"
   , "  #dot{display:inline-block;width:7px;height:7px;border-radius:50%;"
   , "    margin-left:8px;vertical-align:middle;background:#9aa0ad;transition:background .3s}"
   , "  #dot.live{background:#9ece6a}"
@@ -591,14 +842,20 @@ page title body = T.unlines
   , "  #sheet{display:flex;flex-direction:column;gap:8px;padding:14px;border-radius:6px;"
   , "    width:min(900px,100%);height:min(80vh,100%);background:#eceef2;color:#1c1e26}"
   , "  @media (prefers-color-scheme:dark){#sheet{background:#1b1d26;color:#c8ccd4}}"
-  , "  #mhead{display:flex;justify-content:space-between;gap:12px;"
-  , "    font:12px ui-monospace,monospace;opacity:.85}"
+  , "  #mhead{display:flex;justify-content:space-between;gap:12px;font-size:12px;opacity:.85}"
   , "  #mnote{color:#f7768e;text-align:right}"
-  , "  #mtext{flex:1;font:12px/1.5 ui-monospace,monospace;padding:8px;border-radius:4px;"
+  , "  #mtext{flex:1;font:12px/1.5 var(--glance-mono);padding:8px;border-radius:4px;"
   , "    border:1px solid #8884;background:transparent;color:inherit;resize:none}"
   , "  #mfoot{display:flex;gap:8px}"
-  , "  #sheet button{font:12px system-ui,sans-serif;padding:5px 12px;border-radius:4px;"
+  , "  #sheet button{font:12px var(--glance-mono);padding:5px 12px;border-radius:4px;"
   , "    border:1px solid #8884;background:transparent;color:inherit;cursor:pointer}"
+  -- The echo area, over the sheet's backdrop: the sheet takes no z-index, so
+  -- one is enough to keep the pending prefix readable while the sheet is open.
+  , "  #echo{position:fixed;right:14px;bottom:12px;z-index:2;padding:4px 10px;"
+  , "    border-radius:999px;border:1px solid #8884;font-size:12px;white-space:pre;"
+  , "    background:#eceef2;color:#1c1e26;opacity:0;transition:opacity .35s;"
+  , "    pointer-events:none}"
+  , "  @media (prefers-color-scheme:dark){#echo{background:#1b1d26;color:#c8ccd4}}"
   , "</style>"
   , "</head>"
   , "<body>"

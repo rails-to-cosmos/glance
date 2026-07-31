@@ -278,6 +278,13 @@ Exit:
       `GLANCE_CORPUS` sweep); `TestServe` gains the two route groups;
       `TestDefaults` now owns the temp-directory helper the file-writing suites
       share.
+- [x] Bindings parity and the echo widget landed on top: `Glance.Web.keyBindings`
+      is org-glance's `overview-mode` map under org-glance's own command names,
+      carried to the page as one JSON blob that both the dispatch and the
+      corner echo pill read; nine sequences are staged behind M4's daemon
+      commands and say so, `C-c`/`C-x` are claimed as prefixes only with the
+      selection collapsed, and the shell is monospace with no font fetched.
+      405 → **416 tests**.
 
 **Measured** against `glance serve --dir ~/sync --port 7799` — 6313 files,
 13359 rows, 16.9 s startup — over a keep-alive loopback connection, 40 requests

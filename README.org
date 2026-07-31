@@ -68,6 +68,47 @@ that stops parsing keeps the rows it had — including one saved from the browse
 with a typo in it, which is the same deal any editor offers. Restart the daemon
 and the tab re-fetches and re-mounts on its own, backing off from 1 s to 30 s.
 
+*Keys.* The page carries org-glance's =overview-mode= map, under org-glance's
+own command names, and echoes what it did in a pill in the corner — the pending
+prefix while one is open (=C-c -=), the command on completion (=C-c C-t →
+org-glance-overview:todo=), =C-c z is undefined= otherwise, and the prefix drops
+after two seconds. Movement drives the renderer's own row selection.
+
+| key       | command                           | now                                       |
+|-----------+-----------------------------------+-------------------------------------------|
+| =n= / =p= | =next-row= / =previous-row=       | moves the selected row                    |
+| =,= =<=   | =first-row=                       | first row                                 |
+| =.= =>=   | =last-row=                        | last row                                  |
+| =RET=     | =org-glance-overview:materialize= | opens the sheet                           |
+| =g=       | =org-glance-overview:refresh=     | re-fetches, remounts, reconnects          |
+| =/=       | =filter-rows=                     | focuses the renderer's filter box         |
+| =q=       | =quit-window=                     | closes the sheet; never the tab           |
+| =C-x C-s= | =save-buffer=                     | saves the sheet, from inside the textarea |
+| =ESC=     | =keyboard-quit=                   | cancels the sheet                         |
+| =TAB=     | =org-cycle=                       | staged — daemon commands (M4)             |
+| =j=       | =org-glance-overview:open=        | staged                                    |
+| =a=       | =org-glance-agenda=               | staged                                    |
+| =@=       | =org-glance-overview:relations=   | staged                                    |
+| =+=       | =org-glance-overview:capture=     | staged                                    |
+| =D=       | =org-glance-overview:delete=      | staged                                    |
+| =C-c C-t= | =org-glance-overview:todo=        | staged                                    |
+| =C-c C-s= | =org-glance-overview:schedule=    | staged                                    |
+| =C-c C-d= | =org-glance-overview:deadline=    | staged                                    |
+
+A staged key is recognized in full and then says what it is waiting for: the map
+is complete ahead of the commands that will back it, which reads better than a
+key that silently does nothing. The keys are inert while a text field has focus
+— typing in the filter box or the sheet types — except =C-x C-s= and =ESC=,
+which is what makes the sheet's Emacs muscle memory work. =C-c= and =C-x= become
+prefixes only with the selection collapsed, so a copy or a cut is still one, and
+=C-l=, =C-r=, =C-t=, =C-w=, =C-n= and =<f5>= always reach the browser.
+
+The whole page is monospace — /JetBrains Mono/, /Fira Code/, /SF Mono/, Menlo,
+Consolas, whichever is installed. Nothing is fetched for it. Drop a
+=JetBrainsMono-Regular.woff2= (or =.ttf=) into the =--assets= directory and the
+shell declares an =@font-face= against it and serves it from there; leave it out
+and the stack falls through, silently.
+
 The listener binds =127.0.0.1= and nothing else. Authentication and the
 read/write/automate tiers arrive with the protocol step (S7 in
 =docs/plan-org-console-web.md=); until then the loopback interface is the whole

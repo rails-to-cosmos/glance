@@ -272,6 +272,25 @@ on.
   would hand the whole store to the network, and after S8 hand it write-back
   too. The address moves when auth arrives, not before. **none** (no test
   binds a socket; the call site is the only guard)
+- **The served pages fetch nothing off this server.** Styles are inline, the
+  glue is inline, and the one `<script src>` is a file name the asset route
+  resolves inside `--assets`. No CDN, no web font, no analytics — a page that
+  reaches the network renders differently on a laptop in a tunnel, and this
+  daemon's whole point is that the org files are local. The JetBrains Mono
+  `@font-face` is the shape a resource takes here: emitted only when the assets
+  directory holds the file, pointing at a bare name this server serves. Evidence:
+  `TestServe` "no page this server serves reaches off it" — neither page
+  contains `http://`, `https://` or `@import`. **test**
+- **The shell's keymap is data.** `Glance.Web.keyBindings` is the one table; the
+  page carries it as a `<script type="application/json">` blob and its own
+  dispatch parses that blob, so a binding cannot exist in the handler and not in
+  the map. Sequences and command names are org-glance's
+  (`org-glance-overview-mode-map`); a row with no handler is recognized in full
+  and says what backs it later. `C-c` and `C-x` are claimed as prefixes only
+  with the selection collapsed — the browser decides copy and cut on the same
+  keydown — and `C-l`, `C-r`, `C-t`, `C-w`, `C-n`, `<f5>` are never claimed,
+  including as the continuation of a prefix. Evidence: `TestServe` "Shell
+  keymap", which parses the blob and compares it to a written-down map. **test**
 - **The wire is built in `Glance.Query`, out of spans.** The public library
   exposes that one module over the private `glance-internal` sublibrary, so no
   outside target can name `Data.Org.*` at all. Title and tag cells are sliced

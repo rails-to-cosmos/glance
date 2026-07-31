@@ -172,6 +172,7 @@ test-suite glance-test
     , filepath
     , glance:{glance, glance-internal, glance-web}
     , http-types
+    , process
     , stm
     , tasty
     , tasty-hunit
