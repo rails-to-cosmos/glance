@@ -200,6 +200,18 @@ on.
   next edit to its file. **test**
 - Write-back is surgical span replacement + optimistic lock (hash vs parse
   snapshot) + atomic temp-then-rename.
+- **The engine is `Data.Org.Edit`** (S8 core, landed ahead of the commands):
+  char-span splice, drift-checked against a SHA-256 snapshot, atomic
+  same-directory rename, content-agnostic — the replacement text comes from the
+  caller and no path through the module reaches `TextShow`. Validation is total
+  (bounds, `start <= end`, pairwise overlap) and every refusal — drift, a
+  rejected batch, an undecodable file — leaves the target byte-identical.
+  Permission bits survive the rename; owner, group and timestamps do not, since
+  the rename installs a new inode. Splicing the whole batch in one pass is what
+  keeps a multi-span command O(document) rather than O(document × edits).
+  Evidence: `TestEdit`, plus the ~/sync canary behind `GLANCE_CORPUS=<root>`
+  (33 files, 214 spans, each file digest-checked before and after to prove the
+  check never wrote). **test + corpus**
 - The web layer depends only on the `Glance.Query` facade (S2), enforced at
   the cabal-stanza level; `Display`/`TextShow` stay out of the wire.
 - **The web layer is one stanza, and the constraint lives on it.**

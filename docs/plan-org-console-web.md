@@ -282,6 +282,50 @@ Exit:
       edit in Emacs → browser row updates. Both directions.
 - [ ] Capture from a phone browser appends an entry to the inbox file.
 
+**Engine landed early (S8 core).** `Data.Org.Edit`, exposed by
+`glance-internal`: `applyEdits :: Text -> [Edit] -> Either EditError Text` over
+half-open char spans, `takeSnapshot`/`snapshotOf`, `editFile`, `EditReceipt`.
+No commands, no protocol surface, and nothing through `Glance.Query` — the
+command layer decides the public shape.
+
+- **Splice.** Validated (in bounds, `start <= end`, pairwise non-overlapping;
+  touching allowed), then one left-to-right pass ordered by span start then
+  end: cost is the document plus the replacements whatever the batch size, and
+  the result never depends on the order the batch arrived in.
+- **Optimistic lock.** A `Snapshot` is a path plus the SHA-256 of the file's
+  bytes (`crypton`, already in the dep graph under warp). `editFile` re-reads
+  and re-digests first; a mismatch is `Drift` with the file untouched, and a
+  rejected batch writes nothing either.
+- **Atomic replace.** Temp file in the target's own directory (a rename must
+  not cross filesystems), `hFlush` + `fsync`, permission bits copied over,
+  rename. Owner, group and timestamps do not survive — the rename installs a
+  new inode. The temp name ends `.glance-tmp`, so the S5 watch ignores it.
+- **Content-agnostic.** The replacement text comes from the caller; the engine
+  never consults `TextShow`. `EditReceipt` carries the post-write `Snapshot`
+  and text, so a caller chains edits without re-reading.
+
+Properties under test (`test/TestEdit.hs`, 77 cases): single splice by
+construction, unicode included; **the surgical property at engine level** —
+replacing any headline span with a marker leaves every character ahead of its
+start and past its end identical, asserted over `hsFull` and every sub-span of
+every headline in the planning, drawer and unicode fixtures; multi-edit
+confluence against a quadratic reference implementation over 36 seeded batches;
+overlap, out-of-bounds and backwards spans as typed errors; a TODO span toggled
+and re-parsed, elements equal modulo spans and that one keyword and the
+re-parse's own spans still slicing back; `editFile` happy path, receipt
+chaining, drift with the bytes checked untouched, no leftover temp file, mode
+0600 preserved, missing and undecodable files.
+
+Corpus canary behind `GLANCE_CORPUS=<root>` — the walk alone is 12.8 s against
+0.03 s for the rest of the suite, so it stays a command of its own, the way
+`glance scan` is: `GLANCE_CORPUS=~/sync cabal test` samples every 98th path of
+6308, giving 33 files and 50 headlines, and all **214** spans splice exactly.
+Each sampled file is digest-checked before and after, which is what proves the
+run never wrote to the corpus.
+
+Suite: 301 → **378 tests**. The exit bars above stay open: the commands, the
+one-hunk diff assertion that goes with them, the round-trip demo and capture.
+
 ## S9 — Automation extension
 
 WebExtension speaking the automate tier; scripts are deterministic data

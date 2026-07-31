@@ -67,6 +67,8 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - Org files are the single source of truth; no second authoritative store.
 - Write-back (S8) = surgical span replacement, optimistic lock, atomic
   temp+rename; untouched bytes stay byte-identical.
+- Write-back engine = `Data.Org.Edit`: char-span splice, drift-checked, atomic
+  same-dir rename, content-agnostic (no `TextShow`).
 - `Display`/`TextShow` stay out of the wire contract; the web layer is the
   private sublibrary `glance-web` (`src-web/`, `Glance.Web*`) with the public
   library alone in its `build-depends`, and it binds 127.0.0.1 until S7 brings

@@ -1,6 +1,7 @@
 module Main (main) where
 
 import Test.Tasty (TestTree, defaultMain, testGroup)
+import qualified TestEdit as Edit
 import qualified TestParser as Parser
 import qualified TestRoundtrip as Roundtrip
 import qualified TestTimestamp as Timestamp
@@ -21,6 +22,7 @@ tests = testGroup "Tests"
   , Negative.spec
   , TextShow.spec
   , Spans.spec
+  , Edit.spec
   , Query.spec
   , Serve.spec
   , Store.spec
