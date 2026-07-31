@@ -9,7 +9,7 @@
 -- @parseQuery@ and @tokenTest@.
 --
 -- Tokens separate on whitespace and @&@.  @key:value@ is a field predicate only
--- when KEY names a column ('filterKeys') or one of the producer's virtual keys,
+-- when KEY names a column ('Glance.Query.filterKeys') or one of the producer's virtual keys,
 -- which is what keeps org cell text — @:work:@, @=code=@ — from turning into
 -- one by accident; @=@ is an alias for @:@, a leading @-@ negates either form,
 -- and a token that /opens/ with a quote is free text whatever it spells.
@@ -56,17 +56,16 @@ import Data.Text (Text)
 import qualified Data.Text as T
 
 import Glance.Query ( HeadlineRecord (hrKeywords, hrSearch, hrState)
-                    , TodoKeywords (tkActive, tkInactive), tagsOfCell )
+                    , TodoKeywords (tkActive, tkInactive), cellSep, filterKeys
+                    , tagsOfCell )
 
 -- Grammar
-
--- | The column keys a predicate may name, in the order
--- 'Glance.Query.viewJSON' declares the columns — which is also the order
--- 'Glance.Query.hrSearch' joins the cells in, so a key's position in this list
--- is its field's position in the haystack.  Matched case-sensitively, the way
--- the renderer matches its own @columns()@ keys.
-filterKeys :: [Text]
-filterKeys = ["state", "priority", "title", "tag", "scheduled", "deadline"]
+--
+-- The keys a predicate may name are the view's own columns
+-- ('Glance.Query.filterKeys'), re-exported here because the grammar is this
+-- module's: a key's position in that list is its field's position in the
+-- haystack, since the columns are declared and the cells are joined in one
+-- order.
 
 -- | The cells matched by prefix rather than by substring: an ISO date, so
 -- @scheduled:2026-08@ is the month.  The renderer decides this per column by
@@ -164,6 +163,27 @@ matchesFilter vocabulary q = case compile (parseFilter vocabulary q) of
   [test]  -> test
   tests   -> \r -> all ($ r) tests
 
+-- | What a predicate's key turned out to name: a column, at its field of the
+-- search text, or one of the producer's virtual keys, which is a tag.  Resolved
+-- once per term, so the arity and the test read one answer rather than looking
+-- the key up again for each.
+data Field = Col !Int | Tag
+  deriving (Eq)
+
+-- | KEY as a field.  A key that is not a column reached 'Term' by being in the
+-- vocabulary, which is to say by being a tag.
+fieldOf :: Text -> Field
+fieldOf key = maybe Tag Col (elemIndex key filterKeys)
+
+-- | Does FIELD hold a list of values rather than one?  The @tag@ column does,
+-- and so does every virtual key; the rest of this view holds one value per
+-- cell.  This is the split SCHEMA.md makes: @state:TODO state:DONE@ has to be
+-- either state, since a row with both does not exist, while @tag:a tag:b@ is a
+-- row carrying both, the way a label filter reads.
+multiValued :: Field -> Bool
+multiValued Tag     = True
+multiValued (Col i) = i == tagsColumn
+
 -- | TERMS as the tests a row must all pass.  Positive predicates sharing a key
 -- collapse into one test, and which one depends on the field's arity
 -- ('multiValued'): a cell holding one value can only be one of them, so they
@@ -174,56 +194,57 @@ compile :: [Term] -> [HeadlineRecord -> Bool]
 compile terms = singles <> groups
   where
     singles = [ inverted t | t <- terms, tmNegated t || isNothing (tmKey t) ]
-    keyed   = [ (key, termTest t) | t <- terms, not (tmNegated t), Just key <- [tmKey t] ]
-    groups  = [ joining key [ test | (k, test) <- keyed, k == key ]
-              | key <- nub (map fst keyed) ]
-    joining key | multiValued key = \tests r -> all ($ r) tests
-                | otherwise       = \tests r -> any ($ r) tests
     inverted t | tmNegated t = not . termTest t
                | otherwise   = termTest t
+    keyed   = [ (key, field, keyTest key field (folded t))
+              | t <- terms, not (tmNegated t), Just key <- [tmKey t]
+              , let field = fieldOf key ]
+    groups  = [ joining field [ test | (k, _field, test) <- keyed, k == key ]
+              | (key, field) <- nub [ (k, f) | (k, f, _test) <- keyed ] ]
+    joining field | multiValued field = \tests r -> all ($ r) tests
+                  | otherwise         = \tests r -> any ($ r) tests
 
--- | Does KEY name a field whose cell holds a list of values rather than one?
--- The @tag@ column does, and so does every virtual key, which is a tag; the
--- rest of this view holds one value per cell.  This is the split SCHEMA.md
--- makes: @state:TODO state:DONE@ has to be either state, since a row with both
--- does not exist, while @tag:a tag:b@ is a row carrying both, the way a label
--- filter reads.
-multiValued :: Text -> Bool
-multiValued key = key == "tag" || key `notElem` filterKeys
+-- | T's value folded the way the haystack was folded at load, so only the value
+-- ever needs folding.
+folded :: Term -> Text
+folded = T.toLower . tmValue
 
 -- | T as a row test, its negation aside — 'compile' applies that, since where a
--- term lands in the AND\/OR shape depends on it.
+-- term lands in the AND\/OR shape depends on it.  Kept for the one list that
+-- mixes the two kinds: the negations and the free text, which stand alone.
 termTest :: Term -> HeadlineRecord -> Bool
-termTest t = case tmKey t of
-    Nothing  -> freeText
-    -- A key that is not a column reached 'Term' by being in the vocabulary,
-    -- which is to say by being a tag.
-    Just key -> maybe (tagged key) (predicate key) (elemIndex key filterKeys)
+termTest t = maybe (freeTest value) (\key -> keyTest key (fieldOf key) value) (tmKey t)
+  where value = folded t
+
+-- | VALUE as free text: a substring of the row as it displays, an empty value
+-- matching every row.
+freeTest :: Text -> HeadlineRecord -> Bool
+freeTest value | T.null value = const True
+               | otherwise    = T.isInfixOf value . hrSearch
+
+-- | @KEY:VALUE@ as a row test, FIELD being what KEY resolved to.  A virtual key
+-- is a facet: the tag has to be on the row, and the value then searches the row
+-- the way a bare token would.  With no value it is the facet alone, which is
+-- the one place an empty value narrows anything.
+keyTest :: Text -> Field -> Text -> HeadlineRecord -> Bool
+keyTest key Tag value =
+  \r -> key `elem` tagsOfCell (cellOf tagsColumn r) && freeTest value r
+keyTest key (Col i) value
+  | T.null value        = const True                    -- half-typed: narrows nothing
+  | value == "none"     = T.null . cell
+  | key == "state"      = state
+  | key == "priority"   = (== value) . cell             -- one letter, so exact
+  | key `elem` dateKeys = T.isPrefixOf value . cell
+  | otherwise           = T.isInfixOf value . cell
   where
-    value = T.toLower (tmValue t)
-    -- The haystack is lowercased at load, so only the value needs folding.
-    freeText | T.null value = const True
-             | otherwise    = T.isInfixOf value . hrSearch
-    -- A virtual key is a facet: the tag has to be on the row, and the value
-    -- then searches the row the way a bare token would.  With no value it is
-    -- the facet alone, which is the one place an empty value narrows anything.
-    tagged key r = key `elem` tagsOfCell (cellOf tagsColumn r) && freeText r
-    predicate key i
-      | T.null value        = const True                    -- half-typed: narrows nothing
-      | value == "none"     = T.null . cell
-      | key == "state"      = state
-      | key == "priority"   = (== value) . cell             -- one letter, so exact
-      | key `elem` dateKeys = T.isPrefixOf value . cell
-      | otherwise           = T.isInfixOf value . cell
-      where
-        cell = cellOf i
-        -- The two meta-values SCHEMA.md lets a producer add: membership in the
-        -- record's own keyword sets, which are its file's `#+TODO:' line.  A
-        -- headline with no keyword is in neither.
-        state r | value == "active"   = grouped tkActive r
-                | value == "inactive" = grouped tkInactive r
-                | otherwise           = cell r == value     -- badge: whole value
-        grouped set r = maybe False (`elem` set (hrKeywords r)) (hrState r)
+    cell = cellOf i
+    -- The two meta-values SCHEMA.md lets a producer add: membership in the
+    -- record's own keyword sets, which are its file's `#+TODO:' line.  A
+    -- headline with no keyword is in neither.
+    state r | value == "active"   = grouped tkActive r
+            | value == "inactive" = grouped tkInactive r
+            | otherwise           = cell r == value     -- badge: whole value
+    grouped set r = maybe False (`elem` set (hrKeywords r)) (hrState r)
 
 -- | Field N of R's search text.
 cellOf :: Int -> HeadlineRecord -> Text
@@ -241,8 +262,3 @@ cellAt :: Int -> Text -> Text
 cellAt n hay = T.takeWhile (/= cellSep) (skip n hay)
   where skip k t | k <= 0    = t
                  | otherwise = skip (k - 1) (T.drop 1 (T.dropWhile (/= cellSep) t))
-
--- | What 'Glance.Query.hrSearch' joins its cells with, and the one character
--- 'Glance.Query.displayText' guarantees a cell cannot hold.
-cellSep :: Char
-cellSep = '\US'

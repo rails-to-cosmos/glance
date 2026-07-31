@@ -9,7 +9,7 @@ module TestStore (spec) where
 
 import Control.Concurrent.STM (atomically)
 import Data.Aeson (Value (Object, String))
-import Data.Time (UTCTime (UTCTime), addUTCTime, fromGregorian, secondsToDiffTime)
+import Data.Maybe (listToMaybe)
 import System.Directory (createDirectoryIfMissing, removeFile)
 import System.FilePath ((</>))
 import Test.Tasty (TestTree, testGroup)
@@ -128,7 +128,8 @@ derivedSpec = testGroup "Derived mirrors"
       -- Four files, four headlines, but two of them claim one id.
       assertEqual "rows" 3 (length (qrRecords qr))
       assertEqual "collisions" 1 (length (qrIdCollisions qr))
-      let [c] = qrIdCollisions qr
+      c <- maybe (assertFailure "no collision to inspect") pure
+                 (listToMaybe (qrIdCollisions qr))
       assertEqual "the id" "shared-id" (icId c)
       assertBool ("kept the canonical file: " <> icKept c)
                  ("data" `elem` splitOn (icKept c))
@@ -406,22 +407,24 @@ hubSpec = testGroup "Hub"
       assertEqual "published anyway" [DeleteRow "y"] after
   ]
 
--- | The debounce, which is the one part of the watch with a clock in it.
+-- | The debounce, which is the one part of the watch with a clock in it.  Both
+-- sides of it are monotonic seconds, so an entry here is the second a path was
+-- last touched and the delay is the wait in the same unit.
 debounceSpec :: TestTree
 debounceSpec = testGroup "Debounce"
   [ testCase "a path still being written waits" $ do
-      let pending = Map.fromList [("a.org", at 0), ("b.org", at 0.05)]
-      assertEqual "due at 0.09" ([], pending) (due debounceDelay (at 0.09) pending)
+      let pending = Map.fromList [("a.org", 0), ("b.org", 0.05)]
+      assertEqual "due at 0.09" ([], pending) (due debounceDelay 0.09 pending)
 
   , testCase "a path that went quiet comes due, the others stay" $ do
-      let pending = Map.fromList [("a.org", at 0), ("b.org", at 0.5)]
+      let pending = Map.fromList [("a.org", 0), ("b.org", 0.5)]
       assertEqual "due at 0.2"
-                  (["a.org"], Map.fromList [("b.org", at 0.5)])
-                  (due debounceDelay (at 0.2) pending)
+                  (["a.org"], Map.fromList [("b.org", 0.5)])
+                  (due debounceDelay 0.2 pending)
 
   , testCase "the delay is exactly the boundary" $ do
-      let pending = Map.fromList [("a.org", at 0)]
-      assertEqual "due at the delay" (["a.org"], Map.empty) (due debounceDelay (at 0.1) pending)
+      let pending = Map.fromList [("a.org", 0)]
+      assertEqual "due at the delay" (["a.org"], Map.empty) (due debounceDelay 0.1 pending)
 
   , testCase "org files are watched and the editor's sidecars are not" $ do
       mapM_ (assertBool "should be watched" . isWatchable)
@@ -429,6 +432,3 @@ debounceSpec = testGroup "Debounce"
       mapM_ (assertBool "should be ignored" . not . isWatchable)
             ["/o/notes.txt", "/o/notes.org~", "/o/.#notes.org", "/o/#notes.org#", "/o/org"]
   ]
-  where at :: Double -> UTCTime
-        at offset = addUTCTime (realToFrac offset)
-                               (UTCTime (fromGregorian 2026 7 31) (secondsToDiffTime 0))

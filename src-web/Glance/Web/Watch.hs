@@ -22,24 +22,22 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM (atomically, modifyTVar', newTVarIO, readTVar, writeTVar)
 import Control.Monad (forever, unless)
 import Data.Map.Strict (Map)
-import Data.Time (NominalDiffTime, UTCTime, diffUTCTime, getCurrentTime)
 import GHC.Clock (getMonotonicTime)
 import System.Directory (doesFileExist)
-import System.FilePath (takeExtension, takeFileName)
+import System.FilePath (takeFileName)
 import System.IO (hFlush, stdout)
 
-import qualified Data.Char as Char
 import qualified Data.Map.Strict as Map
 import qualified System.FSNotify as FS
 
-import Glance.Query (LoadFailure (..), WalkOptions (..), derivedPath, loadFile)
+import Glance.Query (LoadFailure (..), WalkOptions (..), derivedPath, loadFile, orgPath)
 import Glance.Web.Store ( Frame (..), Hub, applyFile, dropFile, publish )
 
--- | How long a path must stay quiet before it is re-parsed.  An editor's save
--- is several events (truncate, write, rename, chmod) inside a few milliseconds;
--- 100 ms collapses them into one parse and is invisible against the 1 s
--- watch-to-render budget.
-debounceDelay :: NominalDiffTime
+-- | How long a path must stay quiet before it is re-parsed, in seconds.  An
+-- editor's save is several events (truncate, write, rename, chmod) inside a few
+-- milliseconds; 100 ms collapses them into one parse and is invisible against
+-- the 1 s watch-to-render budget.
+debounceDelay :: Double
 debounceDelay = 0.1
 
 -- | How often the drain loop looks for work.  Small enough that the delay a
@@ -57,14 +55,14 @@ watchOrgTree opts dir hub = do
     _stop <- FS.watchTree mgr dir (watched opts . FS.eventPath) (note pending)
     forever $ do
       threadDelay tick
-      now <- getCurrentTime
+      now <- getMonotonicTime
       paths <- atomically $ do
         (ripe, rest) <- due debounceDelay now <$> readTVar pending
         writeTVar pending rest
         pure ripe
       mapM_ (reload hub) paths
   where note pending event = do
-          now <- getCurrentTime
+          now <- getMonotonicTime
           atomically (modifyTVar' pending (Map.insert (FS.eventPath event) now))
 
 -- | Is PATH one this watch reads, under OPTS?  What 'isWatchable' keeps, minus
@@ -75,23 +73,26 @@ watched :: WalkOptions -> FilePath -> Bool
 watched opts path = isWatchable path
                  && (woIncludeDerived opts || not (derivedPath path))
 
--- | Is PATH one this watch cares about?  @.org@ and nothing else, minus the
--- two sidecars Emacs writes beside a buffer: @.#name.org@ is a lock symlink
--- that usually dangles, and @#name.org#@ is an auto-save file.  Neither is a
--- document, and the walk that built the store passed over neither.
+-- | Is PATH one this watch cares about?  An org file by the walk's own rule
+-- ('Glance.Query.orgPath'), minus the two sidecars Emacs writes beside a
+-- buffer: @.#name.org@ is a lock symlink that usually dangles, and @#name.org#@
+-- is an auto-save file.  Neither is a document.  The walk's extension test
+-- already passes over @#name.org#@; @.#name.org@ it does walk, and its load
+-- fails as an unreadable file, so this rule is what keeps the churn out.
 isWatchable :: FilePath -> Bool
-isWatchable path = map Char.toLower (takeExtension path) == ".org"
+isWatchable path = orgPath path
                 && take 1 name /= "#"
                 && take 2 name /= ".#"
   where name = takeFileName path
 
--- | The paths in PENDING last touched at least DELAY before NOW, and what is
--- left pending.  Pure, and the whole of the debounce: a path that keeps
+-- | The paths in PENDING last touched at least DELAY seconds before NOW, and
+-- what is left pending.  Pure, and the whole of the debounce: a path that keeps
 -- receiving events keeps being deferred, and is parsed once the writes stop.
-due :: NominalDiffTime -> UTCTime -> Map FilePath UTCTime
-    -> ([FilePath], Map FilePath UTCTime)
+-- The clock is 'GHC.Clock.getMonotonicTime', so a system clock stepping
+-- backwards cannot leave a path pending forever.
+due :: Double -> Double -> Map FilePath Double -> ([FilePath], Map FilePath Double)
 due delay now pending = (Map.keys ripe, rest)
-  where (ripe, rest) = Map.partition ((>= delay) . diffUTCTime now) pending
+  where (ripe, rest) = Map.partition ((>= delay) . (now -)) pending
 
 -- | Re-read PATH into HUB and stream what changed.  A path that no longer
 -- exists is a deletion, whatever event brought us here: a rename arrives as an

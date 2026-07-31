@@ -7,7 +7,6 @@ module TestDefaults ( at
                     , on
                     , orgFile
                     , plainTs
-                    , strptime
                     , titled
                     , withCategory
                     , withHeadline

@@ -873,7 +873,7 @@ pageSpec = testGroup "GET /"
       -- different versions.  The check reads the rows the page already holds.
       mapM_ (\needle -> assertContains "parity glue" needle b)
             [ "function parity(total)", "if (total !== 0 || !query || !all.length) return;"
-            , "TableView.parseQuery(query, columnKeys)"
+            , "TableView.parseQuery(query, keys)"
             , "t.key === null && !t.quoted && !t.negated"
             , "filter parity divergence — asset/daemon version skew"
             , "console.warn(note, { query, server: total, local })"
@@ -956,9 +956,9 @@ pageSpec = testGroup "GET /"
             , "typeof table.stripLastToken === \"function\""
             , "this table-view.js has no filter tokens"
             -- One press, one token: a held DEL claims the key and runs once,
-            -- where held movement keeps repeating.
-            , "const ONCE = [\"filter-drop-token\"];"
-            , "if (!(e.repeat && ONCE.indexOf(hit.command) !== -1)) run(hit);" ]
+            -- where held movement keeps repeating.  The table is the blob's.
+            , "if (!(e.repeat && MAPS.once.indexOf(hit.command) !== -1)) run(hit);" ]
+      onceOf b >>= assertEqual "the commands auto-repeat is off for" ["filter-drop-token"]
       -- The guard is per command, so it cannot take auto-repeat off movement.
       assertBool "the repeat guard is blanket rather than per command"
                  (not ("if (e.repeat) return" `T.isInfixOf` b))
@@ -998,7 +998,7 @@ pageSpec = testGroup "GET /"
       b <- body <$> get assetsDir "/"
       mapM_ (\needle -> assertContains "materialize glue" needle b)
             [ "\"materialize\"", "/headline?id=${encodeURIComponent(", "<textarea id=\"mtext\""
-            , "method: \"POST\"", "digest: editing.digest", "a.status === 409"
+            , "method: \"POST\"", "flush(editing.digest)", "a.status === 409"
             -- The sheet's exits are keymap rows: ESC closes it, C-x C-s syncs
             -- it from inside the textarea.
             , "keyboard-quit", "C-x C-s" ]
@@ -1016,14 +1016,22 @@ pageSpec = testGroup "GET /"
             -- The receipt chains: the 200's digest is the next flush's lock.
             , "h.digest = a.body.digest; base = text;"
             -- A conflict keeps the sheet open and names the two keys.
-            , "trouble = \"conflict\""
+            , "if (a.status === 409) sync(\"conflict\");"
             , "conflict — C-x C-s overwrite · ESC discard"
-            , "if (trouble) { shut();"
+            , "if (troubled()) { shut();"
             -- And a tab closing on an edited sheet still owes the file.
-            , "addEventListener(\"beforeunload\"", "keepalive: true" ]
-      -- The three states, and no buttons to reach them with.
+            , "addEventListener(\"beforeunload\""
+            , "post(editing.id, el(\"mtext\").value, editing.digest, { keepalive: true })" ]
+      -- One word carries the sheet's state, `sync' is its only writer, and the
+      -- states that wait for a key say which key.  No buttons to reach them with.
       mapM_ (\needle -> assertContains "sync status" needle b)
-            [ "synced: \"synced\"", "syncing: \"syncing…\"", "id=\"mnote\"" ]
+            [ "synced: \"synced\"", "syncing: \"syncing…\"", "id=\"mnote\""
+            , "error: \"error — C-x C-s retry · ESC discard\" };"
+            , "const troubled = () => state === \"conflict\" || state === \"error\";"
+            , "const flushing = () => state === \"syncing\";"
+            , "function sync(next, message) {", "state = next;" ]
+      -- Nothing else writes the word, so the header cannot disagree with it.
+      assertEqual "sync is the only writer" 1 (T.count "      state = next;" b)
       mapM_ (\gone -> assertBool ("a sheet button survives: " <> show gone)
                                  (not (gone `T.isInfixOf` b)))
         [ "id=\"msave\"", "id=\"mcancel\"", "id=\"mredo\"", "id=\"mfoot\"", "Re-materialize" ]
@@ -1120,20 +1128,35 @@ pageSpec = testGroup "GET /"
       b <- body <$> get assetsDir "/"
       mapM_ (\needle -> assertContains "key line" needle b)
             [ "<div id=\"kbd\"></div>"
-            -- Commands, not keys: the spelling comes out of the blob, so the
-            -- line cannot offer a key nothing is bound to.
-            , "const HINTS = ["
-            , "[[\"next-row\", \"previous-row\"], \"rows\"],"
-            , "[[\"next-column\", \"previous-column\"], \"cells\"],"
-            , "[[\"filter-rows\"], \"filter\"],"
             , "const rows = MAPS.profiles[profile].concat(MAPS.shared);"
             , "rows.find((x) => x.command === command && x.scope === \"table\")"
             -- A staged row has no handler and is no offer.
             , "return b && b.handler ? b.seq : null;"
-            , "el(\"kbd\").textContent = HINTS"
+            , "el(\"kbd\").textContent = MAPS.hints"
             -- And it is rewritten wherever the profile is set, which is the
             -- selector's own hook.
             , "hints();   // the line is the map's, so it moves with the profile" ]
+      -- Commands, not keys, in the order the line reads them: the table is the
+      -- blob's and each spelling comes out of the active profile.
+      hints <- hintsOf b
+      assertEqual "the key line's table"
+        [ (["next-row", "previous-row"], "rows")
+        , (["next-column", "previous-column"], "cells")
+        , (["org-glance-overview:materialize"], "materialize")
+        , (["filter-rows"], "filter")
+        , (["org-glance-overview:refresh"], "refresh")
+        , (["filter-drop-token"], "drop token")
+        , (["quit-window"], "quit")
+        ] hints
+      -- And every command it names is one the map binds, in the table scope,
+      -- with a handler behind it — under every profile, since the line is
+      -- rewritten for each.  A hint for anything else is an empty offer.
+      (shared, profiles) <- keymapOf b
+      mapM_ (\(name, rows) ->
+               let offered = [ c | (_k, _s, c, Just _h, "table", _help) <- shared <> rows ]
+               in assertEqual (T.unpack name <> ": hinted but unbound") []
+                    [ c | (cs, _label) <- hints, c <- cs, c `notElem` offered ])
+            profiles
       -- No literal key in the line: `n/p' under emacs and `j/k' under vim are
       -- the same two commands, and only the blob knows which.
       mapM_ (\gone -> assertBool ("the key line spells a key itself: " <> show gone)
@@ -1265,13 +1288,34 @@ expectedProfiles =
   where rightHelp = Just "the cell to the right; row movement keeps the column"
         leftHelp  = Just "the cell to the left; from a whole row, the first column"
 
+-- | The keymap blob out of SHELL, parsed.  Everything the dispatch reads is in
+-- here, so the assertions below are over data rather than over the spelling of
+-- a JS literal.
+blobOf :: T.Text -> IO Value
+blobOf shell = do
+  raw <- maybe (assertFailure "no keymap blob in the shell") pure
+               (between "<script id=\"keys\" type=\"application/json\">" "</script>" shell)
+  either (\e -> assertFailure ("keymap JSON: " <> e)) pure
+         (eitherDecode (BL.fromStrict (TE.encodeUtf8 raw)))
+
+-- | The resident key line's table out of SHELL: the commands it names, in the
+-- order the line reads them, each with its label.
+hintsOf :: T.Text -> IO [([T.Text], T.Text)]
+hintsOf shell = traverse one =<< listAt "hints" =<< blobOf shell
+  where one v = (,) <$> textsAt "commands" v <*> textAt "label" v
+
+-- | The chords SHELL's blob declares never claimed.
+reservedOf :: T.Text -> IO [T.Text]
+reservedOf shell = textsAt "reserved" =<< blobOf shell
+
+-- | The commands SHELL's blob declares auto-repeat is off for.
+onceOf :: T.Text -> IO [T.Text]
+onceOf shell = textsAt "once" =<< blobOf shell
+
 -- | The keymap blob out of SHELL: the shared rows, and the profiles by name.
 keymapOf :: T.Text -> IO ([Row], [(T.Text, [Row])])
 keymapOf shell = do
-  raw <- maybe (assertFailure "no keymap blob in the shell") pure
-               (between "<script id=\"keys\" type=\"application/json\">" "</script>" shell)
-  blob <- either (\e -> assertFailure ("keymap JSON: " <> e)) pure
-                 (eitherDecode (BL.fromStrict (TE.encodeUtf8 raw)))
+  blob <- blobOf shell
   shared <- traverse row =<< listAt "shared" blob
   named <- traverse profile =<< membersAt "profiles" blob
   pure (shared, sortOn fst named)
@@ -1320,8 +1364,8 @@ keymapSpec = testGroup "Shell keymap"
       mapM_ (\needle -> assertContains "keymap glue" needle b)
         [ "<script id=\"keys\" type=\"application/json\">"
         , "JSON.parse(el(\"keys\").textContent)"
-        , "MAPS.shared.concat(MAPS.profiles[name])"
-        , "KEYS.filter(live)", "HANDLERS[b.handler]" ]
+        , "MAPS.shared.concat(MAPS.profiles[profile]).filter(live)"
+        , "HANDLERS[b.handler]" ]
 
   , testCase "the profile is remembered, askable, and switchable in place" $ do
       b <- body <$> get assetsDir "/"
@@ -1376,18 +1420,30 @@ keymapSpec = testGroup "Shell keymap"
       b <- body <$> get assetsDir "/"
       mapM_ (\needle -> assertContains "chord policy" needle b)
         -- A selection keeps C-c and C-x as copy and cut; the reserved chords
-        -- reach the browser even as the continuation of a claimed prefix, which
-        -- is why neither profile moves on C-n or C-p.
+        -- reach the browser when they abandon a claimed prefix, which is why
+        -- neither profile moves on C-n or C-p.
         [ "if (!selecting()) { e.preventDefault();"
-        , "const RESERVED = [\"C-l\", \"C-r\", \"C-t\", \"C-w\", \"C-n\", \"C-p\", \"<f5>\"];"
-        , "if (RESERVED.indexOf(k) === -1) e.preventDefault();" ]
+        , "if (MAPS.reserved.indexOf(k) === -1) e.preventDefault();" ]
+      reservedOf b >>= assertEqual "the chords never claimed on their own"
+        ["C-l", "C-r", "C-t", "C-w", "C-n", "C-p", "<f5>"]
+      -- None of them is bound, so the guard is the only thing that decides.
+      (shared, profiles) <- keymapOf b
+      reserved <- reservedOf b
+      mapM_ (\(name, rows) ->
+               assertEqual (T.unpack name <> ": a reserved chord is bound") []
+                 [ k | (k, _s, _c, _h, _scope, _help) <- shared <> rows
+                     , k `elem` map pure reserved ])
+            profiles
 
   , testCase "row movement drives the renderer's own selection" $ do
       b <- body <$> get assetsDir "/"
       -- The renderer virtualizes, so a row outside the window has no element:
       -- movement is ids out of `getVisible()' handed back to `select(id)'.
+      -- Which row is on is the renderer's answer too, with the DOM read left as
+      -- the fallback for an asset predating the call.
       mapM_ (\needle -> assertContains "row focus" needle b)
-        [ "tbody tr.tv-sel", "table.getVisible()", "table.select(id, column())", ".tv-filter" ]
+        [ "tbody tr.tv-sel", "table.getVisible()", "table.select(id, column())", ".tv-filter"
+        , "if (cells()) return table.getSelection().id;" ]
       mapM_ (\gone -> assertBool ("the DOM movement path survives: " <> show gone)
                                  (not (gone `T.isInfixOf` b)))
         [ "tr.click()", "scrollIntoView", "rowEls(" ]
@@ -1424,9 +1480,10 @@ keymapSpec = testGroup "Shell keymap"
         , "say(cols[want].header || cols[want].key);"
         , "say(want < 0 ? \"at first\" : \"at last\")"
         , "say(\"no row\")"
-        -- The headers are the mounted view's, beside the keys parity reads.
+        -- The headers are the mounted view's, and parity cuts the keys out of
+        -- the same list where it needs them.
         , "cols = view.columns || [];"
-        , "columnKeys = cols.map((c) => c.key);" ]
+        , "const keys = cols.map((c) => c.key);" ]
 
   , testCase "the inline glue is JavaScript, where there is a node to say so" $ do
       node <- findExecutable "node"

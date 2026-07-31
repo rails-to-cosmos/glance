@@ -24,8 +24,7 @@ import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 
-import Data.Org ( Headline, HeadlineSpans (hsFull), Indent (Indent), Span (..)
-                , indent, spans )
+import Data.Org ( Headline, Indent (Indent), Span (..), hsFull, indent, spans )
 import Data.Org.Walk (findOrgFiles, foundFiles)
 import Glance.Query ( HeadlineRecord (hrHeadline, hrSubtree), loadFile, subtreeText )
 

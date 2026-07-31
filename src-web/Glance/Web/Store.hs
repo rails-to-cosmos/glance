@@ -29,7 +29,6 @@ module Glance.Web.Store
   ( -- * The store
     Store (..)
   , FileEntry (..)
-  , emptyStore
   , loadStore
   , loadStoreWith
   , storeHeadline
@@ -60,7 +59,7 @@ module Glance.Web.Store
 
 import Control.Concurrent.STM (STM, TVar, atomically, modifyTVar', newTVar, newTVarIO, readTVar, writeTVar)
 import Control.Concurrent.STM.TBQueue (TBQueue, isFullTBQueue, newTBQueue, readTBQueue, writeTBQueue)
-import Control.Monad ((<=<))
+import Control.Monad (filterM, (<=<))
 import Data.Aeson (Value, encode, object, (.=))
 import Data.List (find, foldl', nub)
 import Data.Map.Strict (Map)
@@ -222,8 +221,8 @@ putFile path outcome st = case outcome of
     old     = maybe [] feRecords (Map.lookup path files)
     oldRows = rowsById old
     next new = st { stFiles = Map.insert path (FileEntry new Nothing) files
-                  , stIds   = reindex (idsOf old) (idsOf new) (stIds st)
-                  , stTags  = reindex (tagsOf old) (tagsOf new) (stTags st) }
+                  , stIds   = stepIndex idsOf old new (stIds st)
+                  , stTags  = stepIndex tagsOf old new (stTags st) }
     frames new = upserts <> gone (idsOf old) (idsOf new) (next new)
       where rows    = rowsById new
             upserts = [ UpsertRow row
@@ -236,11 +235,11 @@ putFile path outcome st = case outcome of
 removeFile :: FilePath -> Store -> (Store, [Frame])
 removeFile path st = case Map.lookup path (stFiles st) of
   Nothing    -> (st, [])
-  Just entry -> (next, gone ids Set.empty next)
-    where ids  = idsOf (feRecords entry)
+  Just entry -> (next, gone (idsOf held) Set.empty next)
+    where held = feRecords entry
           next = st { stFiles = Map.delete path (stFiles st)
-                    , stIds   = reindex ids Set.empty (stIds st)
-                    , stTags  = reindex (tagsOf (feRecords entry)) Set.empty (stTags st) }
+                    , stIds   = stepIndex idsOf held [] (stIds st)
+                    , stTags  = stepIndex tagsOf held [] (stTags st) }
 
 -- | Delete frames for the ids in OLD that NEW dropped and no file in ST still
 -- carries.  Two files declaring one @ORG_GLANCE_ID@ share a row, and the
@@ -249,11 +248,14 @@ gone :: Set Text -> Set Text -> Store -> [Frame]
 gone old new st =
   [ DeleteRow i | i <- Set.toList (Set.difference old new), Map.notMember i (stIds st) ]
 
--- | The id index with OLD's ids released and NEW's claimed.
-reindex :: Set Text -> Set Text -> Map Text Int -> Map Text Int
-reindex old new = flip (Set.foldl' claim) new . flip (Set.foldl' release) old
-  where release ids i = Map.update (\n -> if n <= 1 then Nothing else Just (n - 1)) i ids
-        claim   ids i = Map.insertWith (+) i 1 ids
+-- | One index with what OLD's records claimed released and what NEW's claim
+-- taken, PROJ being what a file contributes to it.  The id index and the tag
+-- index move identically and only the projection differs, so they share this.
+stepIndex :: Ord k => ([HeadlineRecord] -> Set k)
+          -> [HeadlineRecord] -> [HeadlineRecord] -> Map k Int -> Map k Int
+stepIndex proj old new ix = Set.foldl' claim (Set.foldl' release ix (proj old)) (proj new)
+  where release m k = Map.update (\n -> if n <= 1 then Nothing else Just (n - 1)) k m
+        claim   m k = Map.insertWith (+) k 1 m
 
 -- | RECORDS keyed by row id, last one winning — which is how a renderer keying
 -- updates off @id@ resolves a duplicate too.
@@ -263,8 +265,8 @@ rowsById records = Map.fromList [ (hrId r, rowJSON r) | r <- records ]
 idsOf :: [HeadlineRecord] -> Set Text
 idsOf = Set.fromList . map hrId
 
--- | The distinct tags RECORDS carry, deduplicated per file so 'reindex' counts
--- files rather than rows.
+-- | The distinct tags RECORDS carry, deduplicated per file so 'stepIndex'
+-- counts files rather than rows.
 tagsOf :: [HeadlineRecord] -> Set Text
 tagsOf = Set.fromList . concatMap (tagsOfCell . hrTags)
 
@@ -391,13 +393,10 @@ publish hub step = atomically $ do
   (st, frames) <- step <$> readTVar (hubStore hub)
   writeTVar (hubStore hub) st
   clients <- readTVar (hubClients hub)
-  slow <- mapM (post frames) (Map.toList clients)
-  mapM_ (cut clients) (concat slow)
+  slow <- filterM (fmap not . flip writeAll frames . snd) (Map.toList clients)
+  mapM_ (cut clients . fst) slow
   pure frames
   where
-    post frames (cid, c) = do
-      room <- writeAll c frames
-      pure [ cid | not room ]
     -- The full check is what keeps this from blocking: 'writeTBQueue' on a
     -- full mailbox would retry the whole transaction, which is the watcher
     -- waiting on a browser.

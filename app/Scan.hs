@@ -18,8 +18,8 @@ import qualified Data.Text.IO as TIO
 import qualified TextShow as TS
 
 import Data.Org
-import Data.Org.Walk ( Found (..), WalkOptions (..), errText, findOrgFilesWith
-                     , isCanonical )
+import Data.Org.Walk ( Found (..), WalkOptions (..), beatsForId, errText
+                     , findOrgFilesWith )
 
 import qualified Data.Map.Strict as Map
 
@@ -219,8 +219,7 @@ merge t path r = case frBucket r of
 claim :: FilePath -> Totals -> Text -> Totals
 claim path t i = case Map.lookup i (tIds t) of
   Nothing   -> t { tIds = Map.insert i path (tIds t) }
-  Just held -> seen (if isCanonical path && not (isCanonical held)
-                       then (path, held) else (held, path))
+  Just held -> seen (if beatsForId path held then (path, held) else (held, path))
     where seen (kept, dropped) = t
             { tIds        = Map.insert i kept (tIds t)
             , tCollisions = tCollisions t + 1

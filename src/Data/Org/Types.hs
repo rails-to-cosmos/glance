@@ -29,9 +29,8 @@ module Data.Org.Types ( Context (..)
                       , TsMoment (..)
                       , defaultContext
                       , defaultHeadline
-                      , emptyHeadlineSpans
-                      , getProperty
                       , headlineSpanParts
+                      , hsFull
                       , identity
                       , inTodo
                       , registerHeadline
@@ -47,7 +46,7 @@ module Data.Org.Types ( Context (..)
                       , unitChar
                       ) where
 
-import Data.List (find, intersperse, nub, sortOn)
+import Data.List (find, foldl', intersperse, nub, sortOn)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (maybeToList)
@@ -186,10 +185,11 @@ data Headline = Headline { indent     :: !Indent
                          , spans      :: !HeadlineSpans
                          } deriving (Show, Eq)
 
--- | Spans of a headline's mutable parts.  'hsFull' covers stars through the
--- last parsed component.  Sub-spans are tight: no surrounding whitespace.
+-- | Spans of a headline's mutable parts.  Sub-spans are tight: no surrounding
+-- whitespace.  The extent of the whole headline is 'hsFull', computed off these
+-- rather than stored beside them.
 data HeadlineSpans = HeadlineSpans
-  { hsFull       :: !Span
+  { hsStars      :: !Span          -- ^ the stars alone, where the headline begins.
   , hsTodo       :: !(Maybe Span)  -- ^ keyword text exactly, e.g. "TODO".
   , hsPriority   :: !(Maybe Span)  -- ^ "[#A]" exactly.
   , hsTitle      :: !(Maybe Span)  -- ^ first to last title element; Nothing when title empty.
@@ -201,7 +201,7 @@ data HeadlineSpans = HeadlineSpans
   } deriving (Show, Eq)
 
 emptyHeadlineSpans :: HeadlineSpans
-emptyHeadlineSpans = HeadlineSpans { hsFull       = Span 0 0
+emptyHeadlineSpans = HeadlineSpans { hsStars      = Span 0 0
                                    , hsTodo       = Nothing
                                    , hsPriority   = Nothing
                                    , hsTitle      = Nothing
@@ -212,26 +212,38 @@ emptyHeadlineSpans = HeadlineSpans { hsFull       = Span 0 0
                                    , hsProperties = Nothing
                                    }
 
+-- | HS's labelled sub-spans in source order.  The three planning entries sort
+-- by offset: org writes SCHEDULED:, DEADLINE: and CLOSED: in any order on the
+-- planning line, and every consumer — the overlap check, 'hsFull', the ordering
+-- assertion — reads this one list as source order.
+spanParts :: HeadlineSpans -> [(Text, Maybe Span)]
+spanParts hs = before ++ sortOn (fmap spanStart . snd) planning ++ after
+  where before   = [ ("hsTodo", hsTodo hs), ("hsPriority", hsPriority hs)
+                   , ("hsTitle", hsTitle hs), ("hsTags", hsTags hs) ]
+        planning = [ ("hsSchedule", hsSchedule hs), ("hsDeadline", hsDeadline hs)
+                   , ("hsClosed", hsClosed hs) ]
+        after    = [ ("hsProperties", hsProperties hs) ]
+
+-- | The extent of the headline itself: the stars through the end of the last
+-- component present, and never the whitespace after it.  Derived rather than
+-- stored, so it cannot come to disagree with 'spanParts' about which order the
+-- components run in — the ordering invariant is the structure here.
+hsFull :: HeadlineSpans -> Span
+hsFull hs = foldl' (<>) (hsStars hs) [ sp | (_label, Just sp) <- spanParts hs ]
+
 -- | H's labelled sub-spans in source order, each paired with the predicate its
--- slice out of the source must satisfy.  Single source of the span spec.  The
--- three planning entries sort by offset: org writes SCHEDULED:, DEADLINE: and
--- CLOSED: in any order on the planning line, and every consumer — the overlap
--- check, the 'hsFull' fold, the ordering assertion — reads this list as source
--- order.
+-- slice out of the source must satisfy.  Single source of the span spec.
 headlineSpanParts :: Headline -> [(Text, Maybe Span, Text -> Bool)]
-headlineSpanParts h =
-     [ ("hsTodo",     hsTodo hs,     (== maybe "" name (todo h)))
-     , ("hsPriority", hsPriority hs, (== maybe "" showt (priority h)))
-     , ("hsTitle",    hsTitle hs,    \t -> T.words t == T.words (showt (title h)))
-     , ("hsTags",     hsTags hs,     (== showt (tags h)))
-     ]
-  ++ sortOn (\(_label, sp, _ok) -> spanStart <$> sp) planning
-  ++ [ ("hsProperties", hsProperties hs, drawer) ]
-  where hs = spans h
-        planning = [ ("hsSchedule", hsSchedule hs, timestampSlice (schedule h))
-                   , ("hsDeadline", hsDeadline hs, timestampSlice (deadline h))
-                   , ("hsClosed",   hsClosed hs,   timestampSlice (closed h))
-                   ]
+headlineSpanParts h = [ (label, sp, slices label) | (label, sp) <- spanParts (spans h) ]
+  where slices label = case label of
+          "hsTodo"     -> (== maybe "" name (todo h))
+          "hsPriority" -> (== maybe "" showt (priority h))
+          "hsTitle"    -> \t -> T.words t == T.words (showt (title h))
+          "hsTags"     -> (== showt (tags h))
+          "hsSchedule" -> timestampSlice (schedule h)
+          "hsDeadline" -> timestampSlice (deadline h)
+          "hsClosed"   -> timestampSlice (closed h)
+          _hsProperties -> drawer
         drawer t = ":PROPERTIES:" `T.isPrefixOf` stripped && ":END:" `T.isSuffixOf` stripped
           where stripped = T.strip t
 

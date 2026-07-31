@@ -63,7 +63,6 @@ module Glance.Web ( ServeOptions (..)
                   , defaultPort
                   , application
                   , bootstrapWanted
-                  , limitCap
                   , serve
                   , serveWith
                   , viewTitleFor
@@ -265,28 +264,38 @@ compressed = gzip defaultGzipSettings { gzipFiles = GzipCompress }
 -- assets are served the whole time: the page they carry is what shows the
 -- indexing state and polls for the end of it.
 httpApp :: ServeOptions -> Hub -> Application
-httpApp opts hub request respond = route (pathInfo request) >>= respond
+httpApp opts hub request respond = route >>= respond
   where
     method  = requestMethod request
     reading = method `elem` [methodGet, methodHead]
-    route path = do
-      load <- readTVarIO (hubLoad hub)
-      case load of
-        Loading since | path `elem` storeRoutes -> indexing since
-        _ready                                  -> ready path
-    storeRoutes = [["headlines"], ["headline"], ["ws"]]
-    ready ["headline"]
-      | reading              = materialize hub (queryId request)
-      | method == methodPost = commit hub (queryId request) request
-      | otherwise            = pure (jsonError status405 "/headline takes GET and POST")
-    ready _
-      | not reading          = pure (plain status405 writeHint)
-    ready []                 = shellPage opts
-    ready ["headlines"]      = headlines opts hub request
-    ready ["ws"]             = pure (plain status400 wsHint)
-    ready [name]
-      | safeName name        = asset opts (T.unpack name)
-    ready _                  = pure (plain status404 notFound)
+    -- The named routes: the path, whether the answer comes out of the store —
+    -- which is what makes it a 503 while the walk runs, whatever the method —
+    -- and the handler.  Everything else is an asset name or a miss.
+    named =
+      [ ([],            False, readOnly (shellPage opts))
+      , (["headlines"], True,  readOnly (headlines opts hub request))
+      , (["headline"],  True,  headline)
+      , (["ws"],        True,  readOnly (pure (plain status400 wsHint)))
+      ]
+    route = case [ (needs, act) | (path, needs, act) <- named, path == pathInfo request ] of
+      ((needs, act) : _) -> do
+        load <- readTVarIO (hubLoad hub)
+        case load of
+          Loading since | needs -> indexing since
+          _ready                -> act
+      _noSuchRoute -> fallback
+    -- @/headline@ is the one route that writes; a write anywhere else is a 405
+    -- naming it.
+    headline | reading              = materialize hub (queryId request)
+             | method == methodPost = commit hub (queryId request) request
+             | otherwise            = pure (jsonError status405 "/headline takes GET and POST")
+    readOnly act | reading   = act
+                 | otherwise = pure (plain status405 writeHint)
+    -- Every one-segment path lands on the assets directory, so the miss below
+    -- it doubles as the route list.
+    fallback = readOnly $ case pathInfo request of
+      [name] | safeName name -> asset opts (T.unpack name)
+      _other                 -> pure (plain status404 notFound)
     wsHint    = "/ws is a websocket endpoint; connect with Upgrade: websocket"
     writeHint = "method not allowed; POST /headline?id=… is the one route that writes"
     notFound  = "not found: /, /headlines, /headline, /ws, or an asset name"
@@ -323,9 +332,10 @@ safeName name = not (T.null name)
 -- filter and an encode instead of a directory walk.
 --
 -- @q@ is SCHEMA.md's filter query — field predicates over the view's own
--- columns and over every org tag the store carries, free text, negation,
--- same-key predicates ORing ('Glance.Web.Filter') — @limit@ a page size,
--- absent meaning the whole set,
+-- columns and over every org tag the store carries, free text, negation, and
+-- same-key predicates combining by the field's arity, a single-valued one
+-- ORing and a multi-valued one ANDing ('Glance.Web.Filter') — @limit@ a page
+-- size, absent meaning the whole set,
 -- which is what every client before this asked for, and @offset@ where the page
 -- starts.  Filtering happens before paging, so @X-Glance-Total@ is the match
 -- count and @X-Glance-Has-Next@ says whether a further page exists.
@@ -494,29 +504,42 @@ commit _hub Nothing _request = pure (jsonError status400 "POST /headline?id=<row
 commit hub (Just rid) request = do
   body <- takeBody bodyLimit request
   found <- storeHeadline rid <$> readTVarIO (hubStore hub)
-  case (body, found) of
-    (Nothing, _) -> pure (jsonError status413 ("body over " <> T.pack (show bodyLimit) <> " bytes"))
-    (_, Nothing) -> pure (jsonError status404 ("no headline with id " <> rid))
-    (Just raw, Just r) -> case parseCommit raw of
-      Left why -> pure (jsonError status400 why)
-      Right (org, digest)
-        | digest /= hrDigest r -> pure (conflict "stale" (hrDigest r) reparsed)
-        | otherwise -> do
-            written <- replaceSpan (hrFile r) digest (hrSubtree r) org
-            pure $ case written of
-              Right fresh             -> jsonResponse status200 ["digest" .= fresh]
-              Left (WriteDrift onDisk) -> conflict "drift" onDisk rewritten
-              Left (WriteRefused why)  -> jsonError status500 why
-  where
-    reparsed, rewritten :: Text
-    reparsed  = "the file was re-read since this subtree was materialized"
-    rewritten = "the file changed on disk since this subtree was materialized"
-    conflict :: Text -> Text -> Text -> Response
-    conflict reason current why = jsonResponse status409
-      [ "error"  .= (why <> "; materialize it again and re-apply the edit")
-      , "reason" .= reason
-      , "digest" .= current
-      ]
+  case prepare rid body found of
+    Left refusal -> pure refusal
+    Right (r, digest, org) -> do
+      written <- replaceSpan (hrFile r) digest (hrSubtree r) org
+      pure $ case written of
+        Right fresh              -> jsonResponse status200 ["digest" .= fresh]
+        Left (WriteDrift onDisk) -> conflict "drift" onDisk rewritten
+        Left (WriteRefused why)  -> jsonError status500 why
+
+-- | What writing RID needs — the record, the digest to pin and the text to
+-- splice — or the response refusing to.  Every refusal but the write's own is
+-- decided here, so the IO above it is the write and nothing else.
+prepare :: Text -> Maybe BL.ByteString -> Maybe HeadlineRecord
+        -> Either Response (HeadlineRecord, Text, Text)
+prepare rid body found = case (body, found) of
+  (Nothing, _) -> Left (jsonError status413 ("body over " <> T.pack (show bodyLimit) <> " bytes"))
+  (_, Nothing) -> Left (jsonError status404 ("no headline with id " <> rid))
+  (Just raw, Just r) -> case parseCommit raw of
+    Left why -> Left (jsonError status400 why)
+    Right (org, digest)
+      | digest /= hrDigest r -> Left (conflict "stale" (hrDigest r) reparsed)
+      | otherwise            -> Right (r, digest, org)
+
+-- | A 409 spelling REASON, the digest the file carries now, and WHY.  The two
+-- ways a materialized subtree goes stale are told apart for a client that has
+-- to decide what to do next; both mean the same thing to one that does not.
+conflict :: Text -> Text -> Text -> Response
+conflict reason current why = jsonResponse status409
+  [ "error"  .= (why <> "; materialize it again and re-apply the edit")
+  , "reason" .= reason
+  , "digest" .= current
+  ]
+
+reparsed, rewritten :: Text
+reparsed  = "the file was re-read since this subtree was materialized"
+rewritten = "the file changed on disk since this subtree was materialized"
 
 -- | The @id@ parameter of REQUEST, when it carries one with a value.
 queryId :: Request -> Maybe Text
@@ -751,9 +774,11 @@ helps b text' = b { kbHelp = Just text' }
 -- likewise, and only while the sheet is open, which is the only place @C-x
 -- C-s@ means anything.  @RET@, @TAB@, @\/@ and @DEL@ are taken while the table
 -- has focus — @DEL@ is the filter's own undo, and a field with focus keeps its
--- backspace.  Everything else reaches the browser — @C-l@, @C-r@, @C-t@,
--- @C-w@, @C-n@, @C-p@ and @\<f5\>@ even as the continuation of a prefix this
--- map entered, which is why neither profile moves on @C-n@ or @C-p@.
+-- backspace.  @C-l@, @C-r@, @C-t@, @C-w@, @C-n@, @C-p@ and @\<f5\>@ are never
+-- claimed on their own, which is why neither profile moves on @C-n@ or @C-p@;
+-- what the reserved list buys is the /abandoned/ prefix — @C-x C-l@ reaches the
+-- browser rather than being swallowed as undefined.  Completing a bound
+-- sequence still claims them, which is what makes @C-c C-t@ work.
 sharedKeys :: [KeyBinding]
 sharedKeys =
   [ bind ["<down>"]     "next-row"                        (Just "nextRow")        "table"
@@ -841,20 +866,57 @@ keyProfiles = [("emacs", emacsKeys), ("vim", vimKeys)]
 defaultProfile :: Text
 defaultProfile = "emacs"
 
+-- | Chords the browser needs more than this page does: never claimed as the key
+-- that abandons a prefix this map had entered, which is what leaves @C-x C-l@
+-- to the browser.  One completing a bound sequence is still claimed — that is
+-- what makes @C-c C-t@ work — and none of them is bound on its own.
+reservedChords :: [Text]
+reservedChords = ["C-l", "C-r", "C-t", "C-w", "C-n", "C-p", "<f5>"]
+
+-- | The commands auto-repeat is taken off: one press, one token.  Movement
+-- wants the repeat — a held @n@ is how you cross a table, and the renderer
+-- coalesces those to a frame — but a held @DEL@ would walk the whole query away
+-- between one glance at the chips and the next.  By command name, so it holds
+-- under every profile that binds it.
+onceCommands :: [Text]
+onceCommands = ["filter-drop-token"]
+
+-- | The resident key line, in the order it reads: the commands worth naming
+-- ahead of the echo pill, each with the word the line shows for it.  Commands
+-- rather than keys, so the page looks each one up in the active profile — the
+-- line cannot advertise a key nothing is bound to, and a profile switch
+-- rewrites it (@n@\/@p@ under emacs, @j@\/@k@ under vim).  These are the rows a
+-- reader needs in front of them; the rest is the echo pill's to name as it runs.
+keyHints :: [([Text], Text)]
+keyHints =
+  [ (["next-row", "previous-row"],         "rows")
+  , (["next-column", "previous-column"],   "cells")
+  , (["org-glance-overview:materialize"],  "materialize")
+  , (["filter-rows"],                      "filter")
+  , (["org-glance-overview:refresh"],      "refresh")
+  , (["filter-drop-token"],                "drop token")
+  , (["quit-window"],                      "quit")
+  ]
+
 -- | The keymap as the page carries it: the shared rows once, the movement
--- profiles beside them, and the name to start on.  The angle brackets are
--- escaped because four of these sequences are angle brackets — a blob that
--- cannot spell a tag cannot open one, whatever element it sits in, and
--- @JSON.parse@ undoes them.
+-- profiles beside them, the name to start on, and the three tables the dispatch
+-- reads off the same blob — the key line's hints, the chords never claimed, and
+-- the commands auto-repeat is off for.  The angle brackets are escaped because
+-- four of these sequences are angle brackets — a blob that cannot spell a tag
+-- cannot open one, whatever element it sits in, and @JSON.parse@ undoes them.
 --
 -- The shell parses this instead of holding a second copy, so a key cannot be
--- bound and undocumented, and a profile cannot be offered and unbound.
+-- bound and undocumented, a profile cannot be offered and unbound, and a hint
+-- cannot name a command this map does not carry.
 keyBindingsJSON :: Text
 keyBindingsJSON = T.replace "<" "\\u003c" . T.replace ">" "\\u003e"
                 . TE.decodeUtf8 . BL.toStrict . encode $ object
   [ "shared"   .= map row sharedKeys
   , "default"  .= defaultProfile
   , "profiles" .= object [ Key.fromText name .= map row rows | (name, rows) <- keyProfiles ]
+  , "hints"    .= [ object [ "commands" .= cs, "label" .= label ] | (cs, label) <- keyHints ]
+  , "reserved" .= reservedChords
+  , "once"     .= onceCommands
   ]
   where row b = object [ "keys"    .= kbKeys b
                        , "seq"     .= kbSeq b
@@ -937,9 +999,9 @@ shellPage opts = do
 -- @conflict@: @C-x C-s@ then re-reads the file's digest and posts the author's
 -- text over it — last writer wins, on a deliberate keystroke — and @ESC@
 -- discards.  A tab closing on an edited sheet flushes with @keepalive@.  The
--- header carries the state in one word, @synced@ \/ @syncing…@ \/ @conflict@,
--- and the sheet wears the author's Emacs theme (danneskjold) while the table
--- keeps the page's.
+-- header carries the state in one word, @synced@ \/ @syncing…@ \/ @conflict@ \/
+-- @error@, and the sheet wears the author's Emacs theme (danneskjold) while the
+-- table keeps the page's.
 --
 -- Every close leads back through the same door: re-fetch, re-mount, reconnect.
 -- That covers a daemon restart, a dropped slow client, and @view-changed@ —
@@ -1014,15 +1076,16 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      box.textContent = m;"
   , "      if (end) box.scrollTop = box.scrollHeight;"
   , "    }"
-  , "    const dot = (state) => (document.getElementById(\"dot\").className = state);"
+  , "    const dot = (name) => (document.getElementById(\"dot\").className = name);"
   , "    const el = (id) => document.getElementById(id);"
   , "    let table = null, socket = null, backoff = 1000, editing = null;"
   , "    // The sheet's own state: the text the file holds as far as this page"
-  , "    // knows, what the last flush ran into, and the flush still in flight."
-  , "    let base = \"\", trouble = null, flushing = null;"
+  , "    // knows, and the one word saying where the sheet stands with it."
+  , "    let base = \"\", state = \"synced\";"
   , "    // The server filters and pages; these hold the query it was last asked"
-  , "    // with, the fetch still in flight for it, and the selected row's id."
-  , "    let query = \"\", inflight = null, cursor = null, requeryAt = 0;"
+  , "    // with, the fetch still in flight for it, and the timer that re-asks"
+  , "    // when a row frame lands while one is on."
+  , "    let query = \"\", inflight = null, requeryAt = 0;"
   , "    const PAGE = 100;   // rows in the first paint; the rest follows it"
   , "    function mount(view) {"
   , "      table = TableView.mount(document.getElementById(\"app\"), view, {"
@@ -1043,12 +1106,10 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      // `getQuery()' says whether it took: when it did not, put the query"
   , "      // back in the box the way this did before chips could carry it."
   , "      if (query && !holds(query)) showQuery();"
-  , "      cursor = null;"
   , "      // The columns are the view's: both halves of a filter read the keys"
   , "      // out of them (`parity'), and cell movement names its landing column"
   , "      // by the header sitting over it."
   , "      cols = view.columns || [];"
-  , "      columnKeys = cols.map((c) => c.key);"
   , "      // The boot placeholder has done its work.  The strip is an event log"
   , "      // — connection, sync, warnings, errors — and it says nothing about"
   , "      // what is loaded: the renderer's own hint line already counts the"
@@ -1070,7 +1131,7 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    const quiet = (e) => { if (e.name !== \"AbortError\") log(`load failed: ${e.message}`); };"
   , "    // The unfiltered answer is kept: with a filter on, the loaded rows are"
   , "    // the server's answer to it and cannot be used to check that answer."
-  , "    let all = [], cols = [], columnKeys = [];"
+  , "    let all = [], cols = [];"
   , "    const paint = (a) => {"
   , "      const rows = a.view.rows || [];"
   , "      table.setRows(rows);"
@@ -1087,11 +1148,12 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    function parity(total) {"
   , "      if (total !== 0 || !query || !all.length) return;"
   , "      if (typeof TableView.parseQuery !== \"function\") return;"
-  , "      const loose = TableView.parseQuery(query, columnKeys).filter((t) =>"
+  , "      const keys = cols.map((c) => c.key);"
+  , "      const loose = TableView.parseQuery(query, keys).filter((t) =>"
   , "        t.key === null && !t.quoted && !t.negated && /^[^:=]+[:=]./.test(t.value));"
   , "      if (!loose.length) return;"
   , "      const wants = loose.map((t) => t.value.slice(t.value.search(/[:=]/) + 1).toLowerCase());"
-  , "      const text = (r) => columnKeys.map((k) => TableView.displayText((r.cells || {})[k]))"
+  , "      const text = (r) => keys.map((k) => TableView.displayText((r.cells || {})[k]))"
   , "        .join(\"\\x1f\").toLowerCase();"
   , "      const local = all.filter((r) => wants.every((v) => text(r).includes(v))).length;"
   , "      if (!local) return;"
@@ -1102,9 +1164,9 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    }"
   , ""
   , "    // The applied query is page state.  It rides in the URL, so a filtered"
-  , "    // view is a link and a reconnect comes back to it; the query it"
-  , "    // replaces goes on a stack DEL walks back.  The shell sends the string"
-  , "    // as typed — the grammar is the server's to parse (SCHEMA.md)."
+  , "    // view is a link and a reconnect comes back to it; DEL takes its last"
+  , "    // token off through the renderer.  The shell sends the string as typed"
+  , "    // — the grammar is the server's to parse (SCHEMA.md)."
   , "    const params = () => new URLSearchParams(location.search);"
   , "    const urlQuery = () => params().get(\"q\") || \"\";"
   , "    function remember(q) {"
@@ -1144,21 +1206,32 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      if (box) box.value = query;"
   , "    }"
   , ""
-  , "    function materialize(id) {"
-  , "      fetch(`/headline?id=${encodeURIComponent(id)}`)"
-  , "        .then((r) => r.json().then((b) => {"
+  , "    // The two shapes of /headline, each written once.  `headline' unwraps"
+  , "    // the JSON and turns the server's own error into a throw; `post' pins"
+  , "    // the write to DIGEST, and EXTRA is what a page closing on an edited"
+  , "    // sheet adds — `keepalive', being the one caller that cannot wait."
+  , "    const headline = (id) =>"
+  , "      fetch(`/headline?id=${encodeURIComponent(id)}`).then((r) =>"
+  , "        r.json().then((b) => {"
   , "          if (!r.ok) throw new Error(b.error || r.status);"
   , "          return b;"
-  , "        }))"
-  , "        .then(show)"
-  , "        .catch((e) => log(`materialize failed: ${e.message}`));"
+  , "        }));"
+  , "    const post = (id, org, digest, extra) =>"
+  , "      fetch(`/headline?id=${encodeURIComponent(id)}`, {"
+  , "        method: \"POST\","
+  , "        headers: { \"content-type\": \"application/json\" },"
+  , "        body: JSON.stringify({ org, digest }),"
+  , "        ...extra,"
+  , "      });"
+  , "    function materialize(id) {"
+  , "      headline(id).then(show).catch((e) => log(`materialize failed: ${e.message}`));"
   , "    }"
   , "    // The sheet is buttonless: it syncs on the way out.  `base' is the text"
   , "    // the file holds as far as this page knows — the materialized original,"
   , "    // then whatever the last 200 wrote — so `dirty()' is the whole of what"
   , "    // decides whether closing costs a POST at all."
   , "    function show(h) {"
-  , "      editing = h; base = h.org; trouble = null;"
+  , "      editing = h; base = h.org;"
   , "      el(\"mfile\").textContent = `${h.file}  ·  ${h.id}`;"
   , "      el(\"mtext\").value = h.org;"
   , "      sync(\"synced\");"
@@ -1166,56 +1239,49 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      el(\"mtext\").focus();"
   , "    }"
   , "    const dirty = () => editing !== null && el(\"mtext\").value !== base;"
-  , "    // With no buttons, the keys are the whole of the offer, so the two"
-  , "    // states that wait for one say which key."
+  , "    // Where the sheet stands is one word, and `sync' is its only writer:"
+  , "    // the header wears it as text and as a class, and everything that asks"
+  , "    // reads it back.  With no buttons the keys are the whole of the offer,"
+  , "    // so the states that wait for one say which key."
   , "    const WORDS = { synced: \"synced\", syncing: \"syncing…\","
-  , "      conflict: \"conflict — C-x C-s overwrite · ESC discard\" };"
-  , "    function sync(state, message) {"
-  , "      el(\"mnote\").className = state;"
-  , "      el(\"mnote\").textContent = message || WORDS[state];"
+  , "      conflict: \"conflict — C-x C-s overwrite · ESC discard\","
+  , "      error: \"error — C-x C-s retry · ESC discard\" };"
+  , "    function sync(next, message) {"
+  , "      state = next;"
+  , "      el(\"mnote\").className = next;"
+  , "      el(\"mnote\").textContent = message || WORDS[next];"
   , "    }"
-  , "    const stuck = (why) => {"
-  , "      trouble = \"error\";"
-  , "      sync(\"error\", `${why} — C-x C-s retry · ESC discard`);"
-  , "    };"
-  , "    function shut() { el(\"modal\").className = \"\"; editing = null; base = \"\"; trouble = null; }"
+  , "    const troubled = () => state === \"conflict\" || state === \"error\";"
+  , "    const flushing = () => state === \"syncing\";"
+  , "    const stuck = (why) => sync(\"error\", why && `${why} — C-x C-s retry · ESC discard`);"
+  , "    function shut() { el(\"modal\").className = \"\"; editing = null; base = \"\"; }"
   , "    // POST the textarea over the subtree, pinned to DIGEST.  A 200 carries"
   , "    // the file's new digest — the receipt chains, so the next flush needs no"
   , "    // re-materialize — and the baseline moves with it."
   , "    function flush(digest) {"
   , "      const h = editing, text = el(\"mtext\").value;"
   , "      sync(\"syncing\");"
-  , "      flushing = fetch(`/headline?id=${encodeURIComponent(h.id)}`, {"
-  , "        method: \"POST\","
-  , "        headers: { \"content-type\": \"application/json\" },"
-  , "        body: JSON.stringify({ org: text, digest }),"
-  , "      })"
+  , "      return post(h.id, text, digest)"
   , "        .then((r) => r.json().then((b) => ({ status: r.status, body: b })))"
   , "        .then((a) => {"
   , "          if (a.status === 200) {"
-  , "            h.digest = a.body.digest; base = text; trouble = null; sync(\"synced\");"
+  , "            h.digest = a.body.digest; base = text; sync(\"synced\");"
   , "            return true;"
   , "          }"
-  , "          if (a.status === 409) { trouble = \"conflict\"; sync(\"conflict\"); }"
+  , "          if (a.status === 409) sync(\"conflict\");"
   , "          else stuck(a.body.error || `sync failed (${a.status})`);"
   , "          return false;"
   , "        })"
-  , "        .catch((e) => { stuck(e.message); return false; })"
-  , "        .finally(() => (flushing = null));"
-  , "      return flushing;"
+  , "        .catch((e) => { stuck(e.message); return false; });"
   , "    }"
   , "    // C-x C-s.  Mid-edit it is a manual flush; on a conflict it is the"
   , "    // deliberate keystroke that overwrites — ask for the digest the file"
   , "    // carries now and post the text the author is looking at over it."
   , "    function save() {"
-  , "      if (!editing || flushing) return;"
-  , "      if (trouble !== \"conflict\") { flush(editing.digest); return; }"
+  , "      if (!editing || flushing()) return;"
+  , "      if (state !== \"conflict\") { flush(editing.digest); return; }"
   , "      const h = editing;"
-  , "      fetch(`/headline?id=${encodeURIComponent(h.id)}`)"
-  , "        .then((r) => r.json().then((b) => {"
-  , "          if (!r.ok) throw new Error(b.error || r.status);"
-  , "          return b;"
-  , "        }))"
+  , "      headline(h.id)"
   , "        .then((b) => editing === h && flush(b.digest))"
   , "        .catch((e) => stuck(e.message));"
   , "    }"
@@ -1224,37 +1290,36 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    // trouble in it discards, which is what a second ESC is."
   , "    function leave() {"
   , "      if (!editing) return;"
-  , "      if (trouble) { shut(); log(\"closed without writing — the file is as it was\"); return; }"
+  , "      if (troubled()) { shut(); log(\"closed without writing — the file is as it was\"); return; }"
   , "      if (!dirty()) { shut(); return; }"
-  , "      if (!flushing) flush(editing.digest).then((ok) => ok && shut());"
+  , "      if (!flushing()) flush(editing.digest).then((ok) => ok && shut());"
   , "    }"
   , "    el(\"modal\").addEventListener(\"click\", (e) => { if (e.target === el(\"modal\")) leave(); });"
   , "    // A tab closing on an edited sheet still owes the file the text:"
   , "    // `keepalive' outlives the document, and a pristine sheet sends nothing."
   , "    addEventListener(\"beforeunload\", () => {"
   , "      if (!dirty()) return;"
-  , "      fetch(`/headline?id=${encodeURIComponent(editing.id)}`, {"
-  , "        method: \"POST\", keepalive: true,"
-  , "        headers: { \"content-type\": \"application/json\" },"
-  , "        body: JSON.stringify({ org: el(\"mtext\").value, digest: editing.digest }),"
-  , "      }).catch(() => {});"
+  , "      post(editing.id, el(\"mtext\").value, editing.digest, { keepalive: true })"
+  , "        .catch(() => {});"
   , "    });"
   , ""
   , "    // Rows.  The renderer virtualizes, so a row outside the window has no"
   , "    // element: movement is ids out of `getVisible()' handed to `select(id)'."
-  , "    // The class is still read — a click moves the selection without telling"
-  , "    // us — and `cursor' carries it while the row is scrolled out of sight."
+  , "    // Which row is on is the renderer's too — it answers with the column,"
+  , "    // and a click moves both without telling us — so the DOM read is the"
+  , "    // fallback for an asset predating the call, and nothing is kept here."
   , "    const visible = () => (table ? table.getVisible() : []);"
   , "    const focusedId = () => {"
+  , "      if (cells()) return table.getSelection().id;"
   , "      const tr = document.querySelector(\"#app .tv-table tbody tr.tv-sel\");"
-  , "      return (cursor = tr ? tr.dataset.id : cursor);"
+  , "      return tr ? tr.dataset.id : null;"
   , "    };"
   , "    function pick(list, i) {"
   , "      if (!list.length) { log(\"no rows to move through\"); return; }"
   , "      const id = list[Math.max(0, Math.min(list.length - 1, i))].id;"
   , "      // Row movement carries the column along: null until a horizontal key"
   , "      // picks one, so a page nobody has moved sideways in keeps whole rows."
-  , "      if (table.select(id, column())) cursor = id;"
+  , "      table.select(id, column());"
   , "    }"
   , "    function move(step) {"
   , "      const list = visible(), at = list.findIndex((r) => r.id === focusedId());"
@@ -1275,7 +1340,6 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      if (want < 0 || want >= cols.length) { say(want < 0 ? \"at first\" : \"at last\"); return; }"
   , "      const id = focusedId();"
   , "      if (!id || !table.select(id, want)) { say(\"no row\"); return; }"
-  , "      cursor = id;"
   , "      say(cols[want].header || cols[want].key);"
   , "    }"
   , "    // `/' summons the filter.  `openFilter' is the renderer's one entry point"
@@ -1350,22 +1414,11 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      echo(`theme: ${e.target.value}`);"
   , "    });"
   , ""
-  , "    let profile = wanted(), KEYS = [];"
+  , "    let profile = wanted();"
   -- The resident key line, under the log: what can run, where the echo pill
-  -- says what just did.  Each row here names commands rather than keys, so the
-  -- keys come out of the same blob the dispatch reads — the line cannot
-  -- advertise one nothing is bound to, and a profile switch rewrites it (@n/p@
-  -- under emacs, @j/k@ under vim).  These are the rows a reader needs in front
-  -- of them; the rest is the echo pill's to name as it runs.
-  , "    const HINTS = ["
-  , "      [[\"next-row\", \"previous-row\"], \"rows\"],"
-  , "      [[\"next-column\", \"previous-column\"], \"cells\"],"
-  , "      [[\"org-glance-overview:materialize\"], \"materialize\"],"
-  , "      [[\"filter-rows\"], \"filter\"],"
-  , "      [[\"org-glance-overview:refresh\"], \"refresh\"],"
-  , "      [[\"filter-drop-token\"], \"drop token\"],"
-  , "      [[\"quit-window\"], \"quit\"],"
-  , "    ];"
+  -- says what just did.  The table is the blob's ('keyHints'), naming commands
+  -- rather than keys, so the spelling comes out of the same rows the dispatch
+  -- reads and a profile switch rewrites the line.
   , "    function hints() {"
   , "      // The profile's own spelling first: `n' is its row key, where the"
   , "      // shared rows carry the arrows every profile agrees on."
@@ -1374,15 +1427,14 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "        const b = rows.find((x) => x.command === command && x.scope === \"table\");"
   , "        return b && b.handler ? b.seq : null;   // a staged row is no offer"
   , "      };"
-  , "      el(\"kbd\").textContent = HINTS"
-  , "        .map(([commands, label]) => [commands.map(seq).filter(Boolean), label])"
+  , "      el(\"kbd\").textContent = MAPS.hints"
+  , "        .map((h) => [h.commands.map(seq).filter(Boolean), h.label])"
   , "        .filter(([keys]) => keys.length)"
   , "        .map(([keys, label]) => `${keys.join(\"/\")} ${label}`)"
   , "        .join(\" · \");"
   , "    }"
   , "    function setProfile(name) {"
   , "      profile = name;"
-  , "      KEYS = MAPS.shared.concat(MAPS.profiles[name]);"
   , "      kept.set(name);"
   , "      el(\"keysel\").value = name;"
   , "      hints();   // the line is the map's, so it moves with the profile"
@@ -1405,15 +1457,6 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      Backspace: \"DEL\", Delete: \"<delete>\", ArrowUp: \"<up>\", ArrowDown: \"<down>\","
   , "      ArrowLeft: \"<left>\", ArrowRight: \"<right>\", Home: \"<home>\", End: \"<end>\","
   , "      PageUp: \"<prior>\", PageDown: \"<next>\" };"
-  , "    // Chords the browser needs more than we do: never claimed, not even as"
-  , "    // the continuation of a prefix this map has already entered."
-  , "    const RESERVED = [\"C-l\", \"C-r\", \"C-t\", \"C-w\", \"C-n\", \"C-p\", \"<f5>\"];"
-  , "    // Commands that take auto-repeat off: one press, one token.  Movement"
-  , "    // wants the repeat — a held n is how you cross a table, and the renderer"
-  , "    // coalesces those to a frame — but a held DEL would walk the whole query"
-  , "    // away between one glance at the chips and the next.  By command name,"
-  , "    // so it holds under every profile that binds it."
-  , "    const ONCE = [\"filter-drop-token\"];"
   , "    function keyName(e) {"
   , "      let base = NAMED[e.key], special = base !== undefined;"
   , "      if (!special && /^F\\d{1,2}$/.test(e.key))"
@@ -1502,7 +1545,7 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      const k = keyName(e);"
   , "      if (!k) return;"
   , "      const keys = pending.concat([k]);"
-  , "      const here = KEYS.filter(live);"
+  , "      const here = MAPS.shared.concat(MAPS.profiles[profile]).filter(live);"
   , "      // A row is in play while its keys open with the ones typed so far."
   , "      const opens = (b) => keys.every((key, i) => b.keys[i] === key);"
   , "      const hit = here.find((b) => b.keys.length === keys.length && opens(b));"
@@ -1511,7 +1554,7 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      if (hit) {"
   , "        prefix([]);"
   , "        e.preventDefault();"
-  , "        if (!(e.repeat && ONCE.indexOf(hit.command) !== -1)) run(hit);"
+  , "        if (!(e.repeat && MAPS.once.indexOf(hit.command) !== -1)) run(hit);"
   , "        return;"
   , "      }"
   , "      if (here.some((b) => b.keys.length > keys.length && opens(b))) {"
@@ -1520,7 +1563,7 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      }"
   , "      if (!pending.length) return;   // not ours; the browser keeps it"
   , "      prefix([]);"
-  , "      if (RESERVED.indexOf(k) === -1) e.preventDefault();"
+  , "      if (MAPS.reserved.indexOf(k) === -1) e.preventDefault();"
   , "      echo(`${keys.join(\" \")} is undefined`);"
   , "    });"
   , ""

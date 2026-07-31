@@ -34,17 +34,18 @@ module Glance.Query ( HeadlineRecord (..)
                     , TodoKeywords (..)
                     , WalkOptions (..)
                     , WriteFailure (..)
-                    , canonicalPath
+                    , cellSep
                     , defaultWalk
                     , derivedPath
                     , displayText
+                    , filterKeys
                     , loadDir
-                    , loadDirFiles
                     , loadDirFilesWith
                     , loadDirWith
                     , loadFile
                     , matchesSearch
                     , mergeKeywords
+                    , orgPath
                     , replaceSpan
                     , resolveIds
                     , rowJSON
@@ -52,13 +53,12 @@ module Glance.Query ( HeadlineRecord (..)
                     , subtreeText
                     , tagsOfCell
                     , viewJSON
-                    , viewJSONText
                     , viewJSONTextWith
                     , viewJSONWith
                     ) where
 
 import Control.Exception (IOException, evaluate, try)
-import Data.Aeson (Value, object, (.=))
+import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Aeson.Text (encodeToLazyText)
 import Data.Aeson.Types (Pair)
 import Data.Either (fromRight)
@@ -67,6 +67,7 @@ import Data.Maybe (catMaybes, fromMaybe)
 import Data.Text (Text)
 import TextShow (showt)
 
+import qualified Data.Aeson.Key as Key
 import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -76,15 +77,15 @@ import qualified Data.Text.Lazy as TL
 import qualified Data.Time as Time
 
 import Data.Org ( Context, Element (EHeadline), Headline
-                , HeadlineSpans (hsFull, hsTags, hsTitle), Indent (Indent)
+                , HeadlineSpans (hsTags, hsTitle), Indent (Indent)
                 , Priority (Priority), Span (..), Spanned (valueOf)
                 , Timestamp (tsStart), Todo (name)
                 , TsMoment (tsmHasTime, tsmTime), deadline, defaultContext
-                , identity, indent, metaCategory, orgParse, priority, schedule
-                , sliceSpan, spans, tags, title, todo, todoActive
+                , hsFull, identity, indent, metaCategory, orgParse, priority
+                , schedule, sliceSpan, spans, tags, title, todo, todoActive
                 , todoInactive )
-import Data.Org.Walk ( Found (..), WalkOptions (..), defaultWalk, findOrgFilesWith
-                     , isCanonical, isDerived )
+import Data.Org.Walk ( Found (..), WalkOptions (..), beatsForId, defaultWalk
+                     , findOrgFilesWith, isDerived, isOrg )
 
 import qualified Data.Org.Edit as Edit
 
@@ -167,15 +168,12 @@ loadDirWith opts dir = do
   (files, dirErrs) <- loadDirFilesWith opts dir
   pure (summarise dirErrs files)
 
--- | DIR loaded one file at a time: every @*.org@ path in walk order with its
--- rows or its failure, plus the number of directories the walk could not list
--- (those count as read failures too, and have no path of their own to report).
--- The per-file breakdown 'loadDir' folds away is what a watcher needs to
--- re-load a single file into a store built the same way.
-loadDirFiles :: FilePath -> IO ([(FilePath, Either LoadFailure [HeadlineRecord])], Int)
-loadDirFiles = loadDirFilesWith defaultWalk
-
--- | 'loadDirFiles' over the tree OPTS asks for.
+-- | DIR loaded one file at a time over the tree OPTS asks for: every @*.org@
+-- path in walk order with its rows or its failure, plus the number of
+-- directories the walk could not list (those count as read failures too, and
+-- have no path of their own to report).  The per-file breakdown 'loadDir' folds
+-- away is what a watcher needs to re-load a single file into a store built the
+-- same way.
 loadDirFilesWith :: WalkOptions -> FilePath
                  -> IO ([(FilePath, Either LoadFailure [HeadlineRecord])], Int)
 loadDirFilesWith opts dir = do
@@ -267,9 +265,10 @@ recordOf path doc digest category keywords h subtree = forceRecord HeadlineRecor
 
 -- | The separator cells are joined by, and the one character a cell cannot
 -- hold: 'displayText' turns every control character into a space, so a query
--- can never span two cells.
-cellSep :: Text
-cellSep = "\US"
+-- can never span two cells.  Exported because a consumer cutting one field back
+-- out of 'hrSearch' has to cut on the character that joined it.
+cellSep :: Char
+cellSep = '\US'
 
 -- | CELLS as one lowercase haystack, in column order, joined by 'cellSep' and
 -- copied out of the document like every other cell.  Built at load beside the
@@ -280,7 +279,7 @@ cellSep = "\US"
 -- the trimmed, lowercased filter box.  Server-side filtering has to agree with
 -- it exactly, or the same query answers differently depending on who ran it.
 searchTextOf :: [Text] -> Text
-searchTextOf = detach . T.toLower . T.intercalate cellSep . map displayText
+searchTextOf = detach . T.toLower . T.intercalate (T.singleton cellSep) . map displayText
 
 -- | CELL as a table-view renderer displays it: org bracket links shown by
 -- their description, and every run of control characters as one space.  The
@@ -361,13 +360,13 @@ matchesSearch q
 -- are not two rows: the second would overwrite the first on every frame, and
 -- meanwhile the table shows the headline twice.
 --
--- Which one stays is decided by the path.  org-glance's canonical store lives
--- under @.org-glance\/data\/@ and everything else claiming that id is a copy of
--- it ('canonicalPath'), so a canonical path wins; between two paths of the same
--- kind, walk order does, which is stable and is what the view was showing
--- before.  Every loser is reported rather than dropped quietly: a duplicate id
--- is nearly always a tree that should not have been walked, and the count is a
--- response header for exactly that reason.
+-- Which one stays is decided by the path ('Data.Org.Walk.beatsForId'):
+-- org-glance's canonical store lives under @.org-glance\/data\/@ and everything
+-- else claiming that id is a copy of it, so a canonical path wins; between two
+-- paths of the same kind, walk order does, which is stable and is what the view
+-- was showing before.  Every loser is reported rather than dropped quietly: a
+-- duplicate id is nearly always a tree that should not have been walked, and
+-- the count is a response header for exactly that reason.
 resolveIds :: [HeadlineRecord] -> ([HeadlineRecord], [IdCollision])
 resolveIds records = (kept, reverse clashes)
   where
@@ -376,23 +375,23 @@ resolveIds records = (kept, reverse clashes)
     pick (best, out) (i, r) = case Map.lookup (hrId r) best of
       Nothing -> (Map.insert (hrId r) (i, hrFile r) best, out)
       Just (_j, held)
-        | canonicalPath (hrFile r) && not (canonicalPath held)
+        | beatsForId (hrFile r) held
                     -> (Map.insert (hrId r) (i, hrFile r) best, collision (hrFile r) held : out)
         | otherwise -> (best, collision held (hrFile r) : out)
         where collision = IdCollision (hrId r)
     kept = [ r | (i, r) <- indexed, fmap fst (Map.lookup (hrId r) winners) == Just i ]
-
--- | Is PATH inside org-glance's canonical store
--- ('Data.Org.Walk.isCanonical')?  Re-exported so the rule the walk and the scan
--- read is the rule the rows are resolved by.
-canonicalPath :: FilePath -> Bool
-canonicalPath = isCanonical
 
 -- | Is PATH inside one of org-glance's derived mirrors — the directories the
 -- walk declines to enter ('Data.Org.Walk.isDerived')?  Re-exported so a watcher
 -- can drop an event under one without reaching past this facade.
 derivedPath :: FilePath -> Bool
 derivedPath = isDerived
+
+-- | Is PATH an org file by name ('Data.Org.Walk.isOrg')?  Re-exported for the
+-- same reason: a watcher decides what to re-read by the rule the walk decided
+-- what to read by, rather than by a second copy of the extension test.
+orgPath :: FilePath -> Bool
+orgPath = isOrg
 
 -- | RECORDS in the order 'viewJSON' declares them sorted: scheduled ascending,
 -- an unscheduled row first, ties left in walk order.  A page has to be cut out
@@ -542,25 +541,47 @@ actions =
            , "command" .= ("materialize" :: Text)
            , "label"   .= ("Materialize" :: Text) ] ]
 
--- | 'viewJSON' encoded, ready to hand a renderer.
-viewJSONText :: Text -> [HeadlineRecord] -> TL.Text
-viewJSONText viewTitle = encodeToLazyText . viewJSON viewTitle
-
 -- | 'viewJSONWith' encoded.
 viewJSONTextWith :: Text -> TodoKeywords -> [HeadlineRecord] -> TL.Text
 viewJSONTextWith viewTitle palette = encodeToLazyText . viewJSONWith viewTitle palette
 
+-- | The view's columns, in the order the table draws them: the key a filter
+-- names, the header over the cells, the type @table-view\/SCHEMA.md@ declares,
+-- and where the cell comes out of a row.
+--
+-- One table, so the three things that have to agree cannot drift: 'columns'
+-- declares them, 'rowJSON' fills them, and 'filterKeys' names them.  It is also
+-- the order 'searchTextOf' joins the cells in, which is what lets a predicate
+-- read one field of 'hrSearch' by its key's position.
+viewColumns :: [(Text, Text, Text, HeadlineRecord -> Value)]
+viewColumns =
+  [ ("state",     "State",     "badge", toJSON . hrState)
+  , ("priority",  "Pri",       "text",  toJSON . hrPriority)
+  , ("title",     "Headline",  "text",  toJSON . hrTitle)
+  , ("tag",       "Tags",      "text",  toJSON . hrTags)
+  , ("scheduled", "Scheduled", "text",  toJSON . hrScheduled)
+  , ("deadline",  "Deadline",  "text",  toJSON . hrDeadline)
+  ]
+
+-- | The column keys a filter may name, in view order.  Matched
+-- case-sensitively, the way a renderer matches its own column keys.
+filterKeys :: [Text]
+filterKeys = [ key | (key, _header, _kind, _cell) <- viewColumns ]
+
+-- | 'viewColumns' as SCHEMA.md's Column objects, PALETTE giving the state
+-- badges.  What a column carries past its key, header and type is the kind's:
+-- which columns sort, the priority letters, and the badge list.
 columns :: TodoKeywords -> [Value]
 columns palette =
-  [ column "state"     "State"     "badge" [ "sortable" .= True
-                                           , "badges" .= badges palette ]
-  , column "priority"  "Pri"       "text"  [ "sortable" .= True
-                                           , "values" .= (["A", "B", "C"] :: [Text]) ]
-  , column "title"     "Headline"  "text"  []
-  , column "tag"       "Tags"      "text"  []
-  , column "scheduled" "Scheduled" "text"  [ "sortable" .= True ]
-  , column "deadline"  "Deadline"  "text"  [ "sortable" .= True ]
-  ]
+  [ column key header kind (extra key) | (key, header, kind, _cell) <- viewColumns ]
+  where
+    extra key = case key of
+      "state"    -> sortable <> [ "badges" .= badges palette ]
+      "priority" -> sortable <> [ "values" .= (["A", "B", "C"] :: [Text]) ]
+      "title"    -> []
+      "tag"      -> []
+      _date      -> sortable
+    sortable = [ "sortable" .= True ]
 
 -- | A column object: KEY, HEADER and TYPE, then whatever EXTRA the kind needs.
 column :: Text -> Text -> Text -> [Pair] -> Value
@@ -574,13 +595,7 @@ column key header kind extra =
 rowJSON :: HeadlineRecord -> Value
 rowJSON r = object
   [ "id" .= hrId r
-  , "cells" .= object [ "state"     .= hrState r
-                      , "priority"  .= hrPriority r
-                      , "title"     .= hrTitle r
-                      , "tag"       .= hrTags r
-                      , "scheduled" .= hrScheduled r
-                      , "deadline"  .= hrDeadline r
-                      ]
+  , "cells" .= object [ Key.fromText key .= cell r | (key, _header, _kind, cell) <- viewColumns ]
   ]
 
 -- | The state palette: every TODO keyword the loaded files declared, actives

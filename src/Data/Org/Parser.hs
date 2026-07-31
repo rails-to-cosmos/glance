@@ -10,8 +10,8 @@ import Control.Monad (void, guard, when)
 import Control.Monad.State (StateT)
 import qualified Control.Monad.State as State
 import Data.Char (isAlpha, isAlphaNum, isSpace)
-import Data.List (foldl', sortOn)
-import Data.Maybe (catMaybes, fromMaybe, isJust, maybeToList)
+import Data.List (foldl')
+import Data.Maybe (fromMaybe, isJust)
 import Data.Org.Types
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -119,23 +119,7 @@ instance Parse Headline where
     planning' <- option noPlanning $ try planningP
     properties' <- optional $ try propertiesP
 
-    let propsSpan = spanOf <$> properties'
-        -- The three planning entries come in whatever order the line spelled
-        -- them; sorting puts PRESENT in source order for the fold below.
-        planningSpans = sortOn spanStart $ catMaybes [ spanOf <$> plScheduled planning'
-                                                     , spanOf <$> plDeadline planning'
-                                                     , spanOf <$> plClosed planning'
-                                                     ]
-        -- Source order: the fold below runs from the stars to the last part.
-        present = spanOf indent' : catMaybes [ spanOf <$> todo'
-                                             , spanOf <$> priority'
-                                             , titleSpan
-                                             , tagsSpan
-                                             ]
-                                ++ planningSpans
-                                ++ maybeToList propsSpan
-
-        headline = Headline { indent = valueOf indent'
+    let headline = Headline { indent = valueOf indent'
                             , todo = valueOf <$> todo'
                             , priority = valueOf <$> priority'
                             , title = title'
@@ -145,7 +129,7 @@ instance Parse Headline where
                             , deadline = valueOf <$> plDeadline planning'
                             , closed = valueOf <$> plClosed planning'
                             , spans = HeadlineSpans
-                                { hsFull = foldr1 (<>) present
+                                { hsStars = spanOf indent'
                                 , hsTodo = spanOf <$> todo'
                                 , hsPriority = spanOf <$> priority'
                                 , hsTitle = titleSpan
@@ -153,7 +137,7 @@ instance Parse Headline where
                                 , hsSchedule = spanOf <$> plScheduled planning'
                                 , hsDeadline = spanOf <$> plDeadline planning'
                                 , hsClosed = spanOf <$> plClosed planning'
-                                , hsProperties = propsSpan
+                                , hsProperties = spanOf <$> properties'
                                 }
                             }
 

@@ -13,8 +13,8 @@
 -- someone who wants to look at them.
 module Data.Org.Walk ( Found (..)
                      , WalkOptions (..)
+                     , beatsForId
                      , defaultWalk
-                     , derivedDirs
                      , errText
                      , findOrgFiles
                      , findOrgFilesWith
@@ -25,6 +25,7 @@ module Data.Org.Walk ( Found (..)
 
 import Control.Exception (IOException, try)
 import Control.Monad (foldM)
+import Data.List (tails)
 import Data.Text (Text)
 import System.Directory (doesDirectoryExist, doesFileExist, listDirectory, pathIsSymbolicLink)
 import System.FilePath (splitDirectories, takeExtension, (</>))
@@ -55,27 +56,34 @@ defaultWalk = WalkOptions False
 derivedDirs :: [FilePath]
 derivedDirs = ["overviews", "meta"]
 
+-- | What sits under each @.org-glance@ directory PATH passes through: one entry
+-- per such directory, already past it.  The two rules below differ only in the
+-- arity of the pattern they ask of a tail.
+orgGlanceTails :: FilePath -> [[FilePath]]
+orgGlanceTails path = [ rest | ".org-glance" : rest <- tails (splitDirectories path) ]
+
 -- | Is PATH inside an org-glance mirror — one of 'derivedDirs' sitting directly
 -- under a @.org-glance@ directory?  Takes the whole path, so it answers for a
 -- directory the walk is about to enter and for a file the watch was told about
 -- alike.
 isDerived :: FilePath -> Bool
-isDerived = go . splitDirectories
-  where go (a : rest@(b : _))
-          | a == ".org-glance" && b `elem` derivedDirs = True
-          | otherwise                                  = go rest
-        go _shorter                                    = False
+isDerived path = or [ d `elem` derivedDirs | d : _rest <- orgGlanceTails path ]
 
 -- | Is PATH inside org-glance's canonical store?  The one directory under
 -- @.org-glance@ holding documents rather than renders of them, so a headline
 -- from it outranks one from anywhere else claiming its @ORG_GLANCE_ID@
--- ('Glance.Query.resolveIds').
+-- ('beatsForId').  One component deeper than 'isDerived' asks for: the store
+-- directory is not itself a document in it.
 isCanonical :: FilePath -> Bool
-isCanonical = go . splitDirectories
-  where go (a : rest@(b : _ : _))
-          | a == ".org-glance" && b == "data" = True
-          | otherwise                         = go rest
-        go _shorter                           = False
+isCanonical path = or [ d == "data" | d : _ : _rest <- orgGlanceTails path ]
+
+-- | Does A outrank B as the file that keeps an @ORG_GLANCE_ID@ both claim?
+-- Only a canonical path beats a non-canonical one; every other pairing leaves
+-- the incumbent, which is walk order and is what the view was showing before.
+-- The scan report and 'Glance.Query.resolveIds' read this one rule, so the two
+-- name the same winner.
+beatsForId :: FilePath -> FilePath -> Bool
+beatsForId a b = isCanonical a && not (isCanonical b)
 
 emptyFound :: Found
 emptyFound = Found [] [] []
