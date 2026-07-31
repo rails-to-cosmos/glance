@@ -13,19 +13,16 @@
 module TestSubtree (spec) where
 
 import Control.Exception (IOException, try)
-import Data.List (sort)
 import Data.Text (Text)
-import System.Directory (doesDirectoryExist)
-import System.Environment (lookupEnv)
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
+import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, testCase)
+import TestDefaults (document, recordsOf, withCorpusSample)
 
 import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 
 import Data.Org ( Headline, Indent (Indent), Span (..), hsFull, indent, spans )
-import Data.Org.Walk (findOrgFiles, foundFiles)
 import Glance.Query ( HeadlineRecord (hrHeadline, hrSubtree), loadFile, subtreeText )
 
 -- Fixtures
@@ -39,18 +36,9 @@ fixture name = fixtureDir <> "/" <> name
 
 -- Helpers
 
--- | PATH's records, or its load failure as a test failure.
-records :: FilePath -> IO [HeadlineRecord]
-records path = loadFile path >>= either whyNot pure
-  where whyNot failure = assertFailure ("expected " <> path <> " to load, got " <> show failure)
-
--- | PATH's text, decoded the way the loader decodes it.
-document :: FilePath -> IO Text
-document path = TE.decodeUtf8 <$> BS.readFile path
-
 -- | The subtree of every headline in the fixture named NAME, as text.
 subtreesOf :: FilePath -> IO [Text]
-subtreesOf name = map subtreeText <$> records (fixture name)
+subtreesOf name = map subtreeText <$> recordsOf (fixture name)
 
 -- | H's outline level.
 levelOf :: Headline -> Int
@@ -135,17 +123,6 @@ extentSpec = testGroup "Extent"
         , "* Next top\ntail\n"
         ]
 
-  , testCase "a deeper headline ends at the shallower one that follows it" $ do
-      subtrees <- subtreesOf "nested.org"
-      assertEqual "the grandchild stops at Child B" ["*** Grandchild\ndeep body\n"]
-                  (take 1 (drop 2 subtrees))
-
-  , testCase "the last headline runs to the end of the file" $ do
-      doc <- document (fixture "flat.org")
-      recs <- records (fixture "flat.org")
-      assertEqual "end" (T.length doc) (spanEnd (hrSubtree (last recs)))
-      assertBool "the slice is the file's tail" (subtreeText (last recs) `T.isSuffixOf` doc)
-
   , testCase "blank lines before the next headline belong to the subtree above" $
       subtreesOf "blanks.org" >>= assertEqual "subtrees"
         [ "* First\n\nbody\n\n\n"
@@ -160,7 +137,7 @@ extentSpec = testGroup "Extent"
   , testCase "offsets are characters, so unicode slices whole" $ do
       subtrees <- subtreesOf "unicode.org"
       doc <- document (fixture "unicode.org")
-      recs <- records (fixture "unicode.org")
+      recs <- recordsOf (fixture "unicode.org")
       assertEqual "subtrees"
         [ "* Привет мир\nтело письма\n** Дочь :тег:\nвложенное\n"
         , "** Дочь :тег:\nвложенное\n"
@@ -181,8 +158,7 @@ invariantSpec :: TestTree
 invariantSpec = testGroup "Invariants"
   [ testCase name $ do
       doc <- document (fixture name)
-      recs <- records (fixture name)
-      assertBool (name <> " has no headlines") (not (null recs))
+      recs <- recordsOf (fixture name)
       assertGeometry name doc recs
   | name <- ["flat.org", "nested.org", "blanks.org", "single.org", "unicode.org"]
   ]
@@ -191,25 +167,14 @@ invariantSpec = testGroup "Invariants"
 -- a load and a set of comparisons, and no path here writes.
 --
 -- Behind @GLANCE_CORPUS@, which names the root to walk, the way TestEdit's
--- canary is: @GLANCE_CORPUS=~\/sync cabal test@.  The walk is what costs.
+-- canary is: @GLANCE_CORPUS=~\/sync cabal test@.  The walk is what costs.  Unset,
+-- it says on stderr that it was skipped rather than passing quietly.
 corpusSpec :: TestTree
 corpusSpec = testGroup "Corpus"
-  [ testCase "sampled files nest, tile and end at EOF (GLANCE_CORPUS=<root>)" $ do
-      asked <- lookupEnv "GLANCE_CORPUS"
-      there <- maybe (pure False) doesDirectoryExist asked
-      case asked of
-        Just root | there -> do
-          found <- findOrgFiles [root]
-          let paths = sample (sort (foundFiles found))
-          checked <- sum <$> mapM checkFile paths
-          assertBool ("no headline sampled under " <> root) (checked > 0)
-        Just root -> assertFailure ("GLANCE_CORPUS names no directory: " <> root)
-        Nothing   -> pure ()
+  [ testCase "sampled files nest, tile and end at EOF (GLANCE_CORPUS=<root>)" $
+      withCorpusSample "the subtree geometry" (fmap sum . mapM checkFile)
   ]
   where
-    sample paths = every (max 1 (length paths `div` 64)) paths
-    every k = map snd . filter ((== 0) . (`mod` k) . fst) . zip [0 :: Int ..]
-
     -- A file that does not read, decode or parse contributes no records and no
     -- claim; the corpus has some of each and they are TestEdit's subject.
     checkFile path = do

@@ -1,23 +1,18 @@
 module TestEdit (spec) where
 
-import Control.Exception (IOException, finally, throwIO, try)
+import Control.Exception (IOException, try)
 import Data.Bits ((.&.))
 import Data.List (sort, sortOn)
 import Data.Org
 import Data.Org.Edit
-import Data.Org.Walk (findOrgFiles, foundFiles)
 import Data.Text (Text)
-import Data.Time (defaultTimeLocale, formatTime, getCurrentTime)
-import System.Directory ( createDirectory, doesDirectoryExist, getTemporaryDirectory
-                        , listDirectory, removeDirectoryRecursive )
-import System.Environment (lookupEnv)
+import System.Directory (listDirectory)
 import System.FilePath ((</>))
-import System.IO.Error (isAlreadyExistsError)
 import System.Posix.Files (fileMode, getFileStatus, setFileMode)
 import System.Posix.Types (FileMode)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
-import TestDefaults (headlinesOf)
+import TestDefaults (headlinesOf, withCorpusSample, withTempDirNamed)
 
 import qualified Data.ByteString as BS
 import qualified Data.Text as T
@@ -159,24 +154,6 @@ randomEdits seed len = go (lcg seed) 0
             s''   = lcg s'
             new   = replacements !! (s'' `mod` length replacements)
     replacements = ["", "X", "мир, ", "a much longer replacement", "\n"]
-
--- | Run K in a fresh directory under the system temp dir, removed afterwards.
--- Hand-rolled: the suite depends on @directory@ already and gains nothing from
--- a temp-file package for this.
-withTempDir :: String -> (FilePath -> IO a) -> IO a
-withTempDir label k = do
-  root <- getTemporaryDirectory
-  dir <- create root (0 :: Int)
-  k dir `finally` removeDirectoryRecursive dir
-  where
-    create root n = do
-      stamp <- formatTime defaultTimeLocale "%s%q" <$> getCurrentTime
-      let candidate = root </> ("glance-" <> label <> "-" <> stamp <> "-" <> show n)
-      made <- try (createDirectory candidate) :: IO (Either IOException ())
-      case made of
-        Right ()                        -> pure candidate
-        Left e | isAlreadyExistsError e -> create root (n + 1)
-               | otherwise              -> throwIO e
 
 -- | Put DOC at PATH as UTF-8, whatever the locale says.
 writeDoc :: FilePath -> Text -> IO ()
@@ -380,7 +357,7 @@ digestSpec =
                   (snapDigest (snapshotOf "y.org" "мир"))
 
   , testCase "a snapshot of the text is a snapshot of the file" $
-      withTempDir "digest" $ \dir -> do
+      withTempDirNamed "digest" $ \dir -> do
         let path = dir </> "notes.org"
         writeDoc path plannedDoc
         taken <- takeSnapshot path
@@ -392,7 +369,7 @@ digestSpec =
 fileSpec :: [TestTree]
 fileSpec =
   [ testCase "the edited document lands, and the receipt describes it" $
-      withTempDir "write" $ \dir -> do
+      withTempDirNamed "write" $ \dir -> do
         let path = dir </> "notes.org"
         writeDoc path plannedDoc
         toggle <- toDone
@@ -406,7 +383,7 @@ fileSpec =
         assertEqual "a fresh snapshot agrees" (Right (receiptSnapshot receipt)) fresh
 
   , testCase "a receipt chains the next edit without a re-read" $
-      withTempDir "chain" $ \dir -> do
+      withTempDirNamed "chain" $ \dir -> do
         let path = dir </> "notes.org"
         writeDoc path plannedDoc
         toggle <- toDone
@@ -418,7 +395,7 @@ fileSpec =
         assertEqual "the edits stacked" ("# top\n" <> receiptText first') (receiptText second')
 
   , testCase "a file written behind the snapshot drifts, and stays as it is" $
-      withTempDir "drift" $ \dir -> do
+      withTempDirNamed "drift" $ \dir -> do
         let path = dir </> "notes.org"
             meddled = plannedDoc <> "\n* Someone else\n"
         writeDoc path plannedDoc
@@ -432,7 +409,7 @@ fileSpec =
         assertBytes "untouched" (TE.encodeUtf8 meddled) path
 
   , testCase "a rejected batch writes nothing" $
-      withTempDir "reject" $ \dir -> do
+      withTempDirNamed "reject" $ \dir -> do
         let path = dir </> "notes.org"
         writeDoc path plannedDoc
         snap <- expectRight "snapshot" =<< takeSnapshot path
@@ -442,7 +419,7 @@ fileSpec =
         assertBytes "untouched" (TE.encodeUtf8 plannedDoc) path
 
   , testCase "the temp file leaves nothing behind and the mode survives" $
-      withTempDir "atomic" $ \dir -> do
+      withTempDirNamed "atomic" $ \dir -> do
         let path = dir </> "notes.org"
         writeDoc path plannedDoc
         setFileMode path private
@@ -455,7 +432,7 @@ fileSpec =
         assertEqual "mode" private mode
 
   , testCase "a missing file reads as a failure, twice over" $
-      withTempDir "missing" $ \dir -> do
+      withTempDirNamed "missing" $ \dir -> do
         let path = dir </> "gone.org"
         taken <- takeSnapshot path
         assertBool "takeSnapshot" (isReadFailure taken)
@@ -463,7 +440,7 @@ fileSpec =
         assertBool "editFile" (isReadFailure (fmap receiptText outcome))
 
   , testCase "bytes that are not utf-8 snapshot but do not edit" $
-      withTempDir "decode" $ \dir -> do
+      withTempDirNamed "decode" $ \dir -> do
         let path = dir </> "binary.org"
             bytes = BS.pack [0x2a, 0x20, 0xff, 0xfe, 0x0a]
         BS.writeFile path bytes
@@ -490,24 +467,15 @@ fileSpec =
 -- Behind @GLANCE_CORPUS@, which names the root to walk:
 -- @GLANCE_CORPUS=~/sync cabal test@.  The walk is what costs — 12.8 s over
 -- 690k entries for 6308 files, against 0.03 s for the rest of this suite — so
--- it stays a command of its own, the way @glance scan@ does.
+-- it stays a command of its own, the way @glance scan@ does.  Unset, it says on
+-- stderr that it was skipped: a green run is not evidence for the corpus half.
 corpusCase :: TestTree
-corpusCase = testCase "sampled headlines splice exactly (GLANCE_CORPUS=<root>)" $ do
-  asked <- lookupEnv "GLANCE_CORPUS"
-  there <- maybe (pure False) doesDirectoryExist asked
-  case asked of
-    Just root | there -> do
-      found <- findOrgFiles [root]
-      let paths = sample (sort (foundFiles found))
-      sampled <- collect 50 paths
-      assertBool ("no headline sampled under " <> root) (not (null sampled))
-      mapM_ check sampled
-    Just root -> assertFailure ("GLANCE_CORPUS names no directory: " <> root)
-    Nothing   -> pure ()
+corpusCase = testCase "sampled headlines splice exactly (GLANCE_CORPUS=<root>)" $
+  withCorpusSample "the splice canary" $ \paths -> do
+    sampled <- collect 50 paths
+    mapM_ check sampled
+    pure (length sampled)
   where
-    sample paths = every (max 1 (length paths `div` 64)) paths
-    every k = map snd . filter ((== 0) . (`mod` k) . fst) . zip [0 :: Int ..]
-
     -- Every span the headline carries, which is every span a command could
     -- splice: the keyword a toggle rewrites, the timestamp a reschedule
     -- replaces, and the rest of them.

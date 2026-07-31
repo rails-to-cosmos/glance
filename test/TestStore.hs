@@ -14,12 +14,13 @@ import System.Directory (createDirectoryIfMissing, removeFile)
 import System.FilePath ((</>))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
-import TestDefaults (orgFile, withTempDir)
+import TestDefaults (entry, entryAs, orgFile, recordsOf, withTempDir)
 
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 
 import Glance.Query ( HeadlineRecord (hrFile, hrId), IdCollision (..), LoadFailure (..)
                     , QueryResult (..), TodoKeywords (..), WalkOptions (..), defaultWalk
@@ -36,10 +37,12 @@ import Glance.Web.Watch (debounceDelay, due, isWatchable, watched)
 -- ones into a directory of its own ('withTempDir') and re-reads them the way
 -- the watcher does.
 
--- | PATH's records, or the failure as a test failure.  The watcher's own read.
-recordsOf :: FilePath -> IO [HeadlineRecord]
-recordsOf path = loadFile path >>= either (assertFailure . whyNot) pure
-  where whyNot f = "expected " <> path <> " to load, got " <> show f
+-- | Rewrite PATH with TEXT and fold the re-read into STORE: the watch's whole
+-- step, which is a write, one file's parse and one diff.
+rewrite :: FilePath -> T.Text -> Store -> IO (Store, [Frame])
+rewrite path text store = do
+  TIO.writeFile path text
+  applyFile path <$> loadFile path <*> pure store
 
 -- | Ids the frames touch, upserts and deletes apart.
 upsertIds, deleteIds :: [Frame] -> [T.Text]
@@ -79,9 +82,7 @@ tagSpec = testGroup "Tag vocabulary"
       path <- orgFile dir "a.org" "* TODO one :web:\n"
       st <- loadStore dir
       assertEqual "before" ["web"] (storeTags st)
-      _ <- orgFile dir "a.org" "* TODO one :inbox:\n"
-      records <- recordsOf path
-      let (next, _frames) = applyFile path (Right records) st
+      (next, _frames) <- rewrite path "* TODO one :inbox:\n" st
       assertEqual "after" ["inbox"] (storeTags next)
 
   , testCase "a tag two files carry survives one of them going"
@@ -98,12 +99,9 @@ tagSpec = testGroup "Tag vocabulary"
       -- not be a query the old vocabulary could not have parsed.
       path <- orgFile dir "a.org" "* TODO one :web:\n"
       st <- loadStore dir
-      records <- recordsOf path
-      let (same, _f) = applyFile path (Right records) st
+      (same, _f) <- rewrite path "* TODO one :web:\n" st
       assertEqual "no rewrite, no move" (storeTags st) (storeTags same)
-      _ <- orgFile dir "a.org" "* TODO one :web:inbox:\n"
-      changed <- recordsOf path
-      let (next, frames) = applyFile path (Right changed) st
+      (next, frames) <- rewrite path "* TODO one :web:inbox:\n" st
       assertBool "a tag change is a row change" (not (null frames))
       assertEqual "and the vocabulary followed" ["inbox", "web"] (storeTags next)
   ]
@@ -138,12 +136,12 @@ derivedSpec = testGroup "Derived mirrors"
 
   , testCase "the store resolves it the same way the load does"
       $ withMirrorTree $ \dir -> do
-      qr <- loadDirWith (WalkOptions True) dir
+      qr <- loadDir dir
       st <- loadStore dir
       assertEqual "the default store skips them" 2 (length (storeRecords st))
-      -- The store is the load it stands in for, id resolution included.
-      assertEqual "one row per id" (map hrId (qrRecords qr)) . map hrId . qrRecords
-        =<< loadDirWith (WalkOptions True) dir
+      -- The store is the load it stands in for, id resolution included: the
+      -- rows the walk kept, in the order it kept them.
+      assertEqual "one row per id" (map hrId (qrRecords qr)) (map hrId (storeRecords st))
 
   , testCase "a watch event under a mirror is not one this store reads" $ do
       let mirror = "/o/.org-glance/overviews/c1f3/overview.org"
@@ -182,41 +180,35 @@ withMirrorTree k = withTempDir $ \dir -> do
 diffSpec :: TestTree
 diffSpec = testGroup "File diff"
   [ testCase "a file that did not change streams nothing" $ withTempDir $ \dir -> do
-      path <- orgFile dir "a.org" "#+CATEGORY: notes\n* TODO one\n* NEXT two :tag:\n"
+      let doc = "#+CATEGORY: notes\n* TODO one\n* NEXT two :tag:\n"
+      path <- orgFile dir "a.org" doc
       store <- loadStore dir
-      fresh <- loadFile path
-      assertEqual "frames" [] (snd (applyFile path fresh store))
+      -- Over an empty store the claim below is met by an empty diff of nothing,
+      -- so the rows the fixture put there are what makes it one.
+      assertEqual "the fixture's rows" 2 (length (storeRecords store))
+      assertEqual "frames" [] . snd =<< rewrite path doc store
 
   , testCase "a new headline is one upsert" $ withTempDir $ \dir -> do
-      path <- orgFile dir "a.org" "* TODO one\n  :PROPERTIES:\n  :ORG_GLANCE_ID: one\n  :END:\n"
+      path <- orgFile dir "a.org" (entry "one")
       store <- loadStore dir
-      _ <- orgFile dir "a.org" ("* TODO one\n  :PROPERTIES:\n  :ORG_GLANCE_ID: one\n  :END:\n"
-                             <> "* TODO two\n  :PROPERTIES:\n  :ORG_GLANCE_ID: two\n  :END:\n")
-      fresh <- loadFile path
-      let (next, frames) = applyFile path fresh store
+      (next, frames) <- rewrite path (entry "one" <> entry "two") store
       assertEqual "upserts" ["two"] (upsertIds frames)
       assertEqual "deletes" [] (deleteIds frames)
       assertEqual "rows" ["one", "two"] (map hrId (storeRecords next))
 
   , testCase "an edited title keeps the id the file gave it" $ withTempDir $ \dir -> do
-      let stated s = "* " <> s <> "\n  :PROPERTIES:\n  :ORG_GLANCE_ID: one\n  :END:\n"
-      path <- orgFile dir "a.org" (stated "TODO first")
+      path <- orgFile dir "a.org" (entryAs "one" "TODO first")
       store <- loadStore dir
-      _ <- orgFile dir "a.org" (stated "DONE first")
-      fresh <- loadFile path
-      let (_next, frames) = applyFile path fresh store
+      (_next, frames) <- rewrite path (entryAs "one" "DONE first") store
       assertEqual "upserts" ["one"] (upsertIds frames)
       assertEqual "deletes" [] (deleteIds frames)
       expected <- recordsOf path
       assertEqual "row" [UpsertRow (rowJSON r) | r <- expected] frames
 
   , testCase "a removed headline is one delete" $ withTempDir $ \dir -> do
-      let entry i = "* TODO " <> i <> "\n  :PROPERTIES:\n  :ORG_GLANCE_ID: " <> i <> "\n  :END:\n"
       path <- orgFile dir "a.org" (entry "one" <> entry "two")
       store <- loadStore dir
-      _ <- orgFile dir "a.org" (entry "one")
-      fresh <- loadFile path
-      let (next, frames) = applyFile path fresh store
+      (next, frames) <- rewrite path (entry "one") store
       assertEqual "upserts" [] (upsertIds frames)
       assertEqual "deletes" ["two"] (deleteIds frames)
       assertEqual "rows" ["one"] (map hrId (storeRecords next))
@@ -229,16 +221,13 @@ diffSpec = testGroup "File diff"
       path <- orgFile dir "a.org" "* TODO one\n* TODO two\n"
       store <- loadStore dir
       let before = map hrId (storeRecords store)
-      _ <- orgFile dir "a.org" "#+TITLE: notes\n* TODO one\n* TODO two\n"
-      fresh <- loadFile path
-      let (next, frames) = applyFile path fresh store
-          after = map hrId (storeRecords next)
+      (next, frames) <- rewrite path "#+TITLE: notes\n* TODO one\n* TODO two\n" store
+      let after = map hrId (storeRecords next)
       assertEqual "every row is reinserted" after (upsertIds frames)
       assertEqual "every old row is dropped" before (deleteIds frames)
       assertBool "ids overlap" (not (any (`elem` after) before))
 
   , testCase "a deleted file drops the rows it carried" $ withTempDir $ \dir -> do
-      let entry i = "* TODO " <> i <> "\n  :PROPERTIES:\n  :ORG_GLANCE_ID: " <> i <> "\n  :END:\n"
       path <- orgFile dir "a.org" (entry "one" <> entry "two")
       _ <- orgFile dir "b.org" (entry "three")
       store <- loadStore dir
@@ -251,15 +240,14 @@ diffSpec = testGroup "File diff"
   , testCase "a file the store never held is not a deletion" $ withTempDir $ \dir -> do
       _ <- orgFile dir "a.org" "* TODO one\n"
       store <- loadStore dir
+      assertEqual "the fixture's rows" 1 (length (storeRecords store))
       let (_next, frames) = dropFile (dir </> "gone.org") store
       assertEqual "frames" [] frames
 
   , testCase "a created file is upserts and no deletes" $ withTempDir $ \dir -> do
       _ <- orgFile dir "a.org" "* TODO one\n"
       store <- loadStore dir
-      path <- orgFile dir "b.org" "* TODO two\n* TODO three\n"
-      fresh <- loadFile path
-      let (next, frames) = applyFile path fresh store
+      (next, frames) <- rewrite (dir </> "b.org") "* TODO two\n* TODO three\n" store
       assertEqual "upserts" 2 (length (upsertIds frames))
       assertEqual "deletes" [] (deleteIds frames)
       assertEqual "rows" 3 (length (storeRecords next))
@@ -267,9 +255,7 @@ diffSpec = testGroup "File diff"
   , testCase "the store still equals the load it stands in for" $ withTempDir $ \dir -> do
       _ <- orgFile dir "a.org" "* TODO one\n"
       store <- loadStore dir
-      path <- orgFile dir "b.org" "#+CATEGORY: notes\n* NEXT two\n"
-      fresh <- loadFile path
-      let (next, _frames) = applyFile path fresh store
+      (next, _frames) <- rewrite (dir </> "b.org") "#+CATEGORY: notes\n* NEXT two\n" store
       loaded <- loadDir dir
       assertEqual "rows" (map hrId (qrRecords loaded)) (map hrId (storeRecords next))
       assertEqual "files" (qrFiles loaded) (qrFiles (storeResult next))
@@ -289,6 +275,7 @@ failureSpec = testGroup "Load failure"
       assertEqual "load" (Left ParseFailed) (fmap (map hrId) fresh)
       let (next, frames) = applyFile path fresh store
       assertEqual "frames" [] frames
+      assertEqual "the rows it is keeping" 2 (length (storeRecords store))
       assertEqual "rows kept" (map hrId (storeRecords store)) (map hrId (storeRecords next))
       assertEqual "parse failures" 1 (qrParseFailures (storeResult next))
       assertEqual "files" 1 (qrFiles (storeResult next))
@@ -305,9 +292,7 @@ failureSpec = testGroup "Load failure"
       path <- orgFile dir "a.org" "* TODO one\n"
       store <- loadStore dir
       let (broken, _f) = applyFile path (Left ParseFailed) store
-      _ <- orgFile dir "a.org" "* TODO one\n* TODO two\n"
-      fresh <- loadFile path
-      let (next, frames) = applyFile path fresh broken
+      (next, frames) <- rewrite path "* TODO one\n* TODO two\n" broken
       assertEqual "upserts" 1 (length (upsertIds frames))
       assertEqual "parse failures cleared" 0 (qrParseFailures (storeResult next))
   ]
@@ -321,9 +306,7 @@ keywordSpec = testGroup "Keyword palette"
       path <- orgFile dir "a.org" "* TODO one\n"
       store <- loadStore dir
       assertEqual "before" (TodoKeywords ["TODO"] ["DONE"]) (storeKeywords store)
-      _ <- orgFile dir "a.org" "#+TODO: TODO WAITING | DONE\n* WAITING one\n"
-      fresh <- loadFile path
-      let (next, frames) = applyFile path fresh store
+      (next, frames) <- rewrite path "#+TODO: TODO WAITING | DONE\n* WAITING one\n" store
       assertEqual "frames" [ViewChanged] frames
       assertEqual "after" (TodoKeywords ["TODO", "WAITING"] ["DONE"]) (storeKeywords next)
 
@@ -332,9 +315,7 @@ keywordSpec = testGroup "Keyword palette"
       path <- orgFile dir "a.org" declared
       _ <- orgFile dir "b.org" declared
       store <- loadStore dir
-      _ <- orgFile dir "a.org" "* TODO one\n"
-      fresh <- loadFile path
-      let (next, frames) = applyFile path fresh store
+      (next, frames) <- rewrite path "* TODO one\n" store
       assertBool ("view change in " <> show frames) (ViewChanged `notElem` frames)
       assertEqual "palette" (storeKeywords store) (storeKeywords next)
 
@@ -392,6 +373,9 @@ hubSpec = testGroup "Hub"
       _ <- orgFile dir "a.org" "* TODO one\n* TODO two\n"
       fresh <- loadFile path
       frames <- publish hub (applyFile path fresh)
+      -- With nothing published the comparison below is met by delivering
+      -- nothing, so the one frame the added headline owes is pinned first.
+      assertEqual "the upsert the new headline owes" 1 (length frames)
       delivered <- mapM (const (atomically (nextFrame client))) frames
       assertEqual "delivered" (map Just frames) delivered
 

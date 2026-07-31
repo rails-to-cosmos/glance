@@ -9,15 +9,19 @@
 module TestDesktop (spec) where
 
 import Control.Concurrent (threadDelay)
+import Control.Concurrent.MVar (MVar, newMVar, withMVar)
+import Control.Exception (finally)
 import Data.List (isInfixOf)
 import Data.Maybe (listToMaybe)
+import GHC.IO.Handle (hDuplicate, hDuplicateTo)
 import System.Directory ( doesDirectoryExist, doesFileExist, getPermissions
                         , listDirectory, setOwnerExecutable, setPermissions )
 import System.Environment (getEnvironment, lookupEnv)
 import System.Exit (ExitCode (ExitSuccess))
 import System.FilePath ((</>))
+import System.IO (IOMode (WriteMode), hClose, hFlush, stdout, withFile)
 import System.Process (CreateProcess (env), proc, readCreateProcessWithExitCode)
-import Test.Tasty (TestTree, testGroup)
+import Test.Tasty (TestTree, testGroup, withResource)
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
 import TestDefaults (withTempDir)
 
@@ -135,27 +139,57 @@ discoverySpec = testGroup "Browser discovery"
 -- Spawning
 
 spawnSpec :: TestTree
-spawnSpec = testGroup "Opening the window"
-  [ testCase "the resolved browser is run, in app mode, on the loopback URL" $
-      withTempDir $ \dir -> do
-        let argv = dir </> "argv"
-        _ <- fakeExecutable dir "chromium"
-               (T.pack ("printf '%s\\n' \"$@\" > " <> show argv))
-        cmd <- resolveBrowser Nothing Nothing [dir] url
-        openWindow cmd
-        written <- waitForFile argv
-        assertEqual "the arguments the window was opened with"
-                    ["--app=" <> T.pack url] (T.lines written)
+spawnSpec = withResource (newMVar ()) (const (pure ())) $ \lock ->
+  testGroup "Opening the window"
+    [ testCase "the resolved browser is run, in app mode, on the loopback URL" $
+        withTempDir $ \dir -> do
+          let argv = dir </> "argv"
+          _ <- fakeExecutable dir "chromium"
+                 (T.pack ("printf '%s\\n' \"$@\" > " <> show argv))
+          cmd <- resolveBrowser Nothing Nothing [dir] url
+          openWindow cmd
+          written <- waitForFile argv
+          assertEqual "the arguments the window was opened with"
+                      ["--app=" <> T.pack url] (T.lines written)
 
-  , testCase "a browser that cannot be started leaves the daemon alone" $
-      withTempDir $ \dir ->
-        -- No spawn is possible: the path names nothing.  'openWindow' returns
-        -- normally, which is what keeps `serveWith' serving.
-        openWindow (Just (dir </> "not-installed", ["--app=" <> url]))
+    , testCase "a browser that cannot be started leaves the daemon alone" $
+        withTempDir $ \dir -> do
+          -- No spawn is possible: the path names nothing.  'openWindow' returns
+          -- normally, which is what keeps `serveWith' serving — and returning is
+          -- all it does, so what it printed is the only evidence it ran at all.
+          let missing = dir </> "not-installed"
+          said <- capturedStdout lock (dir </> "said")
+                                 (openWindow (Just (missing, ["--app=" <> url])))
+          assertBool ("no failure reported in " <> show said)
+                     (("failed to start " <> missing) `isInfixOf` T.unpack said)
+          started <- doesFileExist (dir </> "argv")
+          assertBool "something was started after all" (not started)
 
-  , testCase "with no window to open, there is nothing to run" $
-      openWindow Nothing
-  ]
+    , testCase "with no window to open, there is nothing to run" $
+        withTempDir $ \dir -> do
+          said <- capturedStdout lock (dir </> "said") (openWindow Nothing)
+          assertBool ("no line saying there is no window: " <> show said)
+                     ("open the URL yourself" `isInfixOf` T.unpack said)
+          started <- doesFileExist (dir </> "argv")
+          assertBool "something was started after all" (not started)
+    ]
+
+-- | Whatever ACT writes to stdout, kept at PATH and answered as text.
+-- 'openWindow' reports through stdout and returns @()@ whatever happens, so
+-- catching what it printed is the only way to assert that it said anything.
+--
+-- Serialized on LOCK: the redirection is process-wide, so two of these at once
+-- would each catch the other's output and lose their own.
+capturedStdout :: IO (MVar ()) -> FilePath -> IO () -> IO T.Text
+capturedStdout lock path act = do
+  held <- lock
+  withMVar held $ \() -> do
+    hFlush stdout
+    saved <- hDuplicate stdout
+    withFile path WriteMode $ \sink -> do
+      hDuplicateTo sink stdout
+      act `finally` (hFlush stdout >> hDuplicateTo saved stdout >> hClose saved)
+  TIO.readFile path
 
 -- | The contents of PATH once something has written it, or a failure after two
 -- seconds.  The browser is spawned and not waited on — a launcher that waits

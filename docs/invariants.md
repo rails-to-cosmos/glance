@@ -206,10 +206,16 @@ on.
 
 - **`TextShow` is lossy by design.** Whitespace collapses to single spaces,
   pragma keys uppercase, `#+TODO:` sets re-emit in Set (alphabetical) order.
-  `TestRoundtrip`'s `Fidelity` column — 23 rows, 15 `Exact` and 8 `Stable` — is
+  `TestRoundtrip`'s `Fidelity` column — 23 rows, 22 `Exact` and 1 `Stable` — is
   the documented budget: promoting a `Stable` case to `Exact` asserts fidelity
-  the renderer lacks. Write-back and the future wire contract must never route
-  through it — spans are the lossless channel. **test**
+  the renderer lacks, so a promotion has to be measured first. Seven rows were
+  measured and promoted on 2026-07-31 (multiple tokens, deep indent, the
+  `#+CATEGORY:` and generic pragmas, the inactive and midnight timestamps, the
+  `--` date range): each already re-rendered byte for byte, and the `Stable`
+  label was budgeting for losses the renderer does not have. What is left is the
+  one real loss, `#+TODO:` re-emitting its two keyword sets in Set order rather
+  than as the source wrote them. Write-back and the future wire contract must
+  never route through it — spans are the lossless channel. **test**
 - **`Ord Timestamp` ≠ `Eq Timestamp`.** Ord compares start moments only;
   Set/Map keys would deduplicate distinct timestamps sharing a start. **none**
 - **Planning stays out of the render.** `TextShow Headline` emits the title
@@ -239,14 +245,19 @@ on.
 - **Cursor linearity.** Left-to-right slicing assumes non-decreasing span
   starts; out-of-order visits silently degrade to O(start) per slice.
   **comment**
-- **The corpus gates pass silently when unset.** `TestSubtree`'s geometry-over-
-  real-files group and `TestEdit`'s splice canary both end `Nothing -> pure ()`
-  on a missing `GLANCE_CORPUS`, so they report as PASSING rather than as
-  skipped. On any machine without that variable, every claim marked
+- **The corpus gates still pass when unset, and now say they were skipped.**
+  `TestSubtree`'s geometry-over-real-files group and `TestEdit`'s splice canary
+  both go through `TestDefaults.withCorpusSample`, which on a missing
+  `GLANCE_CORPUS` prints `SKIPPED — GLANCE_CORPUS is unset: <label>` on stderr
+  and passes. On any machine without that variable, every claim marked
   **test + corpus** here rests on the fixture half alone, and a green suite is
-  not evidence for the corpus half. A variable naming a directory that does not
-  exist does fail loudly, which is the one misconfiguration that is caught.
-  **none** (by construction — the gate is what makes it silent)
+  evidence for the corpus half only when those two lines are absent from the
+  run. A variable naming a directory that does not exist fails loudly, and so
+  does a gate that sampled nothing — `withCorpusSample` takes the count its
+  continuation checked and requires it to be positive, so an empty sample can no
+  longer read as a pass. Making the pass itself a failure would need a second
+  test-suite stanza, which is out of proportion to the problem. **none** (the
+  gate still passes; what changed is that it is audible)
 
 ## Walk
 

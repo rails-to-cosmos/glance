@@ -3,14 +3,13 @@
 -- compile instead of failing a renderer.
 module TestQuery (spec) where
 
-import Control.Monad ((>=>))
-import Data.Aeson (Value (Array, Null, Object, String), eitherDecodeFileStrict')
+import Data.Aeson (Value (Object, String), eitherDecodeFileStrict')
 import Data.Char (isDigit)
-import Data.Foldable (toList)
 import Data.List (sort)
 import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
+import TestDefaults (columnKeysOf, columnOf, field, listAt, viewDir)
 
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
@@ -20,10 +19,6 @@ import Glance.Query ( HeadlineRecord (..), QueryResult (..), displayText, loadDi
                     , matchesSearch, viewJSON )
 
 -- Fixtures
-
--- | Two files: one sample document and one that is not UTF-8.
-viewDir :: FilePath
-viewDir = "test/fixtures/view"
 
 -- | One file the parser rejects, kept out of 'viewDir' so the golden stays put.
 brokenDir :: FilePath
@@ -43,17 +38,7 @@ withRecords k = loadDir viewDir >>= k . qrRecords
 withView :: (Value -> Assertion) -> Assertion
 withView k = withRecords (k . viewJSON viewTitle)
 
--- JSON accessors, each failing the test with what it found instead
-
--- | V's value at KEY.
-field :: Text -> Value -> IO Value
-field k (Object o) = maybe (assertFailure ("missing key " <> show k))
-                           pure (KM.lookup (Key.fromText k) o)
-field k v = assertFailure ("expected an object with " <> show k <> ", got " <> show v)
-
-array :: Value -> IO [Value]
-array (Array xs) = pure (toList xs)
-array v = assertFailure ("expected an array, got " <> show v)
+-- JSON accessors this module alone needs; the rest come from 'TestDefaults'.
 
 text :: Value -> IO Text
 text (String t) = pure t
@@ -65,20 +50,7 @@ keysOf v = assertFailure ("expected an object, got " <> show v)
 
 -- | The value at KEY of every element of the array at ARR of V.
 each :: Text -> Text -> Value -> IO [Value]
-each arr k v = field arr v >>= array >>= mapM (field k)
-
--- | V's column keys, in view order.
-columnKeys :: Value -> IO [Text]
-columnKeys v = each "columns" "key" v >>= mapM text
-
--- | The column of V keyed KEY.
-columnOf :: Text -> Value -> IO Value
-columnOf key v = do
-  cols <- field "columns" v >>= array
-  keys <- mapM (field "key" >=> text) cols
-  case [c | (c, k) <- zip cols keys, k == key] of
-    [c] -> pure c
-    cs  -> assertFailure ("expected one " <> show key <> " column, got " <> show (length cs))
+each arr k v = listAt arr v >>= mapM (field k)
 
 -- Spec
 
@@ -131,7 +103,8 @@ searchSpec = testGroup "Search text"
 
   , testCase "a run of control characters is one space" $ do
       assertEqual "newlines" "a b" (displayText "a\n\n\tb")
-      assertEqual "a lone tab" "a b" (displayText "a\tb")
+      -- The trailing run is the one the collapse above does not reach: it ends
+      -- the string rather than separating two words, and it still leaves a space.
       assertEqual "trailing" "a " (displayText "a\n")
 
   , testCase "the row's search text is its cells, lowercased" $ withRecords $ \recs -> do
@@ -145,7 +118,9 @@ searchSpec = testGroup "Search text"
         let matching q = length (filter (matchesSearch q) recs)
         assertEqual "case" 1 (matching "SHIP THE TABLE")
         assertEqual "trimmed" 1 (matching "  ship the table  ")
-        assertEqual "unicode" 2 (matching "печатник" + matching "Привет")
+        -- One row each, stated apart: a sum of two counts is met by 2 + 0.
+        assertEqual "unicode, cyrillic mid-title" 1 (matching "печатник")
+        assertEqual "unicode, cyrillic title" 1 (matching "Привет")
         assertEqual "an empty query is every row" 6 (matching "")
         assertEqual "blank is empty too" 6 (matching "   ")
         -- The cells are joined by a character no cell can hold, so the end of
@@ -198,7 +173,9 @@ cellSpec = testGroup "Cells"
         [] -> assertFailure "expected more than one record"
   ]
 
--- | The view document itself.
+-- | The view document itself.  The golden pins every value in it, so what is
+-- left to state separately is the one thing a regenerated golden would carry
+-- along without anyone noticing: the column order five other places index by.
 viewSpec :: TestTree
 viewSpec = testGroup "View"
   [ testCase "matches test/fixtures/sample-view.json" $ do
@@ -207,37 +184,21 @@ viewSpec = testGroup "View"
         Left err       -> assertFailure ("golden JSON: " <> err)
         Right expected -> withView (assertEqual "view" expected)
 
-  , testCase "columns are the headline view's, in order" $ withView $
-      columnKeys >=> assertEqual "column keys"
-        ["state", "priority", "title", "tag", "scheduled", "deadline"]
-
-  , testCase "badges cover every keyword the files declared" $ withView $ \v -> do
-      state <- columnOf "state" v
-      values <- each "badges" "value" state >>= mapM text
-      colors <- each "badges" "color" state >>= mapM text
-      assertEqual "badge values"
-                  ["NEXT", "TODO", "WAITING", "CANCELLED", "DONE"] values
-      assertBool ("hex colours in " <> show colors) (all (T.isPrefixOf "#") colors)
-      assertEqual "one colour per keyword" (length values) (length colors)
-
-  , testCase "a missing state or priority is a null cell" $ withView $ \v -> do
-      rows <- field "rows" v >>= array
-      case drop 3 rows of
-        (r : _) -> do
-          cells <- field "cells" r
-          state <- field "state" cells
-          pri <- field "priority" cells
-          assertEqual "state" Null state
-          assertEqual "priority" Null pri
-        [] -> assertFailure "expected a fourth row"
+  , testCase "columns are the headline view's, in order" $ withView $ \v -> do
+      keys <- columnKeysOf v
+      assertEqual "column keys"
+        ["state", "priority", "title", "tag", "scheduled", "deadline"] keys
   ]
 
 -- | Shapes SCHEMA.md requires of any producer.
 schemaSpec :: TestTree
 schemaSpec = testGroup "Schema conformance"
   [ testCase "every cell key is a column key" $ withView $ \v -> do
-      cols <- columnKeys v
-      rows <- field "rows" v >>= array
+      cols <- columnKeysOf v
+      rows <- listAt "rows" v
+      -- Over no rows the claim below is met by saying nothing, so the fixture's
+      -- own count is what makes it one.
+      assertEqual "the fixture's rows" 6 (length rows)
       mapM_ (\r -> do
                 ks <- field "cells" r >>= keysOf
                 assertBool (show ks <> " outside " <> show cols)
@@ -246,17 +207,18 @@ schemaSpec = testGroup "Schema conformance"
 
   , testCase "every row has an id" $ withView $ \v -> do
       ids <- each "rows" "id" v >>= mapM text
+      assertEqual "the fixture's rows" 6 (length ids)
       assertBool ("blank id in " <> show ids) (not (any T.null ids))
 
   , testCase "the badge column carries a palette" $ withView $ \v -> do
       state <- columnOf "state" v
       kind <- field "type" state >>= text
-      badges <- field "badges" state >>= array
+      badges <- listAt "badges" state
       assertEqual "type" "badge" kind
       assertBool "badges are empty" (not (null badges))
 
   , testCase "the sort column is one of the columns" $ withView $ \v -> do
-      cols <- columnKeys v
+      cols <- columnKeysOf v
       key <- field "sort" v >>= field "column" >>= text
       assertBool (show key <> " outside " <> show cols) (key `elem` cols)
 
@@ -264,7 +226,7 @@ schemaSpec = testGroup "Schema conformance"
       keys <- each "actions" "key" v >>= mapM text
       commands <- each "actions" "command" v >>= mapM text
       labels <- each "actions" "label" v >>= mapM text
-      fields <- field "actions" v >>= array >>= mapM keysOf
+      fields <- listAt "actions" v >>= mapM keysOf
       assertEqual "keys" ["RET"] keys
       assertEqual "commands" ["materialize"] commands
       assertEqual "labels" ["Materialize"] labels

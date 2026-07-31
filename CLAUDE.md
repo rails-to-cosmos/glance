@@ -77,8 +77,9 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - `TextShow` is a lossy REPL re-serializer (whitespace collapse, uppercased
   pragma keys, Set-ordered keyword lists). Never use it for write-back or the
   wire contract; spans are the only lossless channel. TestRoundtrip's
-  exact-vs-stable split IS the documented lossiness budget: 15 `Exact` rows,
-  8 `Stable`.
+  exact-vs-stable split IS the documented lossiness budget: 22 `Exact` rows and
+  1 `Stable`, the `#+TODO:` set ordering. The seven rows promoted on 2026-07-31
+  were measured to re-render byte for byte; the label had outrun the renderer.
 
 ## Scan
 
@@ -93,10 +94,11 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   violations, ~12.9k headlines, wall ~14 s warm. (2026-07-31: 13.4k → 12.9k
   when the derived mirrors left the walk; a semantic correction rather than a
   loss.)
-- The `GLANCE_CORPUS` groups SILENTLY PASS when the variable is unset — they
-  report as green, not as skipped — so a claim resting on them is unverified on
-  any machine that has not set it. A variable naming a directory that is not
-  there does fail loudly.
+- The `GLANCE_CORPUS` groups still PASS when the variable is unset, and say so:
+  `TestDefaults.withCorpusSample` prints `SKIPPED — GLANCE_CORPUS is unset` on
+  stderr for each. A green run without those two lines answered is unverified on
+  the corpus half. A variable naming a directory that is not there fails loudly,
+  and so does a run that samples nothing.
 
 ## Walk
 

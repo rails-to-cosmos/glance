@@ -18,25 +18,28 @@ data Fidelity = Stable | Exact
 cases :: [(String, Text, Fidelity)]
 cases =
   [ ("Single token",            "hello",                                          Exact)
-  , ("Multiple tokens",         "hello world",                                    Stable)
+  , ("Multiple tokens",         "hello world",                                    Exact)
   , ("Headline",                "* Hello",                                        Exact)
   , ("Headline with TODO",      "* TODO Hello",                                   Exact)
   , ("Headline with priority",  "** TODO [#A] Hello",                             Exact)
   , ("Headline with tags",      "* Hello :tag1:tag2:",                            Exact)
   , ("Full headline",           "** TODO [#B] My task :work:urgent:",             Exact)
-  , ("Deep indent",             "**** Deep headline",                             Stable)
-  , ("Pragma category",         "#+CATEGORY: mycat",                              Stable)
+  , ("Deep indent",             "**** Deep headline",                             Exact)
+  , ("Pragma category",         "#+CATEGORY: mycat",                              Exact)
+    -- The one row the budget is actually spent on: '#+TODO:' re-emits its two
+    -- keyword sets in Set order, so a source that wrote them in any other comes
+    -- back re-ordered.
   , ("Pragma TODO",             "#+TODO: TODO STARTED | DONE CANCELLED",          Stable)
-  , ("Generic pragma",          "#+TITLE: My Document",                           Stable)
+  , ("Generic pragma",          "#+TITLE: My Document",                           Exact)
   , ("Active timestamp",        "<2024-01-15 Mon 10:30>",                         Exact)
-  , ("Inactive timestamp",      "[2024-06-01 Sat 09:00]",                         Stable)
-  , ("Active midnight",         "<2024-01-01 Mon 00:00>",                         Stable)
+  , ("Inactive timestamp",      "[2024-06-01 Sat 09:00]",                         Exact)
+  , ("Active midnight",         "<2024-01-01 Mon 00:00>",                         Exact)
   , ("Inactive midnight",       "[2024-01-01 Mon 00:00]",                         Exact)
   , ("Date-only timestamp",     "<2026-07-08 Wed>",                               Exact)
     -- Both halves share a date, so this row is what pins that an explicit "--"
     -- source never re-renders as the compact form.
   , ("Clock range",             "[2023-07-15 Sat 15:54]--[2023-07-15 Sat 17:10]", Exact)
-  , ("Date range",              "<2024-01-15 Mon>--<2024-01-19 Fri>",             Stable)
+  , ("Date range",              "<2024-01-15 Mon>--<2024-01-19 Fri>",             Exact)
   , ("Compact range",           "<2024-01-15 Mon 10:30-11:30>",                   Exact)
   , ("Compact range inactive",  "[2021-11-09 Tue 17:30-18:30]",                   Exact)
   , ("Compact range repeating", "<2024-01-15 Mon 10:30-11:30 +1w>",               Exact)

@@ -12,10 +12,8 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
+import TestDefaults (columnKeysOf, viewDir)
 
-import qualified Data.Aeson as A
-import qualified Data.Aeson.Key as Key
-import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Text as T
 
 import Glance.Query ( HeadlineRecord (..), QueryResult (qrRecords), displayText
@@ -24,12 +22,10 @@ import Glance.Web.Filter ( Term (..), Token (..), cellAt, filterKeys, matchesFil
                          , parseFilter, scanQuery )
 
 -- Fixtures
-
--- | The suite's sample directory: six headlines, five states between them, one
--- of them stateless, and a @#+TODO:@ line that puts three keywords in the
--- active set and two in the done-like one.
-viewDir :: FilePath
-viewDir = "test/fixtures/view"
+--
+-- 'viewDir' is the suite's sample directory: six headlines, five states between
+-- them, one of them stateless, and a @#+TODO:@ line that puts three keywords in
+-- the active set and two in the done-like one.
 
 -- | The titles of the fixture's rows, in walk order — what a match is reported
 -- as, since four of the six rows have only their offset for an id.
@@ -192,20 +188,14 @@ tokenSpec = testGroup "Tokens"
 
   , testCase "the keys are the view's own column keys" $ do
       view <- viewJSON "t" . qrRecords <$> loadDir viewDir
-      assertEqual "columns" (columnKeysOf view) filterKeys
+      keys <- columnKeysOf view
+      assertEqual "columns" keys filterKeys
   ]
 
 -- | Q parsed with no virtual keys — the tokenizer's own subject, where the
 -- only thing that makes a predicate is a column.
 parsed :: Text -> [Term]
 parsed = parseFilter []
-
--- | V's column keys, in view order.
-columnKeysOf :: A.Value -> [Text]
-columnKeysOf v = [ k | Just cols <- [at "columns" v], A.Array xs <- [cols]
-                     , col <- foldr (:) [] xs, Just (A.String k) <- [at "key" col] ]
-  where at k (A.Object o) = KM.lookup (Key.fromText k) o
-        at _ _other       = Nothing
 
 -- Field predicates
 
@@ -300,13 +290,6 @@ shapeSpec = testGroup "Shape"
       matches "state:TODO state:DONE tag:web" [Schema]
       matches "state:NEXT state:DONE tag:web tag:glance" [Ship]
       matches "state:NEXT state:DONE tag:web tag:cleanup" []
-
-  , testCase "the union is the arithmetic, not the intersection" $ do
-      todo <- matching "state:TODO"
-      done <- matching "state:DONE"
-      both <- matching "state:TODO state:DONE"
-      assertEqual "|A ∪ B|" (length todo + length done) (length both)
-      assertEqual "the members" (sort (todo <> done)) (sort both)
 
   , testCase "distinct keys and free text and together" $ do
       matches "state:active scheduled:2026-08" [Ship, Privet]
