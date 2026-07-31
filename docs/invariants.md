@@ -938,10 +938,27 @@ on.
   `modal` or `any` that the dispatch filters on, and an optional `kbHelp` the
   echo widget reads when the command name does not say enough. Auto-repeat
   belongs to movement, so the keys that must run once per press are named by
-  COMMAND in `ONCE` — currently `filter-drop-token` — which holds under every
-  profile that binds them and takes the repeat off nothing else. Evidence:
+  COMMAND in `ONCE` — `filter-drop-token` and `unmark-all` — which holds under
+  every profile that binds them and takes the repeat off nothing else. `m` and
+  `u` stay off that list on purpose: both advance, so a held one walks a column
+  laying marks down rather than working the same row twice. Evidence:
   `TestServe` "Shell keymap", which parses the blob, compares both profiles to a
   written-down map, and checks the two per-map uniqueness rules. **test**
+- **Row marks belong to the renderer.** `mount` asks for them with `marks:
+  true` and the renderer does the rest: the leading checkbox column, the wash on
+  a marked row, and a set of ids that keys them — which is why a mark outlives a
+  `setRows`, a filter that hides its row, a page it is not on and a re-sort, and
+  why this page keeps no set, no count and no membership test of its own. What
+  the shell owns is the keys: `m` toggles and echoes the state `toggleMark`
+  answers with, `u` toggles and immediately puts back anything that turned a
+  mark ON — so it can only ever clear, and the flip is never drawn, the renderer
+  coalescing its painting to a frame — both then `selectStep(+1)` so the key
+  that marks is the key that walks, and `U` clears. The detection is one name,
+  `toggleMark`: the four calls landed in one renderer release, so no asset can
+  carry a subset, and one predating them echoes `this table-view.js has no
+  marks` rather than throwing. Evidence: `TestServe`
+  "Shell marks", which drives the keys through the node harness — including a
+  handle the acts strip the calls off. **test**
 - **The echo widget's key hints are data too.** `Glance.Web.keyHints` is a table
   of key-list/label pairs serialized into the same JSON blob the dispatch reads,
   under `hints`, and rendered into the resident key line from there. So the line

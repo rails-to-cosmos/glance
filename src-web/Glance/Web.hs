@@ -810,6 +810,11 @@ sharedKeys =
       `helps` "summon the filter palette"
   , bind ["DEL"]        "filter-drop-token"               (Just "filterDrop")     "table"
       `helps` "drop the filter's last token"
+  , bind ["m"]          "mark-toggle"                     (Just "markToggle")     "table"
+      `helps` "toggle this row's mark, then step down"
+  , bind ["u"]          "unmark"                          (Just "unmarkRow")      "table"
+      `helps` "take this row's mark off, then step down"
+  , bind ["U"]          "unmark-all"                      (Just "unmarkAll")      "table"
   , bind ["q"]          "quit-window"                     (Just "quitWindow")     "table"
   , bind ["TAB"]        "org-cycle"                       Nothing                 "table"
   , bind ["!"]          "org-glance-overview:open"        Nothing                 "table"
@@ -896,8 +901,11 @@ reservedChords = ["C-l", "C-r", "C-t", "C-w", "C-n", "C-p", "<f5>"]
 -- coalesces those to a frame — but a held @DEL@ would walk the whole query away
 -- between one glance at the chips and the next.  By command name, so it holds
 -- under every profile that binds it.
+--
+-- @m@ and @u@ stay off it: both advance, so a held one walks a column rather
+-- than working one row twice (docs\/invariants.md).
 onceCommands :: [Text]
-onceCommands = ["filter-drop-token"]
+onceCommands = ["filter-drop-token", "unmark-all"]
 
 -- | The resident key line, in the order it reads: the commands worth naming
 -- ahead of the echo pill, each with the word the line shows for it.  Commands
@@ -914,6 +922,7 @@ keyHints =
   , (["next-column", "previous-column"],   "cells")
   , (["previous-page", "next-page"],       "pages")
   , (["org-glance-overview:materialize"],  "materialize")
+  , (["mark-toggle", "unmark", "unmark-all"], "mark")
   , (["filter-rows"],                      "filter")
   , (["org-glance-overview:refresh"],      "refresh")
   , (["filter-drop-token"],                "drop token")
@@ -1152,6 +1161,11 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
         -- the spacers and the pager in its own status line, and movement
         -- crosses the boundary without this page knowing where one is.
   , "        pageSize: PAGE,"
+        -- Marking is the renderer's chrome and the renderer's state: a
+        -- checkbox column it draws and a set of ids it keys, which is why a
+        -- mark outlives a filter that hides its row and a page it is not on.
+        -- This page owns the keys and nothing else.
+  , "        marks: true,       // dired's m/u/U, drawn and counted by the renderer"
   , "        // The applied query, restored as the renderer's own committed"
   , "        // chips. It tokenizes them and delivers nothing — the rows in"
   , "        // hand are already the server's answer to this query, and a"
@@ -1476,6 +1490,28 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      if (!id || !table.select(id, want)) { say(\"no row\"); return; }"
   , "      say(cols[want].header || cols[want].key);"
   , "    }"
+    -- Marks.  The renderer holds them, keyed by id, so nothing about them is
+    -- kept here: which rows are marked, how many there are and what a mark
+    -- survives are all its answers.  Dired's advance is this page's, though —
+    -- the key that marks is the key that walks, which is what makes a held `m'
+    -- a run down a column.
+  , "    const marking = () => !!table && typeof table.toggleMark === \"function\";"
+  , "    const said = (b, what) => echo(`${b.seq} → ${b.command} (${what})`);"
+    -- TOGGLING is `m', which flips the way dired's does and takes the
+    -- renderer's word for where it landed.  `u' is never a toggle: it flips
+    -- too, then puts back anything it just laid down, so walking a column of
+    -- marks clears it rather than laying it again.  Both calls are one
+    -- statement apart and the renderer coalesces its painting to a frame, so
+    -- the flip is never drawn.
+  , "    function mark(b, toggling) {"
+  , "      if (!marking()) { said(b, \"this table-view.js has no marks\"); return; }"
+  , "      const id = focusedId();"
+  , "      if (!id) { said(b, \"no row\"); return; }"
+  , "      let on = table.toggleMark(id);"
+  , "      if (on && !toggling) on = table.toggleMark(id);"
+  , "      echo(`${b.seq} → ${on ? \"marked\" : \"unmarked\"} (${table.markedCount()})`);"
+  , "      move(1);"
+  , "    }"
   , "    // `/' summons the filter.  `openFilter' is the renderer's one entry point"
   , "    // for it whatever mode it is in — in palette mode it raises the overlay,"
   , "    // elsewhere it takes the box already on the page — so the shell asks for"
@@ -1704,6 +1740,13 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      materializeRow: () => {"
   , "        const id = focusedId();"
   , "        if (id) materialize(id); else log(\"no row focused — n or p picks one\");"
+  , "      },"
+  , "      markToggle: (b) => mark(b, true),"
+  , "      unmarkRow: (b) => mark(b, false),"
+  , "      unmarkAll: (b) => {"
+  , "        if (!marking()) { said(b, \"this table-view.js has no marks\"); return; }"
+  , "        table.clearMarks();"
+  , "        echo(`${b.seq} → all marks cleared`);"
   , "      },"
   , "      refresh, focusFilter, save,"
   , "      quitWindow: () =>"

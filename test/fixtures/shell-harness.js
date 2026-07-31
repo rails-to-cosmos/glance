@@ -22,6 +22,9 @@
 //   moved         the store moves: a new ETag, and a row more to fetch
 //   recolumn      the store moves and its columns move with it
 //   rewritten     the file behind the open sheet moves: a new digest
+//   press:KEY     KEY pressed, so a key can follow an act rather than precede it
+//   bare          the mounted handle loses its mark calls, the way an older
+//                 table-view.js never had them
 //
 // The answer is what the page asked for and what it still holds afterwards.
 const fs = require("fs");
@@ -33,7 +36,10 @@ const asked = [];
 const tags = [];
 // The store this harness stands in for, and the tag that says which version of
 // it callers hold.  `moved' and `recolumn' step it.
-let rows = [{ id: "r1", cells: { state: "TODO", title: "one", tag: ":web:" } }];
+// Three, because a walk needs somewhere to walk to: `m' marks and steps, so a
+// one-row store cannot tell marking from advancing.
+let rows = ["one", "two", "three"].map((title, i) =>
+  ({ id: `r${i + 1}`, cells: { state: "TODO", title, tag: ":web:" } }));
 let columns = [{ key: "state" }, { key: "tag" }];
 let tag = "\"t0\"";
 let served = +total;
@@ -84,11 +90,21 @@ globalThis.WebSocket = function () {
 // the shell's own half of the round trip to be exercised.
 let held = "";
 let mounts = 0, sets = 0, raises = 0;
+// The renderer's own state, which the shell keeps no copy of: where the cursor
+// is, whether it was asked for marks, and which ids carry one.
+let cursor = 0, marksOn = false, marks = new Set();
+/** The live handle, so `bare' can take calls off the one the shell is holding. */
+let handle = null;
+/** Set by `bare': this asset never had marking, remounts included. */
+let markless = false;
 globalThis.TableView = {
   mount: (_el, _view, options) => {
     mounts += 1;
     held = (options || {}).initialQuery || "";
-    return {
+    marksOn = (options || {}).marks === true;
+    cursor = 0;
+    marks = new Set();
+    handle = {
       setRows: () => { sets += 1; },
       getQuery: () => held,
       stripLastToken: () => {
@@ -98,16 +114,37 @@ globalThis.TableView = {
       },
       // The selection is the renderer's, both halves of it, and the shell reads
       // the row id back out of here to materialize one.
-      getSelection: () => ({ id: rows.length ? rows[0].id : null, col: null }),
+      getSelection: () => ({ id: rows.length ? rows[cursor].id : null, col: null }),
       getVisible: () => rows,
+      // Clamped, never wrapped, and false at the end — which is what tells the
+      // shell that a mark on the last row has nowhere to walk to.
+      selectStep: (step) => {
+        if (cursor + step < 0 || cursor + step >= rows.length) return false;
+        cursor += step;
+        return true;
+      },
+      // Marks are the renderer's, keyed by id.
+      toggleMark: (id) => {
+        const on = !marks.has(id);
+        if (on) marks.add(id); else marks.delete(id);
+        return on;
+      },
+      getMarked: () => [...marks],
+      clearMarks: () => marks.clear(),
+      markedCount: () => marks.size,
       // What the renderer's palette does: the overlay goes up and its field
       // takes focus, which is the whole of what the shell can see of it.
       openFilter: () => { raises += 1; field("filter").focus(); },
     };
+    if (markless) strip();
+    return handle;
   },
   parseQuery: () => [],
   displayText: (s) => String(s || ""),
 };
+/** The mark calls off the live handle: what an older table-view.js looks like. */
+const MARK_CALLS = ["toggleMark", "getMarked", "clearMarks", "markedCount"];
+const strip = () => { for (const name of MARK_CALLS) delete handle[name]; };
 globalThis.localStorage = { getItem: () => null, setItem: () => {} };
 globalThis.matchMedia = () => ({ matches: false, addEventListener: () => {} });
 
@@ -144,7 +181,7 @@ const field = (id) =>
     blur() { if (active === this) active = null; },
     select() {}, addEventListener() {}, appendChild() {},
   });
-const STATEFUL = ["mtext", "mnote", "mfile", "modal"];
+const STATEFUL = ["mtext", "mnote", "mfile", "modal", "echo"];
 // The page's own key dispatch, kept so a press can be delivered to it.
 const pressed = [];
 globalThis.document = {
@@ -184,11 +221,17 @@ const ACTIONS = {
   filter: (text) => { field("filter").value = text; },
   moved: () => {
     step();
-    rows = rows.concat([{ id: "r2", cells: { state: "TODO", title: "two", tag: "" } }]);
+    rows = rows.concat([{ id: "r4", cells: { state: "TODO", title: "four", tag: "" } }]);
     served += 1;
   },
   recolumn: () => { step(); columns = columns.concat([{ key: "deadline" }]); },
   rewritten: () => { digest = "d1"; },
+  press: (key) => press(key),
+  // An asset that never had marking: the calls are simply not on the handle,
+  // which is the shape the shell's feature detection is written against. It
+  // sticks, so a remount later in the same script does not hand them back and
+  // quietly turn the fallback case into the ordinary one.
+  bare: () => { markless = true; strip(); },
 };
 
 // Every fetch here settles as a microtask, so one turn of the event loop is
@@ -213,6 +256,9 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     asked, tags, url: location.search, mounts, sets, raises,
     sheet: field("mtext").value, state: field("mnote").className,
     palette: field("filter").value,
+    // The renderer's side of marking, and the last thing the echo pill said —
+    // which is where a key that could not do what it was asked reports it.
+    marksOn, marked: [...marks], cursor, echo: field("echo").textContent,
   });
   // Exit on the write's own callback: a keystroke leaves the echo pill's timer
   // pending, and node would otherwise sit out its second and a half.

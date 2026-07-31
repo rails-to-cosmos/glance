@@ -5,6 +5,7 @@
 -- are TestStore's subject.
 module TestServe (spec) where
 
+import Control.Monad ((<=<))
 import Data.Aeson ( Value (Bool, Number, Object, String)
                   , eitherDecode, encode, object, parseJSON, (.=) )
 import Data.Aeson.Types (parseEither)
@@ -24,8 +25,8 @@ import System.FilePath ((</>))
 import System.Process (readProcessWithExitCode)
 import Test.Tasty (TestTree, testGroup, withResource)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
-import TestDefaults ( document, field, intAt, listAt, maybeTextAt, membersAt, orgFile
-                    , textAt, textsAt, viewDir, withTempDir )
+import TestDefaults ( boolAt, document, field, intAt, listAt, maybeTextAt, membersAt
+                    , orgFile, textAt, textsAt, viewDir, withTempDir )
 
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
@@ -262,7 +263,7 @@ spec = withResource (body <$> get assetsDir "/") (const (pure ())) $ \shell ->
   testGroup "Serve"
     [ headlineSpec, statsSpec, cacheSpec, gzipSpec, querySpec, bootstrapSpec
     , materializeSpec, commitSpec, indexingSpec, pageSpec shell, keymapSpec shell
-    , glueSpec shell, bootSpec shell, liveSpec shell, paletteSpec shell
+    , glueSpec shell, bootSpec shell, liveSpec shell, paletteSpec shell, markSpec shell
     , touchSpec shell, shellFontSpec shell, assetSpec, errorSpec ]
 
 -- | One boot of the shell's glue, run: the address bar it opens on, what the
@@ -446,6 +447,58 @@ paletteSpec shell = testGroup "Shell palette"
         assertEqual "with what was typed in it" "tan" =<< textAt "palette" answer
   ]
 
+-- | Marking, driven through the keys a reader presses.  The renderer holds the
+-- marks and this page holds the keys, so what is asserted here is the half that
+-- is the page's: that @m@ walks as it marks, that @u@ is not a toggle, that the
+-- count comes back out of the renderer, and that a table-view.js without the
+-- calls is told about rather than crashed into.
+markSpec :: IO T.Text -> TestTree
+markSpec shell = testGroup "Shell marks"
+  [ testCase "the mount asks for them" $
+      bootOf shell "" 500 "" "" $
+        assertEqual "marks:true reached the renderer" True <=< boolAt "marksOn"
+
+    -- Dired's walk: two presses mark two rows rather than one row twice, and
+    -- the count in the echo is the renderer's own.
+  , testCase "m marks the row it is on and steps to the next" $
+      bootOf shell "" 500 "m m" "" $ \answer -> do
+        assertEqual "the rows it marked" ["r1", "r2"] =<< textsAt "marked" answer
+        assertEqual "and where it left the cursor" 2 =<< intAt "cursor" answer
+        assertEqual "counting as it went" "m → marked (2)" =<< textAt "echo" answer
+
+    -- The same key on the same row takes it back off, which is what makes it a
+    -- toggle: `m' twice over one row leaves nothing, since the second press is
+    -- on the row the first one stepped to.
+  , testCase "m on a marked row unmarks it" $
+      bootOf shell "" 500 "m" "press:ArrowUp press:m" $ \answer -> do
+        assertEqual "nothing marked" [] =<< textsAt "marked" answer
+        assertEqual "and it says so" "m → unmarked (0)" =<< textAt "echo" answer
+
+    -- `u' only ever takes a mark off.  After `m' the cursor is on an unmarked
+    -- row, so a toggle would mark it and the count would read 2.
+  , testCase "u never marks a row, it only unmarks one" $
+      bootOf shell "" 500 "m u" "" $ \answer -> do
+        assertEqual "the first mark stands alone" ["r1"] =<< textsAt "marked" answer
+        assertEqual "and the count did not grow" "u → unmarked (1)" =<< textAt "echo" answer
+
+  , testCase "U clears every mark at once" $
+      bootOf shell "" 500 "m m U" "" $ \answer -> do
+        assertEqual "nothing left" [] =<< textsAt "marked" answer
+        assertEqual "the echo" "U → all marks cleared" =<< textAt "echo" answer
+
+    -- An asset predating the calls: the key says what is missing rather than
+    -- throwing, the same way the pager and the token strip do.  A throw would
+    -- fail the harness outright, so what this pins is the wording — and that
+    -- `m' left the cursor alone, since a key that cannot do its job must not
+    -- half-do it.
+  , testCase "a table-view.js without the calls is named, not crashed into" $
+      bootOf shell "" 500 "" "bare press:m press:U" $ \answer -> do
+        assertEqual "and it did not walk on regardless" 0 =<< intAt "cursor" answer
+        assertEqual "the last key said why"
+                    "U → unmark-all (this table-view.js has no marks)"
+                    =<< textAt "echo" answer
+  ]
+
 -- | SHELL's glue booted under node on SEARCH, with the server reporting TOTAL
 -- matches, KEYS pressed over the table once it settled and ACTS run after
 -- those, then CHECK over the harness's whole answer.  A machine with no node
@@ -579,6 +632,22 @@ shellGlue =
       -- prints when it runs.
       , "summon the filter palette" ]
       ["omnibox: true,"]
+
+  -- Marking is the renderer's: it draws the boxes, keys the marks by id and
+  -- counts them, so this page holds no set of its own and asks for the count
+  -- rather than keeping one.  What is the page's is dired's advance — the key
+  -- that marks is the key that walks — and the rule that `u' is not a toggle.
+  , Glue "marks are the renderer's, and m/u/U are this page's keys"
+      -- What the keys DO is asserted by driving them, in "Shell marks"; the
+      -- needles here are the two things behaviour cannot show. First, that the
+      -- page asks the renderer for the count rather than deriving one, and
+      -- reads its answer for the state a toggle landed in.
+      [ "marks: true,"
+      , "let on = table.toggleMark(id);"
+      , "(${table.markedCount()})" ]
+      -- And second, that no set, count or membership test is kept on this side:
+      -- an absence has no behaviour to observe.
+      ["let marked", "const marked = new Set", "table.getMarked()"]
 
   -- The overlay is raised and dissolved by the renderer, whose own input stops
   -- ESC and DEL before this page's document handler sees them.  What keeps the
@@ -1511,7 +1580,8 @@ pageSpec shell = testGroup "GET /"
             -- One press, one token: a held DEL claims the key and runs once,
             -- where held movement keeps repeating.  The table is the blob's.
             , "if (!(e.repeat && MAPS.once.indexOf(hit.command) !== -1)) run(hit);" ]
-      onceOf b >>= assertEqual "the commands auto-repeat is off for" ["filter-drop-token"]
+      onceOf b >>= assertEqual "the commands auto-repeat is off for"
+                     ["filter-drop-token", "unmark-all"]
       -- The guard is per command, so it cannot take auto-repeat off movement.
       assertBool "the repeat guard is blanket rather than per command"
                  (not ("if (e.repeat) return" `T.isInfixOf` b))
@@ -1589,6 +1659,9 @@ pageSpec shell = testGroup "GET /"
         -- the two above it read forward first.
         , (["previous-page", "next-page"], "pages")
         , (["org-glance-overview:materialize"], "materialize")
+        -- Three keys, one word: the line says `m/u/U mark' the way it says
+        -- `n/p rows', since the trio is one idea.
+        , (["mark-toggle", "unmark", "unmark-all"], "mark")
         , (["filter-rows"], "filter")
         , (["org-glance-overview:refresh"], "refresh")
         , (["filter-drop-token"], "drop token")
@@ -1655,6 +1728,11 @@ expectedShared =
        Just "summon the filter palette")
   , (["DEL"],        "DEL",     "filter-drop-token",               Just "filterDrop",     "table",
        Just "drop the filter's last token")
+  , (["m"],          "m",       "mark-toggle",                     Just "markToggle",     "table",
+       Just "toggle this row's mark, then step down")
+  , (["u"],          "u",       "unmark",                          Just "unmarkRow",      "table",
+       Just "take this row's mark off, then step down")
+  , (["U"],          "U",       "unmark-all",                      Just "unmarkAll",      "table", Nothing)
   , (["q"],          "q",       "quit-window",                     Just "quitWindow",     "table", Nothing)
   , (["TAB"],        "TAB",     "org-cycle",                       Nothing,               "table", Nothing)
   , (["!"],          "!",       "org-glance-overview:open",        Nothing,               "table", Nothing)

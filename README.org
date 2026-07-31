@@ -163,6 +163,9 @@ Both key profiles share everything that is not movement:
 | =[=       | =previous-page=                   | turns one back                            |
 | =RET=     | =org-glance-overview:materialize= | opens the sheet                           |
 | =/=       | =filter-rows=                     | summons the filter palette                |
+| =m=       | =mark-toggle=                     | marks this row and steps down             |
+| =u=       | =unmark=                          | unmarks this row and steps down           |
+| =U=       | =unmark-all=                      | clears every mark                         |
 | =q=       | =quit-window=                     | closes the sheet; never the tab           |
 | =DEL=     | =filter-drop-token=               | drops the filter's last token             |
 | =C-x C-s= | =save-buffer=                     | syncs the sheet; again to overwrite       |
@@ -209,6 +212,17 @@ column's own header — =f → next-column (Headline)=, or =f → next-column (a
 last)= at the edge. The column lives in the renderer's selection rather than in
 the page, so switching profiles mid-table keeps it and clearing the selection
 takes it with it.
+
+Rows *mark* the way dired's do. =m= toggles the mark on the row under the cursor
+and steps to the next, so a held =m= walks a column laying marks down; =u= only
+ever takes one off, and steps too, so a held =u= clears a column rather than
+flickering it; =U= drops the lot. Each echoes the count the renderer keeps
+(=m → marked (3)=, =U → all marks cleared=), and the renderer's own status line
+leads with =3 marked ·= while any stand. The marks themselves are the
+renderer's, keyed by row id: a marked row that a filter hides, that a page turn
+leaves behind or that a sort moves is still marked, and still counted, because
+the count is what a bulk action would run over. Nothing on this page keeps a
+second copy of them.
 
 The set is shown a *page* at a time — 100 rows, the same count the first paint
 asks the server for, so the opening screen is exactly page one and everything

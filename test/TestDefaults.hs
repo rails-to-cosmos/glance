@@ -8,6 +8,7 @@
 module TestDefaults ( at
                     , bare
                     , bareParse
+                    , boolAt
                     , columnKeysOf
                     , columnOf
                     , compactTs
@@ -40,7 +41,7 @@ module TestDefaults ( at
                     ) where
 
 import Control.Exception (IOException, finally, throwIO, try)
-import Data.Aeson (Value (Null, Number, Object, String), parseJSON)
+import Data.Aeson (Value (Bool, Null, Number, Object, String), parseJSON)
 import Data.Aeson.Types (parseEither)
 import Data.List (sort)
 import Data.Org
@@ -243,6 +244,13 @@ intAt k v = field k v >>= number
   where number (Number n) = pure (round n)
         number other = assertFailure ("expected a number at " <> show k
                                         <> ", got " <> show other)
+
+-- | The boolean at KEY of V.
+boolAt :: Text -> Value -> IO Bool
+boolAt k v = field k v >>= flag
+  where flag (Bool b) = pure b
+        flag other = assertFailure ("expected a boolean at " <> show k
+                                      <> ", got " <> show other)
 
 -- | The string at KEY of V, where the key is there and its value may be null.
 maybeTextAt :: Text -> Value -> IO (Maybe Text)

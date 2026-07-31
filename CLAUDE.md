@@ -433,8 +433,17 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   predicate over the focused field's range and the document selection, and it
   covers every prefix rather than `C-c`/`C-x` alone, so vim's `g` obeys it too.
   Auto-repeat is movement's — a held `n` crosses the table — so the keys that
-  must run once per press are named by COMMAND in `ONCE` (currently
-  `filter-drop-token`), which holds under any profile that binds them.
+  must run once per press are named by COMMAND in `ONCE` (`filter-drop-token`
+  and `unmark-all`), which holds under any profile that binds them.
+- Row marks are the RENDERER's, behind `marks: true`: it draws the checkbox
+  column, keys the marks by id and counts them, so a mark survives a `setRows`,
+  a filter that hides its row and a page it is not on, and this page keeps no
+  set of its own — not the count, not a membership test. Shared by both
+  profiles, dired's: `m` toggles and takes the renderer's word for where it
+  landed, `u` toggles and puts back anything it just laid down (so it can only
+  ever clear), both then `selectStep(+1)`, and `U` clears. `m`/`u` stay out of
+  `ONCE` because the walk IS the feature. Feature-detected on `toggleMark`, so
+  an asset predating it echoes rather than throws.
 - Browser writes are commands over the bridge: structured ones (toggle, retag,
   reschedule) and drift-locked raw replacement (materialize a subtree, later a
   file). Semantic org editing — refile, agenda logic — stays out of the browser.
