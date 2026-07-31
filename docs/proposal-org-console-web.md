@@ -181,6 +181,13 @@ parser; the graph needs refs — sequence accordingly.
   most privileged capability the bridge will ever carry — automate tier,
   never earlier than the tier system itself.
 
+**UI principle (rev 4): keyboard-first.** Every surface is operable without
+the mouse; keys mirror the Emacs org-glance maps (with a vim movement
+profile); the key echo teaches the map. Buttons exist only where a keyboard
+path cannot (never as the primary path): the materialize sheet is buttonless
+(sync-on-close, `C-x C-s`), actions render as key hints in the hint line,
+conflicts resolve by keystroke. Mouse still works; it is never required.
+
 **Desktop shell (rev 4).** glance as a desktop application, in two stages,
 architecture unchanged (daemon + bridge + web UI; the shell is one more
 client):

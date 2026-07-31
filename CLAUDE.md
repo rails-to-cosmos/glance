@@ -131,6 +131,13 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   file). Semantic org editing — refile, agenda logic — stays out of the browser.
   Automation = reviewed deterministic scripts, no LLM in the loop.
 
+## UI
+
+- Keyboard-first: every web-surface feature ships with a key path mirroring
+  the Emacs org-glance maps; buttons only where keys cannot reach; the echo
+  widget must know every new binding (keymap-is-data blob is the single
+  source).
+
 ## Build
 
 - `glance.cabal` is hand-maintained; package.yaml/hpack removed — do not
