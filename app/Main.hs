@@ -16,6 +16,7 @@ import Text.Megaparsec (errorBundlePretty)
 import Repl.Org
 import Scan (runScan)
 
+import Data.Org.Walk (WalkOptions (..), defaultWalk)
 import Glance.Desktop (DesktopOptions (..), desktop)
 import Glance.Web (ServeOptions (..), defaultAssetsDir, defaultPort, serve)
 
@@ -58,8 +59,10 @@ parse [] = do
   runRepl settings defaultContext
   exitSuccess
 
-parse ("scan":dirs) = do
-  runScan (if null dirs then ["."] else dirs)
+parse ("scan":args) = do
+  let derived = "--include-derived" `elem` args
+      dirs = filter (/= "--include-derived") args
+  runScan (WalkOptions derived) (if null dirs then ["."] else dirs)
   exitSuccess
 
 parse ("serve":args) = run "serve" serveUsage serve (serveOptions args)
@@ -94,21 +97,24 @@ run name usage act parsed = case parsed of
 
 serveUsage :: String
 serveUsage = "usage: glance serve --dir DIR [--port N (default "
-          <> show defaultPort <> ")] [--assets PATH]"
+          <> show defaultPort <> ")] [--assets PATH] [--include-derived]"
 
 desktopUsage :: String
 desktopUsage = "usage: glance desktop --dir DIR [--port N (default "
-            <> show defaultPort <> ")] [--assets PATH] [--browser CMD] [--dry-run]"
+            <> show defaultPort
+            <> ")] [--assets PATH] [--browser CMD] [--dry-run] [--include-derived]"
 
 -- | ARGS as desktop options, or what is wrong with them.  Hand-rolled: five
 -- flags do not earn an option-parsing dependency.
 desktopOptions :: [String] -> Either String DesktopOptions
-desktopOptions = go (DesktopOptions (ServeOptions "" defaultPort defaultAssetsDir) Nothing False)
+desktopOptions = go (DesktopOptions bare Nothing False)
   where
+    bare = ServeOptions "" defaultPort defaultAssetsDir (woIncludeDerived defaultWalk)
     go opts [] | null (soDir (doServe opts)) = Left "--dir is required"
                | otherwise                   = Right opts
     go opts ("--dir":dir:rest)      = serving opts (\s -> s { soDir = dir }) rest
     go opts ("--assets":path:rest)  = serving opts (\s -> s { soAssets = path }) rest
+    go opts ("--include-derived":rest) = serving opts (\s -> s { soDerived = True }) rest
     go opts ("--browser":cmd:rest)  = go opts { doBrowser = Just cmd } rest
     go opts ("--dry-run":rest)      = go opts { doDryRun = True } rest
     go opts ("--port":port:rest)    = case readMaybe port of

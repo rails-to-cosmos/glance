@@ -64,6 +64,21 @@ separate entries revalidating against their own tags. Responses are gzipped
 (3.06 MB → 580 KB for the whole set, 34 KB → 15 KB for the renderer) with the
 =Vary: Accept-Encoding= that goes with it.
 
+*Filtering is a query language.* The filter box speaks
+[[file:../table-view/SCHEMA.md][SCHEMA.md]]'s micro-syntax and the server parses
+it: =state:TODO state:DONE tanik= is either state and the text, because
+predicates sharing a key OR while distinct keys and free text AND. A =key:value=
+is a predicate only when =key= names a column — =state=, =priority=, =title=,
+=tags=, =scheduled=, =deadline= — or one of your own org tags, so =:work:= and
+==code== stay the org text they are. Tags are keys of their own:
+=contact:tanik= is "tagged =contact= and matching =tanik=", and =contact:= alone
+is the facet. =-token= negates, ="two words"= quotes, =key:none= asks for an
+empty cell, =scheduled:2026-08= is the month, and =state:active= /
+=state:inactive= are the keyword groups your =#+TODO:= lines declare. A query
+with no predicate in it is the substring search it always was. The applied query
+rides in the URL, so a filtered view is a link; =DEL= over the table takes the
+last token back off.
+
 *The page stays tiny.* The shell is inline vanilla JavaScript — no framework, no
 build step, no dependency, nothing fetched off this server. It boots on
 =?limit=1000= for a fast first paint (~90 ms against ~250 ms for the whole set),
@@ -79,20 +94,27 @@ table-view's streaming ops: =set-rows= once on connect (=?bootstrap=off= drops
 it for a client that fetched the rows over HTTP), then =upsert-row= and
 =delete-row= per change. Edit a headline in Emacs and the open tab moves in
 about 100 ms, no reload; create or delete a file and its rows appear or go. A
-green dot by the heading says the socket is up, grey that it is reconnecting.
+green dot in the top-right corner says the socket is up, grey that it is
+reconnecting.
 
 *Materialize a headline.* The view declares one action — =RET → materialize= —
-so hitting =RET= on the selected row (double-clicking it, or the Materialize
-button in the toolbar) opens that headline's raw subtree over the table in a
-textarea: stars, planning line, drawer, body and every child, exactly as the
-file spells them. Edit it and press Save and the text goes back over the same
-character span, leaving every other byte of the file alone; the sheet closes and
-the row arrives a moment later over the socket, because the file watch is what
-updates the table whoever did the writing. Escape or Cancel closes without
-writing. If the file moved in between — Emacs saved it, a sync landed — the save
-is refused with a conflict and the sheet offers to re-materialize, since the
-text you edited is not in that file any more. The same round trip from a shell,
-=id= being the row id the view carries:
+so hitting =RET= on the selected row (or double-clicking it) opens that
+headline's raw subtree over the table in a textarea: stars, planning line,
+drawer, body and every child, exactly as the file spells them. The sheet has no
+buttons. =ESC=, or a click outside the box, closes it — flushing first when the
+text has moved, and closing on the server's 200; a sheet you only read closes
+with no request at all and touches no file. The text goes back over the same
+character span, leaving every other byte alone, and the row arrives a moment
+later over the socket, because the file watch is what updates the table whoever
+did the writing. =C-x C-s= syncs mid-edit and chains the receipt's digest, so a
+long session of edits costs no re-materialize. If the file moved in between —
+Emacs saved it, a sync landed — the flush is refused and the sheet stays open
+saying =conflict=: =C-x C-s= then re-reads the file's digest and writes your
+text over it, and =ESC= discards. Closing the tab on an edited sheet flushes on
+the way out. The header says which of =synced= / =syncing…= / =conflict= it is
+in, and the sheet wears danneskjold in Hack, the theme and font this author's
+Emacs runs, while the table keeps the page's own. The same round trip from a
+shell, =id= being the row id the view carries:
 
 #+begin_src sh
 curl -s -G --data-urlencode 'id=ROW-ID' localhost:7777/headline
@@ -108,10 +130,10 @@ with a typo in it, which is the same deal any editor offers. Restart the daemon
 and the tab re-fetches and re-mounts on its own, backing off from 1 s to 30 s.
 
 *Keys.* The page carries org-glance's =overview-mode= map, under org-glance's
-own command names, and echoes what it did in a pill in the corner — the pending
-prefix while one is open (=C-c -=), the command on completion (=C-c C-t →
-org-glance-overview:todo=), =C-c z is undefined= otherwise, and the prefix drops
-after two seconds. Movement drives the renderer's own row selection, and comes
+own command names, and echoes what it did in a pill in the bottom corner — the
+pending prefix while one is open (=C-c -=), the command and its help line on
+completion (=C-c C-t → org-glance-overview:todo=), =C-c z is undefined=
+otherwise, and the prefix drops after two seconds. Movement drives the renderer's own row selection, and comes
 in an =emacs= profile and a =vim= one.
 
 Both key profiles share everything that is not movement:
@@ -125,8 +147,9 @@ Both key profiles share everything that is not movement:
 | =RET=     | =org-glance-overview:materialize= | opens the sheet                           |
 | =/=       | =filter-rows=                     | focuses the renderer's filter box         |
 | =q=       | =quit-window=                     | closes the sheet; never the tab           |
-| =C-x C-s= | =save-buffer=                     | saves the sheet, from inside the textarea |
-| =ESC=     | =keyboard-quit=                   | cancels the sheet                         |
+| =DEL=     | =filter-drop-token=               | drops the filter's last token             |
+| =C-x C-s= | =save-buffer=                     | syncs the sheet; again to overwrite       |
+| =ESC=     | =keyboard-quit=                   | closes the sheet, syncing it first        |
 | =TAB=     | =org-cycle=                       | staged — daemon commands (M4)             |
 | =!=       | =org-glance-overview:open=        | staged                                    |
 | =a=       | =org-glance-agenda=               | staged                                    |
@@ -156,9 +179,11 @@ dired-execute rhyme — and =g= is a prefix rather than a command, so refresh go
 to =R= and reads as vi's reload. Nothing binds a bare =g= under =vim=: a
 complete sequence that also opens a longer one would leave =gg= unreachable.
 
-Switch with the =keys:= pill next to the connection dot — it rebinds in place,
-echoes =movement: vim=, and remembers the choice in =localStorage= under
-=glance-keys=. =?keys=vim= in the URL picks a profile and remembers it too.
+Switch in the status corner, top right: the connection dot and a =keys:=
+selector sit there together. It rebinds in place, echoes =movement: vim=, and
+remembers the choice in =localStorage= under =glance-keys=; =?keys=vim= in the
+URL picks a profile and remembers it too. A native =select=, so Tab reaches it
+and the arrows walk it without a chord of its own.
 
 A staged key is recognized in full and then says what it is waiting for: the map
 is complete ahead of the commands that will back it, which reads better than a
@@ -176,6 +201,16 @@ Consolas, whichever is installed. Nothing is fetched for it. Drop a
 shell declares an =@font-face= against it and serves it from there; leave it out
 and the stack falls through, silently.
 
+*What is not walked.* org-glance keeps its canonical store under
+=.org-glance/data/= and writes overview and agenda buffers beside it under
+=.org-glance/overviews/= and =.org-glance/meta/=, repeating the same headlines
+under the same =ORG_GLANCE_ID=. Those two directories are skipped — org files
+are the source of truth, and a derived render of one is not a second headline.
+Over =~/sync= that is 514 fewer rows and one duplicated row gone from a filtered
+table. =--include-derived= walks them anyway, on =serve=, =desktop= and =scan=.
+Where two files still claim one id, the =.org-glance/data/= copy wins and the
+rest are counted in =X-Glance-Id-Collisions= and listed by =glance scan=.
+
 The listener binds =127.0.0.1= and nothing else. Authentication and the
 read/write/automate tiers arrive with the protocol step (S7 in
 =docs/plan-org-console-web.md=); until then the loopback interface is the whole
@@ -189,8 +224,8 @@ cabal run glance -- desktop --dir ~/org
 
 The same daemon =serve= runs, with an app-mode browser window opened on it the
 moment the socket is listening: no address bar, no tabs, no chrome. It takes
-=serve='s flags — =--dir=, =--port= (default 7777), =--assets= — plus two of its
-own:
+=serve='s flags — =--dir=, =--port= (default 7777), =--assets=,
+=--include-derived= — plus two of its own:
 
 - =--browser CMD= — what to open the window with.
 - =--dry-run= — print the command that would be run and the URL it would open,

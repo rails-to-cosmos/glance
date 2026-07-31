@@ -167,6 +167,41 @@ on.
   starts; out-of-order visits silently degrade to O(start) per slice.
   **comment**
 
+## Walk
+
+- **Derived org-glance directories are not walked.** org-glance keeps its
+  canonical store under `.org-glance/data/` and writes overview and agenda
+  buffers beside it under `.org-glance/overviews/` and `.org-glance/meta/`,
+  repeating the same headlines under the same `ORG_GLANCE_ID`. Serving those is
+  serving a derived artifact as truth: over `~/sync` it put 514 extra headlines
+  in the table, and one of them — `Курс Екатерины Бондарь` — rendered twice
+  under a `tanik` filter, once from `data/…/data.org` and once from
+  `overviews/c1f3df767330/overview.org`. `Data.Org.Walk.isDerived` is the one
+  rule, applied where a directory is entered and where a watch event is
+  accepted, so a file the store was never given cannot arrive by inotify and
+  appear in the table on its next rewrite. `data` stays: it is the store, not a
+  render of it. `--include-derived` turns the exclusion off on `serve`,
+  `desktop` and `scan` for someone who wants to look at them, and the scan
+  reports `derived skipped`. Corpus, 2026-07-31: 6313 → 6290 files, 13384 →
+  12870 headlines, 14 → 11 parse failures (`overviews/agenda.org` was one of
+  them). Evidence: `TestStore` "Derived mirrors" over a fixture tree of the same
+  shape. **test + corpus**
+- **One row per id, and the canonical file wins it.** A row id is what a
+  renderer keys updates off (SCHEMA.md), so two rows cannot share one: the
+  second would overwrite the first on every frame while the table showed the
+  headline twice. `Glance.Query.resolveIds` keeps one — a `.org-glance/data/`
+  path beats one that is not, otherwise walk order does — and reports every
+  loser rather than dropping it quietly, since a duplicate id is nearly always
+  a tree that should not have been walked. `loadDir` and
+  `Glance.Web.Store.storeResult` both call it, which is what keeps the store
+  equal to the load it stands in for; `storeHeadline` and `bootstrapFrame` read
+  the resolved rows, so materializing an id two files claim opens the one the
+  table is showing. The count rides as `X-Glance-Id-Collisions` and the pairs
+  are listed by the scan (capped at 20). Corpus: 522 collisions with the
+  mirrors walked, 9 without — those nine are genuine duplicates between real
+  files (an elpa working copy of a checkout; documents whose `data.org` repeats
+  the source document's id). **test + corpus**
+
 ## Architecture (constrains this code; from docs/)
 
 - Org files are the single source of truth; the daemon keeps no second
@@ -302,6 +337,30 @@ on.
   the badge list a client watches for a column change every time the page moved.
   Evidence: `TestServe` "GET /headlines filter and paging", `TestQuery` "Search
   text". **test**
+- **`?q=` is SCHEMA.md's filter query, and parity with the renderer is the
+  contract.** `Glance.Web.Filter` is a port of `table-view.js`'s `scanQuery`,
+  `parseQuery` and `tokenTest`, term for term, because the renderer filters
+  locally with the same grammar and a query that means two things is a table
+  that disagrees with itself. Tokens split on whitespace and `&`; `key:value`
+  (`=` alias) is a predicate only when the key is a column key or one of the
+  producer's virtual keys, which is what keeps org cell text — `:work:`,
+  `=code=` — from becoming one by accident; a token that *opens* with a quote is
+  free text; a leading `-` negates. Same-key predicates OR, distinct keys and
+  free text AND, negations AND regardless. Per column type: badge whole-value
+  case-insensitive plus this producer's `state:active`/`state:inactive` meta
+  values, text substring, dates prefix; and three uniform rules — `key:none` is
+  the empty cell whatever the type, `key:` narrows nothing, a value may be
+  quoted. The virtual keys are the store's org tags (`Glance.Web.Store.stTags`,
+  counted per tag beside `stIds` so a query costs no fold over 13k rows):
+  `TAG:text` is tagged whole-`TAG` *and* matching text, an empty value being
+  presence alone, and a column shadows a tag of its name. Two consequences to
+  keep: a predicate reads one `\x1f` field of `hrSearch` rather than
+  re-deriving a cell, so per-cell matching and free text agree by construction;
+  and the vocabulary moves only when rows do, which is exactly when `guarded`
+  moves the generation the `ETag` spells, so a cached answer can never be one
+  the old vocabulary produced. Evidence: `TestFilter` (tokens, predicates,
+  virtual keys, shape, degenerate parity with `matchesSearch`), `TestServe`
+  "GET /headlines filter and paging". **test**
 - **The watch is the only channel that updates the store.** A commit writes the
   file and returns; no path through the route touches the `Hub` or the `Store`.
   The watch re-reads what was written and streams the rows, so a browser save
@@ -364,6 +423,43 @@ on.
   carries a `ToJSON` instance: deriving one would make the AST the contract,
   and `SCHEMA.md` is. **test** (`TestQuery` imports the facade only; golden +
   schema-conformance groups)
+- **The materialize sheet has no buttons, and closing it is the save.** Dirty is
+  the textarea against the text the file holds as far as the page knows — the
+  materialized original, then whatever the last 200 wrote — and it decides
+  everything: `ESC` or a click on the backdrop flushes a dirty sheet and closes
+  on the 200, while a pristine one closes with no request at all, so opening a
+  subtree to read it never touches the file. `C-x C-s` flushes mid-edit and
+  takes the receipt's digest as the next flush's lock, which is why a session of
+  edits costs no re-materialize. A 409 keeps the sheet open at `conflict`, where
+  `C-x C-s` re-reads the file's digest and posts the author's text over it —
+  last writer wins, on a deliberate keystroke — and `ESC` discards. Closing the
+  tab on an edited sheet flushes with `fetch(keepalive)`, and only when dirty.
+  The header carries one word, `synced` / `syncing…` / `conflict`, because with
+  no buttons the keys are the whole of the offer and the two states that wait
+  for one have to name their key. Evidence: `TestServe` "the sheet is buttonless
+  and syncs on the way out", plus the curl-level round trip. **test**
+- **The applied filter query is in the URL, and `DEL` is its backspace.** A
+  commit writes `?q=` with `replaceState` and leaves `keys` where it is, so a
+  filtered view is a link, a reload keeps it, and a reconnect comes back to it
+  rather than to the whole store. `DEL` over the table drops the query's last
+  token — through the renderer's `stripLastToken`/`getQuery`, never by
+  recomposing the string here: the committed tokens are chips the renderer
+  draws, and a shell-side strip would leave them on screen spelling a filter
+  that is no longer applied. An asset without the pair says so instead of
+  growing a second implementation. **test**
+- **A filtered answer of zero to a virtual key is checked against the rows the
+  page holds.** The renderer suggests keys from the vocabulary it derives; the
+  server parses with the vocabulary it derives; if the two are different
+  versions the suggestion is a query the applied path evaluates as plain text
+  and answers with nothing — which is what a user hit live (`task:tanik`,
+  19 suggested, 0 returned). So the shell keeps the last unfiltered answer and,
+  when the server returns 0 for a query carrying a `key:value` its columns do
+  not name, counts locally: if the words are in the rows, it says
+  `filter parity divergence — asset\/daemon version skew` and logs both counts.
+  One-directional and deliberately loose — it reports a suspicion and corrects
+  nothing, because guessing which half is right is how the two drift.
+  Column predicates are excluded from the check: both halves read the columns
+  out of the same view document, so they cannot skew. **test**
 - Browser writes are commands over the bridge, of two kinds (proposal rev 3):
   structured commands, and raw replacement of a whole span under the same drift
   lock — materialize is the first of those. Semantic org editing stays out of

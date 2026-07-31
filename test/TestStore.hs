@@ -10,7 +10,7 @@ module TestStore (spec) where
 import Control.Concurrent.STM (atomically)
 import Data.Aeson (Value (Object, String))
 import Data.Time (UTCTime (UTCTime), addUTCTime, fromGregorian, secondsToDiffTime)
-import System.Directory (removeFile)
+import System.Directory (createDirectoryIfMissing, removeFile)
 import System.FilePath ((</>))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
@@ -21,13 +21,14 @@ import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 
-import Glance.Query ( HeadlineRecord (hrId), LoadFailure (..), QueryResult (..)
-                    , TodoKeywords (..), loadDir, loadFile, rowJSON )
+import Glance.Query ( HeadlineRecord (hrFile, hrId), IdCollision (..), LoadFailure (..)
+                    , QueryResult (..), TodoKeywords (..), WalkOptions (..), defaultWalk
+                    , loadDir, loadDirWith, loadFile, rowJSON )
 import Glance.Web.Store ( Frame (..), Store, applyFile, bootstrapFrame
                         , clientCapacity, dropFile, frameJSON, loadStore, newHub
                         , nextFrame, publish, storeKeywords, storeRecords
-                        , storeResult, subscribe )
-import Glance.Web.Watch (debounceDelay, due, isWatchable)
+                        , storeResult, storeTags, subscribe )
+import Glance.Web.Watch (debounceDelay, due, isWatchable, watched)
 
 -- Scaffolding
 --
@@ -61,7 +62,120 @@ stringAt _key _v = Nothing
 
 spec :: TestTree
 spec = testGroup "Store"
-  [ diffSpec, failureSpec, keywordSpec, bootstrapSpec, hubSpec, debounceSpec ]
+  [ diffSpec, failureSpec, keywordSpec, tagSpec, derivedSpec, bootstrapSpec, hubSpec
+  , debounceSpec ]
+
+-- | The tag vocabulary: SCHEMA.md's virtual filter keys, kept beside the rows
+-- so a query costs no fold over them.
+tagSpec :: TestTree
+tagSpec = testGroup "Tag vocabulary"
+  [ testCase "is every distinct tag the loaded rows carry" $ withTempDir $ \dir -> do
+      _ <- orgFile dir "a.org" "* TODO one :web:glance:\n* NEXT two :web:\n* DONE three\n"
+      st <- loadStore dir
+      assertEqual "tags" ["glance", "web"] (storeTags st)
+
+  , testCase "a re-read file adds its new tags and drops the ones it lost"
+      $ withTempDir $ \dir -> do
+      path <- orgFile dir "a.org" "* TODO one :web:\n"
+      st <- loadStore dir
+      assertEqual "before" ["web"] (storeTags st)
+      _ <- orgFile dir "a.org" "* TODO one :inbox:\n"
+      records <- recordsOf path
+      let (next, _frames) = applyFile path (Right records) st
+      assertEqual "after" ["inbox"] (storeTags next)
+
+  , testCase "a tag two files carry survives one of them going"
+      $ withTempDir $ \dir -> do
+      pa <- orgFile dir "a.org" "* TODO one :web:\n"
+      _ <- orgFile dir "b.org" "* TODO two :web:\n"
+      st <- loadStore dir
+      let (gone, _frames) = dropFile pa st
+      assertEqual "still declared" ["web"] (storeTags gone)
+
+  , testCase "the vocabulary moves only where the generation does"
+      $ withTempDir $ \dir -> do
+      -- The ETag is the generation, so a query answered under an old tag must
+      -- not be a query the old vocabulary could not have parsed.
+      path <- orgFile dir "a.org" "* TODO one :web:\n"
+      st <- loadStore dir
+      records <- recordsOf path
+      let (same, _f) = applyFile path (Right records) st
+      assertEqual "no rewrite, no move" (storeTags st) (storeTags same)
+      _ <- orgFile dir "a.org" "* TODO one :web:inbox:\n"
+      changed <- recordsOf path
+      let (next, frames) = applyFile path (Right changed) st
+      assertBool "a tag change is a row change" (not (null frames))
+      assertEqual "and the vocabulary followed" ["inbox", "web"] (storeTags next)
+  ]
+
+-- | org-glance's derived mirrors: walked past, and the ids they duplicate
+-- resolved to the canonical file rather than to whichever came last.
+derivedSpec :: TestTree
+derivedSpec = testGroup "Derived mirrors"
+  [ testCase "the mirror directories are not walked, and data is"
+      $ withMirrorTree $ \dir -> do
+      qr <- loadDir dir
+      assertEqual "files" 2 (qrFiles qr)
+      assertEqual "rows" 2 (length (qrRecords qr))
+      assertEqual "no collision to resolve" [] (qrIdCollisions qr)
+      assertBool "a mirror row was served"
+                 (not (any (("overviews" `elem`) . splitOn . hrFile) (qrRecords qr)))
+
+  , testCase "--include-derived walks them, and the canonical row wins the id"
+      $ withMirrorTree $ \dir -> do
+      qr <- loadDirWith (WalkOptions True) dir
+      assertEqual "files" 4 (qrFiles qr)
+      -- Four files, four headlines, but two of them claim one id.
+      assertEqual "rows" 3 (length (qrRecords qr))
+      assertEqual "collisions" 1 (length (qrIdCollisions qr))
+      let [c] = qrIdCollisions qr
+      assertEqual "the id" "shared-id" (icId c)
+      assertBool ("kept the canonical file: " <> icKept c)
+                 ("data" `elem` splitOn (icKept c))
+      assertBool ("dropped the mirror: " <> icDropped c)
+                 ("overviews" `elem` splitOn (icDropped c))
+
+  , testCase "the store resolves it the same way the load does"
+      $ withMirrorTree $ \dir -> do
+      qr <- loadDirWith (WalkOptions True) dir
+      st <- loadStore dir
+      assertEqual "the default store skips them" 2 (length (storeRecords st))
+      -- The store is the load it stands in for, id resolution included.
+      assertEqual "one row per id" (map hrId (qrRecords qr)) . map hrId . qrRecords
+        =<< loadDirWith (WalkOptions True) dir
+
+  , testCase "a watch event under a mirror is not one this store reads" $ do
+      let mirror = "/o/.org-glance/overviews/c1f3/overview.org"
+          canonical = "/o/.org-glance/data/ed/ucation/data.org"
+      assertBool "the mirror is watchable as a file" (isWatchable mirror)
+      assertBool "and still not watched" (not (watched defaultWalk mirror))
+      assertBool "the canonical store is" (watched defaultWalk canonical)
+      assertBool "a plain file is" (watched defaultWalk "/o/notes.org")
+      assertBool "--include-derived takes the mirror too"
+                 (watched (WalkOptions True) mirror)
+      -- The sidecar rule still applies inside an included mirror.
+      assertBool "a lock file is not a document"
+                 (not (watched (WalkOptions True) "/o/.org-glance/overviews/.#a.org"))
+  ]
+  where splitOn = foldr step [[]]
+          where step '/' acc = [] : acc
+                step c (seg : rest) = (c : seg) : rest
+                step _ [] = []
+
+-- | A tree shaped like org-glance's: a plain note, the canonical store under
+-- @.org-glance\/data@, and the two mirror directories repeating one of its
+-- headlines under the same id.
+withMirrorTree :: (FilePath -> IO a) -> IO a
+withMirrorTree k = withTempDir $ \dir -> do
+  let shared = "* TODO Курс :study:\n:PROPERTIES:\n:ORG_GLANCE_ID: shared-id\n:END:\n"
+  _ <- orgFile dir "notes.org" "* TODO a plain note\n"
+  createDirectoryIfMissing True (dir </> ".org-glance" </> "data" </> "ed")
+  createDirectoryIfMissing True (dir </> ".org-glance" </> "overviews" </> "c1f3")
+  createDirectoryIfMissing True (dir </> ".org-glance" </> "meta")
+  _ <- orgFile (dir </> ".org-glance" </> "data" </> "ed") "data.org" shared
+  _ <- orgFile (dir </> ".org-glance" </> "overviews" </> "c1f3") "overview.org" shared
+  _ <- orgFile (dir </> ".org-glance" </> "meta") "agenda.org" "* TODO an agenda render\n"
+  k dir
 
 -- | One file re-read, and the frames the difference implies.
 diffSpec :: TestTree

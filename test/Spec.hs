@@ -2,6 +2,7 @@ module Main (main) where
 
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import qualified TestEdit as Edit
+import qualified TestFilter as Filter
 import qualified TestParser as Parser
 import qualified TestRoundtrip as Roundtrip
 import qualified TestTimestamp as Timestamp
@@ -26,6 +27,7 @@ tests = testGroup "Tests"
   , Spans.spec
   , Edit.spec
   , Query.spec
+  , Filter.spec
   , Subtree.spec
   , Serve.spec
   , Store.spec

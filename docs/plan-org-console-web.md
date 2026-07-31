@@ -351,7 +351,10 @@ consecutive headlines leave no gap, and the last extent of every file ends at
 the document's character length. 12.8 s, all of it the walk.
 
 **Left open.** A real editor component (CodeMirror) is M3.5; this ships a
-`textarea`. Whether the committed text still parses as org is the author's
+`textarea`. The sheet's danneskjold mapping (`--dk-*` custom properties, Hack
+ahead of the page's stack) is written to be inherited: the CodeMirror pane takes
+the same variables when it lands, and org syntax highlighting arrives with it —
+a `textarea` cannot have any, and faking it was not attempted. Whether the committed text still parses as org is the author's
 business, the way it is in any editor — a failed re-parse keeps the file's rows
 and streams nothing, which is S5's rule unchanged. And the route is as
 privileged as every other one until S7: loopback is still the whole access
@@ -665,6 +668,12 @@ Exit:
 
 ## Decision gates (time-boxed, off the critical path)
 
+- **Completion index placement** — scoped filter completions (`tan` →
+  `contact:tanik`) run on a renderer-side lazy sorted word index over loaded
+  rows. Escalation, gated on measurement (build > ~30 ms or memory pressure
+  on thin clients): the same index moves server-side behind
+  `GET /complete?prefix=` over the store's search text. Do not build early.
+
 - **Encryption** — before any shared view ships (S7): elisp-`aes` compat in
   Haskell vs migrate subtrees to age/gpg. Exit: decision recorded in proposal,
   spike branch proving the chosen path on one real encrypted subtree.
@@ -679,6 +688,23 @@ Exit:
   event re-reads one file and leaves the store alone. `Persist.Org` stays a
   stub. Residency is what would reopen this — 593 MB for 13344 rows — and the
   cheaper lever there is `hrHeadline`, ahead of SQLite.
+
+## Corpus numbers, and the day they moved
+
+**2026-07-31.** Every headline count above — 13337, 13338, 13343, 13344, 13359,
+13384 as the corpus grew — was taken with org-glance's derived mirrors in the
+walk. They are gone from it now (`docs/invariants.md`, Walk): inside a
+`.org-glance` directory, `overviews` and `meta` are skipped and `data`, the
+canonical store, is kept. The `~/sync` run reads **6290 files and 12870
+headlines** where it read 6313 and 13384, and 11 parse failures where it read 14
+— `views/.org-glance/overviews/agenda.org` was one of them. The 514 headlines
+that left were repeats of headlines that stayed, under the same
+`ORG_GLANCE_ID`, and one of them rendered twice in a filtered table, which is
+what started this. A semantic correction to what the corpus *is*, so the older
+numbers stand as measurements of a wider walk rather than as a regression to
+explain. Id collisions over the same tree: 522 with the mirrors, 9 without, and
+those nine are genuine duplicates between real files. `--include-derived`
+reproduces the old walk on `serve`, `desktop` and `scan`.
 
 ## Dependency order
 

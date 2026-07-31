@@ -27,21 +27,30 @@
 -- 'hrHeadline' already shares, so materialize costs a pointer per row and no
 -- array: the file was retained before the field existed.
 module Glance.Query ( HeadlineRecord (..)
+                    , IdCollision (..)
                     , LoadFailure (..)
                     , QueryResult (..)
                     , Span (..)
                     , TodoKeywords (..)
+                    , WalkOptions (..)
                     , WriteFailure (..)
+                    , canonicalPath
+                    , defaultWalk
+                    , derivedPath
                     , displayText
                     , loadDir
                     , loadDirFiles
+                    , loadDirFilesWith
+                    , loadDirWith
                     , loadFile
                     , matchesSearch
                     , mergeKeywords
                     , replaceSpan
+                    , resolveIds
                     , rowJSON
                     , sortedForView
                     , subtreeText
+                    , tagsOfCell
                     , viewJSON
                     , viewJSONText
                     , viewJSONTextWith
@@ -59,6 +68,7 @@ import Data.Text (Text)
 import TextShow (showt)
 
 import qualified Data.ByteString as BS
+import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -73,7 +83,8 @@ import Data.Org ( Context, Element (EHeadline), Headline
                 , identity, indent, metaCategory, orgParse, priority, schedule
                 , sliceSpan, spans, tags, title, todo, todoActive
                 , todoInactive )
-import Data.Org.Walk (Found (..), findOrgFiles)
+import Data.Org.Walk ( Found (..), WalkOptions (..), defaultWalk, findOrgFilesWith
+                     , isCanonical, isDerived )
 
 import qualified Data.Org.Edit as Edit
 
@@ -111,12 +122,23 @@ data TodoKeywords = TodoKeywords
 -- coverage the web layer surfaces — a silently skipped file is a bug report
 -- waiting to happen.
 data QueryResult = QueryResult
-  { qrRecords        :: ![HeadlineRecord]  -- ^ rows in walk order: paths sorted, headlines in file order.
+  { qrRecords        :: ![HeadlineRecord]  -- ^ rows in walk order, one per id; paths sorted, headlines in file order.
   , qrFiles          :: !Int               -- ^ .org files visited.
   , qrParseFailures  :: !Int               -- ^ files 'orgParse' rejected; they contribute no rows.
   , qrDecodeFailures :: !Int               -- ^ files that are not valid UTF-8.
   , qrReadFailures   :: !Int               -- ^ files that could not be read, plus unlistable directories.
+  , qrIdCollisions   :: ![IdCollision]     -- ^ rows 'resolveIds' dropped, and what they lost to.
   } deriving (Show)
+
+-- | Two files claiming one @ORG_GLANCE_ID@, and which of them the view shows.
+-- A row id is the identity a renderer keys updates off, so two rows cannot
+-- share one: 'resolveIds' picks and this records the pick, since a duplicate id
+-- is nearly always a file that should not have been walked.
+data IdCollision = IdCollision
+  { icId      :: !Text      -- ^ the id both files claim.
+  , icKept    :: !FilePath  -- ^ the file whose row the view carries.
+  , icDropped :: !FilePath  -- ^ the file whose row it does not.
+  } deriving (Eq, Show)
 
 -- | Why one file yielded no rows.  A load reports these as counts; a watcher
 -- reports them per file, and decides what to keep on the strength of which one
@@ -128,16 +150,21 @@ data LoadFailure
   deriving (Eq, Show)
 
 emptyResult :: QueryResult
-emptyResult = QueryResult [] 0 0 0 0
+emptyResult = QueryResult [] 0 0 0 0 []
 
 -- Loading
 
 -- | Every headline under DIR, one record each.  Walks @*.org@ recursively,
 -- reads each file strictly and parses it from 'defaultContext' — per-file
 -- context is an invariant: keywords declared in one file never reach another.
+-- org-glance's derived mirrors are not walked ('Data.Org.Walk').
 loadDir :: FilePath -> IO QueryResult
-loadDir dir = do
-  (files, dirErrs) <- loadDirFiles dir
+loadDir = loadDirWith defaultWalk
+
+-- | 'loadDir' over the tree OPTS asks for.
+loadDirWith :: WalkOptions -> FilePath -> IO QueryResult
+loadDirWith opts dir = do
+  (files, dirErrs) <- loadDirFilesWith opts dir
   pure (summarise dirErrs files)
 
 -- | DIR loaded one file at a time: every @*.org@ path in walk order with its
@@ -146,8 +173,13 @@ loadDir dir = do
 -- The per-file breakdown 'loadDir' folds away is what a watcher needs to
 -- re-load a single file into a store built the same way.
 loadDirFiles :: FilePath -> IO ([(FilePath, Either LoadFailure [HeadlineRecord])], Int)
-loadDirFiles dir = do
-  found <- findOrgFiles [dir]
+loadDirFiles = loadDirFilesWith defaultWalk
+
+-- | 'loadDirFiles' over the tree OPTS asks for.
+loadDirFilesWith :: WalkOptions -> FilePath
+                 -> IO ([(FilePath, Either LoadFailure [HeadlineRecord])], Int)
+loadDirFilesWith opts dir = do
+  found <- findOrgFilesWith opts [dir]
   files <- mapM withOutcome (sort (foundFiles found))
   pure (files, length (foundDirErrs found))
   where withOutcome path = (,) path <$> loadFile path
@@ -176,9 +208,10 @@ loadFile path = do
 -- counted as read failures.
 summarise :: Int -> [(FilePath, Either LoadFailure [HeadlineRecord])] -> QueryResult
 summarise dirErrs files =
-  (foldl' count (emptyResult { qrReadFailures = dirErrs }) files) { qrRecords = forcing rows rows }
+  (foldl' count (emptyResult { qrReadFailures = dirErrs }) files)
+    { qrRecords = forcing rows rows, qrIdCollisions = clashes }
   where
-    rows = concatMap (fromRight [] . snd) files
+    (rows, clashes) = resolveIds (concatMap (fromRight [] . snd) files)
     count acc (_path, outcome) = case outcome of
       Left ReadFailed   -> seen { qrReadFailures = qrReadFailures seen + 1 }
       Left DecodeFailed -> seen { qrDecodeFailures = qrDecodeFailures seen + 1 }
@@ -296,6 +329,18 @@ squashControls = T.concat . go
       where (keep, rest) = T.break control s
     control c = c < ' ' || c == '\DEL'
 
+-- | The tags CELL names, one per tag: org writes them @:a:b:@, so splitting on
+-- the colon and dropping the empties is the whole of it.  Lowercased through
+-- 'displayText' like the search text, so a tag read off a row here is the same
+-- string a filter compares against.
+--
+-- This is the vocabulary a producer's virtual filter keys come from
+-- (@table-view\/SCHEMA.md@, Filter query): every distinct tag in the column is
+-- a key, and a renderer deriving them from the rows it holds has to get the
+-- same list out of the same cells.
+tagsOfCell :: Text -> [Text]
+tagsOfCell = filter (not . T.null) . T.splitOn ":" . T.toLower . displayText
+
 -- | Does a row's display text contain Q?  Q is trimmed and lowercased the way
 -- the renderer trims and lowercases its filter box, and an empty query matches
 -- every row.
@@ -308,6 +353,46 @@ matchesSearch q
   | T.null needle = const True
   | otherwise     = T.isInfixOf needle . hrSearch
   where needle = T.toLower (T.strip q)
+
+-- Identity
+
+-- | RECORDS with one row per id, and what that cost.  A row id is what a
+-- renderer keys updates off (@table-view\/SCHEMA.md@), so two rows sharing one
+-- are not two rows: the second would overwrite the first on every frame, and
+-- meanwhile the table shows the headline twice.
+--
+-- Which one stays is decided by the path.  org-glance's canonical store lives
+-- under @.org-glance\/data\/@ and everything else claiming that id is a copy of
+-- it ('canonicalPath'), so a canonical path wins; between two paths of the same
+-- kind, walk order does, which is stable and is what the view was showing
+-- before.  Every loser is reported rather than dropped quietly: a duplicate id
+-- is nearly always a tree that should not have been walked, and the count is a
+-- response header for exactly that reason.
+resolveIds :: [HeadlineRecord] -> ([HeadlineRecord], [IdCollision])
+resolveIds records = (kept, reverse clashes)
+  where
+    indexed = zip [0 :: Int ..] records
+    (winners, clashes) = foldl' pick (Map.empty, []) indexed
+    pick (best, out) (i, r) = case Map.lookup (hrId r) best of
+      Nothing -> (Map.insert (hrId r) (i, hrFile r) best, out)
+      Just (_j, held)
+        | canonicalPath (hrFile r) && not (canonicalPath held)
+                    -> (Map.insert (hrId r) (i, hrFile r) best, collision (hrFile r) held : out)
+        | otherwise -> (best, collision held (hrFile r) : out)
+        where collision = IdCollision (hrId r)
+    kept = [ r | (i, r) <- indexed, fmap fst (Map.lookup (hrId r) winners) == Just i ]
+
+-- | Is PATH inside org-glance's canonical store
+-- ('Data.Org.Walk.isCanonical')?  Re-exported so the rule the walk and the scan
+-- read is the rule the rows are resolved by.
+canonicalPath :: FilePath -> Bool
+canonicalPath = isCanonical
+
+-- | Is PATH inside one of org-glance's derived mirrors — the directories the
+-- walk declines to enter ('Data.Org.Walk.isDerived')?  Re-exported so a watcher
+-- can drop an event under one without reaching past this facade.
+derivedPath :: FilePath -> Bool
+derivedPath = isDerived
 
 -- | RECORDS in the order 'viewJSON' declares them sorted: scheduled ascending,
 -- an unscheduled row first, ties left in walk order.  A page has to be cut out

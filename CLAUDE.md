@@ -63,7 +63,22 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `evaluate` + `try`. Budget: ~19 MB max residency over 6305 files. `Cursor`
   assumes non-decreasing span starts.
 - Corpus check: `cabal run -v0 glance -- scan ~/sync` — expect 0 span
-  violations, ~13.3k headlines, wall ~14 s warm.
+  violations, ~12.9k headlines, wall ~14 s warm. (2026-07-31: 13.4k → 12.9k
+  when the derived mirrors left the walk; a semantic correction, not a loss.)
+
+## Walk
+
+- Org files are the source of truth, so org-glance's derived mirrors are not
+  walked: inside a `.org-glance` directory, `overviews` and `meta` are skipped
+  and `data` — the canonical store — is kept. One rule (`Data.Org.Walk.isDerived`)
+  serves the walk and the watch, so a file the store never loaded cannot arrive
+  by inotify. `--include-derived` turns it off on `serve`, `desktop` and `scan`,
+  and the scan reports what it skipped.
+- One row per id. Two files claiming an `ORG_GLANCE_ID` are resolved by
+  `Glance.Query.resolveIds` — a `.org-glance/data/` path wins, else walk order —
+  and the losers are counted, in `X-Glance-Id-Collisions` and in the scan
+  report. `loadDir` and `storeResult` call it, so the store still equals the
+  load it stands in for.
 
 ## Architecture (docs/proposal-org-console-web.md, docs/plan-org-console-web.md)
 
@@ -120,6 +135,18 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   whole set in walk order for the client to sort. The palette stays the store's
   whatever the page holds, and the shell re-asks the server for a row frame that
   lands while a filter is on.
+- `?q=` is SCHEMA.md's filter query, parsed in `Glance.Web.Filter` as a port of
+  `table-view.js`'s `scanQuery`/`parseQuery`/`tokenTest` — parity is the
+  contract. Tokens split on whitespace and `&`; `key:value` (`=` alias) is a
+  predicate only for a column key or a producer virtual key, so `:work:` and
+  `=code=` stay text; a token opening with `"` is free text; `-` negates.
+  Same-key predicates OR, everything else ANDs. Per type: badge whole-value
+  case-insensitive plus `state:active`/`inactive`; text substring; dates prefix;
+  `key:none` is the empty cell on every type; `key:` narrows nothing. The
+  virtual keys are the store's org tags (`storeTags`, kept per tag beside
+  `stIds`): `TAG:text` is tagged whole-TAG and matching text, empty text being
+  presence; a column shadows a tag of its name. A predicate reads one `\x1f`
+  field of `hrSearch`, so per-cell matching and free text agree by construction.
 - The served pages fetch nothing off this server: inline styles, inline glue,
   and one `<script src>` naming a file under `--assets`. No CDN, no web font, no
   analytics. The JetBrains Mono `@font-face` appears only when the assets
@@ -149,6 +176,21 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   the Emacs org-glance maps; buttons only where keys cannot reach; the echo
   widget must know every new binding (keymap-is-data blob is the single
   source).
+- The materialize sheet is buttonless and syncs itself. Dirty = textarea vs the
+  materialized original, moved by each successful flush; ESC or the backdrop
+  flushes a dirty sheet and closes on the 200, a pristine one closes with no
+  request; `C-x C-s` flushes mid-edit and chains the receipt's digest; a 409
+  keeps it open at `conflict`, where `C-x C-s` re-reads the digest and
+  overwrites and ESC discards; `beforeunload` flushes with `keepalive` only when
+  dirty. Header states: `synced` / `syncing…` / `conflict`. The sheet alone
+  wears the author's Emacs theme (danneskjold, `--dk-*` vars, Hack first).
+- The applied filter query is in the URL (`replaceState`, `keys` preserved) and
+  applied from it on load. `DEL` over the table drops the query's last token
+  through the renderer (`stripLastToken`/`getQuery`) — the chips are the
+  renderer's, so the strip is too.
+- One status corner, top right: the connection dot and a native `<select>` of
+  the keymap blob's movement profiles. A focused `SELECT` counts as typing, so
+  its own arrows reach it.
 
 ## Build
 

@@ -14,6 +14,7 @@ module Glance.Web.Watch
   , due
   , isWatchable
   , reload
+  , watched
   , watchOrgTree
   ) where
 
@@ -31,7 +32,7 @@ import qualified Data.Char as Char
 import qualified Data.Map.Strict as Map
 import qualified System.FSNotify as FS
 
-import Glance.Query (LoadFailure (..), loadFile)
+import Glance.Query (LoadFailure (..), WalkOptions (..), derivedPath, loadFile)
 import Glance.Web.Store ( Frame (..), Hub, applyFile, dropFile, publish )
 
 -- | How long a path must stay quiet before it is re-parsed.  An editor's save
@@ -46,13 +47,14 @@ debounceDelay = 0.1
 tick :: Int
 tick = 25000
 
--- | Watch DIR and fold every org edit under it into HUB.  Blocks forever: the
--- manager lives as long as this call, so run it in its own thread.
-watchOrgTree :: FilePath -> Hub -> IO ()
-watchOrgTree dir hub = do
+-- | Watch DIR and fold every org edit under it into HUB, over the tree OPTS
+-- asks for.  Blocks forever: the manager lives as long as this call, so run it
+-- in its own thread.
+watchOrgTree :: WalkOptions -> FilePath -> Hub -> IO ()
+watchOrgTree opts dir hub = do
   pending <- newTVarIO Map.empty
   FS.withManager $ \mgr -> do
-    _stop <- FS.watchTree mgr dir (isWatchable . FS.eventPath) (note pending)
+    _stop <- FS.watchTree mgr dir (watched opts . FS.eventPath) (note pending)
     forever $ do
       threadDelay tick
       now <- getCurrentTime
@@ -64,6 +66,14 @@ watchOrgTree dir hub = do
   where note pending event = do
           now <- getCurrentTime
           atomically (modifyTVar' pending (Map.insert (FS.eventPath event) now))
+
+-- | Is PATH one this watch reads, under OPTS?  What 'isWatchable' keeps, minus
+-- what the walk declined to enter: a file the store was never given must not
+-- arrive by way of an inotify event, or an org-glance mirror would appear in
+-- the table the moment it was rewritten.
+watched :: WalkOptions -> FilePath -> Bool
+watched opts path = isWatchable path
+                 && (woIncludeDerived opts || not (derivedPath path))
 
 -- | Is PATH one this watch cares about?  @.org@ and nothing else, minus the
 -- two sidecars Emacs writes beside a buffer: @.#name.org@ is a lock symlink

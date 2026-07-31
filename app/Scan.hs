@@ -18,7 +18,10 @@ import qualified Data.Text.IO as TIO
 import qualified TextShow as TS
 
 import Data.Org
-import Data.Org.Walk (Found (..), errText, findOrgFiles)
+import Data.Org.Walk ( Found (..), WalkOptions (..), errText, findOrgFilesWith
+                     , isCanonical )
+
+import qualified Data.Map.Strict as Map
 
 -- | How many entries of each failure listing to print.
 sampleLimit :: Int
@@ -26,17 +29,19 @@ sampleLimit = 20
 
 -- Entry point
 
--- | Scan ROOTS for .org files, parse each one, and print a summary report.
-runScan :: [FilePath] -> IO ()
-runScan roots = do
+-- | Scan ROOTS for .org files as OPTS asks, parse each one, and print a
+-- summary report.
+runScan :: WalkOptions -> [FilePath] -> IO ()
+runScan opts roots = do
   started <- getCurrentTime
-  found <- findOrgFiles roots
+  found <- findOrgFilesWith opts roots
   let paths = sort (foundFiles found)
       dirErrs = sort (foundDirErrs found)
+      derived = sort (foundDerived found)
   totals <- foldM visitFile emptyTotals paths
   finished <- getCurrentTime
   let secs = realToFrac (diffUTCTime finished started) :: Double
-  report roots (length paths) totals dirErrs secs
+  report roots (length paths) totals dirErrs derived secs
   where visitFile t path = do
           result <- scanFile path
           let t' = merge t path result
@@ -54,6 +59,7 @@ data FileResult = FileResult
   , frHeadlines  :: !Int
   , frViolations :: !Int
   , frSample     :: ![Text]
+  , frIds        :: ![Text]     -- ^ the ORG_GLANCE_IDs the file claims, copied.
   }
 
 -- | Read, decode and parse PATH, forcing the result before returning it.
@@ -69,15 +75,16 @@ scanFile path = do
         pure $ case outcome of
           Left e  -> bare (BParse ("exception: " <> errText (e :: SomeException)))
           Right r -> r
-  where bare b = FileResult b 0 0 0 []
+  where bare b = FileResult b 0 0 0 [] []
 
 -- | Parse DOC and tally its elements, headlines and span violations.
 analyse :: FilePath -> Text -> FileResult
 analyse path doc = case orgParse defaultContext doc of
-  (_elems, _ctx, Just err) -> FileResult (BParse (errorReason err)) 0 0 0 []
+  (_elems, _ctx, Just err) -> FileResult (BParse (errorReason err)) 0 0 0 [] []
   (elems, _ctx, Nothing)   ->
     let acc = foldl' (step path doc (T.length doc)) (Acc 0 0 0 [] (Cursor 0 doc)) elems
     in FileResult BOk (accElements acc) (accHeadlines acc) (accViolations acc) (accSample acc)
+                  [ T.copy i | EHeadline h <- map valueOf elems, Just i <- [identity h] ]
 
 -- | Running tally over one file's elements.
 data Acc = Acc
@@ -105,7 +112,7 @@ step path doc len acc el = Acc
 forceResult :: FileResult -> FileResult
 forceResult r =
   frBucket r `seq` frElements r `seq` frHeadlines r `seq` frViolations r
-              `seq` foldr seq r (frSample r)
+              `seq` foldr seq (foldr seq r (frIds r)) (frSample r)
 
 -- Span checks
 
@@ -183,10 +190,13 @@ data Totals = Totals
   , tDecodeErrs :: ![(FilePath, Text)]
   , tParseErrs  :: ![(FilePath, Text)]
   , tViolSample :: ![Text]
+  , tIds        :: !(Map.Map Text FilePath)  -- ^ every id seen, and the file that keeps it.
+  , tCollisions :: !Int
+  , tCollSample :: ![Text]
   }
 
 emptyTotals :: Totals
-emptyTotals = Totals 0 0 0 0 0 0 0 [] [] [] []
+emptyTotals = Totals 0 0 0 0 0 0 0 [] [] [] [] Map.empty 0 []
 
 merge :: Totals -> FilePath -> FileResult -> Totals
 merge t path r = case frBucket r of
@@ -196,11 +206,26 @@ merge t path r = case frBucket r of
                    , tDecodeErrs = capped (tDecodeErrs t) [(path, why)] }
   BParse why  -> t { tParse  = tParse t + 1
                    , tParseErrs = capped (tParseErrs t) [(path, why)] }
-  BOk         -> t { tOk         = tOk t + 1
-                   , tElements   = tElements t + frElements r
-                   , tHeadlines  = tHeadlines t + frHeadlines r
-                   , tViolations = tViolations t + frViolations r
-                   , tViolSample = capped (tViolSample t) (frSample r) }
+  BOk         -> ids (t { tOk         = tOk t + 1
+                        , tElements   = tElements t + frElements r
+                        , tHeadlines  = tHeadlines t + frHeadlines r
+                        , tViolations = tViolations t + frViolations r
+                        , tViolSample = capped (tViolSample t) (frSample r) })
+  where ids acc = foldl' (claim path) acc (frIds r)
+
+-- | ID from PATH folded into ACC's index.  The same rule the rows are resolved
+-- by ('Glance.Query.resolveIds'): a canonical path takes the id, otherwise the
+-- first file in walk order keeps it, and the loser is reported.
+claim :: FilePath -> Totals -> Text -> Totals
+claim path t i = case Map.lookup i (tIds t) of
+  Nothing   -> t { tIds = Map.insert i path (tIds t) }
+  Just held -> seen (if isCanonical path && not (isCanonical held)
+                       then (path, held) else (held, path))
+    where seen (kept, dropped) = t
+            { tIds        = Map.insert i kept (tIds t)
+            , tCollisions = tCollisions t + 1
+            , tCollSample = capped (tCollSample t)
+                              [i <> ": kept " <> T.pack kept <> ", dropped " <> T.pack dropped] }
 
 -- | OLD extended by NEW, truncated to 'sampleLimit' and forced.
 capped :: [a] -> [a] -> [a]
@@ -210,8 +235,9 @@ capped old new
 
 -- Reporting
 
-report :: [FilePath] -> Int -> Totals -> [(FilePath, Text)] -> Double -> IO ()
-report roots files t dirErrs secs = do
+report :: [FilePath] -> Int -> Totals -> [(FilePath, Text)] -> [FilePath] -> Double
+       -> IO ()
+report roots files t dirErrs derived secs = do
   TIO.putStrLn ("scan " <> T.intercalate " " (map T.pack roots))
   mapM_ TIO.putStrLn
     [ row "dirs scanned"    (num (length roots))
@@ -221,9 +247,11 @@ report roots files t dirErrs secs = do
     , row "decode failures" (num (tDecode t))
     , row "parse failures"  (num (tParse t))
     , row "unreadable dirs" (num (length dirErrs))
+    , row "derived skipped" (num (length derived))
     , row "elements"        (num (tElements t))
     , row "headlines"       (num (tHeadlines t))
     , row "span violations" (num (tViolations t))
+    , row "id collisions"   (num (tCollisions t))
     , row "wall seconds"    (fixed 2 secs)
     , row "files/sec"       (fixed 1 rate)
     ]
@@ -234,6 +262,8 @@ report roots files t dirErrs secs = do
   section "parse failures" (tParse t)
           [T.pack p <> ": " <> why | (p, why) <- tParseErrs t]
   section "span violations" (tViolations t) (tViolSample t)
+  section "id collisions" (tCollisions t) (tCollSample t)
+  section "derived skipped" (length derived) (map T.pack (take sampleLimit derived))
   where rate | secs > 0  = fromIntegral files / secs
              | otherwise = 0
 

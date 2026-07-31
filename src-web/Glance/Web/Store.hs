@@ -31,10 +31,12 @@ module Glance.Web.Store
   , FileEntry (..)
   , emptyStore
   , loadStore
+  , loadStoreWith
   , storeHeadline
   , storeRecords
   , storeResult
   , storeKeywords
+  , storeTags
   , applyFile
   , dropFile
     -- * Frames
@@ -60,7 +62,7 @@ import Control.Concurrent.STM (STM, TVar, atomically, modifyTVar', newTVar, newT
 import Control.Concurrent.STM.TBQueue (TBQueue, isFullTBQueue, newTBQueue, readTBQueue, writeTBQueue)
 import Control.Monad ((<=<))
 import Data.Aeson (Value, encode, object, (.=))
-import Data.List (foldl', nub)
+import Data.List (find, foldl', nub)
 import Data.Map.Strict (Map)
 import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Set (Set)
@@ -71,9 +73,10 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
-import Glance.Query ( HeadlineRecord (hrId, hrKeywords), LoadFailure (..)
-                    , QueryResult (..), TodoKeywords, loadDirFiles
-                    , mergeKeywords, rowJSON )
+import Glance.Query ( HeadlineRecord (hrId, hrKeywords, hrTags), LoadFailure (..)
+                    , QueryResult (..), TodoKeywords, WalkOptions, defaultWalk
+                    , loadDirFilesWith, mergeKeywords, resolveIds, rowJSON
+                    , tagsOfCell )
 
 -- The store
 
@@ -83,6 +86,7 @@ import Glance.Query ( HeadlineRecord (hrId, hrKeywords), LoadFailure (..)
 data Store = Store
   { stFiles   :: !(Map FilePath FileEntry)  -- ^ path-keyed, hence walk-ordered.
   , stIds     :: !(Map Text Int)            -- ^ row id → how many files carry it.
+  , stTags    :: !(Map Text Int)            -- ^ org tag → how many files carry it; see 'storeTags'.
   , stDirErrs :: !Int                       -- ^ directories the startup walk could not list.
   , stGen     :: !Int                       -- ^ update counter; see 'guarded'.
   }
@@ -96,33 +100,46 @@ data FileEntry = FileEntry
   }
 
 emptyStore :: Store
-emptyStore = Store Map.empty Map.empty 0 0
+emptyStore = Store Map.empty Map.empty Map.empty 0 0
 
 -- | DIR walked and parsed into a store: the same files 'Glance.Query.loadDir'
 -- visits, with the per-file breakdown kept instead of folded into counts.
 loadStore :: FilePath -> IO Store
-loadStore dir = do
-  (files, dirErrs) <- loadDirFiles dir
+loadStore = loadStoreWith defaultWalk
+
+-- | 'loadStore' over the tree OPTS asks for.
+loadStoreWith :: WalkOptions -> FilePath -> IO Store
+loadStoreWith opts dir = do
+  (files, dirErrs) <- loadDirFilesWith opts dir
   pure $! foldl' seed (emptyStore { stDirErrs = dirErrs }) files
   where seed st (path, outcome) = fst (putFile path outcome st)
 
--- | Every row the store holds, in walk order.
+-- | Every row the store holds, in walk order, before the id resolution — what
+-- the files say, duplicates and all.
+storeRows :: Store -> [HeadlineRecord]
+storeRows = concatMap feRecords . Map.elems . stFiles
+
+-- | Every row the store serves, in walk order: one per id
+-- ('Glance.Query.resolveIds').
 storeRecords :: Store -> [HeadlineRecord]
-storeRecords = concatMap feRecords . Map.elems . stFiles
+storeRecords = fst . resolveIds . storeRows
 
 -- | The store as the load result it stands in for: same rows in the same
 -- order, same counts.  @GET \/headlines@ renders this, so the served document
--- is the one a fresh 'Glance.Query.loadDir' would have produced.
+-- is the one a fresh 'Glance.Query.loadDir' would have produced — the id
+-- resolution included, which is why both go through the same function.
 storeResult :: Store -> QueryResult
 storeResult st = QueryResult
-  { qrRecords        = storeRecords st
+  { qrRecords        = rows
   , qrFiles          = length entries
   , qrParseFailures  = failures ParseFailed
   , qrDecodeFailures = failures DecodeFailed
   , qrReadFailures   = stDirErrs st + failures ReadFailed
+  , qrIdCollisions   = clashes
   }
-  where entries    = Map.elems (stFiles st)
-        failures f = length (filter ((== Just f) . feFailure) entries)
+  where entries          = Map.elems (stFiles st)
+        (rows, clashes)  = resolveIds (storeRows st)
+        failures f       = length (filter ((== Just f) . feFailure) entries)
 
 -- | The record ST holds under ID, or 'Nothing'.  What @\/headline@ materializes
 -- from: the row the table shows, with the subtree extent and the digest of the
@@ -134,13 +151,22 @@ storeResult st = QueryResult
 -- second structure to keep in step with 'stFiles' on every reload.  The scan
 -- is ~2.4 ms over the 13359-row ~/sync store, which is most of a materialize
 -- request and none of a user's attention; it is the lever if @\/headline@ ever
--- lands in a loop.  Two files declaring one @ORG_GLANCE_ID@ share a row and the
--- later one in walk order wins, which is how 'rowsById' resolves the same
--- collision on the wire.
+-- lands in a loop.  It runs over the resolved rows, so materializing an id two
+-- files claim opens the one the table is showing.
 storeHeadline :: Text -> Store -> Maybe HeadlineRecord
-storeHeadline rid = foldl' pick Nothing . storeRecords
-  where pick found r | hrId r == rid = Just r
-                     | otherwise     = found
+storeHeadline rid = find ((== rid) . hrId) . storeRecords
+
+-- | Every org tag the store's rows carry, sorted.  The producer half of
+-- SCHEMA.md's virtual filter keys: each of these is a filter key of its own, so
+-- @contact:tanik@ narrows to rows tagged @contact@ that also match the text.
+--
+-- Kept as a count per tag beside the id index rather than folded out of the
+-- rows per request: the vocabulary is asked for on every @\/headlines@ and the
+-- rows are 13k of them.  It moves only when a file's rows do, which is exactly
+-- when 'guarded' moves the generation the @ETag@ spells, so a client's cached
+-- answer can never be one the old vocabulary produced.
+storeTags :: Store -> [Text]
+storeTags = Map.keys . stTags
 
 -- | The palette the store's columns carry.  One record per file is enough:
 -- every row of a file shares its keyword sets and 'mergeKeywords' deduplicates,
@@ -196,7 +222,8 @@ putFile path outcome st = case outcome of
     old     = maybe [] feRecords (Map.lookup path files)
     oldRows = rowsById old
     next new = st { stFiles = Map.insert path (FileEntry new Nothing) files
-                  , stIds   = reindex (idsOf old) (idsOf new) (stIds st) }
+                  , stIds   = reindex (idsOf old) (idsOf new) (stIds st)
+                  , stTags  = reindex (tagsOf old) (tagsOf new) (stTags st) }
     frames new = upserts <> gone (idsOf old) (idsOf new) (next new)
       where rows    = rowsById new
             upserts = [ UpsertRow row
@@ -212,7 +239,8 @@ removeFile path st = case Map.lookup path (stFiles st) of
   Just entry -> (next, gone ids Set.empty next)
     where ids  = idsOf (feRecords entry)
           next = st { stFiles = Map.delete path (stFiles st)
-                    , stIds   = reindex ids Set.empty (stIds st) }
+                    , stIds   = reindex ids Set.empty (stIds st)
+                    , stTags  = reindex (tagsOf (feRecords entry)) Set.empty (stTags st) }
 
 -- | Delete frames for the ids in OLD that NEW dropped and no file in ST still
 -- carries.  Two files declaring one @ORG_GLANCE_ID@ share a row, and the
@@ -234,6 +262,11 @@ rowsById records = Map.fromList [ (hrId r, rowJSON r) | r <- records ]
 
 idsOf :: [HeadlineRecord] -> Set Text
 idsOf = Set.fromList . map hrId
+
+-- | The distinct tags RECORDS carry, deduplicated per file so 'reindex' counts
+-- files rather than rows.
+tagsOf :: [HeadlineRecord] -> Set Text
+tagsOf = Set.fromList . concatMap (tagsOfCell . hrTags)
 
 -- Frames
 

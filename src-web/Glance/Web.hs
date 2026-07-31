@@ -106,23 +106,31 @@ import qualified Network.Wai.Handler.Warp as Warp
 import qualified Network.WebSockets as WS
 
 import Glance.Query ( HeadlineRecord (hrDigest, hrFile, hrId, hrSubtree)
-                    , QueryResult (..), Span (spanEnd, spanStart)
-                    , WriteFailure (..), matchesSearch, replaceSpan, sortedForView
+                    , IdCollision (..), QueryResult (..), Span (spanEnd, spanStart)
+                    , WalkOptions (..), WriteFailure (..), replaceSpan, sortedForView
                     , subtreeText, viewJSONTextWith )
+import Glance.Web.Filter (matchesFilter)
 import Glance.Web.Store ( Client, Frame (ViewChanged), Hub, LoadState (..)
                         , Store (stGen), finishLoading, frameText, hubLoad, hubStore
-                        , loadStore, newLoadingHub, nextFrame, storeHeadline
-                        , storeKeywords, storeResult, subscribe, unsubscribe )
+                        , loadStoreWith, newLoadingHub, nextFrame, storeHeadline
+                        , storeKeywords, storeResult, storeTags, subscribe
+                        , unsubscribe )
 import Glance.Web.Watch (watchOrgTree)
 
 -- Options
 
 -- | What one server serves.
 data ServeOptions = ServeOptions
-  { soDir    :: !FilePath  -- ^ org root, walked once at startup and watched after.
-  , soPort   :: !Int       -- ^ loopback port to listen on.
-  , soAssets :: !FilePath  -- ^ directory holding @table-view.js@; see 'defaultAssetsDir'.
+  { soDir     :: !FilePath  -- ^ org root, walked once at startup and watched after.
+  , soPort    :: !Int       -- ^ loopback port to listen on.
+  , soAssets  :: !FilePath  -- ^ directory holding @table-view.js@; see 'defaultAssetsDir'.
+  , soDerived :: !Bool      -- ^ serve org-glance's mirror directories too; see 'Data.Org.Walk'.
   } deriving (Eq, Show)
+
+-- | How OPTS wants the tree walked, for the load and for the watch alike: a
+-- file the walk passed over must not come back through an inotify event.
+walkFor :: ServeOptions -> WalkOptions
+walkFor opts = WalkOptions { woIncludeDerived = soDerived opts }
 
 defaultPort :: Int
 defaultPort = 7777
@@ -193,14 +201,25 @@ serveWith opts listening = do
 -- would be folded into a store that is about to be replaced wholesale.
 indexTree :: ServeOptions -> Hub -> Double -> IO ()
 indexTree opts hub started = do
-  store <- loadStore (soDir opts)
+  store <- loadStoreWith (walkFor opts) (soDir opts)
   loaded <- getMonotonicTime
   finishLoading hub store
   let stats = storeResult store
   putStrLn ("  loaded:  " <> show (length (qrRecords stats)) <> " rows from "
-              <> show (qrFiles stats) <> " files in " <> seconds (loaded - started))
+              <> show (qrFiles stats) <> " files in " <> seconds (loaded - started)
+              <> collisionNote (qrIdCollisions stats))
   hFlush stdout
-  watchOrgTree (soDir opts) hub
+  watchOrgTree (walkFor opts) (soDir opts) hub
+
+-- | What to say about CLASHES on the startup banner: nothing when there are
+-- none, and the count with one example when there are — two files claiming one
+-- id is a tree worth looking at, and the header carries the number for a client.
+collisionNote :: [IdCollision] -> String
+collisionNote [] = ""
+collisionNote (c : rest) =
+  ", " <> show (length rest + 1) <> " id collision" <> plural
+    <> " (" <> T.unpack (icId c) <> ": kept " <> icKept c <> ", dropped " <> icDropped c <> ")"
+  where plural = if null rest then "" else "s"
 
 -- | S to a tenth of a second, which is the resolution a startup banner earns.
 seconds :: Double -> String
@@ -303,11 +322,13 @@ safeName name = not (T.null name)
 -- startup parse produced, kept current by the watcher, so the response costs a
 -- filter and an encode instead of a directory walk.
 --
--- @q@ is a case-insensitive substring of the row as it displays
--- ('Glance.Query.matchesSearch'), @limit@ a page size — absent means the whole
--- set, which is what every client before this asked for — and @offset@ where
--- the page starts.  Filtering happens before paging, so @X-Glance-Total@ is
--- the match count and @X-Glance-Has-Next@ says whether a further page exists.
+-- @q@ is SCHEMA.md's filter query — field predicates over the view's own
+-- columns and over every org tag the store carries, free text, negation,
+-- same-key predicates ORing ('Glance.Web.Filter') — @limit@ a page size,
+-- absent meaning the whole set,
+-- which is what every client before this asked for, and @offset@ where the page
+-- starts.  Filtering happens before paging, so @X-Glance-Total@ is the match
+-- count and @X-Glance-Has-Next@ says whether a further page exists.
 -- The body stays a View: SCHEMA.md fixes its fields, so paging metadata rides
 -- in the same @X-Glance-*@ family the load counts already use.
 --
@@ -336,7 +357,7 @@ headlines opts hub request = case pageParams request of
       then pure (responseLBS status304 (cacheHeaders tag) "")
       else do
         let qr      = storeResult st
-            matched = filter (matchesSearch q) (qrRecords qr)
+            matched = filter (matchesFilter (storeTags st) q) (qrRecords qr)
             total   = length matched
             shown   = maybe matched (\n -> take n (drop offset (sortedForView matched))) limit
             hasNext = maybe False (\n -> offset + n < total) limit
@@ -614,6 +635,9 @@ statsHeaders qr =
   , count "X-Glance-Parse-Failures"  (qrParseFailures qr)
   , count "X-Glance-Decode-Failures" (qrDecodeFailures qr)
   , count "X-Glance-Read-Failures"   (qrReadFailures qr)
+  -- Two files claiming one row id: the view carries one of them
+  -- ('Glance.Query.resolveIds') and this is how many it had to choose between.
+  , count "X-Glance-Id-Collisions"   (length (qrIdCollisions qr))
   ]
   where count name n = (name, BSC.pack (show n))
 
@@ -692,17 +716,25 @@ data KeyBinding = KeyBinding
   , kbCommand :: !Text          -- ^ the command name the echo widget shows.
   , kbHandler :: !(Maybe Text)  -- ^ the shell function running it; 'Nothing' is staged.
   , kbScope   :: !Text          -- ^ @table@, @modal@ or @any@ — where it is live.
+  , kbHelp    :: !(Maybe Text)  -- ^ what it does, when the command name does not say; see 'helps'.
   }
 
 -- | KEYS bound to a command, spelled the way Emacs spells a sequence: one
 -- space between the keys.
 bind :: [Text] -> Text -> Maybe Text -> Text -> KeyBinding
-bind keys = KeyBinding keys (T.unwords keys)
+bind keys command handler scope = KeyBinding keys (T.unwords keys) command handler scope Nothing
 
 -- | 'bind', spelled SHOWN.  vi runs @gg@ together where Emacs would write
 -- @g g@, and the echo widget owes the reader the notation they typed in.
 bindAs :: Text -> [Text] -> Text -> Maybe Text -> Text -> KeyBinding
-bindAs shown keys = KeyBinding keys shown
+bindAs shown keys command handler scope = KeyBinding keys shown command handler scope Nothing
+
+-- | B with the one line the echo widget shows past its command name.  A row
+-- earns one where the name is the Emacs name for a key whose behaviour here is
+-- narrower than the name — @save-buffer@ on a sheet that syncs itself, and the
+-- @keyboard-quit@ that flushes on the way out.
+helps :: KeyBinding -> Text -> KeyBinding
+helps b text' = b { kbHelp = Just text' }
 
 -- | The rows both profiles carry: every command that is not movement, plus the
 -- movement no editor argues about — the arrows, and org-glance's own
@@ -717,10 +749,11 @@ bindAs shown keys = KeyBinding keys shown
 -- Claimed chords, and only these.  @C-c@ becomes a prefix while no text field
 -- has focus and the selection is collapsed, so a copy is still a copy; @C-x@
 -- likewise, and only while the sheet is open, which is the only place @C-x
--- C-s@ means anything.  @RET@, @TAB@ and @\/@ are taken while the table has
--- focus.  Everything else reaches the browser — @C-l@, @C-r@, @C-t@, @C-w@,
--- @C-n@, @C-p@ and @\<f5\>@ even as the continuation of a prefix this map
--- entered, which is why neither profile moves on @C-n@ or @C-p@.
+-- C-s@ means anything.  @RET@, @TAB@, @\/@ and @DEL@ are taken while the table
+-- has focus — @DEL@ is the filter's own undo, and a field with focus keeps its
+-- backspace.  Everything else reaches the browser — @C-l@, @C-r@, @C-t@,
+-- @C-w@, @C-n@, @C-p@ and @\<f5\>@ even as the continuation of a prefix this
+-- map entered, which is why neither profile moves on @C-n@ or @C-p@.
 sharedKeys :: [KeyBinding]
 sharedKeys =
   [ bind ["<down>"]     "next-row"                        (Just "nextRow")        "table"
@@ -731,6 +764,8 @@ sharedKeys =
   , bind [">"]          "last-row"                        (Just "lastRow")        "table"
   , bind ["RET"]        "org-glance-overview:materialize" (Just "materializeRow") "table"
   , bind ["/"]          "filter-rows"                     (Just "focusFilter")    "table"
+  , bind ["DEL"]        "filter-drop-token"               (Just "filterDrop")     "table"
+      `helps` "drop the filter's last token"
   , bind ["q"]          "quit-window"                     (Just "quitWindow")     "table"
   , bind ["TAB"]        "org-cycle"                       Nothing                 "table"
   , bind ["!"]          "org-glance-overview:open"        Nothing                 "table"
@@ -742,7 +777,9 @@ sharedKeys =
   , bind ["C-c", "C-s"] "org-glance-overview:schedule"    Nothing                 "table"
   , bind ["C-c", "C-d"] "org-glance-overview:deadline"    Nothing                 "table"
   , bind ["C-x", "C-s"] "save-buffer"                     (Just "save")           "modal"
+      `helps` "sync the sheet now; again to overwrite a conflict"
   , bind ["ESC"]        "keyboard-quit"                   (Just "cancel")         "any"
+      `helps` "close the sheet, syncing an edited one; again to discard"
   ]
 
 -- | Movement as org-glance's overview binds it, and what a page starts on.
@@ -800,7 +837,8 @@ keyBindingsJSON = T.replace "<" "\\u003c" . T.replace ">" "\\u003e"
                        , "seq"     .= kbSeq b
                        , "command" .= kbCommand b
                        , "handler" .= kbHandler b
-                       , "scope"   .= kbScope b ]
+                       , "scope"   .= kbScope b
+                       , "help"    .= kbHelp b ]
 
 -- Pages
 
@@ -833,51 +871,70 @@ shellPage opts = do
 --
 -- Filtering is the server's.  The renderer's @onFilter@ hands over the
 -- debounced query instead of narrowing its own list, the shell asks
--- @\/headlines?q=@ for it, and the answer replaces the rows — the store holds
--- the search text, so a query costs a substring scan there rather than 3 MB of
--- JSON here.  One fetch is in flight at a time and a new one aborts the last,
--- so a fast typist's earlier answers cannot land after a later one.  While a
--- filter is on, a row frame off the socket is answered by re-asking rather
--- than by splicing: the loaded rows are the server's answer to a query and
--- only it knows whether the changed row still matches.
+-- @\/headlines?q=@ for it — the string exactly as typed, since the grammar is
+-- 'Glance.Web.Filter''s to parse — and the answer replaces the rows.  One fetch
+-- is in flight at a time and a new one aborts the last, so a fast typist's
+-- earlier answers cannot land after a later one.  While a filter is on, a row
+-- frame off the socket is answered by re-asking rather than by splicing: the
+-- loaded rows are the server's answer to a query and only it knows whether the
+-- changed row still matches.
+--
+-- The applied query is page state.  It goes into the URL on every commit
+-- (@replaceState@, leaving @keys@ where it is), so a filtered view is a link, a
+-- reload keeps it and a reconnect comes back to it.  @DEL@ over the table is
+-- that query's own backspace: it takes the last token off — quotes and all —
+-- and commits what is left, which clears the filter once the last token goes.
+--
+-- The materialize sheet has no buttons.  @ESC@ or a click on the backdrop
+-- closes it, flushing first when the text has moved and closing on the 200; a
+-- pristine sheet closes with no request at all, so opening one and reading it
+-- never touches the file.  @C-x C-s@ flushes mid-edit, and the receipt's digest
+-- becomes the next flush's lock.  A 409 leaves the sheet open saying
+-- @conflict@: @C-x C-s@ then re-reads the file's digest and posts the author's
+-- text over it — last writer wins, on a deliberate keystroke — and @ESC@
+-- discards.  A tab closing on an edited sheet flushes with @keepalive@.  The
+-- header carries the state in one word, @synced@ \/ @syncing…@ \/ @conflict@,
+-- and the sheet wears the author's Emacs theme (danneskjold) while the table
+-- keeps the page's.
 --
 -- Every close leads back through the same door: re-fetch, re-mount, reconnect.
 -- That covers a daemon restart, a dropped slow client, and @view-changed@ —
 -- the columns moving, which SCHEMA.md's row ops cannot express.
 --
 -- The @materialize@ action opens the subtree over the table in a plain
--- @textarea@: @GET \/headline@ fills it, Save posts it back with the digest it
--- came with, and a 409 says so and offers to fetch the subtree again.  A save
--- closes the sheet without touching the table — the row arrives over the socket
--- when the watch has re-read the file, which is the same way it would arrive
--- had the edit come from an editor.  A real editor component is M3.5; a
--- textarea is what proves the round-trip.
+-- @textarea@ filled by @GET \/headline@.  A commit never touches the table —
+-- the row arrives over the socket when the watch has re-read the file, which is
+-- the same way it would arrive had the edit come from an editor.  A real editor
+-- component is M3.5; a textarea is what proves the round-trip.
 --
 -- The keys are 'keyBindingsJSON', which the glue parses: row movement runs
 -- over the renderer's @getVisible@ and @select@, since a virtualized row
 -- outside the window has no element to click, and a sequence with no handler
--- echoes its org-glance command name
--- and what it is waiting for.  The pill in the corner is the echo area — the
--- pending prefix while one is open, the command on completion, @is undefined@
--- otherwise.  A second pill by the heading names the movement profile and
--- switches it in place, remembering the choice where the page can find it
--- again.
+-- echoes its org-glance command name and what it is waiting for.  The pill in
+-- the bottom corner is the echo area — the pending prefix while one is open,
+-- the command and its help line on completion, @is undefined@ otherwise.  The
+-- top corner holds the connection dot and a @select@ of the movement profiles
+-- the blob declares, which rebinds in place and remembers the choice; a native
+-- control because Tab, the arrows and Enter already navigate one and no new
+-- chord is owed for it.
 demoShell :: ServeOptions -> Maybe FilePath -> Text
 demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlines
-  [ "  <h1>" <> escape (viewTitleFor (soDir opts)) <> "<span id=\"dot\"></span>"
-      <> "<button id=\"keyset\" type=\"button\""
-      <> " title=\"movement profile — click to switch\"></button></h1>"
+  -- No heading: the renderer's omnibox is the top of the page and the view
+  -- title is already the tab's.  Printing it a second time here put it on
+  -- screen twice.
+  [ "  <div id=\"corner\"><span id=\"dot\" title=\"live connection\"></span>"
+      <> "<label for=\"themesel\">theme:</label>"
+      <> "<select id=\"themesel\" title=\"colour theme\">"
+      <> "<option value=\"auto\">auto</option><option value=\"light\">light</option>"
+      <> "<option value=\"dark\">dark</option></select>"
+      <> "<label for=\"keysel\">keys:</label>"
+      <> "<select id=\"keysel\" title=\"movement profile\"></select></div>"
   , "  <div id=\"app\"></div>"
   , "  <div id=\"log\">loading …</div>"
   , "  <div id=\"modal\">"
   , "    <div id=\"sheet\">"
   , "      <div id=\"mhead\"><span id=\"mfile\"></span><span id=\"mnote\"></span></div>"
   , "      <textarea id=\"mtext\" spellcheck=\"false\"></textarea>"
-  , "      <div id=\"mfoot\">"
-  , "        <button id=\"msave\">Save</button>"
-  , "        <button id=\"mredo\" hidden>Re-materialize</button>"
-  , "        <button id=\"mcancel\">Cancel</button>"
-  , "      </div>"
   , "    </div>"
   , "  </div>"
   , "  <div id=\"echo\" role=\"status\" aria-live=\"polite\"></div>"
@@ -888,12 +945,16 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    const dot = (state) => (document.getElementById(\"dot\").className = state);"
   , "    const el = (id) => document.getElementById(id);"
   , "    let table = null, socket = null, backoff = 1000, editing = null;"
+  , "    // The sheet's own state: the text the file holds as far as this page"
+  , "    // knows, what the last flush ran into, and the flush still in flight."
+  , "    let base = \"\", trouble = null, flushing = null;"
   , "    // The server filters and pages; these hold the query it was last asked"
   , "    // with, the fetch still in flight for it, and the selected row's id."
   , "    let query = \"\", inflight = null, cursor = null, requeryAt = 0;"
   , "    const PAGE = 1000;   // rows in the first paint; the rest follows it"
   , "    function mount(view) {"
   , "      table = TableView.mount(document.getElementById(\"app\"), view, {"
+  , "        omnibox: true,     // the filter is the page's one hero input"
   , "        onAction: (command, id) =>"
   , "          command === \"materialize\" ? materialize(id)"
   , "                                     : log(`action: ${command}  id=${id}`),"
@@ -901,6 +962,9 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "        onFilter: filter,   // the server narrows; the renderer shows what it is given"
   , "      });"
   , "      cursor = null;"
+  , "      // The columns are the view's, and the one thing both halves of a"
+  , "      // filter read out of it (`parity')."
+  , "      columnKeys = (view.columns || []).map((c) => c.key);"
   , "      say();"
   , "    }"
   , "    const say = () => log(`${table ? table.getRows().length : 0}`"
@@ -919,10 +983,78 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "             : r.text().then((t) => { throw new Error(t); }));"
   , "    }"
   , "    const quiet = (e) => { if (e.name !== \"AbortError\") log(`load failed: ${e.message}`); };"
-  , "    const paint = (a) => { table.setRows(a.view.rows || []); say(); };"
-  , "    const filter = (q) =>"
-  , "      load((query = q.trim()) ? `?q=${encodeURIComponent(query)}` : \"\")"
+  , "    // The unfiltered answer is kept: with a filter on, the loaded rows are"
+  , "    // the server's answer to it and cannot be used to check that answer."
+  , "    let all = [], columnKeys = [];"
+  , "    const paint = (a) => {"
+  , "      const rows = a.view.rows || [];"
+  , "      table.setRows(rows);"
+  , "      if (!query) all = rows;"
+  , "      parity(a.total);"
+  , "      say();"
+  , "    };"
+  , "    // A suggestion must never silently offer what the applied path cannot"
+  , "    // evaluate.  The keys that can differ between the two halves are the"
+  , "    // producer's virtual ones — the columns are in the view both read — so"
+  , "    // when the server answers a query carrying one with nothing at all and"
+  , "    // the words are in the rows this page already holds, say so.  Loose and"
+  , "    // one-directional on purpose: it reports a suspicion and corrects"
+  , "    // nothing, since guessing which half is right is how they drift."
+  , "    function parity(total) {"
+  , "      if (total !== 0 || !query || !all.length) return;"
+  , "      if (typeof TableView.parseQuery !== \"function\") return;"
+  , "      const loose = TableView.parseQuery(query, columnKeys).filter((t) =>"
+  , "        t.key === null && !t.quoted && !t.negated && /^[^:=]+[:=]./.test(t.value));"
+  , "      if (!loose.length) return;"
+  , "      const wants = loose.map((t) => t.value.slice(t.value.search(/[:=]/) + 1).toLowerCase());"
+  , "      const text = (r) => columnKeys.map((k) => TableView.displayText((r.cells || {})[k]))"
+  , "        .join(\"\\x1f\").toLowerCase();"
+  , "      const local = all.filter((r) => wants.every((v) => text(r).includes(v))).length;"
+  , "      if (!local) return;"
+  , "      const note = \"filter parity divergence — asset/daemon version skew\";"
+  , "      console.warn(note, { query, server: total, local });"
+  , "      log(note);"
+  , "      echo(note);"
+  , "    }"
+  , ""
+  , "    // The applied query is page state.  It rides in the URL, so a filtered"
+  , "    // view is a link and a reconnect comes back to it; the query it"
+  , "    // replaces goes on a stack DEL walks back.  The shell sends the string"
+  , "    // as typed — the grammar is the server's to parse (SCHEMA.md)."
+  , "    const params = () => new URLSearchParams(location.search);"
+  , "    const urlQuery = () => params().get(\"q\") || \"\";"
+  , "    function remember(q) {"
+  , "      const p = params();"
+  , "      if (q) p.set(\"q\", q); else p.delete(\"q\");"
+  , "      const s = p.toString();   // `keys' and anything else in the URL survives"
+  , "      history.replaceState(null, \"\", s ? `?${s}` : location.pathname);"
+  , "    }"
+  , "    // One place asks the server for rows: `query' is already what to ask."
+  , "    const fetchRows = () =>"
+  , "      load(query ? `?q=${encodeURIComponent(query)}` : \"\")"
   , "        .then((a) => table && paint(a)).catch(quiet);"
+  , "    // A commit is the moment a NEW query goes to the server — a settled"
+  , "    // debounce, a committed token, an accepted completion."
+  , "    function commit(q) {"
+  , "      if (q === query) return;"
+  , "      query = q;"
+  , "      remember(q);"
+  , "      fetchRows();"
+  , "    }"
+  , "    const filter = (q) => commit(q.trim());"
+  , "    // The query's last token comes off in the renderer, which owns the"
+  , "    // chips showing it: a shell-side strip would leave them on screen"
+  , "    // spelling a filter that is no longer applied.  An asset too old to"
+  , "    // have the pair says so rather than growing a second implementation."
+  , "    const strips = () => table && typeof table.stripLastToken === \"function\""
+  , "      && typeof table.getQuery === \"function\";"
+  , "    // The box is the renderer's; setting its value fires no input event, so"
+  , "    // showing a restored query there does not commit it a second time."
+  , "    function showQuery() {"
+  , "      const box = document.querySelector(\"#app .tv-filter\");"
+  , "      if (box) box.value = query;"
+  , "    }"
+  , ""
   , "    function materialize(id) {"
   , "      fetch(`/headline?id=${encodeURIComponent(id)}`)"
   , "        .then((r) => r.json().then((b) => {"
@@ -932,37 +1064,92 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "        .then(show)"
   , "        .catch((e) => log(`materialize failed: ${e.message}`));"
   , "    }"
+  , "    // The sheet is buttonless: it syncs on the way out.  `base' is the text"
+  , "    // the file holds as far as this page knows — the materialized original,"
+  , "    // then whatever the last 200 wrote — so `dirty()' is the whole of what"
+  , "    // decides whether closing costs a POST at all."
   , "    function show(h) {"
-  , "      editing = h;"
+  , "      editing = h; base = h.org; trouble = null;"
   , "      el(\"mfile\").textContent = `${h.file}  ·  ${h.id}`;"
   , "      el(\"mtext\").value = h.org;"
-  , "      note(\"\", false);"
+  , "      sync(\"synced\");"
   , "      el(\"modal\").className = \"on\";"
   , "      el(\"mtext\").focus();"
   , "    }"
-  , "    function note(message, again) {"
-  , "      el(\"mnote\").textContent = message;"
-  , "      el(\"mredo\").hidden = !again;"
+  , "    const dirty = () => editing !== null && el(\"mtext\").value !== base;"
+  , "    // With no buttons, the keys are the whole of the offer, so the two"
+  , "    // states that wait for one say which key."
+  , "    const WORDS = { synced: \"synced\", syncing: \"syncing…\","
+  , "      conflict: \"conflict — C-x C-s overwrite · ESC discard\" };"
+  , "    function sync(state, message) {"
+  , "      el(\"mnote\").className = state;"
+  , "      el(\"mnote\").textContent = message || WORDS[state];"
   , "    }"
-  , "    function shut() { el(\"modal\").className = \"\"; editing = null; }"
-  , "    function save() {"
-  , "      if (!editing) return;"
-  , "      fetch(`/headline?id=${encodeURIComponent(editing.id)}`, {"
+  , "    const stuck = (why) => {"
+  , "      trouble = \"error\";"
+  , "      sync(\"error\", `${why} — C-x C-s retry · ESC discard`);"
+  , "    };"
+  , "    function shut() { el(\"modal\").className = \"\"; editing = null; base = \"\"; trouble = null; }"
+  , "    // POST the textarea over the subtree, pinned to DIGEST.  A 200 carries"
+  , "    // the file's new digest — the receipt chains, so the next flush needs no"
+  , "    // re-materialize — and the baseline moves with it."
+  , "    function flush(digest) {"
+  , "      const h = editing, text = el(\"mtext\").value;"
+  , "      sync(\"syncing\");"
+  , "      flushing = fetch(`/headline?id=${encodeURIComponent(h.id)}`, {"
   , "        method: \"POST\","
   , "        headers: { \"content-type\": \"application/json\" },"
-  , "        body: JSON.stringify({ org: el(\"mtext\").value, digest: editing.digest }),"
+  , "        body: JSON.stringify({ org: text, digest }),"
   , "      })"
   , "        .then((r) => r.json().then((b) => ({ status: r.status, body: b })))"
   , "        .then((a) => {"
-  , "          if (a.status === 200) { shut(); log(\"saved · the watch streams the row\"); }"
-  , "          else if (a.status === 409) note(\"File changed since materialize — re-open\", true);"
-  , "          else note(a.body.error || `save failed (${a.status})`, false);"
+  , "          if (a.status === 200) {"
+  , "            h.digest = a.body.digest; base = text; trouble = null; sync(\"synced\");"
+  , "            return true;"
+  , "          }"
+  , "          if (a.status === 409) { trouble = \"conflict\"; sync(\"conflict\"); }"
+  , "          else stuck(a.body.error || `sync failed (${a.status})`);"
+  , "          return false;"
   , "        })"
-  , "        .catch((e) => note(`save failed: ${e.message}`, false));"
+  , "        .catch((e) => { stuck(e.message); return false; })"
+  , "        .finally(() => (flushing = null));"
+  , "      return flushing;"
   , "    }"
-  , "    el(\"msave\").addEventListener(\"click\", save);"
-  , "    el(\"mcancel\").addEventListener(\"click\", shut);"
-  , "    el(\"mredo\").addEventListener(\"click\", () => editing && materialize(editing.id));"
+  , "    // C-x C-s.  Mid-edit it is a manual flush; on a conflict it is the"
+  , "    // deliberate keystroke that overwrites — ask for the digest the file"
+  , "    // carries now and post the text the author is looking at over it."
+  , "    function save() {"
+  , "      if (!editing || flushing) return;"
+  , "      if (trouble !== \"conflict\") { flush(editing.digest); return; }"
+  , "      const h = editing;"
+  , "      fetch(`/headline?id=${encodeURIComponent(h.id)}`)"
+  , "        .then((r) => r.json().then((b) => {"
+  , "          if (!r.ok) throw new Error(b.error || r.status);"
+  , "          return b;"
+  , "        }))"
+  , "        .then((b) => editing === h && flush(b.digest))"
+  , "        .catch((e) => stuck(e.message));"
+  , "    }"
+  , "    // The way out — ESC, the backdrop, q.  Pristine costs no request and"
+  , "    // touches no file; dirty flushes and closes on the 200; a sheet with"
+  , "    // trouble in it discards, which is what a second ESC is."
+  , "    function leave() {"
+  , "      if (!editing) return;"
+  , "      if (trouble) { shut(); log(\"closed without writing — the file is as it was\"); return; }"
+  , "      if (!dirty()) { shut(); return; }"
+  , "      if (!flushing) flush(editing.digest).then((ok) => ok && shut());"
+  , "    }"
+  , "    el(\"modal\").addEventListener(\"click\", (e) => { if (e.target === el(\"modal\")) leave(); });"
+  , "    // A tab closing on an edited sheet still owes the file the text:"
+  , "    // `keepalive' outlives the document, and a pristine sheet sends nothing."
+  , "    addEventListener(\"beforeunload\", () => {"
+  , "      if (!dirty()) return;"
+  , "      fetch(`/headline?id=${encodeURIComponent(editing.id)}`, {"
+  , "        method: \"POST\", keepalive: true,"
+  , "        headers: { \"content-type\": \"application/json\" },"
+  , "        body: JSON.stringify({ org: el(\"mtext\").value, digest: editing.digest }),"
+  , "      }).catch(() => {});"
+  , "    });"
   , ""
   , "    // Rows.  The renderer virtualizes, so a row outside the window has no"
   , "    // element: movement is ids out of `getVisible()' handed to `select(id)'."
@@ -1010,20 +1197,48 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      const saved = kept.get();"
   , "      return saved && MAPS.profiles[saved] ? saved : MAPS.default;"
   , "    }"
+  , "    // The theme selector.  `auto' is the media query — the attribute comes"
+  , "    // off — and light and dark pin `data-theme' on the root, which is what"
+  , "    // this page's own variables and the renderer's overrides both key off."
+  , "    // The head has already applied the stored choice; this keeps the"
+  , "    // control and the storage in step with it."
+  , "    const themed = {"
+  , "      get() { try { return localStorage.getItem(\"glance-theme\") || \"auto\"; }"
+  , "              catch (e) { return \"auto\"; } },"
+  , "      set(v) { try { localStorage.setItem(\"glance-theme\", v); } catch (e) { /* denied */ } },"
+  , "    };"
+  , "    function setTheme(name) {"
+  , "      if (name === \"auto\") delete document.documentElement.dataset.theme;"
+  , "      else document.documentElement.dataset.theme = name;"
+  , "      themed.set(name);"
+  , "      el(\"themesel\").value = name;"
+  , "    }"
+  , "    setTheme(themed.get());"
+  , "    el(\"themesel\").addEventListener(\"change\", (e) => {"
+  , "      setTheme(e.target.value);"
+  , "      echo(`theme: ${e.target.value}`);"
+  , "    });"
+  , ""
   , "    let profile = wanted(), KEYS = [];"
   , "    function setProfile(name) {"
   , "      profile = name;"
   , "      KEYS = MAPS.shared.concat(MAPS.profiles[name]);"
   , "      kept.set(name);"
-  , "      el(\"keyset\").textContent = `keys: ${name}`;"
+  , "      el(\"keysel\").value = name;"
+  , "    }"
+  , "    // The options are the blob's own profiles — a profile cannot be offered"
+  , "    // and unbound — and a native select is keyboard-reachable as it stands:"
+  , "    // Tab to it, arrows through it, Enter or ESC out, no chord of its own."
+  , "    for (const name of Object.keys(MAPS.profiles)) {"
+  , "      const o = document.createElement(\"option\");"
+  , "      o.value = o.textContent = name;"
+  , "      el(\"keysel\").appendChild(o);"
   , "    }"
   , "    setProfile(profile);"
-  , "    el(\"keyset\").addEventListener(\"click\", (e) => {"
-  , "      const names = Object.keys(MAPS.profiles);"
-  , "      setProfile(names[(names.indexOf(profile) + 1) % names.length]);"
+  , "    el(\"keysel\").addEventListener(\"change\", (e) => {"
+  , "      setProfile(e.target.value);"
   , "      prefix([]);"
   , "      echo(`movement: ${profile}`);"
-  , "      e.currentTarget.blur();"
   , "    });"
   , "    const NAMED = { Enter: \"RET\", Tab: \"TAB\", \" \": \"SPC\", Escape: \"ESC\","
   , "      Backspace: \"DEL\", Delete: \"<delete>\", ArrowUp: \"<up>\", ArrowDown: \"<down>\","
@@ -1059,10 +1274,13 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      echo(`${shown} -`, true);"
   , "      pendingAt = setTimeout(() => { pending = []; echo(`${shown} - timed out`); }, 2000);"
   , "    }"
+  , "    // A focus that keeps its own keys: the filter box, the sheet, and the"
+  , "    // keys select, which navigates on the arrows this map would otherwise"
+  , "    // take for row movement."
   , "    const typing = () => {"
   , "      const a = document.activeElement;"
   , "      return !!a && (a.tagName === \"INPUT\" || a.tagName === \"TEXTAREA\""
-  , "                     || a.isContentEditable);"
+  , "                     || a.tagName === \"SELECT\" || a.isContentEditable);"
   , "    };"
   , "    const live = (b) => b.scope === \"any\""
   , "      || (b.scope === \"modal\" && editing !== null)"
@@ -1087,14 +1305,23 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      },"
   , "      refresh, focusFilter, save,"
   , "      quitWindow: () =>"
-  , "        (editing ? shut() : log(\"q closes the sheet; there is no window to quit\")),"
+  , "        (editing ? leave() : log(\"q closes the sheet; there is no window to quit\")),"
   , "      cancel: () => {"
-  , "        if (editing) shut();"
+  , "        if (editing) leave();"
   , "        else if (typing()) document.activeElement.blur();"
+  , "      },"
+  , "      // The filter's own backspace: the renderer drops the token and the"
+  , "      // shell follows it — one commit, one URL, focus left on the table."
+  , "      filterDrop: () => {"
+  , "        if (!strips()) { echo(\"DEL → this table-view.js has no filter tokens\"); return; }"
+  , "        if (!table.stripLastToken()) { echo(\"DEL → no filter\"); return; }"
+  , "        const left = table.getQuery().trim();"
+  , "        commit(left);"
+  , "        echo(left ? `DEL → filter: ${JSON.stringify(left)}` : \"DEL → filter cleared\");"
   , "      },"
   , "    };"
   , "    function run(b) {"
-  , "      echo(`${b.seq} → ${b.command}`);"
+  , "      echo(`${b.seq} → ${b.command}${b.help ? ` · ${b.help}` : \"\"}`);"
   , "      const handler = b.handler && HANDLERS[b.handler];"
   , "      if (handler) handler();"
   , "      else log(`${b.seq} (${b.command}) — arrives with daemon commands (M4)`);"
@@ -1123,7 +1350,7 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      // Under a filter the loaded rows are the server's answer to a query,"
   , "      // and only it knows whether the changed row still matches: ask again."
   , "      if (query) return void (clearTimeout(requeryAt),"
-  , "        requeryAt = setTimeout(() => filter(query), 250));"
+  , "        requeryAt = setTimeout(fetchRows, 250));"
   , "      if (frame.op === \"upsert-row\") table.upsertRow(frame.row);"
   , "      else if (frame.op === \"delete-row\") table.deleteRow(frame.id);"
   , "      say();"
@@ -1149,14 +1376,19 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      setTimeout(start, 1000);"
   , "    }"
   , "    function start() {"
-  , "      query = \"\";"
-  , "      load(`?limit=${PAGE}`).then((a) => {"
+  , "      // A `?q=' in the address bar is a filtered view: the boot asks for it"
+  , "      // and the filter box opens showing it."
+  , "      const asked = (query = urlQuery());"
+  , "      const narrow = asked ? `?q=${encodeURIComponent(asked)}&` : \"?\";"
+  , "      load(`${narrow}limit=${PAGE}`).then((a) => {"
   , "        mount(a.view);"
+  , "        showQuery();"
   , "        listen();"
   , "        // The rest behind the painted table: n/p, sort and materialize all"
   , "        // want the whole set, and the renderer holds it without the DOM."
   , "        if (a.total > (a.view.rows || []).length)"
-  , "          load(\"\").then((b) => table && !query && paint(b)).catch(quiet);"
+  , "          load(asked ? `?q=${encodeURIComponent(asked)}` : \"\")"
+  , "            .then((b) => table && query === asked && paint(b)).catch(quiet);"
   , "      }).catch((e) => {"
   , "        if (e.indexing) return indexing(e.indexing);"
   , "        dot(\"down\"); quiet(e); if (e.name !== \"AbortError\") again();"
@@ -1195,55 +1427,104 @@ page head' title body = T.unlines
   , "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
   , "<title>" <> escape title <> "</title>"
   , "<style>" <> (if T.null head' then "" else "\n" <> head')
-  , "  :root{--glance-mono:" <> monoStack <> "}"
-  , "  body{margin:0;font:14px/1.5 var(--glance-mono);background:#eceef2;color:#1c1e26;"
-  , "    padding:24px;display:flex;flex-direction:column;gap:14px}"
-  , "  @media (prefers-color-scheme:dark){body{background:#13141c;color:#c8ccd4}}"
+  -- The palette is danneskjold, the theme this author's Emacs runs, in one set
+  -- of custom properties the whole page reads.  Source:
+  -- danneskjold-theme.el (../danneskjold-theme,
+  -- github.com/rails-to-cosmos/danneskjold-theme).  Dark variant: `default'
+  -- #FFFFFF on #000000, `vertical-border' #223959, `region' #373D4F,
+  -- `font-lock-comment-face' #A4C2EB, `company-tooltip' #21252B,
+  -- `org-done'/success #B6E63E, `error' #E74C3C, `accent' #4CB5F5.  Light
+  -- variant: #000000 on #FFFFFF, `light-dim' #BDC3C7, `light-comment' #7F8C8D,
+  -- `light-surface' #F8F8FF, `light-golden' #FFD600 for selection, and
+  -- `green-dark' #27AE60 where a white background needs the darker green.
+  --
+  -- Three ways, the renderer's own pattern: the media query is the default and
+  -- @data-theme@ on the root pins it, which is the attribute the @theme:@
+  -- selector writes and the renderer's overrides key off too.
+  , "  :root{--glance-mono:" <> monoStack <> ";"
+  , "    --g-bg:#FFFFFF;--g-fg:#000000;--g-border:#BDC3C7;--g-mute:#7F8C8D;"
+  , "    --g-surface:#F8F8FF;--g-sel:#FFD600;--g-accent:#4CB5F5;"
+  , "    --g-ok:#27AE60;--g-warn:#FFA500;--g-bad:#E74C3C}"
+  , "  @media (prefers-color-scheme:dark){:root{--g-bg:#000000;--g-fg:#FFFFFF;"
+  , "    --g-border:#223959;--g-mute:#A4C2EB;--g-surface:#21252B;--g-sel:#373D4F;"
+  , "    --g-ok:#B6E63E}}"
+  , "  :root[data-theme=\"light\"]{--g-bg:#FFFFFF;--g-fg:#000000;--g-border:#BDC3C7;"
+  , "    --g-mute:#7F8C8D;--g-surface:#F8F8FF;--g-sel:#FFD600;--g-ok:#27AE60}"
+  , "  :root[data-theme=\"dark\"]{--g-bg:#000000;--g-fg:#FFFFFF;--g-border:#223959;"
+  , "    --g-mute:#A4C2EB;--g-surface:#21252B;--g-sel:#373D4F;--g-ok:#B6E63E}"
+  , "  body{margin:0;font:14px/1.5 var(--glance-mono);"
+  , "    background:var(--g-bg);color:var(--g-fg);"
+  -- The extra top padding is the fixed status corner's room: with no heading
+  -- above it, the omnibox would otherwise open underneath the corner.
+  , "    padding:34px 24px 24px;display:flex;flex-direction:column;gap:14px}"
   , "  h1{font-size:16px;margin:0}"
   , "  p{margin:0;max-width:70ch}"
-  , "  code{font-size:12px;opacity:.9}"
+  , "  code{font-size:12px;color:var(--g-mute)}"
   , "  #app{height:80vh}"
   -- The renderer injects its own `.tv-root' font, and injects it from a script,
   -- so its rule lands after this element and ties on specificity.  One more
   -- selector step settles it, and leaves the size and the leading it set.
   , "  #app .tv-root{font-family:var(--glance-mono)}"
   , "  #app .tv-table tbody tr.tv-sel{box-shadow:inset 2px 0 0 var(--tv-accent)}"
-  , "  #log{font-size:12px;opacity:.75;min-height:1.4em}"
+  , "  #log{font-size:12px;color:var(--g-mute);min-height:1.4em}"
+  -- The status corner: the connection dot, the theme and the movement profile,
+  -- together, clear of the table and out of the heading.
+  , "  #corner{position:fixed;top:12px;right:14px;z-index:3;display:flex;gap:6px;"
+  , "    align-items:center;font-size:11px;color:var(--g-mute)}"
+  , "  #corner:hover,#corner:focus-within{color:var(--g-fg)}"
   , "  #dot{display:inline-block;width:7px;height:7px;border-radius:50%;"
-  , "    margin-left:8px;vertical-align:middle;background:#9aa0ad;transition:background .3s}"
-  , "  #dot.live{background:#9ece6a}"
-  , "  #dot.wait{background:#e0af68}"
-  , "  #dot.down{background:#9aa0ad}"
-  , "  #keyset{font:inherit;font-size:11px;margin-left:10px;padding:1px 8px;"
-  , "    border-radius:999px;border:1px solid #8884;background:transparent;color:inherit;"
-  , "    opacity:.65;cursor:pointer;vertical-align:middle}"
-  , "  #keyset:hover{opacity:1}"
-  , "  #modal{display:none;position:fixed;inset:0;padding:24px;background:#0009;"
+  , "    background:var(--g-mute);transition:background .3s}"
+  , "  #dot.live{background:var(--g-ok)}"
+  , "  #dot.wait{background:var(--g-warn)}"
+  , "  #dot.down{background:var(--g-mute)}"
+  , "  #corner select{font:inherit;font-family:var(--glance-mono);padding:1px 4px;"
+  , "    border-radius:4px;border:1px solid var(--g-border);background:var(--g-bg);"
+  , "    color:inherit}"
+  , "  #corner option{background:var(--g-bg);color:var(--g-fg)}"
+  -- The sheet is the one place the author's Emacs font is asked for by name:
+  -- the subtree reads there as it reads in the buffer it came out of.  The
+  -- colours are the page's, which are already danneskjold's.
+  , "  #modal{--dk-mono:\"Hack\", var(--glance-mono);"
+  , "    display:none;position:fixed;inset:0;padding:24px;background:#0009;"
   , "    align-items:center;justify-content:center}"
   , "  #modal.on{display:flex}"
   , "  #sheet{display:flex;flex-direction:column;gap:8px;padding:14px;border-radius:6px;"
-  , "    width:min(900px,100%);height:min(80vh,100%);background:#eceef2;color:#1c1e26}"
-  , "  @media (prefers-color-scheme:dark){#sheet{background:#1b1d26;color:#c8ccd4}}"
-  , "  #mhead{display:flex;justify-content:space-between;gap:12px;font-size:12px;opacity:.85}"
-  , "  #mnote{color:#f7768e;text-align:right}"
-  , "  #mtext{flex:1;font:12px/1.5 var(--glance-mono);padding:8px;border-radius:4px;"
-  , "    border:1px solid #8884;background:transparent;color:inherit;resize:none}"
-  , "  #mfoot{display:flex;gap:8px}"
-  , "  #sheet button{font:12px var(--glance-mono);padding:5px 12px;border-radius:4px;"
-  , "    border:1px solid #8884;background:transparent;color:inherit;cursor:pointer}"
+  , "    width:min(900px,100%);height:min(80vh,100%);font-family:var(--dk-mono);"
+  , "    background:var(--g-bg);color:var(--g-fg);border:1px solid var(--g-border)}"
+  , "  #mhead{display:flex;justify-content:space-between;gap:12px;font-size:12px}"
+  , "  #mfile{color:var(--g-mute)}"
+  , "  #mnote{text-align:right;color:var(--g-ok)}"
+  , "  #mnote.syncing{color:var(--g-mute)}"
+  , "  #mnote.conflict,#mnote.error{color:var(--g-bad)}"
+  , "  #mtext{flex:1;font:12px/1.5 var(--dk-mono);padding:8px;border-radius:4px;"
+  , "    border:1px solid var(--g-border);background:transparent;color:inherit;resize:none}"
+  , "  #mtext::selection{background:var(--g-sel);color:var(--g-fg)}"
   -- The echo area, over the sheet's backdrop: the sheet takes no z-index, so
   -- one is enough to keep the pending prefix readable while the sheet is open.
   , "  #echo{position:fixed;right:14px;bottom:12px;z-index:2;padding:4px 10px;"
-  , "    border-radius:999px;border:1px solid #8884;font-size:12px;white-space:pre;"
-  , "    background:#eceef2;color:#1c1e26;opacity:0;transition:opacity .35s;"
-  , "    pointer-events:none}"
-  , "  @media (prefers-color-scheme:dark){#echo{background:#1b1d26;color:#c8ccd4}}"
+  , "    border-radius:999px;border:1px solid var(--g-border);font-size:12px;"
+  , "    white-space:pre;background:var(--g-surface);color:var(--g-fg);opacity:0;"
+  , "    transition:opacity .35s;pointer-events:none}"
   , "</style>"
+  -- The stored theme, applied before anything paints: a page that renders in
+  -- the wrong one and corrects itself a frame later is a flash the selector
+  -- exists to avoid.  One line, so the suite's glue extractor still finds the
+  -- one inline script it checks.
+  , "<script>" <> themeBoot <> "</script>"
   , "</head>"
   , "<body>"
   , body <> "</body>"
   , "</html>"
   ]
+
+-- | The head script: the remembered theme pinned on the root element ahead of
+-- the first paint.  @auto@ and anything unrecognised leave the attribute off,
+-- which is the media query's business.
+themeBoot :: Text
+themeBoot = T.concat
+  [ "try{var t=localStorage.getItem(\"glance-theme\");"
+  , "if(t===\"light\"||t===\"dark\")document.documentElement.dataset.theme=t}"
+  , "catch(e){}" ]
 
 -- | T with the five characters that would leave text mode escaped.
 escape :: Text -> Text
