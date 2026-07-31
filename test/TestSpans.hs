@@ -86,6 +86,10 @@ onDoc c k = testCase (caseName c) $ case orgParse defaultContext (caseInput c) o
 presentSpans :: Headline -> [(String, Span)]
 presentSpans h = [(T.unpack label, s) | (label, Just s, _ok) <- headlineSpanParts h]
 
+-- | Every sub-span H carries, sliced out of INPUT, in source order.
+slicesOf :: Text -> Headline -> [(String, Text)]
+slicesOf input h = [ (label, sliceSpan input s) | (label, s) <- presentSpans h ]
+
 propertyKeys :: Headline -> [Text]
 propertyKeys h = case properties h of
   Properties ps -> [k | Property (Keyword k) _ <- ps]
@@ -118,11 +122,20 @@ assertReparse label ctx expected slice = case orgParse ctx slice of
 -- leave the slice assertions with nothing to check.  Planning spans get the
 -- exact check 'headlineSpanParts' cannot state, having no parser to hand: the
 -- slice re-parses to the very timestamp the headline stores.
+--
+-- Each predicate is checked against text that is not the component too.  The
+-- predicates are the span spec, and this suite is what reads it: one that
+-- accepted anything would leave every slice assertion here — and the scan's
+-- @slice-mismatch@ report, which reads the same list — passing over any span at
+-- all.  'literalSlicesSpec' pins the slices themselves.
 assertSlices :: Text -> Headline -> Assertion
 assertSlices input h = do
   sequence_ [ assertBool (say (T.unpack label <> " sliced " <> show slice)) (ok slice)
             | (label, Just s, ok) <- headlineSpanParts h
             , let slice = sliceSpan input s ]
+  sequence_ [ assertBool (say (T.unpack label <> " accepts " <> show wrong)) (not (ok wrong))
+            | (label, Just s, ok) <- headlineSpanParts h
+            , let wrong = "glance-not-a-slice " <> sliceSpan input s ]
   sequence_ [ assertBool (say (T.unpack label <> " is missing")) (isJust s)
             | (label, s, _ok) <- headlineSpanParts h
             , carried label ]
@@ -205,6 +218,8 @@ spec = testGroup "Spans"
     [ onDoc c (\input _ctx elems -> mapM_ (assertSlices input) (headlinesOf elems))
     | c <- cases ]
 
+  , literalSlicesSpec
+
   , testGroup "Headline sub-spans" [customTodoSpan, starsOnlySpans]
 
   , testGroup "Timestamp ranges" [clockRangeSpans]
@@ -223,6 +238,54 @@ spec = testGroup "Spans"
     [ onDoc c (\input _ctx elems -> mapM_ (assertInvariants input) elems)
     | c <- cases ]
   ]
+
+-- | What each fixture's first headline slices to, spelled out: the fixture's
+-- name, and its sub-spans in source order.  'assertSlices' checks a span
+-- against the headline's own components, so a span and the component it stands
+-- for can only move together; these literals are what a move has to agree with.
+literalCases :: [(String, [(String, Text)])]
+literalCases =
+  [ ( "todo, priority, title and tags"
+    , [ ("hsTodo", "TODO"), ("hsPriority", "[#A]")
+      , ("hsTitle", "Hello"), ("hsTags", ":a:b:c:") ] )
+
+  , ( "inactive todo"
+    , [ ("hsTodo", "DONE"), ("hsPriority", "[#B]")
+      , ("hsTitle", "Fix the bug"), ("hsTags", ":work:urgent:") ] )
+
+  , ( "unicode title and tags"
+    , [ ("hsTodo", "TODO"), ("hsTitle", "Привет мир"), ("hsTags", ":тег:") ] )
+
+  -- The drawer runs from the line start of ":PROPERTIES:" through ":END:", so
+  -- an indented one keeps its indent and neither keeps what follows.
+  , ( "property drawer"
+    , [ ("hsTitle", "Hello")
+      , ("hsProperties", ":PROPERTIES:\n:TITLE: New title\n:END:") ] )
+
+  , ( "indented drawer"
+    , [ ("hsTitle", "H")
+      , ("hsProperties", "  :PROPERTIES:\n  :K: v  \n  :END:") ] )
+
+  -- Source order, not field order: the planning line spells them backwards.
+  , ( "planning keywords out of order"
+    , [ ("hsTodo", "TODO"), ("hsTitle", "Task"), ("hsTags", ":x:")
+      , ("hsClosed", "[2024-01-02 Tue 10:00]")
+      , ("hsDeadline", "<2024-01-03 Wed>")
+      , ("hsSchedule", "<2024-01-01 Mon>") ] )
+
+  , ( "planning line before a drawer"
+    , [ ("hsTitle", "Task"), ("hsDeadline", "<2024-02-01 Thu>")
+      , ("hsProperties", ":PROPERTIES:\n:K: v\n:END:") ] )
+  ]
+
+literalSlicesSpec :: TestTree
+literalSlicesSpec = testGroup "Literal slices" (map one literalCases)
+  where
+    one (name', expected) = case [c | c <- cases, caseName c == name'] of
+      [c] -> onDoc c $ \input _ctx elems -> case headlinesOf elems of
+        (h : _) -> assertEqual "slices" expected (slicesOf input h)
+        []      -> assertFailure ("expected a headline in " <> show input)
+      _noSuchCase -> testCase name' (assertFailure ("no fixture named " <> show name'))
 
 -- | Trailing horizontal space ends an element without derailing or widening it.
 trailingWhitespaceSpec :: TestTree

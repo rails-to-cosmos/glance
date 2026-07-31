@@ -13,11 +13,16 @@ scheduled :: Text -> Maybe Timestamp
 scheduled t = Just (plainTs TimestampActive (on t))
 
 -- | 'resolveHeadline' over headlines scheduled at S1 and S2 keeps WINNER.
+-- Whole record, not the title alone: resolution picks a headline rather than
+-- building one, so a winner returned with a field of the loser's is a failure
+-- the title could not show.
 resolves :: String -> Maybe Timestamp -> Maybe Timestamp -> Text -> TestTree
 resolves desc s1 s2 winner = testCase desc $
-    assertEqual desc (title (titled winner)) (title (resolveHeadline h1 h2))
+    assertEqual desc expected (resolveHeadline h1 h2)
   where h1 = (titled "h1") { schedule = s1 }
         h2 = (titled "h2") { schedule = s2 }
+        expected | winner == "h1" = h1
+                 | otherwise      = h2
 
 -- | A keyword-matching case: an optional registering pragma, the headline it
 -- governs, and the todo and title words that headline must carry.

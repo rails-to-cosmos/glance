@@ -599,6 +599,18 @@ indexingSpec = testGroup "Indexing (bind before load)"
       r <- getFrom application' "/ws"
       assertEqual "status" 503 (status r)
 
+  , testCase "the elapsed seconds are the load's age, rounded to a tenth" $ do
+      -- The case above pins the shape against an age of microseconds, where
+      -- every rounding agrees on 0.0; this one gives the load a real age, so
+      -- the tenth is a digit that has to be there and the hundredth one that
+      -- must not be.  12.37 s sits inside the [12.35, 12.45) bucket, leaving
+      -- the in-process request 80 ms before the answer moves.
+      hub <- newLoadingHub . subtract 12.37 =<< getMonotonicTime
+      r <- getFrom (application (served assetsDir) hub) "/headlines"
+      assertEqual "status" 503 (status r)
+      elapsed <- field "elapsed" =<< decoded r
+      assertEqual "elapsed" (Number 12.4) elapsed
+
   , testCase "the shell and its assets are served the whole time" $ do
       application' <- indexingApp
       r <- getFrom application' "/"

@@ -25,10 +25,10 @@ import qualified Data.Text.IO as TIO
 import Glance.Query ( HeadlineRecord (hrFile, hrId), IdCollision (..), LoadFailure (..)
                     , QueryResult (..), TodoKeywords (..), WalkOptions (..), defaultWalk
                     , loadDir, loadDirWith, loadFile, rowJSON )
-import Glance.Web.Store ( Frame (..), Store, applyFile, bootstrapFrame
-                        , clientCapacity, dropFile, frameJSON, loadStore, newHub
-                        , nextFrame, publish, storeKeywords, storeRecords
-                        , storeResult, storeTags, subscribe )
+import Glance.Web.Store ( Frame (..), Store (stGen), applyFile, bootstrapFrame
+                        , clientCapacity, dropFile, frameJSON, loadStore
+                        , loadStoreWith, newHub, nextFrame, publish, storeKeywords
+                        , storeRecords, storeResult, storeTags, subscribe )
 import Glance.Web.Watch (debounceDelay, due, isWatchable, watched)
 
 -- Scaffolding
@@ -65,8 +65,52 @@ stringAt _key _v = Nothing
 
 spec :: TestTree
 spec = testGroup "Store"
-  [ diffSpec, failureSpec, keywordSpec, tagSpec, derivedSpec, bootstrapSpec, hubSpec
-  , debounceSpec ]
+  [ diffSpec, failureSpec, generationSpec, keywordSpec, tagSpec, derivedSpec
+  , bootstrapSpec, hubSpec, debounceSpec ]
+
+-- | The update counter @GET \/headlines@ spells as an @ETag@.  It has to move
+-- whenever a response would, and stay put whenever none would: an idle tree
+-- revalidates to 304 forever, and a tree that changed never serves a client its
+-- stale copy.
+generationSpec :: TestTree
+generationSpec = testGroup "Generation"
+  [ testCase "a file nothing wrote leaves it where it was" $ withTempDir $ \dir -> do
+      let doc = "* TODO one\n"
+      path <- orgFile dir "a.org" doc
+      store <- loadStore dir
+      (same, frames) <- rewrite path doc store
+      assertEqual "frames" [] frames
+      assertEqual "generation" (stGen store) (stGen same)
+
+  , testCase "a changed row moves it" $ withTempDir $ \dir -> do
+      path <- orgFile dir "a.org" "* TODO one\n"
+      store <- loadStore dir
+      (next, frames) <- rewrite path "* TODO one\n* TODO two\n" store
+      assertBool "a new headline is a row change" (not (null frames))
+      assertBool ("generation stuck at " <> show (stGen next)) (stGen next > stGen store)
+
+  , testCase "so does a load outcome, with no row to show for it" $ withTempDir $ \dir -> do
+      -- The load counts ride on the same tag as the rows, so a file that
+      -- stopped parsing has to invalidate a cached answer even though the rows
+      -- it kept are the very ones that answer carried.
+      path <- orgFile dir "a.org" "* TODO one\n"
+      store <- loadStore dir
+      let (broken, frames) = applyFile path (Left ParseFailed) store
+      assertEqual "frames" [] frames
+      assertEqual "rows kept" (map hrId (storeRecords store)) (map hrId (storeRecords broken))
+      assertEqual "parse failures" 1 (qrParseFailures (storeResult broken))
+      assertBool ("generation stuck at " <> show (stGen broken)) (stGen broken > stGen store)
+
+  , testCase "and so does the same file parsing again" $ withTempDir $ \dir -> do
+      path <- orgFile dir "a.org" "* TODO one\n"
+      store <- loadStore dir
+      let (broken, _f) = applyFile path (Left ParseFailed) store
+      -- The very rows it had, so the recovery is the outcome and nothing else.
+      let (fixed, frames) = applyFile path (Right (storeRecords store)) broken
+      assertEqual "frames" [] frames
+      assertEqual "parse failures cleared" 0 (qrParseFailures (storeResult fixed))
+      assertBool ("generation stuck at " <> show (stGen fixed)) (stGen fixed > stGen broken)
+  ]
 
 -- | The tag vocabulary: SCHEMA.md's virtual filter keys, kept beside the rows
 -- so a query costs no fold over them.
@@ -134,6 +178,20 @@ derivedSpec = testGroup "Derived mirrors"
       assertBool ("dropped the mirror: " <> icDropped c)
                  ("overviews" `elem` splitOn (icDropped c))
 
+  , testCase "a mirror named as a root is still a mirror"
+      $ withMirrorTree $ \dir -> do
+      -- The exclusion is a property of the path, not of the descent: naming
+      -- `meta' reaches the files in it without passing the directory check that
+      -- would have turned the walk back, and they are derived all the same.
+      let meta = dir </> ".org-glance" </> "meta"
+      qr <- loadDirWith defaultWalk meta
+      assertEqual "files" 0 (qrFiles qr)
+      assertEqual "rows" 0 (length (qrRecords qr))
+      -- The fixture does hold one, and --include-derived is what takes it.
+      opened <- loadDirWith (WalkOptions True) meta
+      assertEqual "files with --include-derived" 1 (qrFiles opened)
+      assertEqual "rows with --include-derived" 1 (length (qrRecords opened))
+
   , testCase "the store resolves it the same way the load does"
       $ withMirrorTree $ \dir -> do
       qr <- loadDir dir
@@ -142,6 +200,19 @@ derivedSpec = testGroup "Derived mirrors"
       -- The store is the load it stands in for, id resolution included: the
       -- rows the walk kept, in the order it kept them.
       assertEqual "one row per id" (map hrId (qrRecords qr)) (map hrId (storeRecords st))
+
+  , testCase "and resolves the shared id, where there is one to resolve"
+      $ withMirrorTree $ \dir -> do
+      -- The comparison above runs over a tree with no duplicate to drop, so it
+      -- holds whether the store resolves ids or not.  With the mirrors walked,
+      -- two files claim `shared-id' and resolution is the difference between
+      -- three rows and four.
+      qr <- loadDirWith (WalkOptions True) dir
+      st <- loadStoreWith (WalkOptions True) dir
+      assertEqual "rows" 3 (length (storeRecords st))
+      assertEqual "one row per id" (map hrId (qrRecords qr)) (map hrId (storeRecords st))
+      assertEqual "out of the same files" (map hrFile (qrRecords qr))
+                  (map hrFile (storeRecords st))
 
   , testCase "a watch event under a mirror is not one this store reads" $ do
       let mirror = "/o/.org-glance/overviews/c1f3/overview.org"
@@ -236,6 +307,23 @@ diffSpec = testGroup "File diff"
       assertEqual "deletes" ["one", "two"] (deleteIds frames)
       assertEqual "upserts" [] (upsertIds frames)
       assertEqual "rows left" ["three"] (map hrId (storeRecords next))
+
+  , testCase "a row two files carry outlives the first of them to drop it"
+      $ withTempDir $ \dir -> do
+      -- One id, two files declaring it: the row is served the whole time one of
+      -- them still provides it, and the second to lose it is the one that
+      -- deletes it.  A delete sent early takes a row off the table that the
+      -- other file is still standing behind.
+      pa <- orgFile dir "a.org" (entryAs "shared" "TODO from a")
+      pb <- orgFile dir "b.org" (entryAs "shared" "TODO from b")
+      store <- loadStore dir
+      assertEqual "one row for the id" ["shared"] (map hrId (storeRecords store))
+      (half, frames) <- rewrite pa "* TODO something else\n" store
+      assertEqual "deletes" [] (deleteIds frames)
+      assertBool "the row is still served" ("shared" `elem` map hrId (storeRecords half))
+      (none, later) <- rewrite pb "* TODO nothing shared\n" half
+      assertEqual "deletes" ["shared"] (deleteIds later)
+      assertBool "and gone" ("shared" `notElem` map hrId (storeRecords none))
 
   , testCase "a file the store never held is not a deletion" $ withTempDir $ \dir -> do
       _ <- orgFile dir "a.org" "* TODO one\n"
