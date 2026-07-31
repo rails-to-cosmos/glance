@@ -17,20 +17,23 @@
 -- displays.
 --
 -- The virtual keys are this producer's org tags — every distinct tag in the
--- @tags@ column is a key of its own, so @contact:tanik@ is "tagged @contact@
+-- @tag@ column is a key of its own, so @contact:tanik@ is "tagged @contact@
 -- and matching @tanik@", the facet-then-search shape a tag tree gives an org
 -- user.  Membership is whole-tag, so @web:@ is not @website:@; an empty value
 -- asks for the tag alone.  A column shadows a tag of the same name
 -- (@title:@ stays the column), and a key that is neither is free text as
 -- before.
 --
--- Same-key predicates OR, distinct keys and free text AND, negations AND
--- regardless: @state:TODO state:DONE tanik@ is either state, and the text.
+-- Same-key predicates combine by the field's arity: a single-valued one ORs
+-- (@state:TODO state:DONE tanik@ is either state and the text — ANDing a badge
+-- with itself is always empty), a multi-valued one ANDs (@tag:a tag:b@ is a
+-- row carrying both, and @contact:x contact:y@ is tagged @contact@ and matching
+-- both texts).  Distinct keys and free text AND; negations AND regardless.
 --
 -- Three rules are uniform across the column types: @key:none@ matches the empty
 -- cell (so a literal cell reading @none@ is unreachable by predicate — the
 -- accepted cost of one spelling for "unset"), @key:@ with nothing after it
--- narrows nothing, and a predicate's value may be quoted (@tags:"two words"@).
+-- narrows nothing, and a predicate's value may be quoted (@tag:"two words"@).
 --
 -- The haystack is 'Glance.Query.hrSearch', built at load: the cells as they
 -- display, lowercased and @\\x1f@-joined in column order.  Free text searches
@@ -63,7 +66,7 @@ import Glance.Query ( HeadlineRecord (hrKeywords, hrSearch, hrState)
 -- is its field's position in the haystack.  Matched case-sensitively, the way
 -- the renderer matches its own @columns()@ keys.
 filterKeys :: [Text]
-filterKeys = ["state", "priority", "title", "tags", "scheduled", "deadline"]
+filterKeys = ["state", "priority", "title", "tag", "scheduled", "deadline"]
 
 -- | The cells matched by prefix rather than by substring: an ISO date, so
 -- @scheduled:2026-08@ is the month.  The renderer decides this per column by
@@ -162,19 +165,31 @@ matchesFilter vocabulary q = case compile (parseFilter vocabulary q) of
   tests   -> \r -> all ($ r) tests
 
 -- | TERMS as the tests a row must all pass.  Positive predicates sharing a key
--- collapse into one test any of them satisfies; a negation and a free-text
--- token each stand on their own, so @-state:TODO -state:DONE@ is neither rather
--- than either.
+-- collapse into one test, and which one depends on the field's arity
+-- ('multiValued'): a cell holding one value can only be one of them, so they
+-- OR, while a cell holding a list can hold all of them, so they AND.  A
+-- negation and a free-text token each stand on their own, so
+-- @-state:TODO -state:DONE@ is neither rather than either.
 compile :: [Term] -> [HeadlineRecord -> Bool]
 compile terms = singles <> groups
   where
     singles = [ inverted t | t <- terms, tmNegated t || isNothing (tmKey t) ]
     keyed   = [ (key, termTest t) | t <- terms, not (tmNegated t), Just key <- [tmKey t] ]
-    groups  = [ anyOf [ test | (k, test) <- keyed, k == key ]
+    groups  = [ joining key [ test | (k, test) <- keyed, k == key ]
               | key <- nub (map fst keyed) ]
+    joining key | multiValued key = \tests r -> all ($ r) tests
+                | otherwise       = \tests r -> any ($ r) tests
     inverted t | tmNegated t = not . termTest t
                | otherwise   = termTest t
-    anyOf tests r = any ($ r) tests
+
+-- | Does KEY name a field whose cell holds a list of values rather than one?
+-- The @tag@ column does, and so does every virtual key, which is a tag; the
+-- rest of this view holds one value per cell.  This is the split SCHEMA.md
+-- makes: @state:TODO state:DONE@ has to be either state, since a row with both
+-- does not exist, while @tag:a tag:b@ is a row carrying both, the way a label
+-- filter reads.
+multiValued :: Text -> Bool
+multiValued key = key == "tag" || key `notElem` filterKeys
 
 -- | T as a row test, its negation aside — 'compile' applies that, since where a
 -- term lands in the AND\/OR shape depends on it.
@@ -214,10 +229,10 @@ termTest t = case tmKey t of
 cellOf :: Int -> HeadlineRecord -> Text
 cellOf n = cellAt n . hrSearch
 
--- | Where the tags column sits in 'filterKeys', which is where its field sits
+-- | Where the tag column sits in 'filterKeys', which is where its field sits
 -- in the search text.
 tagsColumn :: Int
-tagsColumn = length (takeWhile (/= "tags") filterKeys)
+tagsColumn = length (takeWhile (/= "tag") filterKeys)
 
 -- | Field N of HAY, which is 'Glance.Query.hrSearch' — the display cells,
 -- lowercased and joined by @\\x1f@ in 'filterKeys' order.  Cut rather than

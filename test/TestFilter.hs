@@ -110,8 +110,12 @@ virtualSpec = testGroup "Virtual keys"
       assertEqual "and the tag is still text elsewhere"
                   [Term False (Just "glance") "x"] (parseFilter ["glance"] "glance:x")
 
-  , testCase "tag keys OR within one key and AND across two" $ do
-      matches "web:ship web:schema" [Ship, Schema]
+  , testCase "tag keys AND within one key, being multi-valued" $ do
+      -- `contact:x contact:y' is tagged contact and matching both texts, so two
+      -- of them narrow where two `state:' widen.
+      matches "web:the web:schema" [Schema]
+      matches "web:ship web:table" [Ship]
+      matches "web:ship web:schema" []
       matches "web: glance:" [Ship]
       matches "web: state:DONE" [Schema]
 
@@ -180,7 +184,7 @@ tokenSpec = testGroup "Tokens"
       assertEqual "term" [Term False Nothing "state:TODO"] (parsed "\"state:TODO\"")
 
   , testCase "a predicate's value may be quoted" $
-      assertEqual "term" [Term False (Just "tags") "two words"] (parsed "tags:\"two words\"")
+      assertEqual "term" [Term False (Just "tag") "two words"] (parsed "tag:\"two words\"")
 
   , testCase "negation carries the whole token, either form" $
       assertEqual "terms" [Term True (Just "state") "DONE", Term True Nothing "web"]
@@ -229,14 +233,14 @@ predicateSpec = testGroup "Predicates"
       matches "priority:c" [Drop]
       matches "priority:none" [Reply, Plain, Schema]
 
-  , testCase "title and tags are substrings of the cell, case-insensitively" $ do
+  , testCase "title and tag are substrings of the cell, case-insensitively" $ do
       matches "title:the" [Ship, Reply, Drop, Schema]
       matches "title:SHIP" [Ship]
       matches "title:привет" [Privet]
-      matches "tags:web" [Ship, Schema]
-      matches "tags:none" [Reply, Plain]
+      matches "tag:web" [Ship, Schema]
+      matches "tag:none" [Reply, Plain]
       -- A predicate reads one cell: the word is in another row's title.
-      matches "tags:renderer" []
+      matches "tag:renderer" []
 
   , testCase "a title predicate sees the cell as it displays" $ do
       matches "title:schema" [Schema]
@@ -271,11 +275,31 @@ predicateSpec = testGroup "Predicates"
 -- emptying it.
 shapeSpec :: TestTree
 shapeSpec = testGroup "Shape"
-  [ testCase "predicates sharing a key are either of them" $ do
+  [ testCase "predicates sharing a single-valued key are either of them" $ do
       matches "state:TODO" [Privet]
       matches "state:DONE" [Schema]
       matches "state:TODO state:DONE" [Privet, Schema]
       matches "state:TODO state:DONE state:NEXT" [Ship, Privet, Schema]
+      -- Which is the only reading that answers anything: one cell, one value.
+      matches "priority:a priority:c" [Ship, Drop]
+
+  , testCase "predicates sharing a multi-valued key are all of them" $ do
+      -- The tags cell is a list, so two of them intersect where two states
+      -- unite.  A union here would answer [Ship, Schema].
+      matches "tag:web" [Ship, Schema]
+      matches "tag:glance" [Ship]
+      matches "tag:web tag:glance" [Ship]
+      matches "tag:web tag:unicode" []
+      web <- matching "tag:web"
+      glance <- matching "tag:glance"
+      both <- matching "tag:web tag:glance"
+      assertBool "the intersection is no bigger than either side"
+                 (length both <= min (length web) (length glance))
+
+  , testCase "the two arities meet in one query" $ do
+      matches "state:TODO state:DONE tag:web" [Schema]
+      matches "state:NEXT state:DONE tag:web tag:glance" [Ship]
+      matches "state:NEXT state:DONE tag:web tag:cleanup" []
 
   , testCase "the union is the arithmetic, not the intersection" $ do
       todo <- matching "state:TODO"

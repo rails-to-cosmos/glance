@@ -10,7 +10,7 @@
     { "key": "priority", "header": "Pri", "type": "text", "sortable": true,
       "values": ["A", "B", "C"] },
     { "key": "title", "header": "Headline", "type": "text" },
-    { "key": "tags", "header": "Tags", "type": "text" },
+    { "key": "tag", "header": "Tags", "type": "text" },
     { "key": "scheduled", "header": "Scheduled", "type": "text", "sortable": true },
     { "key": "deadline", "header": "Deadline", "type": "text", "sortable": true }
   ],
@@ -21,22 +21,22 @@
   "rows": [
     { "id": "ship-table-view", "cells": {
         "state": "NEXT", "priority": "A", "title": "Ship the table view",
-        "tags": ":web:glance:", "scheduled": "2026-08-01 09:30",
+        "tag": ":web:glance:", "scheduled": "2026-08-01 09:30",
         "deadline": "2026-08-05" } },
     { "id": "test/fixtures/view/sample.org:210", "cells": {
         "state": "TODO", "priority": "B", "title": "Привет мир",
-        "tags": ":unicode:", "scheduled": "2026-08-03", "deadline": null } },
+        "tag": ":unicode:", "scheduled": "2026-08-03", "deadline": null } },
     { "id": "test/fixtures/view/sample.org:271", "cells": {
         "state": "WAITING", "priority": null, "title": "Reply from the печатник",
-        "tags": "", "scheduled": null, "deadline": "2026-08-10 17:00" } },
+        "tag": "", "scheduled": null, "deadline": "2026-08-10 17:00" } },
     { "id": "test/fixtures/view/sample.org:338", "cells": {
         "state": null, "priority": null, "title": "Plain headline without a state",
-        "tags": "", "scheduled": null, "deadline": null } },
+        "tag": "", "scheduled": null, "deadline": null } },
     { "id": "test/fixtures/view/sample.org:371", "cells": {
         "state": "CANCELLED", "priority": "C", "title": "Drop the old renderer",
-        "tags": ":cleanup:", "scheduled": null, "deadline": null } },
+        "tag": ":cleanup:", "scheduled": null, "deadline": null } },
     { "id": "test/fixtures/view/sample.org:451", "cells": {
         "state": "DONE", "priority": null, "title": "Read the schema",
-        "tags": ":web:", "scheduled": null, "deadline": null } }
+        "tag": ":web:", "scheduled": null, "deadline": null } }
   ]
 }

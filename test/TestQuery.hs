@@ -209,7 +209,7 @@ viewSpec = testGroup "View"
 
   , testCase "columns are the headline view's, in order" $ withView $
       columnKeys >=> assertEqual "column keys"
-        ["state", "priority", "title", "tags", "scheduled", "deadline"]
+        ["state", "priority", "title", "tag", "scheduled", "deadline"]
 
   , testCase "badges cover every keyword the files declared" $ withView $ \v -> do
       state <- columnOf "state" v

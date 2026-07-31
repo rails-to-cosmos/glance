@@ -557,7 +557,7 @@ columns palette =
   , column "priority"  "Pri"       "text"  [ "sortable" .= True
                                            , "values" .= (["A", "B", "C"] :: [Text]) ]
   , column "title"     "Headline"  "text"  []
-  , column "tags"      "Tags"      "text"  []
+  , column "tag"       "Tags"      "text"  []
   , column "scheduled" "Scheduled" "text"  [ "sortable" .= True ]
   , column "deadline"  "Deadline"  "text"  [ "sortable" .= True ]
   ]
@@ -577,7 +577,7 @@ rowJSON r = object
   , "cells" .= object [ "state"     .= hrState r
                       , "priority"  .= hrPriority r
                       , "title"     .= hrTitle r
-                      , "tags"      .= hrTags r
+                      , "tag"       .= hrTags r
                       , "scheduled" .= hrScheduled r
                       , "deadline"  .= hrDeadline r
                       ]
