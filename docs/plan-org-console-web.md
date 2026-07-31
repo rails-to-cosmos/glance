@@ -864,6 +864,44 @@ at ~2.3 MB a worker, which is the model rather than a leak. The flat ~19 MB the
 scan budget used to name was a single-threaded figure; it is quoted with a width
 now.
 
+## Tree display (experimental, 2026-08-01) — and what would make it real
+
+Rows now carry an outline `depth` and the server can serve them in the order
+they nest. Both halves are marked experimental in the places that would
+otherwise bind them: SCHEMA.md's Row object, `Glance.Query.ViewOrder`, the
+renderer's header and both READMEs. Neither is in `docs/invariants.md`, on
+purpose — nothing else in the wire contract turns on either, and a thing with no
+dependents has no invariant to state.
+
+What landed. `rowJSON` emits `depth` on every row, 0-based (`Data.Org.Indent`
+counts stars from one, so the wire is one less than the file spells); it rides
+beside `id` rather than among the cells, because it is about the row's place
+among the others rather than about anything shown in it, and no column, filter
+key or `hrSearch` field answers to it. `/headlines?order=document` moves the two
+halves of the ordering together — `Glance.Query.ViewOrder`, read by
+`orderedForView` for the rows and by `viewJSONWith` for the declaration — so the
+rows stay in walk order under any limit and the view carries no `sort` field for
+a renderer to re-apply. `order=scheduled` names the default and anything else is
+a 400. The browser renderer draws it behind `tree: true`: guides in the title
+column while the rows are the producer's own, indentation alone under a sort or
+a filter, adjacency read off the page.
+
+What it stops short of, deliberately. **The shell does not mount with `tree:
+true` and offers no control for `order=`.** Wiring either would put experimental
+behaviour behind the default view, where `TestServe` pins the boot fetch
+sequence, the z-index bands and the must-not-appear lists — a real cost for a
+thing that has not been read on a real tree yet.
+
+Exit criteria, in the order they would have to be met. (1) Read it on ~/sync:
+document order over 12.9k rows, with the guides drawn, is where a page-local
+adjacency rule either reads or does not. (2) Decide whether the degradation is
+right or merely honest — under the shell's default `state:*active*` the guides
+are OFF, which means the interesting view is the one nobody sees; the choice is
+between dropping the default query for this mode and accepting indentation
+alone. (3) Only then, the shell: a mount option and a corner control, with the
+suite's shell contracts extended rather than worked around. Until (1) and (2)
+are answered the flags stay where they are and cost nothing to remove.
+
 ## Dependency order
 
 S1 → S2 → S3 → S5 → S5.5 → S7 → S8 → S9; S4 after S2; S6 after S2. S4/S5/S6 can

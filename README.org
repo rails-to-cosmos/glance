@@ -34,7 +34,7 @@ counts ride in =X-Glance-*= headers (rows, files, parse, decode and read
 failures).
 
 *Filter and page it, and pay for bytes only when something moved.* =/headlines=
-takes three parameters and answers with the same View object:
+takes four parameters and answers with the same View object:
 
 #+begin_src sh
 curl -s 'localhost:7777/headlines?q=meeting' | jq '.rows | length'
@@ -48,12 +48,40 @@ curl -sD - -o /dev/null 'localhost:7777/headlines?limit=1000&offset=2000'
 - =limit= — page size, at most 20000. Absent means the whole set, which is what
   a client that wants to sort and move locally should ask for.
 - =offset= — where the page starts, default 0.
+- =order= — =scheduled= (the default) or =document=; see /Outline depth/ below.
+  Anything else is a 400, since a misspelling that quietly served the sorted
+  view would look exactly like a working request.
 
 The filter runs before the page, so =X-Glance-Total= is the match count and
 =X-Glance-Has-Next= says whether another page follows. A page is cut out of the
 view's own declared sort (scheduled ascending), so page two is the rows the
 table would show after page one; sorting a /page/ in the browser reorders that
 page alone, while the no-limit mode keeps full-fidelity client-side sort.
+
+*Outline depth, and reading the tree back (experimental).* Every row carries a
+=depth=: 0 for a top-level headline, one more per star past the first.
+[[file:../table-view/SCHEMA.md][SCHEMA.md]] marks it a renderer hint, so it is a
+field of the row rather than a cell, a column or a filter key, and a renderer
+that draws no tree ignores it.
+
+Depths only read as a tree while the rows are in the order they nest, and the
+default view sorts them apart by =SCHEDULED=. =?order=document= is the pairing
+that makes them legible: the rows stay in walk order whatever the limit — file
+by file, headline by headline down each — and the view carries *no =sort= field
+at all*, so a renderer leaves them where they landed.
+
+#+begin_src sh
+curl -s 'localhost:7777/headlines?order=document' | jq '.rows[:4] | map({id, depth})'
+curl -s 'localhost:7777/headlines?order=document' | jq 'has("sort")'   # false
+#+end_src
+
+There is no UI for it: the shell never asks, so this is a URL you type. The
+browser renderer draws depths under its own =tree: true= mount option — muted
+=│ ├─ └─= guides in the title column, degrading to plain indentation under any
+sort or filter, since a connector claims a parent that a reordering makes up.
+Wiring the shell's mount to it is the step this stops short of, deliberately:
+the option is experimental on both sides and neither carries invariant weight
+yet.
 
 Every answer carries =ETag: "<fingerprint>-gN"= — the fingerprint being a
 digest of the tree the daemon loaded, =N= the store's generation, which the file

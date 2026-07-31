@@ -13,8 +13,8 @@ import System.FilePath ((</>))
 import System.Posix.Files (createSymbolicLink)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
-import TestDefaults ( columnKeysOf, columnOf, entryAs, field, listAt, orgFile
-                    , textAt, viewDir, withTempDirNamed )
+import TestDefaults ( columnKeysOf, columnOf, entryAs, field, intAt, listAt
+                    , orgFile, textAt, viewDir, withTempDirNamed )
 
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
@@ -45,6 +45,20 @@ withRecords k = loadDir viewDir >>= k . qrRecords
 -- | Run K over the sample directory's view.
 withView :: (Value -> Assertion) -> Assertion
 withView k = withRecords (k . viewJSON viewTitle)
+
+-- | Run K over the view DOC alone makes, written into a file of its own so the
+-- load path is the ordinary one.
+withViewOf :: Text -> (Value -> Assertion) -> Assertion
+withViewOf doc k = withTempDirNamed "view" $ \dir -> do
+  path <- orgFile dir "tree.org" doc
+  loadFile path >>= either (assertFailure . show) (k . viewJSON viewTitle)
+
+-- | An outline with a level at every depth the guides have a case for: a root
+-- with a child and a grandchild, a second child under the same root, and a
+-- second root.  The golden's fixture is flat, so this is where the ladder is.
+nested :: Text
+nested = T.unlines
+  [ "* one", "** two", "*** three", "** four", "* five" ]
 
 -- JSON accessors this module alone needs; the rest come from 'TestDefaults'.
 
@@ -336,6 +350,23 @@ viewSpec = testGroup "View"
       keys <- columnKeysOf v
       assertEqual "column keys"
         ["state", "priority", "title", "tag", "scheduled", "deadline"] keys
+
+  -- SCHEMA.md's experimental `depth': a renderer hint about where a row sits
+  -- in the outline, 0-based, so the golden's six top-level rows are all zero
+  -- and the ladder below is where the counting is checked.
+  , testCase "every row carries its outline depth, counted from zero" $
+      withViewOf nested $ \v -> do
+        rows <- listAt "rows" v
+        depths <- mapM (intAt "depth") rows
+        assertEqual "depths" [0, 1, 2, 1, 0] depths
+
+  , testCase "and it is a field of the row, never a cell" $
+      withViewOf nested $ \v -> do
+        cols <- columnKeysOf v
+        rows <- listAt "rows" v
+        assertBool "depth is a column" ("depth" `notElem` cols)
+        cells <- mapM (\r -> field "cells" r >>= keysOf) rows
+        assertBool (show cells <> " names depth") (all ("depth" `notElem`) cells)
   ]
 
 -- | Shapes SCHEMA.md requires of any producer.

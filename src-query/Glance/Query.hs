@@ -38,6 +38,7 @@ module Glance.Query ( HeadlineRecord (..)
                     , QueryResult (..)
                     , Span (..)
                     , TodoKeywords (..)
+                    , ViewOrder (..)
                     , WalkOptions (..)
                     , WriteFailure (..)
                     , archiveEdits
@@ -57,6 +58,7 @@ module Glance.Query ( HeadlineRecord (..)
                     , loadFile
                     , matchesSearch
                     , mergeKeywords
+                    , orderedForView
                     , replaceSpans
                     , resolveIds
                     , rowJSON
@@ -445,6 +447,29 @@ documentPath = isDocument
 sortedForView :: [HeadlineRecord] -> [HeadlineRecord]
 sortedForView = sortOn (fromMaybe "" . hrScheduled)
 
+-- | Which order a view's rows are in, and what it declares about them.
+--
+-- 'ScheduledOrder' is the view every client has had: the rows sorted by
+-- 'sortedForView' and a @sort@ field saying so.  'DocumentOrder' leaves them in
+-- walk order — which for this producer is document order, headline by headline
+-- down each file — and emits NO @sort@ field at all, since SCHEMA.md reads an
+-- absent one as "the order they arrived in".  The pair travels together on
+-- purpose: 'orderedForView' arranges the rows and 'viewJSONWith' declares what
+-- was done, and a view whose declaration disagrees with its rows is one a
+-- renderer will re-sort out from under the reader.
+--
+-- __Experimental__: reached by @\/headlines?order=document@ alone, paired with
+-- the row @depth@ 'rowJSON' emits.  Nothing else in the wire contract turns on
+-- it, and a renderer is free to ignore both.
+data ViewOrder = ScheduledOrder | DocumentOrder
+  deriving (Eq, Show)
+
+-- | RECORDS in ORDER: 'sortedForView' for 'ScheduledOrder', untouched walk
+-- order for 'DocumentOrder'.
+orderedForView :: ViewOrder -> [HeadlineRecord] -> [HeadlineRecord]
+orderedForView ScheduledOrder = sortedForView
+orderedForView DocumentOrder  = id
+
 -- Subtrees
 
 -- | R's subtree as its file spells it: stars, planning, drawer, body and every
@@ -663,20 +688,25 @@ insertAt at' = Span at' at'
 -- @table-view/SCHEMA.md@, with the state palette taken from RECORDS themselves.
 viewJSON :: Text -> [HeadlineRecord] -> Value
 viewJSON viewTitle records =
-  viewJSONWith viewTitle (mergeKeywords (map hrKeywords records)) records
+  viewJSONWith ScheduledOrder viewTitle (mergeKeywords (map hrKeywords records)) records
 
--- | 'viewJSON' with the state column's PALETTE given rather than derived.  A
--- server answering a page has to pass the whole store's palette: the badge
--- list is what a client watches for a column change, and deriving it from the
--- rows that happen to be on this page would move it every time the page did.
-viewJSONWith :: Text -> TodoKeywords -> [HeadlineRecord] -> Value
-viewJSONWith viewTitle palette records = object
-  [ "title"   .= viewTitle
-  , "columns" .= columns palette
-  , "actions" .= actions
-  , "sort"    .= object [ "column" .= ("scheduled" :: Text), "ascending" .= True ]
-  , "rows"    .= map rowJSON records
-  ]
+-- | 'viewJSON' in ORDER and with the state column's PALETTE given rather than
+-- derived.  A server answering a page has to pass the whole store's palette:
+-- the badge list is what a client watches for a column change, and deriving it
+-- from the rows that happen to be on this page would move it every time the
+-- page did.  ORDER declares what 'orderedForView' did to RECORDS; see
+-- 'ViewOrder' for why the two are one decision.
+viewJSONWith :: ViewOrder -> Text -> TodoKeywords -> [HeadlineRecord] -> Value
+viewJSONWith order viewTitle palette records = object
+  (  [ "title" .= viewTitle, "columns" .= columns palette, "actions" .= actions ]
+  <> declaredSort order
+  <> [ "rows" .= map rowJSON records ])
+
+-- | The @sort@ field ORDER declares, or nothing at all for 'DocumentOrder'.
+declaredSort :: ViewOrder -> [Pair]
+declaredSort DocumentOrder  = []
+declaredSort ScheduledOrder =
+  [ "sort" .= object [ "column" .= ("scheduled" :: Text), "ascending" .= True ] ]
 
 -- | The commands the view dispatches.  One so far: @materialize@ on the row at
 -- point, which asks the server for that headline's raw subtree and posts an
@@ -690,8 +720,9 @@ actions =
            , "label"   .= ("Materialize" :: Text) ] ]
 
 -- | 'viewJSONWith' encoded.
-viewJSONTextWith :: Text -> TodoKeywords -> [HeadlineRecord] -> TL.Text
-viewJSONTextWith viewTitle palette = encodeToLazyText . viewJSONWith viewTitle palette
+viewJSONTextWith :: ViewOrder -> Text -> TodoKeywords -> [HeadlineRecord] -> TL.Text
+viewJSONTextWith order viewTitle palette =
+  encodeToLazyText . viewJSONWith order viewTitle palette
 
 -- | The view's columns, in the order the table draws them: the key a filter
 -- names, the header over the cells, the type @table-view\/SCHEMA.md@ declares,
@@ -758,8 +789,22 @@ column key header kind extra =
 rowJSON :: HeadlineRecord -> Value
 rowJSON r = object
   [ "id" .= hrId r
+  , "depth" .= depthOf r
   , "cells" .= object [ Key.fromText key .= cell r | (key, _header, _kind, cell) <- viewColumns ]
   ]
+
+-- | R's outline depth, counted from zero: a top-level headline is 0 and each
+-- star past the first is one level down.  'Data.Org.Indent' counts the stars
+-- themselves, so the wire is one less than the file spells — SCHEMA.md's
+-- @depth@ is 0-based, and a renderer indenting by it wants the root flush left.
+--
+-- __Experimental__: SCHEMA.md marks the field a renderer hint, so it rides on
+-- every row and a renderer that draws no tree ignores it.  Every other field of
+-- the row is a cell; this one is about the row's place among the others, which
+-- is why it sits beside @id@ rather than among them, and why no column, filter
+-- key or search field answers to it.
+depthOf :: HeadlineRecord -> Int
+depthOf r = case indent (hrHeadline r) of Indent n -> max 0 (n - 1)
 
 -- | The state palette: every TODO keyword the loaded files declared, actives
 -- ahead of the done-like ones.  Palette order is also sort priority

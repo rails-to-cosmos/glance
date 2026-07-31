@@ -206,6 +206,12 @@ decoded r = either (\e -> assertFailure ("response JSON: " <> e)) pure
 rowsOf :: SResponse -> IO [Value]
 rowsOf r = listAt "rows" =<< decoded r
 
+-- | V's own field names.  An absent field is an answer here rather than a
+-- failure — @sort@ is the one the document order leaves out.
+fieldsOf :: Value -> IO [T.Text]
+fieldsOf (Object o) = pure (map Key.toText (KM.keys o))
+fieldsOf v = assertFailure ("expected an object, got " <> show v)
+
 -- | ROW's @id@, or the whole row when it has none — a failure that reads.
 rowId :: Value -> T.Text
 rowId row = case row of
@@ -261,7 +267,7 @@ digestOnDisk path = snapDigest . snapshotOf path <$> document path
 spec :: TestTree
 spec = withResource (body <$> get assetsDir "/") (const (pure ())) $ \shell ->
   testGroup "Serve"
-    [ headlineSpec, statsSpec, cacheSpec, gzipSpec, querySpec, archiveViewSpec
+    [ headlineSpec, statsSpec, cacheSpec, gzipSpec, querySpec, orderSpec, archiveViewSpec
     , bootstrapSpec, materializeSpec, commitSpec, commandSpec, indexingSpec
     , pageSpec shell, keymapSpec shell
     , glueSpec shell, bootSpec shell, liveSpec shell, paletteSpec shell, markSpec shell
@@ -1445,6 +1451,53 @@ querySpec = testGroup "GET /headlines filter and paging"
       r <- getFrom a "/headlines?limit&q"
       assertEqual "status" 200 (status r)
       assertEqual "rows" 6 . length =<< rowsOf r
+  ]
+
+-- | @order=document@ — EXPERIMENTAL, and the only thing that reaches it is a
+-- typed URL.  It moves both halves of the ordering at once: the rows stay in
+-- walk order under a limit, and the view carries no @sort@ field for a renderer
+-- to re-apply.  Paired with the @depth@ every row carries, that is what makes
+-- the answer readable as the outline it was cut from.
+orderSpec :: TestTree
+orderSpec = testGroup "GET /headlines?order=document"
+  [ testCase "the default still declares the view's sort" $ do
+      v <- get assetsDir "/headlines" >>= decoded
+      fieldsOf v >>= assertBool "no sort field" . elem "sort"
+
+  , testCase "and so does naming it" $ do
+      v <- get assetsDir "/headlines?order=scheduled" >>= decoded
+      fieldsOf v >>= assertBool "no sort field" . elem "sort"
+
+  , testCase "document order declares none at all" $ do
+      v <- get assetsDir "/headlines?order=document" >>= decoded
+      assertEqual "top-level keys" ["actions", "columns", "rows", "title"]
+        . sort =<< fieldsOf v
+
+  , testCase "and the page it cuts is walk order, where the default's is sorted" $ do
+      a <- app assetsDir
+      walk <- map rowId <$> (rowsOf =<< getFrom a "/headlines")
+      byDate <- map rowId <$> (rowsOf =<< getFrom a "/headlines?limit=3")
+      doc <- map rowId <$> (rowsOf =<< getFrom a "/headlines?order=document&limit=3")
+      assertEqual "the walk's first three" (take 3 walk) doc
+      -- Without this the case would pass over a fixture whose two orders agree.
+      assertBool ("the fixture cannot tell them apart: " <> show byDate)
+                 (byDate /= doc)
+
+  , testCase "every row carries its outline depth either way" $ do
+      a <- app assetsDir
+      let depths r = mapM (intAt "depth") =<< rowsOf r
+      sorted' <- depths =<< getFrom a "/headlines"
+      doc <- depths =<< getFrom a "/headlines?order=document"
+      assertEqual "the fixture is flat" (replicate 6 0) doc
+      assertEqual "and says so under either order" sorted' doc
+
+  , testCase "anything else under order is a 400 naming it" $ do
+      a <- app assetsDir
+      mapM_ (\path -> do
+               r <- getFrom a path
+               assertEqual (show path <> " status") 400 (status r)
+               assertContains "names the parameter" "order" (body r))
+            ["/headlines?order=walk", "/headlines?order=Document", "/headlines?order="]
   ]
 
 -- | @\/ws?bootstrap=off@: the opening @set-rows@ dropped for a client that

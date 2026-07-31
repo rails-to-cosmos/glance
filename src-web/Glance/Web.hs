@@ -112,8 +112,9 @@ import qualified Network.WebSockets as WS
 
 import Glance.Query ( HeadlineRecord (hrDigest, hrFile, hrId, hrSubtree)
                     , IdCollision (..), QueryResult (..), Span (spanEnd, spanStart)
-                    , WalkOptions (..), WriteFailure (..), archiveEdits, archived
-                    , replaceSpans, setStateEdits, sortedForView
+                    , ViewOrder (..), WalkOptions (..), WriteFailure (..)
+                    , archiveEdits, archived, orderedForView
+                    , replaceSpans, setStateEdits
                     , subtreeText, viewJSONTextWith )
 import Glance.Web.Filter (archiveKey, matchesFilter, namesArchive)
 import Glance.Web.Store ( Client, Frame (ViewChanged), Hub, LoadState (..)
@@ -370,6 +371,15 @@ safeName name = not (T.null name)
 -- the whole set itself, which is the full-fidelity mode; under a limit a
 -- client-side re-sort reorders the loaded page alone.
 --
+-- @order=document@ is the __experimental__ exception, and it moves both halves
+-- together ('Glance.Query.ViewOrder'): the rows stay in walk order whatever the
+-- limit, and the view carries no @sort@ field, so a renderer leaves them where
+-- they landed.  Walk order is document order — file by file, headline by
+-- headline down each — which is what makes the @depth@ each row carries
+-- readable as a tree.  Anything else under @order=@ is a 400; @order=scheduled@
+-- names the default.  There is no UI for it: the shell never asks, so a reader
+-- reaches it by typing the URL.
+--
 -- Caching.  The @ETag@ is the tree's fingerprint and the store's generation,
 -- which the watcher moves whenever a response would change, and
 -- @Cache-Control: no-cache@ makes every browser revalidate rather than guess a
@@ -383,7 +393,7 @@ safeName name = not (T.null name)
 headlines :: ServeOptions -> Hub -> Request -> IO Response
 headlines opts hub request = case pageParams request of
   Left why -> pure (jsonError status400 why)
-  Right (q, limit, offset) -> do
+  Right (q, limit, offset, order) -> do
     st <- readTVarIO (hubStore hub)
     let tag = etagOf st
     if tag `elem` ifNoneMatch request
@@ -403,10 +413,11 @@ headlines opts hub request = case pageParams request of
             hiding  = archiveKey `elem` vocab && not (namesArchive vocab q)
             hidden  = length asked - length matched
             total   = length matched
-            shown   = maybe matched (\n -> take n (drop offset (sortedForView matched))) limit
+            shown   = maybe matched
+                            (\n -> take n (drop offset (orderedForView order matched))) limit
             hasNext = maybe False (\n -> offset + n < total) limit
             body    = TLE.encodeUtf8
-                        (viewJSONTextWith (viewTitleFor dir) (storeKeywords st) shown)
+                        (viewJSONTextWith order (viewTitleFor dir) (storeKeywords st) shown)
         -- The encode is lazy, so it needs its own 'try': an exception raised
         -- inside warp's sender would truncate a 200 that has already gone out.
         forced <- try (evaluate (BL.length body))
@@ -466,21 +477,32 @@ pageHeaders total hasNext hidden =
   , ("X-Glance-Has-Next", if hasNext then "true" else "false")
   , ("X-Glance-Archived", BSC.pack (show hidden)) ]
 
--- | @q@, @limit@ and @offset@ out of REQUEST's query string, or what is wrong
--- with one of them.  An absent parameter is its default — no filter, no limit,
--- the top of the set — and a present one that is not a number is a 400 rather
--- than a silent fallback to it, since a mistyped page size that quietly serves
--- the whole store looks like a working request.
-pageParams :: Request -> Either Text (Text, Maybe Int, Int)
+-- | @q@, @limit@, @offset@ and @order@ out of REQUEST's query string, or what
+-- is wrong with one of them.  An absent parameter is its default — no filter,
+-- no limit, the top of the set, the view's declared sort — and a present one
+-- that is not a number is a 400 rather than a silent fallback to it, since a
+-- mistyped page size that quietly serves the whole store looks like a working
+-- request.  @order@ is spelled out for the same reason: a misspelling that
+-- silently served the sorted view would look exactly like a working one.
+pageParams :: Request -> Either Text (Text, Maybe Int, Int, ViewOrder)
 pageParams request = do
   q      <- maybe (Right "") text (raw "q")
   limit  <- traverse count (raw "limit")
   offset <- maybe (Right 0) count (raw "offset")
+  order  <- maybe (Right ScheduledOrder) ordering (raw "order")
   case limit of
     Just n | n > limitCap -> Left ("limit is at most " <> T.pack (show limitCap)
                                      <> "; page with offset for more")
-    _within                -> Right (q, limit, offset)
+    _within                -> Right (q, limit, offset, order)
   where
+    -- Experimental, and the only way to reach 'DocumentOrder'.  @scheduled@
+    -- names the default so a client can be explicit about the ordinary case.
+    ordering named = do
+      t <- text named
+      case t of
+        "document"  -> Right DocumentOrder
+        "scheduled" -> Right ScheduledOrder
+        _unknown    -> Left "order must be scheduled or document"
     -- A parameter with no @=@ reads as absent, so @?limit@ is not a zero page.
     raw name = case lookup (TE.encodeUtf8 name) (queryString request) of
       Just (Just bytes) -> Just (name, bytes)
