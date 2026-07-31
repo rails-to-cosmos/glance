@@ -19,15 +19,27 @@ The wanted payoffs, in priority order:
 3. **Share views** — publish a read-only slice to people who do not run Emacs.
 4. **Automation** — drive web workflows from org, using a real logged-in browser
    session (cookies), driven by deterministic scripts.
+5. **Workspace** — edit files (code, raw org) and run a terminal from the
+   browser tab, over the same daemon and bridge. Materialize a headline's
+   subtree, change it, commit it back drift-locked.
 
-**Offline / no-server was explicitly *not* a driver.** That removes the only
-reason to pursue WASM (see Non-goals).
+**Offline, clarified (rev 3).** Same-device offline already holds: the daemon
+reads local files and the browser talks to 127.0.0.1 — no network anywhere in
+the loop. Cross-device offline (a phone with no reachable daemon) is served by
+the file-sync layer already in place (`~/sync`) plus a daemon per device over
+its own replica; write-back's optimistic lock plus sync-level conflict handling
+cover concurrent edits. Browser-without-daemon stays a non-goal — WASM remains
+rejected (see Non-goals).
 
 ## Non-goals & rejected approaches
 
 - **Emacs compiled to WASM** — tens of MB, slow boot, no subprocesses, painful
   IO, mobile-hostile. Boils the ocean to ship one workflow.
-- **Reimplementing elisp / org in the browser** — years of work; reimplements the editor.
+- **Reimplementing elisp / org in the browser** — years of work; reimplements
+  the editor. Scope note (rev 3): this bars *semantic* org editing in the
+  browser (refile, agenda logic, folding cycles). Embedding an off-the-shelf
+  text component (CodeMirror) for raw text is a component choice, covered by
+  the write-back rules below.
 - **Building our own browser (Nyxt-style)** — Nyxt's *browser* is the weak part
   (WebKit jank, unpolished UX). Its *extension model* is the good part. Keep the
   model, use a real browser.
@@ -153,6 +165,17 @@ parser; the graph needs refs — sequence accordingly.
   are protocol clients.
 - **M4.** Commands round-trip; the daemon writes back to canonical org via span
   edits. Capture lands here too — phone capture turns driver 1 read-write.
+- **M3.5 (workspace, after M3 tiers).** Raw-text editor pane (CodeMirror;
+  replace-file for code, replace-subtree already serves org) and the browser
+  terminal: xterm.js over the bridge WS to a daemon PTY. The terminal is the
+  most privileged capability the bridge will ever carry — automate tier,
+  never earlier than the tier system itself.
+
+**Materialize (landed early, ahead of M3/M4).** The subtree round-trip —
+click a row, see the raw subtree, edit, commit back drift-locked — runs on
+the S8 engine over localhost. It is the first raw-replacement command and the
+proof of the write path; tier gating arrives with M3 before any non-localhost
+exposure.
 
 ## Risks & mitigations
 
@@ -169,11 +192,16 @@ parser; the graph needs refs — sequence accordingly.
   part) or migrate subtrees to a standard format (age/gpg). Separately, decide
   per-view: decrypt client-side (key handling) or serve already-decrypted
   (trust the server). Affects the share driver.
-- **Write-back.** Glance = navigate/browse first; browser stays read-mostly
-  until M4, and all writes flow through the daemon. The early enabler — span
-  retention — landed with S1: offsets through the AST, tight sub-spans per
-  headline, zero slice violations across the 6305-file corpus. Freeform
-  editing stays out of the browser permanently; structured commands only.
+- **Write-back.** All writes flow through the daemon's span-edit engine
+  (drift-locked, atomic; landed early as the S8 core). The browser gets two
+  kinds of write, both commands over the bridge: *structured* commands
+  (toggle state, retag, reschedule, capture) and *raw replacement* commands —
+  replace-subtree (materialize a headline, edit its raw text, commit back)
+  and replace-file (code files in a CodeMirror pane). Raw replacement is
+  whole-span text under the same drift lock; the daemon re-parses via the
+  watch, so a saved file goes live everywhere. Semantic org editing stays out
+  of the browser (see Non-goals). Rev 3 supersedes the earlier blanket
+  "structured commands only" stance.
 - **Prerequisites gate milestones.** M2's mindmap needs `RefKind` wired into
   parsing (currently defined, not wired) and enough graph assembly. Do not block
   M0 on refs or DB CRUD.
@@ -187,6 +215,13 @@ commands, streams events (file changed, browser event, automation result), and
 privilege tiers from day one — read, write, automate — because the daemon
 listens beyond localhost (drivers 1 and 3). Once specified, the rest is
 plumbing.
+
+Tier sketch (rev 3, to be specified at M3): **read** — views, graph,
+materialize GET; **write** — structured commands and drift-locked raw
+replacement (subtree, file); **automate** — terminal PTY and the
+cookie-bearing browser extension. One token per tier, presented at
+handshake; the daemon binds 127.0.0.1 until tokens exist, and the automate
+tier additionally requires per-capability enablement at daemon start.
 
 ## Open questions
 
