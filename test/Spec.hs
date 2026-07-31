@@ -12,6 +12,7 @@ import qualified TestSpans as Spans
 import qualified TestQuery as Query
 import qualified TestServe as Serve
 import qualified TestStore as Store
+import qualified TestSubtree as Subtree
 
 tests :: TestTree
 tests = testGroup "Tests"
@@ -24,6 +25,7 @@ tests = testGroup "Tests"
   , Spans.spec
   , Edit.spec
   , Query.spec
+  , Subtree.spec
   , Serve.spec
   , Store.spec
   ]

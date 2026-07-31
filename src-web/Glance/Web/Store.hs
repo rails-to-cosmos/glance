@@ -25,6 +25,7 @@ module Glance.Web.Store
   , FileEntry (..)
   , emptyStore
   , loadStore
+  , storeHeadline
   , storeRecords
   , storeResult
   , storeKeywords
@@ -112,6 +113,24 @@ storeResult st = QueryResult
   }
   where entries    = Map.elems (stFiles st)
         failures f = length (filter ((== Just f) . feFailure) entries)
+
+-- | The record ST holds under ID, or 'Nothing'.  What @\/headline@ materializes
+-- from: the row the table shows, with the subtree extent and the digest of the
+-- text that extent was measured in, which is what makes a write back to it
+-- drift-checkable.
+--
+-- A scan of the store rather than an index: 'stIds' counts ids to decide
+-- deletions and holds no records, and an index that held them would be a
+-- second structure to keep in step with 'stFiles' on every reload.  The scan
+-- is ~2.4 ms over the 13359-row ~/sync store, which is most of a materialize
+-- request and none of a user's attention; it is the lever if @\/headline@ ever
+-- lands in a loop.  Two files declaring one @ORG_GLANCE_ID@ share a row and the
+-- later one in walk order wins, which is how 'rowsById' resolves the same
+-- collision on the wire.
+storeHeadline :: Text -> Store -> Maybe HeadlineRecord
+storeHeadline rid = foldl' pick Nothing . storeRecords
+  where pick found r | hrId r == rid = Just r
+                     | otherwise     = found
 
 -- | The palette the store's columns carry.  One record per file is enough:
 -- every row of a file shares its keyword sets and 'mergeKeywords' deduplicates,

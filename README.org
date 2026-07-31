@@ -42,10 +42,31 @@ table-view's streaming ops: =set-rows= once on connect, then =upsert-row= and
 about 100 ms, no reload; create or delete a file and its rows appear or go. A
 green dot by the heading says the socket is up, grey that it is reconnecting.
 
+*Materialize a headline.* The view declares one action — =RET → materialize= —
+so hitting =RET= on the selected row (double-clicking it, or the Materialize
+button in the toolbar) opens that headline's raw subtree over the table in a
+textarea: stars, planning line, drawer, body and every child, exactly as the
+file spells them. Edit it and press Save and the text goes back over the same
+character span, leaving every other byte of the file alone; the sheet closes and
+the row arrives a moment later over the socket, because the file watch is what
+updates the table whoever did the writing. Escape or Cancel closes without
+writing. If the file moved in between — Emacs saved it, a sync landed — the save
+is refused with a conflict and the sheet offers to re-materialize, since the
+text you edited is not in that file any more. The same round trip from a shell,
+=id= being the row id the view carries:
+
+#+begin_src sh
+curl -s -G --data-urlencode 'id=ROW-ID' localhost:7777/headline
+curl -s -X POST -H 'content-type: application/json' \
+     -G --data-urlencode 'id=ROW-ID' localhost:7777/headline \
+     --data-binary '{"org": "* DONE …\n", "digest": "<the digest the GET returned>"}'
+#+end_src
+
 The store stays a projection and the org files stay the source of truth: it is
 thrown away with the process, every row in it came out of a file, and a file
-that stops parsing keeps the rows it had. Restart the daemon and
-the tab re-fetches and re-mounts on its own, backing off from 1 s to 30 s.
+that stops parsing keeps the rows it had — including one saved from the browser
+with a typo in it, which is the same deal any editor offers. Restart the daemon
+and the tab re-fetches and re-mounts on its own, backing off from 1 s to 30 s.
 
 The listener binds =127.0.0.1= and nothing else. Authentication and the
 read/write/automate tiers arrive with the protocol step (S7 in
@@ -73,7 +94,7 @@ glance/
 │       └── Query.hs     ← Records and table-view JSON: the whole public API
 ├── src-web/              ← glance-web (private sublibrary, facade-only deps)
 │   └── Glance/
-│       ├── Web.hs       ← WAI app: /headlines, /ws, the live shell, assets
+│       ├── Web.hs       ← WAI app: /headlines, /headline, /ws, the live shell, assets
 │       └── Web/
 │           ├── Store.hs  ← In-memory store, row diff, frames, client hub
 │           └── Watch.hs  ← inotify watch, debounce, one re-parse per edit

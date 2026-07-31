@@ -7,6 +7,7 @@ import Control.Monad ((>=>))
 import Data.Aeson (Value (Array, Null, Object, String), eitherDecodeFileStrict')
 import Data.Char (isDigit)
 import Data.Foldable (toList)
+import Data.List (sort)
 import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
@@ -211,7 +212,13 @@ schemaSpec = testGroup "Schema conformance"
       key <- field "sort" v >>= field "column" >>= text
       assertBool (show key <> " outside " <> show cols) (key `elem` cols)
 
-  , testCase "no actions until the server owns them" $ withView $ \v -> do
-      ks <- keysOf v
-      assertBool ("actions declared in " <> show ks) ("actions" `notElem` ks)
+  , testCase "the actions are SCHEMA.md's key/command/label objects" $ withView $ \v -> do
+      keys <- each "actions" "key" v >>= mapM text
+      commands <- each "actions" "command" v >>= mapM text
+      labels <- each "actions" "label" v >>= mapM text
+      fields <- field "actions" v >>= array >>= mapM keysOf
+      assertEqual "keys" ["RET"] keys
+      assertEqual "commands" ["materialize"] commands
+      assertEqual "labels" ["Materialize"] labels
+      assertEqual "fields" [["command", "key", "label"]] (map sort fields)
   ]

@@ -14,6 +14,9 @@
     { "key": "scheduled", "header": "Scheduled", "type": "text", "sortable": true },
     { "key": "deadline", "header": "Deadline", "type": "text", "sortable": true }
   ],
+  "actions": [
+    { "key": "RET", "command": "materialize", "label": "Materialize" }
+  ],
   "sort": { "column": "scheduled", "ascending": true },
   "rows": [
     { "id": "ship-table-view", "cells": {

@@ -5,6 +5,7 @@ module TestDefaults ( at
                     , headlinesOf
                     , initialState
                     , on
+                    , orgFile
                     , plainTs
                     , strptime
                     , titled
@@ -12,14 +13,20 @@ module TestDefaults ( at
                     , withHeadline
                     , withHeadlineIn
                     , withId
+                    , withTempDir
                     , withTodo
                     ) where
 
+import Control.Exception (finally)
 import Data.Org
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 import Data.Time (UTCTime, defaultTimeLocale, parseTimeOrError)
+import Data.Unique (hashUnique, newUnique)
+import System.Directory (createDirectoryIfMissing, removeDirectoryRecursive, getTemporaryDirectory)
+import System.FilePath ((</>))
 import Test.Tasty.HUnit (Assertion, assertFailure)
 
 -- Time
@@ -74,6 +81,25 @@ withId name' ident = T.intercalate "\n"
 -- | A default headline whose title is the single token T.
 titled :: Text -> Headline
 titled t = defaultHeadline { title = Title [OrgLineToken (Token t)] }
+
+-- Files
+
+-- | Run ACT over a directory of its own, removed afterwards whatever happens.
+-- A test whose subject is files on disk — the store, the watch, the write path —
+-- writes real ones; the suite depends on @directory@ already and gains nothing
+-- from a temp-file package for this.
+withTempDir :: (FilePath -> IO a) -> IO a
+withTempDir act = do
+  base <- getTemporaryDirectory
+  unique <- hashUnique <$> newUnique
+  let dir = base </> ("glance-test-" <> show unique)
+  createDirectoryIfMissing True dir
+  act dir `finally` removeDirectoryRecursive dir
+
+-- | Write TEXT to DIR/NAME and yield the path.
+orgFile :: FilePath -> FilePath -> Text -> IO FilePath
+orgFile dir name text = path <$ TIO.writeFile path text
+  where path = dir </> name
 
 -- Parsing
 

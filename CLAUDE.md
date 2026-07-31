@@ -18,6 +18,9 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   text alone — the keyword is not part of it.
 - `stripSpans` must cover every span-carrying constructor; a new `Element`
   constructor that embeds spans must extend it.
+- A subtree span runs from a headline's stars to the next headline at its level
+  or shallower, else to the end of the document; they nest, non-nesting pairs
+  are disjoint, and trailing blank lines belong to the subtree above.
 
 ## Parser
 
@@ -86,8 +89,14 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `glance-internal` sublibrary; cells are sliced from spans and the view
   `Value` is hand-built — no `ToJSON` on an internal type
   (table-view/SCHEMA.md is the contract).
-- Browser gets structured commands only, never freeform editing; automation =
-  reviewed deterministic scripts, no LLM in the loop.
+- Materialize: `GET`/`POST /headline?id=…` serves and replaces a headline's raw
+  subtree. The digest is pinned at load, any divergence is a 409 with the file
+  untouched, and the write path never touches the store — the file watch is the
+  only thing that updates rows.
+- Browser writes are commands over the bridge: structured ones (toggle, retag,
+  reschedule) and drift-locked raw replacement (materialize a subtree, later a
+  file). Semantic org editing — refile, agenda logic — stays out of the browser.
+  Automation = reviewed deterministic scripts, no LLM in the loop.
 
 ## Build
 

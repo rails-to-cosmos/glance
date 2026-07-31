@@ -37,6 +37,21 @@ on.
 - **`stripSpans` totality.** Resets headline spans; every other constructor
   passes through. A new span-carrying `Element` constructor silently turns
   ~150 span-insensitive assertions span-sensitive unless added here. **test**
+- **Subtree extents.** `Glance.Query.hrSubtree` runs from `spanStart (hsFull …)`
+  to the start of the next headline in the same file at the headline's own
+  level or shallower, and to the end of the document when there is none —
+  org's outline rule, computed at load in one right-to-left pass over the
+  headlines with a stack. The geometry the write path rests on: extents nest
+  (a child's lies inside its parent's), two that do not nest are disjoint, each
+  covers its own `hsFull`, consecutive headlines leave no gap, and the last
+  extent of a file ends at `T.length doc`. Two consequences worth stating
+  because a materialize shows them: whatever sits between a subtree's last body
+  line and the next headline's stars, blank lines included, belongs to the
+  subtree above; and a file's `#+`-preamble sits ahead of the first extent and
+  belongs to no subtree, so a commit cannot carry it off. Evidence:
+  `TestSubtree` — five fixtures asserted as text, the geometry group over all
+  of them, and the same geometry over sampled real files behind
+  `GLANCE_CORPUS`. **test + corpus**
 
 ## Parser
 
@@ -212,6 +227,34 @@ on.
   Evidence: `TestEdit`, plus the ~/sync canary behind `GLANCE_CORPUS=<root>`
   (33 files, 214 spans, each file digest-checked before and after to prove the
   check never wrote). **test + corpus**
+- **Materialize pins its digest at load.** `hrDigest` is the SHA-256 of the very
+  bytes `loadFile` decoded and parsed (`Data.Org.Edit.digestOf`, taken there
+  rather than by a later read), and `GET /headline` answers with that digest
+  beside offsets measured in that same text. Re-reading the file at GET time is
+  the shortcut that breaks it: the response would pin bytes the extent was never
+  measured against, and the disagreement surfaces only as a splice landing in
+  the wrong place. A store refreshed by the watch replaces records and digest
+  together, so the next materialize hands out fresh coordinates. Evidence:
+  `TestServe` "GET /headline" (the digest is the fixture's known `sha256sum`,
+  written down rather than recomputed by the code under test). **test**
+- **A commit is refused on any divergence, and the file survives it.**
+  `POST /headline` checks the client's digest against the store's — a file
+  re-parsed since the materialize is a 409 `stale` — and `replaceSpan` then
+  re-digests the file itself, so a change that has not reached the store yet is
+  a 409 `drift`. Both leave the target byte-identical (the `Data.Org.Edit`
+  guarantee), and both mean one thing to a client: materialize again, because
+  the text it edited is not there any more. The committed text is taken as
+  given — org validity is the author's business, and a file that stops parsing
+  keeps the rows it had, exactly as when the text came from an editor.
+  Evidence: `TestServe` "POST /headline" group. **test**
+- **The watch is the only channel that updates the store.** A commit writes the
+  file and returns; no path through the route touches the `Hub` or the `Store`.
+  The watch re-reads what was written and streams the rows, so a browser save
+  reaches every open tab by the path an editor's save already takes. Updating
+  the store from the write path too would be a second producer of row frames,
+  racing the watch and diverging from it on the first failed re-parse.
+  Evidence: `TestServe` "leaves the store alone — the watch is what updates
+  rows". **test**
 - The web layer depends only on the `Glance.Query` facade (S2), enforced at
   the cabal-stanza level; `Display`/`TextShow` stay out of the wire.
 - **The web layer is one stanza, and the constraint lives on it.**
@@ -240,8 +283,11 @@ on.
   carries a `ToJSON` instance: deriving one would make the AST the contract,
   and `SCHEMA.md` is. **test** (`TestQuery` imports the facade only; golden +
   schema-conformance groups)
-- Browser: structured commands only. Automation: reviewed deterministic
-  scripts behind a separate privilege tier; no LLM in the loop.
+- Browser writes are commands over the bridge, of two kinds (proposal rev 3):
+  structured commands, and raw replacement of a whole span under the same drift
+  lock — materialize is the first of those. Semantic org editing stays out of
+  the browser. Automation: reviewed deterministic scripts behind a separate
+  privilege tier; no LLM in the loop.
 
 ## Build
 

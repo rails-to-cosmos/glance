@@ -236,6 +236,113 @@ id for an unmarked headline would have to come from.
 
 Suite: 274 → **301 tests**.
 
+## S5.5 — Materialize: the subtree round-trip (landed, ahead of M3/M4)
+
+Click a row, read the headline's raw subtree, edit it, commit it back
+drift-locked. The first raw-replacement command, running on the S8 engine over
+loopback — the write path proven end to end before the tiers (S7) and the
+structured commands (S8) that will share it.
+
+Exit:
+- [x] Subtree extent computed at load: stars through the next headline at that
+      level or shallower, else end of document. Actual: one right-to-left pass
+      over a file's headlines with an indent stack (`Glance.Query.subtreeSpans`),
+      linear whatever the nesting; `HeadlineRecord` gains `hrSubtree`, plus
+      `hrDoc` and `hrDigest` — the text is the one `hrHeadline` already shares,
+      so the record pins a pointer and no new array.
+- [x] The view declares the action. Actual: `actions: [{"key": "RET",
+      "command": "materialize", "label": "Materialize"}]`, SCHEMA.md's Action
+      object; the golden fixture and the conformance assertion moved with it
+      (the old one asserted `actions` absent).
+- [x] `GET /headline?id=…` → `{id, file, org, digest, span}`, 404 on an unknown
+      id. Actual: the id rides in the query string rather than in a path
+      segment — a row id is `FILE:START` and carries both a slash and a colon,
+      and WAI has decoded the query by the time the route runs. Everything is
+      served from the store; nothing re-reads the file.
+- [x] `POST /headline?id=…` with `{org, digest}` writes the span and answers
+      the new digest. Actual: one `Edit` through `editFile` — atomic
+      temp+rename, permission bits kept — and 200 `{"digest": …}`.
+- [x] Drift is refused and the file survives it. Actual: two checks, both 409
+      with the file byte-identical — `stale` when the client's digest is not
+      the store's (the file was re-parsed since), `drift` when `editFile`
+      re-digests and finds someone else's bytes. The 409 body carries the
+      digest to re-materialize with; the shell shows *File changed since
+      materialize — re-open* and a Re-materialize button.
+- [x] The store is not written by the write path. Actual: the route touches the
+      file and returns; the watch re-reads it and streams the rows, so a
+      browser save and an Emacs save reach open tabs by one channel. Asserted
+      in `TestServe` — with no watcher running, a second `GET` after a
+      successful `POST` still answers the store's old text and old digest.
+- [x] Suite: 378 → **405 tests**, hlint clean, no new warnings. `TestSubtree`
+      is new (extent as text over five fixtures, the geometry group, and a
+      `GLANCE_CORPUS` sweep); `TestServe` gains the two route groups;
+      `TestDefaults` now owns the temp-directory helper the file-writing suites
+      share.
+
+**Measured** against `glance serve --dir ~/sync --port 7799` — 6313 files,
+13359 rows, 16.9 s startup — over a keep-alive loopback connection, 40 requests
+each, medians:
+
+| request | latency |
+|---|---|
+| `/ws` 400 — the bare HTTP round trip | **0.35 ms** |
+| `/headline` 400, no id, no lookup | **0.40 ms** |
+| `/headline` 404 — the whole 13359-row lookup | **2.71 ms** (min 2.18) |
+| `/headline` 200, 1251-char subtree | **2.92 ms** |
+| `/headline` 200, largest subtree in the corpus: 68381 chars, 74 KB of JSON | **3.84 ms** (min 3.02) |
+| `/headlines` 200, 13359 rows, 3.06 MB, for scale | **119 ms** |
+
+So a materialize is **3–4 ms** end to end, and the lookup is nearly all of it:
+**~2.5 ms** of scan over 13k records, against 0.4 ms of HTTP and — on a second
+run of the same benchmark — a 68 KB subtree that came back in 3.39 ms while the
+404 took 3.45 ms, the slice and the encode disappearing into run-to-run noise.
+The scan is deliberate (`Glance.Web.Store.storeHeadline`): the store's id index
+counts ids to decide deletions and holds no records, and an index keyed to
+records is a second structure to keep in step with `stFiles` on every reload,
+for a saving nobody can perceive on a modal that opens. It is written down as
+the lever if `/headline` ever lands in a loop.
+
+Residency is unchanged in kind — **416 MB** RSS after the load, against the
+593 MB S5 recorded (GC timing moves that number more than these fields do).
+`hrDoc` names the array `hrHeadline` already held, and `hrDigest` is one shared
+64-character value per file.
+
+**The full loop**, on a scratch file inside the watched tree, timestamps from a
+`ws://` client running alongside: file created → `upsert-row` ×2 at **145 ms**
+(the watch's 100 ms debounce plus the parse). `GET` **13.8 ms** cold on a
+just-grown store, 3–4 ms after. Edit the text, `POST` → **200** in **10.3 ms**
+with the new digest, and on disk the file is byte-equal to prefix + new subtree
++ suffix, its second headline untouched, its digest the one the response
+reported. The edited row reaches the socket client **109 ms** after that
+response — over the watch, like any other save, carrying
+`state=DONE, title="Materialize scratch, edited"`. Re-posting the same body is a
+**409 `drift`** in 4.5 ms with the file untouched; re-materializing hands out
+the new digest and the same body then commits **200**, which is the shell's
+Re-materialize button in two calls. `rm` of the scratch file → `delete-row` ×2
+at **122 ms**. Afterwards: no scratch file, no `.glance-tmp`, `~/sync`
+otherwise byte-identical, `git status` showing this step's files and nothing
+else.
+
+The loop also re-exhibits S5's documented row-id churn: the scratch file's
+second headline has no `ORG_GLANCE_ID`, the edit above it moved its offset from
+121 to 147, and the store streamed an upsert plus a delete because
+`FILE:START` cannot tell that from a deletion and an insertion. Materialize
+makes this reachable from a browser rather than only from an editor; a stable
+id for an unmarked headline is still S8's problem.
+
+**Corpus.** `GLANCE_CORPUS=~/sync cabal test` samples every 98th path of 6313 —
+65 files, 91 headlines — and every subtree geometry claim holds on them:
+extents nest, non-nesting pairs are disjoint, each covers its own `hsFull`,
+consecutive headlines leave no gap, and the last extent of every file ends at
+the document's character length. 12.8 s, all of it the walk.
+
+**Left open.** A real editor component (CodeMirror) is M3.5; this ships a
+`textarea`. Whether the committed text still parses as org is the author's
+business, the way it is in any editor — a failed re-parse keeps the file's rows
+and streams nothing, which is S5's rule unchanged. And the route is as
+privileged as every other one until S7: loopback is still the whole access
+story, and a write route is the reason that stops being enough.
+
 ## S6 — M2: graph + mindmap (parallel with S5, after S2)
 
 Wire `RefKind` in parsing, assemble `fgl` graph, `GET /graph` → graph JSON,
@@ -357,5 +464,6 @@ Exit:
 
 ## Dependency order
 
-S1 → S2 → S3 → S5 → S7 → S8 → S9; S4 after S2; S6 after S2. S4/S5/S6 can run
-in parallel.
+S1 → S2 → S3 → S5 → S5.5 → S7 → S8 → S9; S4 after S2; S6 after S2. S4/S5/S6 can
+run in parallel. S5.5 needed only S5's store and the S8 engine, which is why it
+landed ahead of the tiers it will eventually sit behind.

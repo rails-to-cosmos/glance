@@ -8,21 +8,18 @@
 module TestStore (spec) where
 
 import Control.Concurrent.STM (atomically)
-import Control.Exception (finally)
 import Data.Aeson (Value (Object, String))
 import Data.Time (UTCTime (UTCTime), addUTCTime, fromGregorian, secondsToDiffTime)
-import Data.Unique (hashUnique, newUnique)
-import System.Directory ( createDirectoryIfMissing, getTemporaryDirectory
-                        , removeDirectoryRecursive, removeFile )
+import System.Directory (removeFile)
 import System.FilePath ((</>))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
+import TestDefaults (orgFile, withTempDir)
 
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
 
 import Glance.Query ( HeadlineRecord (hrId), LoadFailure (..), QueryResult (..)
                     , TodoKeywords (..), loadDir, loadFile, rowJSON )
@@ -33,22 +30,10 @@ import Glance.Web.Store ( Frame (..), Store, applyFile, bootstrapFrame
 import Glance.Web.Watch (debounceDelay, due, isWatchable)
 
 -- Scaffolding
-
--- | Run ACT over a directory of its own, removed afterwards whatever happens.
+--
 -- The store's whole subject is files changing, so every case here writes real
--- ones and re-reads them the way the watcher does.
-withTempDir :: (FilePath -> IO a) -> IO a
-withTempDir act = do
-  base <- getTemporaryDirectory
-  unique <- hashUnique <$> newUnique
-  let dir = base </> ("glance-store-" <> show unique)
-  createDirectoryIfMissing True dir
-  act dir `finally` removeDirectoryRecursive dir
-
--- | Write TEXT to DIR/NAME and yield the path.
-orgFile :: FilePath -> FilePath -> T.Text -> IO FilePath
-orgFile dir name text = path <$ TIO.writeFile path text
-  where path = dir </> name
+-- ones into a directory of its own ('withTempDir') and re-reads them the way
+-- the watcher does.
 
 -- | PATH's records, or the failure as a test failure.  The watcher's own read.
 recordsOf :: FilePath -> IO [HeadlineRecord]

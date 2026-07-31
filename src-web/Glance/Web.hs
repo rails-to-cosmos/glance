@@ -7,11 +7,19 @@
 -- reading the stanza sees it.  That is the facade invariant
 -- (docs/invariants.md, Architecture), kept where the solver can check it.
 --
--- Four routes: @GET \/headlines@ is the view JSON, @GET \/@ a demo shell that
--- fetches it, @GET \/ws@ the live row stream, and @GET \/NAME@ an asset out of
--- the @--assets@ directory.  The view's field set is the contract
--- (@table-view\/SCHEMA.md@), so the load counts ride along as @X-Glance-*@
--- response headers and leave the body's shape alone.
+-- Five routes: @GET \/headlines@ is the view JSON, @GET \/@ a demo shell that
+-- fetches it, @GET \/ws@ the live row stream, @GET \/NAME@ an asset out of the
+-- @--assets@ directory, and @\/headline@ the materialize round-trip — @GET@ for
+-- one headline's raw subtree, @POST@ to write an edited one back.  The view's
+-- field set is the contract (@table-view\/SCHEMA.md@), so the load counts ride
+-- along as @X-Glance-*@ response headers and leave the body's shape alone.
+--
+-- Materialize is the one route that writes, and it writes through the store's
+-- own coordinates: the subtree extent and the digest of the text it was
+-- measured in, both taken at load.  A commit that does not present that digest
+-- is refused, and a commit that does never touches the store — the file watch
+-- re-parses the file it wrote and streams the rows, so a browser save and an
+-- editor save reach open tabs by the same single channel.
 --
 -- The directory is parsed once, at startup, into 'Glance.Web.Store.Store';
 -- every request renders that, and a file watcher re-parses one file per edit
@@ -40,18 +48,23 @@ import Control.Concurrent (forkIO, killThread, newEmptyMVar, takeMVar, tryPutMVa
 import Control.Concurrent.STM (atomically, readTVarIO)
 import Control.Exception (SomeException, displayException, evaluate, finally, try)
 import Control.Monad (forever, unless, void)
+import Data.Aeson (eitherDecode', encode, object, withObject, (.:), (.=))
+import Data.Aeson.Types (Pair, parseEither)
+import Data.Bifunctor (first)
 import Data.Text (Text)
 import GHC.Clock (getMonotonicTime)
 import Network.HTTP.Types ( Header, Status, hContentType, methodGet, methodHead
-                          , status200, status400, status404, status405, status500 )
-import Network.Wai ( Application, Request (pathInfo, requestMethod), Response
-                   , responseFile, responseLBS )
+                          , methodPost, status200, status400, status404, status405
+                          , status409, status413, status500 )
+import Network.Wai ( Application, Request (pathInfo, queryString, requestMethod)
+                   , Response, getRequestBodyChunk, responseFile, responseLBS )
 import Network.Wai.Handler.WebSockets (websocketsOr)
 import System.Directory (doesDirectoryExist, doesFileExist)
 import System.Exit (die)
 import System.FilePath (takeExtension, (</>))
 import System.IO (hFlush, stdout)
 
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
@@ -60,10 +73,12 @@ import qualified Data.Text.Lazy.Encoding as TLE
 import qualified Network.Wai.Handler.Warp as Warp
 import qualified Network.WebSockets as WS
 
-import Glance.Query (QueryResult (..), viewJSONText)
+import Glance.Query ( HeadlineRecord (hrDigest, hrFile, hrId, hrSubtree)
+                    , QueryResult (..), Span (spanEnd, spanStart)
+                    , WriteFailure (..), replaceSpan, subtreeText, viewJSONText )
 import Glance.Web.Store ( Client, Frame (ViewChanged), Hub, frameText, hubStore
-                        , loadStore, newHub, nextFrame, storeResult, subscribe
-                        , unsubscribe )
+                        , loadStore, newHub, nextFrame, storeHeadline, storeResult
+                        , subscribe, unsubscribe )
 import Glance.Web.Watch (watchOrgTree)
 
 -- Options
@@ -141,21 +156,28 @@ application :: ServeOptions -> Hub -> Application
 application opts hub =
   websocketsOr WS.defaultConnectionOptions (liveSocket hub) (httpApp opts hub)
 
--- | Everything that is not a websocket upgrade: the three GET routes and the
--- 405 for anything that would write.
+-- | Everything that is not a websocket upgrade: the read routes, the one route
+-- that writes, and the 405 for every other method.
 httpApp :: ServeOptions -> Hub -> Application
-httpApp opts hub request respond
-  | requestMethod request `notElem` [methodGet, methodHead] =
-      respond (plain status405 "method not allowed; this view is read-only until S7")
-  | otherwise = route (pathInfo request) >>= respond
+httpApp opts hub request respond = route (pathInfo request) >>= respond
   where
-    route []             = shellPage opts
-    route ["headlines"]  = headlines opts hub
-    route ["ws"]         = pure (plain status400 wsHint)
+    method  = requestMethod request
+    reading = method `elem` [methodGet, methodHead]
+    route ["headline"]
+      | reading              = materialize hub (queryId request)
+      | method == methodPost = commit hub (queryId request) request
+      | otherwise            = pure (jsonError status405 "/headline takes GET and POST")
+    route _
+      | not reading          = pure (plain status405 writeHint)
+    route []                 = shellPage opts
+    route ["headlines"]      = headlines opts hub
+    route ["ws"]             = pure (plain status400 wsHint)
     route [name]
-      | safeName name    = asset opts (T.unpack name)
-    route _              = pure (plain status404 "not found: /, /headlines, /ws, or an asset name")
-    wsHint = "/ws is a websocket endpoint; connect with Upgrade: websocket"
+      | safeName name        = asset opts (T.unpack name)
+    route _                  = pure (plain status404 notFound)
+    wsHint    = "/ws is a websocket endpoint; connect with Upgrade: websocket"
+    writeHint = "method not allowed; POST /headline?id=… is the one route that writes"
+    notFound  = "not found: /, /headlines, /headline, /ws, or an asset name"
 
 -- | Is NAME a plain file name, safe to look up inside the assets directory?
 -- 'pathInfo' has split the separators away already; what is left to reject is
@@ -184,6 +206,114 @@ headlines opts hub = do
   where dir = soDir opts
         renderError :: SomeException -> Text
         renderError e = "headline render failed: " <> T.pack (displayException e)
+
+-- Materialize
+
+-- | The largest commit body this server reads, in bytes.  A subtree is org
+-- text and a megabyte of it is an enormous one; past that the request is a
+-- mistake or an attack, and either way the answer is a 413.
+bodyLimit :: Int
+bodyLimit = 1024 * 1024
+
+-- | @GET \/headline?id=…@: one headline's subtree as its file spells it, plus
+-- the digest a commit has to present and the extent the text was cut from.
+--
+-- The id travels in the query string rather than in the path.  A row id is
+-- @FILE:START@ — slashes and a colon — so a path segment would have to be
+-- percent-encoded by every client and decoded here, while WAI has already
+-- decoded the query string by the time this runs.
+--
+-- Every field comes out of the store, which is the read model.  The offsets
+-- and the digest then describe one document, the text this process parsed:
+-- re-reading the file here would answer with a digest for bytes the extent was
+-- never measured against, and the disagreement would only surface as a splice
+-- landing in the wrong place.
+materialize :: Hub -> Maybe Text -> IO Response
+materialize _hub Nothing = pure (jsonError status400 "GET /headline?id=<row id>")
+materialize hub (Just rid) = do
+  found <- storeHeadline rid <$> readTVarIO (hubStore hub)
+  pure $ case found of
+    Nothing -> jsonError status404 ("no headline with id " <> rid)
+    Just r  -> jsonResponse status200
+      [ "id"     .= hrId r
+      , "file"   .= hrFile r
+      , "org"    .= subtreeText r
+      , "digest" .= hrDigest r
+      , "span"   .= object [ "start" .= spanStart (hrSubtree r)
+                           , "end"   .= spanEnd (hrSubtree r) ]
+      ]
+
+-- | @POST \/headline?id=…@ with body @{"org": …, "digest": …}@: the headline's
+-- subtree replaced by the text the client edited.
+--
+-- Two digest checks, one lock.  The client's digest must be the one the store
+-- holds, or the file has been re-parsed since and the client is editing a
+-- subtree measured at offsets that have moved; and 'replaceSpan' re-digests
+-- the file itself, which catches a change that has not reached the store yet.
+-- Both are a 409 with the file untouched, and both mean the same thing to a
+-- client: materialize again, because the text it edited is not there any more.
+--
+-- Nothing here touches the store.  The write goes to the file, the watch sees
+-- it, re-parses it and streams the rows — so a browser save reaches every open
+-- tab by the path an editor's save already takes, and there is one update
+-- channel rather than one plus a special case for the writer we happen to know
+-- about.  The text itself is taken as given: org validity is the author's
+-- business, and a file that stops parsing keeps the rows it had
+-- (docs/invariants.md), exactly as when the text came from Emacs.
+commit :: Hub -> Maybe Text -> Request -> IO Response
+commit _hub Nothing _request = pure (jsonError status400 "POST /headline?id=<row id>")
+commit hub (Just rid) request = do
+  body <- takeBody bodyLimit request
+  found <- storeHeadline rid <$> readTVarIO (hubStore hub)
+  case (body, found) of
+    (Nothing, _) -> pure (jsonError status413 ("body over " <> T.pack (show bodyLimit) <> " bytes"))
+    (_, Nothing) -> pure (jsonError status404 ("no headline with id " <> rid))
+    (Just raw, Just r) -> case parseCommit raw of
+      Left why -> pure (jsonError status400 why)
+      Right (org, digest)
+        | digest /= hrDigest r -> pure (conflict "stale" (hrDigest r) reparsed)
+        | otherwise -> do
+            written <- replaceSpan (hrFile r) digest (hrSubtree r) org
+            pure $ case written of
+              Right fresh             -> jsonResponse status200 ["digest" .= fresh]
+              Left (WriteDrift onDisk) -> conflict "drift" onDisk rewritten
+              Left (WriteRefused why)  -> jsonError status500 why
+  where
+    reparsed, rewritten :: Text
+    reparsed  = "the file was re-read since this subtree was materialized"
+    rewritten = "the file changed on disk since this subtree was materialized"
+    conflict :: Text -> Text -> Text -> Response
+    conflict reason current why = jsonResponse status409
+      [ "error"  .= (why <> "; materialize it again and re-apply the edit")
+      , "reason" .= reason
+      , "digest" .= current
+      ]
+
+-- | The @id@ parameter of REQUEST, when it carries one with a value.
+queryId :: Request -> Maybe Text
+queryId request = case lookup "id" (queryString request) of
+  Just (Just raw) -> either (const Nothing) Just (TE.decodeUtf8' raw)
+  _absent         -> Nothing
+
+-- | The @org@ and @digest@ a commit body carries, or what is wrong with it.
+parseCommit :: BL.ByteString -> Either Text (Text, Text)
+parseCommit raw = first (("body: " <>) . T.pack) $ do
+  value <- eitherDecode' raw
+  parseEither (withObject "commit" (\o -> (,) <$> o .: "org" <*> o .: "digest")) value
+
+-- | At most LIMIT bytes of REQUEST's body, or 'Nothing' when there are more of
+-- them.  Chunk by chunk rather than through 'Network.Wai.strictRequestBody': a
+-- cap that measures the body once it is all in memory has already paid for
+-- what it means to refuse.
+takeBody :: Int -> Request -> IO (Maybe BL.ByteString)
+takeBody limit request = go 0 []
+  where
+    go seen chunks = do
+      chunk <- getRequestBodyChunk request
+      let taken = seen + BS.length chunk
+      if BS.null chunk        then pure (Just (BL.fromChunks (reverse chunks)))
+        else if taken > limit then pure Nothing
+        else go taken (chunk : chunks)
 
 -- Live socket
 
@@ -303,23 +433,87 @@ shellPage opts = do
 -- Every close leads back through the same door: re-fetch, re-mount, reconnect.
 -- That covers a daemon restart, a dropped slow client, and @view-changed@ —
 -- the columns moving, which SCHEMA.md's row ops cannot express.
+--
+-- The @materialize@ action opens the subtree over the table in a plain
+-- @textarea@: @GET \/headline@ fills it, Save posts it back with the digest it
+-- came with, and a 409 says so and offers to fetch the subtree again.  A save
+-- closes the sheet without touching the table — the row arrives over the socket
+-- when the watch has re-read the file, which is the same way it would arrive
+-- had the edit come from an editor.  A real editor component is M3.5; a
+-- textarea is what proves the round-trip.
 demoShell :: ServeOptions -> Text
 demoShell opts = page (viewTitleFor (soDir opts)) $ T.unlines
   [ "  <h1>" <> escape (viewTitleFor (soDir opts)) <> "<span id=\"dot\"></span></h1>"
   , "  <div id=\"app\"></div>"
   , "  <div id=\"log\">loading …</div>"
+  , "  <div id=\"modal\">"
+  , "    <div id=\"sheet\">"
+  , "      <div id=\"mhead\"><span id=\"mfile\"></span><span id=\"mnote\"></span></div>"
+  , "      <textarea id=\"mtext\" spellcheck=\"false\"></textarea>"
+  , "      <div id=\"mfoot\">"
+  , "        <button id=\"msave\">Save</button>"
+  , "        <button id=\"mredo\" hidden>Re-materialize</button>"
+  , "        <button id=\"mcancel\">Cancel</button>"
+  , "      </div>"
+  , "    </div>"
+  , "  </div>"
   , "  <script src=\"" <> T.pack rendererAsset <> "\"></script>"
   , "  <script>"
   , "    const log = (m) => (document.getElementById(\"log\").textContent = m);"
   , "    const dot = (state) => (document.getElementById(\"dot\").className = state);"
-  , "    let table = null, socket = null, backoff = 1000;"
+  , "    const el = (id) => document.getElementById(id);"
+  , "    let table = null, socket = null, backoff = 1000, editing = null;"
   , "    function mount(view) {"
   , "      table = TableView.mount(document.getElementById(\"app\"), view, {"
-  , "        onAction: (command, id) => log(`action: ${command}  id=${id}`),"
+  , "        onAction: (command, id) =>"
+  , "          command === \"materialize\" ? materialize(id)"
+  , "                                     : log(`action: ${command}  id=${id}`),"
   , "        onLink: (target) => log(`link: ${target}`),"
   , "      });"
-  , "      log(`${(view.rows || []).length} headlines · click a column to sort`);"
+  , "      log(`${(view.rows || []).length} headlines · RET or double-click to materialize`);"
   , "    }"
+  , "    function materialize(id) {"
+  , "      fetch(`/headline?id=${encodeURIComponent(id)}`)"
+  , "        .then((r) => r.json().then((b) => {"
+  , "          if (!r.ok) throw new Error(b.error || r.status);"
+  , "          return b;"
+  , "        }))"
+  , "        .then(show)"
+  , "        .catch((e) => log(`materialize failed: ${e.message}`));"
+  , "    }"
+  , "    function show(h) {"
+  , "      editing = h;"
+  , "      el(\"mfile\").textContent = `${h.file}  ·  ${h.id}`;"
+  , "      el(\"mtext\").value = h.org;"
+  , "      note(\"\", false);"
+  , "      el(\"modal\").className = \"on\";"
+  , "      el(\"mtext\").focus();"
+  , "    }"
+  , "    function note(message, again) {"
+  , "      el(\"mnote\").textContent = message;"
+  , "      el(\"mredo\").hidden = !again;"
+  , "    }"
+  , "    function shut() { el(\"modal\").className = \"\"; editing = null; }"
+  , "    function save() {"
+  , "      if (!editing) return;"
+  , "      fetch(`/headline?id=${encodeURIComponent(editing.id)}`, {"
+  , "        method: \"POST\","
+  , "        headers: { \"content-type\": \"application/json\" },"
+  , "        body: JSON.stringify({ org: el(\"mtext\").value, digest: editing.digest }),"
+  , "      })"
+  , "        .then((r) => r.json().then((b) => ({ status: r.status, body: b })))"
+  , "        .then((a) => {"
+  , "          if (a.status === 200) { shut(); log(\"saved · the watch streams the row\"); }"
+  , "          else if (a.status === 409) note(\"File changed since materialize — re-open\", true);"
+  , "          else note(a.body.error || `save failed (${a.status})`, false);"
+  , "        })"
+  , "        .catch((e) => note(`save failed: ${e.message}`, false));"
+  , "    }"
+  , "    el(\"msave\").addEventListener(\"click\", save);"
+  , "    el(\"mcancel\").addEventListener(\"click\", shut);"
+  , "    el(\"mredo\").addEventListener(\"click\", () => editing && materialize(editing.id));"
+  , "    document.addEventListener(\"keydown\","
+  , "      (e) => { if (e.key === \"Escape\" && editing) shut(); });"
   , "    function apply(frame) {"
   , "      if (!table) return;"
   , "      if (frame.op === \"set-rows\") table.setRows(frame.rows);"
@@ -391,6 +585,20 @@ page title body = T.unlines
   , "    margin-left:8px;vertical-align:middle;background:#9aa0ad;transition:background .3s}"
   , "  #dot.live{background:#9ece6a}"
   , "  #dot.down{background:#9aa0ad}"
+  , "  #modal{display:none;position:fixed;inset:0;padding:24px;background:#0009;"
+  , "    align-items:center;justify-content:center}"
+  , "  #modal.on{display:flex}"
+  , "  #sheet{display:flex;flex-direction:column;gap:8px;padding:14px;border-radius:6px;"
+  , "    width:min(900px,100%);height:min(80vh,100%);background:#eceef2;color:#1c1e26}"
+  , "  @media (prefers-color-scheme:dark){#sheet{background:#1b1d26;color:#c8ccd4}}"
+  , "  #mhead{display:flex;justify-content:space-between;gap:12px;"
+  , "    font:12px ui-monospace,monospace;opacity:.85}"
+  , "  #mnote{color:#f7768e;text-align:right}"
+  , "  #mtext{flex:1;font:12px/1.5 ui-monospace,monospace;padding:8px;border-radius:4px;"
+  , "    border:1px solid #8884;background:transparent;color:inherit;resize:none}"
+  , "  #mfoot{display:flex;gap:8px}"
+  , "  #sheet button{font:12px system-ui,sans-serif;padding:5px 12px;border-radius:4px;"
+  , "    border:1px solid #8884;background:transparent;color:inherit;cursor:pointer}"
   , "</style>"
   , "</head>"
   , "<body>"
@@ -412,6 +620,16 @@ escape = T.concatMap esc
 
 jsonType :: Header
 jsonType = (hContentType, "application/json; charset=utf-8")
+
+-- | STATUS with FIELDS as its JSON body.  Hand-built the way the view document
+-- is: these objects are a contract with the shell, not a projection of a type.
+jsonResponse :: Status -> [Pair] -> Response
+jsonResponse status fields = responseLBS status [jsonType] (encode (object fields))
+
+-- | STATUS carrying MSG as @{"error": …}@, so a refusal parses the way the
+-- success it replaces does.
+jsonError :: Status -> Text -> Response
+jsonError status msg = jsonResponse status ["error" .= msg]
 
 html :: Text -> Response
 html body = responseLBS status200 [(hContentType, "text/html; charset=utf-8")] (utf8 body)

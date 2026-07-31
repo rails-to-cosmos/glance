@@ -29,6 +29,7 @@ module Data.Org.Edit ( Edit (..)
                      , EditReceipt (..)
                      , Snapshot (..)
                      , applyEdits
+                     , digestOf
                      , editFile
                      , snapshotOf
                      , takeSnapshot
@@ -145,7 +146,10 @@ takeSnapshot path = fmap (Snapshot path . digestOf) <$> readBytes path
 snapshotOf :: FilePath -> Text -> Snapshot
 snapshotOf path doc = Snapshot path (digestOf (TE.encodeUtf8 doc))
 
--- | The SHA-256 of BYTES, lowercase hex.
+-- | The SHA-256 of BYTES, lowercase hex — the digest a 'Snapshot' pins.
+-- Exported for a loader holding the bytes it parsed: it pins the document it
+-- computed its spans against without reading the file a second time, which is
+-- the only way the offsets and the digest are guaranteed to describe one text.
 digestOf :: BS.ByteString -> Text
 digestOf bytes = T.pack (show (hash bytes :: Digest SHA256))
 
