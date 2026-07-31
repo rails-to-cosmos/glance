@@ -262,8 +262,8 @@ spec = withResource (body <$> get assetsDir "/") (const (pure ())) $ \shell ->
   testGroup "Serve"
     [ headlineSpec, statsSpec, cacheSpec, gzipSpec, querySpec, bootstrapSpec
     , materializeSpec, commitSpec, indexingSpec, pageSpec shell, keymapSpec shell
-    , glueSpec shell, bootSpec shell, touchSpec shell, shellFontSpec shell
-    , assetSpec, errorSpec ]
+    , glueSpec shell, bootSpec shell, liveSpec shell, paletteSpec shell
+    , touchSpec shell, shellFontSpec shell, assetSpec, errorSpec ]
 
 -- | One boot of the shell's glue, run: the address bar it opens on, what the
 -- server answers as @X-Glance-Total@, the @\/headlines@ URLs that have to
@@ -320,15 +320,16 @@ shellBoots =
       , "/headlines?q=state%3A*active*"
       , "/headlines"
       , "/headlines" ]
-      -- `remember(\"\")' takes `q' out of the URL, so a link to the empty query
-      -- is the page's own address.
-      ""
+      -- `remember("")' writes `q' PRESENT and empty, which is what tells the
+      -- next boot that a reader cleared this rather than never filtered it.
+      -- Taking the parameter out instead is what re-injected the default.
+      "?q="
 
   , Boot "and strips a deep link the same way, leaving the rest of the URL"
       "?q=tanik&keys=vim" 500 "Backspace"
       [ "/headlines?q=tanik&limit=100", "/headlines?q=tanik", "/headlines"
       , "/headlines" ]
-      "?keys=vim"
+      "?q=&keys=vim"
 
   , Boot "with no query to strip it asks for nothing"
       "?q=" 500 "Backspace"
@@ -339,37 +340,134 @@ shellBoots =
 -- | The boots above, run where the machine has a node to run them.
 bootSpec :: IO T.Text -> TestTree
 bootSpec shell = testGroup "Shell boot"
-  [ testCase boLabel $ do
-      run <- bootOf shell boSearch boTotal boKeys
-      case run of
-        -- No node here: the boot is checked wherever there is one, and the
-        -- glue group still reads the same page as text.
-        Nothing            -> pure ()
-        Just (asked', url) -> do
-          assertEqual (boLabel <> ": the fetches") boAsked asked'
-          assertEqual (boLabel <> ": the URL it settles on") boUrl url
+  [ testCase boLabel $ bootOf shell boSearch boTotal boKeys "" $ \answer -> do
+      assertEqual (boLabel <> ": the fetches") boAsked =<< textsAt "asked" answer
+      assertEqual (boLabel <> ": the URL it settles on") boUrl =<< textAt "url" answer
   | Boot{..} <- shellBoots ]
 
+-- | What happens to a booted page when the socket goes, and what it still holds
+-- afterwards.  The distinction the whole group is about is 'lvMounts': a
+-- reconnect that rebuilds the mount is the page reloading under the reader,
+-- which is what an editor writing a whole tree used to look like from here.
+--
+-- 'lvActs' is the harness's own script — a close with the reason the server
+-- would send, a keystroke into the sheet, a store that moved underneath.
+data Live = Live
+  { lvLabel  :: String
+  , lvSearch :: T.Text
+  , lvKeys   :: T.Text
+  , lvActs   :: T.Text
+  , lvAsked  :: [T.Text]   -- ^ every @\/headlines@ URL, in order.
+  , lvTags   :: [T.Text]   -- ^ the @If-None-Match@ values sent with them.
+  , lvMounts :: Int        -- ^ how many times the table was mounted; the boot is one.
+  , lvSheet  :: T.Text     -- ^ what the sheet holds at the end.
+  , lvState  :: T.Text     -- ^ the word the sheet's header carries.
+  , lvUrl    :: T.Text
+  }
+
+-- | The boot's three fetches, which every case here starts with.
+booted :: [T.Text]
+booted = [ "/headlines?q=state%3A*active*&limit=100"
+         , "/headlines?q=state%3A*active*"
+         , "/headlines" ]
+
+-- | The applied query, asked for again — what a reconnect costs when it costs
+-- anything.
+reasked :: T.Text
+reasked = "/headlines?q=state%3A*active*"
+
+shellLives :: [Live]
+shellLives =
+  [ -- The storm case, and the reason this group exists.  The server abandons a
+    -- backlog it cannot deliver and closes with `resync'; the page revalidates,
+    -- is told 304, re-attaches, and never touches its mount.
+    Live "a dropped backlog costs one revalidation and keeps the mount"
+      "" "" "close:resync"
+      (booted <> [reasked]) ["\"t0\""] 1 "" "" "?q=state%3A*active*"
+
+    -- The store moved while the socket was down: the same one fetch, and its
+    -- rows go into the table standing there.
+  , Live "a store that moved refreshes the rows under the same mount"
+      "" "" "moved close:resync"
+      (booted <> [reasked]) ["\"t0\""] 1 "" "" "?q=state%3A*active*"
+
+    -- The one thing rows cannot carry.  No `view-changed' was sent here — this
+    -- is the daemon-restart shape, where the columns moved with no socket open
+    -- to say so — and the reconnect finds it by comparing what it fetched.
+  , Live "columns that moved rebuild the mount, close reason or none"
+      "" "" "recolumn close:resync"
+      (booted <> [reasked] <> take 2 booted) ["\"t0\""] 2 "" "" "?q=state%3A*active*"
+
+    -- The killing case: a `view-changed' close mid-edit.  The mount goes, and
+    -- the text the reader had not saved comes back with it.
+  , Live "view-changed mid-edit rebuilds the mount and keeps the sheet's text"
+      "" "Enter" "sheet:hello close:view-changed"
+      (booted <> take 2 booted) [] 2 "hello" "synced" "?q=state%3A*active*"
+
+    -- And when the file moved under the open sheet, the restore says so rather
+    -- than flushing over it later: the text stands, at `conflict'.
+  , Live "a sheet restored over a moved file lands in the conflict flow"
+      "" "Enter" "sheet:hello rewritten close:view-changed"
+      (booted <> take 2 booted) [] 2 "hello" "conflict" "?q=state%3A*active*"
+
+    -- A cleared filter is a `?q=' in the URL and nothing re-injects the default
+    -- over it — which is what the reader saw as the filter resetting itself.
+  , Live "a cleared filter stays cleared through a reconnect"
+      "" "Backspace" "close:resync"
+      (booted <> ["/headlines", "/headlines"]) ["\"t0\""] 1 "" "" "?q="
+  ]
+
+-- | The cases above, run where the machine has a node to run them.
+liveSpec :: IO T.Text -> TestTree
+liveSpec shell = testGroup "Shell reconnect"
+  [ testCase lvLabel $ bootOf shell lvSearch 500 lvKeys lvActs $ \answer -> do
+      assertEqual (lvLabel <> ": the fetches") lvAsked =<< textsAt "asked" answer
+      assertEqual (lvLabel <> ": the tags it revalidated with")
+                  lvTags =<< textsAt "tags" answer
+      assertEqual (lvLabel <> ": how many times the table was mounted")
+                  lvMounts =<< intAt "mounts" answer
+      assertEqual (lvLabel <> ": what the sheet holds") lvSheet =<< textAt "sheet" answer
+      assertEqual (lvLabel <> ": where the sheet stands") lvState =<< textAt "state" answer
+      assertEqual (lvLabel <> ": the URL") lvUrl =<< textAt "url" answer
+  | Live{..} <- shellLives ]
+
+-- | A half-typed palette outlives a remount too, and comes back raised.  Its
+-- own case: the palette's lifecycle is the renderer's and what this page can
+-- see of it is the field and the one call that raises it, so both are what get
+-- asserted.  @\/@ raises it here, the same key a reader presses.
+paletteSpec :: IO T.Text -> TestTree
+paletteSpec shell = testGroup "Shell palette"
+  [ testCase "a half-typed palette is raised again after a remount" $
+      bootOf shell "" 500 "/" "filter:tan close:view-changed" $ \answer -> do
+        assertEqual "mounted twice" 2 =<< intAt "mounts" answer
+        -- Once for the key, once for the restore: the shell has no second way
+        -- into the palette and does not grow one here.
+        assertEqual "raised again" 2 =<< intAt "raises" answer
+        assertEqual "with what was typed in it" "tan" =<< textAt "palette" answer
+  ]
+
 -- | SHELL's glue booted under node on SEARCH, with the server reporting TOTAL
--- matches and KEYS pressed over the table once it settled: the @\/headlines@
--- URLs it asked for and the search string it left behind.  'Nothing' where
--- there is no node.
-bootOf :: IO T.Text -> T.Text -> Int -> T.Text -> IO (Maybe ([T.Text], T.Text))
-bootOf shell search total keys = do
+-- matches, KEYS pressed over the table once it settled and ACTS run after
+-- those, then CHECK over the harness's whole answer.  A machine with no node
+-- runs nothing and passes: the boot is checked wherever there is one, and the
+-- glue group still reads the same page as text.
+bootOf :: IO T.Text -> T.Text -> Int -> T.Text -> T.Text -> (Value -> Assertion)
+       -> Assertion
+bootOf shell search total keys acts check = do
   node <- findExecutable "node"
   case node of
-    Nothing  -> pure Nothing
+    Nothing  -> pure ()
     Just exe -> withTempDir $ \dir -> do
       page <- shell
       glueOf page >>= TIO.writeFile (dir </> "shell.js")
       keysOf page >>= TIO.writeFile (dir </> "keys.json")
       (code, out, err) <- readProcessWithExitCode exe
-                            [harness, dir, T.unpack search, show total, T.unpack keys] ""
+                            [ harness, dir, T.unpack search, show total
+                            , T.unpack keys, T.unpack acts ] ""
       case code of
-        ExitSuccess -> do
-          answer <- either (\e -> assertFailure ("the harness answered: " <> e)) pure
-                           (eitherDecode (BL.fromStrict (TE.encodeUtf8 (T.pack out))))
-          Just <$> ((,) <$> textsAt "asked" answer <*> textAt "url" answer)
+        ExitSuccess -> check =<<
+          either (\e -> assertFailure ("the harness answered: " <> e)) pure
+                 (eitherDecode (BL.fromStrict (TE.encodeUtf8 (T.pack out))))
         _failed -> assertFailure ("the boot harness said: " <> err)
 
 -- | The browser the boot runs in, stubbed down to what it touches.
@@ -427,7 +525,10 @@ shellGlue =
 
   , glue "hands the filter to the server and aborts stale fetches"
       [ "onFilter: filter", "new AbortController()", "inflight.abort()"
-      , "signal: inflight.signal", "?q=${encodeURIComponent(query)}"
+      , "signal: inflight.signal", "load(asking(query))"
+      -- One spelling of the query string, so a revalidation cannot be answered
+      -- 304 against rows some other question was asked.
+      , "const asking = (q) => (q ? `?q=${encodeURIComponent(q)}` : \"\");"
       , "e.name !== \"AbortError\""
       -- The string as typed: the grammar is the server's to parse.
       , "const filter = (q) => commit(q.trim());" ]
@@ -443,8 +544,13 @@ shellGlue =
       , "console.warn(note, { query, server: total, local })"
       , "if (!query) all = rows;" ]
 
-  , glue "the applied query lives in the URL"
-      [ "history.replaceState(null, \"\"", "p.set(\"q\", q); else p.delete(\"q\")"
+  -- Present-and-empty is a reader who took the filter off; absent is a page
+  -- nobody has filtered yet, and only that one has the default injected over
+  -- it.  Deleting the parameter is what made a cleared view come back filtered
+  -- on the next remount, so the write is unconditional.
+  , Glue "the applied query lives in the URL, an empty one included"
+      [ "history.replaceState(null, \"\", `?${p.toString()}`);"
+      , "p.set(\"q\", q);"
       -- `keys' rides in the same query string and has to survive a commit.
       , "new URLSearchParams(location.search)"
       , "const urlQuery = () => params().get(\"q\") || \"\";"
@@ -453,6 +559,7 @@ shellGlue =
       , "const asked = (query = bootQuery());"
       , "table.stripLastToken()", "const left = table.getQuery().trim();"
       , "commit(left);" ]
+      ["p.delete(\"q\")"]
 
   -- `/' asks the renderer to raise its palette instead of reaching for a box on
   -- the page: `openFilter' is mode-agnostic, so the one call covers an asset in
@@ -462,8 +569,11 @@ shellGlue =
       [ "palette: true,"
       , "const summons = () => !!table && typeof table.openFilter === \"function\";"
       , "if (summons()) { table.openFilter(); return; }"
-      -- An asset predating the call has a resident box; focus that.
-      , "const box = document.querySelector(\"#app .tv-filter\");"
+      -- An asset predating the call has a resident box; focus that.  The field
+      -- is named once, since the fallback, the restore and the stash all want
+      -- it and none of them may reach further into the renderer's chrome.
+      , "const filterBox = () => document.querySelector(\"#app .tv-filter\");"
+      , "const box = filterBox();"
       , "if (box) { box.focus(); box.select(); }"
       -- And the map says what the key does now, which is what the echo pill
       -- prints when it runs.
@@ -493,14 +603,61 @@ shellGlue =
       , "setTimeout(fetchRows, 250)" ]
       ["\"set-rows\""]
 
-  , glue "re-fetches and remounts after a close"
-      [ "socket.onclose", "setTimeout(start,", "Math.min(backoff * 2, 30000)" ]
+  -- A close costs rows; only the columns moving costs the mount.  The
+  -- reconnect revalidates the applied query against the tag the last answer
+  -- carried, re-attaches, and leaves the page — sheet, palette, selection, URL
+  -- — exactly where it was.  A dropped backlog under an editor's write storm
+  -- arrives here, which is why a storm is a row refresh rather than a reload.
+  , Glue "a close is a reconnect, and only view-changed is a remount"
+      [ "socket.onclose = (e) => {"
+      , "if (e && e.reason === \"view-changed\") remount(); else resync();"
+      , "function resync() {"
+      , "if (!table) { start(); return; }"
+      , "load(asking(asked), etag)"
+      , "if (a.view && query === asked) paint(a);"
+      , "listen();"
+      , "setTimeout(resync,", "Math.min(backoff * 2, 30000)"
+      -- The revalidation is this page's, not the browser cache's, so the 304
+      -- comes back as the answer it is.
+      , "init.headers = { \"if-none-match\": tag }; init.cache = \"no-store\";"
+      , "r.status === 304 ? { view: null, total: 0 }"
+      , "etag = r.headers.get(\"ETag\") || etag;"
+      -- A daemon restarted while the page was away had no socket to send
+      -- `view-changed' down, so the columns are checked rather than trusted.
+      , "if (a.view && !sameColumns(a.view.columns || [])) { remount(); return; }"
+      , "const sameColumns = (next) => JSON.stringify(next) === JSON.stringify(cols);" ]
+      -- The old door: every close went through the boot, which re-read the URL
+      -- and rebuilt the mount.
+      ["socket.onclose = () => {", "setTimeout(start,"]
+
+  -- What a remount takes down goes back up: the palette with what was typed in
+  -- it, the sheet with text the reader has not saved.  The sheet's digest is
+  -- re-read rather than remembered, so a file that moved underneath opens the
+  -- conflict flow instead of being overwritten by the restore.
+  , glue "a real remount carries the sheet and the palette across it"
+      [ "function remount() { stash(); start(); }"
+      , "function stash() {"
+      , "sheet: editing && dirty()"
+      , "{ id: editing.id, text: el(\"mtext\").value, digest: editing.digest }"
+      , "palette: typedFilter(),"
+      , "return box && document.activeElement === box ? box.value || \"\" : null;"
+      , "function restore() {"
+      , "if (box) { box.value = was.palette; box.focus(); }"
+      , "if (was.sheet) reopen(was.sheet);"
+      , "headline(s.id).then((h) => {"
+      , "el(\"mtext\").value = s.text;"
+      , "if (h.digest !== s.digest) sync(\"conflict\");"
+      -- The one place a new table appears, so the one place a restore belongs.
+      , "restore();" ]
 
   -- A cold daemon answers the boot fetch with 503 while it walks the tree; the
   -- page it is answering is this one, so it says so and asks again.
+  -- A cold daemon on the boot, and a restarted one under a live page: both
+  -- poll through the reconnect, so the page a reader had is still on screen
+  -- while the walk runs.
   , glue "shows the indexing state and polls out of it"
       [ "r.status === 503", "{ indexing: b }", "if (e.indexing) return indexing("
-      , "indexing … ${b.elapsed}s", "setTimeout(start, 1000)"
+      , "indexing … ${b.elapsed}s", "setTimeout(resync, 1000)"
       , "dot(\"wait\")", "#dot.wait{" ]
 
   , glue "materializes a row and syncs it back"
@@ -1605,9 +1762,9 @@ keymapSpec shell = testGroup "Shell keymap"
 
   , testCase "no profile shadows a shared binding, or hides its own longer one" $ do
       (shared, profiles) <- keymapOf =<< shell
-      let keysOf rows = [ k | (k, _, _, _, _, _) <- rows ]
+      let sequencesOf rows = [ k | (k, _, _, _, _, _) <- rows ]
       mapM_ (\(name, rows) -> do
-               let bound = keysOf (shared <> rows)
+               let bound = sequencesOf (shared <> rows)
                    twice = [ k | k <- nub bound, length (filter (== k) bound) > 1 ]
                    -- A complete sequence that also opens a longer one would
                    -- match first and leave the longer one unreachable.

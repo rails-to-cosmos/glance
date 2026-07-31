@@ -8,6 +8,7 @@
 module TestStore (spec) where
 
 import Control.Concurrent.STM (atomically)
+import Control.Monad (replicateM_)
 import Data.Aeson (Value (Object, String))
 import Data.Maybe (listToMaybe)
 import System.Directory (createDirectoryIfMissing, removeFile)
@@ -626,9 +627,7 @@ bootstrapSpec = testGroup "Bootstrap"
 hubSpec :: TestTree
 hubSpec = testGroup "Hub"
   [ testCase "a subscriber receives what is published, in order" $ withTempDir $ \dir -> do
-      path <- orgFile dir "a.org" "* TODO one\n"
-      hub <- newHub =<< loadStore dir
-      (_cid, client, _boot) <- atomically (subscribe hub)
+      (path, hub, client) <- subscribed dir
       _ <- orgFile dir "a.org" "* TODO one\n* TODO two\n"
       fresh <- loadFile path
       frames <- publish hub (applyFile path fresh)
@@ -639,16 +638,49 @@ hubSpec = testGroup "Hub"
       assertEqual "delivered" (map Just frames) delivered
 
   , testCase "a client that stops reading is dropped and publishing goes on" $ withTempDir $ \dir -> do
-      _ <- orgFile dir "a.org" "* TODO one\n"
-      hub <- newHub =<< loadStore dir
-      (_cid, client, _boot) <- atomically (subscribe hub)
+      (_path, hub, client) <- subscribed dir
       _ <- publish hub (streaming (replicate (fromIntegral clientCapacity + 1) (DeleteRow "x")))
       next <- atomically (nextFrame client)
       assertEqual "dropped" Nothing next
       -- And the store keeps taking updates with the dead client still around.
       after <- publish hub (streaming [DeleteRow "y"])
       assertEqual "published anyway" [DeleteRow "y"] after
+
+  -- The mailbox was 256 and an editor writing a directory overran it in a
+  -- second, which cost the page its socket every time.  The size is not
+  -- asserted — a burst four times the old one is, since that is what the raise
+  -- is for and what a number here would only restate.
+  , testCase "a burst four times the old mailbox is still delivered" $ withTempDir $ \dir -> do
+      (_path, hub, client) <- subscribed dir
+      _ <- publish hub (streaming (replicate 1024 (DeleteRow "x")))
+      assertEqual "still live" (Just (DeleteRow "x")) =<< atomically (nextFrame client)
+
+  -- The overflow that matters is across STEPS, not inside one: `publish'
+  -- coalesces a file's save into one transaction, and a bulk write is a
+  -- transaction per file with nothing coalescing between them.  What the
+  -- client gets back is not the backlog — that is gone — but the store as it
+  -- stands, in the one frame a resubscribe opens with.
+  , testCase "a burst of steps overflows, and the resubscribe is the whole store"
+      $ withTempDir $ \dir -> do
+      (path, hub, client) <- subscribed dir
+      replicateM_ (fromIntegral clientCapacity + 1)
+                  (publish hub (streaming [DeleteRow "x"]))
+      assertEqual "the backlog is abandoned" Nothing =<< atomically (nextFrame client)
+      -- And an edit that landed while it was away is in what it comes back to.
+      _ <- orgFile dir "a.org" "* TODO one\n* TODO two\n"
+      _ <- publish hub . applyFile path =<< loadFile path
+      (_cid', _client', boot) <- atomically (subscribe hub)
+      case boot of
+        SetRows rows -> assertEqual "the resync carries both rows" 2 (length rows)
+        other        -> assertFailure ("expected set-rows, got " <> show other)
   ]
+  -- One file, a hub over it and a subscriber on the hub: what every case in
+  -- this group opens with, and what none of them is about.
+  where subscribed dir = do
+          path <- orgFile dir "a.org" "* TODO one\n"
+          hub <- newHub =<< loadStore dir
+          (_cid, client, _boot) <- atomically (subscribe hub)
+          pure (path, hub, client)
 
 -- | The debounce, which is the one part of the watch with a clock in it.  Both
 -- sides of it are monotonic seconds, so an entry here is the second a path was

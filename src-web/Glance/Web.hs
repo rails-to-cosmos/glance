@@ -637,9 +637,13 @@ pump conn client = do
     feed = do
       next <- atomically (nextFrame client)
       case next of
-        -- The mailbox filled: this client stopped reading, and the watcher
-        -- will not wait for it (Glance.Web.Store).  Closing makes it resync.
-        Nothing          -> WS.sendClose conn ("dropped-slow-client" :: Text)
+        -- The mailbox filled: this client fell behind a write storm and the
+        -- watcher will not wait for it (Glance.Web.Store).  The backlog is
+        -- gone, so what the close owes the client is the ONE thing that
+        -- replaces any backlog — re-ask for rows.  Named for that rather than
+        -- for the client's speed: the shell answers it by revalidating
+        -- /headlines and re-attaching, keeping the page it had.
+        Nothing          -> WS.sendClose conn ("resync" :: Text)
         -- The columns moved, and SCHEMA.md streams rows only.  Reconnecting
         -- re-fetches /headlines, which is where columns come from.
         Just ViewChanged -> WS.sendClose conn ("view-changed" :: Text)
@@ -1008,11 +1012,15 @@ shellPage opts = do
 -- The applied query is page state.  It goes into the URL on every commit
 -- (@replaceState@, leaving @keys@ where it is) and on the boot that injected
 -- the default, so a filtered view is a link, a reload keeps it and a reconnect
--- comes back to it.  It is restored by handing
+-- comes back to it.  An EMPTY applied query is written too, as a @q@ that is
+-- present and empty: absent means nobody has filtered this page yet and gets
+-- the default, present-and-empty means a reader took the filter off and gets
+-- left alone.  Deleting the parameter instead is what made @DEL@ on the last
+-- chip come back filtered on the next remount.  It is restored by handing
 -- it to @mount@ as @initialQuery@, which tokenizes it into the renderer's own
 -- committed chips and delivers nothing — the rows in hand are already the
 -- server's answer to it.  Every return through this door restores it the same
--- way, since a reload, a reconnect, @view-changed@ and @g@ all re-fetch and
+-- way, since a reload, @view-changed@ and @g@ all re-fetch and
 -- re-mount.  An asset predating that option drops it silently, so the mount
 -- asks @getQuery@ whether it took and falls back to writing the query into the
 -- filter box, which is how this worked before chips could carry it.  @DEL@ over
@@ -1032,9 +1040,21 @@ shellPage opts = do
 -- @error@, and the sheet wears the author's Emacs theme (danneskjold) while the
 -- table keeps the page's.
 --
--- Every close leads back through the same door: re-fetch, re-mount, reconnect.
--- That covers a daemon restart, a dropped slow client, and @view-changed@ —
--- the columns moving, which SCHEMA.md's row ops cannot express.
+-- A lost socket costs rows, and only @view-changed@ costs the mount.  The
+-- reconnect asks @\/headlines@ for the applied query with the tag the last
+-- answer carried: 304 and the rows on screen are still current, 200 and they
+-- are replaced in place, and either way the socket is re-attached under the
+-- same table — the sheet, the palette, the selection and the URL all stand.
+-- That is what an editor writing a whole tree looks like from here, since the
+-- server abandons a backlog it cannot deliver and closes with @resync@ rather
+-- than making the page rebuild itself.  The columns are the exception: they are
+-- what a row op cannot carry, so @view-changed@ tears the mount down and puts
+-- it back — and because a daemon restarted while this page was away had no
+-- socket to say so on, the reconnect compares the columns it fetched to the
+-- mounted ones and takes the same door when they differ.  Across a real
+-- remount, an unsaved sheet and a half-typed palette are stashed and restored;
+-- the sheet's digest is re-read rather than remembered, so a file that moved
+-- underneath opens the conflict flow instead of being overwritten.
 --
 -- The @materialize@ action opens the subtree over the table in a plain
 -- @textarea@ filled by @GET \/headline@.  A commit never touches the table —
@@ -1117,6 +1137,10 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    // with, the fetch still in flight for it, and the timer that re-asks"
   , "    // when a row frame lands while one is on."
   , "    let query = \"\", inflight = null, requeryAt = 0;"
+  , "    // The tag the last answer carried, which is what makes a reconnect"
+  , "    // cheap: an unmoved store answers the revalidation 304 and no rows"
+  , "    // cross the wire at all."
+  , "    let etag = null;"
     -- One number, two jobs: the boot asks for this many rows and the renderer
     -- shows this many at a time, so the first paint is exactly page one and
     -- the set arriving behind it only adds pages to turn to.
@@ -1153,14 +1177,28 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      // what is loaded: the renderer's own hint line already counts the"
   , "      // rows, the corner and the key line carry the profile."
   , "      log(\"\");"
+  , "      // Whatever the remount that led here took down goes back up over the"
+  , "      // new table; on a first boot there is nothing stashed and nothing to do."
+  , "      restore();"
   , "    }"
   , "    // One /headlines at a time: a keystroke aborts the fetch before it, so"
-  , "    // an earlier answer can never land over a later one."
-  , "    function load(params) {"
+  , "    // an earlier answer can never land over a later one.  TAG makes it a"
+  , "    // revalidation: the browser's own cache is stepped around, so the tag"
+  , "    // that goes out is this page's and the 304 comes back as the answer it"
+  , "    // is rather than as a body the cache filled in behind it."
+  , "    function load(params, tag) {"
   , "      if (inflight) inflight.abort();"
   , "      inflight = new AbortController();"
-  , "      return fetch(`/headlines${params}`, { signal: inflight.signal }).then((r) =>"
-  , "        r.ok ? r.json().then((view) => ({ view, total: +r.headers.get(\"X-Glance-Total\") }))"
+  , "      const init = { signal: inflight.signal };"
+  , "      if (tag) { init.headers = { \"if-none-match\": tag }; init.cache = \"no-store\"; }"
+  , "      return fetch(`/headlines${params}`, init).then((r) =>"
+  , "        // 304: the store has not moved, so there is no view to read and the"
+  , "        // rows already on screen are the current answer to this query."
+  , "        r.status === 304 ? { view: null, total: 0 }"
+  , "        : r.ok ? r.json().then((view) => {"
+  , "            etag = r.headers.get(\"ETag\") || etag;"
+  , "            return { view, total: +r.headers.get(\"X-Glance-Total\") };"
+  , "          })"
   , "        // 503 is the startup walk: the server is listening and says so"
   , "        // in the body.  `start' polls it; nothing else can see it."
   , "        : r.status === 503 ? r.json().then((b) => { throw Object.assign(new Error(\"indexing\"), { indexing: b }); })"
@@ -1226,16 +1264,25 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    // renderer's chip and asked of the server."
   , "    const DEFAULT_QUERY = \"state:*active*\";"
   , "    const bootQuery = () => (params().has(\"q\") ? urlQuery() : DEFAULT_QUERY);"
+  , "    // Every applied query is written, the EMPTY one included: a `q' that is"
+  , "    // present and empty is a reader who took the filter off, where an absent"
+  , "    // one is a page nobody has filtered yet.  Only the second has the default"
+  , "    // injected over it, so DEL'ing the last chip survives a reload and every"
+  , "    // remount after it — deleting the parameter here is what made a cleared"
+  , "    // view come back filtered."
   , "    function remember(q) {"
   , "      const p = params();"
-  , "      if (q) p.set(\"q\", q); else p.delete(\"q\");"
-  , "      const s = p.toString();   // `keys' and anything else in the URL survives"
-  , "      history.replaceState(null, \"\", s ? `?${s}` : location.pathname);"
+  , "      p.set(\"q\", q);   // `keys' and anything else in the URL survives"
+  , "      history.replaceState(null, \"\", `?${p.toString()}`);"
   , "    }"
+  , "    // A query as the `/headlines' query string asking it, spelled once for"
+  , "    // the four callers that want it — the boot, a commit, the arming fetch"
+  , "    // and the reconnect.  A second spelling is how a revalidation comes to"
+  , "    // be answered 304 against rows answering some other question."
+  , "    const asking = (q) => (q ? `?q=${encodeURIComponent(q)}` : \"\");"
   , "    // One place asks the server for rows: `query' is already what to ask."
   , "    const fetchRows = () =>"
-  , "      load(query ? `?q=${encodeURIComponent(query)}` : \"\")"
-  , "        .then((a) => table && paint(a)).catch(quiet);"
+  , "      load(asking(query)).then((a) => table && paint(a)).catch(quiet);"
   , "    // A commit is the moment a NEW query goes to the server — a settled"
   , "    // debounce, a committed token, an accepted completion."
   , "    function commit(q) {"
@@ -1254,12 +1301,17 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    // Whether the mounted renderer is carrying Q as its own query."
   , "    const holds = (q) => typeof table.getQuery === \"function\""
   , "      && table.getQuery() === q;"
+  , "    // The renderer's filter field, wherever its mode puts it: the palette's"
+  , "    // input in palette mode, the resident box in an asset predating one."
+  , "    // Named once, since three callers want it and none of them may reach"
+  , "    // further into the chrome than this."
+  , "    const filterBox = () => document.querySelector(\"#app .tv-filter\");"
   , "    // The fallback for an asset without `initialQuery': the query goes in"
   , "    // the box rather than into chips.  The box is the renderer's, and"
   , "    // setting its value fires no input event, so a restored query shown"
   , "    // there is not committed a second time."
   , "    function showQuery() {"
-  , "      const box = document.querySelector(\"#app .tv-filter\");"
+  , "      const box = filterBox();"
   , "      if (box) box.value = query;"
   , "    }"
   , ""
@@ -1432,7 +1484,7 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    const summons = () => !!table && typeof table.openFilter === \"function\";"
   , "    const focusFilter = () => {"
   , "      if (summons()) { table.openFilter(); return; }"
-  , "      const box = document.querySelector(\"#app .tv-filter\");"
+  , "      const box = filterBox();"
   , "      if (box) { box.focus(); box.select(); }"
   , "    };"
   -- The one exception to keyboard-first, and the reason it is one: a coarse
@@ -1450,13 +1502,67 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      if (!t.closest || !t.closest(\".tv-chips\") || t.closest(\".tv-chip\")) return;"
   , "      focusFilter();"
   , "    });"
-  , "    // `start' is the fetch, the mount and the socket; reuse it whole."
-  , "    // Dropping onclose first stops the reconnect timer opening a second one."
+  , "    // What a remount takes with it.  The table is `#app''s and goes when"
+  , "    // the mount is replaced; the palette is the renderer's chrome inside it"
+  , "    // and goes with it.  The sheet is a SIBLING of `#app' and survives by"
+  , "    // where it sits, which is a fact about the layout rather than a promise"
+  , "    // — so both are carried across by hand and neither depends on it."
+  , "    let stashed = null;"
+  , "    // The palette's lifecycle is the renderer's and this page does not reach"
+  , "    // into its chrome past the field.  A field with focus is a palette the"
+  , "    // reader is typing in; anything else is a query already committed, which"
+  , "    // the URL is carrying anyway."
+  , "    function typedFilter() {"
+  , "      const box = filterBox();"
+  , "      return box && document.activeElement === box ? box.value || \"\" : null;"
+  , "    }"
+  , "    function stash() {"
+  , "      stashed = {"
+  , "        // A pristine sheet is the file, which the remount can re-read; what"
+  , "        // cannot be re-read is text the reader has not saved yet."
+  , "        sheet: editing && dirty()"
+  , "          ? { id: editing.id, text: el(\"mtext\").value, digest: editing.digest }"
+  , "          : null,"
+  , "        palette: typedFilter(),"
+  , "      };"
+  , "    }"
+  , "    function restore() {"
+  , "      const was = stashed;"
+  , "      stashed = null;"
+  , "      if (!was) return;"
+  , "      if (was.palette !== null) {"
+  , "        focusFilter();"
+  , "        // Assigning fires no input event, so the renderer is not asked to"
+  , "        // complete or commit a query the reader has not finished typing."
+  , "        const box = filterBox();"
+  , "        if (box) { box.value = was.palette; box.focus(); }"
+  , "      }"
+  , "      if (was.sheet) reopen(was.sheet);"
+  , "    }"
+  , "    // The sheet, back open on the text that was in it.  The digest is"
+  , "    // re-asked for rather than carried over: a file that moved while the"
+  , "    // mount was rebuilt is the conflict flow, and flushing against a digest"
+  , "    // this page merely remembers is the silent overwrite that flow exists"
+  , "    // to stop.  The reader's text is put back either way — a restore never"
+  , "    // decides that an edit is worth less than the file."
+  , "    function reopen(s) {"
+  , "      headline(s.id).then((h) => {"
+  , "        show(h);   // which opens the sheet on the file and focuses it"
+  , "        el(\"mtext\").value = s.text;   // dirty again, against the file as it now is"
+  , "        if (h.digest !== s.digest) sync(\"conflict\");"
+  , "      }).catch((e) => log(`sheet restore failed: ${e.message}`));"
+  , "    }"
+  , "    // The one door that throws the mount away and builds a new one: a"
+  , "    // `view-changed' close, and `g'.  Everything else that loses the socket"
+  , "    // goes through `resync', which keeps the page it has."
+  , "    function remount() { stash(); start(); }"
+  , "    // `g'.  Dropping onclose first stops the reconnect timer opening a"
+  , "    // second socket behind this one."
   , "    function refresh() {"
   , "      if (socket) { socket.onclose = null; socket.close(); socket = null; }"
   , "      backoff = 1000;"
   , "      log(\"refreshing …\");"
-  , "      start();"
+  , "      remount();"
   , "    }"
   , ""
   , "    // Keys.  The map is the JSON above — dispatch and echo read the one blob."
@@ -1666,38 +1772,80 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      socket = new WebSocket(`${scheme}://${location.host}/ws?bootstrap=off`);"
   , "      socket.onopen = () => { backoff = 1000; dot(\"live\"); };"
   , "      socket.onmessage = (e) => apply(JSON.parse(e.data));"
-  , "      socket.onclose = () => { socket = null; dot(\"down\"); again(); };"
+  , "      socket.onclose = (e) => {"
+  , "        socket = null;"
+  , "        dot(\"down\");"
+  , "        // The columns moved, which SCHEMA.md's row ops cannot say: the"
+  , "        // mount has to go.  Every other close — a backlog abandoned under"
+  , "        // a write storm (`resync'), a restarted daemon, a dead network —"
+  , "        // costs rows and nothing else, and the page stays where it was."
+  , "        if (e && e.reason === \"view-changed\") remount(); else resync();"
+  , "      };"
   , "    }"
+  , "    // A lost socket costs rows and keeps the page.  Ask"
+  , "    // /headlines for the applied query with the tag the last answer carried:"
+  , "    // an unmoved store answers 304 and costs a header exchange, a moved one"
+  , "    // answers with rows that drop into the table standing here.  The mount"
+  , "    // stays through both — the sheet, the palette, the selection and the URL"
+  , "    // with it — which is what makes an editor's write storm a row refresh"
+  , "    // rather than the page reloading under a reader's hands."
+  , "    function resync() {"
+  , "      if (!table) { start(); return; }   // nothing mounted yet: this is a boot"
+  , "      const asked = query;"
+  , "      load(asking(asked), etag).then((a) => {"
+  , "        // The close reason is not trusted for this: a daemon restarted while"
+  , "        // this page was away had no socket to send `view-changed' down, and"
+  , "        // its columns can still have moved."
+  , "        if (a.view && !sameColumns(a.view.columns || [])) { remount(); return; }"
+  , "        if (a.view && query === asked) paint(a);"
+  , "        backoff = 1000;"
+  , "        listen();"
+  , "        log(a.view ? \"reconnected · rows refreshed\" : \"reconnected\");"
+  , "      }).catch((e) => {"
+  , "        if (e.indexing) return indexing(e.indexing);"
+  , "        // A newer query is already fetching and will paint what it gets;"
+  , "        // the socket is all this call still owed."
+  , "        if (e.name === \"AbortError\") { listen(); return; }"
+  , "        quiet(e); again();"
+  , "      });"
+  , "    }"
+  , "    // The columns are the one part of a view rows cannot carry, so they are"
+  , "    // compared whole: the state column's badge palette rides inside them,"
+  , "    // and a key-by-key check would let it move unnoticed."
+  , "    const sameColumns = (next) => JSON.stringify(next) === JSON.stringify(cols);"
   , "    function again() {"
   , "      log(`disconnected · retrying in ${Math.round(backoff / 1000)}s`);"
-  , "      setTimeout(start, backoff);"
+  , "      setTimeout(resync, backoff);"
   , "      backoff = Math.min(backoff * 2, 30000);"
   , "    }"
   , "    // The server binds before it walks the tree, so the first fetch of a"
   , "    // cold daemon is a 503: show what it is doing and ask again in a second."
+  , "    // A daemon that restarts under a live page lands here too, and comes"
+  , "    // back through `resync' — the page it left is still on screen."
   , "    function indexing(b) {"
   , "      dot(\"wait\");"
   , "      log(`indexing … ${b.elapsed}s · the table opens when the walk lands`);"
-  , "      setTimeout(start, 1000);"
+  , "      setTimeout(resync, 1000);"
   , "    }"
   , "    function start() {"
   , "      // A `?q=' in the address bar is a filtered view, and so is a bare"
   , "      // boot: the boot asks for whichever it is and `mount' opens the"
-  , "      // filter showing it.  Every return through this door — a reload, a"
-  , "      // reconnect, `view-changed', `g' — restores it the same way, since"
-  , "      // they all re-fetch and re-mount.  The default is written into the"
-  , "      // URL where it was injected, so what the page shows and what the"
-  , "      // address bar says are the same query from the first paint on."
+  , "      // filter showing it.  Every return through this door — a reload,"
+  , "      // `view-changed', `g' — restores it the same way, since they all"
+  , "      // re-fetch and re-mount; a reconnect never comes here at all."
+  , "      // The default is written into the URL where it was injected, so what"
+  , "      // the page shows and what the address bar says are the same query"
+  , "      // from the first paint on."
   , "      const asked = (query = bootQuery());"
   , "      if (!params().has(\"q\")) remember(asked);"
-  , "      const narrow = asked ? `?q=${encodeURIComponent(asked)}&` : \"?\";"
+  , "      const narrow = asking(asked) + (asked ? \"&\" : \"?\");"
   , "      load(`${narrow}limit=${PAGE}`).then((a) => {"
   , "        mount(a.view);"
   , "        listen();"
   , "        // The rest behind the painted table: n/p, sort and materialize all"
   , "        // want the whole answer, and the renderer holds it without the DOM."
   , "        if (a.total > (a.view.rows || []).length)"
-  , "          load(asked ? `?q=${encodeURIComponent(asked)}` : \"\")"
+  , "          load(asking(asked))"
   , "            .then((b) => { if (table && query === asked) paint(b); arm(a.total); })"
   , "            .catch(quiet);"
   , "        else arm(a.total);"

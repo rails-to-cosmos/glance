@@ -367,19 +367,31 @@ data LoadState
 -- | One socket's mailbox.  Bounded on purpose: the watcher hands frames to
 -- every client from the transaction that updates the store, and a browser that
 -- has stopped reading must not be able to hold that transaction up.  A full
--- mailbox drops its client, the socket closes, and the client resyncs when it
--- reconnects — losing a slow reader's frames is recoverable, stalling the
--- watcher is not.
+-- mailbox abandons the backlog and closes the socket, which the client answers
+-- by re-asking for rows ('Glance.Web.pump' names that close @resync@) — losing
+-- a slow reader's frames is recoverable, stalling the watcher is not.
+--
+-- 'clDropped' is read before the queue in 'nextFrame', so the backlog behind a
+-- full mailbox is never delivered: the queue goes with the 'Client' the moment
+-- 'publish' unregisters it, and draining it here would only cost the
+-- transaction a pass over the whole mailbox to throw the result away.
 data Client = Client
   { clQueue   :: !(TBQueue Frame)
   , clDropped :: !(TVar Bool)
   }
 
--- | How many frames a client may fall behind before it is dropped.  One edit
--- is a handful of frames, so this is many seconds of lag on a live view and
--- one bootstrap on a stalled one.
+-- | How many frames a client may fall behind before its backlog is abandoned.
+-- One edit is a handful of frames, so this is many seconds of lag on a live
+-- view and one bootstrap on a stalled one.
+--
+-- Sized for the burst that motivated it: 'publish' coalesces WITHIN a step, so
+-- one file's save is one transaction and a handful of frames, but an editor
+-- writing a tree is a step per file and nothing coalesces across them.  1024
+-- covers a few hundred files back to back; past that the resync is the cheaper
+-- answer anyway, since one @\/headlines@ carries what any longer backlog would
+-- have said.
 clientCapacity :: Natural
-clientCapacity = 256
+clientCapacity = 1024
 
 -- | A hub over ST, ready to serve it.
 newHub :: Store -> IO Hub
@@ -427,8 +439,8 @@ nextFrame c = do
   if dropped then pure Nothing else Just <$> readTBQueue (clQueue c)
 
 -- | Apply STEP to the store and post its frames to every client, in one
--- transaction.  A client that cannot take them is dropped and the transaction
--- goes through regardless.
+-- transaction.  A client that cannot take them loses its backlog and its
+-- registration, and the transaction goes through regardless.
 -- Returns the frames, for the caller's log.
 publish :: Hub -> (Store -> (Store, [Frame])) -> IO [Frame]
 publish hub step = atomically $ do
