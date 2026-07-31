@@ -18,7 +18,7 @@ cabal run glance -- serve --dir ~/org
 Then open =http://127.0.0.1:7777/=. The page fetches =/headlines= and mounts
 =table-view.js= on it: one row per headline, with the state badge, priority,
 title, tags and the scheduled/deadline dates. Click a column header to sort,
-type in the filter box to narrow.
+press =/= to summon the filter palette and narrow.
 
 - =--port N= — default =7777=.
 - =--assets PATH= — the directory holding =table-view.js=, default the sibling
@@ -64,7 +64,9 @@ separate entries revalidating against their own tags. Responses are gzipped
 (3.06 MB → 580 KB for the whole set, 34 KB → 15 KB for the renderer) with the
 =Vary: Accept-Encoding= that goes with it.
 
-*Filtering is a query language.* The filter box speaks
+*Filtering is a query language.* The filter is summoned rather than resident:
+=/= raises a palette over the table, the way a minibuffer opens, and an
+unfiltered table carries no filter chrome at all. It speaks
 [[file:../table-view/SCHEMA.md][SCHEMA.md]]'s micro-syntax and the server parses
 it: =state:TODO state:DONE tanik= is either state and the text, because
 distinct keys and free text AND. A =key:value=
@@ -84,9 +86,9 @@ last token back off.
 
 *The page stays tiny.* The shell is inline vanilla JavaScript — no framework, no
 build step, no dependency, nothing fetched off this server. It boots on
-=?limit=1000= for a fast first paint (~90 ms against ~250 ms for the whole set),
+=?limit=100= — a window's worth, painted well ahead of the whole set's ~250 ms —
 pulls the rest in behind the painted table so movement and sorting see
-everything, hands the filter box to the server rather than narrowing locally,
+everything, hands the filter to the server rather than narrowing locally,
 and opens its socket with =?bootstrap=off= because it already has the rows.
 
 *The tab stays live.* The directory is walked and parsed once, at startup, into
@@ -148,7 +150,7 @@ Both key profiles share everything that is not movement:
 | =,= =<=   | =first-row=                       | first row                                 |
 | =.= =>=   | =last-row=                        | last row                                  |
 | =RET=     | =org-glance-overview:materialize= | opens the sheet                           |
-| =/=       | =filter-rows=                     | focuses the renderer's filter box         |
+| =/=       | =filter-rows=                     | summons the filter palette                |
 | =q=       | =quit-window=                     | closes the sheet; never the tab           |
 | =DEL=     | =filter-drop-token=               | drops the filter's last token             |
 | =C-x C-s= | =save-buffer=                     | syncs the sheet; again to overwrite       |
@@ -202,15 +204,35 @@ remembers the choice in =localStorage= under =glance-keys=; =?keys=vim= in the
 URL picks a profile and remembers it too. A native =select=, so Tab reaches it
 and the arrows walk it without a chord of its own.
 
+The page's last line is that map, resident: =n/p rows · f/b cells · RET
+materialize · / filter · g refresh · DEL drop token · q quit= under =emacs=, and
+=j/k=, =l/h= and =R= in their places under =vim=. It is named by command and
+spelled from the same blob the dispatch reads, so switching profiles rewrites it
+and it can never offer a key nothing is bound to. The pill says what just ran;
+the line says what can.
+
+The page itself never scrolls. It is one column the height of the window — the
+table, the log under it taking whatever is left, the key line last — and the two
+boxes that can outgrow their room scroll inside themselves, so the corner and
+the key line hold their places whatever arrives.
+
 A staged key is recognized in full and then says what it is waiting for: the map
 is complete ahead of the commands that will back it, which reads better than a
 key that silently does nothing. The keys are inert while a text field has focus
-— typing in the filter box or the sheet types — except =C-x C-s= and =ESC=,
+— typing in the palette or the sheet types — except =C-x C-s= and =ESC=,
 which is what makes the sheet's Emacs muscle memory work. =C-c= and =C-x= become
 prefixes only with the selection collapsed, so a copy or a cut is still one, and
 =C-l=, =C-r=, =C-t=, =C-w=, =C-n=, =C-p= and =<f5>= always reach the browser —
 which is why neither profile moves on =C-n= or =C-p=, however much Emacs would
 like to.
+
+*On a touch device there are no keys*, which is the one exception the
+keyboard-first rule makes. A coarse pointer gets the chip row as a tap target —
+44px of it, reading =filter …= while nothing is applied — and tapping it summons
+the palette =/= summons. The sheet's textarea is 16px there, since iOS zooms the
+page in on anything smaller and does not zoom back out. A mouse or a trackpad
+sees none of this: every rule is inside =@media (pointer:coarse)= and the tap
+handler asks the same query before it runs.
 
 The whole page is monospace — /JetBrains Mono/, /Fira Code/, /SF Mono/, Menlo,
 Consolas, whichever is installed. Nothing is fetched for it. Drop a

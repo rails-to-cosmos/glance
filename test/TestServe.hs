@@ -259,7 +259,7 @@ spec :: TestTree
 spec = testGroup "Serve"
   [ headlineSpec, statsSpec, cacheSpec, gzipSpec, querySpec, bootstrapSpec
   , materializeSpec, commitSpec, indexingSpec, pageSpec, keymapSpec
-  , shellFontSpec, assetSpec, errorSpec ]
+  , touchSpec, shellFontSpec, assetSpec, errorSpec ]
 
 -- | The window between @bind@ and the end of the startup walk.  The server
 -- listens through it, so every route has an answer: the three that read the
@@ -853,7 +853,7 @@ pageSpec = testGroup "GET /"
   , testCase "with assets, paints a page and loads the rest behind it" $ do
       b <- body <$> get assetsDir "/"
       mapM_ (\needle -> assertContains "paging glue" needle b)
-            [ "const PAGE = 1000;", "load(`${narrow}limit=${PAGE}`)"
+            [ "const PAGE = 100;", "load(`${narrow}limit=${PAGE}`)"
             , "r.headers.get(\"X-Glance-Total\")", "a.total > (a.view.rows || []).length"
             , "query === asked && paint(b)" ]
 
@@ -907,6 +907,42 @@ pageSpec = testGroup "GET /"
       assertEqual "showQuery is called from the mount alone" 1
                   (T.count "!holds(query)) showQuery();" b)
       assertEqual "showQuery is defined once" 1 (T.count "function showQuery()" b)
+
+  , testCase "with assets, the filter is summoned rather than resident" $ do
+      b <- body <$> get assetsDir "/"
+      -- `/' asks the renderer to raise its palette instead of reaching for a
+      -- box on the page: `openFilter' is mode-agnostic, so the one call covers
+      -- an asset in any of them.
+      mapM_ (\needle -> assertContains "palette glue" needle b)
+            [ "palette: true,"
+            , "const summons = () => !!table && typeof table.openFilter === \"function\";"
+            , "if (summons()) { table.openFilter(); return; }"
+            -- An asset predating the call has a resident box; focus that.
+            , "const box = document.querySelector(\"#app .tv-filter\");"
+            , "if (box) { box.focus(); box.select(); }"
+            -- And the map says what the key does now, which is what the echo
+            -- pill prints when it runs.
+            , "summon the filter palette" ]
+      -- The renderer keeps `omnibox' for consumers that want the control on the
+      -- page; this shell is off it.
+      assertBool "the resident omnibox survives" (not ("omnibox: true," `T.isInfixOf` b))
+
+  , testCase "with assets, the palette's lifecycle stays the renderer's" $ do
+      b <- body <$> get assetsDir "/"
+      -- The overlay is raised and dissolved by the renderer, whose own input
+      -- stops ESC and DEL before this page's document handler sees them.  What
+      -- keeps the shell's rows off the palette either way is `typing()': every
+      -- `table' row is dead while a field has focus, and the one `any' row —
+      -- ESC — closes the sheet and otherwise only blurs whatever is typing.
+      mapM_ (\needle -> assertContains "escape ladder" needle b)
+            [ "const live = (b) => b.scope === \"any\""
+            , "|| (b.scope === \"table\" && !typing());"
+            , "a.tagName === \"INPUT\" || a.tagName === \"TEXTAREA\""
+            , "cancel: () => {"
+            , "else if (typing()) document.activeElement.blur();" ]
+      mapM_ (\gone -> assertBool ("the shell drives the palette itself: " <> show gone)
+                                 (not (gone `T.isInfixOf` b)))
+            ["closeFilter", "tv-veil", "tv-panel"]
 
   , testCase "with assets, DEL takes the last token off through the renderer" $ do
       b <- body <$> get assetsDir "/"
@@ -1023,16 +1059,90 @@ pageSpec = testGroup "GET /"
             -- are `.tv-root''s, which is what makes it read as the same thing.
             [ "#app,#log{width:100%;box-sizing:border-box}"
             , "border:1px solid var(--g-border);border-radius:8px;"
-            , "background:var(--g-surface);max-height:10em;overflow-y:auto}"
+            -- It takes the height the table and the key line leave, and
+            -- scrolls inside it rather than at a cap of its own.
+            , "background:var(--g-surface);flex:1 1 auto;overflow-y:auto}"
             -- Nothing to say, nothing on screen — no empty frame.
             , "#log:empty{display:none}"
-            -- Capped, so the end of a long message is scrolled to unless the
-            -- reader has scrolled up to hold a place.
+            -- The end of a long message is scrolled to unless the reader has
+            -- scrolled up to hold a place.
             , "box.scrollTop + box.clientHeight >= box.scrollHeight - 4"
             , "if (end) box.scrollTop = box.scrollHeight;" ]
       -- The reserved line the frame replaces is gone: an empty box collapses.
       assertBool "the log still reserves a line while empty"
                  (not ("min-height:1.4em" `T.isInfixOf` b))
+      -- And the ten-line cap the flex rule replaces: the column decides the
+      -- height now, so a second limit here could only fight it.
+      assertBool "the log keeps a cap of its own"
+                 (not ("max-height:10em" `T.isInfixOf` b))
+
+  , testCase "with assets, the log carries events and nothing the page shows anyway" $ do
+      b <- body <$> get assetsDir "/"
+      -- Connection, sync outcomes, the parity warning and errors: what a
+      -- reader could not have seen otherwise.
+      mapM_ (\needle -> assertContains "event log" needle b)
+            [ "log(`disconnected · retrying in ${Math.round(backoff / 1000)}s`)"
+            , "log(`indexing … ${b.elapsed}s"
+            , "log(`load failed: ${e.message}`)"
+            , "log(\"closed without writing — the file is as it was\")"
+            , "filter parity divergence — asset/daemon version skew"
+            -- The boot placeholder is cleared by the mount, so a loaded page
+            -- with nothing to report shows no strip at all.
+            , "<div id=\"log\">loading …</div>"
+            , "log(\"\");" ]
+      -- The row count is the renderer's hint line and the profile is the
+      -- corner's and the key line's; the strip repeated both.
+      mapM_ (\gone -> assertBool ("the log says what the page already shows: " <> show gone)
+                                 (not (gone `T.isInfixOf` b)))
+            [ "const say = () =>", "say();", "getRows().length"
+            , "matching ${query}", "${profile} keys" ]
+      -- The transient echo on a manual switch is not a log line and stays.
+      assertContains "the switch still echoes" "echo(`movement: ${profile}`)" b
+
+  , testCase "with assets, the page is one column the viewport tall" $ do
+      b <- body <$> get assetsDir "/"
+      mapM_ (\needle -> assertContains "column" needle b)
+            [ "height:100vh;box-sizing:border-box;overflow:hidden;"
+            , "padding:34px 24px 24px;display:flex;flex-direction:column;gap:14px}"
+            -- The table asks for its height and can give it back; the key line
+            -- never gives any of its own up, so a short window squeezes the
+            -- table rather than clipping the line.
+            , "#app{height:80vh;min-height:0}"
+            , "#kbd{flex:none;" ]
+      -- Table, log, key line, in that order — the corner and the pill are
+      -- fixed and out of the column, and the sheet is display:none until it
+      -- is not.
+      let at needle = T.length (fst (T.breakOn needle b))
+      assertBool ("app, log, kbd in that order: " <> show (at "id=\"app\"", at "id=\"log\"", at "id=\"kbd\""))
+                 (at "id=\"app\"" < at "id=\"log\"" && at "id=\"log\"" < at "id=\"kbd\"")
+
+  , testCase "with assets, the last line is the active map, resident" $ do
+      b <- body <$> get assetsDir "/"
+      mapM_ (\needle -> assertContains "key line" needle b)
+            [ "<div id=\"kbd\"></div>"
+            -- Commands, not keys: the spelling comes out of the blob, so the
+            -- line cannot offer a key nothing is bound to.
+            , "const HINTS = ["
+            , "[[\"next-row\", \"previous-row\"], \"rows\"],"
+            , "[[\"next-column\", \"previous-column\"], \"cells\"],"
+            , "[[\"filter-rows\"], \"filter\"],"
+            , "const rows = MAPS.profiles[profile].concat(MAPS.shared);"
+            , "rows.find((x) => x.command === command && x.scope === \"table\")"
+            -- A staged row has no handler and is no offer.
+            , "return b && b.handler ? b.seq : null;"
+            , "el(\"kbd\").textContent = HINTS"
+            -- And it is rewritten wherever the profile is set, which is the
+            -- selector's own hook.
+            , "hints();   // the line is the map's, so it moves with the profile" ]
+      -- No literal key in the line: `n/p' under emacs and `j/k' under vim are
+      -- the same two commands, and only the blob knows which.
+      mapM_ (\gone -> assertBool ("the key line spells a key itself: " <> show gone)
+                                 (not (gone `T.isInfixOf` b)))
+            ["\"n/p rows", "\"j/k rows"]
+      -- The transient line says what is loaded; the keys are the resident
+      -- line's, so the log no longer repeats them.
+      assertBool "the log repeats the key line"
+                 (not ("RET materializes" `T.isInfixOf` b))
 
   , testCase "with assets, the sheet's backdrop covers the renderer's chrome" $ do
       b <- body <$> get assetsDir "/"
@@ -1107,7 +1217,8 @@ expectedShared =
   , (["."],          ".",       "last-row",                        Just "lastRow",        "table", Nothing)
   , ([">"],          ">",       "last-row",                        Just "lastRow",        "table", Nothing)
   , (["RET"],        "RET",     "org-glance-overview:materialize", Just "materializeRow", "table", Nothing)
-  , (["/"],          "/",       "filter-rows",                     Just "focusFilter",    "table", Nothing)
+  , (["/"],          "/",       "filter-rows",                     Just "focusFilter",    "table",
+       Just "summon the filter palette")
   , (["DEL"],        "DEL",     "filter-drop-token",               Just "filterDrop",     "table",
        Just "drop the filter's last token")
   , (["q"],          "q",       "quit-window",                     Just "quitWindow",     "table", Nothing)
@@ -1241,11 +1352,11 @@ keymapSpec = testGroup "Shell keymap"
             ["id=\"dot\"", "id=\"themesel\"", "id=\"keysel\""]
       assertContains "fixed in the corner" "#corner{position:fixed;top:12px;right:14px" b
 
-  , testCase "the view title is the tab's alone, and the omnibox is the top of the page" $ do
+  , testCase "the view title is the tab's alone, and nothing on the page repeats it" $ do
       b <- body <$> get assetsDir "/"
-      -- The renderer's omnibox is the hero input; a heading repeating the tab
-      -- title put the same string on screen twice.
-      assertContains "omnibox" "omnibox: true," b
+      -- The table is the top of the page; a heading repeating the tab title put
+      -- the same string on screen twice.
+      assertContains "palette" "palette: true," b
       assertBool ("a heading survives in the shell: " <> show (between "<h1>" "</h1>" b))
                  (not ("<h1>" `T.isInfixOf` b))
       assertEqual "the title, once in the document" 1
@@ -1329,6 +1440,64 @@ keymapSpec = testGroup "Shell keymap"
           TIO.writeFile path glue
           (code, _out, err) <- readProcessWithExitCode exe ["--check", path] ""
           assertEqual ("node --check said: " <> err) ExitSuccess code
+  ]
+
+-- | What a coarse pointer gets, and what a fine one is spared.  Keys are the
+-- interface wherever there are keys; a touch device is the one place they
+-- cannot reach, so the filter earns a tap target there and nowhere else.
+touchSpec :: TestTree
+touchSpec = testGroup "Touch"
+  [ testCase "every page this server serves lays out at the device's own width" $ do
+      shell <- body <$> get assetsDir "/"
+      bare <- body <$> get missingAssetsDir "/"
+      -- Without it a phone lays the page out at 980px and scales it down, so
+      -- the table renders at a third of the size it asked for.
+      mapM_ (\(what, page') ->
+               assertContains what
+                 "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+                 page')
+            [("the shell", shell), ("the JSON-only page", bare)]
+
+  , testCase "a coarse pointer taps the chip row to summon the filter" $ do
+      b <- body <$> get assetsDir "/"
+      mapM_ (\needle -> assertContains "tap glue" needle b)
+            -- The rules: a finger's 44px, and a word saying what the row is
+            -- while no chip has filled it.  The renderer hides an empty row
+            -- with an inline `display:none', which `!important' outranks.
+            [ "@media (pointer:coarse){"
+            , "#app .tv-chips{min-height:44px;cursor:pointer}"
+            , "#app .tv-chips:empty{display:flex!important;align-items:center}"
+            , "content:\"filter …\""
+            -- The handler: delegated from #app so it survives a re-mount, and
+            -- through the same `focusFilter' the key runs.
+            , "el(\"app\").addEventListener(\"click\""
+            , "matchMedia(\"(pointer: coarse)\").matches"
+            , "if (!coarse()) return;"
+            , "t.closest(\".tv-chips\")"
+            -- A tap on a chip is that chip's own removal and stays the
+            -- renderer's.
+            , "t.closest(\".tv-chip\")"
+            , "focusFilter();" ]
+
+  , testCase "a coarse pointer gets a sheet iOS will not zoom into" $ do
+      b <- body <$> get assetsDir "/"
+      -- Under 16px, focusing a field zooms the page in and nothing zooms it
+      -- back out.  The renderer's own input is the renderer's problem; #mtext
+      -- is this page's.
+      assertContains "sheet input size" "#mtext{font-size:16px}}" b
+      assertContains "the size it keeps otherwise" "font:12px/1.5 var(--dk-mono)" b
+
+  , testCase "a fine pointer sees none of it" $ do
+      b <- body <$> get assetsDir "/"
+      -- Everything above is inside the query, and the handler asks the same
+      -- query before it runs: with a mouse the page is what it always was.
+      let (before, coarse') = T.breakOn "@media (pointer:coarse){" b
+      assertBool "no coarse block in the page" (not (T.null coarse'))
+      mapM_ (\needle -> assertBool ("a touch rule outside the query: " <> show needle)
+                                   (not (needle `T.isInfixOf` before)))
+            ["min-height:44px", "#mtext{font-size:16px}", "tv-chips:empty"]
+      assertEqual "one coarse block, and one gate on it" 1
+                  (T.count "@media (pointer:coarse){" b)
   ]
 
 -- | The shell is monospace, and gets there without asking the network for it.

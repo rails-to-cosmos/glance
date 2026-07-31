@@ -707,6 +707,13 @@ Exit:
   rows. Escalation, gated on measurement (build > ~30 ms or memory pressure
   on thin clients): the same index moves server-side behind
   `GET /complete?prefix=` over the store's search text. Do not build early.
+- **Client paging** — the shell holds the full row set (580 KB gzipped at
+  12.9k rows) behind the virtualizer; protocol paging (`limit`/`offset`,
+  totals, has-next) exists and stays UI-less. Triggers to revisit: corpus
+  past ~50k rows, or coarse-pointer clients measurably straining on full
+  residency. Then: keyset-cursor incremental windows feeding the virtualizer
+  (SCHEMA specs the cursors), completions via `/complete` — never page
+  buttons.
 
 - **Encryption** — before any shared view ships (S7): elisp-`aes` compat in
   Haskell vs migrate subtrees to age/gpg. Exit: decision recorded in proposal,

@@ -155,7 +155,7 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   analytics. The JetBrains Mono `@font-face` appears only when the assets
   directory holds the file, pointing at a bare name this server serves.
 - The shell is vanilla inline JS with no framework, build step or dependency,
-  and shrinking it beats adding to it. It boots on `?limit=1000`, pulls the rest
+  and shrinking it beats adding to it. It boots on `?limit=100`, pulls the rest
   in behind the painted table, mounts with `onFilter` so the server narrows, and
   opens its socket with `?bootstrap=off`. Rows are virtualized, so movement is
   ids out of `getVisible()` handed to `select(id, col)` — the DOM-walking path

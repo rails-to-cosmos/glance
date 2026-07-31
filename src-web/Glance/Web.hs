@@ -764,6 +764,7 @@ sharedKeys =
   , bind [">"]          "last-row"                        (Just "lastRow")        "table"
   , bind ["RET"]        "org-glance-overview:materialize" (Just "materializeRow") "table"
   , bind ["/"]          "filter-rows"                     (Just "focusFilter")    "table"
+      `helps` "summon the filter palette"
   , bind ["DEL"]        "filter-drop-token"               (Just "filterDrop")     "table"
       `helps` "drop the filter's last token"
   , bind ["q"]          "quit-window"                     (Just "quitWindow")     "table"
@@ -878,7 +879,8 @@ shellPage opts = do
 -- inline so the shell has exactly one asset to find.
 --
 -- The boot is two fetches, and both are @\/headlines@.  The first asks for
--- 1000 rows so the table paints without waiting on the whole store; the
+-- 100 rows — a window's worth, so the table paints without waiting on the
+-- whole store and without encoding rows nobody can see yet; the
 -- response's @X-Glance-Total@ says whether there are more, and the rest is
 -- fetched behind the painted table.  The full local set is what keeps @n@,
 -- @p@, sorting and materialize coherent — the renderer virtualizes, so holding
@@ -900,6 +902,18 @@ shellPage opts = do
 -- frame off the socket is answered by re-asking rather than by splicing: the
 -- loaded rows are the server's answer to a query and only it knows whether the
 -- changed row still matches.
+--
+-- The filter is summoned rather than resident.  The mount asks for @palette@,
+-- so an unfiltered table carries no filter chrome but its chip row, and @\/@
+-- raises the overlay through @openFilter@ — the renderer's one entry point for
+-- it whatever mode it is in, so the shell asks and never reaches into the
+-- chrome.  An asset predating the call has a box on the page, which the old
+-- path focuses.  The lifecycle past that is the renderer's: its input stops
+-- @ESC@ and @DEL@ before this page's dispatch sees them, and every @table@ row
+-- is inert while a field has focus anyway.  A coarse pointer has no @\/@ to
+-- press, which is the one exception the keyboard-first rule makes: there the
+-- chip row is 44px of tap target — labelled while it is empty — and summons
+-- the same palette through the same call.  A fine pointer sees none of it.
 --
 -- The applied query is page state.  It goes into the URL on every commit
 -- (@replaceState@, leaving @keys@ where it is), so a filtered view is a link, a
@@ -952,12 +966,25 @@ shellPage opts = do
 -- top corner holds the connection dot and a @select@ of the movement profiles
 -- the blob declares, which rebinds in place and remembers the choice; a native
 -- control because Tab, the arrows and Enter already navigate one and no new
--- chord is owed for it.
+-- chord is owed for it.  The page's last line is the same blob resident: the
+-- active profile's core rows as @keys label@ pairs, named by command and
+-- rewritten wherever the profile is, so the pill says what just ran and the
+-- line says what can.
+--
+-- The page is one column the height of the viewport — table, log, key line —
+-- and it does not scroll.  The table keeps the height it asks for, the log
+-- takes what is left, and both scroll inside themselves, so the corner and the
+-- key line hold their places whatever arrives.
+--
+-- The log is an event strip: connection, sync outcomes, the parity warning,
+-- errors.  What is loaded is the renderer's own hint line and which profile is
+-- on is the corner's and the key line's, so neither is repeated there — with
+-- nothing to report the strip collapses and the page is table, keys, done.
 demoShell :: ServeOptions -> Maybe FilePath -> Text
 demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlines
-  -- No heading: the renderer's omnibox is the top of the page and the view
-  -- title is already the tab's.  Printing it a second time here put it on
-  -- screen twice.
+  -- No heading: the view title is already the tab's, and printing it a second
+  -- time here put it on screen twice.  In palette mode the renderer carries no
+  -- bar either, so the page opens on the table itself.
   [ "  <div id=\"corner\"><span id=\"dot\" title=\"live connection\"></span>"
       <> "<label for=\"themesel\">theme:</label>"
       <> "<select id=\"themesel\" title=\"colour theme\">"
@@ -967,6 +994,7 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
       <> "<select id=\"keysel\" title=\"movement profile\"></select></div>"
   , "  <div id=\"app\"></div>"
   , "  <div id=\"log\">loading …</div>"
+  , "  <div id=\"kbd\"></div>"
   , "  <div id=\"modal\">"
   , "    <div id=\"sheet\">"
   , "      <div id=\"mhead\"><span id=\"mfile\"></span><span id=\"mnote\"></span></div>"
@@ -995,10 +1023,10 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    // The server filters and pages; these hold the query it was last asked"
   , "    // with, the fetch still in flight for it, and the selected row's id."
   , "    let query = \"\", inflight = null, cursor = null, requeryAt = 0;"
-  , "    const PAGE = 1000;   // rows in the first paint; the rest follows it"
+  , "    const PAGE = 100;   // rows in the first paint; the rest follows it"
   , "    function mount(view) {"
   , "      table = TableView.mount(document.getElementById(\"app\"), view, {"
-  , "        omnibox: true,     // the filter is the page's one hero input"
+  , "        palette: true,     // the filter is summoned, never resident"
   , "        // The applied query, restored as the renderer's own committed"
   , "        // chips. It tokenizes them and delivers nothing — the rows in"
   , "        // hand are already the server's answer to this query, and a"
@@ -1021,11 +1049,12 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      // by the header sitting over it."
   , "      cols = view.columns || [];"
   , "      columnKeys = cols.map((c) => c.key);"
-  , "      say();"
+  , "      // The boot placeholder has done its work.  The strip is an event log"
+  , "      // — connection, sync, warnings, errors — and it says nothing about"
+  , "      // what is loaded: the renderer's own hint line already counts the"
+  , "      // rows, the corner and the key line carry the profile."
+  , "      log(\"\");"
   , "    }"
-  , "    const say = () => log(`${table ? table.getRows().length : 0}`"
-  , "      + ` ${query ? `matching ${query}` : \"headlines\"} · ${profile} keys`"
-  , "      + \" · RET materializes · / filters\");"
   , "    // One /headlines at a time: a keystroke aborts the fetch before it, so"
   , "    // an earlier answer can never land over a later one."
   , "    function load(params) {"
@@ -1047,7 +1076,6 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      table.setRows(rows);"
   , "      if (!query) all = rows;"
   , "      parity(a.total);"
-  , "      say();"
   , "    };"
   , "    // A suggestion must never silently offer what the applied path cannot"
   , "    // evaluate.  The keys that can differ between the two halves are the"
@@ -1250,10 +1278,32 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      cursor = id;"
   , "      say(cols[want].header || cols[want].key);"
   , "    }"
+  , "    // `/' summons the filter.  `openFilter' is the renderer's one entry point"
+  , "    // for it whatever mode it is in — in palette mode it raises the overlay,"
+  , "    // elsewhere it takes the box already on the page — so the shell asks for"
+  , "    // it rather than reaching into the chrome.  An asset predating the call"
+  , "    // has a resident box; focusing that is how this worked before."
+  , "    const summons = () => !!table && typeof table.openFilter === \"function\";"
   , "    const focusFilter = () => {"
+  , "      if (summons()) { table.openFilter(); return; }"
   , "      const box = document.querySelector(\"#app .tv-filter\");"
   , "      if (box) { box.focus(); box.select(); }"
   , "    };"
+  -- The one exception to keyboard-first, and the reason it is one: a coarse
+  -- pointer has no `/' to press.  The chip row is the whole of the filter
+  -- chrome a palette-mode page carries, so it doubles as the palette's button
+  -- there — the same `focusFilter' the key runs, feature detection included.
+  -- Delegated from @#app@, so it survives every re-mount, and gated on the
+  -- media query the rules are in, so a mouse sees nothing new.  A tap on a
+  -- chip is that chip's own removal and stays the renderer's.
+  , "    const coarse = () => typeof matchMedia === \"function\""
+  , "      && matchMedia(\"(pointer: coarse)\").matches;"
+  , "    el(\"app\").addEventListener(\"click\", (e) => {"
+  , "      if (!coarse()) return;"
+  , "      const t = e.target;"
+  , "      if (!t.closest || !t.closest(\".tv-chips\") || t.closest(\".tv-chip\")) return;"
+  , "      focusFilter();"
+  , "    });"
   , "    // `start' is the fetch, the mount and the socket; reuse it whole."
   , "    // Dropping onclose first stops the reconnect timer opening a second one."
   , "    function refresh() {"
@@ -1301,11 +1351,41 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    });"
   , ""
   , "    let profile = wanted(), KEYS = [];"
+  -- The resident key line, under the log: what can run, where the echo pill
+  -- says what just did.  Each row here names commands rather than keys, so the
+  -- keys come out of the same blob the dispatch reads — the line cannot
+  -- advertise one nothing is bound to, and a profile switch rewrites it (@n/p@
+  -- under emacs, @j/k@ under vim).  These are the rows a reader needs in front
+  -- of them; the rest is the echo pill's to name as it runs.
+  , "    const HINTS = ["
+  , "      [[\"next-row\", \"previous-row\"], \"rows\"],"
+  , "      [[\"next-column\", \"previous-column\"], \"cells\"],"
+  , "      [[\"org-glance-overview:materialize\"], \"materialize\"],"
+  , "      [[\"filter-rows\"], \"filter\"],"
+  , "      [[\"org-glance-overview:refresh\"], \"refresh\"],"
+  , "      [[\"filter-drop-token\"], \"drop token\"],"
+  , "      [[\"quit-window\"], \"quit\"],"
+  , "    ];"
+  , "    function hints() {"
+  , "      // The profile's own spelling first: `n' is its row key, where the"
+  , "      // shared rows carry the arrows every profile agrees on."
+  , "      const rows = MAPS.profiles[profile].concat(MAPS.shared);"
+  , "      const seq = (command) => {"
+  , "        const b = rows.find((x) => x.command === command && x.scope === \"table\");"
+  , "        return b && b.handler ? b.seq : null;   // a staged row is no offer"
+  , "      };"
+  , "      el(\"kbd\").textContent = HINTS"
+  , "        .map(([commands, label]) => [commands.map(seq).filter(Boolean), label])"
+  , "        .filter(([keys]) => keys.length)"
+  , "        .map(([keys, label]) => `${keys.join(\"/\")} ${label}`)"
+  , "        .join(\" · \");"
+  , "    }"
   , "    function setProfile(name) {"
   , "      profile = name;"
   , "      KEYS = MAPS.shared.concat(MAPS.profiles[name]);"
   , "      kept.set(name);"
   , "      el(\"keysel\").value = name;"
+  , "      hints();   // the line is the map's, so it moves with the profile"
   , "    }"
   , "    // The options are the blob's own profiles — a profile cannot be offered"
   , "    // and unbound — and a native select is keyboard-reachable as it stands:"
@@ -1452,7 +1532,6 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "        requeryAt = setTimeout(fetchRows, 250));"
   , "      if (frame.op === \"upsert-row\") table.upsertRow(frame.row);"
   , "      else if (frame.op === \"delete-row\") table.deleteRow(frame.id);"
-  , "      say();"
   , "    }"
   , "    function listen() {"
   , "      const scheme = location.protocol === \"https:\" ? \"wss\" : \"ws\";"
@@ -1561,29 +1640,44 @@ page head' title body = T.unlines
   , "    --g-mute:#A4C2EB;--g-surface:#21252B;--g-sel:#373D4F;--g-ok:#B6E63E}"
   , "  body{margin:0;font:14px/1.5 var(--glance-mono);"
   , "    background:var(--g-bg);color:var(--g-fg);"
+  -- One column, exactly the viewport tall: the table at the height it asks
+  -- for, the log taking whatever that leaves, the key line last.  The page
+  -- itself never scrolls — the two boxes that can outgrow their room scroll
+  -- inside themselves — so the key line stays on screen and the fixed corner
+  -- keeps its place with no scrollbar under it.
+  , "    height:100vh;box-sizing:border-box;overflow:hidden;"
   -- The extra top padding is the fixed status corner's room: with no heading
-  -- above it, the omnibox would otherwise open underneath the corner.
+  -- above it, the table's own top edge would otherwise sit under the corner.
   , "    padding:34px 24px 24px;display:flex;flex-direction:column;gap:14px}"
   , "  h1{font-size:16px;margin:0}"
   , "  p{margin:0;max-width:70ch}"
   , "  code{font-size:12px;color:var(--g-mute)}"
-  , "  #app{height:80vh}"
+  -- The height it asks for, and none it cannot give back: a window shorter
+  -- than the column's parts takes the difference out of the table, which
+  -- scrolls inside itself, rather than off the key line, which does not.
+  , "  #app{height:80vh;min-height:0}"
   -- The renderer injects its own `.tv-root' font, and injects it from a script,
   -- so its rule lands after this element and ties on specificity.  One more
   -- selector step settles it, and leaves the size and the leading it set.
   , "  #app .tv-root{font-family:var(--glance-mono)}"
   , "  #app .tv-table tbody tr.tv-sel{box-shadow:inset 2px 0 0 var(--tv-accent)}"
   -- The log is the table's own container repeated under it: same width,
-  -- because this rule is the one place either width is set and they are the
-  -- body column's two items; same hairline, radius and surface tint as
-  -- @.tv-root@.  It is capped at ten lines and scrolls inside that, so a long
-  -- message cannot push the table up the page, and it collapses outright when
-  -- there is nothing to say rather than leaving an empty frame behind.
+  -- because this rule is the one place either width is set; same hairline,
+  -- radius and surface tint as @.tv-root@.  It takes the height the table and
+  -- the key line leave and scrolls inside it, so a long message cannot push
+  -- either of them off the page, and it collapses outright when there is
+  -- nothing to say rather than leaving an empty frame behind.
   , "  #app,#log{width:100%;box-sizing:border-box}"
   , "  #log{font-size:12px;color:var(--g-mute);padding:6px 10px;"
   , "    border:1px solid var(--g-border);border-radius:8px;"
-  , "    background:var(--g-surface);max-height:10em;overflow-y:auto}"
+  , "    background:var(--g-surface);flex:1 1 auto;overflow-y:auto}"
   , "  #log:empty{display:none}"
+  -- The resident key line, and the page's last: what can run, where the echo
+  -- pill says what just did.  Slim and muted, so it reads as chrome rather
+  -- than as content; one line that scrolls sideways instead of wrapping, so a
+  -- narrow window cannot grow it into the table's room.
+  , "  #kbd{flex:none;font-size:11px;color:var(--g-mute);white-space:nowrap;"
+  , "    overflow-x:auto;padding:0 2px}"
   -- The status corner: the connection dot, the theme and the movement profile,
   -- together, clear of the table and out of the heading.
   , "  #corner{position:fixed;top:12px;right:14px;z-index:3;display:flex;gap:6px;"
@@ -1631,6 +1725,23 @@ page head' title body = T.unlines
   , "    border-radius:999px;border:1px solid var(--g-border);font-size:12px;"
   , "    white-space:pre;background:var(--g-surface);color:var(--g-fg);opacity:0;"
   , "    transition:opacity .35s;pointer-events:none}"
+  -- Touch.  Keyboard-first holds wherever there are keys; a coarse pointer is
+  -- where they cannot reach, so the filter earns the one tap target on the
+  -- page.  The chip row is what a palette-mode page carries of the filter, and
+  -- it becomes that target: 44px of it, and a word saying so while no chip has
+  -- filled it.  The renderer hides an empty row with an inline @display:none@,
+  -- which only @!important@ outranks from a stylesheet.  Every rule is inside
+  -- the query, so a mouse sees exactly what it saw before.
+  --
+  -- iOS zooms the page in on a focused field under 16px and does not zoom back
+  -- out; the sheet's textarea is the shell's own field, and the renderer's
+  -- input is the renderer's.
+  , "  @media (pointer:coarse){"
+  , "    #app .tv-chips{min-height:44px;cursor:pointer}"
+  , "    #app .tv-chips:empty{display:flex!important;align-items:center}"
+  , "    #app .tv-chips:empty::after{content:\"filter …\";color:var(--g-mute);"
+  , "      font-size:12px}"
+  , "    #mtext{font-size:16px}}"
   , "</style>"
   -- The stored theme, applied before anything paints: a page that renders in
   -- the wrong one and corrects itself a frame later is a flash the selector
