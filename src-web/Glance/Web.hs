@@ -3491,7 +3491,10 @@ page head' title body = T.unlines
   -- always somewhere to type the next.  They sit in file order because that is
   -- the order they are in — nothing here sets a tab index, and the keys that
   -- move over them and open one are the glue's.
+      -- Framed like the table and the log strip: one hairline and the shared
+      -- radius around the panel as a whole — the rows inside stay borderless.
   , "  #mprops{flex:1 1 240px;min-width:0;overflow-y:auto;"
+  , "    border:1px solid var(--g-border);border-radius:8px;"
   , "    display:flex;flex-direction:column}"
   , "  #sheet.raw #mprops{display:none}"
   , "  .prow{display:flex;flex-wrap:wrap}"
