@@ -1,0 +1,32 @@
+-- The native window's project: the `native-window' flag and the bindings that
+-- satisfy it, in one file, so neither can be had without the other.  Build it
+-- through `make native', which adds the one thing a project file cannot say --
+-- HASKELL_GI_GIR_SEARCH_PATH, pointing at vendored/gir.
+--
+-- Hackage's gi-webkit2 demands pkgconfig `webkit2gtk-4.0' -- the libsoup2
+-- generation of WebKitGTK, which Arch dropped.  `vendored/' holds that package
+-- and gi-javascriptcore4 repointed at the 4.1 typelibs the machine does carry;
+-- each is upstream's tarball with a handful of marked lines changed, and each
+-- names its patch in its own header.  Local packages shadow every Hackage
+-- version of their name, so naming them here is what makes the flag resolve.
+--
+-- `vendored/gir/' is the other half: cairo-1.0, xlib-2.0 and freetype2-2.0,
+-- the hand-written GIR files every GTK binding reads at configure time.  They
+-- ship in Arch's `gobject-introspection', which this machine does not have
+-- (only `gobject-introspection-runtime', which carries the typelibs and no
+-- GIR).  Installing that package makes the directory dead weight; nothing
+-- breaks if it does, since haskell-gi searches this path FIRST and the system
+-- one after.
+--
+-- They stay OUT of `cabal.project' deliberately.  A local package is built by
+-- `cabal build all' whether or not anything depends on it, so listing them
+-- there would put GTK3 and WebKitGTK in the way of a plain unflagged build --
+-- which the suite, and CI, must stay clear of.
+
+import: cabal.project
+
+packages: vendored/gi-javascriptcore4-4.0.29
+          vendored/gi-webkit2-4.0.32
+
+package glance
+  flags: +native-window

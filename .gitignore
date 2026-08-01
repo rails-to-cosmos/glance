@@ -25,3 +25,7 @@ devenv.local.nix
 *.bak
 /*.*#
 .agnostic-llm/
+
+# haskell-gi writes the bindings it generates into the package it generates
+# them for, so the vendored sources grow a GI/ tree at configure time.
+/vendored/*/GI/

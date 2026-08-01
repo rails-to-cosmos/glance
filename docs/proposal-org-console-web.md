@@ -216,11 +216,12 @@ more client):
    so it compiles and is tested in both flag states and the suite needs no GTK.
 
    The flag is manual and default-off, because on it the solver pulls ~28
-   packages and the build needs `webkit2gtk-4.0` development files — the
-   libsoup2 generation. A machine carrying only `webkit2gtk-4.1` (and no
-   `webkitgtk-6.0` for the GTK4 binding) cannot build it at all; there the
-   window is written and unverified, and the flag is what makes that cost
-   nothing.
+   packages generated from the machine's typelibs. Every Hackage `gi-webkit2`
+   binds WebKit2 **4.0** — the libsoup2 generation — which Arch has dropped,
+   so `vendored/` carries it and `gi-javascriptcore4` repointed at the 4.1
+   typelibs, and `cabal.project.native` is where the flag and those packages
+   live together. Off, none of it resolves; on, `make native` builds it. What
+   the flag still buys is that neither the suite nor CI ever pays for GTK.
 
 The phone, the shared read-only slice, and the automation extension keep
 using real browsers; the desktop shell adds a surface, replacing none.

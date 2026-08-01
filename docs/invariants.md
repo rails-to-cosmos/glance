@@ -1541,10 +1541,10 @@ on.
   browsers that deliver it. The native window is the other half of the fix and
   removes the cause: a bare `WebKitWebView` in a plain `GtkWindow` has no chrome
   to bind `Ctrl+T`, `Ctrl+N` or `Ctrl+W` to, so every chord the page claims
-  reaches it. That claim is reasoned rather than measured — the flagged build
-  does not compile on this machine (Desktop, KNOWN GAP) — and it is the first
-  thing to check by hand on a machine where it does. **test** (the page's half)
-  / **none** (the browser's, and the native window's)
+  reaches it. That claim is reasoned rather than measured: the flagged build
+  compiles here now (Desktop, the vendored bindings) and nothing has opened its
+  window, so this is the first thing on the eyeball list. **test** (the page's
+  half) / **none** (the browser's, and the native window's)
 - **Row marks belong to the renderer.** `mount` asks for them with `marks:
   true` and the renderer does the rest: the leading checkbox column, the wash on
   a marked row, and a set of ids that keys them — which is why a mark outlives a
@@ -2088,20 +2088,53 @@ on.
   cannot deliver the interrupt, and the handler puts the previous one back
   before it returns, so a `--keep-serving` session still waiting is
   interruptible again. **test** (the close rules) / **none** (the signal
-  handler, which needs the flagged build)
-- **KNOWN GAP (open): the flagged build is unbuilt and unverified here.**
-  `gi-webkit2` wants `webkit2gtk-4.0`, `gi-javascriptcore4` wants
-  `javascriptcoregtk-4.0` and `gi-soup2` wants `libsoup-2.4` — the libsoup2
-  generation of WebKitGTK, which this machine does not carry; it ships
-  `webkit2gtk-4.1` and no `webkitgtk-6.0` either, so the GTK4 binding
-  (`gi-webkit`) is out too. `cabal build all -f native-window` therefore stops
-  in the solver with `pkg-config package webkit2gtk-4.0-any, not found in the
-  pkg-config database`, and `Glance.Desktop.WebKit`'s GTK half has never been
-  compiled. What IS verified: the flag wiring (the solver reaches the missing
-  package and nothing else), the gi-gtk 3 half of the tree resolving on its own
-  (25 packages), and every line of the flow above, which has no GTK in it.
-  What the flagged build needs is the system package, not a change here.
-  **none**
+  handler, which needs an open window; a flagged build alone reaches nothing
+  here)
+- **The bindings are vendored, and the patch is six lines across two packages.**
+  Every Hackage `gi-webkit2` binds WebKit2 **4.0** — `pkgconfig webkit2gtk-4.0`,
+  `gi-javascriptcore4` on `javascriptcoregtk-4.0`, `gi-soup2` on `libsoup-2.4`
+  — and Arch has dropped that generation; this machine carries
+  `webkit2gtk-4.1` (2.52.5, soup3) alone, and no `webkitgtk-6.0` for the GTK4
+  binding either. `vendored/` answers it with upstream's own tarballs,
+  `gi-webkit2-4.0.32` and `gi-javascriptcore4-4.0.29`, and three kinds of edit,
+  every one marked `glance:`: `pkgconfig-depends` to the `-4.1` spelling (one
+  line each), `Setup.hs`'s `version` to `"4.1"` (one line each), and `gi-soup2`
+  to `gi-soup3` (two lines, gi-webkit2 alone — it names the dependency in both
+  `custom-setup` and the library). That
+  `version` string is the one that matters — it names the TYPELIB haskell-gi
+  loads at configure time, so moving it is the whole of what repoints the
+  generator. Nothing else needed moving, because 4.0 and 4.1 are the same C API
+  modulo the soup swap. Two things make the patch stay this small: the
+  `exposed-modules` lists are regenerated from the typelib
+  (`CabalHooks.confCodeGenHook` rewrites them), so an API that differs is not a
+  `.cabal` edit; and both packages keep upstream's NAME and VERSION, so a local
+  package shadows every Hackage version of its name and
+  `cabal get NAME-VERSION && diff -r` is the entire diff. **build**
+- **The second missing piece was GIR XML.** `gobject-introspection` ships the
+  hand-written GIR files for the foreign types — `cairo-1.0`, `xlib-2.0`,
+  `freetype2-2.0` — and this machine has only
+  `gobject-introspection-runtime`, which carries their typelibs and none of
+  their XML. haskell-gi's generator reads that XML, so `gi-cairo` and
+  `gi-freetype2` failed configure with `Did not find a GI repository for
+  cairo-1.0`, and `Gtk-3.0.gir` and `Gdk-3.0.gir` include all three. They sit in
+  `vendored/gir/` and `make native` puts that directory in
+  `HASKELL_GI_GIR_SEARCH_PATH`, which haskell-gi searches BEFORE the system
+  path — so installing the distribution package makes the directory dead weight
+  rather than a conflict. This is the piece a project file cannot supply, which
+  is why the documented command is `make native` rather than a `cabal` line.
+  **build**
+- **KNOWN GAP (open): the window has been compiled, never opened.** What the
+  flagged build now proves is that `Glance.Desktop.WebKit` type-checks and links
+  against the real bindings — unchanged, as it was written blind: `initCheck`'s
+  `(Bool, Maybe [Text])`, the `Word32` style-provider priority against an
+  `Int32` constant, `setRGBA*`, `onWidgetDestroy`'s implicit-parameter callback
+  and `idleAdd`'s `Int32` priority all landed as guessed, and the whole build is
+  warning-free under this package's `-Wall`. What no run here proves is anything
+  a window does: the chords arriving in a chrome-less web view (the reason stage
+  2 exists), the black-before-first-paint, closing the window stopping the
+  daemon, `Ctrl-C` reaching `gtk_main` through the SIGINT handler, and
+  `gtk_init_check` refusing a missing display without taking the daemon with it.
+  That list is the eyeball list, and it now starts at the keys. **none**
 
 ## Build
 
@@ -2136,14 +2169,42 @@ on.
   the system's typelibs at build time — and paying it is a choice made at the
   command line rather than by whoever runs `cabal build`. **test** (the
   unflagged build is the one the suite runs)
+- **The native window has a project file, and `cabal.project` never grew one
+  line for it.** `cabal.project.native` imports `cabal.project`, adds
+  `vendored/`'s two packages and sets `flags: +native-window`; `make native`
+  runs it with `HASKELL_GI_GIR_SEARCH_PATH`. Keeping the vendored packages OUT
+  of the default project is the whole point: a local package is built by
+  `cabal build all` whether or not anything depends on it, so listing them
+  there would put GTK3 and WebKitGTK in the way of every unflagged build, which
+  is exactly the property the flag exists to protect. It also ties the two
+  halves together — the flag and the bindings that satisfy it are in one file,
+  and `cabal build -f native-window all` against the default project still
+  fails in the solver, the way it did before any of this. **build**
+- **The unambiguous spellings, `gi-gtk3` and `gi-gdk3`.** They generate the same
+  modules as `gi-gtk`/`gi-gdk` and they are the names `gi-webkit2` depends on;
+  the old pair in `glance-desktop-native` would put two packages claiming
+  `GI.Gtk` in one plan. **build**
+- **A distribution upgrade re-keys the whole gi tree by itself.** cabal's
+  package hash counts the resolved `pkg-config` dependency VERSIONS, so
+  `glib2 2.88.1 → 2.88.3` and `webkit2gtk-4.1 2.52.4 → 2.52.5` invalidated the
+  seventeen store entries built from a `.pc` that moved — `haskell-gi` and the
+  whole gi tree — and left the ten pure-Haskell helpers beside them alone. So
+  `make native` regenerated the bindings instead of linking the new libraries
+  against bindings made from the old typelibs; nothing has to be cleaned by
+  hand, and the reverse also holds — a gi package that is NOT rebuilt after an
+  upgrade was generated from a `.pc` version that did not move. **build**
 - **The suite shells out where a claim needs a real interpreter**, and degrades
   where the machine has none: `node --check` over the extracted glue, and
   `test/fixtures/shell-harness.js`, which boots that glue over a stubbed browser
   and reports the fetches it made. Both answer `pure ()` when `node` is not on
   `PATH`, so the suite is green either way and the boot contract is checked
   wherever there is something to check it with.
-- **WATCH (2026-07-31): a test run hung once during the mutation pass and has
-  not reproduced.** Not seen again across the batches since, under `cabal test`
-  or `-p`; nothing in the suite waits on a socket, and the two node cases are
-  bounded by the child process. Recorded so a second sighting is a pattern
-  rather than a surprise. **none**
+- **WATCH (2026-07-31, again 2026-08-01): a test run hangs occasionally and has
+  never reproduced on a retry.** Nothing in the suite waits on a socket, the two
+  node cases are bounded by the child process, and `TestDesktop.waitUntil` gives
+  up after 200 × 10 ms. The second sighting: a `cabal test` sat at 0.1% CPU for
+  ten minutes with its output buffer unflushed, and an immediate re-run under
+  `--test-options=--timeout=120s` was green in 4.95 s. Two sightings in two
+  days makes it a pattern; what is still missing is which test. Run the suite
+  with that timeout when it matters — a hang then names the test instead of
+  waiting forever. **none**

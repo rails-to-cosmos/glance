@@ -599,7 +599,7 @@ at the loaded store — see below.
 *** A window of its own: =-f native-window=
 
 #+begin_src sh
-cabal build -f native-window all      # then: glance desktop --dir ~/org
+make native                           # then: glance desktop --dir ~/org
 #+end_src
 
 Built with that flag, =glance desktop= opens a WebKitGTK window itself instead
@@ -626,11 +626,47 @@ window that fails to open leaves the daemon serving either way — no window
 failure has ever taken this daemon down.
 
 *The flag is off by default, and manual.* On, the solver pulls some 28 packages
-(the =gi-gtk= 3 tree, =gi-webkit2= and what they generate from the system's
-typelibs) and the build needs GTK3 and *WebKit2GTK 4.0* development files — the
-=libsoup2= generation, which a distribution shipping only =webkit2gtk-4.1= does
-not have. Off, nothing above is resolved, the test suite runs without GTK, and
-=glance desktop= is the browser launcher exactly as described above.
+(the =gi-gtk3= tree, =gi-webkit2= and what they generate from the system's
+typelibs) and the build needs GTK3 and WebKitGTK development files. Off, nothing
+above is resolved, the test suite runs without GTK, and =glance desktop= is the
+browser launcher exactly as described above. =cabal build all= is the unflagged
+build either way: the native packages live in a project file of their own, so
+they are built when they are asked for and never otherwise.
+
+*Why =make native= rather than =cabal build -f native-window all=.* Two things
+this repository has to supply before the flag can resolve at all.
+
+- Every Hackage =gi-webkit2= binds *WebKit2 4.0* — the =libsoup2= generation —
+  and Arch has dropped it; the machine carries =webkit2gtk-4.1= (soup3) alone,
+  and there is no =webkitgtk-6.0= for the GTK4 binding either. =vendored/= holds
+  =gi-webkit2= and =gi-javascriptcore4= repointed at the 4.1 typelibs: each is
+  upstream's tarball with a handful of lines marked =glance:= changed —
+  =pkgconfig-depends=, the typelib version in =Setup.hs=, and =gi-soup2= →
+  =gi-soup3=. The 4.0 and 4.1 C APIs are the same modulo that swap, which is
+  what makes the patch that small. =cabal.project.native= names them and turns
+  the flag on, so neither can be had without the other.
+- =vendored/gir/= holds =cairo-1.0=, =xlib-2.0= and =freetype2-2.0=, the
+  hand-written GIR files every GTK binding reads at configure time. They ship in
+  Arch's =gobject-introspection=, which this machine does not have — only
+  =gobject-introspection-runtime=, which carries the typelibs and no GIR.
+  =make native= points =HASKELL_GI_GIR_SEARCH_PATH= at them, which is the one
+  thing a project file cannot say. haskell-gi searches that path first and the
+  system's after, so installing the package makes the directory dead weight
+  rather than a conflict.
+
+*What compiling proves, and what it leaves.* The flagged build type-checks and
+links =Glance.Desktop.WebKit= against the real bindings, unchanged from the way
+it was written blind, and warning-free; nothing here has opened its window. Still to be seen by eye: the chords arriving in a chrome-less web
+view (the reason this exists), the black first paint, closing the window
+stopping the daemon, =C-c= reaching the GTK loop, and a missing display leaving
+the daemon serving.
+
+*Maintenance.* Both vendored packages keep upstream's name and version on
+purpose — a local package shadows every Hackage version of its name, so those
+directories are the only =gi-webkit2= and =gi-javascriptcore4= the solver can
+see, and =cabal get NAME-VERSION && diff -r= is the whole patch. An upstream
+release that binds WebKit2 4.1 retires =vendored/=; a distribution that ships
+=gobject-introspection= retires =vendored/gir/=.
 
 ** Serving before the walk finishes
 
@@ -685,10 +721,15 @@ glance/
 │   └── Glance/
 │       └── Desktop/
 │           └── WebKit.hs ← the WebKitGTK window, and nothing above it
+├── vendored/             ← what the distribution did not give us (-f native-window)
+│   ├── gi-webkit2-*/         ← upstream, repointed at the WebKit2 4.1 typelib
+│   ├── gi-javascriptcore4-*/ ← the same, for JavaScriptCore 4.1
+│   └── gir/                  ← cairo, xlib, freetype2: the hand-written GIR files
 ├── test/
 │   ├── Spec.hs
 │   ├── Test*.hs
 │   └── fixtures/         ← Sample org files and the golden view JSON
+├── cabal.project.native  ← the native-window flag and the packages that satisfy it
 ├── glance.cabal
 ├── glance.org            ← Project roadmap (in org-mode!)
 └── README.org

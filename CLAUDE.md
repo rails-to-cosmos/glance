@@ -283,7 +283,7 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   on PATH, run as `CMD --app=URL`; then `xdg-open URL`; then the URL printed. No
   window failure ever fails the daemon. `--dry-run` prints the resolved command
   and exits before binding.
-- A build carrying its own window (`cabal -f native-window`) prefers it, and
+- A build carrying its own window (`make native`) prefers it, and
   naming a browser beats it: `prefersNative` is the flag AND neither
   `$GLANCE_BROWSER` nor `--browser`. GTK owns the MAIN thread, so `runNative`
   forks the daemon and hands this thread to the window, which is the reverse of
@@ -868,10 +868,24 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `Glance.Web.Store`, `Glance.Web.Watch`.
 - `glance-desktop-native` exposes `Glance.Desktop.WebKit` alone and is the ONLY
   stanza the `native-window` flag reaches: `if flag(native-window)` adds
-  `-DNATIVE_WINDOW` and gi-gdk/gi-glib/gi-gtk 3/gi-webkit2/text/unix there and
+  `-DNATIVE_WINDOW` and gi-gdk3/gi-glib/gi-gtk3/gi-webkit2/text/unix there and
   nowhere else. Unflagged it builds on `base` in one module, so every other
   component is byte-identical either way and CI never needs GTK. Flagged, the
-  solver pulls ~28 packages and the build wants `webkit2gtk-4.0` development
-  files — the libsoup2 generation, absent from a machine shipping only
-  `webkit2gtk-4.1`, where the flagged build stops in the solver with
-  `pkg-config package webkit2gtk-4.0-any, not found`.
+  solver pulls ~28 packages, each generated from the machine's typelibs.
+- The flagged build is `make native` = `cabal.project.native` (imports
+  `cabal.project`, adds `vendored/`'s packages, sets the flag) plus
+  `HASKELL_GI_GIR_SEARCH_PATH=vendored/gir`. `vendored/` = gi-webkit2 and
+  gi-javascriptcore4 as upstream cut them with the lines marked `glance:`
+  moved to the 4.1 typelibs (`pkgconfig-depends`, `Setup.hs`'s `version`,
+  gi-soup2 → gi-soup3), since Arch dropped the 4.0/libsoup2 generation; both
+  keep upstream's name and version, which is what makes a local package shadow
+  Hackage's. `vendored/gir/` = cairo-1.0, xlib-2.0, freetype2-2.0, the
+  hand-written GIRs Arch keeps in `gobject-introspection` and this machine has
+  only `-runtime` of. They stay OUT of `cabal.project` because a local package
+  is built by `cabal build all` whether or not anything depends on it — that
+  exclusion is what keeps the unflagged build GTK-free. `gi-gtk3`/`gi-gdk3`
+  rather than `gi-gtk`/`gi-gdk`: same modules, and gi-webkit2 names the former,
+  so the old spelling would put two packages claiming `GI.Gtk` in one plan.
+  cabal's package hash counts resolved pkg-config VERSIONS, so a distribution
+  upgrade re-keys every gi package generated from the typelibs that moved and
+  `make native` regenerates them — no cache to clear by hand.
