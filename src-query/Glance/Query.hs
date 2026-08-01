@@ -47,10 +47,13 @@ module Glance.Query ( ConfigLayerFile (..)
                     , archiveEdits
                     , archiveTag
                     , archived
+                    , builtinFilter
                     , cellSep
                     , configDirIn
                     , configEdits
                     , configPath
+                    , defaultFilter
+                    , defaultFilterOf
                     , defaultWalk
                     , derivedPath
                     , digestOfText
@@ -58,6 +61,7 @@ module Glance.Query ( ConfigLayerFile (..)
                     , documentPath
                     , filterKeys
                     , headlineParts
+                    , hiddenProperties
                     , loadDir
                     , loadDirFilesSerially
                     , loadDirFilesWith
@@ -69,7 +73,9 @@ module Glance.Query ( ConfigLayerFile (..)
                     , mergeKeywords
                     , noConfig
                     , orderedForView
+                    , planningKeywords
                     , readConfigLayers
+                    , readsAsTimestamp
                     , recomposedSubtree
                     , replaceSpans
                     , resolveIds
@@ -109,12 +115,14 @@ import Data.Org ( Context, Element (EHeadline), Headline
                 , Indent (Indent)
                 , Priority (Priority), Span (..), Spanned (valueOf)
                 , Timestamp (tsStart), Todo (name)
-                , TsMoment (tsmHasTime, tsmTime), deadline
+                , TsMoment (tsmHasTime, tsmTime), deadline, defaultContext
                 , hsFull, identity, indent, metaCategory, orgParse, priority
                 , schedule, sliceSpan, spans, tags, title, todo, todoActive
                 , todoInactive )
 import Data.Org.Config ( ConfigLayerFile (..), ConfigLayers (..), TodoKeywords (..)
-                       , classify, configDirIn, declaredKeywords, isTodoPragma
+                       , builtinFilter, classify, configDirIn, declaredKeywords
+                       , defaultFilter
+                       , defaultFilterEdits, defaultFilterOf, isTodoPragma
                        , loadConfigDirs, mergeKeywords, noConfig, readConfigLayers
                        , seedContext, todoLineEdits, todoLines, todoPragmas )
 import Data.Org.Walk ( Found (..), WalkOptions (..), beatsForId, defaultWalk
@@ -534,59 +542,160 @@ subtreeText r = sliceSpan (hrDoc r) (hrSubtree r)
 
 -- Lens
 --
--- The properties drawer taken out of the subtree and put back into it.  One
--- rule holds the pair together: every byte of a subtree has ONE owner.  The
--- drawer's lines are the properties', everything else is the body's, and a
--- property nobody edited goes back as the very line it came in on — odd
--- spacing, odd casing and all.  So a client can edit the two halves apart
--- without the half it did not touch being re-spelled underneath it.
+-- The parts of a subtree taken out of it and put back into it.  One rule holds
+-- the pair together: every byte of a subtree has ONE OWNER.  Three regions are
+-- lifted out of the text — the planning line, the headline's own property
+-- drawer and its own logbook drawer — and every byte left is the body's.  A
+-- part nobody edited goes back as the very line it came in on, odd spacing and
+-- odd casing and all, so a client can edit one part without the ones it did not
+-- touch being re-spelled underneath it.
 --
--- A headline's OWN drawer only.  A child's drawer is body text here, since it
+-- A headline's OWN regions only.  A child's drawer is body text here, since it
 -- belongs to the child's headline and this lens is over one.
+--
+-- Two of the four parts are the SERVER's, and a client neither sees nor sends
+-- them: the properties named in 'hiddenProperties', and the whole logbook.
+-- They are lifted out for different reasons — one is identity a rename would
+-- break, the other is a record nothing here edits — and they go back verbatim
+-- whatever a client says, which is the whole of what "server-preserved" means.
 
--- | A subtree split in two: its text without the headline's own property
--- drawer, and that drawer's pairs in file order.  With no drawer the body is
--- the whole subtree and the pairs are empty, which is the shape
--- 'recomposedSubtree' reads back as "leave it without one".
+-- | The property keys a client is never shown and never writes.
+--
+-- @ORG_GLANCE_ID@ is the row id: renaming it renames the row the table keys its
+-- updates off, and the sheet would be looking at a different headline
+-- afterwards.  Hiding it is cheaper than a rule about which edits to a shown
+-- value are allowed, and honest in a way a warning beside an editable field is
+-- not.
+--
+-- ONE list, read by both halves of the lens: 'headlineParts' drops these pairs
+-- and 'recomposedSubtree' puts their original lines back, so extending it is
+-- one edit here and none anywhere else.
+hiddenProperties :: [Text]
+hiddenProperties = ["ORG_GLANCE_ID"]
+
+-- | Is KEY one the server owns?  Folded and stripped, since a drawer spells its
+-- keys however the file that holds it does.
+hiddenProperty :: Text -> Bool
+hiddenProperty key = T.toUpper (T.strip key) `elem` hiddenProperties
+
+-- | The planning keywords, in the order org writes them where nothing says
+-- otherwise.  A line may permute them freely, so this decides only where an
+-- entry the file did not already carry goes.
+planningKeywords :: [Text]
+planningKeywords = ["SCHEDULED", "DEADLINE", "CLOSED"]
+
+-- | A subtree split into what a client edits and what the server keeps.
+--
+-- With no region of a kind the corresponding field is empty, which is the shape
+-- 'recomposedSubtree' reads back as "leave it without one".  'hpLogbook' is
+-- carried OUTWARD only: the recompose takes it off the record rather than off
+-- this value, so a client cannot write one by sending one.
 data HeadlineParts = HeadlineParts
-  { hpBody       :: !Text            -- ^ the subtree, the headline's own drawer lines gone.
-  , hpProperties :: ![(Text, Text)]  -- ^ the drawer's keys and values, in file order.
+  { hpBody       :: !Text            -- ^ the subtree with all three regions lifted out.
+  , hpProperties :: ![(Text, Text)]  -- ^ the drawer's pairs in file order, 'hiddenProperties' dropped.
+  , hpPlanning   :: ![(Text, Text)]  -- ^ the planning keywords present and each one's timestamp text, in line order.
+  , hpLogbook    :: !Text            -- ^ the headline's own @:LOGBOOK:@ drawer verbatim; @""@ when it has none.
   } deriving (Eq, Show)
 
 -- | R's subtree split into 'HeadlineParts'.
 --
--- The cut is by WHOLE LINES: the drawer span starts at the beginning of the
--- @:PROPERTIES:@ line and ends right after @:END:@, so the newline closing that
--- line goes with it and the body is left as the lines that were around it,
--- byte for byte.  Anything trailing @:END:@ on its own line belongs to the
--- drawer too — it is on a drawer line.
+-- Every cut is by WHOLE LINES, the newline that ends each one included, so the
+-- body is left as the lines that were around them, byte for byte.  Anything
+-- trailing a region's last line belongs to that region — it is on one of its
+-- lines.
 headlineParts :: HeadlineRecord -> HeadlineParts
-headlineParts r = case drawerSlice r subtree of
-  Nothing -> HeadlineParts subtree []
-  Just sp -> HeadlineParts (T.take (spanStart sp) subtree <> T.drop (spanEnd sp) subtree)
-                           [ (key, value)
-                           | (key, value, _raw) <- drawerRows (sliceSpan subtree sp) ]
+headlineParts r = HeadlineParts
+  { hpBody       = withoutSpans subtree (regionSpans r subtree)
+  , hpProperties = [ p | p <- drawerPairs r subtree, not (hiddenProperty (fst p)) ]
+  , hpPlanning   = [ (key, sliceSpan subtree sp) | (key, sp) <- planningEntries r subtree ]
+  , hpLogbook    = maybe "" (sliceSpan subtree) (logbookSlice (drawerSlice r subtree) subtree)
+  }
   where subtree = subtreeText r
 
--- | BODY carrying PROPS, as the subtree R's file would then hold.
+-- | R's subtree as its file would hold PARTS.
 --
--- The drawer goes back on the line it was cut from — counted in lines from the
+-- Each region goes back on the line it was cut from — counted in lines from the
 -- start of the subtree, so an edit further down the body cannot move it — and a
--- headline that never had one gets it where org puts it: after the title line,
--- or after the planning line when there is one.  An empty PROPS writes no
--- drawer at all, which is how a client deletes one.
+-- region the headline never had gets the place org puts one: the planning line
+-- right after the title line, the drawer after that.
 --
--- What each property costs is decided by whether it moved.  A pair the drawer
--- already held is written as the line it already was ('drawerRows' keeps them,
--- one per pair, consumed in order so two spellings of one pair both survive);
--- anything else is rendered @:KEY: value@ under the indentation the drawer's own
--- lines carry.  The @:PROPERTIES:@ and @:END:@ lines are likewise the file's own
--- where there were any.
-recomposedSubtree :: HeadlineRecord -> Text -> [(Text, Text)] -> Text
-recomposedSubtree _r body [] = body
-recomposedSubtree r body props = spliceLine (drawerLine r subtree) block body
-  where subtree = subtreeText r
-        block = drawerText (drawerStyle r subtree body) props
+-- What each part costs is decided by whether it moved.  A property the drawer
+-- already held is written as the line it already was; a planning entry the line
+-- already carried is written as the text it already was, where it already was;
+-- anything else is rendered.  The hidden properties and the logbook are taken
+-- off R and are never rendered at all.
+recomposedSubtree :: HeadlineRecord -> HeadlineParts -> Text
+recomposedSubtree r parts = spliceRegions (hpBody parts) regions
+  where
+    subtree = subtreeText r
+    planAt  = planningSlice r subtree
+    drawAt  = drawerSlice r subtree
+    logAt   = logbookSlice drawAt subtree
+    -- Which line of the BODY each region goes back on: the line it sat on in the
+    -- subtree, less the lines every region ahead of it took out.  Subtree
+    -- indices would leave a GAP where a region was cleared — a drawer whose
+    -- planning line has just come off would land a line late — and the body is
+    -- the only text the arithmetic can be done in, since it is the only one
+    -- that exists at this point.  A region the headline never had goes where org
+    -- puts one, which in body coordinates is the line under the title.
+    cut = catMaybes [planAt, drawAt, logAt]
+    lineOf sp = T.count "\n" (T.take (spanStart sp) subtree)
+    height sp = length (linesWith (sliceSpan subtree sp))
+    bodyLine fallback = maybe fallback (\sp -> lineOf sp - taken sp)
+      where taken sp = sum [ height q | q <- cut, spanStart q < spanStart sp ]
+    regions = [ Region at text | (at, text) <- [plan, props, logs], not (T.null text) ]
+    plan  = ( bodyLine 1 planAt
+            , planningText (planningStyle r subtree (hpBody parts) planAt) (hpPlanning parts) )
+    props = ( bodyLine 1 drawAt
+            , drawerText (drawerStyle r subtree (hpBody parts))
+                         [ p | p <- hpProperties parts, not (hiddenProperty (fst p)) ] )
+    logs  = ( bodyLine 0 logAt, maybe "" (sliceSpan subtree) logAt )
+
+-- | One region of a subtree, and which line of the BODY it goes back on.
+data Region = Region
+  { rgLine :: !Int   -- ^ the body line it belongs above.
+  , rgText :: !Text  -- ^ what goes back there, terminated or not.
+  }
+
+-- | BODY with each of REGIONS put back at the line it belongs above.
+--
+-- Ascending, counting only the BODY lines consumed, so two regions naming one
+-- line land in list order rather than one displacing the other — which is what
+-- a headline growing a planning line and a drawer in the same commit needs.  A
+-- body with fewer lines than an index takes the region at the end, which is
+-- where a client that deleted the lines above it has left room.
+spliceRegions :: Text -> [Region] -> Text
+spliceRegions body regions = knit (go 0 (linesWith body) (sortOn rgLine regions))
+  where
+    go _seen ls [] = ls
+    go seen ls (Region at block : rest) =
+      taken <> linesWith block <> go (seen + length taken) left rest
+      where (taken, left) = splitAt (max 0 (at - seen)) ls
+
+-- | LINES concatenated, each but the last closed with a newline.  A body whose
+-- last line has none still ends without one; a region spliced behind it gets
+-- the newline that keeps it a line of its own.
+knit :: [Text] -> Text
+knit ls = T.concat (zipWith close ls [1 :: Int ..])
+  where n = length ls
+        close l i | i == n || "\n" `T.isSuffixOf` l = l
+                  | otherwise                       = l <> "\n"
+
+-- | SUBTREE with every span in SPANS taken out.  They are disjoint and in
+-- source order, which is what 'regionSpans' answers with.
+withoutSpans :: Text -> [Span] -> Text
+withoutSpans subtree = T.concat . go 0
+  where go at []         = [T.drop at subtree]
+        go at (sp : sps) = slice at (spanStart sp) : go (spanEnd sp) sps
+        slice from to = T.take (to - from) (T.drop from subtree)
+
+-- | Every region of SUBTREE that is R's own, in source order.
+regionSpans :: HeadlineRecord -> Text -> [Span]
+regionSpans r subtree =
+  sortOn spanStart (catMaybes [planningSlice r subtree, drawer, logbookSlice drawer subtree])
+  where drawer = drawerSlice r subtree
+
+-- Regions
 
 -- | Where R's own drawer sits in SUBTREE, as a span of SUBTREE's own offsets
 -- covering whole lines.  'Nothing' when the headline carries no drawer — and,
@@ -595,22 +704,142 @@ recomposedSubtree r body props = spliceLine (drawerLine r subtree) block body
 drawerSlice :: HeadlineRecord -> Text -> Maybe Span
 drawerSlice r subtree = do
   sp <- hsProperties (spans (hrHeadline r))
-  let from = spanStart sp - spanStart (hrSubtree r)
-      to   = spanEnd sp - spanStart (hrSubtree r)
-  if from < 0 || to > T.length subtree || from > to then Nothing
-    else Just (Span from (pastLine subtree to))
+  Span from to <- localSpan r subtree sp
+  pure (Span from (pastLine subtree to))
 
--- | Which line of SUBTREE R's drawer starts on, counted from zero.  With no
--- drawer it is where org would write one: the line after the title line, or the
--- one after that when the headline carries a planning line — which is the one
--- line that can sit between them.
-drawerLine :: HeadlineRecord -> Text -> Int
-drawerLine r subtree = case drawerSlice r subtree of
-  Just sp -> T.count "\n" (T.take (spanStart sp) subtree)
-  Nothing | planned   -> 2
-          | otherwise -> 1
+-- | Where R's planning line sits in SUBTREE, as a whole-line span.  'Nothing'
+-- when the headline has no planning at all.
+--
+-- The three planning spans cover their timestamps alone and permute freely on
+-- one line, so the region is the LINE the outermost of them sits on: the
+-- keywords that open the entries and whatever spacing is between them belong to
+-- it too, which is what lets an untouched line go back byte for byte.
+planningSlice :: HeadlineRecord -> Text -> Maybe Span
+planningSlice r subtree = case map snd (planningEntries r subtree) of
+  []  -> Nothing
+  sps -> Just (Span (lineStart subtree (minimum (map spanStart sps)))
+                    (pastLine subtree (maximum (map spanEnd sps))))
+
+-- | R's planning entries as @(KEYWORD, timestamp span)@ in SUBTREE's offsets,
+-- in the order the line writes them.
+planningEntries :: HeadlineRecord -> Text -> [(Text, Span)]
+planningEntries r subtree = sortOn (spanStart . snd)
+  [ (key, local)
+  | (key, Just sp) <- zip planningKeywords [hsSchedule hs, hsDeadline hs, hsClosed hs]
+  , Just local <- [localSpan r subtree sp] ]
   where hs = headlineSpans r
-        planned = any isJust [hsSchedule hs, hsDeadline hs, hsClosed hs]
+
+-- | Where R's OWN logbook drawer sits in SUBTREE, as a whole-line span, SKIP
+-- being the property drawer's extent.
+--
+-- Located TEXTUALLY, because a @:LOGBOOK:@ drawer is not part of a headline's
+-- parse and what makes one this headline's is where it sits: past the title
+-- line, ahead of the first child's stars.  The property drawer is stepped over
+-- rather than searched, so a @:LOGBOOK:@ line that somehow sat inside one stays
+-- the properties' — one byte, one owner, decided here rather than by whichever
+-- finder ran first.
+logbookSlice :: Maybe Span -> Text -> Maybe Span
+logbookSlice skip subtree = case break (opens . snd) own of
+  (_before, (sp, _line) : rest) -> Just (Span (spanStart sp) (closes sp rest))
+  _none                         -> Nothing
+  where
+    own = filter outside (takeWhile (not . child . snd) (drop 1 (lineSpansIn subtree)))
+    outside (sp, _line) =
+      maybe True (\s -> spanEnd sp <= spanStart s || spanStart sp >= spanEnd s) skip
+    child line = "*" `T.isPrefixOf` line
+    opens line = T.toUpper (T.strip line) == ":LOGBOOK:"
+    ends  line = T.toUpper (T.strip line) == ":END:"
+    -- An unterminated drawer owns every line it may own, which is where the
+    -- parser reading one would have stopped as well.
+    closes sp rest = case break (ends . snd) rest of
+      (_before, (e, _line) : _after) -> spanEnd e
+      (before, [])                   -> foldl' max (spanEnd sp) (map (spanEnd . fst) before)
+
+-- | SP, a span of the document R was parsed from, in SUBTREE's own offsets, or
+-- 'Nothing' where it does not lie inside it — which the span invariants forbid
+-- and this checks anyway.
+localSpan :: HeadlineRecord -> Text -> Span -> Maybe Span
+localSpan r subtree sp
+  | from < 0 || to > T.length subtree || from > to = Nothing
+  | otherwise                                      = Just (Span from to)
+  where from = spanStart sp - spanStart (hrSubtree r)
+        to   = spanEnd sp - spanStart (hrSubtree r)
+
+-- Planning
+
+-- | How R's planning line in SUBTREE is spelled, so a rewritten one reads like
+-- the file it goes back into.  BODY supplies the line ending for a headline
+-- that has no line to copy one from.
+data PlanningStyle = PlanningStyle
+  { psIndent :: !Text                    -- ^ what a written line is indented by.
+  , psEol    :: !Text                    -- ^ what it ends with.
+  , psRaw    :: ![((Text, Text), Text)]  -- ^ each entry already there, and its own text.
+  }
+
+planningStyle :: HeadlineRecord -> Text -> Text -> Maybe Span -> PlanningStyle
+planningStyle _r _subtree body Nothing = PlanningStyle "" (eolOf body) []
+planningStyle r subtree _body (Just sp) = PlanningStyle (indentOf line) (eolOf line) raws
+  where
+    line = sliceSpan subtree sp
+    raws = [ ((key, sliceSpan subtree at), raw)
+           | (key, at) <- planningEntries r subtree
+           , Just raw <- [rawEntry key line (shifted at)] ]
+    shifted (Span s e) = Span (s - spanStart sp) (e - spanStart sp)
+
+-- | The text of the entry KEY opens in LINE, from its keyword to the end of
+-- AT.  'Nothing' where the keyword is not in front of the timestamp, which the
+-- parse forbids and this checks anyway.
+rawEntry :: Text -> Text -> Span -> Maybe Text
+rawEntry key line at
+  | from < 0  = Nothing
+  | otherwise = Just (T.take (spanEnd at - from) (T.drop from line))
+  where marker = key <> ":"
+        from   = T.length (fst (T.breakOnEnd marker (T.take (spanStart at) line)))
+                   - T.length marker
+
+-- | STYLE's planning line carrying WANT, or @""@ where WANT is empty — which is
+-- how the last entry coming off takes the line with it.
+--
+-- An entry the file already carried and nobody changed goes back as the very
+-- text it was, in the place it was.  Everything else is rendered
+-- @KEYWORD: value@ and joins behind them in 'planningKeywords' order, so the
+-- entries that moved are canonical among themselves and the ones that did not
+-- are untouched.
+planningText :: PlanningStyle -> [(Text, Text)] -> Text
+planningText style want
+  | null entries = ""
+  | otherwise    = psIndent style <> T.unwords (map spell entries) <> psEol style
+  where
+    entries = kept <> added
+    kept    = [ p | (p, _raw) <- psRaw style, p `elem` want ]
+    added   = [ p | key <- planningKeywords, p <- want, fst p == key, p `notElem` kept ]
+    spell p = fromMaybe (fst p <> ": " <> snd p) (lookup p (psRaw style))
+
+-- | Is VALUE a planning timestamp org would read back as one?
+--
+-- Asked of the very line the write would produce rather than of a timestamp
+-- grammar spelled a second time here: a value that does not reparse turns the
+-- planning line into body text on the next load, and the entry the author
+-- thought they set is gone.  A value carrying a newline is refused outright —
+-- it would be a second line, and a planning line is one.
+readsAsTimestamp :: Text -> Bool
+readsAsTimestamp value = not (T.null trimmed) && not (T.any (== '\n') trimmed) && parses
+  where
+    trimmed = T.strip value
+    parses  = case orgParse defaultContext ("* probe\nSCHEDULED: " <> trimmed <> "\n") of
+      (elems, _ctx, Nothing) -> any planned elems
+      _failed                -> False
+    planned e = case valueOf e of
+      EHeadline h -> isJust (schedule h)
+      _other      -> False
+
+-- Properties
+
+-- | R's drawer pairs in SUBTREE, in file order and with nothing hidden.
+drawerPairs :: HeadlineRecord -> Text -> [(Text, Text)]
+drawerPairs r subtree = case drawerSlice r subtree of
+  Nothing -> []
+  Just sp -> [ (key, value) | (key, value, _raw) <- drawerRows (sliceSpan subtree sp) ]
 
 -- | How R's drawer is spelled, so a rewritten one reads like the file it goes
 -- back into.  BODY supplies the line ending for a headline that has no drawer
@@ -620,17 +849,22 @@ data DrawerStyle = DrawerStyle
   , dsClose  :: !Text                    -- ^ the @:END:@ line, which ends the block.
   , dsIndent :: !Text                    -- ^ what a rendered line is indented by.
   , dsEol    :: !Text                    -- ^ what a rendered line ends with.
-  , dsRaw    :: ![((Text, Text), Text)]  -- ^ each pair already there, and its line.
+  , dsRaw    :: ![((Text, Text), Text)]  -- ^ each pair a client may write, and its line.
+  , dsHidden :: ![(Int, Text)]           -- ^ the server's own lines, and where in the block they sat.
   }
 
 -- | How R's drawer in SUBTREE is spelled, BODY standing in for the parts a
 -- headline with no drawer has nothing to copy.
 drawerStyle :: HeadlineRecord -> Text -> Text -> DrawerStyle
 drawerStyle r subtree body = case drawerSlice r subtree of
-  Nothing -> DrawerStyle (":PROPERTIES:" <> eol) (":END:" <> eol) "" eol []
+  Nothing -> DrawerStyle (":PROPERTIES:" <> eol) (":END:" <> eol) "" eol [] []
     where eol = eolOf body
   Just sp -> DrawerStyle open close (indentOf (firstOr open [ raw | (_k, _v, raw) <- rows ]))
-                         (eolOf close) [ ((key, value), raw) | (key, value, raw) <- rows ]
+                         (eolOf close)
+                         [ ((key, value), raw) | (key, value, raw) <- rows
+                                               , not (hiddenProperty key) ]
+                         [ (at, raw) | (at, (key, _value, raw)) <- zip [0 ..] rows
+                                     , hiddenProperty key ]
     where block = sliceSpan subtree sp
           ls    = linesWith block
           open  = firstOr (":PROPERTIES:" <> eolOf body) ls
@@ -638,11 +872,20 @@ drawerStyle r subtree body = case drawerSlice r subtree of
           rows  = drawerRows block
 
 -- | STYLE's drawer holding PROPS: the opening line, a line per property, the
--- closing line.
+-- closing line — and @""@ where there is nothing at all to hold, which is how a
+-- client deletes a drawer.
+--
+-- The server's own lines are woven back in at the indices they sat at, so a
+-- hidden property survives a client that never mentioned it, in its own place
+-- and byte for byte.  Ascending, so each insertion finds the list already the
+-- right length in front of it.
 drawerText :: DrawerStyle -> [(Text, Text)] -> Text
-drawerText style props = T.concat (dsOpen style : go (dsRaw style) props <> [dsClose style])
+drawerText style props
+  | null props && null (dsHidden style) = ""
+  | otherwise = T.concat (dsOpen style : weave (dsHidden style) written <> [dsClose style])
   where
-    go _raws []       = []
+    written = go (dsRaw style) props
+    go _raws []      = []
     go raws (p : ps) = case taking p raws of
       Just (raw, rest) -> raw : go rest ps
       Nothing          -> rendered p : go raws ps
@@ -654,6 +897,12 @@ drawerText style props = T.concat (dsOpen style : go (dsRaw style) props <> [dsC
     rendered (key, value) =
       dsIndent style <> ":" <> key <> ":"
         <> (if T.null value then "" else " " <> value) <> dsEol style
+
+-- | LINES with each of KEPT put back at the index it names, lowest first.
+weave :: [(Int, Text)] -> [Text] -> [Text]
+weave kept ls = foldl' put ls (sortOn fst kept)
+  where put acc (at, line) = before <> [line] <> after
+          where (before, after) = splitAt (min at (length acc)) acc
 
 -- | BLOCK's property lines: everything between its @:PROPERTIES:@ and @:END:@
 -- lines, each as the key it names, the value it carries and the raw line it is.
@@ -678,19 +927,6 @@ propertyOf line = case T.uncons (T.stripStart line) of
                    -> (key, T.strip (T.drop 1 closed))
   _notAProperty    -> ("", T.strip line)
 
--- | BODY with BLOCK put back as its AT'th line, counting from zero.  A body
--- with fewer lines than that takes it at the end, which is where a client that
--- deleted the lines above the drawer has left room for it.  BLOCK is terminated
--- only where something follows it, so a drawer that closed an unterminated file
--- still closes one.
-spliceLine :: Int -> Text -> Text -> Text
-spliceLine at block body = terminated (T.concat before) <> rest
-  where (before, after) = splitAt at (linesWith body)
-        rest | null after = block
-             | otherwise  = terminated block <> T.concat after
-        terminated t | T.null t || "\n" `T.isSuffixOf` t = t
-                     | otherwise                         = t <> "\n"
-
 -- | T split into lines, each carrying the newline that ends it.  The last line
 -- carries one only where T does, so @T.concat . linesWith@ is @id@.
 linesWith :: Text -> [Text]
@@ -700,10 +936,20 @@ linesWith t
       (line, rest) | T.null rest -> [line]
                    | otherwise   -> (line <> "\n") : linesWith (T.drop 1 rest)
 
+-- | T's lines, each with the span covering it and the newline that ends it.
+lineSpansIn :: Text -> [(Span, Text)]
+lineSpansIn t = go 0 (linesWith t)
+  where go _at []       = []
+        go at (l : ls)  = (Span at (at + T.length l), l) : go (at + T.length l) ls
+
 -- | The offset in T past the newline ending the line offset AT sits on, or T's
 -- length when that line has none.
 pastLine :: Text -> Int -> Int
 pastLine t at = maybe (T.length t) (\i -> at + i + 1) (T.findIndex (== '\n') (T.drop at t))
+
+-- | The offset in T where the line offset AT sits on begins.
+lineStart :: Text -> Int -> Int
+lineStart t at = T.length (fst (T.breakOnEnd "\n" (T.take at t)))
 
 -- | The line ending T's first line uses, @"\\n"@ when it has none.
 eolOf :: Text -> Text
@@ -940,16 +1186,24 @@ archiveEdits r
 -- into one either.  The message says so, since that is the refusal a reader
 -- typing the group name gets.
 --
+-- WANT is the default view the same file names, which the system layer carries
+-- and a tag layer never does: 'Nothing' leaves the
+-- @#+GLANCE_DEFAULT_FILTER:@ line exactly as it is, @Just \"\"@ takes it away,
+-- and anything else writes it.  It rides in this one call because it is a line
+-- of the same file, and two calls would be two writes under two digests, the
+-- second of which the first had just invalidated.
+--
 -- The spans are the file's own lines ('Data.Org.Config.todoLineEdits'), so
 -- everything a config file is besides its cycle — the @#+TITLE:@, the comments,
 -- the capture template — is bytes this never names.
-configEdits :: Text -> [Text] -> Either Text [(Span, Text)]
-configEdits doc asked
+configEdits :: Text -> [Text] -> Maybe Text -> Either Text [(Span, Text)]
+configEdits doc asked want
   | not (null strange) = Left ("not a #+TODO: line: " <> T.intercalate " · " strange)
-  | null lines'        = Right (todoLineEdits doc [])
+  | null lines'        = Right (todoLineEdits doc [] <> filterEdits)
   | null declared      = Left declaresNothing
-  | otherwise          = Right (todoLineEdits doc lines')
+  | otherwise          = Right (todoLineEdits doc lines' <> filterEdits)
   where
+    filterEdits = maybe [] (defaultFilterEdits doc) want
     lines'   = filter (not . T.null . T.strip) asked
     -- A LINE, and the pragma test is a prefix one: an entry carrying a newline
     -- of its own would pass it and write everything past that newline into the

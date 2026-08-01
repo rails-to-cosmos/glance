@@ -23,8 +23,9 @@ import qualified Data.Text as T
 
 import Glance.Query ( HeadlineParts (..), HeadlineRecord (..), LoadFailure (..)
                     , QueryResult (..), Span (..), archiveEdits, archived, defaultWalk
-                    , displayText, headlineParts, loadDir, loadDirFilesSerially
-                    , loadDirFilesWith, loadFile, matchesSearch, recomposedSubtree
+                    , displayText, headlineParts, hiddenProperties, loadDir
+                    , loadDirFilesSerially, loadDirFilesWith, loadFile, matchesSearch
+                    , readsAsTimestamp, recomposedSubtree
                     , setStateEdits, subtreeText, viewJSON )
 
 -- Fixtures
@@ -93,14 +94,19 @@ spec = testGroup "Query"
   [ loadSpec, parallelSpec, cellSpec, searchSpec, viewSpec, schemaSpec, commandSpec
   , lensSpec ]
 
--- | The properties lens: a subtree split into body and drawer, and put back.
+-- | The subtree lens: a subtree split into the parts a client edits and the
+-- parts the server keeps, and put back.
 --
 -- One rule under all of it — every byte of a subtree has one owner.  So the
 -- assertions are about bytes rather than about shapes: what the body keeps, what
--- a property that nobody touched is written back as, and that decompose followed
+-- a part that nobody touched is written back as, and that decompose followed
 -- by recompose is the identity on the file.
+--
+-- Three regions come out and four things go back in.  The hidden properties and
+-- the logbook are the SERVER's, and the cases below are generic over
+-- 'hiddenProperties' rather than spelling @ORG_GLANCE_ID@ into an assertion.
 lensSpec :: TestTree
-lensSpec = testGroup "Properties lens"
+lensSpec = testGroup "Subtree lens"
   [ testGroup "decompose"
     [ testCase "a drawer leaves the body and comes back as pairs" $
         withParts drawered $ \r -> do
@@ -109,8 +115,8 @@ lensSpec = testGroup "Properties lens"
                                  , ":PROPERTIES:", ":ORG_GLANCE_ID: kid", ":END:"
                                  , "child body" ])
                       (hpBody (headlineParts r))
-          assertEqual "the pairs, in file order"
-                      [("ORG_GLANCE_ID", "first"), ("EFFORT", "0:30")]
+          assertEqual "the pairs, in file order, the server's own left out"
+                      [("EFFORT", "0:30")]
                       (hpProperties (headlineParts r))
 
     , testCase "a headline with no drawer is its whole subtree and no pairs" $
@@ -118,13 +124,50 @@ lensSpec = testGroup "Properties lens"
           assertEqual "the body is the subtree" (subtreeText r) (hpBody (headlineParts r))
           assertEqual "and there is nothing to show" [] (hpProperties (headlineParts r))
 
-    , testCase "the planning line stays in the body, ahead of where the drawer was" $
-        withParts planned $ \r ->
+      -- The identity property is not a pair a client may edit: it is the row id
+      -- the table keys its updates off, so the server keeps it out of what it
+      -- hands over and puts it back itself.
+    , testCase "a hidden property is in neither pane, whatever the file says" $
+        withParts drawered $ \r -> do
+          let parts = headlineParts r
+          assertEqual "no hidden key is offered" []
+            [ key | (key, _v) <- hpProperties parts, key `elem` hiddenProperties ]
+          assertBool "and its line is in no pane either"
+                     (not (":ORG_GLANCE_ID: first" `T.isInfixOf` hpBody parts))
+
+    , testCase "the planning line is its own region, out of the body" $
+        withParts planned $ \r -> do
           assertEqual "body"
-                      (T.unlines [ "* TODO Timed"
-                                 , "SCHEDULED: <2026-08-01 Sat 09:30> DEADLINE: <2026-08-05 Wed>"
-                                 , "after" ])
+                      (T.unlines ["* TODO Timed", "after"])
                       (hpBody (headlineParts r))
+          assertEqual "and the entries, in the order the line writes them"
+                      [ ("SCHEDULED", "<2026-08-01 Sat 09:30>")
+                      , ("DEADLINE", "<2026-08-05 Wed>") ]
+                      (hpPlanning (headlineParts r))
+
+    , testCase "a headline with no planning has no planning entries" $
+        withParts drawered $ \r ->
+          assertEqual "none" [] (hpPlanning (headlineParts r))
+
+      -- The logbook is located textually rather than parsed: it is the drawer
+      -- named LOGBOOK sitting past the title line and ahead of the first child.
+    , testCase "the logbook is a region of its own, verbatim" $
+        withParts logged $ \r -> do
+          let parts = headlineParts r
+          assertEqual "the drawer, whole"
+                      ":LOGBOOK:\nCLOCK: [2026-08-01 Sat 09:00]--[2026-08-01 Sat 09:30]\n:END:\n"
+                      (hpLogbook parts)
+          assertBool "and out of the body"
+                     (not ("CLOCK:" `T.isInfixOf` hpBody parts))
+          assertEqual "and no part of the properties" [("EFFORT", "0:30")]
+                      (hpProperties parts)
+
+    , testCase "a child's logbook is the child's, and stays body text" $
+        withParts childLogged $ \r -> do
+          let parts = headlineParts r
+          assertEqual "this headline has none" "" (hpLogbook parts)
+          assertContains "the child keeps its own" ":LOGBOOK:\nCLOCK: kid\n:END:\n"
+                         (hpBody parts)
 
       -- The lens is over ONE headline: a child's drawer belongs to the child's
       -- own lens and is body text here, byte for byte.
@@ -134,7 +177,7 @@ lensSpec = testGroup "Properties lens"
           assertContains "the child keeps its own drawer, whole"
                          ":PROPERTIES:\n:ORG_GLANCE_ID: kid\n:END:\n" (hpBody parts)
           assertEqual "and it is no part of this headline's pairs"
-                      ["ORG_GLANCE_ID", "EFFORT"] (map fst (hpProperties parts))
+                      ["EFFORT"] (map fst (hpProperties parts))
 
     , testCase "unicode is cut by characters, not bytes" $
         withParts unicoded $ \r -> do
@@ -142,7 +185,7 @@ lensSpec = testGroup "Properties lens"
                       (T.unlines ["* TODO Привет мир :unicode:", "тело письма"])
                       (hpBody (headlineParts r))
           assertEqual "and the value is the file's"
-                      [("ORG_GLANCE_ID", "привет"), ("CATEGORY", "письма")]
+                      [("CATEGORY", "письма")]
                       (hpProperties (headlineParts r))
 
       -- The drawer's own spelling is the drawer's business: the pairs a client
@@ -156,14 +199,23 @@ lensSpec = testGroup "Properties lens"
 
   , testGroup "recompose"
     [ testCase "decompose then recompose is the subtree, byte for byte" $
-        mapM_ roundTrips [drawered, planned, unicoded, oddly, indented, crlf
+        mapM_ roundTrips [ drawered, planned, unicoded, oddly, indented, crlf
+                         , logged, childLogged, permuted
                          , T.unlines ["* TODO Bare", "body"]
                          , "* Ends at the drawer\n:PROPERTIES:\n:A: 1\n:END:" ]
+
+      -- The three keywords permute freely on their line, so a round trip that
+      -- reordered them would be a spurious hunk on every scheduled headline.
+    , testCase "a permuted planning line comes back in its own order" $
+        withParts permuted $ \r ->
+          assertContains "the file's own order"
+                         "CLOSED: [2026-07-30 Thu] SCHEDULED: <2026-08-01 Sat>"
+                         (recomposedSubtree r (headlineParts r))
 
     , testCase "a property nobody touched keeps its own line, odd spacing and all" $
         withParts oddly $ \r -> do
           let parts = headlineParts r
-              back = recomposedSubtree r (hpBody parts) (hpProperties parts)
+              back = recomposedSubtree r parts
           assertContains "the crooked line is the file's own" ":A:one" back
           assertContains "and the empty one too" ":B:\n" back
           assertContains "and the padded one" ":C:   three   \n" back
@@ -171,7 +223,7 @@ lensSpec = testGroup "Properties lens"
     , testCase "an edited property is rendered canonically, under the drawer's indent" $
         withParts indented $ \r -> do
           let parts = headlineParts r
-              back = recomposedSubtree r (hpBody parts) [("A", "moved"), ("B", "2")]
+              back = recomposedSubtree r parts { hpProperties = [("A", "moved"), ("B", "2")] }
           assertContains "the edited one is canonical, indented like its neighbours"
                          "  :A: moved\n" back
           assertContains "the untouched one is verbatim" "  :B:  2\n" back
@@ -179,8 +231,7 @@ lensSpec = testGroup "Properties lens"
     , testCase "an added property joins the drawer where the client put it" $
         withParts drawered $ \r -> do
           let parts = headlineParts r
-              back = recomposedSubtree r (hpBody parts)
-                       (hpProperties parts <> [("ADDED", "yes")])
+              back = recomposedSubtree r parts { hpProperties = hpProperties parts <> [("ADDED", "yes")] }
           assertEqual "the drawer, in order"
                       [":PROPERTIES:", ":ORG_GLANCE_ID: first", ":EFFORT: 0:30"
                       , ":ADDED: yes", ":END:"]
@@ -188,30 +239,50 @@ lensSpec = testGroup "Properties lens"
 
     , testCase "a dropped property is simply not written" $
         withParts drawered $ \r -> do
-          let back = recomposedSubtree r (hpBody (headlineParts r)) [("EFFORT", "0:30")]
-          assertEqual "what is left" [":PROPERTIES:", ":EFFORT: 0:30", ":END:"] (drawerOf back)
+          let back = recomposedSubtree r (headlineParts r) { hpProperties = [] }
+          assertEqual "the server's own line is what is left"
+                      [":PROPERTIES:", ":ORG_GLANCE_ID: first", ":END:"] (drawerOf back)
 
-    , testCase "an empty list takes the drawer away" $
+      -- A hidden property survives a client that never mentioned it, in its own
+      -- place and byte for byte: it is the server's, so an empty list empties
+      -- the client's half and nothing else.
+    , testCase "a hidden property survives a sync that never mentioned it" $
         withParts drawered $ \r -> do
-          let parts = headlineParts r
-              back = recomposedSubtree r (hpBody parts) []
-          assertEqual "the body alone" (hpBody parts) back
-          assertBool "and the headline's own drawer is gone with it"
+          let back = recomposedSubtree r (headlineParts r) { hpProperties = [] }
+          assertContains "verbatim" ":ORG_GLANCE_ID: first\n" back
+          assertBool "and the edited half is gone"
                      (not (":EFFORT:" `T.isInfixOf` back))
+
+      -- And a client that sends one anyway writes nothing.
+    , testCase "a client naming a hidden key does not move it" $
+        withParts drawered $ \r -> do
+          let back = recomposedSubtree r (headlineParts r)
+                       { hpProperties = [("ORG_GLANCE_ID", "hijacked")] }
+          assertContains "the file's own value stands" ":ORG_GLANCE_ID: first\n" back
+          assertBool "and the client's is nowhere"
+                     (not ("hijacked" `T.isInfixOf` back))
+
+    , testCase "an empty list takes the drawer away when nothing is hidden" $
+        withParts oddly $ \r -> do
+          let parts = headlineParts r
+              back = recomposedSubtree r parts { hpProperties = [] }
+          assertEqual "the body alone" (hpBody parts) back
+          assertBool "and the drawer is gone with it"
+                     (not (":PROPERTIES:" `T.isInfixOf` back))
 
     , testCase "a drawer for a headline that never had one goes after the title line" $
         withParts (T.unlines ["* TODO Bare", "body line"]) $ \r ->
           assertEqual "written where org writes one"
                       (T.unlines [ "* TODO Bare", ":PROPERTIES:", ":NEW: 1", ":END:"
                                  , "body line" ])
-                      (recomposedSubtree r (subtreeText r) [("NEW", "1")])
+                      (recomposedSubtree r (headlineParts r) { hpProperties = [("NEW", "1")] })
 
     , testCase "and after the planning line when there is one" $
         withParts (T.unlines ["* TODO Timed", "SCHEDULED: <2026-08-01 Sat 09:30>", "after"]) $ \r ->
           assertEqual "the planning line keeps its place"
                       (T.unlines [ "* TODO Timed", "SCHEDULED: <2026-08-01 Sat 09:30>"
                                  , ":PROPERTIES:", ":NEW: 1", ":END:", "after" ])
-                      (recomposedSubtree r (subtreeText r) [("NEW", "1")])
+                      (recomposedSubtree r (headlineParts r) { hpProperties = [("NEW", "1")] })
 
       -- The drawer's line is counted from the top of the subtree, which is the
       -- one place a client cannot have moved it from: the lines above it are the
@@ -219,24 +290,112 @@ lensSpec = testGroup "Properties lens"
     , testCase "an edit further down the body leaves the drawer where it was" $
         withParts drawered $ \r -> do
           let parts = headlineParts r
-              edited = hpBody parts <> "one more line\n"
-              back = recomposedSubtree r edited (hpProperties parts)
+              back = recomposedSubtree r parts { hpBody = hpBody parts <> "one more line\n" }
           assertEqual "the drawer still opens the line under the headline"
                       ":PROPERTIES:" (T.lines back !! 1)
           assertContains "and the addition landed" "one more line\n" back
 
     , testCase "a body shorter than the drawer's line takes it at the end" $
-        withParts drawered $ \r ->
+        withParts oddly $ \r ->
           assertEqual "appended, and terminated"
                       "* only\n:PROPERTIES:\n:A: 1\n:END:\n"
-                      (recomposedSubtree r "* only" [("A", "1")])
+                      (recomposedSubtree r (headlineParts r)
+                         { hpBody = "* only", hpProperties = [("A", "1")] })
+    ]
+
+  , testGroup "planning"
+    [ testCase "an untouched entry keeps its own text, where it was" $
+        withParts planned $ \r -> do
+          let parts = headlineParts r
+              back  = recomposedSubtree r parts
+          assertEqual "the line, as the file wrote it"
+                      "SCHEDULED: <2026-08-01 Sat 09:30> DEADLINE: <2026-08-05 Wed>"
+                      (T.lines back !! 1)
+
+    , testCase "an edited entry is canonical and the untouched one is not" $
+        withParts planned $ \r -> do
+          let back = recomposedSubtree r (headlineParts r)
+                       { hpPlanning = [ ("DEADLINE", "<2026-08-05 Wed>")
+                                      , ("SCHEDULED", "<2026-09-09 Wed>") ] }
+          assertEqual "untouched first, in its own place; the edit rendered"
+                      "DEADLINE: <2026-08-05 Wed> SCHEDULED: <2026-09-09 Wed>"
+                      (T.lines back !! 1)
+
+    , testCase "an entry added to a headline that had none opens the line" $
+        withParts (T.unlines ["* TODO Bare", "body line"]) $ \r ->
+          assertEqual "written where org writes one"
+                      (T.unlines [ "* TODO Bare", "DEADLINE: <2026-08-05 Wed>", "body line" ])
+                      (recomposedSubtree r (headlineParts r)
+                         { hpPlanning = [("DEADLINE", "<2026-08-05 Wed>")] })
+
+    , testCase "an added entry lands in org's order behind the ones already there" $
+        withParts planned $ \r -> do
+          let parts = headlineParts r
+              back  = recomposedSubtree r parts
+                        { hpPlanning = hpPlanning parts <> [("CLOSED", "[2026-08-06 Thu]")] }
+          assertEqual "appended, rendered"
+                      ("SCHEDULED: <2026-08-01 Sat 09:30> DEADLINE: <2026-08-05 Wed>"
+                         <> " CLOSED: [2026-08-06 Thu]")
+                      (T.lines back !! 1)
+
+    , testCase "clearing every entry takes the line with it" $
+        withParts planned $ \r -> do
+          let back = recomposedSubtree r (headlineParts r) { hpPlanning = [] }
+          assertBool "no planning line is left"
+                     (not ("SCHEDULED:" `T.isInfixOf` back))
+          assertEqual "and the drawer moved up under the title"
+                      ":PROPERTIES:" (T.lines back !! 1)
+
+      -- A drawer for a headline that had no planning goes under the title; add
+      -- a planning entry in the same commit and the two cannot both be line one.
+    , testCase "a planning line added beside a new drawer takes the line above it" $
+        withParts (T.unlines ["* TODO Bare", "body line"]) $ \r ->
+          assertEqual "planning, then the drawer, then the body"
+                      (T.unlines [ "* TODO Bare", "SCHEDULED: <2026-08-01 Sat>"
+                                 , ":PROPERTIES:", ":NEW: 1", ":END:", "body line" ])
+                      (recomposedSubtree r (headlineParts r)
+                         { hpPlanning = [("SCHEDULED", "<2026-08-01 Sat>")]
+                         , hpProperties = [("NEW", "1")] })
+
+    , testCase "what a timestamp has to be to be written at all" $ do
+        assertBool "an active stamp" (readsAsTimestamp "<2026-08-01 Sat>")
+        assertBool "an inactive one" (readsAsTimestamp "[2026-08-01 Sat 09:00]")
+        assertBool "a range" (readsAsTimestamp "<2026-08-01 Sat>--<2026-08-05 Wed>")
+        assertBool "space around it is stripped" (readsAsTimestamp "  <2026-08-01 Sat>  ")
+        mapM_ (\bad -> assertBool ("refused: " <> show bad) (not (readsAsTimestamp bad)))
+              [ "", "tomorrow", "2026-08-01"
+              -- A second line would be a second line, and a planning line is one.
+              , "<2026-08-01 Sat>\nSCHEDULED: <2026-08-02 Sun>" ]
+    ]
+
+  , testGroup "logbook"
+    [ testCase "the logbook goes back verbatim, whatever the commit says" $
+        withParts logged $ \r -> do
+          let back = recomposedSubtree r (headlineParts r) { hpLogbook = "ignored" }
+          assertContains "the file's own drawer"
+                         ":LOGBOOK:\nCLOCK: [2026-08-01 Sat 09:00]--[2026-08-01 Sat 09:30]\n:END:\n"
+                         back
+          assertBool "and nothing a client sent" (not ("ignored" `T.isInfixOf` back))
+
+    , testCase "a headline with none does not grow one" $
+        withParts drawered $ \r ->
+          assertBool "no drawer appeared"
+            (not (":LOGBOOK:" `T.isInfixOf`
+                    recomposedSubtree r (headlineParts r) { hpLogbook = ":LOGBOOK:\n:END:\n" }))
+
+    , testCase "an emptied body still keeps the server's own regions" $
+        withParts logged $ \r -> do
+          let back = recomposedSubtree r (headlineParts r)
+                       { hpBody = "* TODO Logged\n", hpProperties = [] }
+          assertContains "the logbook stands" ":LOGBOOK:" back
+          assertContains "and the hidden property with it" ":ORG_GLANCE_ID: logged" back
     ]
   ]
   where
     roundTrips doc = withParts doc $ \r -> do
       let parts = headlineParts r
       assertEqual ("round trip of " <> show doc)
-                  (subtreeText r) (recomposedSubtree r (hpBody parts) (hpProperties parts))
+                  (subtreeText r) (recomposedSubtree r parts)
 
 -- | The drawer TEXT holds, line by line and stripped — what a drawer says,
 -- where the byte-level cases say how it is written.
@@ -299,6 +458,39 @@ unicoded = T.unlines
 oddly :: Text
 oddly = T.unlines
   [ "* TODO Odd", ":PROPERTIES:", ":A:one", ":B:", ":C:   three   ", ":END:", "body" ]
+
+-- | A headline carrying a logbook drawer beside its properties.
+logged :: Text
+logged = T.unlines
+  [ "* TODO Logged"
+  , ":PROPERTIES:"
+  , ":ORG_GLANCE_ID: logged"
+  , ":EFFORT: 0:30"
+  , ":END:"
+  , ":LOGBOOK:"
+  , "CLOCK: [2026-08-01 Sat 09:00]--[2026-08-01 Sat 09:30]"
+  , ":END:"
+  , "body line" ]
+
+-- | A logbook belonging to the CHILD: past the first child's stars, so it is
+-- body text as far as this headline's lens is concerned.
+childLogged :: Text
+childLogged = T.unlines
+  [ "* TODO Parent"
+  , "body line"
+  , "** Child"
+  , ":LOGBOOK:"
+  , "CLOCK: kid"
+  , ":END:"
+  , "child body" ]
+
+-- | The three planning keywords out of org's own order, which a file may write
+-- and a round trip must not tidy.
+permuted :: Text
+permuted = T.unlines
+  [ "* TODO Permuted"
+  , "CLOSED: [2026-07-30 Thu] SCHEDULED: <2026-08-01 Sat>"
+  , "body" ]
 
 -- | The indentation org used to write drawers under, which a rendered line has
 -- to match rather than replace.

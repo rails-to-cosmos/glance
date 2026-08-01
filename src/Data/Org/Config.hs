@@ -26,10 +26,15 @@
 module Data.Org.Config ( ConfigLayerFile (..)
                        , ConfigLayers (..)
                        , TodoKeywords (..)
+                       , builtinFilter
                        , classify
                        , configDirIn
                        , configPaths
                        , declaredKeywords
+                       , defaultFilter
+                       , defaultFilterEdits
+                       , defaultFilterOf
+                       , isDefaultFilterPragma
                        , isTodoPragma
                        , loadConfigDirs
                        , mergeKeywords
@@ -45,7 +50,7 @@ module Data.Org.Config ( ConfigLayerFile (..)
 import Control.Exception (IOException, try)
 import Data.Foldable (asum)
 import Data.List (sort)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import System.Directory (listDirectory)
 import System.FilePath (takeBaseName, (</>))
@@ -151,15 +156,71 @@ todoLines = filter isTodoPragma . T.lines
 -- | Does LINE open a @#+TODO:@ pragma?  Folded, since org takes either casing
 -- and the parser uppercases the key.
 isTodoPragma :: Text -> Bool
-isTodoPragma line = "#+todo:" `T.isPrefixOf` T.toLower (T.stripStart line)
+isTodoPragma = opensPragma "#+todo:"
+
+-- The default view
+
+-- | The query a table opens on when nobody has said otherwise.  org-glance's
+-- own name for the keyword group a @#+TODO:@ line declares before the bar, so a
+-- tree with no configuration at all still opens on its unfinished work.
+builtinFilter :: Text
+builtinFilter = "state:*active*"
+
+-- | The filter query DOC's @#+GLANCE_DEFAULT_FILTER:@ line names, or 'Nothing'
+-- when it carries none — which is what makes 'builtinFilter' the fallback
+-- rather than a value written into every tree.
+--
+-- LAST line wins, the way a reader scrolling a config file would read it, and a
+-- line naming nothing at all is a line naming nothing: it comes back as an
+-- empty query, which is a table opening on the whole store.
+defaultFilterOf :: Text -> Maybe Text
+defaultFilterOf doc =
+  case [ T.strip (T.drop 1 (T.dropWhile (/= ':') line)) | line <- filterLines doc ] of
+    [] -> Nothing
+    vs -> Just (last vs)
+
+-- | DOC's @#+GLANCE_DEFAULT_FILTER:@ lines, verbatim and in file order.
+filterLines :: Text -> [Text]
+filterLines = filter isDefaultFilterPragma . T.lines
+
+-- | Does LINE open a @#+GLANCE_DEFAULT_FILTER:@ pragma?
+isDefaultFilterPragma :: Text -> Bool
+isDefaultFilterPragma = opensPragma "#+glance_default_filter:"
+
+-- | Does LINE open the pragma KEY names?  Folded, since org takes either casing
+-- and the parser uppercases the key.
+opensPragma :: Text -> Text -> Bool
+opensPragma key line = key `T.isPrefixOf` T.toLower (T.stripStart line)
 
 -- Editing the pragmas
 
 -- | The span edits putting LINES where DOC's @#+TODO:@ lines are: char spans
 -- into DOC and the text to write over each, the currency
--- 'Data.Org.Edit.applyEdits' takes.
+-- 'Data.Org.Edit.applyEdits' takes.  'pragmaLineEdits' is the rule.
+todoLineEdits :: Text -> [Text] -> [(Span, Text)]
+todoLineEdits = pragmaLineEdits isTodoPragma
+
+-- | The span edits setting DOC's default view to WANT: the
+-- @#+GLANCE_DEFAULT_FILTER:@ line rewritten, written or taken away.
 --
--- One block, wherever the first pragma line was.  A document already carrying
+-- Every rule 'todoLineEdits' keeps is kept here, since it is the same function
+-- under a different predicate.  An EMPTY query deletes the line, which is how a
+-- tree goes back to 'builtinFilter' — a line naming nothing would be a
+-- different answer (the whole store) and a settings sheet has no way to spell
+-- the difference.
+--
+-- Two absent pragmas insert at the same offset, which 'Data.Org.Edit.applyEdits'
+-- resolves in list order rather than refusing, so a caller writing both blocks
+-- into a file that had neither gets them in the order it named them.
+defaultFilterEdits :: Text -> Text -> [(Span, Text)]
+defaultFilterEdits doc want =
+  pragmaLineEdits isDefaultFilterPragma doc
+    [ "#+GLANCE_DEFAULT_FILTER: " <> query | not (T.null query) ]
+  where query = T.strip want
+
+-- | The span edits putting LINES where DOC's MINE lines are.
+--
+-- One block, wherever the first matching line was.  A document already carrying
 -- them keeps that offset and loses every later one, so a file spelling its
 -- cycle over two lines comes back as whatever LINES spells and nothing is left
 -- behind further down.  A document carrying none takes the block after its
@@ -170,8 +231,8 @@ isTodoPragma line = "#+todo:" `T.isPrefixOf` T.toLower (T.stripStart line)
 --
 -- Every span covers a WHOLE line, the newline that ends it included, so
 -- nothing outside the lines this rewrites can move.
-todoLineEdits :: Text -> [Text] -> [(Span, Text)]
-todoLineEdits doc new = case [ sp | (sp, line) <- lines', isTodoPragma line ] of
+pragmaLineEdits :: (Text -> Bool) -> Text -> [Text] -> [(Span, Text)]
+pragmaLineEdits mine doc new = case [ sp | (sp, line) <- lines', mine line ] of
   []          -> [ (Span at at, opening <> block) | not (null new) ]
   (sp : rest) -> (sp, block) : [ (r, "") | r <- rest ]
   where
@@ -216,15 +277,26 @@ data ConfigLayers = ConfigLayers
   { clSystem :: !TodoKeywords            -- ^ @config\/system.org@'s sets; empty when there is no such file.
   , clTags   :: ![(Text, TodoKeywords)]  -- ^ @config\/tags\/TAG.org@'s sets, tag lowercased, in file-name order.
   , clSeed   :: !TodoKeywords            -- ^ the recognition union: every keyword any layer names.
+  , clFilter :: !(Maybe Text)            -- ^ the default view @system.org@ names; see 'defaultFilter'.
   , clPrint  :: !Text                    -- ^ digest over the config files read, @\"\"@ when none were.
   , clDirs   :: ![FilePath]              -- ^ the config directories these were read from, in walk order.
   } deriving (Eq, Show)
+
+-- | The query a table under CFG opens on: what @system.org@'s
+-- @#+GLANCE_DEFAULT_FILTER:@ names, or 'builtinFilter' where no layer names one.
+--
+-- The SYSTEM layer alone, and only the first config directory that has anything
+-- to say: a default view is a property of a tree rather than of a tag, and two
+-- stores nested under one root would otherwise take turns deciding what the
+-- table opens on.
+defaultFilter :: ConfigLayers -> Text
+defaultFilter = fromMaybe builtinFilter . clFilter
 
 -- | No config at all — what a tree with no @.org-glance\/config@ loads as, and
 -- what every caller that does not want one passes.  Parsing under it is
 -- byte-identical to parsing from 'defaultContext'.
 noConfig :: ConfigLayers
-noConfig = ConfigLayers noKeywords [] noKeywords "" []
+noConfig = ConfigLayers noKeywords [] noKeywords Nothing "" []
 
 -- | Where ROOT would keep its config directory.  For a writer — the settings UI
 -- creating @system.org@ — rather than for a reader: a reader is given the
@@ -256,19 +328,24 @@ loadConfigDirs :: [FilePath] -> IO ConfigLayers
 loadConfigDirs dirs = combine . concat <$> mapM layersIn dirs
   where
     combine entries = ConfigLayers
-      { clSystem = mergeKeywords [ kw | (Nothing, _p, _d, kw) <- entries ]
-      , clTags   = firstPerTag [ (tag, kw) | (Just tag, _p, _d, kw) <- entries ]
-      , clSeed   = mergeKeywords [ kw | (_tag, _p, _d, kw) <- entries ]
-      , clPrint  = fingerprint [ (p, d) | (_tag, p, d, _kw) <- entries ]
+      { clSystem = mergeKeywords [ kw | (Nothing, _p, _d, kw, _f) <- entries ]
+      , clTags   = firstPerTag [ (tag, kw) | (Just tag, _p, _d, kw, _f) <- entries ]
+      , clSeed   = mergeKeywords [ kw | (_tag, _p, _d, kw, _f) <- entries ]
+      -- The system layer's, and the first that names one: a default view
+      -- belongs to a tree rather than to a tag.
+      , clFilter = listToMaybe [ f | (Nothing, _p, _d, _kw, Just f) <- entries ]
+      , clPrint  = fingerprint [ (p, d) | (_tag, p, d, _kw, _f) <- entries ]
       , clDirs   = dirs
       }
     firstPerTag = firstBy fst
 
--- | What one config directory declares: the system layer and each tag layer,
--- as @(tag, path, digest, keywords)@ with the system layer tagged 'Nothing'.
-layersIn :: FilePath -> IO [(Maybe Text, FilePath, Text, TodoKeywords)]
+-- | What one config directory declares: the system layer and each tag layer, as
+-- @(tag, path, digest, keywords, default view)@ with the system layer tagged
+-- 'Nothing'.
+layersIn :: FilePath -> IO [(Maybe Text, FilePath, Text, TodoKeywords, Maybe Text)]
 layersIn dir = declaring <$> filesIn dir
-  where declaring files = [ (lfTag f, lfPath f, lfDigest f, todoPragmas (lfText f))
+  where declaring files = [ ( lfTag f, lfPath f, lfDigest f
+                            , todoPragmas (lfText f), defaultFilterOf (lfText f) )
                           | f <- files, not (T.null (lfDigest f)) ]
 
 -- Reading the layers as files

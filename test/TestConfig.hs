@@ -24,9 +24,10 @@ import Data.Org.Config ( TodoKeywords (..), classify, configDirIn, configPaths
                        , noKeywords, todoPragmas )
 import Data.Org.Edit (Edit (Edit), applyEdits)
 import Glance.Query ( ConfigLayerFile (..), ConfigLayers (..), HeadlineRecord (..)
-                    , QueryResult (..), WalkOptions (..), configEdits, configPath
-                    , defaultWalk, loadDir, loadDirFilesSerially, loadDirWith
-                    , loadDirWithConfig, loadFile, readConfigLayers, todoLines )
+                    , QueryResult (..), WalkOptions (..), builtinFilter, configEdits
+                    , configPath, defaultFilter, defaultFilterOf, defaultWalk, loadDir
+                    , loadDirFilesSerially, loadDirWith, loadDirWithConfig, loadFile
+                    , readConfigLayers, todoLines )
 import Glance.Web.Store ( Frame (..), Hub (hubStore), Store (stConfig, stGen, stPrint)
                         , loadStore, newHub, reseeded, storeKeywords, storeRecords )
 import Glance.Web.Watch (settle, watched)
@@ -286,6 +287,7 @@ classificationSpec = testGroup "Classification"
       let cfg = ConfigLayers { clSystem = TodoKeywords [] ["TODO"]
                              , clTags   = [("book", TodoKeywords ["READING"] [])]
                              , clSeed   = TodoKeywords ["READING"] ["TODO"]
+                             , clFilter = Nothing
                              , clPrint  = ""
                              , clDirs   = [] }
           file = TodoKeywords [] ["READING"]
@@ -484,7 +486,7 @@ writeSpec = testGroup "Writing a layer"
   , testCase "what a layer may say, and what it may not" $ do
       mapM_ (\(what, lines') ->
                assertBool what (either (const True) (const False)
-                                       (configEdits bookConfig lines')))
+                                       (configEdits bookConfig lines' Nothing)))
             [ ("a headline is not a pragma", ["* TODO not a pragma"])
             , ("nor is a title", ["#+TITLE: no"])
             , ("a pragma declaring nothing", ["#+TODO:"])
@@ -501,7 +503,65 @@ writeSpec = testGroup "Writing a layer"
             , ("and a starred word beside real ones", ["#+TODO: TODO *x* | DONE"]) ]
       assertBool "a cycle with fast-access keys is a block"
                  (either (const False) (const True)
-                         (configEdits bookConfig ["#+TODO: TODO(t) | DONE(d)"]))
+                         (configEdits bookConfig ["#+TODO: TODO(t) | DONE(d)"] Nothing))
+
+    -- The default view is a line of `system.org', read by the same reader and
+    -- written by the same splice.  Absent means the built-in, which is what
+    -- keeps a tree that has never been configured opening on its unfinished
+    -- work rather than on nothing.
+  , testCase "the default view is a line of the system layer" $ do
+      assertEqual "read off the file"
+                  (Just "tag:work") (defaultFilterOf "#+GLANCE_DEFAULT_FILTER: tag:work\n")
+      assertEqual "folded, the way org reads a pragma key"
+                  (Just "tag:work") (defaultFilterOf "#+glance_default_filter: tag:work\n")
+      assertEqual "a file with no line names none" Nothing (defaultFilterOf bookConfig)
+      -- A LAST-line rule: a reader scrolling the file reads the one at the
+      -- bottom, and so does this.
+      assertEqual "the last one wins" (Just "b")
+                  (defaultFilterOf "#+GLANCE_DEFAULT_FILTER: a\n#+GLANCE_DEFAULT_FILTER: b\n")
+      -- A line naming nothing is a query naming nothing, which is the whole
+      -- store; only an ABSENT line falls back.
+      assertEqual "and a line with nothing on it is the empty query"
+                  (Just "") (defaultFilterOf "#+GLANCE_DEFAULT_FILTER:\n")
+
+  , testCase "with no line anywhere the built-in is what answers" $
+      withTree Nothing [] [("a.org", "* TODO x\n")] $ \dir -> do
+        (cfg, _rows) <- loaded dir
+        assertEqual "nothing configured" Nothing (clFilter cfg)
+        assertEqual "so the tree opens on the active group" builtinFilter (defaultFilter cfg)
+
+  , testCase "and the system layer's line is what the tree opens on" $
+      withTree (Just "#+TODO: TODO | DONE\n#+GLANCE_DEFAULT_FILTER: tag:work\n")
+               [] [("a.org", "* TODO x\n")] $ \dir -> do
+        (cfg, _rows) <- loaded dir
+        assertEqual "read at load" (Just "tag:work") (clFilter cfg)
+        assertEqual "and it is what answers" "tag:work" (defaultFilter cfg)
+
+    -- One file, one write, one lock: the cycle and the default view are lines of
+    -- the same document, so they ride in one splice under one digest.
+  , testCase "the default view is written by the same splice as the cycle" $ do
+      assertEqual "written under the header, beside the block"
+                  (Right "#+TITLE: X\n#+TODO: A | B\n#+GLANCE_DEFAULT_FILTER: tag:work\n")
+                  (splicedWith "#+TITLE: X\n" ["#+TODO: A | B"] (Just "tag:work"))
+      assertEqual "an existing line is replaced where it stands"
+                  (Right "#+GLANCE_DEFAULT_FILTER: tag:home\n#+TODO: A | B\ntail\n")
+                  (splicedWith "#+GLANCE_DEFAULT_FILTER: tag:work\n#+TODO: A | B\ntail\n"
+                               ["#+TODO: A | B"] (Just "tag:home"))
+      assertEqual "an empty one takes the line away, which is the built-in back"
+                  (Right "#+TODO: A | B\ntail\n")
+                  (splicedWith "#+GLANCE_DEFAULT_FILTER: tag:work\n#+TODO: A | B\ntail\n"
+                               ["#+TODO: A | B"] (Just ""))
+      -- Absent is not empty: a tag layer's write names no filter at all, and the
+      -- system layer's line is none of its business.
+      assertEqual "and naming none leaves the line exactly as it is"
+                  (Right "#+GLANCE_DEFAULT_FILTER: tag:work\n#+TODO: A | B\ntail\n")
+                  (splicedWith "#+GLANCE_DEFAULT_FILTER: tag:work\n#+TODO: A | B\ntail\n"
+                               ["#+TODO: A | B"] Nothing)
+      -- Both pragmas missing insert at one offset, which the engine resolves in
+      -- list order rather than refusing.
+      assertEqual "a file with neither takes both, cycle first"
+                  (Right "#+TODO: A | B\n#+GLANCE_DEFAULT_FILTER: tag:work\n* %?\n")
+                  (splicedWith "* %?\n" ["#+TODO: A | B"] (Just "tag:work"))
 
   , testCase "the layers are read as files, absent ones included" $
       withTree Nothing [("book.org", bookConfig)] [] $ \dir -> do
@@ -538,8 +598,12 @@ writeSpec = testGroup "Writing a layer"
 -- it: 'configEdits' for the spans and the write engine's own 'applyEdits' for
 -- the result, so what is asserted is the document a write would leave behind.
 spliced :: Text -> [Text] -> Either Text Text
-spliced doc lines' = do
-  edits <- configEdits doc lines'
+spliced doc lines' = splicedWith doc lines' Nothing
+
+-- | 'spliced', also setting the default view to WANT.
+splicedWith :: Text -> [Text] -> Maybe Text -> Either Text Text
+splicedWith doc lines' want = do
+  edits <- configEdits doc lines' want
   first (T.pack . show) (applyEdits doc [ Edit sp new | (sp, new) <- edits ])
 
 -- Absence

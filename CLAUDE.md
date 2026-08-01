@@ -269,22 +269,44 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   A byte-identical commit still rewrites the file (temp + rename, no equality
   short-circuit), so it costs an inotify event and a re-parse; `guarded` then
   finds nothing moved and the generation stays put.
-- The properties lens — ONE OWNER PER BYTE. `GET /headline` serves the subtree
-  twice, `org` whole and `body` + `properties` split
-  (`Glance.Query.headlineParts`); `POST` takes back `{org, digest}` or
-  `{body, properties, digest}` (`recomposedSubtree`), naming both is a 400 and a
-  `body` owes `properties` beside it. The headline's OWN drawer lines belong to
-  the properties, every other byte to the body — a child's drawer is body text.
-  The cut is by whole lines, the newline after `:END:` included. An untouched
-  pair goes back as the LINE it arrived on, verbatim; only an edited or added one
-  renders `:KEY: value`, under the drawer's own indentation; a dropped one is not
-  written and an empty list removes the drawer. Raw lines are consumed one per
-  pair, so one pair spelled twice keeps both. The drawer returns at the line
-  INDEX it was cut from; with no original it goes after the title line, or after
-  the planning line when the headline has one. Decompose → recompose is
-  byte-identical, which is the property the design rests on. Pairs are read by
-  splitting lines, never through the parser's `Properties` — that uppercases keys
-  and re-tokenises values.
+- The subtree lens — ONE OWNER PER BYTE, over THREE regions. `GET /headline`
+  serves the subtree twice, `org` whole and `body` + `properties` + `planning` +
+  `logbook` split (`Glance.Query.headlineParts`); `POST` takes back
+  `{org, digest}` or `{body, properties, planning, digest}`
+  (`recomposedSubtree`), naming both shapes is a 400 and a `body` owes both lists
+  beside it. The regions are the planning LINE, the headline's OWN property
+  drawer and its OWN logbook drawer; every other byte is the body's — a child's
+  drawer is body text. Every cut is by whole lines, the closing newline included.
+  Decompose → recompose is byte-identical, which is the property the design rests
+  on; the round trip covers permuted planning lines, a logbook, and a child's
+  logbook that must stay body text.
+- Two of the four parts are SERVER-PRESERVED and a client neither sees nor sends
+  them: the keys in `Glance.Query.hiddenProperties` (`ORG_GLANCE_ID` — the row id
+  a rename would break) and the whole logbook. `headlineParts` drops them,
+  `recomposedSubtree` re-injects their original lines verbatim whatever the
+  client said, and extending the list is one edit. A hidden property therefore
+  survives a panel sync that never mentioned it, and an empty `properties` list
+  empties the client's half of the drawer alone.
+- Properties: an untouched pair goes back as the LINE it arrived on, verbatim;
+  only an edited or added one renders `:KEY: value`, under the drawer's own
+  indentation; a dropped one is not written and an empty list removes the drawer
+  when nothing hidden is in it. Raw lines are consumed one per pair, so one pair
+  spelled twice keeps both. Hidden lines are woven back at the INDEX they sat at.
+  Pairs are read by splitting lines, never through the parser's `Properties` —
+  that uppercases keys and re-tokenises values.
+- Planning: entries arrive as `(KEYWORD, timestamp text)` in LINE order. An entry
+  nobody changed goes back as the very text it was, where it was; anything else
+  renders `KEYWORD: value` and joins behind them in `SCHEDULED`/`DEADLINE`/
+  `CLOSED` order. An empty list drops the line. Every value is checked by
+  REPARSE (`readsAsTimestamp`, which probes the line the write would produce) and
+  a refusal is a 409 naming the field, which the sheet lands on as `error`.
+- Region line indices are the BODY's, not the subtree's: each region's subtree
+  line less the lines every region ahead of it took out. Subtree indices leave a
+  gap where a region was cleared — a drawer whose planning line just came off
+  lands a line late. `spliceRegions` counts only body lines consumed, so two
+  regions naming one line land in list order (planning, properties, logbook),
+  which is what a headline growing a planning line and a drawer in one commit
+  needs. A region the headline never had goes on the line under the title.
 - `/headlines` carries `ETag: "<stPrint16>-g<stGen>"` under
   `Cache-Control: no-cache`; the generation moves only in `Store.guarded`, and
   only when frames were produced or a file's load outcome moved, and the
@@ -463,15 +485,21 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   and corrects nothing. Its baseline is a remembered unfiltered paint, and a
   boot that had none — a `?q=` link, or the default view — arms it with `arm`'s
   own unfiltered fetch and re-runs the check the boot could not.
-- The shell's keymap is `Glance.Web`'s `sharedKeys` + `keyProfiles` and nothing
-  else: the page carries them as a JSON blob and its own dispatch parses that
-  blob. Each row carries `kbKeys`, `kbCommand`, `kbScope` (`table`, `modal` or
-  `any` — where it is live) and an optional `kbHelp` for what the command name
-  does not say; the dispatch filters on the scope and the echo widget reads the
-  help. Movement is the only thing a profile changes (`emacs` default, `vim`);
-  the effective map is `shared ++ profile`, and within one no sequence is bound
-  twice or opens a longer one. Sequences and command names are org-glance's; a
-  row with no handler is recognized and says what will back it.
+- The shell's keymap is `Glance.Web`'s `keyBindings` and nothing else — ONE map,
+  no profiles: the page carries it as a JSON blob (`{rows, hints, reserved,
+  once}`) and its own dispatch parses that blob. Each row carries `kbKeys`,
+  `kbCommand`, `kbScope` (`table`, `modal` or `any` — where it is live) and an
+  optional `kbHelp`; the dispatch filters on the scope and the echo widget reads
+  the help. `seq` is derived in the blob (`T.unwords . kbKeys`), never stored.
+  Movement carries BOTH spellings — `n`/`p` and `j`/`k` step a row, `f`/`b` and
+  `l`/`h` step a cell — which costs a row each where a profile cost a selector, a
+  stored choice, a URL parameter and a key line that had to be rewritten. Ends
+  are `<` and `>`, plus vi's `G` beside `>`. `g` is `apply-default-filter`, `,`
+  is `customize`, `o` and `!` are the open stub, `M` is `mark-all`, `d` is
+  `archive-flag` and `D` is `org-glance-overview:delete`. No sequence is bound
+  twice or opens a longer one. Sequences and command names are org-glance's where
+  org-glance has one; a row with no handler is recognized and says what will
+  back it.
   `RESERVED` = `C-l`, `C-r`, `C-t`, `C-w`, `C-n`, `C-p`, `<f5>`: a reserved key
   reaches the browser UNLESS it completes a bound sequence. What the list
   actually buys is the abandoned prefix — without it a dead-end chord would be
@@ -485,15 +513,28 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   predicate over the focused field's range and the document selection, and it
   covers every prefix rather than `C-c`/`C-x` alone, so vim's `g` obeys it too.
   Auto-repeat is movement's — a held `n` crosses the table — so the keys that
-  must run once per press are named by COMMAND in `ONCE` (`filter-drop-token`
-  and `unmark-all`), which holds under any profile that binds them.
-- Two keys write without a sheet, both `POST /command` over the marked set when
-  there is one and the row at point otherwise (dired's rule; `getMarked()` is
-  asked for AT command time and no set is kept here). `D` is
-  `org-glance-overview:delete` and archives — the help line says so, since the
-  name is wider than the behaviour — and is in `ONCE` because it writes files.
-  `C-c C-t` raises a value palette of the shell's OWN — the state column's
-  `badges` plus `clear`, never its `values` (`*active*` is not a keyword) —
+  must run once per press are named by COMMAND in `ONCE` (`filter-drop-token`,
+  `unmark-all`, `mark-all`, `archive-flag`, `org-glance-overview:delete`), which
+  holds under both spellings of a command. `archive-flag` needs it most: a repeat
+  that survived would flag a row and archive it from ONE press, which is the
+  confirmation the two-press shape exists to be.
+- Three keys write without a sheet, all `POST /command`. `D` and `t`/`C-c C-t`
+  run over the marked set when there is one and the row at point otherwise
+  (dired's rule; `getMarked()` is asked for AT command time and no set is kept
+  here). `D` is `org-glance-overview:delete` and archives — the help line says
+  so, since the name is wider than the behaviour.
+- `d` is dired's FLAG, in two presses: the first flags the row at point
+  (`archive-flag`, echo `d → flagged — d again archives`) and a second `d` on an
+  already-flagged row archives THAT row and spends the flag. The flag is the
+  confirmation, so there is no prompt; `u` on a flagged row takes the flag off
+  before it touches a mark (`u → flag cleared`) and `U` clears flags with marks.
+  Flags are the RENDERER's session state, keyed by id like marks —
+  `flagRow`/`unflagRow`/`getFlagged`/`clearFlags`, feature-detected as a pair, an
+  asset without them echoing `this table-view.js has no archive flags` and
+  writing nothing. HANDOFF: that API and the `.tv-flagged` wash are a
+  table-view.js change this repo does not make.
+- `t`/`C-c C-t` raise a value palette of the shell's OWN — the state column's
+  `badges` plus `*clear*`, never its `values` (`*active*` is not a keyword) —
   typed to narrow, `C-n`/`C-p` and the arrows to walk, `RET` to commit, `ESC`
   through the keymap's `cancel`. Its keys live in a SECOND document listener
   behind the dispatch, which is safe because `typing()` has already killed every
@@ -502,12 +543,24 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - Row marks are the RENDERER's, behind `marks: true`: it draws the checkbox
   column, keys the marks by id and counts them, so a mark survives a `setRows`,
   a filter that hides its row and a page it is not on, and this page keeps no
-  set of its own — not the count, not a membership test. Shared by both
-  profiles, dired's: `m` toggles and takes the renderer's word for where it
-  landed, `u` toggles and puts back anything it just laid down (so it can only
-  ever clear), both then `selectStep(+1)`, and `U` clears. `m`/`u` stay out of
-  `ONCE` because the walk IS the feature. Feature-detected on `toggleMark`, so
-  an asset predating it echoes rather than throws.
+  set of its own — not the count, not a membership test. dired's: `m` toggles and
+  takes the renderer's word for where it landed, `u` toggles and puts back
+  anything it just laid down (so it can only ever clear), both then
+  `selectStep(+1)`, `U` clears, and `M` is `markAll()` — the renderer's call
+  because the SET is, so a page it is not showing is marked too. `m`/`u` stay out
+  of `ONCE` because the walk IS the feature. Feature-detected on `toggleMark` and
+  on `markAll`, so an asset predating either echoes rather than throws.
+- The mount passes `actionHints: false`: the renderer's per-row hint said RET
+  materializes, which the resident key line already says and says for every
+  command. One place.
+- STARRED METAS. The `*word*` form marks a RESERVED META with semantics of its
+  own — never a literal keyword and never a cell value. The family:
+  `*active*`/`*inactive*` (filter group metas, producer-evaluated) and `*clear*`
+  (the state palette's take-the-keyword-off entry, committed as a null keyword).
+  A future meta joins by wearing the stars. The enforcing edge is
+  `setStateEdits`, which refuses any word a file's `#+TODO:` does not declare, and
+  `keywordTextP` (letters and underscores) makes a starred word undeclarable, so
+  the two walls meet.
 - Browser writes are commands over the bridge: structured ones (toggle, retag,
   reschedule) and drift-locked raw replacement (materialize a subtree, later a
   file). Semantic org editing — refile, agenda logic — stays out of the browser.
@@ -548,17 +601,25 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   leaves every printable key free. Entering the panel BLURS the textarea and
   sets `pnav`, which `typing()` counts as a focus of its own; without that the
   table's own letters would move rows under the sheet. EDIT: `RET` opens the row
-  at point (`pedit`), value focused first, key first where there is no key yet
-  (the add-row); `TAB` hops the row's two fields and the pane crossing is
-  suspended; `RET` commits — the row takes its fields' text, and a last row that
-  now says something grows the next and hands the cursor on; `ESC` cancels
+  at point (`pedit`), value focused first, key first where there is no key yet;
+  `+` adds an empty property at the end and opens it — the add affordance is a
+  KEY, where a row that is always empty was chrome every reader of the panel had
+  to filter back out; `TAB` hops the row's two fields and the pane crossing is
+  suspended; `RET` commits — the row takes its fields' text; `ESC` cancels
   through the keymap's `cancel`, restoring what the row holds. A row HOLDS its
   committed text and `props()` reads that, so an open edit is not dirty and only
   a commit is. `TAB`/`S-TAB` is one two-stop toggle between the panes and the
   cursor survives it; `shut` clears `pnav`/`pedit`. `preventDefault` fires only
   where one of those bindings does, and only over an open subtree sheet: raw
   mode has one pane so `TAB` is the browser's, and the settings sheet keeps
-  native tabbing. The planning rows land in this same two-mode list.
+  native tabbing. The three planning rows are FIXED rows at the head of this same
+  list — `SCHEDULED`, `DEADLINE`, `CLOSED` in org's order, key uncooked and
+  unopenable, value the timestamp text verbatim, empty meaning absent — so
+  clearing all three is how the planning line comes off. The logbook is a
+  read-only strip under both panes: full width, muted, out of Tab and out of
+  `dirty()`, showing the drawer's INTERIOR lines alone (the widget being the
+  drawer says what it is), and never sent — the server re-splices the whole
+  drawer, delimiters included.
 - The whole page wears danneskjold, through one `--g-*` palette (surface, text,
   muted, border, selection, warn, bad) declared once and re-declared per theme.
   The sheet keeps exactly one variable of its own, `--dk-mono` (Hack first);
@@ -572,9 +633,9 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   Deleting the parameter instead made a cleared filter come back filtered on the
   next remount.
 - One status corner, top right, in this order: the connection dot (`live` /
-  `wait` / `down`), `themesel`, `keysel`. Both are native `<select>`s — one over
-  `auto`/`light`/`dark`, one over the keymap blob's movement profiles — and a
-  focused `SELECT` counts as typing, so their own arrows reach them.
+  `wait` / `down`) then `themesel`, a native `<select>` over
+  `auto`/`light`/`dark`. A focused `SELECT` counts as typing, so its own arrows
+  reach it. The keys picker is gone with the profiles.
 - Theme: `auto` follows `prefers-color-scheme` and is the default; `light` and
   `dark` stamp `data-theme` on the document element, and returning to `auto`
   removes the attribute. The choice lives in `localStorage` under
@@ -594,6 +655,16 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - `clSeed` is stored, not derived: `clTags` keeps the FIRST config of each tag
   across directories while the seed unions every entry read, shadowed ones
   included.
+- The DEFAULT VIEW is `system.org`'s `#+GLANCE_DEFAULT_FILTER:` line, read into
+  `clFilter` and answered by `defaultFilter`; absent means `builtinFilter` =
+  `state:*active*`, a line naming nothing means the empty query, and the LAST
+  line wins. The system layer alone, and the first config directory that names
+  one — a default view belongs to a tree rather than to a tag. The daemon embeds
+  it into the served page as `DEFAULT_QUERY` (off the store, per request), the
+  bare-boot injection and `g` both read it, and the settings sheet edits it as
+  one field beside the system layer's cycle: `POST /config` takes an optional
+  `filter` and splices it in the SAME call as the `#+TODO:` block, since they are
+  lines of one file and two calls would be two writes under two digests.
 - `GET`/`POST /config` serve and replace ONE layer's `#+TODO:` block through the
   ordinary write path — `configEdits` for the spans, `replaceSpans` for the
   drift-locked atomic write — so a `#+TITLE:`, a comment and the capture
@@ -611,7 +682,7 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - KNOWN GAP: creating the FIRST `.org-glance/config` in a tree that had none
   races fsnotify's watch-arming, so that one write does not reseed until a
   restart or a later config edit. The watch's property, not the route's.
-- Settings sheet = `C-c C-,` (`customize`), the materialize sheet's pattern over
+- Settings sheet = `,` (`customize`), the materialize sheet's pattern over
   `/config`: buttonless, ESC/backdrop syncs the layers that moved and closes,
   pristine closes with no request, `C-x C-s` syncs mid-edit, `conflict` waits
   for a keystroke. One box per layer holding its `#+TODO:` lines VERBATIM — the

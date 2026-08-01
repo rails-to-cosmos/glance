@@ -49,10 +49,9 @@
 -- the socket is in the bootstrap rather than lost, and the server needs no
 -- journal to catch a client up.
 --
--- The page's keys are 'sharedKeys' — org-glance's @overview-mode@ map under
--- org-glance's own command names — over a movement profile out of
--- 'keyProfiles', and it carries both as JSON for its own dispatch to parse, so
--- the map and the handlers cannot drift apart.
+-- The page's keys are 'keyBindings' — ONE map, org-glance's @overview-mode@
+-- under org-glance's own command names — and the page carries it as JSON for
+-- its own dispatch to parse, so the map and the handlers cannot drift apart.
 -- Everything the shell needs comes from this server: inline styles, inline
 -- glue, one script by name, and a font only when the assets directory has one
 -- (docs\/invariants.md).
@@ -75,7 +74,8 @@ import Control.Concurrent (forkIO, killThread, newEmptyMVar, takeMVar, tryPutMVa
 import Control.Concurrent.STM (atomically, readTVarIO)
 import Control.Exception (SomeException, displayException, evaluate, finally, try)
 import Control.Monad (filterM, forever, join, unless, void, when)
-import Data.Aeson (Value, eitherDecode', encode, object, withObject, (.:), (.:?), (.=))
+import Data.Aeson ( Value, eitherDecode', encode, object, toJSON, withObject
+                  , (.:), (.:?), (.=) )
 import Data.Aeson.Types (Pair, parseEither)
 import Data.Bifunctor (first)
 import Data.List (find, nub)
@@ -98,7 +98,6 @@ import System.Exit (die)
 import System.FilePath (takeExtension, (</>))
 import System.IO (hFlush, stdout)
 
-import qualified Data.Aeson.Key as Key
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy as BL
@@ -111,14 +110,16 @@ import qualified Network.Wai.Handler.Warp as Warp
 import qualified Network.WebSockets as WS
 
 import Glance.Query ( ConfigLayerFile (..), ConfigLayers (clDirs)
-                    , HeadlineParts (hpBody, hpProperties)
+                    , HeadlineParts (..)
                     , HeadlineRecord (hrDigest, hrFile, hrId, hrSubtree)
                     , IdCollision (..), QueryResult (..), Span (spanEnd, spanStart)
                     , TodoKeywords (..), ViewOrder (..), WalkOptions (..)
-                    , WriteFailure (..), archiveEdits, archived, configDirIn
-                    , configEdits, headlineParts, orderedForView, readConfigLayers
-                    , recomposedSubtree, replaceSpans, setStateEdits
-                    , subtreeText, todoLines, viewJSONTextWith )
+                    , WriteFailure (..), archiveEdits, archived, builtinFilter
+                    , configDirIn, configEdits, defaultFilter, defaultFilterOf
+                    , headlineParts, orderedForView, planningKeywords
+                    , readConfigLayers, readsAsTimestamp, recomposedSubtree
+                    , replaceSpans, setStateEdits, subtreeText, todoLines
+                    , viewJSONTextWith )
 import Glance.Web.Filter (archiveKey, matchesFilter, namesArchive)
 import Glance.Web.Store ( Client, Frame (ViewChanged), Hub, LoadState (..)
                         , Store (stConfig, stGen, stPrint), finishLoading, frameText
@@ -283,7 +284,7 @@ httpApp opts hub request respond = route >>= respond
     -- which is what makes it a 503 while the walk runs, whatever the method —
     -- and the handler.  Everything else is an asset name or a miss.
     named =
-      [ ([],            False, readOnly (shellPage opts))
+      [ ([],            False, readOnly (shellPage opts hub))
       , (["headlines"], True,  readOnly (headlines opts hub request))
       , (["headline"],  True,  headline)
       , (["command"],   True,  commandRoute)
@@ -549,11 +550,17 @@ bodyLimit = 1024 * 1024
 -- landing in the wrong place.
 --
 -- The same subtree arrives twice, whole and split.  @org@ is what it has always
--- been; @body@ and @properties@ are 'Glance.Query.headlineParts' — the text with
--- the headline's own drawer lifted out, and that drawer's pairs in file order —
--- so a client can edit the two apart without holding an org parser of its own.
--- The split is the server's for exactly that reason, and a client that wants
--- neither ignores both fields.
+-- been; @body@, @properties@, @planning@ and @logbook@ are
+-- 'Glance.Query.headlineParts' — the text with the headline's own regions lifted
+-- out, and each region beside it — so a client can edit them apart without
+-- holding an org parser of its own.  The split is the server's for exactly that
+-- reason, and a client that wants neither ignores the lot.
+--
+-- @logbook@ rides out and never back: it is shown and not edited, and
+-- 'Glance.Query.recomposedSubtree' takes it off the record whatever a commit
+-- says.  The properties in 'Glance.Query.hiddenProperties' are not even shown —
+-- @ORG_GLANCE_ID@ is the row id a client keys its updates off, so the drawer a
+-- sheet edits is the drawer minus the thing that names it.
 materialize :: Hub -> Maybe Text -> IO Response
 materialize _hub Nothing = pure (jsonError status400 "GET /headline?id=<row id>")
 materialize hub (Just rid) = do
@@ -566,6 +573,8 @@ materialize hub (Just rid) = do
       , "org"        .= subtreeText r
       , "body"       .= hpBody parts
       , "properties" .= [ [key, value] | (key, value) <- hpProperties parts ]
+      , "planning"   .= [ [key, value] | (key, value) <- hpPlanning parts ]
+      , "logbook"    .= hpLogbook parts
       , "digest"     .= hrDigest r
       , "span"       .= object [ "start" .= spanStart (hrSubtree r)
                                , "end"   .= spanEnd (hrSubtree r) ]
@@ -619,14 +628,31 @@ prepare rid body found = case (body, found) of
   (Just raw, Just r) -> case parseCommit raw of
     Left why -> Left (jsonError status400 why)
     Right (asked, digest)
-      | digest /= hrDigest r -> Left (conflict "stale" (hrDigest r) reparsed)
-      | otherwise            -> Right (r, digest, committed r asked)
+      | digest /= hrDigest r  -> Left (conflict "stale" (hrDigest r) reparsed)
+      -- Named rather than counted: a sheet showing three planning rows has to
+      -- say which one it will not write.  Its own shape rather than 'conflict''s,
+      -- since nothing about it is a digest and a client reading @digest@ off a
+      -- 409 is reading the lock its next write would present.
+      | Just key <- badPlanning asked -> Left (jsonResponse status409
+          [ "error" .= unreadable key, "reason" .= ("planning" :: Text), "field" .= key ])
+      | otherwise             -> Right (r, digest, committed r asked)
 
--- | The subtree ASKED for, over R: the raw text as given, or the body and the
--- properties composed back into one.
+-- | The subtree ASKED for, over R: the raw text as given, or the client's parts
+-- composed back into one — with the server's own put back beside them.
 committed :: HeadlineRecord -> Commitment -> Text
-committed _r (WholeSubtree org)     = org
-committed r  (SplitSubtree body ps) = recomposedSubtree r body ps
+committed _r (WholeSubtree org)         = org
+committed r  (SplitSubtree body ps pln) =
+  recomposedSubtree r (HeadlineParts body ps pln "")
+
+-- | The planning entry ASKED for that no timestamp parser would read back, if
+-- any.  Checked ahead of the write and named in the refusal, because the cost of
+-- letting one through is silent: the line stops being a planning line on the
+-- next load and the entry the author set is body text.
+badPlanning :: Commitment -> Maybe Text
+badPlanning (WholeSubtree _org) = Nothing
+badPlanning (SplitSubtree _body _ps pln) =
+  listToMaybe ([ key | (key, _v) <- pln, key `notElem` planningKeywords ]
+                 <> [ key | (key, value) <- pln, not (readsAsTimestamp value) ])
 
 -- | A 409 spelling REASON, the digest the file carries now, and WHY.  The two
 -- ways a materialized subtree goes stale are told apart for a client that has
@@ -639,6 +665,11 @@ conflict reason current why = jsonResponse status409
   , "reason" .= reason
   , "digest" .= current
   ]
+
+-- | Why KEY's planning entry was refused.
+unreadable :: Text -> Text
+unreadable key = key <> " is not a timestamp org would read back"
+  <> "; spell it <2026-08-01 Sat> or clear the row"
 
 reparsed, rewritten, configMoved :: Text
 reparsed  = "the file was re-read since this subtree was materialized" <> again
@@ -687,7 +718,25 @@ configView opts hub = do
   layers <- readConfigLayers (configDirsOf opts st)
   pure (jsonResponse status200
           [ "layers"   .= map layerJSON layers
-          , "keywords" .= keywordsJSON (storeKeywords st) ])
+          , "keywords" .= keywordsJSON (storeKeywords st)
+          -- What the table opens on, and what a bare `g' applies: read off the
+          -- files beside the lines, since it is a line of the same file and its
+          -- write rides in the same request.
+          , "filter"   .= servedFilter layers
+          ])
+
+-- | The default view LAYERS name, or the built-in where none does.  The system
+-- layer's line, read off the same bytes the digests were taken from, so what a
+-- settings sheet shows and what its write is pinned to describe one file.
+--
+-- 'Glance.Query.defaultFilter' answers the same question off the loaded config,
+-- and the two cannot disagree: both take the first SYSTEM layer that names a
+-- line and fall back to 'builtinFilter', and a file that is not there names
+-- nothing either way.
+servedFilter :: [ConfigLayerFile] -> Text
+servedFilter layers =
+  fromMaybe builtinFilter
+    (listToMaybe [ f | l <- layers, Nothing <- [lfTag l], Just f <- [defaultFilterOf (lfText l)] ])
 
 layerJSON :: ConfigLayerFile -> Value
 layerJSON f = object
@@ -734,15 +783,18 @@ configWrite opts hub request = do
 -- | WANT written into one of DIRS' layers, or the refusal.  The lookup that
 -- decides which file is the read the edits are then measured in, so the two
 -- cannot be describing different bytes.
-writeLayer :: [FilePath] -> (Text, [Text], Text) -> IO Response
-writeLayer dirs (path, asked, digest) = do
+writeLayer :: [FilePath] -> (Text, [Text], Maybe Text, Text) -> IO Response
+writeLayer dirs (path, asked, want, digest) = do
   layers <- readConfigLayers dirs
   case find ((== path) . T.pack . lfPath) layers of
     Nothing -> pure (jsonError status400 (noSuchLayer path layers))
-    Just f  -> case configEdits (lfText f) asked of
+    Just f  -> case configEdits (lfText f) asked (systemOnly f) of
       Left why    -> pure (jsonError status400 why)
       Right edits -> answer <$> replaceSpans (lfPath f) digest edits
   where
+    -- The default view is the SYSTEM layer's line and no other's, so a tag
+    -- layer's write leaves it alone whatever the request said.
+    systemOnly f = maybe want (const Nothing) (lfTag f)
     answer written = case written of
       Right fresh              -> jsonResponse status200 ["path" .= path, "digest" .= fresh]
       Left (WriteDrift onDisk) -> conflict "drift" onDisk configMoved
@@ -757,11 +809,17 @@ noSuchLayer path layers =
 -- because a layer can spell its cycle over more than one @#+TODO:@ line, and a
 -- client editing them as text splits on its own newlines rather than asking
 -- this server to.
-parseConfigWrite :: BL.ByteString -> Either Text (Text, [Text], Text)
+-- @filter@ is the default view the same file names, and it is optional: absent
+-- leaves the @#+GLANCE_DEFAULT_FILTER:@ line exactly as it is, empty takes it
+-- away, and anything else writes it.  It rides in this one request because it
+-- is a line of the same file — two requests would be two writes under two
+-- digests, the second of which the first had just invalidated.
+parseConfigWrite :: BL.ByteString -> Either Text (Text, [Text], Maybe Text, Text)
 parseConfigWrite raw = first (("body: " <>) . T.pack) $ do
   value <- eitherDecode' raw
   parseEither (withObject "config write" shape) value
-  where shape o = (,,) <$> o .: "path" <*> o .: "lines" <*> o .: "digest"
+  where shape o = (,,,) <$> o .: "path" <*> o .: "lines"
+                        <*> o .:? "filter" <*> o .: "digest"
 
 -- Commands
 
@@ -936,19 +994,24 @@ queryId request = case lookup "id" (queryString request) of
   _absent         -> Nothing
 
 -- | The subtree a commit body asks to write.  Two spellings of one thing: the
--- text whole, or the body and the drawer apart for a client editing them as two
--- panes ('Glance.Query.recomposedSubtree' puts them back together).
+-- text whole, or the parts a client edits apart for one editing them as panes
+-- ('Glance.Query.recomposedSubtree' puts them back together).
 data Commitment
-  = WholeSubtree !Text                 -- ^ @org@: the subtree as it is to be written.
-  | SplitSubtree !Text ![(Text, Text)] -- ^ @body@ and @properties@, to be composed.
+  = WholeSubtree !Text  -- ^ @org@: the subtree as it is to be written.
+  | SplitSubtree !Text ![(Text, Text)] ![(Text, Text)]
+      -- ^ @body@, @properties@ and @planning@, to be composed.
   deriving (Eq, Show)
 
 -- | What a commit body asks for and the digest it pins the write to, or what is
 -- wrong with it.  @digest@ is read first, so a body missing it says so whichever
 -- of the two shapes it was reaching for; naming both shapes is refused rather
--- than resolved, and @body@ owes @properties@ beside it — an absent one would
--- read as "and drop the drawer", which is too much to infer from a field a
--- client forgot.
+-- than resolved, and @body@ owes @properties@ and @planning@ beside it — an
+-- absent one would read as "and drop that region", which is too much to infer
+-- from a field a client forgot.
+--
+-- The two regions the SERVER owns — the hidden properties and the logbook — are
+-- in neither shape, and a split body naming them writes nothing: they are taken
+-- off the record on the way back in.
 parseCommit :: BL.ByteString -> Either Text (Commitment, Text)
 parseCommit raw = first (("body: " <>) . T.pack) $ do
   value <- eitherDecode' raw
@@ -962,7 +1025,9 @@ parseCommit raw = first (("body: " <>) . T.pack) $ do
         (Just _, Just _)   -> fail "name either \"org\" or \"body\", not both"
         (Just text, _)     -> pure (WholeSubtree text)
         (_, Just text)     -> SplitSubtree text <$> (traverse pair =<< o .: "properties")
-        (Nothing, Nothing) -> fail "no \"org\", and no \"body\" with \"properties\" either"
+                                                <*> (traverse pair =<< o .: "planning")
+        (Nothing, Nothing) ->
+          fail "no \"org\", and no \"body\" with \"properties\" and \"planning\" either"
       pure (asked, digest)
     pair [key, value] = pure (key, value)
     pair _other       = fail "each property is a [key, value] pair"
@@ -1153,22 +1218,17 @@ fontFace (Just name) = T.concat
 -- | One row of the shell's keymap.
 data KeyBinding = KeyBinding
   { kbKeys    :: ![Text]        -- ^ the keys in order; what the dispatch matches.
-  , kbSeq     :: !Text          -- ^ how the echo widget and the docs spell them.
   , kbCommand :: !Text          -- ^ the command name the echo widget shows.
   , kbHandler :: !(Maybe Text)  -- ^ the shell function running it; 'Nothing' is staged.
   , kbScope   :: !Text          -- ^ @table@, @modal@ or @any@ — where it is live.
   , kbHelp    :: !(Maybe Text)  -- ^ what it does, when the command name does not say; see 'helps'.
   }
 
--- | KEYS bound to a command, spelled the way Emacs spells a sequence: one
--- space between the keys.
+-- | KEYS bound to a command.  The notation the echo widget shows is derived
+-- rather than stored — the keys with one space between them, the way Emacs
+-- spells a sequence ('keyBindingsJSON').
 bind :: [Text] -> Text -> Maybe Text -> Text -> KeyBinding
-bind keys command handler scope = KeyBinding keys (T.unwords keys) command handler scope Nothing
-
--- | 'bind', spelled SHOWN.  vi runs @gg@ together where Emacs would write
--- @g g@, and the echo widget owes the reader the notation they typed in.
-bindAs :: Text -> [Text] -> Text -> Maybe Text -> Text -> KeyBinding
-bindAs shown keys command handler scope = KeyBinding keys shown command handler scope Nothing
+bind keys command handler scope = KeyBinding keys command handler scope Nothing
 
 -- | B with the one line the echo widget shows past its command name.  A row
 -- earns one where the name is the Emacs name for a key whose behaviour here is
@@ -1177,17 +1237,19 @@ bindAs shown keys command handler scope = KeyBinding keys shown command handler 
 helps :: KeyBinding -> Text -> KeyBinding
 helps b text' = b { kbHelp = Just text' }
 
--- | The rows both profiles carry: every command that is not movement, plus the
--- movement no editor argues about — the arrows, org-glance's own buffer-ends
--- keys, and the brackets that turn a page, which both editors spell alike.  The
--- buffer-ends keys reach the ends of the page on show, since that is what
--- @getVisible@ holds; the brackets are how a reader leaves it.
+-- | The map, whole.  There is ONE, and every row in it is live wherever its
+-- scope is: the movement profiles this used to carry are gone, and with them
+-- the question of which keys a reader has.  @n@\/@p@ and @j@\/@k@ both step a
+-- row, @f@\/@b@ and @l@\/@h@ both step a cell — the spellings cost a row each
+-- and nothing else, where a profile cost a selector, a stored choice, a URL
+-- parameter and a key line that had to be rewritten whenever it moved.
 --
 -- These are org-glance's command names (@org-glance-overview-mode-map@, plus
--- @C-x C-s@ for the sheet, which is Emacs's).  A row with no handler is
--- recognized in full and then says what it is waiting for: the map is complete
--- ahead of the daemon commands that will back it (M4), which reads better than
--- a key that silently does nothing.
+-- @C-x C-s@ for the sheet, which is Emacs's) wherever org-glance has one, and a
+-- descriptive name where it does not.  A row with no handler is recognized in
+-- full and then says what it is waiting for: the map is complete ahead of the
+-- daemon commands that will back it (M4), which reads better than a key that
+-- silently does nothing.
 --
 -- Claimed chords, and only these.  @C-c@ becomes a prefix while no text field
 -- has focus and the selection is collapsed, so a copy is still a copy; @C-x@
@@ -1195,18 +1257,34 @@ helps b text' = b { kbHelp = Just text' }
 -- C-s@ means anything.  @RET@, @TAB@, @\/@ and @DEL@ are taken while the table
 -- has focus — @DEL@ is the filter's own undo, and a field with focus keeps its
 -- backspace.  @C-l@, @C-r@, @C-t@, @C-w@, @C-n@, @C-p@ and @\<f5\>@ are never
--- claimed on their own, which is why neither profile moves on @C-n@ or @C-p@;
+-- claimed on their own, which is why nothing here moves on @C-n@ or @C-p@;
 -- what the reserved list buys is the /abandoned/ prefix — @C-x C-l@ reaches the
 -- browser rather than being swallowed as undefined.  Completing a bound
 -- sequence still claims them, which is what makes @C-c C-t@ work.
-sharedKeys :: [KeyBinding]
-sharedKeys =
-  [ bind ["<down>"]     "next-row"                        (Just "nextRow")        "table"
+keyBindings :: [KeyBinding]
+keyBindings =
+  -- Movement.  Two spellings of each, and the arrows over both.  The order
+  -- matters in one place only: the resident key line shows the FIRST row bound
+  -- to a command ('keyHints'), so the letters lead and the line reads
+  -- @n\/p rows@ rather than @\<down\>\/\<up\> rows@.
+  [ bind ["n"]          "next-row"                        (Just "nextRow")        "table"
+  , bind ["p"]          "previous-row"                    (Just "previousRow")    "table"
+  , bind ["j"]          "next-row"                        (Just "nextRow")        "table"
+  , bind ["k"]          "previous-row"                    (Just "previousRow")    "table"
+  , bind ["<down>"]     "next-row"                        (Just "nextRow")        "table"
   , bind ["<up>"]       "previous-row"                    (Just "previousRow")    "table"
-  , bind [","]          "first-row"                       (Just "firstRow")       "table"
+  , bind ["f"]          "next-column"                     (Just "nextColumn")     "table"
+      `helps` nextColumnHelp
+  , bind ["b"]          "previous-column"                 (Just "previousColumn") "table"
+      `helps` previousColumnHelp
+  , bind ["l"]          "next-column"                     (Just "nextColumn")     "table"
+      `helps` nextColumnHelp
+  , bind ["h"]          "previous-column"                 (Just "previousColumn") "table"
+      `helps` previousColumnHelp
+  -- The ends of the buffer, org-glance's own pair, plus vi's @G@ beside @>@.
   , bind ["<"]          "first-row"                       (Just "firstRow")       "table"
-  , bind ["."]          "last-row"                        (Just "lastRow")        "table"
   , bind [">"]          "last-row"                        (Just "lastRow")        "table"
+  , bind ["G"]          "last-row"                        (Just "lastRow")        "table"
   , bind ["]"]          "next-page"                       (Just "nextPage")       "table"
   , bind ["["]          "previous-page"                   (Just "previousPage")   "table"
   , bind ["RET"]        "org-glance-overview:materialize" (Just "materializeRow") "table"
@@ -1214,17 +1292,30 @@ sharedKeys =
       `helps` "summon the filter palette"
   , bind ["DEL"]        "filter-drop-token"               (Just "filterDrop")     "table"
       `helps` "drop the filter's last token"
+  -- The default view, as the tree configures it (@#+GLANCE_DEFAULT_FILTER:@).
+  , bind ["g"]          "apply-default-filter"            (Just "applyDefault")   "table"
+      `helps` "the view this tree opens on"
   , bind ["m"]          "mark-toggle"                     (Just "markToggle")     "table"
       `helps` "toggle this row's mark, then step down"
   , bind ["u"]          "unmark"                          (Just "unmarkRow")      "table"
-      `helps` "take this row's mark off, then step down"
+      `helps` "take this row's archive flag off, else its mark, then step down"
   , bind ["U"]          "unmark-all"                      (Just "unmarkAll")      "table"
+      `helps` "every mark and every archive flag off"
+  , bind ["M"]          "mark-all"                        (Just "markAll")        "table"
+      `helps` "mark every row loaded"
   , bind ["q"]          "quit-window"                     (Just "quitWindow")     "table"
   , bind ["TAB"]        "org-cycle"                       Nothing                 "table"
+  , bind ["o"]          "org-glance-overview:open"        Nothing                 "table"
   , bind ["!"]          "org-glance-overview:open"        Nothing                 "table"
   , bind ["a"]          "org-glance-agenda"               Nothing                 "table"
   , bind ["@"]          "org-glance-overview:relations"   Nothing                 "table"
   , bind ["+"]          "org-glance-overview:capture"     Nothing                 "table"
+  -- dired's flag, and dired's rule for it: the first press marks the row for
+  -- archiving and the second one does it.  The flag IS the confirmation, so
+  -- there is no prompt and no undo to build — @u@ takes it off.  Plain @d@ is
+  -- never a write on its own, which is what makes a mis-key cost a keystroke.
+  , bind ["d"]          "archive-flag"                    (Just "archiveFlag")    "table"
+      `helps` "flag this row; d again archives it"
   , bind ["D"]          "org-glance-overview:delete"      (Just "archiveRows")    "table"
       `helps` "archive the marked rows, or the row at point — never a delete"
       -- The user's own spelling; Chromium owns Ctrl+T above the document, so
@@ -1235,8 +1326,8 @@ sharedKeys =
       `helps` "the org spelling, where the browser lets it through"
   , bind ["C-c", "C-s"] "org-glance-overview:schedule"    Nothing                 "table"
   , bind ["C-c", "C-d"] "org-glance-overview:deadline"    Nothing                 "table"
-  , bind ["C-c", "C-,"] "customize"                       (Just "openSettings")   "table"
-      `helps` "the keyword cycles, a config layer at a time"
+  , bind [","]          "customize"                       (Just "openSettings")   "table"
+      `helps` "the keyword cycles and the default view, a config layer at a time"
   , bind ["C-x", "C-s"] "save-buffer"                     (Just "save")           "modal"
       `helps` "sync the sheet now; again to overwrite a conflict"
   , bind ["C-c", "'"]   "org-edit-special"                (Just "toggleRaw")      "modal"
@@ -1245,63 +1336,13 @@ sharedKeys =
       `helps` "close the sheet, syncing an edited one; again to discard"
   ]
 
--- | Movement as org-glance's overview binds it, and what a page starts on.
--- @j@ is the overview's open-stub here, where vi needs it for down.
---
--- @f@ and @b@ are the same-level rhyme one granularity down: where org-glance
--- walks headlines with them, a table walks the cells of a row.
-emacsKeys :: [KeyBinding]
-emacsKeys =
-  [ bind ["n"] "next-row"                    (Just "nextRow")        "table"
-  , bind ["p"] "previous-row"                (Just "previousRow")    "table"
-  , bind ["f"] "next-column"                 (Just "nextColumn")     "table"
-      `helps` nextColumnHelp
-  , bind ["b"] "previous-column"             (Just "previousColumn") "table"
-      `helps` previousColumnHelp
-  , bind ["g"] "org-glance-overview:refresh" (Just "refresh")        "table"
-  , bind ["j"] "org-glance-overview:open"    Nothing                 "table"
-  ]
-
--- | Movement as vi binds it.  Two rows move to make room, and both moves are
--- the reason this profile is data rather than a second dispatch: @j@ is down
--- here, so the open-stub is left to @\!@ — which the overview map already
--- carries, as its dired-execute rhyme — and @g@ is a prefix rather than a
--- command, so refresh goes to @R@ and reads as vi's reload.  Nothing in this
--- profile binds a bare @g@: a complete sequence that also opens a longer one
--- would make the longer one unreachable.
---
--- @h@ and @l@ are the cell movement @f@ and @b@ are under @emacs@; the command
--- names are shared, so only the keys differ.
-vimKeys :: [KeyBinding]
-vimKeys =
-  [ bind   ["j"]           "next-row"                    (Just "nextRow")        "table"
-  , bind   ["k"]           "previous-row"                (Just "previousRow")    "table"
-  , bind   ["l"]           "next-column"                 (Just "nextColumn")     "table"
-      `helps` nextColumnHelp
-  , bind   ["h"]           "previous-column"             (Just "previousColumn") "table"
-      `helps` previousColumnHelp
-  , bindAs "gg" ["g", "g"] "first-row"                   (Just "firstRow")       "table"
-  , bind   ["G"]           "last-row"                    (Just "lastRow")        "table"
-  , bind   ["R"]           "org-glance-overview:refresh" (Just "refresh")        "table"
-  ]
-
--- | The cell-movement help lines, one pair for both profiles: the keys differ,
--- what they do does not.  Between them they say the whole rule — the column
--- rides along with row movement, and a whole-row selection starts at the first
--- column whichever direction asks for one.
+-- | The cell-movement help lines, one pair for the two spellings of each: the
+-- keys differ, what they do does not.  Between them they say the whole rule —
+-- the column rides along with row movement, and a whole-row selection starts at
+-- the first column whichever direction asks for one.
 nextColumnHelp, previousColumnHelp :: Text
 nextColumnHelp     = "the cell to the right; row movement keeps the column"
 previousColumnHelp = "the cell to the left; from a whole row, the first column"
-
--- | The movement profiles, by the name @?keys=@ and the toggle use.  Adding
--- one is adding a row: the shell reads them out of the blob and its toggle
--- cycles whatever it finds.
-keyProfiles :: [(Text, [KeyBinding])]
-keyProfiles = [("emacs", emacsKeys), ("vim", vimKeys)]
-
--- | The profile a page starts on with nothing stored and nothing asked for.
-defaultProfile :: Text
-defaultProfile = "emacs"
 
 -- | Chords the browser needs more than this page does: never claimed as the key
 -- that abandons a prefix this map had entered, which is what leaves @C-x C-l@
@@ -1313,23 +1354,24 @@ reservedChords = ["C-l", "C-r", "C-t", "C-w", "C-n", "C-p", "<f5>"]
 -- | The commands auto-repeat is taken off: one press, one token.  Movement
 -- wants the repeat — a held @n@ is how you cross a table, and the renderer
 -- coalesces those to a frame — but a held @DEL@ would walk the whole query away
--- between one glance at the chips and the next.  By command name, so it holds
--- under every profile that binds it.
+-- between one glance at the chips and the next.  By command name, so a command
+-- two keys spell is off under both.
 --
 -- @m@ and @u@ stay off it: both advance, so a held one walks a column rather
--- than working one row twice (docs\/invariants.md).  @D@ is on it for a
--- different reason: it writes files, and a held key must not be a hundred
--- @\/command@ requests.  Archiving is idempotent, so what the repeat would cost
--- is the traffic and the rewrites rather than the tree.
+-- than working one row twice (docs\/invariants.md).  The writes are on it for a
+-- different reason — a held key must not be a hundred @\/command@ requests — and
+-- @d@ needs it most of all: a repeat that survived here would flag a row and
+-- archive it from ONE press, which is exactly the confirmation the two-press
+-- shape exists to be.
 onceCommands :: [Text]
-onceCommands = ["filter-drop-token", "unmark-all", "org-glance-overview:delete"]
+onceCommands = [ "filter-drop-token", "unmark-all", "mark-all"
+               , "archive-flag", "org-glance-overview:delete" ]
 
 -- | The resident key line, in the order it reads: the commands worth naming
 -- ahead of the echo pill, each with the word the line shows for it.  Commands
--- rather than keys, so the page looks each one up in the active profile — the
--- line cannot advertise a key nothing is bound to, and a profile switch
--- rewrites it (@n@\/@p@ under emacs, @j@\/@k@ under vim).  These are the rows a
--- reader needs in front of them; the rest is the echo pill's to name as it runs.
+-- rather than keys, so the page looks each one up in the map — the line cannot
+-- advertise a key nothing is bound to.  These are the rows a reader needs in
+-- front of them; the rest is the echo pill's to name as it runs.
 --
 -- The page pair is listed backwards on purpose: a bracket pair reads open then
 -- close, so the line says @[\/]@ where the row and cell pairs say forward first.
@@ -1339,39 +1381,41 @@ keyHints =
   , (["next-column", "previous-column"],   "cells")
   , (["previous-page", "next-page"],       "pages")
   , (["org-glance-overview:materialize"],  "materialize")
-  , (["mark-toggle", "unmark", "unmark-all"], "mark")
+  , (["mark-toggle", "unmark", "unmark-all", "mark-all"], "mark")
   -- The two structured commands, beside the keys that pick what they run over.
   , (["org-glance-overview:todo"],         "state")
-  , (["org-glance-overview:delete"],       "archive")
+  , (["archive-flag"],                     "archive")
+  , (["org-glance-overview:delete"],       "archive marked")
   , (["filter-rows"],                      "filter")
-  , (["org-glance-overview:refresh"],      "refresh")
+  , (["apply-default-filter"],             "default view")
   , (["filter-drop-token"],                "drop token")
   , (["customize"],                        "settings")
   , (["quit-window"],                      "quit")
   ]
 
--- | The keymap as the page carries it: the shared rows once, the movement
--- profiles beside them, the name to start on, and the three tables the dispatch
--- reads off the same blob — the key line's hints, the chords never claimed, and
--- the commands auto-repeat is off for.  The angle brackets are escaped because
--- four of these sequences are angle brackets — a blob that cannot spell a tag
--- cannot open one, whatever element it sits in, and @JSON.parse@ undoes them.
+-- | The keymap as the page carries it: the one row list, and the three tables
+-- the dispatch reads off the same blob — the key line's hints, the chords never
+-- claimed, and the commands auto-repeat is off for.  The angle brackets are
+-- escaped because five of these sequences are angle brackets — a blob that
+-- cannot spell a tag cannot open one, whatever element it sits in, and
+-- @JSON.parse@ undoes them.
+--
+-- @seq@ is derived here rather than carried by a row: it is the keys with one
+-- space between them, which is how Emacs spells a sequence and the only
+-- notation left now that no row runs two keys together.
 --
 -- The shell parses this instead of holding a second copy, so a key cannot be
--- bound and undocumented, a profile cannot be offered and unbound, and a hint
--- cannot name a command this map does not carry.
+-- bound and undocumented, and a hint cannot name a command this map does not
+-- carry.
 keyBindingsJSON :: Text
-keyBindingsJSON = T.replace "<" "\\u003c" . T.replace ">" "\\u003e"
-                . TE.decodeUtf8 . BL.toStrict . encode $ object
-  [ "shared"   .= map row sharedKeys
-  , "default"  .= defaultProfile
-  , "profiles" .= object [ Key.fromText name .= map row rows | (name, rows) <- keyProfiles ]
+keyBindingsJSON = jsonLiteral $ object
+  [ "rows"     .= map row keyBindings
   , "hints"    .= [ object [ "commands" .= cs, "label" .= label ] | (cs, label) <- keyHints ]
   , "reserved" .= reservedChords
   , "once"     .= onceCommands
   ]
   where row b = object [ "keys"    .= kbKeys b
-                       , "seq"     .= kbSeq b
+                       , "seq"     .= T.unwords (kbKeys b)
                        , "command" .= kbCommand b
                        , "handler" .= kbHandler b
                        , "scope"   .= kbScope b
@@ -1382,11 +1426,19 @@ keyBindingsJSON = T.replace "<" "\\u003c" . T.replace ">" "\\u003e"
 -- | @\/@: the demo shell when the renderer is on disk, and an explanation when
 -- it is not.  A missing renderer leaves @\/headlines@ untouched — the server
 -- is a JSON server that happens to ship a page.
-shellPage :: ServeOptions -> IO Response
-shellPage opts = do
+--
+-- The tree's default view is embedded at REQUEST time rather than at startup: a
+-- config change reseeds the store ('Glance.Web.Watch.settle'), so the next page
+-- served carries what the file says now.  This route does not wait on the load
+-- — the shell has to render while the walk runs — and a store that is still
+-- loading carries no config, which is exactly the built-in fallback.
+shellPage :: ServeOptions -> Hub -> IO Response
+shellPage opts hub = do
   ok <- hasRenderer opts
   font <- localFont opts
-  pure (html (if ok then demoShell opts font else assetsMissing opts))
+  st <- readTVarIO (hubStore hub)
+  pure (html (if ok then demoShell opts font (defaultFilter (stConfig st))
+                    else assetsMissing opts))
 
 -- | The page a browser gets: load the renderer, fetch a page of the view,
 -- mount it, then hold a socket open and apply what it sends.  The glue is
@@ -1529,20 +1581,18 @@ shellPage opts = do
 -- its org-glance command name and what it is waiting for.  The set is shown a
 -- page at a time (@pageSize@), and @[@ and @]@ turn one, echoing the page they
 -- landed on.  Cell movement is @select@ with a column: the column lives in the
--- renderer's selection rather than here, so it survives a profile switch,
--- rides along with row movement, and goes when the selection does.  A
+-- renderer's selection rather than here, so it rides along with row movement
+-- and goes when the selection does.  A
 -- whole-row selection has no column and keeps the look it always had until a
 -- horizontal key lands on the first one; the echo names the column it arrived
 -- at by the header over it, or says which edge it stopped at.  The pill in
 -- the bottom corner is the echo area — the pending prefix while one is open,
 -- the command and its help line on completion, @is undefined@ otherwise.  The
--- top corner holds the connection dot and a @select@ of the movement profiles
--- the blob declares, which rebinds in place and remembers the choice; a native
--- control because Tab, the arrows and Enter already navigate one and no new
--- chord is owed for it.  The page's last line is the same blob resident: the
--- active profile's core rows as @keys label@ pairs, named by command and
--- rewritten wherever the profile is, so the pill says what just ran and the
--- line says what can.
+-- top corner holds the connection dot and the theme selector; a native control
+-- because Tab, the arrows and Enter already navigate one and no new chord is
+-- owed for it.  The page's last line is the same blob resident: the map's core
+-- rows as @keys label@ pairs, named by command, so the pill says what just ran
+-- and the line says what can.
 --
 -- The page is one column the height of the viewport — table, log, key line —
 -- and it does not scroll.  The table keeps the height it asks for, the log
@@ -1550,12 +1600,12 @@ shellPage opts = do
 -- key line hold their places whatever arrives.
 --
 -- The log is an event strip: connection, sync outcomes, the parity warning,
--- errors.  What is loaded is the renderer's own hint line and which profile is
--- on is the corner's and the key line's, so neither is repeated there.  The
+-- errors.  What is loaded is the renderer's own hint line and what the keys are
+-- is the resident key line's, so neither is repeated there.  The
 -- frame is resident: with nothing to report it is an empty strip holding its
 -- place, so the first event to arrive does not shift the key line under it.
-demoShell :: ServeOptions -> Maybe FilePath -> Text
-demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlines
+demoShell :: ServeOptions -> Maybe FilePath -> Text -> Text
+demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlines
   -- No heading: the view title is already the tab's, and printing it a second
   -- time here put it on screen twice.  In palette mode the renderer carries no
   -- bar either, so the page opens on the table itself.
@@ -1564,10 +1614,8 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
       <> "<select id=\"themesel\" title=\"colour theme\">"
       <> "<option value=\"auto\">auto</option><option value=\"light\">light</option>"
       <> "<option value=\"dark\">dark</option></select>"
-      <> "<label for=\"keysel\">keys:</label>"
-      <> "<select id=\"keysel\" title=\"movement profile\"></select>"
       -- The keyboard-first exception, and the same one the chip row is: a
-      -- coarse pointer has no `C-c C-,' to press.  Hidden outside the
+      -- coarse pointer has no `,' to press.  Hidden outside the
       -- pointer:coarse block, so a mouse never sees it and the key is the
       -- whole of the offer there.
       <> "<button id=\"gear\" title=\"settings\">\9881</button></div>"
@@ -1584,6 +1632,11 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "        <textarea id=\"mtext\" spellcheck=\"false\"></textarea>"
   , "        <div id=\"mprops\"></div>"
   , "      </div>"
+  -- The logbook, read-only and full width under both panes.  It is the
+  -- server's: shown so a reader can see what the row has been through, never
+  -- sent back, and out of Tab and out of `dirty()' because nothing here can
+  -- move it.
+  , "      <pre id=\"mlog\"></pre>"
   , "    </div>"
   , "  </div>"
   , "  <div id=\"prompt\">"
@@ -1599,7 +1652,7 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   -- writing a layer is itself what moves the columns.
   , "  <div id=\"config\">"
   , "    <div id=\"cbox\">"
-  , "      <div id=\"chead\"><span id=\"ctitle\">keyword cycles</span>"
+  , "      <div id=\"chead\"><span id=\"ctitle\">keyword cycles · default view</span>"
       <> "<span id=\"cnote\"></span></div>"
   , "      <div id=\"clayers\"></div>"
   , "      <div id=\"ceff\"></div>"
@@ -1651,7 +1704,10 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
         -- checkbox column it draws and a set of ids it keys, which is why a
         -- mark outlives a filter that hides its row and a page it is not on.
         -- This page owns the keys and nothing else.
-  , "        marks: true,       // dired's m/u/U, drawn and counted by the renderer"
+  , "        marks: true,       // dired's m/u/U/M, drawn and counted by the renderer"
+        -- The renderer's per-row hint says RET materializes, which the key line
+        -- under the table already says and says for every command.  One place.
+  , "        actionHints: false,"
   , "        // The applied query, restored as the renderer's own committed"
   , "        // chips. It tokenizes them and delivers nothing — the rows in"
   , "        // hand are already the server's answer to this query, and a"
@@ -1675,7 +1731,7 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      // The boot placeholder has done its work.  The strip is an event log"
   , "      // — connection, sync, warnings, errors — and it says nothing about"
   , "      // what is loaded: the renderer's own hint line already counts the"
-  , "      // rows, the corner and the key line carry the profile."
+  , "      // rows, and the key line under it says what the keys are."
   , "      log(\"\");"
   , "      // Whatever the remount that led here took down goes back up over the"
   , "      // new table; on a first boot there is nothing stashed and nothing to do."
@@ -1756,13 +1812,14 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    // — the grammar is the server's to parse (SCHEMA.md)."
   , "    const params = () => new URLSearchParams(location.search);"
   , "    const urlQuery = () => params().get(\"q\") || \"\";"
-  , "    // What the page opens on when the address bar says nothing: active"
-  , "    // work, in org-glance's own spelling of the group.  A `?q=' is the"
-  , "    // user's intent whatever it holds, an empty one included, so the"
-  , "    // default is injected only where there is no `q' at all — and then it"
-  , "    // is a query like any other, committed to the URL, shown as the"
-  , "    // renderer's chip and asked of the server."
-  , "    const DEFAULT_QUERY = \"state:*active*\";"
+  , "    // What the page opens on when the address bar says nothing, and what"
+  , "    // `g' applies.  The daemon embeds it at request time out of the tree's"
+  , "    // own `#+GLANCE_DEFAULT_FILTER:', falling back to org-glance's spelling"
+  , "    // of the active group.  A `?q=' is the user's intent whatever it holds,"
+  , "    // an empty one included, so the default is injected only where there is"
+  , "    // no `q' at all — and then it is a query like any other, committed to"
+  , "    // the URL, shown as the renderer's chip and asked of the server."
+  , "    const DEFAULT_QUERY = " <> jsonText wanted <> ";"
   , "    const bootQuery = () => (params().has(\"q\") ? urlQuery() : DEFAULT_QUERY);"
   , "    // Every applied query is written, the EMPTY one included: a `q' that is"
   , "    // present and empty is a reader who took the filter off, where an absent"
@@ -1859,12 +1916,30 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      base = raw ? h.org : h.body;"
   , "      el(\"mtext\").value = base;"
   , "      el(\"sheet\").className = raw ? \"raw\" : \"\";"
-  , "      drawProps(raw ? [] : h.properties || []);"
-  , "      baseProps = raw ? null : JSON.stringify(props());"
+  , "      drawProps(raw ? [] : h.properties || [], raw ? [] : h.planning || []);"
+  , "      drawLog(raw ? \"\" : h.logbook || \"\");"
+  , "      baseProps = raw ? null : edited();"
+  , "    }"
+    -- Everything the panel holds, as one string to compare against.  Two lists
+    -- rather than one, so a property and a planning entry spelling the same
+    -- pair cannot cancel out.
+  , "    const edited = () => JSON.stringify([props(), planning()]);"
+    -- The logbook strip: shown, never sent, and taken off the sheet outright
+    -- when there is none rather than left as a labelled blank.
+    --
+    -- The drawer's INTERIOR alone.  `:LOGBOOK:' and `:END:' are the delimiters
+    -- of the thing the widget already is, so showing them spends two of the
+    -- strip's lines saying what the strip is.  The cut is display-only: what
+    -- goes back into the file is the whole drawer, delimiters and all, and this
+    -- page never sends it at all.
+  , "    function drawLog(text) {"
+  , "      const inner = text.replace(/\\n$/, \"\").split(\"\\n\").slice(1, -1).join(\"\\n\");"
+  , "      el(\"mlog\").textContent = inner;"
+  , "      el(\"mlog\").className = inner ? \"on\" : \"\";"
   , "    }"
   , "    const dirty = () => editing !== null"
   , "      && (el(\"mtext\").value !== base"
-  , "          || (!raw && JSON.stringify(props()) !== baseProps));"
+  , "          || (!raw && edited() !== baseProps));"
     -- The property panel.  A row is a key and a value — so the drawer is edited
     -- as what it is rather than as text that happens to look like a drawer — and
     -- the rows sit in the order the file writes them.
@@ -1882,49 +1957,59 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
     -- nothing else reads them, which is what makes a commit the only thing that
     -- can make the sheet dirty.
     --
-    -- The planning rows are the same two modes over the same kind of row, so
-    -- they belong in this list rather than in a second one of their own.
+    -- The planning entries are the same two modes over the same kind of row, so
+    -- they are rows in this list rather than a second one of their own — three
+    -- FIXED ones, in org's own order, ahead of the drawer's properties.  Fixed
+    -- means the key is org's and not the author's: RET opens the value alone,
+    -- and an empty value is the entry absent.
+  , "    const PLANNING = " <> jsonList planningKeywords <> ";"
   , "    let prows = [], pcur = 0, pedit = -1, pnav = false;"
-  , "    function drawProps(list) {"
+  , "    function drawProps(list, plan) {"
   , "      el(\"mprops\").textContent = \"\";"
   , "      el(\"mprops\").className = \"\";"
   , "      prows = []; pcur = 0; pedit = -1; pnav = false;"
-  , "      for (const p of list) addRow(p[0], p[1]);"
-  , "      addRow(\"\", \"\");   // the one that grows the next"
+  , "      const held = new Map(plan || []);"
+  , "      for (const key of PLANNING) addRow(key, held.get(key) || \"\", true);"
+  , "      for (const p of list) addRow(p[0], p[1], false);"
   , "    }"
-    -- The add-row affordance, and the whole of it: the last row is always empty,
-    -- committing something into it puts another empty one under it, and a row
-    -- whose key is emptied is a property deleted.  Keyboard-first means no
-    -- button here — there is nothing to press, only somewhere to type.
-  , "    function addRow(key, value) {"
+  , "    function addRow(key, value, fixed) {"
   , "      const row = document.createElement(\"div\");"
   , "      el(\"mprops\").appendChild(row);"
-  , "      prows.push({ key, val: value, row });"
+  , "      prows.push({ key, val: value, row, fixed: !!fixed });"
   , "      drawRow(prows.length - 1);"
   , "    }"
-    -- The identity property is shown like any other and says what it is: the
-    -- row id IS this value, so renaming it here renames the row the table keys
-    -- updates off and the sheet is looking at a different headline afterwards.
-    -- Hiding it would be worse — the drawer would stop being what the file says.
-  , "    const IDENTITY = \"ORG_GLANCE_ID\";"
-  , "    const noteFor = (key) => (key.trim() === IDENTITY"
-  , "      ? \"identity — renaming this renames the row\" : \"\");"
+    -- The add-row affordance, and the whole of it: `+' puts an empty property
+    -- at the end of the drawer and opens it.  Keyboard-first means no button
+    -- here, and a KEY rather than a row that is always empty — the trailing row
+    -- was chrome that had to be filtered out of everything the panel says.  A
+    -- row whose key is emptied is still a property deleted.
+  , "    function addProperty() {"
+  , "      const was = pcur;"
+  , "      addRow(\"\", \"\", false);"
+  , "      pcur = prows.length - 1;"
+  , "      cls(was); cls(pcur);"
+  , "      openRow();"
+  , "    }"
     -- One row, in whichever mode it is in.  The cells are spans until the row is
     -- opened and fields while it is, which is the whole of the difference: an
     -- empty span wears its hint through the stylesheet, so what the panel SAYS
     -- an empty cell is stays out of what it holds.
+    --
+    -- The identity property is in neither mode, because it is in neither pane:
+    -- `ORG_GLANCE_ID' is the row id the table keys its updates off, and the
+    -- server keeps it out of what it hands over and puts it back verbatim
+    -- afterwards ('Glance.Query.hiddenProperties').  There is nothing for this
+    -- page to warn about and nothing for it to filter.
   , "    const cls = (i) =>"
-  , "      (prows[i].row.className = i === pcur ? \"prow pat\" : \"prow\");"
+  , "      (prows[i].row.className ="
+  , "        (prows[i].fixed ? \"prow pln\" : \"prow\") + (i === pcur ? \" pat\" : \"\"));"
   , "    function drawRow(i) {"
   , "      const r = prows[i], open = i === pedit;"
   , "      r.row.textContent = \"\";"
   , "      cls(i);"
-  , "      const k = cell(open, \"pkey\", r.key, \"property\");"
-  , "      const v = cell(open, \"pval\", r.val, \"value\");"
-  , "      const note = document.createElement(\"div\");"
-  , "      note.className = \"pnote\";"
-  , "      note.textContent = noteFor(r.key);"
-  , "      r.row.appendChild(k); r.row.appendChild(v); r.row.appendChild(note);"
+  , "      const k = cell(open && !r.fixed, \"pkey\", r.key, \"property\");"
+  , "      const v = cell(open, \"pval\", r.val, r.fixed ? \"<2026-08-01 Sat>\" : \"value\");"
+  , "      r.row.appendChild(k); r.row.appendChild(v);"
   , "      return [k, v];"
   , "    }"
   , "    function cell(open, kind, value, hint) {"
@@ -1934,15 +2019,21 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      else { e.textContent = value; e.dataset.hint = hint; }"
   , "      return e;"
   , "    }"
-    -- What the panel would write: every row carrying a key, in the order they
-    -- sit in.  A row whose key has been emptied is a deletion and the trailing
-    -- row is not a property yet — one rule covers both, and neither needs a key
-    -- of its own to press.  Both fields are trimmed, because the server hands
-    -- them over trimmed: what the panel can show is then exactly what it can
-    -- write, and a space nobody could ever see again cannot be typed into a file.
+    -- What the panel would write: every property row carrying a key, in the
+    -- order they sit in.  A row whose key has been emptied is a deletion.  Both
+    -- fields are trimmed, because the server hands them over trimmed: what the
+    -- panel can show is then exactly what it can write, and a space nobody could
+    -- ever see again cannot be typed into a file.
   , "    const props = () => prows"
+  , "      .filter((r) => !r.fixed)"
   , "      .map((r) => [r.key.trim(), r.val.trim()])"
   , "      .filter((p) => p[0] !== \"\");"
+    -- And the planning line: the fixed rows carrying a value, in org's order.
+    -- An empty row is that entry absent, so clearing all three is how the line
+    -- comes off — the server drops it rather than writing a bare keyword.
+  , "    const planning = () => prows"
+  , "      .filter((r) => r.fixed && r.val.trim() !== \"\")"
+  , "      .map((r) => [r.key, r.val.trim()]);"
     -- Crossing the panes, and the two modes.  Entering the panel BLURS the
     -- textarea: nav holds the keys with nothing focused, so a field left focused
     -- behind it would take every letter as text.  `pnav' is that state, and
@@ -1967,19 +2058,18 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    function openRow() {"
   , "      pedit = pcur;"
   , "      const [k, v] = drawRow(pcur);"
-  , "      (prows[pcur].key ? v : k).focus();"
+  , "      (prows[pcur].fixed || prows[pcur].key ? v : k).focus();"
   , "    }"
-    -- Committing: the row takes the text its fields are holding and goes back to
-    -- being text, and a last row that now says something grows the next under it
-    -- and hands the cursor on.  This is the one thing that can make the sheet
-    -- dirty from the panel — an edit nobody committed was never in `props()'.
+    -- Committing: the row takes the text its fields are holding and goes back
+    -- to being text.  This is the one thing that can make the sheet dirty from
+    -- the panel — an edit nobody committed was never in `props()'.  A fixed
+    -- row keeps its key, which is org's rather than the author's.
   , "    function commitRow() {"
   , "      const at = pedit, r = prows[at];"
-  , "      r.key = r.row.children[0].value; r.val = r.row.children[1].value;"
+  , "      if (!r.fixed) r.key = r.row.children[0].value;"
+  , "      r.val = r.row.children[1].value;"
   , "      pedit = -1;"
   , "      drawRow(at);"
-  , "      if ((r.key || r.val) && at === prows.length - 1)"
-  , "        { addRow(\"\", \"\"); moveCur(1); }"
   , "    }"
     -- ESC over an open row is the ROW's: the fields go and the text the row is
     -- holding comes back, which is the text it was opened on.  The sheet's own
@@ -1997,9 +2087,9 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
     -- nav back into the body — and the cursor is where it was left.  Two stops,
     -- so both directions are one toggle and S-TAB is the same line.  In nav the
     -- keys are movement: n/p and j/k both, unconditionally, because a row with
-    -- no field in it leaves every printable key free and the two profiles cost
-    -- nothing to satisfy at once; the arrows are the pair that needs no profile
-    -- at all.  RET opens the row at point.
+    -- no field in it leaves every printable key free and both spellings cost
+    -- nothing to satisfy at once; the arrows are the pair that needs neither.
+    -- RET opens the row at point, and @+@ adds one at the end.
     --
     -- In edit TAB is the hop between the row's two fields — one row, two fields,
     -- and nothing else for it to mean — so the crossing is suspended for as long
@@ -2019,6 +2109,7 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "        enterPanel();"
   , "      } else if (crossing) leavePanel();"
   , "      else if (k === \"RET\") openRow();"
+  , "      else if (k === \"+\") addProperty();"
   , "      else if (k === \"<down>\" || k === \"n\" || k === \"j\") moveCur(1);"
   , "      else if (k === \"<up>\" || k === \"p\" || k === \"k\") moveCur(-1);"
   , "      else return;"
@@ -2028,7 +2119,7 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
     -- otherwise.  The server joins them, so this page never spells a drawer.
   , "    const asked = () => raw"
   , "      ? { org: el(\"mtext\").value }"
-  , "      : { body: el(\"mtext\").value, properties: props() };"
+  , "      : { body: el(\"mtext\").value, properties: props(), planning: planning() };"
   , "    // Where the sheet stands is one word, and `sync' is its only writer:"
   , "    // the header wears it as text and as a class, and everything that asks"
   , "    // reads it back.  With no buttons the keys are the whole of the offer,"
@@ -2060,11 +2151,14 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "          if (a.status === 200) {"
   , "            h.digest = a.body.digest;"
   , "            base = raw ? sent.org : sent.body;"
-  , "            baseProps = raw ? null : JSON.stringify(sent.properties);"
+  , "            baseProps = raw ? null : JSON.stringify([sent.properties, sent.planning]);"
   , "            sync(\"synced\");"
   , "            return true;"
   , "          }"
-  , "          if (a.status === 409) sync(\"conflict\");"
+    -- A refused planning entry is a 409 like a moved file, and it waits for a
+    -- keystroke the same way — but it names the field rather than the file, so
+    -- it goes through `stuck' and says so.
+  , "          if (a.status === 409 && a.body.reason !== \"planning\") sync(\"conflict\");"
   , "          else stuck(a.body.error || `sync failed (${a.status})`);"
   , "          return false;"
   , "        })"
@@ -2166,7 +2260,7 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      echo(`${b.seq} → page ${at.page}/${at.pages}`);"
   , "    }"
   , "    // Cells.  The column is part of the renderer's selection, so it needs no"
-  , "    // state here: it survives a profile switch, rides along with row"
+  , "    // state here: it rides along with row"
   , "    // movement, and goes when the selection that holds it goes.  A whole-row"
   , "    // selection has none, and the first horizontal key lands on the first"
   , "    // column whichever direction asked."
@@ -2189,6 +2283,14 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
     -- a run down a column.
   , "    const marking = () => !!table && typeof table.toggleMark === \"function\";"
   , "    const said = (b, what) => echo(`${b.seq} → ${b.command} (${what})`);"
+    -- Archive flags are the renderer's for the same reason marks are: a flag has
+    -- to outlive a `setRows', a filter that hides its row and a page it is not
+    -- on, and only the thing that draws the rows can do that.  An asset predating
+    -- the calls says so rather than growing a shell-side set the next paint would
+    -- lose.
+  , "    const flagging = () => !!table && typeof table.flagRow === \"function\""
+  , "      && typeof table.getFlagged === \"function\";"
+  , "    const isFlagged = (id) => flagging() && table.getFlagged().indexOf(id) !== -1;"
     -- TOGGLING is `m', which flips the way dired's does and takes the
     -- renderer's word for where it landed.  `u' is never a toggle: it flips
     -- too, then puts back anything it just laid down, so walking a column of
@@ -2199,6 +2301,15 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      if (!marking()) { said(b, \"this table-view.js has no marks\"); return; }"
   , "      const id = focusedId();"
   , "      if (!id) { said(b, \"no row\"); return; }"
+    -- `u' takes the archive FLAG off first: it is the more recent thing a
+    -- reader put on the row and the one that would otherwise write a file.
+    -- One key for both, which is what dired does, and the echo says which.
+  , "      if (!toggling && isFlagged(id)) {"
+  , "        table.unflagRow(id);"
+  , "        echo(`${b.seq} → flag cleared`);"
+  , "        move(1);"
+  , "        return;"
+  , "      }"
   , "      let on = table.toggleMark(id);"
   , "      if (on && !toggling) on = table.toggleMark(id);"
   , "      echo(`${b.seq} → ${on ? \"marked\" : \"unmarked\"} (${table.markedCount()})`);"
@@ -2297,10 +2408,18 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
     -- deliberately absent — no file declares one, so the server refuses every
     -- one of them, and offering a value that cannot be set is worse than not
     -- offering it.
+    -- `*clear*' wears the stars every reserved meta wears (docs/invariants.md):
+    -- the starred form is the page's mark for a value with semantics rather than
+    -- a word a file could hold, and the server refuses a starred string as a
+    -- keyword from the other side.  What it commits is a null keyword.
+  , "    const CLEAR = \"*clear*\";"
+    -- What the tree falls back to with no `#+GLANCE_DEFAULT_FILTER:' line, which
+    -- is what the settings field says an empty box means.
+  , "    const BUILTIN_QUERY = " <> jsonText builtinFilter <> ";"
   , "    const stateChoices = () =>"
   , "      ((cols.filter((c) => c.key === \"state\")[0] || {}).badges || [])"
   , "        .map((x) => ({ label: x.value, keyword: x.value }))"
-  , "        .concat([{ label: \"clear\", keyword: null }]);"
+  , "        .concat([{ label: CLEAR, keyword: null }]);"
     -- Settings.  One section per keyword layer, and a layer is one config file
     -- and one box holding its `#+TODO:' lines VERBATIM.  The line is the
     -- contract org itself reads, so it is what is edited: a chip UI here would
@@ -2336,7 +2455,7 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      }));"
   , "    function drawLayers(b) {"
   , "      el(\"clayers\").textContent = \"\";"
-  , "      crows = (b.layers || []).map(layerRow);"
+  , "      crows = (b.layers || []).map((l) => layerRow(l, b.filter || \"\"));"
   , "      const kw = b.keywords || {};"
   , "      el(\"ceff\").textContent ="
   , "        `${(kw.active || []).join(\" \")} | ${(kw.inactive || []).join(\" \")}`;"
@@ -2345,7 +2464,7 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
     -- and a line for whatever the server said about the last write to it.  A
     -- layer with no digest is not a file yet — saying so is what makes creating
     -- the first one an edit rather than a mystery.
-  , "    function layerRow(layer) {"
+  , "    function layerRow(layer, viewText) {"
   , "      const row = document.createElement(\"div\");"
   , "      row.className = \"crow\";"
   , "      const lab = document.createElement(\"div\");"
@@ -2359,9 +2478,25 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      box.placeholder = \"#+TODO: TODO STARTED | DONE\";"
   , "      const note = document.createElement(\"div\");"
   , "      note.className = \"cerr\";"
-  , "      row.appendChild(lab); row.appendChild(box); row.appendChild(note);"
+  , "      row.appendChild(lab); row.appendChild(box);"
+  , "      const r = { path: layer.path, digest: layer.digest, base: box.value,"
+  , "                  box, note, view: null, viewBase: null };"
+    -- The default view is a LINE of `system.org' and of no other file, so its
+    -- field sits under that layer and rides in that layer's write: one file,
+    -- one digest, one splice.  Emptying it takes the line away, which is the
+    -- tree going back to the built-in default rather than to no filter at all.
+  , "      if (layer.tag === null) {"
+  , "        const view = document.createElement(\"input\");"
+  , "        view.className = \"cview\";"
+  , "        view.spellcheck = false;"
+  , "        view.placeholder = `the view g applies; empty is ${BUILTIN_QUERY}`;"
+  , "        view.value = r.viewBase = viewText;"
+  , "        row.appendChild(view);"
+  , "        r.view = view;"
+  , "      }"
+  , "      row.appendChild(note);"
   , "      el(\"clayers\").appendChild(row);"
-  , "      return { path: layer.path, digest: layer.digest, base: box.value, box, note };"
+  , "      return r;"
   , "    }"
     -- The same four words the other sheet wears, and the same two keys clear
     -- the two that wait for one.
@@ -2370,7 +2505,9 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      el(\"cnote\").className = next;"
   , "      el(\"cnote\").textContent = message || WORDS[next];"
   , "    };"
-  , "    const cdirty = () => crows.some((r) => r.box.value !== r.base);"
+  , "    const cdirty = () => crows.some(cmoved);"
+  , "    const cmoved = (r) => r.box.value !== r.base"
+  , "      || (r.view !== null && r.view.value !== r.viewBase);"
     -- Every layer that moved, one POST each and each awaited.  A config file is
     -- its own write and its own lock, so one that drifted refuses on its own
     -- line while the rest land — there is no batch to roll back and none to
@@ -2379,20 +2516,22 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      cnote(\"syncing\");"
   , "      let ok = true, clashed = false;"
   , "      for (const r of crows) {"
-  , "        if (r.box.value === r.base) continue;"
+  , "        if (!cmoved(r)) continue;"
   , "        // What was SENT, taken before the await: a keystroke landing while"
   , "        // the write is in flight would otherwise be marked as the file's"
   , "        // and never written, and the sheet would close on it silently."
-  , "        const sent = r.box.value;"
+  , "        const sent = r.box.value, view = r.view && r.view.value;"
   , "        const a = await fetch(\"/config\", {"
   , "          method: \"POST\","
   , "          headers: { \"content-type\": \"application/json\" },"
   , "          body: JSON.stringify({ path: r.path, lines: sent.split(\"\\n\"),"
+  , "                                 ...(r.view ? { filter: view } : {}),"
   , "                                 digest: r.digest }),"
   , "        }).then((x) => x.json().then((b) => ({ status: x.status, body: b })))"
   , "          .catch((e) => ({ status: 0, body: { error: e.message } }));"
   , "        if (a.status === 200) {"
   , "          r.digest = a.body.digest; r.base = sent; r.note.textContent = \"\";"
+  , "          if (r.view) r.viewBase = view;"
   , "        } else {"
   , "          ok = false;"
   , "          if (a.status === 409) clashed = true;"
@@ -2483,7 +2622,7 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "        // pane, and in whichever of the two shapes the sheet was showing."
   , "        sheet: editing && dirty()"
   , "          ? { id: editing.id, raw, text: el(\"mtext\").value, props: props(),"
-  , "              digest: editing.digest }"
+  , "              plan: planning(), digest: editing.digest }"
   , "          : null,"
   , "        palette: typedFilter(),"
   , "      };"
@@ -2512,7 +2651,7 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      headline(s.id).then((h) => {"
   , "        show(h, s.raw);   // which opens the sheet on the file and focuses it"
   , "        el(\"mtext\").value = s.text;   // dirty again, against the file as it now is"
-  , "        if (!s.raw) drawProps(s.props);"
+  , "        if (!s.raw) drawProps(s.props, s.plan);"
   , "        if (h.digest !== s.digest) sync(\"conflict\");"
   , "      }).catch((e) => log(`sheet restore failed: ${e.message}`));"
   , "    }"
@@ -2520,30 +2659,24 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    // `view-changed' close, and `g'.  Everything else that loses the socket"
   , "    // goes through `resync', which keeps the page it has."
   , "    function remount() { stash(); start(); }"
-  , "    // `g'.  Dropping onclose first stops the reconnect timer opening a"
-  , "    // second socket behind this one."
-  , "    function refresh() {"
+    -- `g': the view this tree configures, applied the way every other query is
+    -- — written into the URL and asked of the server.  It goes through the
+    -- mount because the chips are the renderer's and only a mount can be handed
+    -- a query it did not commit itself; `start' then reads the URL this just
+    -- wrote.  Dropping onclose first stops the reconnect timer opening a second
+    -- socket behind this one.
+  , "    function applyDefault(b) {"
+  , "      echo(`${b.seq} → ${DEFAULT_QUERY"
+  , "        ? `filter: ${JSON.stringify(DEFAULT_QUERY)}` : \"filter cleared\"}`);"
   , "      if (socket) { socket.onclose = null; socket.close(); socket = null; }"
   , "      backoff = 1000;"
-  , "      log(\"refreshing …\");"
+  , "      remember(DEFAULT_QUERY);"
   , "      remount();"
   , "    }"
   , ""
-  , "    // Keys.  The map is the JSON above — dispatch and echo read the one blob."
-  , "    // Movement comes from the active profile; the rest is shared by all."
+  , "    // Keys.  The map is the JSON above — dispatch and echo read the one blob,"
+  , "    // and there is one map: `n'/`j' both step a row, `f'/`l' both step a cell."
   , "    const MAPS = JSON.parse(el(\"keys\").textContent);"
-  , "    const kept = {"
-  , "      get() { try { return localStorage.getItem(\"glance-keys\"); } catch (e) { return null; } },"
-  , "      set(v) { try { localStorage.setItem(\"glance-keys\", v); } catch (e) { /* denied */ } },"
-  , "    };"
-  , "    // `?keys=NAME' picks a profile and is remembered; otherwise what was"
-  , "    // remembered; otherwise the name the blob calls its default."
-  , "    function wanted() {"
-  , "      const asked = new URLSearchParams(location.search).get(\"keys\");"
-  , "      if (asked && MAPS.profiles[asked]) { kept.set(asked); return asked; }"
-  , "      const saved = kept.get();"
-  , "      return saved && MAPS.profiles[saved] ? saved : MAPS.default;"
-  , "    }"
   , "    // The theme selector.  `auto' is the media query — the attribute comes"
   , "    // off — and light and dark pin `data-theme' on the root, which is what"
   , "    // this page's own variables and the renderer's overrides both key off."
@@ -2566,17 +2699,14 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      echo(`theme: ${e.target.value}`);"
   , "    });"
   , ""
-  , "    let profile = wanted();"
   -- The resident key line, under the log: what can run, where the echo pill
   -- says what just did.  The table is the blob's ('keyHints'), naming commands
   -- rather than keys, so the spelling comes out of the same rows the dispatch
-  -- reads and a profile switch rewrites the line.
+  -- reads.  A command two keys spell shows the FIRST of them, which is the
+  -- order 'keyBindings' lists it in.
   , "    function hints() {"
-  , "      // The profile's own spelling first: `n' is its row key, where the"
-  , "      // shared rows carry the arrows every profile agrees on."
-  , "      const rows = MAPS.profiles[profile].concat(MAPS.shared);"
   , "      const seq = (command) => {"
-  , "        const b = rows.find((x) => x.command === command && x.scope === \"table\");"
+  , "        const b = MAPS.rows.find((x) => x.command === command && x.scope === \"table\");"
   , "        return b && b.handler ? b.seq : null;   // a staged row is no offer"
   , "      };"
   , "      el(\"kbd\").textContent = MAPS.hints"
@@ -2585,26 +2715,7 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "        .map(([keys, label]) => `${keys.join(\"/\")} ${label}`)"
   , "        .join(\" · \");"
   , "    }"
-  , "    function setProfile(name) {"
-  , "      profile = name;"
-  , "      kept.set(name);"
-  , "      el(\"keysel\").value = name;"
-  , "      hints();   // the line is the map's, so it moves with the profile"
-  , "    }"
-  , "    // The options are the blob's own profiles — a profile cannot be offered"
-  , "    // and unbound — and a native select is keyboard-reachable as it stands:"
-  , "    // Tab to it, arrows through it, Enter or ESC out, no chord of its own."
-  , "    for (const name of Object.keys(MAPS.profiles)) {"
-  , "      const o = document.createElement(\"option\");"
-  , "      o.value = o.textContent = name;"
-  , "      el(\"keysel\").appendChild(o);"
-  , "    }"
-  , "    setProfile(profile);"
-  , "    el(\"keysel\").addEventListener(\"change\", (e) => {"
-  , "      setProfile(e.target.value);"
-  , "      prefix([]);"
-  , "      echo(`movement: ${profile}`);"
-  , "    });"
+  , "    hints();"
   , "    const NAMED = { Enter: \"RET\", Tab: \"TAB\", \" \": \"SPC\", Escape: \"ESC\","
   , "      Backspace: \"DEL\", Delete: \"<delete>\", ArrowUp: \"<up>\", ArrowDown: \"<down>\","
   , "      ArrowLeft: \"<left>\", ArrowRight: \"<right>\", Home: \"<home>\", End: \"<end>\","
@@ -2680,9 +2791,34 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      unmarkAll: (b) => {"
   , "        if (!marking()) { said(b, \"this table-view.js has no marks\"); return; }"
   , "        table.clearMarks();"
-  , "        echo(`${b.seq} → all marks cleared`);"
+  , "        if (flagging()) table.clearFlags();"
+  , "        echo(`${b.seq} → all marks and flags cleared`);"
   , "      },"
-  , "      refresh, focusFilter, toggleRaw, openSettings,"
+    -- `M' marks the whole loaded set, which is the renderer's call because the
+    -- set is the renderer's: a page it is not showing is still marked.
+  , "      markAll: (b) => {"
+  , "        if (!marking() || typeof table.markAll !== \"function\")"
+  , "          { said(b, \"this table-view.js has no mark-all\"); return; }"
+  , "        table.markAll();"
+  , "        echo(`${b.seq} → marked (${table.markedCount()})`);"
+  , "      },"
+    -- dired's `d', in two presses: the first flags the row and the second
+    -- archives it.  The flag IS the confirmation, so there is no prompt — and
+    -- the command is in ONCE, so a HELD `d' delivers exactly one press and can
+    -- never flag and archive from one keystroke.  `u' takes a flag off.
+  , "      archiveFlag: (b) => {"
+  , "        if (!flagging()) { said(b, \"this table-view.js has no archive flags\"); return; }"
+  , "        const id = focusedId();"
+  , "        if (!id) { said(b, \"no row\"); return; }"
+  , "        if (!isFlagged(id)) {"
+  , "          table.flagRow(id);"
+  , "          echo(`${b.seq} → flagged — d again archives`);"
+  , "          return;"
+  , "        }"
+  , "        table.unflagRow(id);"
+  , "        fire(b, \"archive\", [id], {}, \"archived\");"
+  , "      },"
+  , "      applyDefault, focusFilter, toggleRaw, openSettings,"
     -- One `save-buffer' over two sheets: whichever is up is what it syncs.
   , "      save: () => (settings ? saveConfig() : saveSheet()),"
     -- D is dired's key and org-glance's `delete', and here it archives: the tag
@@ -2700,7 +2836,7 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "        ask(`set state · ${ids.length} row${ids.length === 1 ? \"\" : \"s\"}`,"
   , "            stateChoices(),"
   , "            (c) => fire(b, \"set-state\", ids, { keyword: c.keyword },"
-  , "                        c.keyword === null ? \"cleared\" : c.keyword));"
+  , "                        c.keyword === null ? CLEAR : c.keyword));"
   , "      },"
   , "      quitWindow: () =>"
   , "        (editing ? leave() : log(\"q closes the sheet; there is no window to quit\")),"
@@ -2738,7 +2874,7 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      const k = keyName(e);"
   , "      if (!k) return;"
   , "      const keys = pending.concat([k]);"
-  , "      const here = MAPS.shared.concat(MAPS.profiles[profile]).filter(live);"
+  , "      const here = MAPS.rows.filter(live);"
   , "      // A row is in play while its keys open with the ones typed so far."
   , "      const opens = (b) => keys.every((key, i) => b.keys[i] === key);"
   , "      const hit = here.find((b) => b.keys.length === keys.length && opens(b));"
@@ -2978,8 +3114,8 @@ page head' title body = T.unlines
   -- narrow window cannot grow it into the table's room.
   , "  #kbd{flex:none;font-size:11px;color:var(--g-mute);white-space:nowrap;"
   , "    overflow-x:auto;padding:0 2px}"
-  -- The status corner: the connection dot, the theme and the movement profile,
-  -- together, clear of the table and out of the heading.
+  -- The status corner: the connection dot and the theme, together, clear of the
+  -- table and out of the heading.
   , "  #corner{position:fixed;top:12px;right:14px;z-index:3;display:flex;gap:6px;"
   , "    align-items:center;font-size:11px;color:var(--g-mute)}"
   , "  #corner:hover,#corner:focus-within{color:var(--g-fg)}"
@@ -3056,11 +3192,17 @@ page head' title body = T.unlines
   , "  .pkey{flex:1 1 40%}"
   , "  .pval{flex:2 1 50%}"
   , "  .prow input::selection{background:var(--g-sel);color:var(--g-fg)}"
-  -- The identity row's line, and the only thing on the panel that is not a
-  -- field: it says what editing that value costs.  Empty on every other row,
-  -- and taking no room there.
-  , "  .pnote{flex:1 0 100%;font-size:11px;color:var(--g-warn)}"
-  , "  .pnote:empty{display:none}"
+  -- The three planning rows: org's keys rather than the author's, so their key
+  -- cell is muted to say it is a label and not a field.  They sit above the
+  -- properties, which is where the file writes them.
+  , "  .pln .pkey{color:var(--g-mute)}"
+  -- The logbook: full width under both panes, muted, read-only and out of the
+  -- tab order — it is the server's, and there is nothing here to press.
+  , "  #mlog{display:none;flex:0 0 auto;max-height:22vh;overflow:auto;margin:0;"
+  , "    font:11px/1.5 var(--dk-mono);color:var(--g-mute);white-space:pre-wrap;"
+  , "    padding:6px 8px;border:1px solid var(--g-border);border-radius:4px}"
+  , "  #mlog.on{display:block}"
+  , "  #sheet.raw #mlog{display:none}"
   -- The value palette.  Narrow, since what it holds is a word: the title says
   -- what is being set and over how many rows, the field narrows the list, and
   -- the row under point wears the page's own selection colour.
@@ -3095,6 +3237,9 @@ page head' title body = T.unlines
   , "  .ctext{font:12px/1.5 var(--dk-mono);padding:6px;border-radius:4px;height:3.4em;"
   , "    border:1px solid var(--g-border);background:transparent;color:inherit;resize:vertical}"
   , "  .ctext::selection{background:var(--g-sel);color:var(--g-fg)}"
+  -- The default view, one line under the system layer's cycle.
+  , "  .cview{font:12px/1.5 var(--dk-mono);padding:6px;border-radius:4px;"
+  , "    border:1px solid var(--g-border);background:transparent;color:inherit}"
   -- What the server said about the last write to that layer, and nothing when
   -- it said nothing.
   , "  .cerr{font-size:11px;color:var(--g-bad)}"
@@ -3136,7 +3281,7 @@ page head' title body = T.unlines
   , "    #gear{display:inline-block;font:inherit;font-family:var(--glance-mono);"
   , "      min-width:44px;min-height:44px;border-radius:4px;"
   , "      border:1px solid var(--g-border);background:var(--g-bg);color:inherit}"
-  , "    #mtext,#pinput,.prow input,.ctext{font-size:16px}}"
+  , "    #mtext,#pinput,.prow input,.ctext,.cview{font-size:16px}}"
   , "</style>"
   -- The stored theme, applied before anything paints: a page that renders in
   -- the wrong one and corrects itself a frame later is a flash the selector
@@ -3157,6 +3302,22 @@ themeBoot = T.concat
   [ "try{var t=localStorage.getItem(\"glance-theme\");"
   , "if(t===\"light\"||t===\"dark\")document.documentElement.dataset.theme=t}"
   , "catch(e){}" ]
+
+-- | TEXT as a JavaScript string literal, escaped through the JSON encoder so
+-- the glue can carry a value the tree supplies without a quoting rule of its
+-- own.  The angle brackets go the way 'keyBindingsJSON' sends them: the literal
+-- sits inside a @\<script\>@ element, where @\<\/@ closes it whatever the JSON
+-- says.
+jsonText :: Text -> Text
+jsonText = jsonLiteral . toJSON
+
+-- | XS as a JavaScript array literal, escaped the same way.
+jsonList :: [Text] -> Text
+jsonList = jsonLiteral . toJSON
+
+jsonLiteral :: Value -> Text
+jsonLiteral = T.replace "<" "\\u003c" . T.replace ">" "\\u003e"
+            . TE.decodeUtf8 . BL.toStrict . encode
 
 -- | T with the five characters that would leave text mode escaped.
 escape :: Text -> Text

@@ -58,9 +58,15 @@ let served = +total;
 // raw text, and the body with the drawer lifted out — plus the digest a write
 // is pinned to.  The split is the server's, so what the sheet gets here is what
 // a real one would hand it.
-const org = "* TODO one\n:PROPERTIES:\n:ORG_GLANCE_ID: r1\n:EFFORT: 0:30\n:END:\n";
+// `ORG_GLANCE_ID' is in the org text and NOT in the properties: it is a hidden
+// key the server keeps for itself, so the panel never sees it and never sends
+// it back.  The planning line and the logbook are the other two regions.
+const org = "* TODO one\nSCHEDULED: <2026-08-01 Sat>\n:PROPERTIES:\n"
+  + ":ORG_GLANCE_ID: r1\n:EFFORT: 0:30\n:END:\n:LOGBOOK:\n- moved here\n:END:\n";
 const body = "* TODO one\n";
-const properties = [["ORG_GLANCE_ID", "r1"], ["EFFORT", "0:30"]];
+const properties = [["EFFORT", "0:30"]];
+const planning = [["SCHEDULED", "<2026-08-01 Sat>"]];
+const logbook = ":LOGBOOK:\n- moved here\n:END:\n";
 let digest = "d0";
 // Every POST /headline body, which is the whole of what a sync can be observed
 // to have written: the rows come back over a socket this harness does not run.
@@ -80,6 +86,9 @@ let layers = [
 ];
 const configWrites = [];
 let configTick = 1;
+// The default view `system.org' names, which `g' applies and the settings sheet
+// edits beside that layer's cycle.
+let viewQuery = "state:*active*";
 
 globalThis.location = { search, protocol: "http:", host: "h", pathname: "/" };
 globalThis.history = {
@@ -117,7 +126,8 @@ globalThis.fetch = (url, init) => {
   }
   if (String(url) === "/config") {
     if ((init || {}).method !== "POST")
-      return answer(200, { layers, keywords: { active: ["TODO"], inactive: ["DONE"] } });
+      return answer(200, { layers, filter: viewQuery,
+                           keywords: { active: ["TODO"], inactive: ["DONE"] } });
     const sent = JSON.parse((init || {}).body || "{}");
     configWrites.push(sent);
     // The digest is the whole of the lock, an absent file's empty one included,
@@ -127,6 +137,9 @@ globalThis.fetch = (url, init) => {
       return answer(409, { reason: "drift", digest: (layer || {}).digest || "",
                            error: "the config file changed on disk since it was read" });
     layer.lines = (sent.lines || []).filter(Boolean);
+    // The default view is a line of the same file, so it rides in the same
+    // write and under the same digest — never a second request.
+    if (sent.filter !== undefined) viewQuery = sent.filter;
     layer.digest = `c${(configTick += 1)}`;
     return answer(200, { path: sent.path, digest: layer.digest });
   }
@@ -135,7 +148,8 @@ globalThis.fetch = (url, init) => {
       writes.push(JSON.parse((init || {}).body || "{}"));
       return answer(200, { digest });
     }
-    return answer(200, { id: "r1", file: "a.org", org, body, properties, digest });
+    return answer(200,
+      { id: "r1", file: "a.org", org, body, properties, planning, logbook, digest });
   }
   return answer(404, {});
 };
@@ -153,7 +167,7 @@ let held = "";
 let mounts = 0, sets = 0, raises = 0;
 // The renderer's own state, which the shell keeps no copy of: where the cursor
 // is, whether it was asked for marks, and which ids carry one.
-let cursor = 0, marksOn = false, marks = new Set();
+let cursor = 0, marksOn = false, hintsOn = true, marks = new Set(), flags = new Set();
 /** The live handle, so `bare' can take calls off the one the shell is holding. */
 let handle = null;
 /** Set by `bare': this asset never had marking, remounts included. */
@@ -163,8 +177,10 @@ globalThis.TableView = {
     mounts += 1;
     held = (options || {}).initialQuery || "";
     marksOn = (options || {}).marks === true;
+    hintsOn = (options || {}).actionHints !== false;
     cursor = 0;
     marks = new Set();
+    flags = new Set();
     handle = {
       setRows: () => { sets += 1; },
       getQuery: () => held,
@@ -193,6 +209,13 @@ globalThis.TableView = {
       getMarked: () => [...marks],
       clearMarks: () => marks.clear(),
       markedCount: () => marks.size,
+      markAll: () => { for (const r of rows) marks.add(r.id); },
+      // Archive flags, keyed by id the way marks are: `d' puts one on and a
+      // second `d' on the same row is what archives it.
+      flagRow: (id) => flags.add(id),
+      unflagRow: (id) => flags.delete(id),
+      getFlagged: () => [...flags],
+      clearFlags: () => flags.clear(),
       // What the renderer's palette does: the overlay goes up and its field
       // takes focus, which is the whole of what the shell can see of it.
       openFilter: () => { raises += 1; field("filter").focus(); },
@@ -204,7 +227,8 @@ globalThis.TableView = {
   displayText: (s) => String(s || ""),
 };
 /** The mark calls off the live handle: what an older table-view.js looks like. */
-const MARK_CALLS = ["toggleMark", "getMarked", "clearMarks", "markedCount"];
+const MARK_CALLS = [ "toggleMark", "getMarked", "clearMarks", "markedCount"
+                   , "markAll", "flagRow", "unflagRow", "getFlagged", "clearFlags" ];
 const strip = () => { for (const name of MARK_CALLS) delete handle[name]; };
 globalThis.localStorage = { getItem: () => null, setItem: () => {} };
 globalThis.matchMedia = () => ({ matches: false, addEventListener: () => {} });
@@ -262,7 +286,7 @@ const make = (tag) => {
   return e;
 };
 const field = (id) => (fields[id] = fields[id] || make(TAGS[id] || "div"));
-const STATEFUL = [ "mtext", "mnote", "mfile", "modal", "mprops", "sheet"
+const STATEFUL = [ "mtext", "mnote", "mfile", "modal", "mprops", "mlog", "sheet"
                  , "echo", "prompt", "phead", "pinput"
                  , "config", "cnote", "clayers", "ceff" ];
 // The page's own key dispatch, kept so a press can be delivered to it.
@@ -296,12 +320,12 @@ eval(fs.readFileSync(dir + "/shell.js", "utf8"));
 // Whether the dispatch CLAIMED a key is recorded, because that is the half of
 // the reserved-chord rule behaviour can otherwise not show: a chord the page
 // leaves to the browser and one it takes both look like nothing happening.
-const press = (name) => {
+const press = (name, repeating) => {
   const ctrl = name.startsWith("C-"), shift = name.startsWith("S-");
   const event = {
     key: ctrl || shift ? name.slice(2) : name,
     ctrlKey: ctrl, altKey: false, metaKey: false, shiftKey: shift,
-    repeat: false, target: node, preventDefault: () => prevented.push(name),
+    repeat: !!repeating, target: node, preventDefault: () => prevented.push(name),
   };
   for (const handler of pressed) handler(event);
 };
@@ -364,6 +388,10 @@ const ACTIONS = {
   recolumn: () => { step(); columns = columns.concat([{ key: "deadline" }]); },
   rewritten: () => { digest = "d1"; },
   press: (key) => press(key),
+  // The same key delivered as an AUTO-REPEAT, which is what the ONCE list is
+  // about: the dispatch claims it either way and runs it only when it is not
+  // one of the commands a hold must not repeat.
+  repeat: (key) => press(key, true),
   type: (text) => {
     const box = field("pinput");
     box.value = text;
@@ -377,6 +405,8 @@ const ACTIONS = {
   // And into the settings sheet: `ctext:0=#+TODO: A | B' is the box of layer 0,
   // which is the file's `#+TODO:' lines as the sheet edits them.
   ctext: (arg) => typeInto("clayers", 1, arg),
+  // And the default view, which is the system layer's third child.
+  cview: (arg) => typeInto("clayers", 2, arg),
   // Every config layer moves out from under the sheet, which is the drift a
   // second writer causes.
   cmoved: () => { for (const l of layers) l.digest = "gone"; },
@@ -422,12 +452,13 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     // every POST the syncs sent.
     props: panel(), pat: patAt(), pnav: field("mprops").className === "on",
     focus: focused(),
-    notes: field("mprops").children.map((row) => row.children[2].textContent)
-      .filter(Boolean),
+    // The logbook strip: shown, never focusable, never written.
+    logbook: field("mlog").textContent,
     shape: field("sheet").className, writes,
     // The renderer's side of marking, and the last thing the echo pill said —
     // which is where a key that could not do what it was asked reports it.
-    marksOn, marked: [...marks], cursor, echo: field("echo").textContent,
+    marksOn, hintsOn, marked: [...marks], flagged: [...flags], cursor,
+    echo: field("echo").textContent,
     // The value palette, and what the keys posted through it.
     prompt: field("prompt").className, phead: field("phead").textContent, commands,
     // Which keys the dispatch took off the browser, in press order.
@@ -436,6 +467,9 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     // each layer is showing, the union it previews, and every write it sent.
     settings: field("config").className, cstate: field("cnote").className,
     cshown: field("clayers").children.map((row) => row.children[1].value),
+    // What the default-view field is showing, and what the server holds now.
+    cview: ((field("clayers").children[0] || { children: [] }).children[2] || {}).value,
+    served: viewQuery,
     ceff: field("ceff").textContent, configWrites,
   });
   // Exit on the write's own callback: a keystroke leaves the echo pill's timer

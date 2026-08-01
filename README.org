@@ -142,24 +142,31 @@ reconnecting.
 
 *Materialize a headline.* The view declares one action — =RET → materialize= —
 so hitting =RET= on the selected row (or double-clicking it) opens that
-headline over the table as *two panes*: a textarea holding the subtree's text —
-stars, planning line, body and every child, exactly as the file spells them —
-and a *properties panel* beside it holding the headline's own drawer, a row per
-property in the order the file writes them. =ORG_GLANCE_ID= is shown like any
-other row, with a line under it saying what it is — the row id *is* that value,
-so renaming it renames the row.
+headline over the table as *two panes and a strip*: a textarea holding the
+subtree's text — stars, body and every child, exactly as the file spells them —
+a *panel* beside it holding the headline's planning entries and its own property
+drawer, and the *logbook* along the bottom.
+
+The panel is one list of rows. The first three are fixed — =SCHEDULED=,
+=DEADLINE=, =CLOSED=, in org's order, empty where the headline has no entry —
+and hold the timestamp text verbatim; clearing all three is how the planning
+line comes off. Under them sit the drawer's properties, in the order the file
+writes them. =ORG_GLANCE_ID= is in neither pane: it is the row id the table keys
+its updates off, so the server keeps it and puts it back itself. The logbook
+strip is read-only, out of Tab and out of every write — it shows the drawer's
+lines and the server re-splices the drawer whole.
 
 *The panel is modal*, dired's shape rather than a form's. In *nav* the rows are
 read-only text with a cursor on one of them and nothing focusable at all, which
 is what leaves the plain letters free: =n= / =p= and =j= / =k= both move the
-cursor, under either profile, and so do the arrows. =RET= opens the row at
-point, and only then are there fields to type into: the value takes the focus,
-except on the trailing empty row, where the key does. Inside an open row =TAB=
-hops between its two fields, =RET= commits it and goes back to nav, and =ESC=
-puts back the text the row was opened on. The last row is always empty: commit
-something into it and the next empty one appears under it, cursor and all, which
-is the whole of the "add" affordance, since there is nothing to press. Empty a
-key and that property is deleted on the next sync.
+cursor, and so do the arrows. =RET= opens the row at point, and only then are
+there fields to type into: the value takes the focus, and the key takes it where
+there is not one yet. A planning row opens its value alone — org owns that key.
+Inside an open row =TAB= hops between its two fields, =RET= commits it and goes
+back to nav, and =ESC= puts back the text the row was opened on. =+= adds an
+empty property at the end and opens it, which is the whole of the "add"
+affordance: a key, since there is nothing to press. Empty a key and that
+property is deleted on the next sync.
 
 =TAB= crosses between the panes — out of the text into the panel's cursor, out
 of nav back into the text — and the cursor is where you left it. There are two
@@ -192,34 +199,48 @@ deliberate: the split between body and drawer is the *server's*, and there is no
 org parser in the page to do it locally.
 
 A property nobody edited is written back as the very line it came in on —
-spacing, indentation and all. Only a value you changed is re-rendered, as
-=:KEY: value= under whatever indentation the drawer already uses. Decompose and
-recompose an untouched headline and the file is byte-identical. The same round
-trip from a shell, =id= being the row id the view carries:
+spacing, indentation and all — and so is a planning entry nobody changed. Only a
+value you changed is re-rendered, as =:KEY: value= under whatever indentation the
+drawer already uses, or as =KEYWORD: <stamp>= on the planning line. Decompose and
+recompose an untouched headline and the file is byte-identical, permuted planning
+lines included. The same round trip from a shell, =id= being the row id the view
+carries:
 
 #+begin_src sh
 curl -s -G --data-urlencode 'id=ROW-ID' localhost:7777/headline
-# → {"org": …, "body": …, "properties": [["ORG_GLANCE_ID", "…"], …], "digest": …, "span": …}
+# → {"org": …, "body": …, "properties": [["EFFORT", "0:30"], …],
+#    "planning": [["SCHEDULED", "<2026-08-01 Sat>"], …], "logbook": …,
+#    "digest": …, "span": …}
 
 # The whole subtree, as before:
 curl -s -X POST -H 'content-type: application/json' \
      -G --data-urlencode 'id=ROW-ID' localhost:7777/headline \
      --data-binary '{"org": "* DONE …\n", "digest": "<the digest the GET returned>"}'
 
-# Or the two panes apart, which is what the sheet sends:
+# Or the parts apart, which is what the sheet sends:
 curl -s -X POST -H 'content-type: application/json' \
      -G --data-urlencode 'id=ROW-ID' localhost:7777/headline \
      --data-binary '{"body": "* DONE …\n", "properties": [["EFFORT", "0:45"]],
+                     "planning": [["CLOSED", "[2026-08-01 Sat]"]],
                      "digest": "<the digest the GET returned>"}'
 #+end_src
 
 Both shapes take the same optimistic lock and the same 409s; naming both in one
-body is a 400, and an empty =properties= list removes the drawer.
+body is a 400, and an empty =properties= list removes the drawer. Two things are
+the *server's* and are in neither shape: =ORG_GLANCE_ID=, which is the row id, and
+the =:LOGBOOK:= drawer. They are lifted out of what you are shown and put back
+verbatim whatever you send, so a sync that never mentions them cannot move them.
+A planning value that no timestamp parser would read back is a 409 naming the
+field, with nothing written.
 
-*Settings: the keyword cycles, from the page.* =C-c C-,= opens a second sheet
-over the table, one section per keyword layer: =system.org= for the whole tree,
-then a section per =tags/TAG.org=, then a read-only preview of the union they
-add up to. Each editable section is one box holding that file's =#+TODO:= lines
+*Settings: the keyword cycles and the default view, from the page.* =,= opens a
+second sheet over the table, one section per keyword layer: =system.org= for the
+whole tree, then a section per =tags/TAG.org=, then a read-only preview of the
+union they add up to. The system section carries one field more — the *default
+view*, the query =g= applies and the query a bare page opens on. It is the
+=#+GLANCE_DEFAULT_FILTER:= line of that same file, so it rides in that section's
+own write: one file, one digest, one splice. Empty it and the tree goes back to
+the built-in =state:*active*=. Each editable section is one box holding that file's =#+TODO:= lines
 *verbatim* — the config files are org and that line is the contract, so what you
 edit is the line rather than a chip UI over a guess at what it means. A tree
 that has never had a =system.org= still lists it, marked =not created yet=: type
@@ -318,39 +339,48 @@ and only the rows are narrowed.
 own command names, and echoes what it did in a pill in the bottom corner — the
 pending prefix while one is open (=C-c -=), the command and its help line on
 completion (=C-c C-t → org-glance-overview:todo=), =C-c z is undefined=
-otherwise, and the prefix drops after two seconds. Movement drives the renderer's own row selection, and comes
-in an =emacs= profile and a =vim= one.
+otherwise, and the prefix drops after two seconds.
 
-Both key profiles share everything that is not movement:
+There is *one map*. The =emacs= and =vim= movement profiles are gone, and what
+replaced them is both spellings bound at once: a table has no text field to
+compete with, so =n= and =j= can both step a row and cost a table row each —
+where a profile cost a selector in the corner, a remembered choice, a =?keys==
+parameter and a key line that had to be rewritten whenever it moved.
 
-| key       | command                           | now                                       |
-|-----------+-----------------------------------+-------------------------------------------|
-| =<down>=  | =next-row=                        | moves the selected row                    |
-| =<up>=    | =previous-row=                    | moves the selected row                    |
-| =,= =<=   | =first-row=                       | first row on the page                     |
-| =.= =>=   | =last-row=                        | last row on the page                      |
-| =]=       | =next-page=                       | turns a page; echoes =page 3/129=         |
-| =[=       | =previous-page=                   | turns one back                            |
-| =RET=     | =org-glance-overview:materialize= | opens the sheet                           |
-| =/=       | =filter-rows=                     | summons the filter palette                |
-| =m=       | =mark-toggle=                     | marks this row and steps down             |
-| =u=       | =unmark=                          | unmarks this row and steps down           |
-| =U=       | =unmark-all=                      | clears every mark                         |
-| =q=       | =quit-window=                     | closes the sheet; never the tab           |
-| =DEL=     | =filter-drop-token=               | drops the filter's last token             |
-| =C-x C-s= | =save-buffer=                     | syncs the sheet; again to overwrite       |
-| =C-c '=   | =org-edit-special=                | sheet as raw org, or as body + properties |
-| =ESC=     | =keyboard-quit=                   | closes the sheet, syncing it first        |
-| =TAB=     | =org-cycle=                       | staged — daemon commands (M4)             |
-| =!=       | =org-glance-overview:open=        | staged                                    |
-| =a=       | =org-glance-agenda=               | staged                                    |
-| =@=       | =org-glance-overview:relations=   | staged                                    |
-| =+=       | =org-glance-overview:capture=     | staged                                    |
-| =D=       | =org-glance-overview:delete=      | archives the marked rows, or the one at point |
-| =C-c C-t= | =org-glance-overview:todo=        | asks which state, and sets it on them     |
-| =C-c C-s= | =org-glance-overview:schedule=    | staged                                    |
-| =C-c C-d= | =org-glance-overview:deadline=    | staged                                    |
-| =C-c C-,= | =customize=                       | the keyword cycles, a config layer at a time |
+| key         | command                           | now                                           |
+|-------------+-----------------------------------+-----------------------------------------------|
+| =n= =j= =<down>= | =next-row=                   | moves the selected row                        |
+| =p= =k= =<up>=   | =previous-row=               | moves the selected row                        |
+| =f= =l=     | =next-column=                     | the cell to the right                         |
+| =b= =h=     | =previous-column=                 | the cell to the left                          |
+| =<=         | =first-row=                       | first row on the page                         |
+| =>= =G=     | =last-row=                        | last row on the page                          |
+| =]=         | =next-page=                       | turns a page; echoes =page 3/129=             |
+| =[=         | =previous-page=                   | turns one back                                |
+| =RET=       | =org-glance-overview:materialize= | opens the sheet                               |
+| =/=         | =filter-rows=                     | summons the filter palette                    |
+| =DEL=       | =filter-drop-token=               | drops the filter's last token                 |
+| =g=         | =apply-default-filter=            | the view this tree opens on                   |
+| =m=         | =mark-toggle=                     | marks this row and steps down                 |
+| =u=         | =unmark=                          | clears this row's flag, else its mark         |
+| =U=         | =unmark-all=                      | clears every mark and every flag              |
+| =M=         | =mark-all=                        | marks every row loaded                        |
+| =d=         | =archive-flag=                    | flags this row; =d= again archives it         |
+| =D=         | =org-glance-overview:delete=      | archives the marked rows, or the one at point |
+| =t=         | =org-glance-overview:todo=        | asks which state, and sets it on them         |
+| =,=         | =customize=                       | the keyword cycles and the default view       |
+| =q=         | =quit-window=                     | closes the sheet; never the tab               |
+| =C-x C-s=   | =save-buffer=                     | syncs the sheet; again to overwrite           |
+| =C-c '=     | =org-edit-special=                | sheet as raw org, or as body + properties     |
+| =ESC=       | =keyboard-quit=                   | closes the sheet, syncing it first            |
+| =TAB=       | =org-cycle=                       | staged — daemon commands (M4)                 |
+| =o= =!=     | =org-glance-overview:open=        | staged                                        |
+| =a=         | =org-glance-agenda=               | staged                                        |
+| =@=         | =org-glance-overview:relations=   | staged                                        |
+| =+=         | =org-glance-overview:capture=     | staged                                        |
+| =C-c C-t=   | =org-glance-overview:todo=        | the org spelling of =t=                       |
+| =C-c C-s=   | =org-glance-overview:schedule=    | staged                                        |
+| =C-c C-d=   | =org-glance-overview:deadline=    | staged                                        |
 
 *One of those does not survive the browser.* =C-c C-t= is bound, dispatched and
 claimed by the page — and in Chromium the second chord never arrives, because
@@ -360,44 +390,28 @@ half is correct and tested; there is nothing a page can do about the other half.
 Until the binding is moved, set a state from the shell (=POST /command= above)
 or from Emacs.
 
-*Movement* is the part that differs. =emacs= is org-glance's overview map, and
-the default:
-
-| key   | =emacs=                                   | =vim=                   |
-|-------+-------------------------------------------+-------------------------|
-| down  | =n=                                       | =j=                     |
-| up    | =p=                                       | =k=                     |
-| right | =f= → =next-column=                       | =l= → same              |
-| left  | =b= → =previous-column=                   | =h= → same              |
-| top   | =,= =<=                                   | =,= =<= =gg=            |
-| end   | =.= =>=                                   | =.= =>= =G=             |
-|       | =g= → =org-glance-overview:refresh=       | =R= → same              |
-|       | =j= → =org-glance-overview:open= (staged) | =!= carries it (shared) |
-
-Two rows move to make room under =vim=, and both moves are why the profiles are
-data rather than a second dispatch: =j= is down there, so the open-stub is left
-to =!= — which =org-glance-overview-mode-map= already carries, as its
-dired-execute rhyme — and =g= is a prefix rather than a command, so refresh goes
-to =R= and reads as vi's reload. Nothing binds a bare =g= under =vim=: a
-complete sequence that also opens a longer one would leave =gg= unreachable.
+No sequence is bound twice, and none opens a longer one — which is why =gg= and
+=dd= are not in the map: a complete sequence that also opens a longer one leaves
+the longer one unreachable.
 
 Horizontal movement selects a *cell*. =f= and =b= are org-glance's same-level
 keys one granularity down — where the overview walks headlines with them, a
-table walks the cells of a row — and =vim= spells the same two commands =l= and
-=h=. A row selection starts with no column and looks exactly as it always did;
+table walks the cells of a row — and =l= and =h= are the same two commands under
+vi's spelling. A row selection starts with no column and looks exactly as it always did;
 the first horizontal key lands on the first column whichever direction asked
 for it, and from there =n=/=p= (=j=/=k=) carry that column down the table.
 Walking off either edge stays on it. The echo names where it landed by the
 column's own header — =f → next-column (Headline)=, or =f → next-column (at
 last)= at the edge. The column lives in the renderer's selection rather than in
-the page, so switching profiles mid-table keeps it and clearing the selection
-takes it with it.
+the page, so it rides along with row movement and clearing the selection takes
+it with it.
 
 Rows *mark* the way dired's do. =m= toggles the mark on the row under the cursor
 and steps to the next, so a held =m= walks a column laying marks down; =u= only
 ever takes one off, and steps too, so a held =u= clears a column rather than
-flickering it; =U= drops the lot. Each echoes the count the renderer keeps
-(=m → marked (3)=, =U → all marks cleared=), and the renderer's own status line
+flickering it; =U= drops the lot and =M= marks every row loaded, the page it is
+not showing included. Each echoes the count the renderer keeps
+(=m → marked (3)=, =U → all marks and flags cleared=), and the renderer's own status line
 leads with =3 marked ·= while any stand. The marks themselves are the
 renderer's, keyed by row id: a marked row that a filter hides, that a page turn
 leaves behind or that a sort moves is still marked, and still counted, because
@@ -413,15 +427,20 @@ Row movement crosses the boundary by itself: =n= off the last row of a page
 lands on the first row of the next, =p= off the first lands on the previous
 page's last, and the column rides along either way. Where the page ends is the
 renderer's to know, since only it knows there is one. The buffer-ends keys reach
-the ends of the page on show — =,= and =.=, and =gg= and =G= under =vim= — so
-=[= and =]= are how you leave it.
+the ends of the page on show — =<= and =>=, with =G= beside =>= — so =[= and =]=
+are how you leave it.
 
-Switch in the status corner, top right: the connection dot, a =theme:= selector
-and a =keys:= selector sit there in that order. The keymap one rebinds in place,
-echoes =movement: vim=, and remembers the choice in =localStorage= under
-=glance-keys=; =?keys=vim= in the URL picks a profile and remembers it too. Both
-are native =select= elements, so Tab reaches them and the arrows walk them
-without a chord of their own.
+*Archiving is two presses.* =d= flags the row under the cursor and says so
+(=d → flagged — d again archives=); a second =d= on that same row archives it.
+The flag is the confirmation, so there is no prompt and no undo to build — =u=
+takes a flag off before it touches a mark, and =U= clears both. Flags are keyed
+by row id like marks, so one survives a filter, a page turn and a re-sort. =D=
+is the mass action and is unchanged: the marked set, or the row at point. Both
+are held-key-safe — a key you lean on delivers exactly one press.
+
+Switch in the status corner, top right: the connection dot and a =theme:=
+selector, in that order. It is a native =select=, so Tab reaches it and the
+arrows walk it without a chord of its own.
 
 *Light or dark, and no flash either way.* =theme:= offers =auto=, =light= and
 =dark=. =auto= follows the system's =prefers-color-scheme= and is the default;
@@ -434,11 +453,10 @@ flashes light on the way in. The whole page wears danneskjold through one set of
 materialize sheet keeps a single =--dk-mono= of its own, the Hack font stack.
 
 The page's last line is that map, resident: =n/p rows · f/b cells · [/] pages ·
-RET materialize · / filter · g refresh · DEL drop token · q quit= under =emacs=, and
-=j/k=, =l/h= and =R= in their places under =vim=. It is named by command and
-spelled from the same blob the dispatch reads, so switching profiles rewrites it
-and it can never offer a key nothing is bound to. The pill says what just ran;
-the line says what can.
+RET materialize · m/u/U/M mark · t state · d archive · D archive marked ·
+/ filter · g default view · DEL drop token · , settings · q quit=. It is named by
+command and spelled from the same blob the dispatch reads, so it can never offer
+a key nothing is bound to. The pill says what just ran; the line says what can.
 
 The page itself never scrolls. It is one column the height of the window — the
 table, the log under it taking whatever is left, the key line last — and the two
@@ -454,8 +472,7 @@ holding them, which it does with nothing focused at all; the exceptions are
 memory work, over the properties panel as much as in its textarea. =C-c= and =C-x= become
 prefixes only with the selection collapsed, so a copy or a cut is still one, and
 =C-l=, =C-r=, =C-t=, =C-w=, =C-n=, =C-p= and =<f5>= always reach the browser —
-which is why neither profile moves on =C-n= or =C-p=, however much Emacs would
-like to.
+which is why nothing moves on =C-n= or =C-p=, however much Emacs would like to.
 
 *On a touch device there are no keys*, which is the one exception the
 keyboard-first rule makes. A coarse pointer gets the chip row as a tap target —

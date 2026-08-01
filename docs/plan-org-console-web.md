@@ -902,6 +902,48 @@ alone. (3) Only then, the shell: a mount option and a corner control, with the
 suite's shell contracts extended rather than worked around. Until (1) and (2)
 are answered the flags stay where they are and cost nothing to remove.
 
+## One keymap, three lens regions, and a configurable default view (2026-08-01)
+
+Seven changes landed together because they all reach the same two files.
+
+**The movement profiles are gone.** `keyBindings` is one table; the blob is
+`{rows, hints, reserved, once}`. Both spellings of movement are bound at once
+(`n`/`j`, `p`/`k`, `f`/`l`, `b`/`h`), which costs a row each where a profile cost
+a `<select>` in the corner, a `localStorage` key, a `?keys=` parameter, a
+`setProfile`, and a key line that had to be rewritten whenever the profile moved.
+`gg` and `R` died with it; `<`/`>` are the ends with `G` beside `>`, `,` is
+`customize` (the `C-c C-,` chord went — Chromium had no quarrel with it, but a
+single key is what the rest of the map reads like), `.` is unbound, `o` joins `!`
+as the open stub, and `g` is the new `apply-default-filter`. `refresh` had no key
+left and the function went with it; `remount` still has callers.
+
+**`d` is dired's flag.** First press flags, second press on the same row
+archives, `u` clears a flag before a mark, `U` clears both, `D` is unchanged as
+the mass action. In `ONCE`, which is load-bearing here rather than polite: a
+held `d` that reached the handler twice would flag and archive from one press.
+**The renderer half is a handoff** — `flagRow`/`unflagRow`/`getFlagged`/
+`clearFlags` and a `.tv-flagged` wash are a `table-view.js` change this repo does
+not make. The shell feature-detects the pair, so the key is inert and honest
+until they land.
+
+**The lens grew from one region to three.** Planning line, property drawer,
+logbook. Two things became SERVER-PRESERVED: `hiddenProperties`
+(`ORG_GLANCE_ID`) and the whole logbook — lifted out of what a client sees, put
+back verbatim whatever it sends. `POST /headline`'s split shape now owes
+`planning` beside `properties`. The one real bug the new tests caught: region
+line indices have to be the BODY's, not the subtree's, or a drawer whose planning
+line has just come off lands a line late.
+
+**The default view is configurable.** `#+GLANCE_DEFAULT_FILTER:` in
+`system.org`, absent meaning `state:*active*`; embedded into the served page off
+the store per request; `g` applies it through the ordinary commit path; the
+settings sheet edits it as one field beside the system layer's cycle, splicing
+both in one write because they are lines of one file.
+
+**Still open.** The renderer flag API above; and `table-view.js`'s `markAll()`
+and `actionHints` are already in at HEAD 732ac69, so `M` and the hint suppression
+work against a current asset and degrade honestly against an older one.
+
 ## Dependency order
 
 S1 → S2 → S3 → S5 → S5.5 → S7 → S8 → S9; S4 after S2; S6 after S2. S4/S5/S6 can
