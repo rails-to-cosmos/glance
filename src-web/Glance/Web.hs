@@ -64,9 +64,10 @@ module Glance.Web ( ServeOptions (..)
                   , defaultAssetsDir
                   , defaultPort
                   , application
+                  , bannerLines
                   , bootstrapWanted
                   , serve
-                  , serveWith
+                  , serveAs
                   , viewTitleFor
                   ) where
 
@@ -161,11 +162,16 @@ rendererAsset = "table-view.js"
 
 -- | Serve OPTS until killed.
 serve :: ServeOptions -> IO ()
-serve opts = serveWith opts (pure ())
+serve opts = serveAs "serve" opts (pure ())
 
 -- | Serve OPTS until killed, running LISTENING once the socket is bound and
 -- accepting.  A missing org directory fails here rather than per request: the
 -- operator learns at startup, not from a 500.
+--
+-- MODE is the subcommand that asked — one daemon either way, and what the
+-- banner and the startup failure call it, so @glance desktop@ does not report
+-- itself as @glance serve@ in the one place a reader looks to see which they
+-- started.
 --
 -- The walk does not happen first.  Warp binds, @LISTENING@ runs, and the one
 -- full parse runs in its own thread — over @~\/sync@ that is 15 seconds during
@@ -177,10 +183,10 @@ serve opts = serveWith opts (pure ())
 -- LISTENING is what @glance desktop@ opens its window from, and the socket is
 -- where a window is wanted: the indexing page is the point of serving before the
 -- load.  It runs on its own thread — the accept loop waits for no window.
-serveWith :: ServeOptions -> IO () -> IO ()
-serveWith opts listening = do
+serveAs :: String -> ServeOptions -> IO () -> IO ()
+serveAs mode opts listening = do
   ok <- doesDirectoryExist (soDir opts)
-  unless ok (die ("glance serve: no such directory: " <> soDir opts))
+  unless ok (die ("glance " <> mode <> ": no such directory: " <> soDir opts))
   assets <- hasRenderer opts
   started <- getMonotonicTime
   hub <- newLoadingHub started
@@ -193,18 +199,24 @@ serveWith opts listening = do
                    . Warp.setBeforeMainLoop ready
                    $ Warp.defaultSettings
     announce assets = do
-      mapM_ putStrLn
-        [ "glance serve — http://127.0.0.1:" <> show (soPort opts) <> "/"
-        , "  org dir: " <> soDir opts
-        , "  assets:  " <> soAssets opts <> if assets then "" else "  (missing — /headlines only)"
-        , "  live:    ws://127.0.0.1:" <> show (soPort opts) <> "/ws, watching " <> soDir opts
-        , "  bound to 127.0.0.1; no auth tier before S7."
-        , "  indexing — /headlines, /headline and /ws answer 503 until the walk lands."
-        ]
+      mapM_ putStrLn (bannerLines mode opts assets)
       -- Redirected stdout is block-buffered, and the process then blocks in warp
       -- until it is killed: without this the banner never reaches the log.
       hFlush stdout
       void (forkIO listening)
+
+-- | What OPTS announces at startup under MODE, ASSETS saying whether the
+-- renderer was found.  Pure, the way @Glance.Desktop@'s @--dry-run@ lines are:
+-- what the operator is told is worth a test that runs no server.
+bannerLines :: String -> ServeOptions -> Bool -> [String]
+bannerLines mode opts assets =
+  [ "glance " <> mode <> " — http://127.0.0.1:" <> show (soPort opts) <> "/"
+  , "  org dir: " <> soDir opts
+  , "  assets:  " <> soAssets opts <> if assets then "" else "  (missing — /headlines only)"
+  , "  live:    ws://127.0.0.1:" <> show (soPort opts) <> "/ws, watching " <> soDir opts
+  , "  bound to 127.0.0.1; no auth tier before S7."
+  , "  indexing — /headlines, /headline and /ws answer 503 until the walk lands."
+  ]
 
 -- | Walk and parse OPTS's directory into HUB, then watch it.  Runs off the
 -- main thread from STARTED, and keeps the two in order: the watch's first
@@ -1283,9 +1295,14 @@ keyBindings =
   , bind ["h"]          "previous-column"                 (Just "previousColumn") "table"
       `helps` previousColumnHelp
   -- The ends of the buffer, org-glance's own pair, plus vi's @G@ beside @>@.
+  -- Progressive: the page's end row, then the previous or next page's, so the
+  -- pair reaches the ends of the whole set without reaching for the brackets.
   , bind ["<"]          "first-row"                       (Just "firstRow")       "table"
+      `helps` firstRowHelp
   , bind [">"]          "last-row"                        (Just "lastRow")        "table"
+      `helps` lastRowHelp
   , bind ["G"]          "last-row"                        (Just "lastRow")        "table"
+      `helps` lastRowHelp
   , bind ["]"]          "next-page"                       (Just "nextPage")       "table"
   , bind ["["]          "previous-page"                   (Just "previousPage")   "table"
   , bind ["RET"]        "org-glance-overview:materialize" (Just "materializeRow") "table"
@@ -1347,6 +1364,13 @@ nextColumnHelp, previousColumnHelp :: Text
 nextColumnHelp     = "the cell to the right; row movement keeps the column"
 previousColumnHelp = "the cell to the left; from a whole row, the first column"
 
+-- | The buffer-end help lines: each key takes the page's end row, and taking it
+-- again turns the page onto the SAME end of the next one, which is what makes
+-- the pair walk the whole set.  The two spellings of @last-row@ share a line.
+firstRowHelp, lastRowHelp :: Text
+firstRowHelp = "first row, again = page up"
+lastRowHelp  = "last row, again = page down"
+
 -- | Chords the browser needs more than this page does: never claimed as the key
 -- that abandons a prefix this map had entered, which is what leaves @C-x C-l@
 -- to the browser.  One completing a bound sequence is still claimed — that is
@@ -1383,6 +1407,10 @@ keyHints =
   [ (["next-row", "previous-row"],         "rows")
   , (["next-column", "previous-column"],   "cells")
   , (["previous-page", "next-page"],       "pages")
+  -- The one row whose label carries a second sentence, because the second press
+  -- is the whole point: without it a reader takes `<' for a within-page key and
+  -- never finds out that it climbs.
+  , (["first-row", "last-row"],            "first/last row, again = page up/down")
   , (["org-glance-overview:materialize"],  "materialize")
   , (["mark-toggle", "unmark", "unmark-all", "mark-all"], "mark")
   -- The two structured commands, beside the keys that pick what they run over.
@@ -2132,7 +2160,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- runs from the keymap's `cancel' rather than from a listener of its own.
   , "    function cancelRow() {"
   , "      const at = pedit; pedit = -1; drawRow(at);"
-  , "      echo(\"ESC → row unchanged\");"
+  , "      echo(\"ESC → keyboard-quit (row unchanged)\");"
   , "    }"
     -- The panel's own keys, behind the dispatch and for the reason the value
     -- palette's are: while the panel holds them `typing()' is true, so every
@@ -2253,7 +2281,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- which is why it lands at `synced' whatever it was at before.
   , "    function toggleRaw(b) {"
   , "      if (!editing) return;"
-  , "      if (dirty()) { echo(`${b.seq} → sync first — C-x C-s`); return; }"
+  , "      if (dirty()) { said(b, \"sync first — C-x C-s\"); return; }"
   , "      const h = editing, want = !raw;"
   , "      headline(h.id).then((fresh) => {"
   , "        if (editing !== h) return;   // the sheet moved on while this was out"
@@ -2261,7 +2289,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        fill(fresh);"
   , "        sync(\"synced\");"
   , "        el(\"mtext\").focus();"
-  , "        echo(`${b.seq} → ${raw ? \"raw org\" : \"properties panel\"}`);"
+  , "        said(b, raw ? \"raw org\" : \"properties panel\");"
   , "      }).catch((e) => stuck(e.message));"
   , "    }"
   , "    // A tab closing on an edited sheet still owes the file the text:"
@@ -2304,19 +2332,61 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      const list = visible(), at = list.findIndex((r) => r.id === focusedId());"
   , "      pick(list, at === -1 ? (step > 0 ? 0 : list.length - 1) : at + step);"
   , "    }"
-    -- Pages.  The turn is the renderer's, and the echo says where it landed
-    -- rather than which key ran: `] → page 3/129' is the only thing a reader
-    -- wants back from a page key, and it reads the same at a stop as at a turn.
+    -- What a key says when it has run: the sequence, the COMMAND, and what
+    -- happened in brackets after it.  The command is the blob's own identifier
+    -- and is spoken verbatim — `> → last-row', never `> → last row' — because
+    -- these names are the handle a rebinding config will address a function by,
+    -- and a reader who learns one off the echo has to be able to type it. The
+    -- prose goes in the brackets, where it names an outcome rather than a
+    -- function.  Every key echoes through here, so there is one shape and one
+    -- place the rule can be broken.
+  , "    const said = (b, what) =>"
+  , "      echo(`${b.seq} → ${b.command}${what ? ` (${what})` : \"\"}`);"
+    -- Pages.  The turn is the renderer's, and the bracket says where it landed
+    -- rather than repeating the key: `] → next-page (page 3/129)' reads the
+    -- same at a stop as at a turn.
   , "    const pager = () => !!table && typeof table.nextPage === \"function\""
   , "      && typeof table.pageInfo === \"function\";"
   , "    function turnPage(b, step) {"
-  , "      if (!pager()) {"
-  , "        echo(`${b.seq} → ${b.command} (this table-view.js has no pager)`);"
-  , "        return;"
-  , "      }"
+  , "      if (!pager()) { said(b, \"this table-view.js has no pager\"); return; }"
   , "      if (step > 0) table.nextPage(); else table.previousPage();"
   , "      const at = table.pageInfo();"
-  , "      echo(`${b.seq} → page ${at.page}/${at.pages}`);"
+  , "      said(b, `page ${at.page}/${at.pages}`);"
+  , "    }"
+    -- The ends of the buffer, progressively.  `<' takes the page's first row;
+    -- pressed AGAIN, already on it, it turns back a page and lands on THAT
+    -- page's first row, and `>' mirrors it — so the pair reaches the ends of
+    -- the SET rather than of the page, and a reader who wants one page turned
+    -- still has the brackets.  Page one's first row and the last page's last
+    -- row are stops: the turn declines and nothing moves.
+    --
+    -- Both climbs land at the wrong end and need a select of their own: the
+    -- renderer puts the cursor on the end it ARRIVES at — `nextPage' on the
+    -- new page's first row, `previousPage' on its last — which is the opposite
+    -- end from the one the key is named for, in both directions.  The column
+    -- comes back out of the renderer: a turn re-selects with the column it
+    -- had, so reading `column()' after one reads what it kept.
+    --
+    -- A turn is an explicit page action, so the renderer snaps out of
+    -- continuous presentation back to paged at the page it turned to.  That is
+    -- what a key named for an end of the buffer means — the reader asked for a
+    -- boundary, and paged is the presentation that has them.
+  , "    function endStop(b, last) {"
+  , "      const list = visible();"
+  , "      if (!list.length) { append(\"cmd\", \"info\", \"no rows to move through\"); return; }"
+  , "      const end = (rows) => rows[last ? rows.length - 1 : 0].id;"
+    -- Not there yet — or an asset with no pages, where there is nowhere to
+    -- climb to and the within-page jump is the whole of the key.
+  , "      if (!pager() || focusedId() !== end(list)) {"
+  , "        table.select(end(list), column());"
+  , "        said(b, \"\");"
+  , "        return;"
+  , "      }"
+  , "      if (!(last ? table.nextPage() : table.previousPage())) { said(b, \"\"); return; }"
+  , "      const turned = visible();"
+  , "      if (turned.length) table.select(end(turned), column());"
+  , "      const at = table.pageInfo();"
+  , "      said(b, `page ${at.page}/${at.pages}`);"
   , "    }"
   , "    // Cells.  The column is part of the renderer's selection, so it needs no"
   , "    // state here: it rides along with row"
@@ -2326,14 +2396,14 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    const cells = () => !!table && typeof table.getSelection === \"function\";"
   , "    const column = () => (cells() ? table.getSelection().col : null);"
   , "    function moveCol(b, step) {"
-  , "      const say = (what) => echo(`${b.seq} → ${b.command} (${what})`);"
-  , "      if (!cells()) { say(\"this table-view.js has no cell selection\"); return; }"
+  , "      if (!cells()) { said(b, \"this table-view.js has no cell selection\"); return; }"
   , "      const at = column(), want = at === null ? 0 : at + step;"
   , "      // Clamped, never wrapped: walking off an edge stays on it and says so."
-  , "      if (want < 0 || want >= cols.length) { say(want < 0 ? \"at first\" : \"at last\"); return; }"
+  , "      if (want < 0 || want >= cols.length)"
+  , "        { said(b, want < 0 ? \"at first\" : \"at last\"); return; }"
   , "      const id = focusedId();"
-  , "      if (!id || !table.select(id, want)) { say(\"no row\"); return; }"
-  , "      say(cols[want].header || cols[want].key);"
+  , "      if (!id || !table.select(id, want)) { said(b, \"no row\"); return; }"
+  , "      said(b, cols[want].header || cols[want].key);"
   , "    }"
     -- Marks.  The renderer holds them, keyed by id, so nothing about them is
     -- kept here: which rows are marked, how many there are and what a mark
@@ -2341,7 +2411,6 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- the key that marks is the key that walks, which is what makes a held `m'
     -- a run down a column.
   , "    const marking = () => !!table && typeof table.toggleMark === \"function\";"
-  , "    const said = (b, what) => echo(`${b.seq} → ${b.command} (${what})`);"
     -- Archive flags are the renderer's for the same reason marks are: a flag has
     -- to outlive a `setRows', a filter that hides its row and a page it is not
     -- on, and only the thing that draws the rows can do that.  An asset predating
@@ -2383,13 +2452,13 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      if (!toggling && isFlagged(id)) {"
   , "        table.unflagRow(id);"
   , "        noted(id, \"unmarked for deletion\");"
-  , "        echo(`${b.seq} → flag cleared`);"
+  , "        said(b, \"flag cleared\");"
   , "        move(1);"
   , "        return;"
   , "      }"
   , "      let on = table.toggleMark(id);"
   , "      if (on && !toggling) on = table.toggleMark(id);"
-  , "      echo(`${b.seq} → ${on ? \"marked\" : \"unmarked\"} (${table.markedCount()})`);"
+  , "      said(b, `${on ? \"marked\" : \"unmarked\"} · ${table.markedCount()}`);"
   , "      move(1);"
   , "    }"
     -- Commands.  A structured write names ROWS and lets the server compute the
@@ -2429,7 +2498,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        const results = answer.results || [];"
   , "        const bad = results.filter((x) => !x.ok);"
   , "        const landed = results.length - bad.length;"
-  , "        echo(`${b.seq} → ${verb} (${how ? how(landed) : landed})`);"
+  , "        said(b, `${verb} · ${how ? how(landed) : landed}`);"
     -- What one landed write did, per row.  The two names are the route's whole
     -- vocabulary, so the wording sits here rather than at each key that fires.
   , "        const what = name === \"archive\" ? \"archived\""
@@ -2486,8 +2555,8 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    let prompting = null;"
     -- The which-key assignment: each entry claims the first letter of its OWN
     -- spelling that no earlier entry took, over one a-z namespace in palette
-    -- order.  What comes back is that letter's INDEX — the display underlines
-    -- it there, which is what teaches why DELEGATED is `e' — and -1 for an
+    -- order.  What comes back is that letter's INDEX — the display bolds it
+    -- there, which is what teaches why DELEGATED is `e' — and -1 for an
     -- entry whose every letter was taken.  Pure and order-only, so one tree's
     -- cycle always yields the same letters and the muscle memory holds.
   , "    function whichKeys(labels) {"
@@ -2552,7 +2621,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      el(\"pinput\").blur();"
   , "    }"
     -- One row per entry: the key token, then the keyword in its badge colour
-    -- with the claimed letter underlined where it sits.  A hairline falls
+    -- with the claimed letter BOLD where it sits.  A hairline falls
     -- wherever the producer's group changes, so the actives stand above the
     -- done-like ones and `*clear*' below both in the muted italic every starred
     -- meta wears.  In narrow mode the token column goes: no letter commits
@@ -2573,7 +2642,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        if (c.color) word.style.color = c.color;"
   , "        if (!key) { word.textContent = c.label; return; }"
   , "        part(word, \"span\", \"\", c.label.slice(0, c.cut));"
-  , "        part(word, \"u\", \"\", c.label[c.cut]);"
+  , "        part(word, \"b\", \"\", c.label[c.cut]);"
   , "        part(word, \"span\", \"\", c.label.slice(c.cut + 1));"
   , "      });"
   , "    }"
@@ -2872,8 +2941,8 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- wrote.  Dropping onclose first stops the reconnect timer opening a second
     -- socket behind this one.
   , "    function applyDefault(b) {"
-  , "      echo(`${b.seq} → ${DEFAULT_QUERY"
-  , "        ? `filter: ${JSON.stringify(DEFAULT_QUERY)}` : \"filter cleared\"}`);"
+  , "      said(b, DEFAULT_QUERY"
+  , "        ? `filter: ${JSON.stringify(DEFAULT_QUERY)}` : \"filter cleared\");"
   , "      if (socket) { socket.onclose = null; socket.close(); socket = null; }"
   , "      backoff = 1000;"
   , "      remember(DEFAULT_QUERY);"
@@ -2900,9 +2969,16 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      el(\"themesel\").value = name;"
   , "    }"
   , "    setTheme(themed.get());"
+    -- With no popup open the TABLE holds the keys, and the corner's chrome is
+    -- not a popup.  A `select' that keeps the focus after its change has
+    -- committed goes on eating `n' and `p' as its own type-ahead, and the
+    -- reader has to click the table back before movement works again — the bug
+    -- this line closes.  The choice is made, so the keys go back.  Every
+    -- control added to the corner owes the same line.
   , "    el(\"themesel\").addEventListener(\"change\", (e) => {"
   , "      setTheme(e.target.value);"
   , "      echo(`theme: ${e.target.value}`);"
+  , "      e.target.blur();"
   , "    });"
   , ""
   -- The resident key line, under the log: what can run, where the echo pill
@@ -2989,8 +3065,8 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      previousColumn: (b) => moveCol(b, -1),"
   , "      nextPage: (b) => turnPage(b, 1),"
   , "      previousPage: (b) => turnPage(b, -1),"
-  , "      firstRow: () => pick(visible(), 0),"
-  , "      lastRow: () => pick(visible(), visible().length - 1),"
+  , "      firstRow: (b) => endStop(b, false),"
+  , "      lastRow: (b) => endStop(b, true),"
   , "      materializeRow: () => {"
   , "        const id = focusedId();"
   , "        if (id) materialize(id);"
@@ -3002,7 +3078,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        if (!marking()) { said(b, \"this table-view.js has no marks\"); return; }"
   , "        table.clearMarks();"
   , "        if (flagging()) table.clearFlags();"
-  , "        echo(`${b.seq} → all marks and flags cleared`);"
+  , "        said(b, \"all marks and flags cleared\");"
   , "      },"
     -- `M' marks the whole loaded set, which is the renderer's call because the
     -- set is the renderer's: a page it is not showing is still marked.
@@ -3010,7 +3086,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        if (!marking() || typeof table.markAll !== \"function\")"
   , "          { said(b, \"this table-view.js has no mark-all\"); return; }"
   , "        table.markAll();"
-  , "        echo(`${b.seq} → marked (${table.markedCount()})`);"
+  , "        said(b, `marked · ${table.markedCount()}`);"
   , "      },"
     -- dired's `d', in two presses: the first flags the row and the second is
     -- `D' — `archive' over every flagged row, this one included.  The flag IS
@@ -3024,7 +3100,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        if (isFlagged(id)) { archive(b); return; }"
   , "        table.flagRow(id);"
   , "        noted(id, \"marked for deletion\");"
-  , "        echo(`${b.seq} → flagged — d again archives`);"
+  , "        said(b, \"flagged — d again archives\");"
   , "      },"
   , "      applyDefault, focusFilter, toggleRaw, openSettings,"
     -- One `save-buffer' over two sheets: whichever is up is what it syncs.
@@ -3057,12 +3133,12 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      },"
   , "      // The filter's own backspace: the renderer drops the token and the"
   , "      // shell follows it — one commit, one URL, focus left on the table."
-  , "      filterDrop: () => {"
-  , "        if (!strips()) { echo(\"DEL → this table-view.js has no filter tokens\"); return; }"
-  , "        if (!table.stripLastToken()) { echo(\"DEL → no filter\"); return; }"
+  , "      filterDrop: (b) => {"
+  , "        if (!strips()) { said(b, \"this table-view.js has no filter tokens\"); return; }"
+  , "        if (!table.stripLastToken()) { said(b, \"no filter\"); return; }"
   , "        const left = table.getQuery().trim();"
   , "        commit(left);"
-  , "        echo(left ? `DEL → filter: ${JSON.stringify(left)}` : \"DEL → filter cleared\");"
+  , "        said(b, left ? `filter: ${JSON.stringify(left)}` : \"filter cleared\");"
   , "      },"
   , "    };"
   , "    // The row is handed to its handler: one that names what it landed on"
@@ -3416,20 +3492,47 @@ page head' title body = T.unlines
   -- the order they are in — nothing here sets a tab index, and the keys that
   -- move over them and open one are the glue's.
   , "  #mprops{flex:1 1 240px;min-width:0;overflow-y:auto;"
-  , "    display:flex;flex-direction:column;gap:4px}"
+  , "    display:flex;flex-direction:column}"
   , "  #sheet.raw #mprops{display:none}"
-  , "  .prow{display:flex;flex-wrap:wrap;gap:4px;border-radius:4px}"
+  , "  .prow{display:flex;flex-wrap:wrap}"
       -- Minimal chrome: a cell is bare text whichever mode it is in — the same
-      -- box either way, so opening a row moves nothing — the 4px row gap is the
-      -- separation, and the border exists only under the focused field so the
-      -- keyboard's place stays visible.  The row at point wears the page's own
-      -- selection, and only while the panel is the thing holding the keys.
-  , "  .prow input,.prow span{font:12px/1.5 var(--dk-mono);padding:4px 6px;"
+      -- box either way, so opening a row moves nothing — and the border exists
+      -- only under the focused field so the keyboard's place stays visible.
+      --
+      -- The rhythm is the TABLE's, so a reader crossing from the rows to the
+      -- sheet meets one list style rather than two: `5px 12px' per cell is
+      -- `.tv-table td' exactly, and the row gap is gone with it — the stripe
+      -- below separates the rows now, the way it does under the table, and a
+      -- gap would leave gutters through it.
+  , "  .prow input,.prow span{font:12px/1.5 var(--dk-mono);padding:5px 12px;"
   , "    border:none;border-bottom:1px solid transparent;"
   , "    background:transparent;color:inherit;min-width:0}"
   , "  .prow span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}"
   , "  .prow span:empty::after{content:attr(data-hint);color:var(--g-mute)}"
   , "  .prow input:focus{outline:none;border-bottom-color:var(--g-border)}"
+      -- The zebra, the table's own: `--g-surface' already holds the renderer's
+      -- `--tv-alt' literal, so the stripe is the same tint over the same
+      -- ground, and even children are the renderer's odd 0-based indices.
+      --
+      -- `:nth-child' rather than the stamped class the renderer needs, because
+      -- the panel is a STATIC list — every row has an element, so the DOM index
+      -- is the real one, where the table's `tbody' holds a window and can only
+      -- count within it.  Nothing to keep in step in `cls' either.
+      --
+      -- The table draws a hairline under every row too; this panel does not.
+      -- Its cells are bare fields, and a rule under each one would read as an
+      -- input's underline rather than as a row edge — the stripe carries the
+      -- separation on its own.  The one hairline kept is the GROUP edge, where
+      -- org's planning keys give way to the author's properties, and it is
+      -- drawn by the first property row rather than the last planning one so a
+      -- drawer with no properties draws no edge.
+  , "  #mprops .prow:nth-child(even){background:var(--g-surface)}"
+  , "  .prow.pln + .prow:not(.pln){border-top:1px solid var(--g-border)}"
+      -- The row at point wears the page's own selection — `--g-sel', the same
+      -- token the textarea's and the value palette's do — and only while the
+      -- panel is the thing holding the keys.  It follows the stripe in source
+      -- order, which IS the precedence: the two rules weigh the same, so the
+      -- cursor wins by being second, the way the renderer's own does.
   , "  #mprops.on .pat{background:var(--g-sel);color:var(--g-fg)}"
   , "  .pkey{flex:1 1 40%}"
   , "  .pval{flex:2 1 50%}"
@@ -3462,7 +3565,7 @@ page head' title body = T.unlines
   -- An entry is its key token and its word.  The token is boxed in the accent
   -- so the letters read as a column of their own, and the word keeps its badge
   -- colour so a keyword looks the same here as it does in the table; the
-  -- claimed letter is underlined where it sits, which is what says why
+  -- claimed letter is BOLD where it sits, which is what says why
   -- DELEGATED answers to `e'.  An entry that claimed nothing shows a muted dot
   -- and is reachable through `/' alone.
   , "  .pe{display:flex;align-items:center;gap:8px;padding:3px 7px;border-radius:4px}"
@@ -3470,7 +3573,12 @@ page head' title body = T.unlines
   , "    font:11px/1.4 var(--dk-mono);"
   , "    border:1px solid var(--g-accent);color:var(--g-accent)}"
   , "  .pk.off{border-color:transparent;color:var(--g-mute)}"
-  , "  .pw u{text-decoration-color:var(--g-accent);text-underline-offset:2px}"
+      -- Weight rather than a rule under it: an underline in this monospace
+      -- collides with the descenders and reads as chrome, where the letter
+      -- standing out of its own word reads as the word saying which letter it
+      -- is.  The accent went with the underline it coloured — the letter keeps
+      -- the badge hue the rest of the keyword wears.
+  , "  .pw b{font-weight:700}"
   -- The hairline between the producer's groups: the actives above it, the
   -- done-like ones below, and `*clear*' under a second one in the muted italic
   -- every starred meta wears.

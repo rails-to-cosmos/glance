@@ -105,6 +105,17 @@ on.
   Mid-line `*bold*` as fake headline and `  * Task` as headline are the
   behaviors this excludes (deliberate divergence: indented stars are not
   headlines). **test** (behavior) / **docs** (perf rationale)
+- **The star run has to end.** `indentP` consumes horizontal space after the
+  stars and, failing that, looks at end-of-line or end-of-input; one of the two
+  has to hold. Org's rule (`org-outline-regexp` is `\*+ `): a line opening
+  `*bold*` or `*TODO* [[link][x]]` is emphasis, and reading it as a headline put
+  body text in the table as rows of its own — 251 corpus lines, 29 of them
+  level-one and so rows, `headlines` 12884 → 12606 with the ok/failure counts
+  unmoved. A bare star run keeps its old reading, an empty headline, so
+  `hsFull`'s reparse and the stars-only `set-state` insert still hold. The
+  newline is never consumed: `MPC.space` here let an empty title run past the
+  end of its line and take the next headline's stars and text as its title
+  (`* ` above `* Delta` parsed as one headline titled `* Delta`). **test**
 - **Verbatim case-sensitive TODO keywords.** `todoP`/`#+TODO:` registration
   use `keywordTextP` (as written); `Parse Keyword` uppercases and serves
   pragma dispatch (`CATEGORY`/`TODO`), the `reserved` guard, and
@@ -1513,6 +1524,19 @@ on.
   under `hints`, and rendered into the resident key line from there. So the line
   cannot offer a key nothing is bound to, and a new binding that should appear
   in it is one table entry rather than an edit to a string. **test**
+- **The echo speaks the command's FUNCTION NAME, verbatim.** Commands are named
+  as elisp functions — `next-row`, `last-row`, `org-glance-overview:delete` —
+  and the pill reads `SEQ → command`, with anything else the key wants to say in
+  brackets after it (`> → last-row (page 2/129)`, `m → mark-toggle (marked ·
+  2)`). Never the prose spelling: a rebinding config will address a function by
+  exactly this string, so a reader who learns one off the pill has to be able to
+  type it back. One helper emits the shape — `said(b, what)` — and every keyed
+  echo goes through it or through `run`'s default, which is the same shape with
+  the row's `kbHelp` after a `·`. The resident key line is the exception and is
+  meant to be: its labels are curated prose (`rows`, `pages`), because it names
+  a GROUP of commands rather than reporting one that ran. **test** (the sweep
+  reads every `${b.seq} → ` in the glue and requires `${b.command}` behind it,
+  and no command in the blob may carry a space)
 - **One fetch is in flight at a time.** A single `AbortController` is aborted
   and replaced by whoever asks next, so the background full-set pull yields to a
   filter commit instead of racing it, and a late response is discarded by
@@ -1737,9 +1761,10 @@ on.
   `TestServe` "Shell which-key", which drives `whichKeys` under the node harness
   as the pure function it is. **test**
 - **The palette teaches why.** One row per entry: an accent-boxed key token,
-  then the keyword in ITS OWN badge colour with the claimed letter underlined
-  where it sits in the word (`D`ELEGAT`E`D underlines the `E`, which is the
-  whole of the explanation). A hairline falls wherever the producer's group
+  then the keyword in ITS OWN badge colour with the claimed letter BOLD where
+  it sits in the word (`DELEGATED` bolds its `E`, which is the whole of the
+  explanation; weight rather than an underline, which collides with the
+  descenders of this monospace and reads as chrome). A hairline falls wherever the producer's group
   changes, so actives stand above the done-like ones and `*clear*` below both in
   the muted italic every starred meta wears. The groups are the PRODUCER's:
   `Glance.Query.badges` names each badge `active` or `inactive`, since order
@@ -1865,6 +1890,15 @@ on.
   `SELECT` counts as typing, which is what stops the keymap eating those arrows.
   The order is asserted, since the corner is the one piece of chrome a reader
   navigates by position. The keys picker went with the profiles. **test**
+- **With no popup open, the TABLE holds the keys.** The legitimate focus holders
+  are the popups — the materialize sheet, the settings sheet, the filter palette
+  and the value palette — and the text fields inside them. The corner's chrome is
+  none of those, so `themesel` blurs itself in its own `change` handler, once the
+  theme has been applied: a `SELECT` counts as typing, so a control that kept the
+  focus would go on eating `n` and `p` as its own type-ahead and the reader would
+  have to click the table back before movement worked. Every control added to the
+  corner owes the same line. **test** (a theme switch, then a movement key that
+  has to land)
 - **The applied filter query is in the URL, and `DEL` is its backspace.** A
   commit writes `?q=` with `replaceState` and leaves `keys` where it is, so a
   filtered view is a link, a reload keeps it, and a remount comes back to it

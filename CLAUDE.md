@@ -41,6 +41,14 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   needing a re-run before it is quoted.
 - Headlines parse only at column 1, via the threaded begin-of-line Bool.
   Never `getSourcePos` — quadratic on failure-heavy input.
+- Column 1 is necessary and not sufficient: `indentP` also requires the star run
+  to END — horizontal space, which it consumes, or end of line/input, which it
+  only looks at. Org's own rule (`org-outline-regexp` is `\*+ `), so a body line
+  opening `*bold*` is emphasis rather than a row of its own; 251 lines of the
+  corpus were rows before it. A bare star run stays the empty headline it has
+  always been. The stars never consume the NEWLINE: with `MPC.space` there, an
+  empty title ran on and took the next line — its stars included — as its own,
+  so `* ` above `* Delta` was ONE headline titled `* Delta`.
 - TODO keywords are matched case-sensitively and stored verbatim;
   pragma/property KEYS are uppercased.
 - In `spannedContainerUntil` the end-parser branch precedes the hspace-eol
@@ -461,7 +469,13 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   so a row step is `selectStep(±1)` — the page boundary is the renderer's,
   since only it knows there is one — and `[`/`]` turn a page, echoing where
   they landed. `getVisible()` is that page, so the buffer-ends keys reach its
-  ends; ids out of it handed to `select(id, col)` are all that is left of the
+  ends — and PROGRESSIVELY: `<`/`>` take the page's end row, and pressed again
+  on it turn a page and land on the same end of that one (`endStop`), stopping
+  at page one's first row and the last page's last. Each climb re-selects,
+  since the renderer lands a turn at the end it arrives at — the opposite one
+  in both directions — and the column comes back out of `column()` rather than
+  a local. An asset with no pager keeps the within-page half.
+  Ids out of `getVisible()` handed to `select(id, col)` are all that is left of the
   DOM-walking path, which is gone, as are the frame branches `bootstrap=off`
   makes unreachable. The column is the renderer's selection, never a second
   copy here: `selectStep` carries it, and what the shell passes back is
@@ -671,6 +685,14 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   the Emacs org-glance maps; buttons only where keys cannot reach; the echo
   widget must know every new binding (keymap-is-data blob is the single
   source).
+- Commands are named as elisp functions and the ECHO speaks them verbatim:
+  `SEQ → command`, with anything else in brackets after it (`> → last-row (page
+  2/129)`, `m → mark-toggle (marked · 2)`) — never the prose spelling, since the
+  rebinding config to come will address a function by exactly this string. One
+  helper emits the shape (`said(b, what)`); `run`'s default is the same with
+  `kbHelp` after a `·`. The resident key line is the exception on purpose: its
+  labels are curated prose (`rows`, `pages`) naming a group, not a command that
+  ran.
 - The materialize sheet is buttonless and syncs itself. Dirty = either pane vs
   the materialized original, moved by each successful flush; ESC or the backdrop
   flushes a dirty sheet and closes on the 200, a pristine one closes with no
@@ -735,6 +757,12 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `wait` / `down`) then `themesel`, a native `<select>` over
   `auto`/`light`/`dark`. A focused `SELECT` counts as typing, so its own arrows
   reach it. The keys picker is gone with the profiles.
+- With no popup open the TABLE holds the keys. The popups — materialize sheet,
+  settings sheet, filter palette, value palette — and the text fields in them
+  are the only legitimate focus holders; corner chrome is not one, so `themesel`
+  blurs itself in its own `change` handler once the theme is applied, and any
+  control added there owes the same line. A `SELECT` counts as typing, so one
+  that keeps the focus eats `n`/`p` as type-ahead until the reader clicks back.
 - Theme: `auto` follows `prefers-color-scheme` and is the default; `light` and
   `dark` stamp `data-theme` on the document element, and returning to `auto`
   removes the attribute. The choice lives in `localStorage` under

@@ -27,6 +27,7 @@
 //   rewritten     the file behind the open sheet moves: a new digest
 //   press:KEY     KEY pressed, so a key can follow an act rather than precede
 //                 it; `C-x' and `S-Tab' spell the modifiers
+//   theme:NAME    NAME picked in the corner's theme select, event and all
 //   type:TEXT     TEXT typed into the value palette's field, which narrows it —
 //                 `/' has to have put the palette in that mode first
 //   assign:A,B,C  the which-key assignment run over that cycle, as the pure
@@ -34,6 +35,10 @@
 //   refuse        the next /command answers that every row was refused
 //   bare          the mounted handle loses its mark calls, the way an older
 //                 table-view.js never had them
+//   pageless      and its pager calls, the way one older still never had those
+//   rows:N        the store holds N rows rather than the three at the top
+//   paged:N       the renderer shows N of them a page, so there are pages to
+//                 turn and ends of a page to reach
 //   spam:N        N distinct lines appended to the page's event log, which is
 //                 the only way to reach a ring that holds five hundred
 //   offline       the daemon goes away: every request after this fails
@@ -178,12 +183,35 @@ let mounts = 0, sets = 0, raises = 0;
 // The renderer's own state, which the shell keeps no copy of: where the cursor
 // is, whether it was asked for marks, and which ids carry one.
 let cursor = 0, marksOn = false, hintsOn = true, marks = new Set(), flags = new Set();
+// The other two halves of that state: which column the cursor sits in, and
+// which page the renderer is showing.  `pageAt' counts from zero and `pageSize'
+// is 0 for a set with no pages; `cursor' indexes the page rather than the set,
+// which is the same thing while there is one page.
+let selCol = null, pageAt = 0, pageSize = 0;
+/** The rows on show: one page's worth, or the whole set when there are none. */
+const onPage = () =>
+  (pageSize ? rows.slice(pageAt * pageSize, (pageAt + 1) * pageSize) : rows);
+const pageMax = () => (pageSize ? Math.max(1, Math.ceil(rows.length / pageSize)) : 1);
+/**
+ * Turn to page TO, counting from zero, landing the cursor on the end it
+ * arrives at — FIRST says which.  The column rides across untouched, which is
+ * what lets the shell read it back rather than carry it.  False when there is
+ * no such page, which is how a stop at either end is told from a turn.
+ */
+const pageTo = (to, first) => {
+  const at = Math.max(0, Math.min(pageMax() - 1, to));
+  if (at === pageAt) return false;
+  pageAt = at;
+  cursor = first ? 0 : Math.max(0, onPage().length - 1);
+  return true;
+};
 // The hint a flagged row wears, which the renderer draws and the shell names.
 let flagHelp = "";
 /** The live handle, so `bare' can take calls off the one the shell is holding. */
 let handle = null;
-/** Set by `bare': this asset never had marking, remounts included. */
-let markless = false;
+/** Set by `bare' and `pageless': this asset never had those calls, remounts
+ * included. */
+let markless = false, pagerless = false;
 globalThis.TableView = {
   mount: (_el, _view, options) => {
     mounts += 1;
@@ -191,7 +219,12 @@ globalThis.TableView = {
     marksOn = (options || {}).marks === true;
     hintsOn = (options || {}).actionHints !== false;
     flagHelp = (options || {}).flagHelp || "";
+    // The page size is the mount's, the way the real one takes it, so a script
+    // that never asks for pages gets the one the shell always requests.
+    pageSize = (options || {}).pageSize || 0;
     cursor = 0;
+    selCol = null;
+    pageAt = 0;
     marks = new Set();
     flags = new Set();
     handle = {
@@ -204,14 +237,35 @@ globalThis.TableView = {
       },
       // The selection is the renderer's, both halves of it, and the shell reads
       // the row id back out of here to materialize one.
-      getSelection: () => ({ id: rows.length ? rows[cursor].id : null, col: null }),
-      getVisible: () => rows,
+      getSelection: () => ({ id: onPage().length ? onPage()[cursor].id : null, col: selCol }),
+      getVisible: () => onPage(),
       // Clamped, never wrapped, and false at the end — which is what tells the
       // shell that a mark on the last row has nowhere to walk to.
       selectStep: (step) => {
-        if (cursor + step < 0 || cursor + step >= rows.length) return false;
+        if (cursor + step < 0 || cursor + step >= onPage().length) return false;
         cursor += step;
         return true;
+      },
+      // A row of the page in hand, and the column to land in.  Null is a
+      // WHOLE-ROW selection, the way the real one's `clampCol' reads it, so a
+      // caller meaning to keep the column has to hand it back.  False for a row
+      // this page is not showing.
+      select: (id, col) => {
+        const at = onPage().findIndex((r) => r.id === id);
+        if (at === -1) return false;
+        cursor = at;
+        selCol = col === null || col === undefined ? null : col;
+        return true;
+      },
+      // The pager, landing the cursor on the end it arrives at — the new page's
+      // first row going forward, its last coming back.
+      nextPage: () => pageTo(pageAt + 1, true),
+      previousPage: () => pageTo(pageAt - 1, false),
+      pageInfo: () => {
+        const size = pageSize || rows.length;
+        return { page: pageAt + 1, pages: pageMax(),
+                 from: rows.length ? pageAt * size + 1 : 0,
+                 to: Math.min(rows.length, (pageAt + 1) * size), total: rows.length };
       },
       // Marks are the renderer's, keyed by id.
       toggleMark: (id) => {
@@ -233,7 +287,8 @@ globalThis.TableView = {
       // takes focus, which is the whole of what the shell can see of it.
       openFilter: () => { raises += 1; field("filter").focus(); },
     };
-    if (markless) strip();
+    if (markless) strip(MARK_CALLS);
+    if (pagerless) strip(PAGE_CALLS);
     return handle;
   },
   parseQuery: () => [],
@@ -242,7 +297,9 @@ globalThis.TableView = {
 /** The mark calls off the live handle: what an older table-view.js looks like. */
 const MARK_CALLS = [ "toggleMark", "getMarked", "clearMarks", "markedCount"
                    , "markAll", "flagRow", "unflagRow", "getFlagged", "clearFlags" ];
-const strip = () => { for (const name of MARK_CALLS) delete handle[name]; };
+/** And the pager's, which an asset that old has none of either. */
+const PAGE_CALLS = ["nextPage", "previousPage", "pageInfo"];
+const strip = (names) => { for (const name of names) delete handle[name]; };
 globalThis.localStorage = { getItem: () => null, setItem: () => {} };
 globalThis.matchMedia = () => ({ matches: false, addEventListener: () => {} });
 
@@ -270,7 +327,8 @@ let active = null;
 const fields = {};
 // The tag matters: `typing()' reads it off `document.activeElement' to decide
 // whether a key belongs to the table or to whatever has focus.
-const TAGS = { mtext: "textarea", filter: "input", pinput: "input" };
+const TAGS = { mtext: "textarea", filter: "input", pinput: "input",
+               themesel: "select" };
 /** A stand-in element, enough of one for the page to build its own chrome in. */
 const make = (tag) => {
   const e = {
@@ -312,7 +370,10 @@ const STATEFUL = [ "mtext", "mnote", "mfile", "modal", "mprops", "mlog", "sheet"
                  , "config", "cnote", "clayers", "ceff"
                  // The event strip: a line per entry, each a row of spans, so it
                  // has to hold a tree rather than answer "" to everything.
-                 , "log" ];
+                 , "log"
+                 // The corner's theme select, which has to be a real element
+                 // for the focus it takes and gives back to be observable.
+                 , "themesel" ];
 // The page's own key dispatch, kept so a press can be delivered to it.
 const pressed = [];
 globalThis.document = {
@@ -402,8 +463,8 @@ const focused = () => {
 };
 /**
  * The value palette's list as it stands: one entry per row, with the key token
- * it claimed and its word spelled with the underlined letter in brackets where
- * it sits (`DELEGAT[E]D').  A hairline is a row of its own, so the groups are
+ * it claimed and its word spelled with the BOLD letter in brackets where it
+ * sits (`DELEGAT[E]D').  A hairline is a row of its own, so the groups are
  * observable too.  The colour is read back off the inline style, which is where
  * the badge's own hue is written.
  */
@@ -419,7 +480,7 @@ const paletteRows = () => field("plist").children.map((row) => {
     key: token ? token.textContent : "",
     word: !word ? ""
       : word.children.length
-        ? word.children.map((p) => (p.tagName === "U" ? `[${p.textContent}]`
+        ? word.children.map((p) => (p.tagName === "B" ? `[${p.textContent}]`
                                                       : p.textContent)).join("")
         : word.textContent,
     color: word ? word.style.color || "" : "",
@@ -460,6 +521,15 @@ const ACTIONS = {
   recolumn: () => { step(); columns = columns.concat([{ key: "deadline" }]); },
   rewritten: () => { digest = "d1"; },
   press: (key) => press(key),
+  // The corner's theme select, driven the way a reader drives it: focus it,
+  // pick a theme, and let the change event fire.  What it is here to show is
+  // what happens AFTER — whether the control keeps the keys or gives them back.
+  theme: (name) => {
+    const box = field("themesel");
+    box.focus();
+    box.value = name;
+    box.fire("change", { target: box });
+  },
   // The same key delivered as an AUTO-REPEAT, which is what the ONCE list is
   // about: the dispatch claims it either way and runs it only when it is not
   // one of the commands a hold must not repeat.
@@ -497,7 +567,20 @@ const ACTIONS = {
   // which is the shape the shell's feature detection is written against. It
   // sticks, so a remount later in the same script does not hand them back and
   // quietly turn the fallback case into the ordinary one.
-  bare: () => { markless = true; strip(); },
+  bare: () => { markless = true; strip(MARK_CALLS); },
+  // And one that never had paging, which is what leaves the buffer-end keys
+  // their within-page half and nothing to climb with.
+  pageless: () => { pagerless = true; strip(PAGE_CALLS); },
+  // A store with pages in it: N rows in place of the three at the top, and the
+  // renderer showing SIZE of them at a time.  Acts rather than argv, so every
+  // script that wants neither reads exactly as it did.
+  rows: (n) => {
+    rows = Array.from({ length: Number(n) }, (_x, i) =>
+      ({ id: `r${i + 1}`, cells: { state: "TODO", title: `row ${i + 1}`, tag: ":web:" } }));
+    cursor = 0;
+    pageAt = 0;
+  },
+  paged: (n) => { pageSize = Number(n); cursor = 0; pageAt = 0; },
   // N distinct lines through the page's own `append': the glue is eval'd into
   // this scope, so its functions are reachable from here.  The ring holds five
   // hundred and nothing a key presses writes them faster than one at a time, so
@@ -539,12 +622,19 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     // every POST the syncs sent.
     props: panel(), pat: patAt(), pnav: field("mprops").className === "on",
     focus: focused(),
+    // What holds the keyboard, as its tag — empty for nothing, which is the
+    // state the table's own keys are live in.
+    holding: active ? active.tagName : "",
     // The logbook strip: shown, never focusable, never written.
     logbook: field("mlog").textContent,
     shape: field("sheet").className, writes,
     // The renderer's side of marking, and the last thing the echo pill said —
     // which is where a key that could not do what it was asked reports it.
     marksOn, hintsOn, flagHelp, marked: [...marks], flagged: [...flags], cursor,
+    // Where the cursor is in terms a page-local index cannot give: the row it
+    // sits on, the column it is in, and the page it is reading.
+    selected: onPage().length ? onPage()[cursor].id : null, col: selCol,
+    page: pageAt + 1,
     echo: field("echo").textContent,
     // The event strip, which is append-only: what is here is everything the
     // page has said since it booted, oldest first.

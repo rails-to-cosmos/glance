@@ -7,7 +7,7 @@
 -- there is no browser chrome, no address bar and no tab to find.
 --
 -- The window is opened at the socket rather than at the loaded store.  That is
--- the whole point of 'Glance.Web.serveWith': a cold daemon spends seconds
+-- the whole point of 'Glance.Web.serveAs': a cold daemon spends seconds
 -- walking the tree, and the page that says so is worth more than a window that
 -- appears once the wait is over.
 --
@@ -37,7 +37,7 @@ import System.FilePath (getSearchPath, isPathSeparator)
 import System.IO (hFlush, stdout)
 import System.Process (ProcessHandle, createProcess, new_session, proc, waitForProcess)
 
-import Glance.Web (ServeOptions (soPort), serveWith)
+import Glance.Web (ServeOptions (soPort), serveAs)
 
 -- | What one desktop session runs: a server, and the window in front of it.
 data DesktopOptions = DesktopOptions
@@ -165,5 +165,7 @@ desktop opts = do
   cmd <- resolveBrowser env (doBrowser opts) dirs url
   if doDryRun opts
     then mapM_ putStrLn (dryRunLines cmd url)
-    else serveWith (doServe opts) (openWindow cmd)
+    -- Named for the subcommand, so the banner says which of the two started:
+    -- the daemon is the same one `serve' runs.
+    else serveAs "desktop" (doServe opts) (openWindow cmd)
   where url = desktopURL (soPort (doServe opts))

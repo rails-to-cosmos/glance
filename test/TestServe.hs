@@ -11,7 +11,7 @@ import Data.Aeson ( FromJSON, Value (Bool, Number, Object, String)
 import Data.Aeson.Types (parseEither)
 import Data.ByteString (ByteString)
 import Data.Char (isDigit)
-import Data.List (find, nub, sort, sortOn)
+import Data.List (find, isInfixOf, nub, sort, sortOn)
 import Data.Maybe (fromMaybe, listToMaybe)
 import GHC.Clock (getMonotonicTime)
 import Network.HTTP.Types ( HeaderName, RequestHeaders, methodDelete, methodPost
@@ -40,8 +40,8 @@ import qualified Data.Text.IO as TIO
 
 import Data.Org.Edit (snapDigest, snapshotOf)
 import Glance.Query (QueryResult (qrRecords), loadDir, loadFile, viewJSON)
-import Glance.Web ( ServeOptions (..), application, bootstrapWanted, defaultPort
-                  , viewTitleFor )
+import Glance.Web ( ServeOptions (..), application, bannerLines, bootstrapWanted
+                  , defaultPort, viewTitleFor )
 import Glance.Web.Store ( Hub, applyFile, finishLoading, loadStore, newHub
                        , newLoadingHub, publish )
 
@@ -290,10 +290,12 @@ digestOnDisk path = snapDigest . snapshotOf path <$> document path
 spec :: TestTree
 spec = withResource (body <$> get assetsDir "/") (const (pure ())) $ \shell ->
   testGroup "Serve"
-    [ headlineSpec, statsSpec, cacheSpec, gzipSpec, querySpec, orderSpec, archiveViewSpec
+    [ headlineSpec, bannerSpec, statsSpec, cacheSpec, gzipSpec, querySpec
+    , orderSpec, archiveViewSpec
     , bootstrapSpec, materializeSpec, commitSpec, commandSpec, configSpec, indexingSpec
     , pageSpec shell, keymapSpec shell
-    , glueSpec shell, bootSpec shell, liveSpec shell, paletteSpec shell, markSpec shell
+    , glueSpec shell, bootSpec shell, liveSpec shell, paletteSpec shell
+    , moveSpec shell, markSpec shell
     , commandKeySpec shell, whichKeySpec shell, logSpec shell, sheetSpec shell
     , settingsSpec shell
     , touchSpec shell
@@ -503,6 +505,95 @@ paletteSpec shell = testGroup "Shell palette"
         assertEqual "with what was typed in it" "tan" =<< textAt "palette" answer
   ]
 
+-- | The buffer-end keys, driven through the presses a reader makes.  Reading
+-- the glue cannot answer this: the whole change is what the SECOND press does,
+-- and both presses run the same line of source.  The store is nine rows over
+-- three pages, which is the smallest set with a page in front, a page behind
+-- and an end to stop at.
+--
+-- 'moveScript' opens every case, so a script reads as the presses alone.
+moveSpec :: IO T.Text -> TestTree
+moveSpec shell = testGroup "Shell movement"
+  [ -- Off the end, `<' is the within-page jump it always was.
+    testCase "< takes the page's first row" $
+      bootOf shell "" 500 "" (moveScript "press:n press:n press:<") $ \answer -> do
+        assertEqual "the row" "r1" =<< textAt "selected" answer
+        assertEqual "the page it stayed on" 1 =<< intAt "page" answer
+        assertEqual "the echo" "< → first-row" =<< textAt "echo" answer
+
+    -- On it, the same key climbs — and lands on the FIRST row of the page it
+    -- turned to, where the renderer's own turn lands on the last.
+  , testCase "< on the first row turns back a page and lands on its first row" $
+      bootOf shell "" 500 "" (moveScript "press:] press:] press:<") $ \answer -> do
+        assertEqual "the row" "r4" =<< textAt "selected" answer
+        assertEqual "the page" 2 =<< intAt "page" answer
+        assertEqual "the echo names it" "< → first-row (page 2/3)"
+          =<< textAt "echo" answer
+
+    -- The chain, to the top and then nowhere: page three's first row, page
+    -- two's, page one's, and a fourth press that moves nothing.
+  , testCase "and stops on page one's first row" $
+      bootOf shell "" 500 "" (moveScript "press:] press:] press:< press:< press:<") $
+        \answer -> do
+          assertEqual "the row" "r1" =<< textAt "selected" answer
+          assertEqual "the page" 1 =<< intAt "page" answer
+          -- A stop is the plain echo: nothing moved, so no page is named.
+          assertEqual "the echo" "< → first-row" =<< textAt "echo" answer
+
+  , testCase "> takes the page's last row" $
+      bootOf shell "" 500 "" (moveScript "press:>") $ \answer -> do
+        assertEqual "the row" "r3" =<< textAt "selected" answer
+        assertEqual "the page it stayed on" 1 =<< intAt "page" answer
+        assertEqual "the echo" "> → last-row" =<< textAt "echo" answer
+
+    -- The asymmetric half: `nextPage' lands on the new page's FIRST row, so
+    -- without the follow-up select this answers `r4'.
+  , testCase "> on the last row turns a page and lands on its last row" $
+      bootOf shell "" 500 "" (moveScript "press:> press:>") $ \answer -> do
+        assertEqual "the row" "r6" =<< textAt "selected" answer
+        assertEqual "the page" 2 =<< intAt "page" answer
+        assertEqual "the echo names it" "> → last-row (page 2/3)"
+          =<< textAt "echo" answer
+
+    -- vi's spelling of the same command, walked to the bottom and held there.
+  , testCase "G is that key, and the last page's last row is the end of it" $
+      bootOf shell "" 500 "" (moveScript "press:G press:G press:G press:G") $
+        \answer -> do
+          assertEqual "the row" "r9" =<< textAt "selected" answer
+          assertEqual "the page" 3 =<< intAt "page" answer
+          assertEqual "the echo" "G → last-row" =<< textAt "echo" answer
+
+    -- The column is the renderer's across a turn, and this page hands it back
+    -- rather than keeping one: `f' picks column 0 and it survives the climb.
+  , testCase "a climb keeps the column the cursor was in" $
+      bootOf shell "" 500 "" (moveScript "press:f press:> press:>") $ \answer -> do
+        assertEqual "the row" "r6" =<< textAt "selected" answer
+        assertEqual "the column" 0 =<< intAt "col" answer
+
+    -- An asset with no pager keeps the half it can do, and says it the same
+    -- way: a key that cannot climb still reports the row it took.
+  , testCase "an asset without a pager keeps the within-page jump" $
+      bootOf shell "" 500 "" (moveScript "press:] pageless press:< press:<") $
+        \answer -> do
+          assertEqual "the row" "r4" =<< textAt "selected" answer
+          assertEqual "the page it could not leave" 2 =<< intAt "page" answer
+          assertEqual "the echo" "< → first-row" =<< textAt "echo" answer
+
+    -- With no popup open the table holds the keys, and the corner's chrome is
+    -- not a popup.  A `select' that kept the focus would take `n' as its own
+    -- type-ahead, and the reader would have to click the table back — so the
+    -- press after the switch is the whole assertion.
+  , testCase "the corner's theme select gives the keys back to the table" $
+      bootOf shell "" 500 "" "theme:dark press:n" $ \answer -> do
+        assertEqual "nothing holds the keyboard" "" =<< textAt "holding" answer
+        assertEqual "and the key moved the cursor" "r2" =<< textAt "selected" answer
+  ]
+
+-- | Nine rows over three pages, then SCRIPT.  Every case here needs a set with
+-- pages in it, and the harness's three rows are one page whatever the size.
+moveScript :: T.Text -> T.Text
+moveScript script = "rows:9 paged:3 " <> script
+
 -- | Marking, driven through the keys a reader presses.  The renderer holds the
 -- marks and this page holds the keys, so what is asserted here is the half that
 -- is the page's: that @m@ walks as it marks, that @u@ is not a toggle, that the
@@ -534,7 +625,7 @@ markSpec shell = testGroup "Shell marks"
       bootOf shell "" 500 "m m" "" $ \answer -> do
         assertEqual "the rows it marked" ["r1", "r2"] =<< textsAt "marked" answer
         assertEqual "and where it left the cursor" 2 =<< intAt "cursor" answer
-        assertEqual "counting as it went" "m → marked (2)" =<< textAt "echo" answer
+        assertEqual "counting as it went" "m → mark-toggle (marked · 2)" =<< textAt "echo" answer
 
     -- The same key on the same row takes it back off, which is what makes it a
     -- toggle: `m' twice over one row leaves nothing, since the second press is
@@ -542,19 +633,19 @@ markSpec shell = testGroup "Shell marks"
   , testCase "m on a marked row unmarks it" $
       bootOf shell "" 500 "m" "press:ArrowUp press:m" $ \answer -> do
         assertEqual "nothing marked" [] =<< textsAt "marked" answer
-        assertEqual "and it says so" "m → unmarked (0)" =<< textAt "echo" answer
+        assertEqual "and it says so" "m → mark-toggle (unmarked · 0)" =<< textAt "echo" answer
 
     -- `u' only ever takes a mark off.  After `m' the cursor is on an unmarked
     -- row, so a toggle would mark it and the count would read 2.
   , testCase "u never marks a row, it only unmarks one" $
       bootOf shell "" 500 "m u" "" $ \answer -> do
         assertEqual "the first mark stands alone" ["r1"] =<< textsAt "marked" answer
-        assertEqual "and the count did not grow" "u → unmarked (1)" =<< textAt "echo" answer
+        assertEqual "and the count did not grow" "u → unmark (unmarked · 1)" =<< textAt "echo" answer
 
   , testCase "U clears every mark at once" $
       bootOf shell "" 500 "m m U" "" $ \answer -> do
         assertEqual "nothing left" [] =<< textsAt "marked" answer
-        assertEqual "the echo" "U → all marks and flags cleared" =<< textAt "echo" answer
+        assertEqual "the echo" "U → unmark-all (all marks and flags cleared)" =<< textAt "echo" answer
 
     -- `M' is the renderer's call because the SET is the renderer's: a page it is
     -- not showing is marked too, which is the whole reason a shell-side loop
@@ -562,7 +653,7 @@ markSpec shell = testGroup "Shell marks"
   , testCase "M marks every row loaded, not the page on show" $
       bootOf shell "" 500 "M" "" $ \answer -> do
         assertEqual "all three" ["r1", "r2", "r3"] =<< textsAt "marked" answer
-        assertEqual "counted by the renderer" "M → marked (3)" =<< textAt "echo" answer
+        assertEqual "counted by the renderer" "M → mark-all (marked · 3)" =<< textAt "echo" answer
         assertEqual "and the cursor stayed where it was" 0 =<< intAt "cursor" answer
 
     -- dired's flag, in two presses: the first marks the row for archiving and
@@ -572,7 +663,7 @@ markSpec shell = testGroup "Shell marks"
         assertEqual "the row is flagged" ["r1"] =<< textsAt "flagged" answer
         assertEqual "and nothing was written" [] =<< postedOf answer
         assertEqual "the pill says what the next press costs"
-                    "d → flagged — d again archives" =<< textAt "echo" answer
+                    "d → archive-flag (flagged — d again archives)" =<< textAt "echo" answer
         -- The two sets are the renderer's own and stay apart: flagging a row
         -- leaves the marked set exactly where it was.
         assertEqual "and no mark went on with it" [] =<< textsAt "marked" answer
@@ -582,7 +673,7 @@ markSpec shell = testGroup "Shell marks"
         assertEqual "one flag is a set of one, so the second press takes it"
                     [("archive", ["r1"])] =<< postedOf answer
         assertEqual "and the flag is spent" [] =<< textsAt "flagged" answer
-        assertEqual "counted" "d → archived (1 flagged)" =<< textAt "echo" answer
+        assertEqual "counted" "d → archive-flag (archived · 1 flagged)" =<< textAt "echo" answer
 
     -- The flag stays on the ROW rather than following the cursor, so a walk
     -- between the two presses is a walk back before the second one lands.
@@ -599,7 +690,7 @@ markSpec shell = testGroup "Shell marks"
         assertEqual "all three, in one request"
                     [("archive", ["r1", "r2", "r3"])] =<< postedOf answer
         assertEqual "and no flag is left" [] =<< textsAt "flagged" answer
-        assertEqual "named the way D names it" "d → archived (3 flagged)"
+        assertEqual "named the way D names it" "d → archive-flag (archived · 3 flagged)"
           =<< textAt "echo" answer
 
     -- The same set, the same request, the same pill: `D' is `d' without the
@@ -608,7 +699,7 @@ markSpec shell = testGroup "Shell marks"
       bootOf shell "" 500 "d n d n d" "press:D" $ \answer -> do
         assertEqual "the same three" [("archive", ["r1", "r2", "r3"])]
           =<< postedOf answer
-        assertEqual "the same pill, under its own key" "D → archived (3 flagged)"
+        assertEqual "the same pill, under its own key" "D → org-glance-overview:delete (archived · 3 flagged)"
           =<< textAt "echo" answer
 
     -- `d' is in ONCE, and this is why: a HELD key reaching the handler twice
@@ -624,7 +715,7 @@ markSpec shell = testGroup "Shell marks"
   , testCase "u clears an archive flag before it touches a mark" $ do
       bootOf shell "" 500 "d" "press:ArrowUp press:u" $ \answer -> do
         assertEqual "the flag is off" [] =<< textsAt "flagged" answer
-        assertEqual "and it says which" "u → flag cleared" =<< textAt "echo" answer
+        assertEqual "and it says which" "u → unmark (flag cleared)" =<< textAt "echo" answer
       -- `m' marks r1 and steps; `d' flags r2 where it landed.  `u' on r2 takes
       -- the flag, and `u' back on r1 takes the mark — one key, flag first.
       bootOf shell "" 500 "m d" "press:u press:ArrowUp press:ArrowUp press:u" $ \answer -> do
@@ -671,7 +762,7 @@ commandKeySpec shell = testGroup "Shell commands"
       bootOf shell "" 500 "D" "" $ \answer -> do
         assertEqual "one archive, over the selected row"
                     [("archive", ["r1"])] =<< postedOf answer
-        assertEqual "and the pill says which" "D → archived (row)"
+        assertEqual "and the pill says which" "D → org-glance-overview:delete (archived · row)"
           =<< textAt "echo" answer
 
     -- The FLAGGED set is what `D' runs over. A flag is a selection made for
@@ -683,7 +774,7 @@ commandKeySpec shell = testGroup "Shell commands"
       bootOf shell "" 500 "m m d" "press:D" $ \answer -> do
         assertEqual "the flagged row, and only it"
                     [("archive", ["r3"])] =<< postedOf answer
-        assertEqual "named as the set it was" "D → archived (1 flagged)"
+        assertEqual "named as the set it was" "D → org-glance-overview:delete (archived · 1 flagged)"
           =<< textAt "echo" answer
         assertEqual "the marks are untouched" ["r1", "r2"] =<< textsAt "marked" answer
 
@@ -696,14 +787,14 @@ commandKeySpec shell = testGroup "Shell commands"
         assertEqual "the flagged row, then the row under the cursor"
                     [("archive", ["r1"]), ("archive", ["r1"])] =<< postedOf answer
         assertEqual "nothing flagged is left" [] =<< textsAt "flagged" answer
-        assertEqual "and the second press said so" "D → archived (row)"
+        assertEqual "and the second press said so" "D → org-glance-overview:delete (archived · row)"
           =<< textAt "echo" answer
 
   , testCase "and with marks but no flags it is still the row at point" $
       bootOf shell "" 500 "m m D" "" $ \answer -> do
         assertEqual "the row under the cursor, never the marked pair"
                     [("archive", ["r3"])] =<< postedOf answer
-        assertEqual "said as the point row" "D → archived (row)"
+        assertEqual "said as the point row" "D → org-glance-overview:delete (archived · row)"
           =<< textAt "echo" answer
         assertEqual "and the marks stand" ["r1", "r2"] =<< textsAt "marked" answer
 
@@ -721,7 +812,7 @@ commandKeySpec shell = testGroup "Shell commands"
         assertEqual "the command still went" 1 . length =<< postedOf answer
         -- The set name gives way to the bare count: "row" over zero rows would
         -- read as a write that landed.
-        assertEqual "nothing landed" "D → archived (0)" =<< textAt "echo" answer
+        assertEqual "nothing landed" "D → org-glance-overview:delete (archived · 0)" =<< textAt "echo" answer
 
     -- C-c C-t is a chord, so this also exercises the prefix path: the first key
     -- opens it and the second completes it, over a table with no field focused.
@@ -735,7 +826,7 @@ commandKeySpec shell = testGroup "Shell commands"
                     [("set-state", ["r1"])] =<< postedOf answer
         assertEqual "as the keyword that letter names" [Just "TODO"]
           =<< keywordsOf answer
-        assertEqual "the pill names the state" "C-c C-t → TODO (1)"
+        assertEqual "the pill names the state" "C-c C-t → org-glance-overview:todo (TODO · 1)"
           =<< textAt "echo" answer
         assertEqual "and the overlay is down" "" =<< textAt "prompt" answer
 
@@ -795,13 +886,13 @@ commandKeySpec shell = testGroup "Shell commands"
   , testCase "the meta entry clears the keyword rather than setting one" $
       bootOf shell "" 500 "C-c C-t" "press:c" $ \answer -> do
         assertEqual "a null keyword" [Nothing] =<< keywordsOf answer
-        assertEqual "and the pill says so" "C-c C-t → *clear* (1)"
+        assertEqual "and the pill says so" "C-c C-t → org-glance-overview:todo (*clear* · 1)"
           =<< textAt "echo" answer
 
   , testCase "/ falls back to typing, and RET takes what is left" $
       bootOf shell "" 500 "C-c C-t" "press:/ type:done press:Enter" $ \answer -> do
         assertEqual "the narrowed choice" [Just "DONE"] =<< keywordsOf answer
-        assertEqual "the pill" "C-c C-t → DONE (1)" =<< textAt "echo" answer
+        assertEqual "the pill" "C-c C-t → org-glance-overview:todo (DONE · 1)" =<< textAt "echo" answer
 
     -- C-n is a reserved chord the map never claims; the palette claims it while
     -- its own field has focus, the way a focused select keeps its arrows.
@@ -853,10 +944,10 @@ whichKeySpec shell = testGroup "Shell which-key"
       , ( "CANCELLED,*clear*",    ["c@0", "l@2"] ) ]
 
     -- What the reader sees, and why: a key token, then the word in its badge
-    -- colour with the claimed letter underlined WHERE IT SITS — which is the
+    -- colour with the claimed letter BOLD WHERE IT SITS — which is the
     -- whole of the teaching.  The hairlines are the producer's groups, and the
     -- meta wears the muted italic every starred value wears.
-  , testCase "the list draws a key token and underlines the letter it claimed" $
+  , testCase "the list draws a key token and bolds the letter it claimed" $
       bootOf shell "" 500 "C-c C-t" "" $ \answer -> do
         assertEqual "the entries, the hairlines between the groups, and the colours"
           [ ("pe",    "t", "[T]ODO",    "#e0af68")
@@ -1092,12 +1183,12 @@ sheetSpec shell = testGroup "Shell sheet"
                     =<< textAt "sheet" answer
         assertEqual "the panel is off the sheet" "raw" =<< textAt "shape" answer
         assertEqual "and the logbook strip with it" "" =<< textAt "logbook" answer
-        assertEqual "and the pill says which way it went" "C-c ' → raw org"
+        assertEqual "and the pill says which way it went" "C-c ' → org-edit-special (raw org)"
                     =<< textAt "echo" answer
       bootOf shell "" 500 "Enter" "press:C-c press:' press:C-c press:'" $ \answer -> do
         assertEqual "back to the body alone" "* TODO one\n" =<< textAt "sheet" answer
         assertEqual "with the panel back" "" =<< textAt "shape" answer
-        assertEqual "the pill" "C-c ' → properties panel" =<< textAt "echo" answer
+        assertEqual "the pill" "C-c ' → org-edit-special (properties panel)" =<< textAt "echo" answer
 
     -- A re-read cannot carry unsaved work, and converting locally would need the
     -- parser this design exists to avoid.  So the toggle is refused, and says
@@ -1106,14 +1197,14 @@ sheetSpec shell = testGroup "Shell sheet"
       bootOf shell "" 500 "Enter" "sheet:hello press:C-c press:'" $ \answer -> do
         assertEqual "the text stands" "hello" =<< textAt "sheet" answer
         assertEqual "and the shape with it" "" =<< textAt "shape" answer
-        assertEqual "named the key" "C-c ' → sync first — C-x C-s"
+        assertEqual "named the key" "C-c ' → org-edit-special (sync first — C-x C-s)"
                     =<< textAt "echo" answer
       bootOf shell "" 500 "Enter"
              ("press:Tab press:n press:n press:n press:Enter pval:3=0:45"
                 <> " press:Enter press:C-c press:'") $
         \answer -> do
           assertEqual "a committed panel edit is dirty too" "" =<< textAt "shape" answer
-          assertEqual "same refusal" "C-c ' → sync first — C-x C-s"
+          assertEqual "same refusal" "C-c ' → org-edit-special (sync first — C-x C-s)"
                       =<< textAt "echo" answer
 
     -- The other half of that rule: an edit nobody committed is not one, so the
@@ -1123,7 +1214,7 @@ sheetSpec shell = testGroup "Shell sheet"
              ("press:Tab press:n press:n press:n press:Enter pval:3=0:45"
                 <> " press:C-c press:'") $ \answer -> do
         assertEqual "the toggle went through" "raw" =<< textAt "shape" answer
-        assertEqual "and said so" "C-c ' → raw org" =<< textAt "echo" answer
+        assertEqual "and said so" "C-c ' → org-edit-special (raw org)" =<< textAt "echo" answer
 
     -- A remount takes the sheet down and puts it back: both panes, and the work
     -- in either of them.
@@ -1411,7 +1502,7 @@ keywordsOf answer =
   traverse (maybeTextAt "keyword" <=< field "args") =<< listAt "commands" answer
 
 -- | The value palette as it is drawn: per row, its classes, the key token it
--- claimed, its word with the underlined letter bracketed where it sits, and the
+-- claimed, its word with the bolded letter bracketed where it sits, and the
 -- badge colour it wears.  A hairline is a row of its own, so the groups read
 -- out of the same list.
 paletteOf :: Value -> IO [(T.Text, T.Text, T.Text, T.Text)]
@@ -1572,7 +1663,7 @@ shellGlue =
       -- reads its answer for the state a toggle landed in.
       [ "marks: true,"
       , "let on = table.toggleMark(id);"
-      , "(${table.markedCount()})"
+      , "· ${table.markedCount()}`);"
       -- And that a flagged row's hint is the two keys that answer the flag,
       -- spelled here and drawn there.
       , "flagHelp: \"d/D archive · u unflag\"," ]
@@ -1596,13 +1687,17 @@ shellGlue =
       -- the fallback's cursor row — `--g-sel' is a bright yellow in the light
       -- theme, and this is the one declaration on the page that outranks one.
       , "#plist .pat .pw{color:var(--g-fg)!important}"
+      -- The claimed letter is drawn by WEIGHT, so it keeps the badge hue the
+      -- rest of the word wears and puts no rule through the descenders.
+      , "part(word, \"b\", \"\", c.label[c.cut]);"
+      , ".pw b{font-weight:700}"
       -- And second, that both modes commit through one call, so the letter and
       -- the fallback's RET are the same delivery.
       , "else if (!e.repeat) takeChoice(hit);"
       , "else if (k === \"RET\") takeChoice(prompting.shown[prompting.at]);" ]
-      -- No second copy of the assignment, and no confirmation step behind a
-      -- letter: the palette IS the confirmation.
-      ["const LETTERS", "confirm("]
+      -- No second copy of the assignment, no confirmation step behind a letter
+      -- (the palette IS the confirmation), and no underline left behind.
+      ["const LETTERS", "confirm(", ".pw u{", "part(word, \"u\""]
 
   -- The overlay is raised and dissolved by the renderer, whose own input stops
   -- ESC and DEL before this page's document handler sees them.  What keeps the
@@ -1720,7 +1815,7 @@ shellGlue =
       -- sends it at all.
       , ".split(\"\\n\").slice(1, -1).join(\"\\n\")"
       -- The toggle re-reads rather than converting, and refuses a dirty sheet.
-      , "if (dirty()) { echo(`${b.seq} → sync first — C-x C-s`); return; }"
+      , "if (dirty()) { said(b, \"sync first — C-x C-s\"); return; }"
       , "headline(h.id).then((fresh) => {"
       -- The panel's own keys: TAB crosses the panes and hops an open row's two
       -- fields, nav movement is both spellings of the map's own letters and the
@@ -1737,11 +1832,26 @@ shellGlue =
       , "#mpanes{flex:1;min-height:0;display:flex;flex-wrap:wrap;gap:10px}"
       , "#sheet.raw #mprops{display:none}"
       -- A planning row's key is org's rather than the author's, and says so.
-      , ".pln .pkey{color:var(--g-mute)}" ]
+      , ".pln .pkey{color:var(--g-mute)}"
+      -- And the panel reads as the table does: the same cell padding, the same
+      -- stripe over the same ground, and the cursor row in the page's own
+      -- selection rather than a tint of its own.  `:nth-child' is honest here
+      -- where the renderer needs a stamped class — this list is not windowed.
+      , ".prow input,.prow span{font:12px/1.5 var(--dk-mono);padding:5px 12px;"
+      , "    display:flex;flex-direction:column}"
+      , "#mprops .prow:nth-child(even){background:var(--g-surface)}"
+      , "#mprops.on .pat{background:var(--g-sel);color:var(--g-fg)}"
+      -- One hairline, at the group edge, drawn by the first property row so a
+      -- drawer with none draws nothing.
+      , ".prow.pln + .prow:not(.pln){border-top:1px solid var(--g-border)}" ]
       -- Field order is the DOM's: the fields are in the order the drawer writes
       -- them and nothing reorders them.  And no parser: the page never goes
-      -- looking for a drawer in the text it holds.
-      [ "tabindex", ":PROPERTIES:", ":END:" ]
+      -- looking for a drawer in the text it holds.  Nor a row gap on either
+      -- box: the stripe is the separation, and a gap would leave gutters
+      -- through it.
+      [ "tabindex", ":PROPERTIES:", ":END:"
+      , "#mprops{flex:1 1 240px;min-width:0;overflow-y:auto;\n    display:flex;flex-direction:column;gap"
+      , ".prow{display:flex;flex-wrap:wrap;gap" ]
 
   -- The author's Emacs theme in one set of custom properties: white on true
   -- black in the dark variant, black on white in the light one.  The hairline is
@@ -1888,16 +1998,31 @@ shellGlue =
       [ "const PAGE = 100;   // rows in the first paint, and rows to a page"
       , "pageSize: PAGE,"
       , "load(`${narrow}limit=${PAGE}`)"
-      -- The turn is the renderer's, and the echo says where it landed:
-      -- `] → page 3/129'.
+      -- The turn is the renderer's, and the bracket says where it landed:
+      -- `] → next-page (page 3/129)'.
       , "nextPage: (b) => turnPage(b, 1),"
       , "previousPage: (b) => turnPage(b, -1),"
       , "if (step > 0) table.nextPage(); else table.previousPage();"
-      , "echo(`${b.seq} → page ${at.page}/${at.pages}`);"
+      , "said(b, `page ${at.page}/${at.pages}`);"
       -- An asset without a pager says so rather than throwing.
       , "typeof table.nextPage === \"function\""
       , "typeof table.pageInfo === \"function\""
       , "this table-view.js has no pager" ]
+
+  -- The buffer ends climb: the page's end row first, and the same key again
+  -- turns onto the next page's.  The landing is a select of its own in BOTH
+  -- directions, since the renderer arrives at the far end of the page it turned
+  -- to — and the column is read back out of the selection the turn kept rather
+  -- than carried across in a local of this page's.
+  , Glue "the buffer ends are progressive across pages"
+      [ "firstRow: (b) => endStop(b, false),"
+      , "lastRow: (b) => endStop(b, true),"
+      , "const end = (rows) => rows[last ? rows.length - 1 : 0].id;"
+      , "if (!pager() || focusedId() !== end(list)) {"
+      , "if (!(last ? table.nextPage() : table.previousPage())) { said(b, \"\"); return; }"
+      , "if (turned.length) table.select(end(turned), column());" ]
+      -- The column stays the renderer's across a turn: no local carries it.
+      ["const col = ", "let col = "]
 
   -- The column is the renderer's to hold: the shell reads it back out of
   -- `getSelection()' every time, which is why it survives a profile switch and
@@ -1920,10 +2045,9 @@ shellGlue =
   -- `f → next-column (Headline)', and `f → next-column (at last)' where the walk
   -- ran out of columns.
   , glue "the landing column is echoed by its header, or the edge it stopped at"
-      [ "const say = (what) => echo(`${b.seq} → ${b.command} (${what})`);"
-      , "say(cols[want].header || cols[want].key);"
-      , "say(want < 0 ? \"at first\" : \"at last\")"
-      , "say(\"no row\")"
+      [ "said(b, cols[want].header || cols[want].key);"
+      , "said(b, want < 0 ? \"at first\" : \"at last\")"
+      , "said(b, \"no row\")"
       -- The headers are the mounted view's, and parity cuts the keys out of the
       -- same list where it needs them.
       , "cols = view.columns || [];"
@@ -2108,6 +2232,31 @@ headlineSpec = testGroup "GET /headlines"
   ]
 
 -- | The load counts ride in headers; the body stays SCHEMA.md's field set.
+-- | The startup banner.  Pure, so the one thing worth asserting about it costs
+-- no server: the first line names the SUBCOMMAND the operator ran, since the
+-- daemon `glance desktop' starts is the same one `glance serve' does and the
+-- banner was the only place saying which.
+bannerSpec :: TestTree
+bannerSpec = testGroup "Startup banner"
+  [ testCase "names the subcommand that started it" $ do
+      assertEqual "under serve" "glance serve — http://127.0.0.1:7777/"
+                  (head (bannerLines "serve" opts True))
+      assertEqual "under desktop" "glance desktop — http://127.0.0.1:7777/"
+                  (head (bannerLines "desktop" opts True))
+
+    -- The rest of the banner is the same daemon's either way, and a missing
+    -- renderer is the one thing that changes a line.
+  , testCase "and says the same about the daemon under both" $ do
+      assertEqual "every line but the first"
+                  (tail (bannerLines "serve" opts True))
+                  (tail (bannerLines "desktop" opts True))
+      assertBool "a missing renderer is not reported"
+                 ("(missing — /headlines only)" `isInfixOf`
+                    unlines (bannerLines "serve" opts False))
+  ]
+  where opts = ServeOptions { soDir = "/o", soPort = defaultPort
+                            , soAssets = "/a", soDerived = False }
+
 statsSpec :: TestTree
 statsSpec = testGroup "Load stats"
   [ testCase "report what the walk covered" $ do
@@ -3401,8 +3550,8 @@ pageSpec shell = testGroup "GET /"
       -- then follows, rather than recomposing a query the chips would outlive.
       mapM_ (\needle -> assertContains "DEL glue" needle b)
             [ "table.stripLastToken()", "table.getQuery().trim()"
-            , "filterDrop: () => {", "echo(\"DEL → no filter\")"
-            , "DEL → filter: ${JSON.stringify(left)}", "DEL → filter cleared"
+            , "filterDrop: (b) => {", "said(b, \"no filter\")"
+            , "said(b, left ? `filter: ${JSON.stringify(left)}` : \"filter cleared\");"
             -- An asset without the pair says so instead of guessing.
             , "typeof table.stripLastToken === \"function\""
             , "this table-view.js has no filter tokens"
@@ -3492,6 +3641,9 @@ pageSpec shell = testGroup "GET /"
         -- The page pair reads open-then-close, so the line says `[/]' where
         -- the two above it read forward first.
         , (["previous-page", "next-page"], "pages")
+        -- The one label carrying a second sentence: without it a reader takes
+        -- `<' for a within-page key and never finds out that it climbs.
+        , (["first-row", "last-row"], "first/last row, again = page up/down")
         , (["org-glance-overview:materialize"], "materialize")
         -- Four keys, one word: the line says `m/u/U/M mark' the way it says
         -- `n/p rows', since the group is one idea.
@@ -3565,9 +3717,9 @@ expectedRows =
   , (["b"],          "b",       "previous-column",                 Just "previousColumn", "table", leftHelp)
   , (["l"],          "l",       "next-column",                     Just "nextColumn",     "table", rightHelp)
   , (["h"],          "h",       "previous-column",                 Just "previousColumn", "table", leftHelp)
-  , (["<"],          "<",       "first-row",                       Just "firstRow",       "table", Nothing)
-  , ([">"],          ">",       "last-row",                        Just "lastRow",        "table", Nothing)
-  , (["G"],          "G",       "last-row",                        Just "lastRow",        "table", Nothing)
+  , (["<"],          "<",       "first-row",                       Just "firstRow",       "table", topHelp)
+  , ([">"],          ">",       "last-row",                        Just "lastRow",        "table", endHelp)
+  , (["G"],          "G",       "last-row",                        Just "lastRow",        "table", endHelp)
   , (["]"],          "]",       "next-page",                       Just "nextPage",       "table", Nothing)
   , (["["],          "[",       "previous-page",                   Just "previousPage",   "table", Nothing)
   , (["RET"],        "RET",     "org-glance-overview:materialize", Just "materializeRow", "table", Nothing)
@@ -3619,6 +3771,8 @@ expectedRows =
   ]
   where rightHelp = Just "the cell to the right; row movement keeps the column"
         leftHelp  = Just "the cell to the left; from a whole row, the first column"
+        topHelp   = Just "first row, again = page up"
+        endHelp   = Just "last row, again = page down"
 
 -- | The keymap blob out of SHELL, parsed.  Everything the dispatch reads is in
 -- here, so the assertions below are over data rather than over the spelling of
@@ -3674,6 +3828,27 @@ keymapSpec shell = testGroup "Shell keymap"
         , "glance-keys", "keysel", "setProfile", "?keys=" ] b
       -- The dispatch and the key line read the one list.
       holdsAll "the one list" ["MAPS.rows.filter(live)", "MAPS.rows.find("] b
+
+    -- The echo speaks the FUNCTION NAME, verbatim.  A rebinding config will
+    -- address a command by exactly this string, so a reader who learns one off
+    -- the pill has to be able to type it — which rules out the prose spelling
+    -- (`> → last row' for `last-row').  Two halves, and together they close it:
+    -- every emission puts `${b.command}' in the slot after the arrow, and no
+    -- command in the blob carries a space, so the slot cannot hold prose.  What
+    -- follows is a bracketed outcome and is prose on purpose.
+  , testCase "every echo names the command it ran, verbatim" $ do
+      inline <- glueOf =<< shell
+      let after = drop 1 (T.splitOn "${b.seq} → " inline)
+          slots = [ T.takeWhile (/= '`') s | s <- after ]
+      assertBool "no keyed echo at all — the sweep read nothing"
+                 (not (null slots))
+      assertEqual "an arrow slot that is not the command" []
+                  [ s | s <- slots, not ("${b.command}" `T.isPrefixOf` s) ]
+      -- The one echo written without a binding in hand names its command too.
+      assertContains "ESC's own echo" "ESC → keyboard-quit (row unchanged)" inline
+      rows <- keymapOf =<< shell
+      assertEqual "a command name that cannot be typed as one" []
+                  [ c | (_k, _s, c, _h, _sc, _help) <- rows, " " `T.isInfixOf` c ]
 
   , testCase "nothing is bound twice, and no sequence hides a longer one" $ do
       rows <- keymapOf =<< shell

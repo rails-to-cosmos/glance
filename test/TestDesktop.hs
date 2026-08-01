@@ -155,7 +155,7 @@ spawnSpec = withResource (newMVar ()) (const (pure ())) $ \lock ->
     , testCase "a browser that cannot be started leaves the daemon alone" $
         withTempDir $ \dir -> do
           -- No spawn is possible: the path names nothing.  'openWindow' returns
-          -- normally, which is what keeps `serveWith' serving — and returning is
+          -- normally, which is what keeps `serveAs' serving — and returning is
           -- all it does, so what it printed is the only evidence it ran at all.
           let missing = dir </> "not-installed"
           said <- capturedStdout lock (dir </> "said")
