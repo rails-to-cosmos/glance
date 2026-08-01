@@ -1627,7 +1627,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
       -- whole of the offer there.
       <> "<button id=\"gear\" title=\"settings\">\9881</button></div>"
   , "  <div id=\"app\"></div>"
-  , "  <div id=\"log\">loading …</div>"
+  , "  <div id=\"log\"></div>"
   , "  <div id=\"kbd\"></div>"
   , "  <div id=\"modal\">"
   , "    <div id=\"sheet\">"
@@ -1672,13 +1672,49 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "  <script id=\"keys\" type=\"application/json\">" <> keyBindingsJSON <> "</script>"
   , "  <script src=\"" <> T.pack rendererAsset <> "\"></script>"
   , "  <script>"
-  -- The strip is capped, so the end of a long message can be out of sight.
-  -- Keep it in sight — unless the reader has scrolled up, which is a place
-  -- they are holding on purpose.
-  , "    function log(m) {"
+  -- The strip is an event log, and an APPEND-ONLY one: nothing clears it, so
+  -- what a reader missed is still there to scroll back to.  A line is
+  -- `HH:MM:SS SEV scope message' — the stamp muted, the severity coloured, the
+  -- scope one word out of a fixed set (ws, sync, cmd, filter, config, boot)
+  -- saying which part of the page is talking.  The parts are spans so each can
+  -- carry its own colour, and the message is one line: control characters in it
+  -- collapse to spaces rather than breaking the shape.
+  --
+  -- Two rules keep it bounded without taking anything back: past LOGCAP the
+  -- OLDEST line is dropped, and a line identical to the one before it bumps a
+  -- counter instead of repeating itself.  That counter is the only mutation an
+  -- append-only strip allows, and it is what keeps a retry loop from filling the
+  -- ring with one message.
+  --
+  -- The strip is capped in height, so its end can be out of sight.  Keep it in
+  -- sight — unless the reader has scrolled up, which is a place they are holding
+  -- on purpose.
+  , "    const LOGCAP = 500;"
+  , "    let logLast = null;"
+  , "    function append(scope, sev, message) {"
   , "      const box = document.getElementById(\"log\");"
+  , "      const text = String(message).replace(/[\\x00-\\x1f]+/g, \" \");"
   , "      const end = box.scrollTop + box.clientHeight >= box.scrollHeight - 4;"
-  , "      box.textContent = m;"
+  , "      if (logLast && logLast.scope === scope && logLast.sev === sev"
+  , "          && logLast.text === text) {"
+  , "        logLast.count.textContent = `×${(logLast.n += 1)}`;"
+  , "      } else {"
+  , "        const line = document.createElement(\"div\");"
+  , "        line.className = sev;"
+  , "        const part = (cls, s) => {"
+  , "          const e = document.createElement(\"span\");"
+  , "          e.className = cls; e.textContent = s;"
+  , "          line.appendChild(e);"
+  , "          return e;"
+  , "        };"
+  , "        part(\"lt\", new Date().toTimeString().slice(0, 8));"
+  , "        part(\"lv\", sev);"
+  , "        part(\"lc\", scope);"
+  , "        part(\"lm\", text);"
+  , "        logLast = { scope, sev, text, n: 1, count: part(\"ln\", \"\") };"
+  , "        box.appendChild(line);"
+  , "        while (box.children.length > LOGCAP) box.removeChild(box.children[0]);"
+  , "      }"
   , "      if (end) box.scrollTop = box.scrollHeight;"
   , "    }"
   , "    const dot = (name) => (document.getElementById(\"dot\").className = name);"
@@ -1712,6 +1748,11 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
         -- mark outlives a filter that hides its row and a page it is not on.
         -- This page owns the keys and nothing else.
   , "        marks: true,       // dired's m/u/U/M, drawn and counted by the renderer"
+        -- A flagged row's hint is the two keys that answer the flag, spelled the
+        -- way the key line spells them.  The renderer draws it; an asset
+        -- predating the option drops it the way it drops any other it has no
+        -- field for.
+  , "        flagHelp: \"d/D archive · u unflag\","
         -- The renderer's per-row hint says RET materializes, which the key line
         -- under the table already says and says for every command.  One place.
   , "        actionHints: false,"
@@ -1722,8 +1763,9 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        initialQuery: query,"
   , "        onAction: (command, id) =>"
   , "          command === \"materialize\" ? materialize(id)"
-  , "                                     : log(`action: ${command}  id=${id}`),"
-  , "        onLink: (target) => log(`link: ${target}`),"
+  , "                                     : append(\"cmd\", \"info\","
+      <> " `action: ${command}  id=${id}`),"
+  , "        onLink: (target) => append(\"cmd\", \"info\", `link: ${target}`),"
   , "        onFilter: filter,   // the server narrows; the renderer shows what it is given"
   , "      });"
   , "      // An asset older than `initialQuery' drops it silently, which would"
@@ -1735,11 +1777,6 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      // out of them (`parity'), and cell movement names its landing column"
   , "      // by the header sitting over it."
   , "      cols = view.columns || [];"
-  , "      // The boot placeholder has done its work.  The strip is an event log"
-  , "      // — connection, sync, warnings, errors — and it says nothing about"
-  , "      // what is loaded: the renderer's own hint line already counts the"
-  , "      // rows, and the key line under it says what the keys are."
-  , "      log(\"\");"
   , "      // Whatever the remount that led here took down goes back up over the"
   , "      // new table; on a first boot there is nothing stashed and nothing to do."
   , "      restore();"
@@ -1767,7 +1804,9 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        : r.status === 503 ? r.json().then((b) => { throw Object.assign(new Error(\"indexing\"), { indexing: b }); })"
   , "             : r.text().then((t) => { throw new Error(t); }));"
   , "    }"
-  , "    const quiet = (e) => { if (e.name !== \"AbortError\") log(`load failed: ${e.message}`); };"
+  , "    const quiet = (e) => {"
+  , "      if (e.name !== \"AbortError\") append(\"ws\", \"error\", `load failed: ${e.message}`);"
+  , "    };"
   , "    // The unfiltered answer is kept: with a filter on, the loaded rows are"
   , "    // the server's answer to it and cannot be used to check that answer."
   , "    let all = [], cols = [];"
@@ -1809,7 +1848,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      if (!local) return;"
   , "      const note = \"filter parity divergence — asset/daemon version skew\";"
   , "      console.warn(note, { query, server: total, local });"
-  , "      log(note);"
+  , "      append(\"filter\", \"warn\", note);"
   , "      echo(note);"
   , "    }"
   , ""
@@ -1898,7 +1937,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      });"
   , "    function materialize(id) {"
   , "      headline(id).then((h) => show(h, false))"
-  , "        .catch((e) => log(`materialize failed: ${e.message}`));"
+  , "        .catch((e) => append(\"sync\", \"error\", `materialize failed: ${e.message}`));"
   , "    }"
   , "    // The sheet is buttonless: it syncs on the way out.  It is also two"
   , "    // panes over one subtree — the body in the textarea, the property drawer"
@@ -2187,7 +2226,11 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    // trouble in it discards, which is what a second ESC is."
   , "    function leave() {"
   , "      if (!editing) return;"
-  , "      if (troubled()) { shut(); log(\"closed without writing — the file is as it was\"); return; }"
+  , "      if (troubled()) {"
+  , "        shut();"
+  , "        append(\"sync\", \"info\", \"closed without writing — the file is as it was\");"
+  , "        return;"
+  , "      }"
   , "      if (!dirty()) { shut(); return; }"
   , "      if (!flushing()) flush(editing.digest).then((ok) => ok && shut());"
   , "    }"
@@ -2231,7 +2274,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      return tr ? tr.dataset.id : null;"
   , "    };"
   , "    function pick(list, i) {"
-  , "      if (!list.length) { log(\"no rows to move through\"); return; }"
+  , "      if (!list.length) { append(\"cmd\", \"info\", \"no rows to move through\"); return; }"
   , "      const id = list[Math.max(0, Math.min(list.length - 1, i))].id;"
   , "      // Row movement carries the column along: null until a horizontal key"
   , "      // picks one, so a page nobody has moved sideways in keeps whole rows."
@@ -2246,7 +2289,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    function move(step) {"
   , "      if (steps()) {"
   , "        if (visible().length) table.selectStep(step);"
-  , "        else log(\"no rows to move through\");"
+  , "        else append(\"cmd\", \"info\", \"no rows to move through\");"
   , "        return;"
   , "      }"
   , "      const list = visible(), at = list.findIndex((r) => r.id === focusedId());"
@@ -2298,6 +2341,23 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    const flagging = () => !!table && typeof table.flagRow === \"function\""
   , "      && typeof table.getFlagged === \"function\";"
   , "    const isFlagged = (id) => flagging() && table.getFlagged().indexOf(id) !== -1;"
+    -- The log names a row the way the table does: by its title, out of the rows
+    -- in hand — the page on screen, and the unfiltered baseline behind it.  A
+    -- row in neither is named by its id, which is a lookup failure a reader can
+    -- still act on.  `displayText' is the renderer's own link rule, so what the
+    -- line spells is what the cell shows.
+  , "    const titleOf = (id) => {"
+  , "      const row = visible().concat(all).find((r) => r.id === id);"
+  , "      const cell = row && (row.cells || {}).title;"
+  , "      const shown = typeof TableView.displayText === \"function\""
+  , "        ? TableView.displayText(cell) : String(cell || \"\");"
+  , "      return shown || id;"
+  , "    };"
+    -- One wording for every write a key makes: the pill counts what landed, the
+    -- log says which rows they were.  Bulk is one line per row, since a set
+    -- spanning three files can come back two-thirds applied.
+  , "    const noted = (id, what) =>"
+  , "      append(\"cmd\", \"info\", `headline ${JSON.stringify(titleOf(id))} ${what}`);"
     -- TOGGLING is `m', which flips the way dired's does and takes the
     -- renderer's word for where it landed.  `u' is never a toggle: it flips
     -- too, then puts back anything it just laid down, so walking a column of
@@ -2313,6 +2373,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- One key for both, which is what dired does, and the echo says which.
   , "      if (!toggling && isFlagged(id)) {"
   , "        table.unflagRow(id);"
+  , "        noted(id, \"unmarked for deletion\");"
   , "        echo(`${b.seq} → flag cleared`);"
   , "        move(1);"
   , "        return;"
@@ -2360,8 +2421,17 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        const bad = results.filter((x) => !x.ok);"
   , "        const landed = results.length - bad.length;"
   , "        echo(`${b.seq} → ${verb} (${how ? how(landed) : landed})`);"
-  , "        if (bad.length) log(bad.map((x) => `${x.id}: ${x.error}`).join(\" · \"));"
-  , "      })).catch((e) => { said(b, e.message); log(`${name} failed: ${e.message}`); });"
+    -- What one landed write did, per row.  The two names are the route's whole
+    -- vocabulary, so the wording sits here rather than at each key that fires.
+  , "        const what = name === \"archive\" ? \"archived\""
+  , "          : args.keyword ? `→ ${args.keyword}` : \"state cleared\";"
+  , "        for (const x of results) if (x.ok) noted(x.id, what);"
+  , "        if (bad.length)"
+  , "          append(\"cmd\", \"error\", bad.map((x) => `${x.id}: ${x.error}`).join(\" · \"));"
+  , "      })).catch((e) => {"
+  , "        said(b, e.message);"
+  , "        append(\"cmd\", \"error\", `${name} failed: ${e.message}`);"
+  , "      });"
   , "    }"
     -- Archiving: ONE implementation, reached by both keys.  The tag goes on, the
     -- headline stays, and the default view stops showing it.  It runs over the
@@ -2489,7 +2559,10 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        cnote(\"synced\");"
   , "        el(\"config\").className = \"on\";"
   , "        if (crows.length) crows[0].box.focus();"
-  , "      }).catch((e) => { settings = false; log(`settings failed: ${e.message}`); });"
+  , "      }).catch((e) => {"
+  , "        settings = false;"
+  , "        append(\"config\", \"error\", `settings failed: ${e.message}`);"
+  , "      });"
   , "    }"
   , "    const config = () =>"
   , "      fetch(\"/config\").then((r) => r.json().then((b) => {"
@@ -2604,7 +2677,9 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    function leaveSettings() {"
   , "      if (!settings) return;"
   , "      if (cstate === \"conflict\" || cstate === \"error\") {"
-  , "        shutSettings(); log(\"settings closed — the files are as they were\"); return;"
+  , "        shutSettings();"
+  , "        append(\"config\", \"info\", \"settings closed — the files are as they were\");"
+  , "        return;"
   , "      }"
   , "      if (!cdirty()) { shutSettings(); return; }"
   , "      if (cstate !== \"syncing\") flushConfig().then((ok) => ok && shutSettings());"
@@ -2696,7 +2771,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        el(\"mtext\").value = s.text;   // dirty again, against the file as it now is"
   , "        if (!s.raw) drawProps(s.props, s.plan);"
   , "        if (h.digest !== s.digest) sync(\"conflict\");"
-  , "      }).catch((e) => log(`sheet restore failed: ${e.message}`));"
+  , "      }).catch((e) => append(\"sync\", \"error\", `sheet restore failed: ${e.message}`));"
   , "    }"
   , "    // The one door that throws the mount away and builds a new one: a"
   , "    // `view-changed' close, and `g'.  Everything else that loses the socket"
@@ -2827,7 +2902,8 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      lastRow: () => pick(visible(), visible().length - 1),"
   , "      materializeRow: () => {"
   , "        const id = focusedId();"
-  , "        if (id) materialize(id); else log(\"no row focused — n or p picks one\");"
+  , "        if (id) materialize(id);"
+  , "        else append(\"cmd\", \"info\", \"no row focused — n or p picks one\");"
   , "      },"
   , "      markToggle: (b) => mark(b, true),"
   , "      unmarkRow: (b) => mark(b, false),"
@@ -2856,6 +2932,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        if (!id) { said(b, \"no row\"); return; }"
   , "        if (isFlagged(id)) { archive(b); return; }"
   , "        table.flagRow(id);"
+  , "        noted(id, \"marked for deletion\");"
   , "        echo(`${b.seq} → flagged — d again archives`);"
   , "      },"
   , "      applyDefault, focusFilter, toggleRaw, openSettings,"
@@ -2874,8 +2951,8 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "            (c) => fire(b, \"set-state\", ids, { keyword: c.keyword },"
   , "                        c.keyword === null ? CLEAR : c.keyword));"
   , "      },"
-  , "      quitWindow: () =>"
-  , "        (editing ? leave() : log(\"q closes the sheet; there is no window to quit\")),"
+  , "      quitWindow: () => (editing ? leave()"
+  , "        : append(\"cmd\", \"info\", \"q closes the sheet; there is no window to quit\")),"
     -- One key out of whichever overlay is up: the prompt first, since it is the
     -- one that can be raised over an open sheet.
   , "      cancel: () => {"
@@ -2904,7 +2981,8 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      echo(`${b.seq} → ${b.command}${b.help ? ` · ${b.help}` : \"\"}`);"
   , "      const handler = b.handler && HANDLERS[b.handler];"
   , "      if (handler) handler(b);"
-  , "      else log(`${b.seq} (${b.command}) — arrives with daemon commands (M4)`);"
+  , "      else append(\"cmd\", \"info\","
+      <> " `${b.seq} (${b.command}) — arrives with daemon commands (M4)`);"
   , "    }"
   , "    document.addEventListener(\"keydown\", (e) => {"
   , "      const k = keyName(e);"
@@ -2990,7 +3068,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        if (a.view && query === asked) paint(a);"
   , "        backoff = 1000;"
   , "        listen();"
-  , "        log(a.view ? \"reconnected · rows refreshed\" : \"reconnected\");"
+  , "        append(\"ws\", \"info\", a.view ? \"reconnected · rows refreshed\" : \"reconnected\");"
   , "      }).catch((e) => {"
   , "        if (e.indexing) return indexing(e.indexing);"
   , "        // A newer query is already fetching and will paint what it gets;"
@@ -3004,7 +3082,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    // and a key-by-key check would let it move unnoticed."
   , "    const sameColumns = (next) => JSON.stringify(next) === JSON.stringify(cols);"
   , "    function again() {"
-  , "      log(`disconnected · retrying in ${Math.round(backoff / 1000)}s`);"
+  , "      append(\"ws\", \"warn\", `disconnected · retrying in ${Math.round(backoff / 1000)}s`);"
   , "      setTimeout(resync, backoff);"
   , "      backoff = Math.min(backoff * 2, 30000);"
   , "    }"
@@ -3014,7 +3092,8 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    // back through `resync' — the page it left is still on screen."
   , "    function indexing(b) {"
   , "      dot(\"wait\");"
-  , "      log(`indexing … ${b.elapsed}s · the table opens when the walk lands`);"
+  , "      append(\"boot\", \"info\","
+      <> " `indexing … ${b.elapsed}s · the table opens when the walk lands`);"
   , "      setTimeout(resync, 1000);"
   , "    }"
   , "    function start() {"
@@ -3044,6 +3123,10 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        dot(\"down\"); quiet(e); if (e.name !== \"AbortError\") again();"
   , "      });"
   , "    }"
+    -- The first line of the log, and an ordinary one: the strip is never
+    -- cleared, so the boot stays in the scrollback under everything that
+    -- follows it rather than being a placeholder something has to take away.
+  , "    append(\"boot\", \"info\", \"loading …\");"
   , "    start();"
   , "  </script>"
   ]
@@ -3144,6 +3227,16 @@ page head' title body = T.unlines
   , "  #log{font-size:12px;color:var(--g-mute);padding:6px 10px;"
   , "    border:1px solid var(--g-border);border-radius:8px;"
   , "    background:var(--g-surface);flex:1 1 auto;overflow-y:auto}"
+  -- A line is spans so its parts can be told apart at a glance: the stamp and
+  -- the scope recede into the strip's own colour, the message carries the page's
+  -- text colour, and the severity is the one part that changes colour — which is
+  -- what makes a warning findable in a screenful of chatter.  The repeat counter
+  -- is empty until a line repeats, and an empty span occupies nothing.
+  , "  #log div>span{margin-right:6px}"
+  , "  #log .lt{opacity:.65}"
+  , "  #log .lm{color:var(--g-fg)}"
+  , "  #log .warn .lv{color:var(--g-warn)}"
+  , "  #log .error .lv{color:var(--g-bad)}"
   -- The resident key line, and the page's last: what can run, where the echo
   -- pill says what just did.  Slim and muted, so it reads as chrome rather
   -- than as content; one line that scrolls sideways instead of wrapping, so a

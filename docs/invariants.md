@@ -1438,6 +1438,36 @@ on.
   wrapping. So an arriving message moves neither the corner nor the key line,
   which is the whole point: the two pieces of chrome a reader looks for hold
   their places. **test**
+- **The log strip is APPEND-ONLY, and `append(scope, severity, message)` is the
+  whole of its interface.** A line is `HH:MM:SS SEV scope message`: the stamp
+  muted, the severity in colour (`info` muted, `warn` `--g-warn`, `error`
+  `--g-bad`) and worn as the line's class as well as spelled in it, the scope one
+  word out of a fixed six — `ws`, `sync`, `cmd`, `filter`, `config`, `boot`. The
+  parts are spans so each can carry its own colour, and a message's control
+  characters collapse to spaces, so an entry is one line whatever it was handed.
+  Nothing clears the strip: the boot line is an ordinary `boot info` line rather
+  than a placeholder the mount takes away, which is what makes a page's first
+  second still readable an hour later. Two rules bound it without taking anything
+  back. The ring holds `LOGCAP` = 500 and drops the OLDEST past it — a reader
+  scrolled back is reading the recent past, so the far end is the end to lose.
+  And a line identical to the one before it (same scope, severity and message)
+  bumps a `×N` counter on that line instead of appending: the ONE mutation an
+  append-only strip allows, and what keeps a retry loop from filling the ring
+  with a single sentence. The end is scrolled to unless the reader has scrolled
+  up, which is a place they are holding on purpose. Evidence: `TestServe` "Shell
+  log", which drives the widget through the keys and asserts what the strip
+  holds; the ring's cap is past what any key reaches a line at a time, so the
+  harness has an act that appends straight into it. **test**
+- **A write names the rows it landed on, and the pill counts them.** `d` logs
+  `headline "TITLE" marked for deletion` and `u` the unmarking; every archived
+  row logs `headline "TITLE" archived` and every state that landed
+  `headline "TITLE" → KEYWORD`, the clear reading `state cleared`. Bulk is one
+  line per ROW rather than per request, since a set spanning three files can come
+  back two-thirds applied — the count in the pill cannot say which third. The
+  title is the renderer's `displayText` over the row's title cell, out of the
+  rows in hand (the page on screen, then the unfiltered baseline behind it), and
+  a row in neither is named by its id. Refusals stay one `cmd error` line
+  carrying the server's own words. **test**
 - **Every touch-device rule lives in ONE `@media (pointer:coarse)` block.** The
   chip row as a 44px tap target, its empty-state label, and the sheet's 16px
   textarea that stops iOS zooming in and never zooming back out. Keeping them in
@@ -1506,8 +1536,9 @@ on.
   once the watch has re-read the files. There is no confirmation step and there
   should not be: the drift lock is the safety, `D` archives rather than deletes,
   and org-glance's own rhythm is a key that acts. The pill counts what landed
-  and the log carries a line per refusal, which is what a per-file answer
-  needs — a set spanning three files can come back two-thirds applied.
+  and the log names every row — a line per landing and a line per refusal, which
+  is what a per-file answer needs: a set spanning three files can come back
+  two-thirds applied.
   `D` keeps org-glance's command name, `org-glance-overview:delete`, and earns a
   `kbHelp` because the name is wider than the behaviour. Evidence: `TestServe`
   "Shell commands", which drives both keys through the node harness and asserts

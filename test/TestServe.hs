@@ -10,8 +10,9 @@ import Data.Aeson ( FromJSON, Value (Bool, Number, Object, String)
                   , eitherDecode, encode, object, parseJSON, (.=) )
 import Data.Aeson.Types (parseEither)
 import Data.ByteString (ByteString)
+import Data.Char (isDigit)
 import Data.List (find, nub, sort, sortOn)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import GHC.Clock (getMonotonicTime)
 import Network.HTTP.Types ( HeaderName, RequestHeaders, methodDelete, methodPost
                           , renderQuery, statusCode )
@@ -292,7 +293,8 @@ spec = withResource (body <$> get assetsDir "/") (const (pure ())) $ \shell ->
     , bootstrapSpec, materializeSpec, commitSpec, commandSpec, configSpec, indexingSpec
     , pageSpec shell, keymapSpec shell
     , glueSpec shell, bootSpec shell, liveSpec shell, paletteSpec shell, markSpec shell
-    , commandKeySpec shell, sheetSpec shell, settingsSpec shell, touchSpec shell
+    , commandKeySpec shell, logSpec shell, sheetSpec shell, settingsSpec shell
+    , touchSpec shell
     , shellFontSpec shell, assetSpec, errorSpec ]
 
 -- | One boot of the shell's glue, run: the address bar it opens on, what the
@@ -509,6 +511,13 @@ markSpec shell = testGroup "Shell marks"
   [ testCase "the mount asks for them" $
       bootOf shell "" 500 "" "" $
         assertEqual "marks:true reached the renderer" True <=< boolAt "marksOn"
+
+    -- The flag's own hint, drawn by the renderer over the row wearing one: the
+    -- keys are this page's, so the wording is too.
+  , testCase "and names the keys a flagged row answers to" $
+      bootOf shell "" 500 "" "" $
+        assertEqual "flagHelp reached the renderer" "d/D archive · u unflag"
+          <=< textAt "flagHelp"
 
     -- The renderer's per-row hint says RET materializes, which the resident key
     -- line under the table already says — and says for every command rather
@@ -1117,6 +1126,163 @@ settingsSpec shell = testGroup "Shell settings"
                       ["", "#+TODO:_A_|_B"] =<< textsAt "cshown" answer
   ]
 
+-- | The event strip, driven through the keys and the acts that write to it.
+-- The widget's own contract is what is asserted: the shape of a line, that
+-- nothing ever takes one away, that the ring drops from the front, that a
+-- repeat is counted rather than repeated, and that a write names the rows it
+-- landed on.  Reading the glue cannot answer any of it — every one of these is
+-- a fact about what a sequence of calls leaves on screen.
+logSpec :: IO T.Text -> TestTree
+logSpec shell = testGroup "Shell log"
+  [ -- The boot line is an ordinary line: the mount used to clear the strip, so
+    -- a page's first second was gone the moment the table arrived.
+    testCase "opens on a boot line the mount leaves alone" $
+      bootOf shell "" 500 "" "" $ \answer -> do
+        strip <- logOf answer
+        assertEqual "one line, the boot's" [("info", "boot", "loading …")]
+                    (map cut strip)
+        assertBool ("a clock opens it: " <> show strip)
+                   (all (stamped . stampOf . snd) strip)
+
+    -- Every line, whatever wrote it: a clock, one of the three severities —
+    -- spelled in the line and worn as its class, so the colour and the word can
+    -- never disagree — and one of the six scopes.
+  , testCase "every line is a stamp, a severity and a scope" $
+      bootOf shell "" 500 "d q" "offline close:resync" $ \answer -> do
+        strip <- logOf answer
+        assertBool ("stamped: " <> show strip)
+                   (all (stamped . stampOf . snd) strip)
+        assertEqual "the severity is the class it wears" []
+          [ line | line@(sev, text) <- strip, sevOf text /= sev ]
+        assertEqual "out of the three" []
+          [ sev | (sev, _text) <- strip, sev `notElem` ["info", "warn", "error"] ]
+        assertEqual "and the six scopes" []
+          [ scope | (_sev, scope, _msg) <- map cut strip
+                  , scope `notElem` ["ws", "sync", "cmd", "filter", "config", "boot"] ]
+
+    -- Five hundred lines, and the OLDEST is what goes: a reader scrolled back
+    -- into the strip is reading the recent past, and dropping from the far end
+    -- of it is what a ring is for.  Five hundred and one appended over the boot
+    -- line takes two off the front.
+  , testCase "the ring holds five hundred and drops from the front" $
+      bootOf shell "" 500 "" "spam:501" $ \answer -> do
+        strip <- map cut <$> logOf answer
+        assertEqual "capped" 500 (length strip)
+        assertEqual "the boot line and `line 0' are what went"
+                    ["line 1", "line 2"] [ m | (_s, _c, m) <- take 2 strip ]
+        assertEqual "and the newest stands" ["line 500"]
+                    [ m | (_s, _c, m) <- drop 499 strip ]
+
+    -- The one mutation an append-only strip allows: a message identical to the
+    -- one before it is counted on that line.  A retry loop otherwise fills the
+    -- ring with one sentence and takes everything else out of reach.
+  , testCase "a repeat is counted on its line rather than written under it" $
+      bootOf shell "" 500 "q q q" "" $ \answer -> do
+        strip <- map cut <$> logOf answer
+        assertEqual "the boot line and one more" 2 (length strip)
+        assertEqual "counted"
+                    [("info", "cmd", "q closes the sheet; there is no window to quit ×3")]
+                    (drop 1 strip)
+
+    -- A message that is not the LAST one is a new line, so a repeat interrupted
+    -- by anything else starts counting again rather than reaching back.
+  , testCase "and only against the line it follows" $
+      bootOf shell "" 500 "q d q" "" $ \answer -> do
+        strip <- map cut <$> logOf answer
+        assertEqual "three lines under the boot's" 4 (length strip)
+        assertEqual "the last says it once, uncounted"
+                    "q closes the sheet; there is no window to quit"
+                    (message (last strip))
+
+    -- The connection's two severities, over a daemon that went away: the fetch
+    -- that failed is an error and the retry behind it is a warning.
+  , testCase "a dead daemon logs the failure and the retry" $
+      bootOf shell "" 500 "" "offline close:resync" $ \answer -> do
+        strip <- map cut <$> logOf answer
+        assertEqual "both, in that order"
+                    [ ("error", "ws", "load failed: fetch failed")
+                    , ("warn", "ws", "disconnected · retrying in 1s") ]
+                    (drop 1 strip)
+
+    -- dired's flag, said in words: the pill says what the key did and the strip
+    -- says which row it did it to, which is the half that survives the next
+    -- keystroke.
+  , testCase "d names the row it flagged, and u names it unflagging one" $
+      bootOf shell "" 500 "d u" "" $ \answer -> do
+        strip <- map cut <$> logOf answer
+        assertEqual "the row, by its title"
+                    [ ("info", "cmd", "headline \"one\" marked for deletion")
+                    , ("info", "cmd", "headline \"one\" unmarked for deletion") ]
+                    (drop 1 strip)
+
+    -- One line per ROW rather than per request: a set spanning three files can
+    -- come back two-thirds applied, so what landed is named row by row.
+  , testCase "every archived row is named, one line each" $ do
+      bootOf shell "" 500 "d d" "" $ \answer -> do
+        strip <- map message . drop 1 . map cut <$> logOf answer
+        assertEqual "flagged, then archived"
+                    [ "headline \"one\" marked for deletion"
+                    , "headline \"one\" archived" ] strip
+      bootOf shell "" 500 "d n d n d" "press:d" $ \answer -> do
+        strip <- map message . drop 1 . map cut <$> logOf answer
+        assertEqual "three flags and three archives"
+                    [ "headline \"one\" marked for deletion"
+                    , "headline \"two\" marked for deletion"
+                    , "headline \"three\" marked for deletion"
+                    , "headline \"one\" archived"
+                    , "headline \"two\" archived"
+                    , "headline \"three\" archived" ] strip
+
+    -- The state a row landed on, and the clear that is not a keyword.
+  , testCase "a state that landed names the row and the keyword" $ do
+      bootOf shell "" 500 "C-c C-t" "press:Enter" $ \answer -> do
+        strip <- map message . drop 1 . map cut <$> logOf answer
+        assertEqual "the keyword it took" ["headline \"one\" → TODO"] strip
+      bootOf shell "" 500 "m m C-c C-t" "press:Enter" $ \answer -> do
+        strip <- map message . drop 1 . map cut <$> logOf answer
+        assertEqual "both marked rows" [ "headline \"one\" → TODO"
+                                       , "headline \"two\" → TODO" ] strip
+      bootOf shell "" 500 "C-c C-t" "type:*clear* press:Enter" $ \answer -> do
+        strip <- map message . drop 1 . map cut <$> logOf answer
+        assertEqual "the clear is not a keyword"
+                    ["headline \"one\" state cleared"] strip
+
+    -- A refusal is the error the pill's count cannot carry: which row, and what
+    -- the server said about it.
+  , testCase "a refused write is an error line and names no landing" $
+      bootOf shell "" 500 "" "refuse press:D" $ \answer -> do
+        strip <- map cut <$> logOf answer
+        assertEqual "the refusal, whole"
+                    [("error", "cmd", "r1: a.org changed on disk")] (drop 1 strip)
+  ]
+
+-- | The event strip out of a harness answer: the severity class each line
+-- wears, and the text it renders.
+logOf :: Value -> IO [(T.Text, T.Text)]
+logOf answer = traverse one =<< listAt "log" answer
+  where one v = (,) <$> textAt "sev" v <*> textAt "text" v
+
+-- | A line as it reads: its severity class, the scope it names, and the message
+-- the rest of it is.  The stamp is a clock and is checked by 'stamped'.
+cut :: (T.Text, T.Text) -> (T.Text, T.Text, T.Text)
+cut (sev, text) = case T.words text of
+  (_stamp : _sev : scope : rest) -> (sev, scope, T.unwords rest)
+  _shapeless                     -> (sev, "", text)
+
+-- | The message a cut line carries, for the cases that assert only that.
+message :: (T.Text, T.Text, T.Text) -> T.Text
+message (_sev, _scope, m) = m
+
+-- | The clock a line opens with, and the severity it spells after it.
+stampOf, sevOf :: T.Text -> T.Text
+stampOf = fromMaybe "" . listToMaybe . T.words
+sevOf   = fromMaybe "" . listToMaybe . drop 1 . T.words
+
+-- | Whether T is an @HH:MM:SS@ clock, which is how every line opens.
+stamped :: T.Text -> Bool
+stamped t = T.length t == 8 && T.index t 2 == ':' && T.index t 5 == ':'
+            && T.all (\c -> isDigit c || c == ':') t
+
 -- | The commands the page posted, as the name and the ids each one named.
 postedOf :: Value -> IO [(T.Text, [T.Text])]
 postedOf answer = traverse one =<< listAt "commands" answer
@@ -1272,7 +1438,10 @@ shellGlue =
       -- reads its answer for the state a toggle landed in.
       [ "marks: true,"
       , "let on = table.toggleMark(id);"
-      , "(${table.markedCount()})" ]
+      , "(${table.markedCount()})"
+      -- And that a flagged row's hint is the two keys that answer the flag,
+      -- spelled here and drawn there.
+      , "flagHelp: \"d/D archive · u unflag\"," ]
       -- And second, that no set, count or membership test is kept on this side.
       -- `getMarked()' is not one: a command asks the renderer which rows are
       -- marked at the moment it runs, which is the opposite of keeping a copy.
@@ -1456,19 +1625,36 @@ shellGlue =
   -- could not have seen otherwise.  The row count is the renderer's hint line
   -- and the keys are the resident key line's; the strip repeated both.
   , Glue "the log carries events and nothing the page shows anyway"
-      [ "log(`disconnected · retrying in ${Math.round(backoff / 1000)}s`)"
-      , "log(`indexing … ${b.elapsed}s"
-      , "log(`load failed: ${e.message}`)"
-      , "log(\"closed without writing — the file is as it was\")"
+      [ "append(\"ws\", \"warn\", `disconnected · retrying in ${Math.round(backoff / 1000)}s`)"
+      , "append(\"boot\", \"info\", `indexing … ${b.elapsed}s"
+      , "append(\"ws\", \"error\", `load failed: ${e.message}`)"
+      , "append(\"sync\", \"info\", \"closed without writing — the file is as it was\")"
       , "filter parity divergence — asset/daemon version skew"
-      -- The boot placeholder is cleared by the mount: the frame stays, and a
-      -- loaded page with nothing to report shows it empty rather than still
-      -- saying it is loading.
-      , "<div id=\"log\">loading …</div>"
-      , "log(\"\");"
+      -- The boot line is a line like any other: the strip opens holding it and
+      -- nothing takes it away, so the page's first second is still readable an
+      -- hour later.
+      , "<div id=\"log\"></div>"
+      , "append(\"boot\", \"info\", \"loading …\");"
       ]
+      -- The clearing dance is gone with the placeholder it existed to take
+      -- away: an append-only strip has no way to say less than it has said.
       [ "const say = () =>", "say();", "getRows().length"
-      , "matching ${query}", "${profile} keys" ]
+      , "matching ${query}", "${profile} keys"
+      , "log(\"\")", "<div id=\"log\">loading …</div>" ]
+
+  -- The strip's own machinery: a stamp, a bounded ring dropping from the front,
+  -- and a repeat counted on the line it repeats rather than written under it.
+  , glue "the log is a bounded ring of stamped lines"
+      [ "const LOGCAP = 500;"
+      , "new Date().toTimeString().slice(0, 8)"
+      , "while (box.children.length > LOGCAP) box.removeChild(box.children[0]);"
+      , "logLast.count.textContent = `×${(logLast.n += 1)}`;"
+      -- A message is one line: whatever control characters it carries collapse.
+      , "String(message).replace(/[\\x00-\\x1f]+/g, \" \")"
+      -- The severity is the one part that changes colour, so a warning is
+      -- findable in a screenful of chatter.
+      , "#log .warn .lv{color:var(--g-warn)}"
+      , "#log .error .lv{color:var(--g-bad)}" ]
 
   -- `table-view.js' gives its sticky header `z-index:1' and its completion list
   -- `5'; an unnumbered backdrop painted under both.  The page's own corner and
@@ -3082,7 +3268,8 @@ pageSpec shell = testGroup "GET /"
             -- A conflict keeps the sheet open and names the two keys.
             , "if (a.status === 409 && a.body.reason !== \"planning\") sync(\"conflict\");"
             , "conflict — C-x C-s overwrite · ESC discard"
-            , "if (troubled()) { shut();"
+            , "if (troubled()) {"
+            , "append(\"sync\", \"info\", \"closed without writing — the file is as it was\");"
             -- And a tab closing on an edited sheet still owes the file.
             , "addEventListener(\"beforeunload\""
             , "post(editing.id, editing.digest, asked(), { keepalive: true })" ] b

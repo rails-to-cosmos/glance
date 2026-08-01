@@ -458,6 +458,18 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   table, log and key line. The table has a fixed share, the log takes what is
   left and scrolls inside itself, the key line is `flex:none` and scrolls
   sideways. A long message therefore moves nothing.
+- The log strip is append-only and its whole interface is
+  `append(scope, severity, message)`. A line is `HH:MM:SS SEV scope message` —
+  severity `info`/`warn`/`error`, coloured and worn as the line's class; scope
+  one of `ws`, `sync`, `cmd`, `filter`, `config`, `boot`; control characters in
+  the message collapse to spaces. Nothing clears it, the boot line included; the
+  ring holds 500 and drops the OLDEST; a line identical to the one before it
+  bumps a `×N` counter instead of appending, which is the only mutation. The end
+  is scrolled to unless the reader has scrolled up. Every write names its rows —
+  `headline "TITLE" marked for deletion` / `unmarked for deletion` / `archived` /
+  `→ KEYWORD` / `state cleared`, one line per ROW — with the title read through
+  the renderer's `displayText` and the id as the fallback; refusals stay one
+  `cmd error` line.
 - Every touch-device rule lives in ONE `@media (pointer:coarse)` block — the
   chip row as a 44px tap target, its empty-state label, and the sheet's 16px
   textarea that stops iOS zooming in.
@@ -554,7 +566,8 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   through the keymap's `cancel`. Its keys live in a SECOND document listener
   behind the dispatch, which is safe because `typing()` has already killed every
   `table` row. Confirm-free: the drift lock is the safety. The pill counts what
-  landed, the log carries a line per refusal, and the rows arrive over the watch.
+  landed, the log names every row it landed on and every one refused, and the
+  rows arrive over the watch.
 - Row marks are the RENDERER's, behind `marks: true`: it draws the checkbox
   column, keys the marks by id and counts them, so a mark survives a `setRows`,
   a filter that hides its row and a page it is not on, and this page keeps no

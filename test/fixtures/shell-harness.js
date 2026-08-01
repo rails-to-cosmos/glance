@@ -31,6 +31,9 @@
 //   refuse        the next /command answers that every row was refused
 //   bare          the mounted handle loses its mark calls, the way an older
 //                 table-view.js never had them
+//   spam:N        N distinct lines appended to the page's event log, which is
+//                 the only way to reach a ring that holds five hundred
+//   offline       the daemon goes away: every request after this fails
 //
 // The answer is what the page asked for and what it still holds afterwards.
 const fs = require("fs");
@@ -105,7 +108,10 @@ const answer = (status, body, headers) => Promise.resolve({
   json: () => Promise.resolve(body),
   text: () => Promise.resolve(""),
 });
+// Set by `offline': the daemon is gone and every request fails at the network.
+let down = false;
 globalThis.fetch = (url, init) => {
+  if (down) return Promise.reject(new Error("fetch failed"));
   const sent = ((init || {}).headers || {})["if-none-match"];
   if (String(url).startsWith("/headlines")) {
     asked.push(url);
@@ -168,6 +174,8 @@ let mounts = 0, sets = 0, raises = 0;
 // The renderer's own state, which the shell keeps no copy of: where the cursor
 // is, whether it was asked for marks, and which ids carry one.
 let cursor = 0, marksOn = false, hintsOn = true, marks = new Set(), flags = new Set();
+// The hint a flagged row wears, which the renderer draws and the shell names.
+let flagHelp = "";
 /** The live handle, so `bare' can take calls off the one the shell is holding. */
 let handle = null;
 /** Set by `bare': this asset never had marking, remounts included. */
@@ -178,6 +186,7 @@ globalThis.TableView = {
     held = (options || {}).initialQuery || "";
     marksOn = (options || {}).marks === true;
     hintsOn = (options || {}).actionHints !== false;
+    flagHelp = (options || {}).flagHelp || "";
     cursor = 0;
     marks = new Set();
     flags = new Set();
@@ -274,6 +283,12 @@ const make = (tag) => {
     addEventListener(type, fn) { (this.on[type] = this.on[type] || []).push(fn); },
     fire(type, event) { for (const fn of this.on[type] || []) fn(event); },
     appendChild(child) { this.children.push(child); return child; },
+    // What the log's ring drops the oldest line with.
+    removeChild(child) {
+      const at = this.children.indexOf(child);
+      if (at !== -1) this.children.splice(at, 1);
+      return child;
+    },
     select() {},
   };
   // The real one drops every child when it is set, which is how the panel is
@@ -288,7 +303,10 @@ const make = (tag) => {
 const field = (id) => (fields[id] = fields[id] || make(TAGS[id] || "div"));
 const STATEFUL = [ "mtext", "mnote", "mfile", "modal", "mprops", "mlog", "sheet"
                  , "echo", "prompt", "phead", "pinput"
-                 , "config", "cnote", "clayers", "ceff" ];
+                 , "config", "cnote", "clayers", "ceff"
+                 // The event strip: a line per entry, each a row of spans, so it
+                 // has to hold a tree rather than answer "" to everything.
+                 , "log" ];
 // The page's own key dispatch, kept so a press can be delivered to it.
 const pressed = [];
 globalThis.document = {
@@ -376,6 +394,16 @@ const focused = () => {
     .findIndex((row) => row.children.indexOf(active) !== -1);
   return at === -1 ? "" : `${active.className}:${at}`;
 };
+/**
+ * The log strip as it stands: a line's severity class and the text it renders,
+ * the parts joined by the space that separates them on screen.  The repeat
+ * counter is empty until a line repeats, which is why the empty parts go.
+ */
+const logged = () => field("log").children.map((line) => ({
+  sev: line.className,
+  text: line.children.map((part) => part.textContent).filter(Boolean).join(" "),
+}));
+
 const ACTIONS = {
   close: (reason) => { if (socket && socket.onclose) socket.onclose({ reason }); },
   sheet: (text) => { field("mtext").value = text; },
@@ -421,6 +449,16 @@ const ACTIONS = {
   // sticks, so a remount later in the same script does not hand them back and
   // quietly turn the fallback case into the ordinary one.
   bare: () => { markless = true; strip(); },
+  // N distinct lines through the page's own `append': the glue is eval'd into
+  // this scope, so its functions are reachable from here.  The ring holds five
+  // hundred and nothing a key presses writes them faster than one at a time, so
+  // a script that overran it any other way would be longer than the cap.
+  spam: (n) => {
+    for (let i = 0; i < Number(n); i += 1) append("boot", "info", `line ${i}`);
+  },
+  // The daemon goes away: every request after this fails at the network, which
+  // is what the reconnect's error line and the retry behind it are written for.
+  offline: () => { down = true; },
 };
 
 // Every fetch here settles as a microtask, so one turn of the event loop is
@@ -457,8 +495,11 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     shape: field("sheet").className, writes,
     // The renderer's side of marking, and the last thing the echo pill said —
     // which is where a key that could not do what it was asked reports it.
-    marksOn, hintsOn, marked: [...marks], flagged: [...flags], cursor,
+    marksOn, hintsOn, flagHelp, marked: [...marks], flagged: [...flags], cursor,
     echo: field("echo").textContent,
+    // The event strip, which is append-only: what is here is everything the
+    // page has said since it booted, oldest first.
+    log: logged(),
     // The value palette, and what the keys posted through it.
     prompt: field("prompt").className, phead: field("phead").textContent, commands,
     // Which keys the dispatch took off the browser, in press order.

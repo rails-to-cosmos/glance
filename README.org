@@ -472,6 +472,22 @@ table, the log under it taking whatever is left, the key line last — and the t
 boxes that can outgrow their room scroll inside themselves, so the corner and
 the key line hold their places whatever arrives.
 
+*The log under the table is an event log, and it keeps everything.* A line reads
+=14:03:22 info cmd headline "Ship the thing" archived=: a clock, a severity
+(=info=, =warn= or =error=, the word coloured so a warning is findable in a
+screenful), a scope saying which part of the page is talking (=ws=, =sync=,
+=cmd=, =filter=, =config=, =boot=), and the message. Nothing ever clears it —
+the boot line is an ordinary line and stays at the bottom of the scrollback —
+so what went past while you were reading the table is still there to scroll back
+to. It holds the last five hundred entries and drops the oldest past that, and a
+message repeated straight after itself is counted on its own line (=×7=) rather
+than written out again, which is what keeps a retry loop from crowding
+everything else out. The end is kept in view unless you have scrolled up, in
+which case the place you are holding is left alone. Writes name their rows there
+— =headline "TITLE" marked for deletion= when =d= flags one, =archived= when it
+lands, =→ DONE= when a state does — one line per row, so a bulk command that
+came back two-thirds applied says which third.
+
 A staged key is recognized in full and then says what it is waiting for: the map
 is complete ahead of the commands that will back it, which reads better than a
 key that silently does nothing. The keys are inert while a text field has focus
