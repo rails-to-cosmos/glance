@@ -68,6 +68,16 @@ const writes = [];
 // back over a socket this harness does not run.
 const commands = [];
 let refusing = false;
+// The keyword layers behind /config, and every write to one.  The system layer
+// carries no digest: it is a file that does not exist yet, which is the shape
+// the settings sheet has to be able to create.
+let layers = [
+  { path: "/o/.org-glance/config/system.org", tag: null, lines: [], digest: "" },
+  { path: "/o/.org-glance/config/tags/book.org", tag: "book",
+    lines: ["#+TODO: TODO READING | READ"], digest: "c1" },
+];
+const configWrites = [];
+let configTick = 1;
 
 globalThis.location = { search, protocol: "http:", host: "h", pathname: "/" };
 globalThis.history = {
@@ -102,6 +112,21 @@ globalThis.fetch = (url, init) => {
         refusing ? { id, ok: false, error: "a.org changed on disk" }
                  : { id, ok: true, digest: "d1" }),
     });
+  }
+  if (String(url) === "/config") {
+    if ((init || {}).method !== "POST")
+      return answer(200, { layers, keywords: { active: ["TODO"], inactive: ["DONE"] } });
+    const sent = JSON.parse((init || {}).body || "{}");
+    configWrites.push(sent);
+    // The digest is the whole of the lock, an absent file's empty one included,
+    // so a layer whose digest has moved refuses exactly as the server's does.
+    const layer = layers.find((l) => l.path === sent.path);
+    if (!layer || layer.digest !== sent.digest)
+      return answer(409, { reason: "drift", digest: (layer || {}).digest || "",
+                           error: "the config file changed on disk since it was read" });
+    layer.lines = (sent.lines || []).filter(Boolean);
+    layer.digest = `c${(configTick += 1)}`;
+    return answer(200, { path: sent.path, digest: layer.digest });
   }
   if (String(url).startsWith("/headline?")) {
     if ((init || {}).method === "POST") {
@@ -236,7 +261,8 @@ const make = (tag) => {
 };
 const field = (id) => (fields[id] = fields[id] || make(TAGS[id] || "div"));
 const STATEFUL = [ "mtext", "mnote", "mfile", "modal", "mprops", "sheet"
-                 , "echo", "prompt", "phead", "pinput" ];
+                 , "echo", "prompt", "phead", "pinput"
+                 , "config", "cnote", "clayers", "ceff" ];
 // The page's own key dispatch, kept so a press can be delivered to it.
 const pressed = [];
 globalThis.document = {
@@ -261,24 +287,33 @@ eval(fs.readFileSync(dir + "/shell.js", "utf8"));
 
 // A `C-' prefix is the chord the page's own `keyName' spells that way, so a
 // sequence like `C-c C-t' is two of these and needs no other notation here.
+//
+// Whether the dispatch CLAIMED a key is recorded, because that is the half of
+// the reserved-chord rule behaviour can otherwise not show: a chord the page
+// leaves to the browser and one it takes both look like nothing happening.
 const press = (name) => {
   const ctrl = name.startsWith("C-");
   const event = {
     key: ctrl ? name.slice(2) : name,
     ctrlKey: ctrl, altKey: false, metaKey: false, shiftKey: false,
-    repeat: false, target: node, preventDefault: () => {},
+    repeat: false, target: node, preventDefault: () => prevented.push(name),
   };
   for (const handler of pressed) handler(event);
 };
+const prevented = [];
 
 // The store moving is a new tag: a client holding the old one is answered with
 // a body rather than a 304, which is the reconnect that has rows to apply.
 const step = () => { tag = `"t${Number(tag.slice(2, -1)) + 1}"`; };
-/** WHICH field of the row ARG names, given ARG's `INDEX=TEXT', typed into. */
-const typeInto = (which, arg) => {
+/**
+ * WHICH field of the row ARG names inside the panel ID, given ARG's
+ * `INDEX=TEXT', typed into.  Both panels this page builds are rows of fields,
+ * so one act serves the property drawer and the settings layers alike.
+ */
+const typeInto = (id, which, arg) => {
   const at = arg.indexOf("=");
-  const row = field("mprops").children[Number(arg.slice(0, at))];
-  if (!row) throw new Error(`no property row ${arg}`);
+  const row = field(id).children[Number(arg.slice(0, at))];
+  if (!row) throw new Error(`no ${id} row ${arg}`);
   const box = row.children[which];
   box.value = arg.slice(at + 1);
   box.fire("input", { target: box });
@@ -306,9 +341,20 @@ const ACTIONS = {
   // Typing into the property panel: `pkey:1=EFFORT' is the key field of row 1,
   // `pval:1=0:45' its value.  The `input' event is the whole point — the panel
   // grows its next empty row on one.
-  pkey: (arg) => typeInto(0, arg),
-  pval: (arg) => typeInto(1, arg),
+  pkey: (arg) => typeInto("mprops", 0, arg),
+  pval: (arg) => typeInto("mprops", 1, arg),
+  // And into the settings sheet: `ctext:0=#+TODO: A | B' is the box of layer 0,
+  // which is the file's `#+TODO:' lines as the sheet edits them.
+  ctext: (arg) => typeInto("clayers", 1, arg),
+  // Every config layer moves out from under the sheet, which is the drift a
+  // second writer causes.
+  cmoved: () => { for (const l of layers) l.digest = "gone"; },
   refuse: () => { refusing = true; },
+  // A click on an open sheet's own chrome — its header, its file line — takes
+  // the focus off whatever field had it without closing anything.  That is when
+  // `typing()' goes false again and every `table' row comes back to life over a
+  // sheet that is still up, which no other act reaches.
+  blur: () => { if (active) active.blur(); },
   // An asset that never had marking: the calls are simply not on the handle,
   // which is the shape the shell's feature detection is written against. It
   // sticks, so a remount later in the same script does not hand them back and
@@ -337,6 +383,7 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
   const said = JSON.stringify({
     asked, tags, url: location.search, mounts, sets, raises,
     sheet: field("mtext").value, state: field("mnote").className,
+    modal: field("modal").className,
     palette: field("filter").value,
     // The sheet's other pane: every row the panel is showing, the lines it puts
     // under one, which shape it is in, and every POST the syncs sent.
@@ -349,6 +396,13 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     marksOn, marked: [...marks], cursor, echo: field("echo").textContent,
     // The value palette, and what the keys posted through it.
     prompt: field("prompt").className, phead: field("phead").textContent, commands,
+    // Which keys the dispatch took off the browser, in press order.
+    prevented,
+    // The settings sheet: whether it is up, the one word it wears, the lines
+    // each layer is showing, the union it previews, and every write it sent.
+    settings: field("config").className, cstate: field("cnote").className,
+    cshown: field("clayers").children.map((row) => row.children[1].value),
+    ceff: field("ceff").textContent, configWrites,
   });
   // Exit on the write's own callback: a keystroke leaves the echo pill's timer
   // pending, and node would otherwise sit out its second and a half.

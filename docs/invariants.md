@@ -328,6 +328,64 @@ on.
   and reload (recognition changed means every file's parse may change),
   debounced, with `view-changed` following via the keyword-union move.
   **test**
+- **The config write path is the ordinary write path.** `GET`/`POST /config`
+  serve and replace one layer's `#+TODO:` block, and every rule the other two
+  write routes keep is kept here rather than restated: the spans come from
+  `Glance.Query.configEdits` over the file's own lines
+  (`Data.Org.Config.todoLineEdits`), `Glance.Query.replaceSpans` splices them
+  under the client's digest, and `Data.Org.Edit` writes temp-file-then-rename.
+  So everything a config file is besides its cycle — the `#+TITLE:`, the
+  comments, the org-capture template org-glance keeps in these files — is bytes
+  the write never names, and a file that moved is a 409 with nothing written.
+  The route does NOT touch the store: a config change is watched
+  (`Glance.Web.Watch.settle`), and the reseed is what moves the rows and the
+  palette, exactly as when Emacs saved the same file. Evidence: `TestServe`
+  "GET and POST /config" (including the whole-file comparison after a replace),
+  `TestConfig` "Writing a layer". **test + live**
+- **The EMPTY digest is the pin for a file that is not there, and creation is
+  that one lock rather than a second write path.** `Data.Org.Edit.currentText`
+  answers `""` for an absent file pinned with `""`, `writeAtomically` makes the
+  directories and skips the permission copy there being nothing to copy from,
+  and everything downstream is the ordinary splice — which is why `POST /config`
+  creating `system.org` in a tree that has never had one is the same request
+  shape as editing one. A file that turned up before the write started is
+  `Drift` carrying the digest it holds; a MISSING file pinned with a real digest
+  stays `ReadFailed`, since a caller holding one believed there was something to
+  read. The probe is at the start of the write and `rename(2)` has no exclusive
+  form, so a file created inside that window is replaced rather than refused —
+  the ordinary drift check has the same window for the same reason, and closing
+  it would mean giving up the rename that makes the write atomic. **test**
+- **What a layer may say is checked before the write.** Blank lines are dropped;
+  every line left must be a `#+TODO:` pragma; the block must declare at least one
+  keyword, since a pragma the parser reads as nothing leaves a layer looking
+  configured and doing nothing; and an EMPTY block is always allowed and is the
+  deletion. `*active*`/`*inactive*` need no rule of their own and a guard for
+  them would be unreachable: a keyword token is letters and underscores
+  (`keywordTextP`), so the group names cannot parse into a keyword set at all and
+  are refused as declaring nothing — the same wall `setStateEdits` puts up from
+  the other side, reached one step earlier. **test**
+- **The layer list is read at request time, and it is also the allowlist.**
+  `GET /config` reads the files rather than projecting the loaded
+  `ConfigLayers`, because the digest a client is handed is the lock its write is
+  checked against and has to be of the bytes it was shown; `POST /config` looks
+  its `path` up in that same list, which is the whole of the traversal defence
+  and is also the read the edits are measured in, so the two cannot describe
+  different bytes. WHICH directories is the one thing a read cannot answer and
+  comes off the store (`clDirs`, the config directories the walk met) — falling
+  back to `configDirIn` of the served root when the walk met none, which is the
+  only case where there is nothing yet to be right about. **test**
+- **KNOWN GAP (open): the first config directory in a tree that had none may not
+  be watched.** `mkdir -p .org-glance/config` and the write into it happen
+  microseconds apart, and fsnotify arms a watch on a new directory only after it
+  has seen it created — so the event for that first file is lost and the reseed
+  does not fire until the daemon restarts or a later config edit lands. Measured
+  2026-08-01: an external `echo > .org-glance/config/system.org` into a
+  freshly created directory is missed the same way, and a new subdirectory
+  written to a second later IS picked up, which is what makes it a race rather
+  than a rule about hidden or nested paths. It is the watch's property and not
+  the route's — any tool creating the directory and the file together loses the
+  same event. `GET /config` reads the files, so the settings sheet itself is
+  never wrong about them; it is the table that lags. **none**
 
 ## Walk
 
@@ -1094,10 +1152,8 @@ on.
   decides copy and cut on the same keydown — and `C-l`, `C-r`, `C-t`, `C-w`,
   `C-n`, `C-p`, `<f5>` are never claimed on their own, which is why neither
   profile moves on `C-n`/`C-p`. A reserved key reaches the browser UNLESS it
-  completes a bound sequence, which is exactly what keeps `C-c C-t` working
-  while `C-x C-l` still opens a new window. What the list actually buys is the
-  ABANDONED prefix: a chord that opens nothing would otherwise be swallowed as
-  undefined. The collapsed-selection test is `selecting()`, one predicate over
+  completes a bound sequence. What the list actually buys is the ABANDONED
+  prefix: a chord that opens nothing would otherwise be swallowed as undefined. The collapsed-selection test is `selecting()`, one predicate over
   the focused field's range and the document selection, and it guards the
   generic prefix-OPENING branch rather than `C-c`/`C-x` by name, so vim's `g`
   obeys it too. Each row carries `kbKeys`, `kbCommand`, a `kbScope` of `table`,
@@ -1114,6 +1170,24 @@ on.
   laying marks down rather than working the same row twice. Evidence:
   `TestServe` "Shell keymap", which parses the blob, compares both profiles to a
   written-down map, and checks the two per-map uniqueness rules. **test**
+- **KNOWN GAP (open): completion-beats-reserved is the PAGE's half, and `C-c
+  C-t` is dead in the browser anyway.** The claim this entry used to carry — "a
+  reserved key reaches the browser unless it completes a bound sequence, which
+  is what keeps `C-c C-t` working" — is true of the dispatch and false of the
+  result. Chromium (and Firefox) handle `Ctrl+T`, `Ctrl+N` and `Ctrl+W` in the
+  browser process, above the document: the page either never receives the
+  keydown or receives one whose `preventDefault` is ignored, so the second chord
+  of `C-c C-t` cannot complete the sequence and the value palette never opens.
+  `C-x C-s` is unaffected because `Ctrl+S` is a page DEFAULT ACTION rather than a
+  browser shortcut, and that is the whole of the difference. What the page owes
+  is pinned: `TestServe` "the completing chord is claimed, reserved or not"
+  drives `C-c` then `C-t` through the node harness and asserts the palette rises
+  AND that both chords were `preventDefault`ed — the harness records them now,
+  where before it discarded the call. Symptom to recognise live: a new tab
+  opens, and the echo pill says `C-c - timed out` two seconds later. The fix is
+  a second chord the browser does not own (an alias row, e.g. `C-c t`), which is
+  a keymap decision rather than a bug fix. **test** (the page's half) / **none**
+  (the browser's)
 - **Row marks belong to the renderer.** `mount` asks for them with `marks:
   true` and the renderer does the rest: the leading checkbox column, the wash on
   a marked row, and a set of ids that keys them — which is why a mark outlives a

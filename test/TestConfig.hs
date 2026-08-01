@@ -9,6 +9,7 @@ module TestConfig (spec) where
 
 import Control.Monad ((<=<))
 import Control.Concurrent.STM (readTVarIO)
+import Data.Bifunctor (first)
 import Data.Text (Text)
 import System.Directory (createDirectoryIfMissing, removeFile)
 import System.FilePath ((</>))
@@ -21,10 +22,11 @@ import qualified Data.Text.IO as TIO
 
 import Data.Org.Config ( TodoKeywords (..), classify, configDirIn, configPaths
                        , noKeywords, todoPragmas )
-import Glance.Query ( ConfigLayers (..), HeadlineRecord (..), QueryResult (..)
-                    , WalkOptions (..), configPath, defaultWalk, loadDir
-                    , loadDirFilesSerially, loadDirWith, loadDirWithConfig
-                    , loadFile )
+import Data.Org.Edit (Edit (Edit), applyEdits)
+import Glance.Query ( ConfigLayerFile (..), ConfigLayers (..), HeadlineRecord (..)
+                    , QueryResult (..), WalkOptions (..), configEdits, configPath
+                    , defaultWalk, loadDir, loadDirFilesSerially, loadDirWith
+                    , loadDirWithConfig, loadFile, readConfigLayers, todoLines )
 import Glance.Web.Store ( Frame (..), Hub (hubStore), Store (stConfig, stGen, stPrint)
                         , loadStore, newHub, reseeded, storeKeywords, storeRecords )
 import Glance.Web.Watch (settle, watched)
@@ -32,7 +34,7 @@ import Glance.Web.Watch (settle, watched)
 spec :: TestTree
 spec = testGroup "Config"
   [ discoverySpec, recognitionSpec, classificationSpec, paletteSpec
-  , reloadSpec, absenceSpec, paritySpec ]
+  , reloadSpec, writeSpec, absenceSpec, paritySpec ]
 
 -- Fixtures
 
@@ -284,7 +286,8 @@ classificationSpec = testGroup "Classification"
       let cfg = ConfigLayers { clSystem = TodoKeywords [] ["TODO"]
                              , clTags   = [("book", TodoKeywords ["READING"] [])]
                              , clSeed   = TodoKeywords ["READING"] ["TODO"]
-                             , clPrint  = "" }
+                             , clPrint  = ""
+                             , clDirs   = [] }
           file = TodoKeywords [] ["READING"]
       assertEqual "file first" False (classify cfg file ["book"] "READING")
       assertEqual "then the tag" True (classify cfg noKeywords ["book"] "READING")
@@ -424,6 +427,120 @@ reloadSpec = testGroup "Reload"
 -- watch does with a config event, which is where the frames are readable.
 afterEdit :: Store -> FilePath -> IO (Store, [Frame])
 afterEdit before dir = (`reseeded` before) <$> loadStore dir
+
+-- Writing a layer
+
+-- | A config file is edited the way every other file is: the @#+TODO:@ lines
+-- are located as spans and spliced, so a capture template around them is bytes
+-- the write never names.  The grammar of what may go in is checked ahead of
+-- the write, since a layer that parses as nothing looks configured and does
+-- nothing.
+writeSpec :: TestTree
+writeSpec = testGroup "Writing a layer"
+  [ testCase "the lines a layer declares are the ones it is edited by" $ do
+      assertEqual "the live tag config's, verbatim"
+                  ["#+TODO:  TODO READING | READ ABANDONED"] (todoLines bookConfig)
+      -- The commented one opens with `#', not `#+', so it is not a line here
+      -- either — the same rule that keeps it out of 'todoPragmas'.
+      assertEqual "a commented pragma is not one"
+                  ["#+TODO: TODO WATCHING | WATCHED"] (todoLines commentedConfig)
+      assertEqual "a file with none" [] (todoLines "* TODO a note\n")
+
+  , testCase "a block replaces the one that is there and nothing around it" $
+      assertEqual "only the pragma line moved"
+                  (Right "#+TITLE: Book\n#+TODO: TODO NEXT | DONE\n\n* Book\n*** Notes\n    %?\n")
+                  (spliced bookConfig ["#+TODO: TODO NEXT | DONE"])
+
+  , testCase "a file spelling its cycle twice comes back spelling it once" $
+      -- The first line's offset is kept and every later one goes: a block is
+      -- what the sheet edits, so what it writes is the whole of the file's.
+      assertEqual "one line, where the first one was"
+                  (Right "#+TITLE: X\n#+TODO: A | B\ntail\n")
+                  (spliced "#+TITLE: X\n#+TODO: A |\n#+TODO: | B\ntail\n" ["#+TODO: A | B"])
+
+  , testCase "a file with no block takes one under the header it opens with" $ do
+      assertEqual "after the #+ run, ahead of the content"
+                  (Right "#+TITLE: Film\n#+TODO: A | B\n\n* %?\n")
+                  (spliced "#+TITLE: Film\n\n* %?\n" ["#+TODO: A | B"])
+      assertEqual "at the top when it opens with content"
+                  (Right "#+TODO: A | B\n* %?\n") (spliced "* %?\n" ["#+TODO: A | B"])
+      -- The shape a create takes: the block is the whole file.
+      assertEqual "and a file that is not there yet is all block"
+                  (Right "#+TODO: A | B\n") (spliced "" ["#+TODO: A | B"])
+      -- The one insertion point that is not a line start: a document of nothing
+      -- but header, not closed with a newline.  Appended bare, the block would
+      -- land on the end of a live line and be no pragma at all.
+      assertEqual "a header with no newline gets one first"
+                  (Right "#+TITLE: X\n#+TODO: A | B\n")
+                  (spliced "#+TITLE: X" ["#+TODO: A | B"])
+
+  , testCase "an empty block deletes the lines, and is the no-op without them" $ do
+      assertEqual "the template survives the deletion"
+                  (Right "#+TITLE: Book\n\n* Book\n*** Notes\n    %?\n")
+                  (spliced bookConfig [])
+      assertEqual "blank lines are not lines" (Right "#+TITLE: X\n")
+                  (spliced "#+TITLE: X\n" ["", "  "])
+
+  , testCase "what a layer may say, and what it may not" $ do
+      mapM_ (\(what, lines') ->
+               assertBool what (either (const True) (const False)
+                                       (configEdits bookConfig lines')))
+            [ ("a headline is not a pragma", ["* TODO not a pragma"])
+            , ("nor is a title", ["#+TITLE: no"])
+            , ("a pragma declaring nothing", ["#+TODO:"])
+            , ("one bad line spoils the block", ["#+TODO: A | B", "oops"])
+              -- The pragma test is a PREFIX test, so an entry smuggling a
+              -- newline would pass it and write everything behind that newline
+              -- into the file unread.  One line per line is the whole of what
+              -- makes this a #+TODO:-only splice.
+            , ("a line carrying a newline of its own", ["#+TODO: A | B\n* not a pragma"])
+              -- The parser's keyword token is letters and underscores, so the
+              -- filter's group names cannot be declared as keywords at all —
+              -- the same wall `setStateEdits' puts up from the other side.
+            , ("the filter's group names", ["#+TODO: *active* | *inactive*"])
+            , ("and a starred word beside real ones", ["#+TODO: TODO *x* | DONE"]) ]
+      assertBool "a cycle with fast-access keys is a block"
+                 (either (const False) (const True)
+                         (configEdits bookConfig ["#+TODO: TODO(t) | DONE(d)"]))
+
+  , testCase "the layers are read as files, absent ones included" $
+      withTree Nothing [("book.org", bookConfig)] [] $ \dir -> do
+      files <- readConfigLayers [configDirIn dir]
+      assertEqual "the system file, then the tag configs"
+                  [Nothing, Just "book"] (map lfTag files)
+      assertEqual "an absent file has no digest and no text"
+                  [True, False] (map (T.null . lfDigest) files)
+      assertEqual "and the one that is there holds what it holds"
+                  [[], ["#+TODO:  TODO READING | READ ABANDONED"]]
+                  (map (todoLines . lfText) files)
+
+    -- The whole loop, without the socket: a write lands, the watch sees a
+    -- config path and reseeds, and the palette a client would be handed moves.
+  , testCase "a layer written by hand reseeds the tree the watch is holding" $
+      withTree Nothing [] [("a.org", "* STARTED refactor\n")] $ \dir -> do
+      store <- loadStore dir
+      assertEqual "before, the word is title text"
+                  [(Nothing, Nothing)] (states (storeRecords store))
+      hub <- newHub store
+      let systemFile = fst (configPaths (configDirIn dir))
+      written <- either (assertFailure . T.unpack) pure
+                        (spliced "" ["#+TODO: TODO STARTED | DONE"])
+      TIO.writeFile systemFile written
+      settle defaultWalk dir hub [systemFile]
+      next <- readTVarIO (hubStore hub)
+      assertEqual "after, it is a state"
+                  [(Just "STARTED", Just True)] (states (storeRecords next))
+      assertEqual "and the palette carries it"
+                  (TodoKeywords ["STARTED", "TODO"] ["DONE"]) (storeKeywords next)
+  ]
+
+-- | DOC with LINES as its @#+TODO:@ block, spliced the way the route splices
+-- it: 'configEdits' for the spans and the write engine's own 'applyEdits' for
+-- the result, so what is asserted is the document a write would leave behind.
+spliced :: Text -> [Text] -> Either Text Text
+spliced doc lines' = do
+  edits <- configEdits doc lines'
+  first (T.pack . show) (applyEdits doc [ Edit sp new | (sp, new) <- edits ])
 
 -- Absence
 

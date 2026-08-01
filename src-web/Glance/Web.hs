@@ -78,7 +78,7 @@ import Control.Monad (filterM, forever, join, unless, void, when)
 import Data.Aeson (Value, eitherDecode', encode, object, withObject, (.:), (.:?), (.=))
 import Data.Aeson.Types (Pair, parseEither)
 import Data.Bifunctor (first)
-import Data.List (nub)
+import Data.List (find, nub)
 import Data.Map.Strict (Map)
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
@@ -110,19 +110,21 @@ import qualified Data.Text.Read as TR
 import qualified Network.Wai.Handler.Warp as Warp
 import qualified Network.WebSockets as WS
 
-import Glance.Query ( HeadlineParts (hpBody, hpProperties)
+import Glance.Query ( ConfigLayerFile (..), ConfigLayers (clDirs)
+                    , HeadlineParts (hpBody, hpProperties)
                     , HeadlineRecord (hrDigest, hrFile, hrId, hrSubtree)
                     , IdCollision (..), QueryResult (..), Span (spanEnd, spanStart)
-                    , ViewOrder (..), WalkOptions (..), WriteFailure (..)
-                    , archiveEdits, archived, headlineParts, orderedForView
+                    , TodoKeywords (..), ViewOrder (..), WalkOptions (..)
+                    , WriteFailure (..), archiveEdits, archived, configDirIn
+                    , configEdits, headlineParts, orderedForView, readConfigLayers
                     , recomposedSubtree, replaceSpans, setStateEdits
-                    , subtreeText, viewJSONTextWith )
+                    , subtreeText, todoLines, viewJSONTextWith )
 import Glance.Web.Filter (archiveKey, matchesFilter, namesArchive)
 import Glance.Web.Store ( Client, Frame (ViewChanged), Hub, LoadState (..)
-                        , Store (stGen, stPrint), finishLoading, frameText, hubLoad, hubStore
-                        , loadStoreWith, newLoadingHub, nextFrame, storeHeadline
-                        , storeKeywords, storeResult, storeTags, subscribe
-                        , unsubscribe )
+                        , Store (stConfig, stGen, stPrint), finishLoading, frameText
+                        , hubLoad, hubStore, loadStoreWith, newLoadingHub, nextFrame
+                        , storeHeadline, storeKeywords, storeResult, storeTags
+                        , subscribe, unsubscribe )
 import Glance.Web.Watch (watchOrgTree)
 
 -- Options
@@ -285,6 +287,7 @@ httpApp opts hub request respond = route >>= respond
       , (["headlines"], True,  readOnly (headlines opts hub request))
       , (["headline"],  True,  headline)
       , (["command"],   True,  commandRoute)
+      , (["config"],    True,  configRoute)
       , (["ws"],        True,  readOnly (pure (plain status400 wsHint)))
       ]
     route = case [ (needs, act) | (path, needs, act) <- named, path == pathInfo request ] of
@@ -303,6 +306,11 @@ httpApp opts hub request respond = route >>= respond
     -- the rows a command moved arrive over the socket like any other edit.
     commandRoute | method == methodPost = runCommand hub request
                  | otherwise            = pure (jsonError status405 "/command takes POST")
+    -- @/config@ is the settings sheet's pair, and reads and writes like
+    -- @/headline@: the layers with their digests, and one of them back.
+    configRoute | reading              = configView opts hub
+                | method == methodPost = configWrite opts hub request
+                | otherwise            = pure (jsonError status405 "/config takes GET and POST")
     readOnly act | reading   = act
                  | otherwise = pure (plain status405 writeHint)
     -- Every one-segment path lands on the assets directory, so the miss below
@@ -312,7 +320,7 @@ httpApp opts hub request respond = route >>= respond
       _other                 -> pure (plain status404 notFound)
     wsHint    = "/ws is a websocket endpoint; connect with Upgrade: websocket"
     writeHint = "method not allowed; POST /headline?id=… and POST /command write"
-    notFound  = "not found: /, /headlines, /headline, /command, /ws, or an asset name"
+    notFound  = "not found: /, /headlines, /headline, /command, /config, /ws, or an asset name"
 
 -- | The answer a store route gives while the startup walk is still running: a
 -- 503 that says when to come back and how long it has been going.
@@ -623,16 +631,137 @@ committed r  (SplitSubtree body ps) = recomposedSubtree r body ps
 -- | A 409 spelling REASON, the digest the file carries now, and WHY.  The two
 -- ways a materialized subtree goes stale are told apart for a client that has
 -- to decide what to do next; both mean the same thing to one that does not.
+-- Every write route answers a moved file this way, so WHY carries the whole
+-- sentence rather than half of one this appends to.
 conflict :: Text -> Text -> Text -> Response
 conflict reason current why = jsonResponse status409
-  [ "error"  .= (why <> "; materialize it again and re-apply the edit")
+  [ "error"  .= why
   , "reason" .= reason
   , "digest" .= current
   ]
 
-reparsed, rewritten :: Text
-reparsed  = "the file was re-read since this subtree was materialized"
-rewritten = "the file changed on disk since this subtree was materialized"
+reparsed, rewritten, configMoved :: Text
+reparsed  = "the file was re-read since this subtree was materialized" <> again
+rewritten = "the file changed on disk since this subtree was materialized" <> again
+configMoved = "the config file changed on disk since it was read; open settings again"
+
+again :: Text
+again = "; materialize it again and re-apply the edit"
+
+-- Config
+
+-- | The config directories a settings client edits: the ones the walk met, and
+-- the one the served root WOULD hold when it met none.
+--
+-- The walk is what can answer the first half — an org-glance store is not
+-- obliged to sit at the root being served, and in the author's own tree it does
+-- not — and only the second half is a guess, which is the one case where there
+-- is nothing to be right about yet.
+configDirsOf :: ServeOptions -> Store -> [FilePath]
+configDirsOf opts st = case clDirs (stConfig st) of
+  []   -> [configDirIn (soDir opts)]
+  dirs -> dirs
+
+-- | @GET \/config@: the keyword layers a settings client edits, and the union
+-- they add up to.
+--
+-- One entry per config file — where it is, which layer it is (@tag@ is null for
+-- @system.org@), its @#+TODO:@ lines verbatim, and the digest a write to it is
+-- pinned to.  A layer whose digest is EMPTY is not there yet; @system.org@ in a
+-- tree that never had one is listed anyway, since posting to it is how it comes
+-- to exist.
+--
+-- The files are read here rather than taken off the store's loaded
+-- 'Glance.Query.ConfigLayers'.  What a client is handed is the lock its write
+-- is checked against, so it has to be the digest of the very bytes it was
+-- shown; the store supplies the one thing a read cannot, which is WHICH
+-- directories.
+--
+-- @keywords@ is the store's own palette, so the preview is the badge list the
+-- table is already showing rather than a second computation of it — and it is
+-- wider than the layers on purpose: a file's own @#+TODO:@ is in it, which is
+-- exactly the thing this page cannot edit and has to say so about.
+configView :: ServeOptions -> Hub -> IO Response
+configView opts hub = do
+  st <- readTVarIO (hubStore hub)
+  layers <- readConfigLayers (configDirsOf opts st)
+  pure (jsonResponse status200
+          [ "layers"   .= map layerJSON layers
+          , "keywords" .= keywordsJSON (storeKeywords st) ])
+
+layerJSON :: ConfigLayerFile -> Value
+layerJSON f = object
+  [ "path"   .= lfPath f
+  , "tag"    .= lfTag f
+  , "lines"  .= todoLines (lfText f)
+  , "digest" .= lfDigest f
+  ]
+
+keywordsJSON :: TodoKeywords -> Value
+keywordsJSON kw = object ["active" .= tkActive kw, "inactive" .= tkInactive kw]
+
+-- | @POST \/config@ with body @{"path": …, "lines": […], "digest": …}@: one
+-- layer's @#+TODO:@ block replaced, and nothing else in the file touched.
+--
+-- @path@ has to be a layer @GET \/config@ would list, and that is the whole of
+-- the traversal defence: the request names one of the files this server just
+-- offered, never a path it is handed.  Looking the layer up is also the read
+-- the edits are measured in, so the two cannot describe different files.
+--
+-- The write is every other write: 'Glance.Query.configEdits' turns the lines
+-- into span edits over the file's own text and 'Glance.Query.replaceSpans'
+-- splices them under the client's digest, temp file and rename, so a comment,
+-- a @#+TITLE:@ and a capture template around the block come back byte for
+-- byte.  A file that moved since the client read it is a 409 with nothing
+-- written.  The EMPTY digest is the pin for a layer that does not exist yet:
+-- the same lock says "nothing is there", the write creates it and the
+-- directories over it, and a file that turned up meanwhile drifts.
+--
+-- Nothing here touches the store.  A config file is watched
+-- ('Glance.Web.Watch.settle'), and a change to one is the event that reseeds
+-- the whole tree — so the rows and the palette arrive by the path an editor
+-- saving the same file already takes.
+configWrite :: ServeOptions -> Hub -> Request -> IO Response
+configWrite opts hub request = do
+  body <- takeBody bodyLimit request
+  st <- readTVarIO (hubStore hub)
+  case body of
+    Nothing  -> pure (jsonError status413 ("body over " <> T.pack (show bodyLimit) <> " bytes"))
+    Just raw -> case parseConfigWrite raw of
+      Left why   -> pure (jsonError status400 why)
+      Right want -> writeLayer (configDirsOf opts st) want
+
+-- | WANT written into one of DIRS' layers, or the refusal.  The lookup that
+-- decides which file is the read the edits are then measured in, so the two
+-- cannot be describing different bytes.
+writeLayer :: [FilePath] -> (Text, [Text], Text) -> IO Response
+writeLayer dirs (path, asked, digest) = do
+  layers <- readConfigLayers dirs
+  case find ((== path) . T.pack . lfPath) layers of
+    Nothing -> pure (jsonError status400 (noSuchLayer path layers))
+    Just f  -> case configEdits (lfText f) asked of
+      Left why    -> pure (jsonError status400 why)
+      Right edits -> answer <$> replaceSpans (lfPath f) digest edits
+  where
+    answer written = case written of
+      Right fresh              -> jsonResponse status200 ["path" .= path, "digest" .= fresh]
+      Left (WriteDrift onDisk) -> conflict "drift" onDisk configMoved
+      Left (WriteRefused why)  -> jsonError status500 why
+
+noSuchLayer :: Text -> [ConfigLayerFile] -> Text
+noSuchLayer path layers =
+  "no config layer at " <> path <> "; this tree has "
+    <> T.intercalate ", " [ T.pack (lfPath f) | f <- layers ]
+
+-- | RAW as a layer write, or what is wrong with it.  @lines@ is an array
+-- because a layer can spell its cycle over more than one @#+TODO:@ line, and a
+-- client editing them as text splits on its own newlines rather than asking
+-- this server to.
+parseConfigWrite :: BL.ByteString -> Either Text (Text, [Text], Text)
+parseConfigWrite raw = first (("body: " <>) . T.pack) $ do
+  value <- eitherDecode' raw
+  parseEither (withObject "config write" shape) value
+  where shape o = (,,) <$> o .: "path" <*> o .: "lines" <*> o .: "digest"
 
 -- Commands
 
@@ -1102,6 +1231,8 @@ sharedKeys =
       `helps` "set the state of the marked rows, or the row at point"
   , bind ["C-c", "C-s"] "org-glance-overview:schedule"    Nothing                 "table"
   , bind ["C-c", "C-d"] "org-glance-overview:deadline"    Nothing                 "table"
+  , bind ["C-c", "C-,"] "customize"                       (Just "openSettings")   "table"
+      `helps` "the keyword cycles, a config layer at a time"
   , bind ["C-x", "C-s"] "save-buffer"                     (Just "save")           "modal"
       `helps` "sync the sheet now; again to overwrite a conflict"
   , bind ["C-c", "'"]   "org-edit-special"                (Just "toggleRaw")      "modal"
@@ -1211,6 +1342,7 @@ keyHints =
   , (["filter-rows"],                      "filter")
   , (["org-glance-overview:refresh"],      "refresh")
   , (["filter-drop-token"],                "drop token")
+  , (["customize"],                        "settings")
   , (["quit-window"],                      "quit")
   ]
 
@@ -1429,7 +1561,12 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
       <> "<option value=\"auto\">auto</option><option value=\"light\">light</option>"
       <> "<option value=\"dark\">dark</option></select>"
       <> "<label for=\"keysel\">keys:</label>"
-      <> "<select id=\"keysel\" title=\"movement profile\"></select></div>"
+      <> "<select id=\"keysel\" title=\"movement profile\"></select>"
+      -- The keyboard-first exception, and the same one the chip row is: a
+      -- coarse pointer has no `C-c C-,' to press.  Hidden outside the
+      -- pointer:coarse block, so a mouse never sees it and the key is the
+      -- whole of the offer there.
+      <> "<button id=\"gear\" title=\"settings\">\9881</button></div>"
   , "  <div id=\"app\"></div>"
   , "  <div id=\"log\">loading …</div>"
   , "  <div id=\"kbd\"></div>"
@@ -1450,6 +1587,21 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      <div id=\"phead\"></div>"
   , "      <input id=\"pinput\" spellcheck=\"false\" autocomplete=\"off\">"
   , "      <div id=\"plist\"></div>"
+  , "    </div>"
+  , "  </div>"
+  -- The settings sheet: one section per keyword layer, then the union they
+  -- come to.  A sibling of `#app' like the other two overlays, so a remount
+  -- leaves it standing — which this one needs more than the others, since
+  -- writing a layer is itself what moves the columns.
+  , "  <div id=\"config\">"
+  , "    <div id=\"cbox\">"
+  , "      <div id=\"chead\"><span id=\"ctitle\">keyword cycles</span>"
+      <> "<span id=\"cnote\"></span></div>"
+  , "      <div id=\"clayers\"></div>"
+  , "      <div id=\"ceff\"></div>"
+  , "      <div id=\"cfoot\">read-only: the union every file is parsed with."
+      <> " A file's own #+TODO: line adds to it and outranks these for that"
+      <> " file's own headlines.</div>"
   , "    </div>"
   , "  </div>"
   , "  <div id=\"echo\" role=\"status\" aria-live=\"polite\"></div>"
@@ -1820,7 +1972,7 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    // C-x C-s.  Mid-edit it is a manual flush; on a conflict it is the"
   , "    // deliberate keystroke that overwrites — ask for the digest the file"
   , "    // carries now and post the text the author is looking at over it."
-  , "    function save() {"
+  , "    function saveSheet() {"
   , "      if (!editing || flushing()) return;"
   , "      if (state !== \"conflict\") { flush(editing.digest); return; }"
   , "      const h = editing;"
@@ -2048,6 +2200,141 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      ((cols.filter((c) => c.key === \"state\")[0] || {}).badges || [])"
   , "        .map((x) => ({ label: x.value, keyword: x.value }))"
   , "        .concat([{ label: \"clear\", keyword: null }]);"
+    -- Settings.  One section per keyword layer, and a layer is one config file
+    -- and one box holding its `#+TODO:' lines VERBATIM.  The line is the
+    -- contract org itself reads, so it is what is edited: a chip UI here would
+    -- be this page guessing at a grammar it has no parser for, and the guess
+    -- would be what gets written.
+    --
+    -- The sheet is the materialize sheet's pattern, down to the words: no
+    -- buttons, ESC or the backdrop syncs and closes, `C-x C-s' syncs mid-edit,
+    -- and the header carries one of the same four states.  What it does NOT
+    -- share is a request: `/config' is its own pair of routes, and the rows
+    -- arrive the way every other write's do — the file watch sees the config
+    -- change and reseeds the tree.
+  , "    let settings = false, cstate = \"synced\", crows = [];"
+    -- Claimed before the fetch, and refused over the other sheet.  `typing()'
+    -- is not enough to keep the two apart: clicking the materialize sheet's own
+    -- header blurs its textarea, and a `table' row is live again the moment it
+    -- does — so the rule is stated here rather than left to the focus.
+  , "    function openSettings() {"
+  , "      if (settings || editing) return;"
+  , "      settings = true;"
+  , "      config().then((b) => {"
+  , "        if (!settings) return;   // an ESC arrived while the layers were out"
+  , "        drawLayers(b);"
+  , "        cnote(\"synced\");"
+  , "        el(\"config\").className = \"on\";"
+  , "        if (crows.length) crows[0].box.focus();"
+  , "      }).catch((e) => { settings = false; log(`settings failed: ${e.message}`); });"
+  , "    }"
+  , "    const config = () =>"
+  , "      fetch(\"/config\").then((r) => r.json().then((b) => {"
+  , "        if (!r.ok) throw new Error(b.error || r.status);"
+  , "        return b;"
+  , "      }));"
+  , "    function drawLayers(b) {"
+  , "      el(\"clayers\").textContent = \"\";"
+  , "      crows = (b.layers || []).map(layerRow);"
+  , "      const kw = b.keywords || {};"
+  , "      el(\"ceff\").textContent ="
+  , "        `${(kw.active || []).join(\" \")} | ${(kw.inactive || []).join(\" \")}`;"
+  , "    }"
+    -- What one layer shows: which scope it is and where it lives, its lines,
+    -- and a line for whatever the server said about the last write to it.  A
+    -- layer with no digest is not a file yet — saying so is what makes creating
+    -- the first one an edit rather than a mystery.
+  , "    function layerRow(layer) {"
+  , "      const row = document.createElement(\"div\");"
+  , "      row.className = \"crow\";"
+  , "      const lab = document.createElement(\"div\");"
+  , "      lab.className = \"clab\";"
+  , "      lab.textContent = `${layer.tag ? `tag · ${layer.tag}` : \"system\"} · ${layer.path}`"
+  , "        + (layer.digest ? \"\" : \" · not created yet\");"
+  , "      const box = document.createElement(\"textarea\");"
+  , "      box.className = \"ctext\";"
+  , "      box.spellcheck = false;"
+  , "      box.value = (layer.lines || []).join(\"\\n\");"
+  , "      box.placeholder = \"#+TODO: TODO STARTED | DONE\";"
+  , "      const note = document.createElement(\"div\");"
+  , "      note.className = \"cerr\";"
+  , "      row.appendChild(lab); row.appendChild(box); row.appendChild(note);"
+  , "      el(\"clayers\").appendChild(row);"
+  , "      return { path: layer.path, digest: layer.digest, base: box.value, box, note };"
+  , "    }"
+    -- The same four words the other sheet wears, and the same two keys clear
+    -- the two that wait for one.
+  , "    const cnote = (next, message) => {"
+  , "      cstate = next;"
+  , "      el(\"cnote\").className = next;"
+  , "      el(\"cnote\").textContent = message || WORDS[next];"
+  , "    };"
+  , "    const cdirty = () => crows.some((r) => r.box.value !== r.base);"
+    -- Every layer that moved, one POST each and each awaited.  A config file is
+    -- its own write and its own lock, so one that drifted refuses on its own
+    -- line while the rest land — there is no batch to roll back and none to
+    -- want.
+  , "    async function flushConfig() {"
+  , "      cnote(\"syncing\");"
+  , "      let ok = true, clashed = false;"
+  , "      for (const r of crows) {"
+  , "        if (r.box.value === r.base) continue;"
+  , "        // What was SENT, taken before the await: a keystroke landing while"
+  , "        // the write is in flight would otherwise be marked as the file's"
+  , "        // and never written, and the sheet would close on it silently."
+  , "        const sent = r.box.value;"
+  , "        const a = await fetch(\"/config\", {"
+  , "          method: \"POST\","
+  , "          headers: { \"content-type\": \"application/json\" },"
+  , "          body: JSON.stringify({ path: r.path, lines: sent.split(\"\\n\"),"
+  , "                                 digest: r.digest }),"
+  , "        }).then((x) => x.json().then((b) => ({ status: x.status, body: b })))"
+  , "          .catch((e) => ({ status: 0, body: { error: e.message } }));"
+  , "        if (a.status === 200) {"
+  , "          r.digest = a.body.digest; r.base = sent; r.note.textContent = \"\";"
+  , "        } else {"
+  , "          ok = false;"
+  , "          if (a.status === 409) clashed = true;"
+  , "          r.note.textContent = a.body.error || `sync failed (${a.status})`;"
+  , "        }"
+  , "      }"
+  , "      cnote(ok ? \"synced\" : clashed ? \"conflict\" : \"error\");"
+  , "      return ok;"
+  , "    }"
+    -- C-x C-s.  Mid-edit a flush; on a conflict the deliberate keystroke that
+    -- overwrites — ask for the digests the files carry NOW and post the text
+    -- the author is looking at over them, which is the sheet's own rule.
+  , "    function saveConfig() {"
+  , "      if (cstate === \"syncing\") return;"
+  , "      if (cstate !== \"conflict\") { flushConfig(); return; }"
+  , "      config().then((b) => {"
+  , "        for (const r of crows) {"
+  , "          const fresh = (b.layers || []).find((l) => l.path === r.path);"
+  , "          if (fresh) r.digest = fresh.digest;"
+  , "        }"
+  , "        flushConfig();"
+  , "      }).catch((e) => cnote(\"error\", `${e.message} — C-x C-s retry · ESC discard`));"
+  , "    }"
+    -- The way out, and the sheet's own rule: pristine closes with no request,
+    -- dirty syncs and closes on success, and one with trouble in it discards —
+    -- which is what a second ESC is.
+  , "    function leaveSettings() {"
+  , "      if (!settings) return;"
+  , "      if (cstate === \"conflict\" || cstate === \"error\") {"
+  , "        shutSettings(); log(\"settings closed — the files are as they were\"); return;"
+  , "      }"
+  , "      if (!cdirty()) { shutSettings(); return; }"
+  , "      if (cstate !== \"syncing\") flushConfig().then((ok) => ok && shutSettings());"
+  , "    }"
+  , "    function shutSettings() {"
+  , "      el(\"config\").className = \"\"; settings = false; crows = []; cstate = \"synced\";"
+  , "    }"
+  , "    el(\"config\").addEventListener(\"click\", (e) =>"
+  , "      { if (e.target === el(\"config\")) leaveSettings(); });"
+    -- The gear is the coarse pointer's `C-c C-,'.  It needs no media query of
+    -- its own: the rules hide it outside the one block, and an element that is
+    -- not displayed is one nobody can tap.
+  , "    el(\"gear\").addEventListener(\"click\", openSettings);"
   , "    // `/' summons the filter.  `openFilter' is the renderer's one entry point"
   , "    // for it whatever mode it is in — in palette mode it raises the overlay,"
   , "    // elsewhere it takes the box already on the page — so the shell asks for"
@@ -2256,8 +2543,12 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      return !!a && (a.tagName === \"INPUT\" || a.tagName === \"TEXTAREA\""
   , "                     || a.tagName === \"SELECT\" || a.isContentEditable);"
   , "    };"
+    -- `modal' is "a sheet is up", and there are two of them: the subtree's and
+    -- the settings'.  Never both — `openSettings' refuses over an open sheet,
+    -- which is what keeps `C-x C-s' and `ESC' from having to guess which one
+    -- they meant.
   , "    const live = (b) => b.scope === \"any\""
-  , "      || (b.scope === \"modal\" && editing !== null)"
+  , "      || (b.scope === \"modal\" && (editing !== null || settings))"
   , "      || (b.scope === \"table\" && !typing());"
   , "    // A live selection means C-c and C-x are copy and cut, and the browser"
   , "    // decides that on this keydown — so the prefix does not claim them."
@@ -2288,7 +2579,9 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "        table.clearMarks();"
   , "        echo(`${b.seq} → all marks cleared`);"
   , "      },"
-  , "      refresh, focusFilter, save, toggleRaw,"
+  , "      refresh, focusFilter, toggleRaw, openSettings,"
+    -- One `save-buffer' over two sheets: whichever is up is what it syncs.
+  , "      save: () => (settings ? saveConfig() : saveSheet()),"
     -- D is dired's key and org-glance's `delete', and here it archives: the tag
     -- goes on, the headline stays, and the default view stops showing it.
   , "      archiveRows: (b) => {"
@@ -2313,6 +2606,7 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "      cancel: () => {"
   , "        if (prompting) unask();"
   , "        else if (editing) leave();"
+  , "        else if (settings) leaveSettings();"
   , "        else if (typing()) document.activeElement.blur();"
   , "      },"
   , "      // The filter's own backspace: the renderer drops the token and the"
@@ -2606,10 +2900,10 @@ page head' title body = T.unlines
   -- subtree's and the prompt is a command's, and a reader has one of them open
   -- at a time.  The prompt sits high rather than centred — a list that grows
   -- downward should not move the line above it.
-  , "  #modal,#prompt{--dk-mono:\"Hack\", var(--glance-mono);"
+  , "  #modal,#prompt,#config{--dk-mono:\"Hack\", var(--glance-mono);"
   , "    display:none;position:fixed;inset:0;z-index:100;padding:24px;background:#0009;"
   , "    align-items:center;justify-content:center}"
-  , "  #modal.on,#prompt.on{display:flex}"
+  , "  #modal.on,#prompt.on,#config.on{display:flex}"
   , "  #prompt{align-items:flex-start;padding-top:15vh}"
   , "  #sheet{display:flex;flex-direction:column;gap:8px;padding:14px;border-radius:6px;"
   , "    position:relative;z-index:101;"
@@ -2659,6 +2953,36 @@ page head' title body = T.unlines
   , "  #plist{max-height:40vh;overflow-y:auto;font-size:12px}"
   , "  #plist div{padding:2px 7px;border-radius:4px}"
   , "  #plist .pat{background:var(--g-sel);color:var(--g-fg)}"
+  -- The settings sheet, third in the same two bands: one section per keyword
+  -- layer, each a label saying which file it is and a box holding that file's
+  -- `#+TODO:' lines.  High rather than centred, since the sections grow
+  -- downward and the header over them should not move when they do.
+  , "  #config{align-items:flex-start;padding-top:8vh}"
+  , "  #cbox{display:flex;flex-direction:column;gap:10px;padding:14px;border-radius:6px;"
+  , "    position:relative;z-index:101;"
+  , "    width:min(720px,100%);max-height:84vh;overflow-y:auto;font-family:var(--dk-mono);"
+  , "    background:var(--g-bg);color:var(--g-fg);border:1px solid var(--g-border)}"
+  , "  #chead{display:flex;justify-content:space-between;gap:12px;font-size:12px}"
+  , "  #ctitle{color:var(--g-mute)}"
+  , "  #cnote{text-align:right;color:var(--g-ok)}"
+  , "  #cnote.syncing{color:var(--g-mute)}"
+  , "  #cnote.conflict,#cnote.error{color:var(--g-bad)}"
+  , "  #clayers,.crow{display:flex;flex-direction:column;gap:4px}"
+  -- A path is long and has nowhere to wrap, so it is told it may break
+  -- anywhere rather than widening the sheet past the viewport.
+  , "  .clab{font-size:11px;color:var(--g-mute);overflow-wrap:anywhere}"
+  , "  .ctext{font:12px/1.5 var(--dk-mono);padding:6px;border-radius:4px;height:3.4em;"
+  , "    border:1px solid var(--g-border);background:transparent;color:inherit;resize:vertical}"
+  , "  .ctext::selection{background:var(--g-sel);color:var(--g-fg)}"
+  -- What the server said about the last write to that layer, and nothing when
+  -- it said nothing.
+  , "  .cerr{font-size:11px;color:var(--g-bad)}"
+  , "  .cerr:empty{display:none}"
+  , "  #ceff{font-size:12px;padding-top:8px;border-top:1px solid var(--g-border)}"
+  , "  #cfoot{font-size:11px;color:var(--g-mute)}"
+  -- The gear is the coarse pointer's only way in, so a fine pointer never sees
+  -- it: the rule that shows it is in the one media block below.
+  , "  #gear{display:none}"
   -- The echo area and the status corner are the page's, and the backdrop dims
   -- the page: both sit under it (2 and 3 against the modal's 100) and grey out
   -- with everything else while the sheet is open.  They stay above the table.
@@ -2685,7 +3009,13 @@ page head' title body = T.unlines
   , "    #app .tv-chips:empty::after{content:\"filter …\";color:var(--g-mute);"
   , "      font-size:12px}"
   , "    #mpanes{flex-direction:column}"
-  , "    #mtext,#pinput,.prow input{font-size:16px}}"
+  -- The settings gear: the one control a coarse pointer gets that a mouse does
+  -- not, since `C-c C-,' is the way in everywhere there are keys.  44px, like
+  -- the chip row.
+  , "    #gear{display:inline-block;font:inherit;font-family:var(--glance-mono);"
+  , "      min-width:44px;min-height:44px;border-radius:4px;"
+  , "      border:1px solid var(--g-border);background:var(--g-bg);color:inherit}"
+  , "    #mtext,#pinput,.prow input,.ctext{font-size:16px}}"
   , "</style>"
   -- The stored theme, applied before anything paints: a page that renders in
   -- the wrong one and corrects itself a frame later is a flash the selector

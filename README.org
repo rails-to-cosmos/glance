@@ -198,6 +198,48 @@ curl -s -X POST -H 'content-type: application/json' \
 Both shapes take the same optimistic lock and the same 409s; naming both in one
 body is a 400, and an empty =properties= list removes the drawer.
 
+*Settings: the keyword cycles, from the page.* =C-c C-,= opens a second sheet
+over the table, one section per keyword layer: =system.org= for the whole tree,
+then a section per =tags/TAG.org=, then a read-only preview of the union they
+add up to. Each editable section is one box holding that file's =#+TODO:= lines
+*verbatim* — the config files are org and that line is the contract, so what you
+edit is the line rather than a chip UI over a guess at what it means. A tree
+that has never had a =system.org= still lists it, marked =not created yet=: type
+a cycle into it and the file, and the directories over it, are created on the
+way out.
+
+It is the materialize sheet's own pattern, down to the words. No buttons: =ESC=
+or a click outside syncs the sections that moved and closes, a sheet you only
+read closes with no request, =C-x C-s= syncs mid-edit, and the header carries
+=synced= / =syncing…= / =conflict= / =error=. Each section is its own file, its
+own write and its own lock, so one that Emacs moved underneath you refuses on its
+own line while the rest land. What comes back is the *whole tree reparsed*: a
+keyword that has just started existing is recognized in files nobody touched, so
+the daemon reseeds, the badge palette moves, and every open tab re-fetches. On a
+touch device, where there is no chord to type, a gear appears in the status
+corner — the same exception the filter's chip row is.
+
+#+begin_src sh
+curl -s localhost:7777/config
+# → {"layers": [{"path": …, "tag": null, "lines": ["#+TODO: TODO | DONE"], "digest": …},
+#               {"path": …, "tag": "book", "lines": […], "digest": …}],
+#    "keywords": {"active": […], "inactive": […]}}
+
+curl -s -X POST -H 'content-type: application/json' localhost:7777/config \
+     -d '{"path": "…/.org-glance/config/system.org",
+          "lines": ["#+TODO: TODO STARTED | DONE CANCELLED"],
+          "digest": "<the digest the GET returned>"}'
+#+end_src
+
+The write is the same span splice every other write is: only the =#+TODO:=
+lines are replaced, so a =#+TITLE:=, a comment and the capture template
+org-glance keeps in those files come back byte for byte. A file with no such
+line takes one under the header it opens with. Posting an empty =lines= deletes
+the layer's cycle. An empty =digest= is the pin for a file that is not there
+yet — and a file that turned up meanwhile refuses exactly as a moved one does,
+rather than being overwritten. Lines that are not =#+TODO:= pragmas, and pragmas
+that declare no keyword org would read, are 400s with nothing written.
+
 The store stays a projection and the org files stay the source of truth: it is
 thrown away with the process, every row in it came out of a file, and a file
 that stops parsing keeps the rows it had — including one saved from the browser
@@ -290,6 +332,15 @@ Both key profiles share everything that is not movement:
 | =C-c C-t= | =org-glance-overview:todo=        | asks which state, and sets it on them     |
 | =C-c C-s= | =org-glance-overview:schedule=    | staged                                    |
 | =C-c C-d= | =org-glance-overview:deadline=    | staged                                    |
+| =C-c C-,= | =customize=                       | the keyword cycles, a config layer at a time |
+
+*One of those does not survive the browser.* =C-c C-t= is bound, dispatched and
+claimed by the page — and in Chromium the second chord never arrives, because
+=Ctrl+T= opens a tab in the browser process above the document and
+=preventDefault()= cannot reach it. Firefox reserves it the same way. The page's
+half is correct and tested; there is nothing a page can do about the other half.
+Until the binding is moved, set a state from the shell (=POST /command= above)
+or from Emacs.
 
 *Movement* is the part that differs. =emacs= is org-glance's overview map, and
 the default:

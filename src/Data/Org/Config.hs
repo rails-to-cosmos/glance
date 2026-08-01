@@ -23,17 +23,22 @@
 -- TODO\/DONE, and last of the union itself.  So @READING@ is active because
 -- @book.org@ declares it before the bar, and a file that redeclares it after
 -- one makes it done-like for its own headlines and nobody else's.
-module Data.Org.Config ( ConfigLayers (..)
+module Data.Org.Config ( ConfigLayerFile (..)
+                       , ConfigLayers (..)
                        , TodoKeywords (..)
                        , classify
                        , configDirIn
                        , configPaths
                        , declaredKeywords
+                       , isTodoPragma
                        , loadConfigDirs
                        , mergeKeywords
                        , noConfig
                        , noKeywords
+                       , readConfigLayers
                        , seedContext
+                       , todoLineEdits
+                       , todoLines
                        , todoPragmas
                        ) where
 
@@ -52,7 +57,7 @@ import qualified Data.Text.Encoding as TE
 
 import Data.Org.Edit (digestOf)
 import Data.Org.Parser (orgParse)
-import Data.Org.Types ( Context, Element (EPragma), Pragma (PTodo), Spanned (valueOf)
+import Data.Org.Types ( Context, Element (EPragma), Pragma (PTodo), Span (..), Spanned (valueOf)
                       , defaultContext, setTodo )
 import Data.Org.Walk (isDocument)
 
@@ -93,10 +98,18 @@ mergeKeywords keywords = TodoKeywords actives inactives
 -- over one entry per file on every @\/headlines@ request, and at 6300 files
 -- that quadratic was most of the request.
 firstSeen :: Ord a => [a] -> [a]
-firstSeen = go Set.empty
+firstSeen = firstBy id
+
+-- | XS with the first entry under each KEY kept and every later one dropped.
+-- Two callers want the same fold under different keys: the keyword merge
+-- deduplicates by the word itself, and the tag layers by the tag, where a
+-- second config directory naming a tag the first already configured loses it.
+firstBy :: Ord k => (a -> k) -> [a] -> [a]
+firstBy key = go Set.empty
   where go _ [] = []
-        go seen (x : xs) | Set.member x seen = go seen xs
-                         | otherwise         = x : go (Set.insert x seen) xs
+        go seen (x : xs) | Set.member k seen = go seen xs
+                         | otherwise         = x : go (Set.insert k seen) xs
+          where k = key x
 
 -- Reading the pragmas
 
@@ -125,35 +138,93 @@ declaredKeywords elems = mergeKeywords
 -- A commented pragma is excluded by construction: @#   #+TODO: …@ opens with
 -- @#@ rather than with @#+@.
 todoPragmas :: Text -> TodoKeywords
-todoPragmas doc = case orgParse defaultContext (T.unlines lines') of
+todoPragmas doc = case orgParse defaultContext (T.unlines (todoLines doc)) of
   (_elems, _ctx, Just _err) -> noKeywords
   (elems, _ctx, Nothing)    -> declaredKeywords elems
-  where lines' = filter isTodoPragma (T.lines doc)
+
+-- | DOC's @#+TODO:@ lines, verbatim and in file order.  What 'todoPragmas'
+-- reads and what a settings client edits are the same lines, so both go
+-- through this.
+todoLines :: Text -> [Text]
+todoLines = filter isTodoPragma . T.lines
 
 -- | Does LINE open a @#+TODO:@ pragma?  Folded, since org takes either casing
 -- and the parser uppercases the key.
 isTodoPragma :: Text -> Bool
 isTodoPragma line = "#+todo:" `T.isPrefixOf` T.toLower (T.stripStart line)
 
+-- Editing the pragmas
+
+-- | The span edits putting LINES where DOC's @#+TODO:@ lines are: char spans
+-- into DOC and the text to write over each, the currency
+-- 'Data.Org.Edit.applyEdits' takes.
+--
+-- One block, wherever the first pragma line was.  A document already carrying
+-- them keeps that offset and loses every later one, so a file spelling its
+-- cycle over two lines comes back as whatever LINES spells and nothing is left
+-- behind further down.  A document carrying none takes the block after its
+-- leading @#@ run — the @#+TITLE:@ and the comments org-glance's own templates
+-- open with — which is where org would have put it, and at the top when there
+-- is no such run.  An empty LINES writes nothing and deletes what is there,
+-- which is how a layer is taken off.
+--
+-- Every span covers a WHOLE line, the newline that ends it included, so
+-- nothing outside the lines this rewrites can move.
+todoLineEdits :: Text -> [Text] -> [(Span, Text)]
+todoLineEdits doc new = case [ sp | (sp, line) <- lines', isTodoPragma line ] of
+  []          -> [ (Span at at, opening <> block) | not (null new) ]
+  (sp : rest) -> (sp, block) : [ (r, "") | r <- rest ]
+  where
+    lines' = lineSpans doc
+    block  = if null new then "" else T.unlines new
+    -- Past the header the file opens with, or at the very top when it opens
+    -- with content; a file that is nothing but header takes it at the end.
+    at = case dropWhile (T.isPrefixOf "#" . snd) lines' of
+      ((sp, _line) : _rest) -> spanStart sp
+      []                    -> T.length doc
+    -- Every other insertion point is the start of a line, so the character
+    -- before it is a newline by construction.  The all-header case is the
+    -- exception: it lands at the end of a document that need not close with
+    -- one, and a block appended to a live line is not a pragma at all.
+    opening | at > 0, not ("\n" `T.isSuffixOf` T.take at doc) = "\n"
+            | otherwise                                       = ""
+
+-- | DOC's lines, each with the span covering it and the newline that ends it.
+-- A final line with no newline still gets a span, ending at the document.
+lineSpans :: Text -> [(Span, Text)]
+lineSpans = go 0
+  where
+    go at rest
+      | T.null rest = []
+      | otherwise   = (Span at end, line) : go end more
+      where (line, tailed) = T.break (== '\n') rest
+            more = T.drop 1 tailed
+            end  = at + T.length line + (if T.null tailed then 0 else 1)
+
 -- The layers
 
 -- | What one root's config declares: the system layer, the per-tag layers, the
 -- union the parser is seeded with, and which config this is.
 --
--- 'clSeed' is derived from the other two and carried rather than recomputed:
--- every file's parse asks for it, and it is a fold over every layer.
+-- 'clSeed' is stored rather than derived from the other two, and it is not
+-- recoverable from them: 'clTags' keeps the FIRST configuration of each tag
+-- across the config directories the walk met, while the seed unions every entry
+-- read, the shadowed ones included.  Recognition is a superset — a keyword a
+-- losing tag file names still parses as a state — and only classification
+-- picks a winner.
 data ConfigLayers = ConfigLayers
   { clSystem :: !TodoKeywords            -- ^ @config\/system.org@'s sets; empty when there is no such file.
   , clTags   :: ![(Text, TodoKeywords)]  -- ^ @config\/tags\/TAG.org@'s sets, tag lowercased, in file-name order.
   , clSeed   :: !TodoKeywords            -- ^ the recognition union: every keyword any layer names.
   , clPrint  :: !Text                    -- ^ digest over the config files read, @\"\"@ when none were.
+  , clDirs   :: ![FilePath]              -- ^ the config directories these were read from, in walk order.
   } deriving (Eq, Show)
 
 -- | No config at all — what a tree with no @.org-glance\/config@ loads as, and
 -- what every caller that does not want one passes.  Parsing under it is
 -- byte-identical to parsing from 'defaultContext'.
 noConfig :: ConfigLayers
-noConfig = ConfigLayers noKeywords [] noKeywords ""
+noConfig = ConfigLayers noKeywords [] noKeywords "" []
 
 -- | Where ROOT would keep its config directory.  For a writer — the settings UI
 -- creating @system.org@ — rather than for a reader: a reader is given the
@@ -189,23 +260,63 @@ loadConfigDirs dirs = combine . concat <$> mapM layersIn dirs
       , clTags   = firstPerTag [ (tag, kw) | (Just tag, _p, _d, kw) <- entries ]
       , clSeed   = mergeKeywords [ kw | (_tag, _p, _d, kw) <- entries ]
       , clPrint  = fingerprint [ (p, d) | (_tag, p, d, _kw) <- entries ]
+      , clDirs   = dirs
       }
-    firstPerTag = go Set.empty
-      where go _ [] = []
-            go seen (e@(tag, _kw) : rest)
-              | Set.member tag seen = go seen rest
-              | otherwise           = e : go (Set.insert tag seen) rest
+    firstPerTag = firstBy fst
 
 -- | What one config directory declares: the system layer and each tag layer,
 -- as @(tag, path, digest, keywords)@ with the system layer tagged 'Nothing'.
 layersIn :: FilePath -> IO [(Maybe Text, FilePath, Text, TodoKeywords)]
-layersIn dir = do
-  system <- readLayer systemFile
+layersIn dir = declaring <$> filesIn dir
+  where declaring files = [ (lfTag f, lfPath f, lfDigest f, todoPragmas (lfText f))
+                          | f <- files, not (T.null (lfDigest f)) ]
+
+-- Reading the layers as files
+
+-- | One config file as a settings client sees it: where it is, which layer it
+-- is, what it holds and the digest a write to it is pinned to.
+--
+-- A file that is not there is a layer all the same — @system.org@ is the one a
+-- client creates — and comes back empty on both counts.  That is the only
+-- "does it exist" this carries: an empty file digests to something, so the
+-- empty digest means absent (or unreadable, which a create is then refused
+-- for) and nothing else has to be kept in step with it.  It is also the pin
+-- 'Data.Org.Edit.editFile' reads as "nothing is there", so the record a reader
+-- is handed is the lock a writer presents back.
+--
+-- The text is whole rather than the @#+TODO:@ lines alone, because both
+-- readers want a different cut of it and neither wants a stored one:
+-- 'todoLines' is what a settings client is shown and the write measures its
+-- spans in the rest.
+data ConfigLayerFile = ConfigLayerFile
+  { lfPath   :: !FilePath      -- ^ the file, present or not.
+  , lfTag    :: !(Maybe Text)  -- ^ the tag it configures; 'Nothing' is the system layer.
+  , lfDigest :: !Text          -- ^ digest of its bytes, @\"\"@ when there are none to read.
+  , lfText   :: !Text          -- ^ its text, @\"\"@ when there is no file.
+  } deriving (Eq, Show)
+
+-- | Every layer file DIRS hold, read now: each directory's @system.org@ and
+-- every tag config beside it, in the order the directories were given and then
+-- by file name.
+--
+-- Read at the moment it is asked for rather than taken off a loaded
+-- 'ConfigLayers': the digest a client is handed is the lock its write is
+-- checked against, so it has to be of the very bytes it was shown.  The system
+-- file is listed whether or not it is there; a tag layer is only ever a file
+-- that is, since a tag nobody has configured has no name to offer.
+readConfigLayers :: [FilePath] -> IO [ConfigLayerFile]
+readConfigLayers dirs = concat <$> mapM filesIn dirs
+
+filesIn :: FilePath -> IO [ConfigLayerFile]
+filesIn dir = do
+  system <- layerAt Nothing systemFile
   names  <- listOrg tagsDir
-  tagged <- mapM (\n -> (,) n <$> readLayer (tagsDir </> n)) names
-  pure $ [ (Nothing, systemFile, d, kw) | Just (d, kw) <- [system] ]
-      <> [ (Just (tagOf n), tagsDir </> n, d, kw) | (n, Just (d, kw)) <- tagged ]
-  where (systemFile, tagsDir) = configPaths dir
+  tags   <- mapM (\n -> layerAt (Just (tagOf n)) (tagsDir </> n)) names
+  pure (system : tags)
+  where
+    (systemFile, tagsDir) = configPaths dir
+    layerAt tag path = held <$> readLayer path
+      where held = maybe (ConfigLayerFile path tag "" "") (uncurry (ConfigLayerFile path tag))
 
 -- | The @.org@ file names directly in DIR, sorted; none when it is not there.
 -- Filtered by the walk's own document rule, so Emacs's sidecars are not layers
@@ -215,16 +326,14 @@ listOrg dir = do
   listed <- try (listDirectory dir) :: IO (Either IOException [FilePath])
   pure (either (const []) (sort . filter isDocument) listed)
 
--- | PATH's keywords and the digest of the bytes they were read from, or
--- 'Nothing' when there is nothing readable there.
-readLayer :: FilePath -> IO (Maybe (Text, TodoKeywords))
+-- | PATH's text and the digest of the bytes it was decoded from, or 'Nothing'
+-- when there is nothing readable there.
+readLayer :: FilePath -> IO (Maybe (Text, Text))
 readLayer path = do
   raw <- try (BS.readFile path) :: IO (Either IOException BS.ByteString)
   pure $ case raw of
-    Left _err -> Nothing
-    Right bytes -> case TE.decodeUtf8' bytes of
-      Left _err  -> Nothing
-      Right text -> Just (digestOf bytes, todoPragmas text)
+    Left _err   -> Nothing
+    Right bytes -> either (const Nothing) (Just . (,) (digestOf bytes)) (TE.decodeUtf8' bytes)
 
 -- | The tag NAME configures: its base name, folded, since a tag is matched
 -- folded everywhere else.
@@ -252,11 +361,12 @@ fingerprint entries =
 -- next file's headlines — and a constant reaches nothing: two files parsed from
 -- this seed cannot influence each other, the parallel read stays sound, and a
 -- watch re-parsing one file lands where the full load left it.
+--
+-- 'noConfig' needs no case of its own: 'setTodo' unions into the context it is
+-- given, so empty sets give back 'defaultContext' itself.
 seedContext :: ConfigLayers -> Context
-seedContext cfg
-  | null (tkActive seed) && null (tkInactive seed) = defaultContext
-  | otherwise = setTodo (Set.fromList (tkActive seed)) (Set.fromList (tkInactive seed))
-                        defaultContext
+seedContext cfg = setTodo (Set.fromList (tkActive seed)) (Set.fromList (tkInactive seed))
+                          defaultContext
   where seed = clSeed cfg
 
 -- | Is KEYWORD an active state on a headline carrying TAGS, in a file whose own

@@ -36,12 +36,13 @@ module Data.Org.Edit ( Edit (..)
                      ) where
 
 import Control.Exception (IOException, bracketOnError, try)
-import Control.Monad (unless, void)
+import Control.Monad (unless, void, when)
 import Control.Monad.Except (ExceptT (ExceptT), runExceptT, throwError)
 import Crypto.Hash (Digest, SHA256, hash)
 import Data.List (sortOn)
 import Data.Text (Text)
-import System.Directory (copyPermissions, removeFile, renameFile)
+import System.Directory ( copyPermissions, createDirectoryIfMissing, doesFileExist
+                        , removeFile, renameFile )
 import System.FilePath (takeDirectory, takeFileName)
 import System.IO (hClose, hFlush, openBinaryTempFile)
 import System.Posix.IO (closeFd, handleToFd)
@@ -165,14 +166,39 @@ digestOf bytes = T.pack (show (hash bytes :: Digest SHA256))
 -- bytes — the engine writes what it is told to.
 editFile :: Snapshot -> [Edit] -> IO (Either EditIOError EditReceipt)
 editFile snap edits = runExceptT $ do
-  bytes <- ExceptT (readBytes path)
-  let found = digestOf bytes
-  unless (found == snapDigest snap) $ throwError (Drift path (snapDigest snap) found)
-  doc <- either (const (throwError (DecodeFailed path))) pure (TE.decodeUtf8' bytes)
+  doc <- ExceptT (currentText snap)
   edited <- either (throwError . Rejected) pure (applyEdits doc edits)
   let written = TE.encodeUtf8 edited
   ExceptT (writeAtomically path written)
   pure (EditReceipt (Snapshot path (digestOf written)) edited)
+  where path = snapPath snap
+
+-- | The document SNAP's edits are measured against, or why there is none.
+--
+-- Ordinarily the file's own text, refused unless it still digests to the pin.
+-- The EMPTY digest is the pin that says NOTHING IS THERE: the document is then
+-- the empty one, and the write below creates the file and the directories over
+-- it.  A file that turned up before this ran is 'Drift' carrying the digest it
+-- holds, which is the same refusal a moved one gets and means the same thing to
+-- a caller — what you were editing is not what is there.
+--
+-- So creation is not a second write path with a lock of its own; it is this one
+-- under the pin an absent file has.  A missing file under a real digest stays
+-- 'ReadFailed', since a caller holding one believed there was something to read.
+--
+-- The check is at the START of the write, not at the rename, and @rename(2)@
+-- has no exclusive form — so a file created inside that window is replaced
+-- rather than refused.  That is the ordinary lock's window too (the drift check
+-- reads before the rename likewise) and closing it would mean a different
+-- syscall than the one that makes the write atomic.
+currentText :: Snapshot -> IO (Either EditIOError Text)
+currentText snap = do
+  there <- doesFileExist path
+  if not there && T.null (snapDigest snap) then pure (Right "") else runExceptT $ do
+    bytes <- ExceptT (readBytes path)
+    let found = digestOf bytes
+    unless (found == snapDigest snap) $ throwError (Drift path (snapDigest snap) found)
+    either (const (throwError (DecodeFailed path))) pure (TE.decodeUtf8' bytes)
   where path = snapPath snap
 
 -- | PATH's bytes, read strictly.
@@ -184,18 +210,25 @@ readBytes path = report <$> (try (BS.readFile path) :: IO (Either IOException BS
 -- PATH's own directory, flushed and synced, its permissions copied from PATH,
 -- renamed over it.  Same directory because rename is atomic within a
 -- filesystem and fails across one.  A failure anywhere removes the temp file.
+--
+-- The two steps that turn on PATH already existing are conditional, so this
+-- serves the creating write too: the directory is made where there is none, and
+-- there are no permissions to copy from a file that is not there — the new one
+-- takes the umask, which is what any other creator would give it.
 writeAtomically :: FilePath -> BS.ByteString -> IO (Either EditIOError ())
 writeAtomically path bytes = report <$> attempt
   where
     attempt = try (bracketOnError open discard write) :: IO (Either IOException ())
-    open = openBinaryTempFile (takeDirectory path) (takeFileName path <> ".glance-tmp")
+    open = do createDirectoryIfMissing True (takeDirectory path)
+              openBinaryTempFile (takeDirectory path) (takeFileName path <> ".glance-tmp")
     write (tmp, h) = do
       BS.hPut h bytes
       hFlush h
       fd <- handleToFd h  -- flushes and closes the handle, keeping the fd.
       fileSynchronise fd
       closeFd fd
-      copyPermissions path tmp
+      there <- doesFileExist path
+      when there (copyPermissions path tmp)
       renameFile tmp path
     discard (tmp, h) = do
       ignoring (hClose h)  -- a no-op once 'handleToFd' has run.

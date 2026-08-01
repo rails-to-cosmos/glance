@@ -6,7 +6,7 @@
 module TestServe (spec) where
 
 import Control.Monad (filterM, (<=<))
-import Data.Aeson ( Value (Bool, Number, Object, String)
+import Data.Aeson ( FromJSON, Value (Bool, Number, Object, String)
                   , eitherDecode, encode, object, parseJSON, (.=) )
 import Data.Aeson.Types (parseEither)
 import Data.ByteString (ByteString)
@@ -19,7 +19,7 @@ import Network.Wai (Application, defaultRequest, requestHeaders, requestMethod)
 import Network.Wai.Test ( SRequest (SRequest)
                         , SResponse (simpleBody, simpleHeaders, simpleStatus)
                         , request, runSession, setPath, srequest )
-import System.Directory (findExecutable)
+import System.Directory (createDirectoryIfMissing, findExecutable)
 import System.Exit (ExitCode (ExitSuccess))
 import System.FilePath ((</>))
 import System.Process (readProcessWithExitCode)
@@ -212,11 +212,15 @@ decoded r = either (\e -> assertFailure ("response JSON: " <> e)) pure
 rowsOf :: SResponse -> IO [Value]
 rowsOf r = listAt "rows" =<< decoded r
 
--- | KEY of V as pairs of strings — the shape @\/headline@ carries a drawer in.
-pairsAt :: T.Text -> Value -> IO [[T.Text]]
-pairsAt key v = do
+-- | KEY of V, decoded into whatever the case wants back.
+decodedAt :: FromJSON a => T.Text -> Value -> IO a
+decodedAt key v = do
   raw <- field key v
   either (\e -> assertFailure (T.unpack key <> ": " <> e)) pure (parseEither parseJSON raw)
+
+-- | KEY of V as pairs of strings — the shape @\/headline@ carries a drawer in.
+pairsAt :: T.Text -> Value -> IO [[T.Text]]
+pairsAt = decodedAt
 
 -- | V's own field names.  An absent field is an answer here rather than a
 -- failure — @sort@ is the one the document order leaves out.
@@ -280,11 +284,11 @@ spec :: TestTree
 spec = withResource (body <$> get assetsDir "/") (const (pure ())) $ \shell ->
   testGroup "Serve"
     [ headlineSpec, statsSpec, cacheSpec, gzipSpec, querySpec, orderSpec, archiveViewSpec
-    , bootstrapSpec, materializeSpec, commitSpec, commandSpec, indexingSpec
+    , bootstrapSpec, materializeSpec, commitSpec, commandSpec, configSpec, indexingSpec
     , pageSpec shell, keymapSpec shell
     , glueSpec shell, bootSpec shell, liveSpec shell, paletteSpec shell, markSpec shell
-    , commandKeySpec shell, sheetSpec shell, touchSpec shell, shellFontSpec shell
-    , assetSpec, errorSpec ]
+    , commandKeySpec shell, sheetSpec shell, settingsSpec shell, touchSpec shell
+    , shellFontSpec shell, assetSpec, errorSpec ]
 
 -- | One boot of the shell's glue, run: the address bar it opens on, what the
 -- server answers as @X-Glance-Total@, the @\/headlines@ URLs that have to
@@ -560,6 +564,18 @@ commandKeySpec shell = testGroup "Shell commands"
           =<< textAt "echo" answer
         assertEqual "and the overlay is down" "" =<< textAt "prompt" answer
 
+    -- The reserved-chord rule, and the half no other case can see: `C-t' is in
+    -- RESERVED, so a press that opened nothing would be left to the browser.
+    -- Completing a bound sequence outranks that, and what says so is the
+    -- dispatch claiming BOTH chords.  This is the page's whole guarantee about
+    -- the sequence: a browser that owns `Ctrl+T' above the document (Chromium
+    -- does) never delivers the second press, and nothing here can reach that.
+  , testCase "the completing chord is claimed, reserved or not" $
+      bootOf shell "" 500 "C-c C-t" "" $ \answer -> do
+        assertEqual "the palette is up" "on" =<< textAt "prompt" answer
+        assertEqual "neither chord was left to the browser"
+                    ["C-c", "C-t"] =<< textsAt "prevented" answer
+
   , testCase "typing narrows it, and RET takes what is left" $
       bootOf shell "" 500 "C-c C-t" "type:done press:Enter" $ \answer -> do
         assertEqual "the narrowed choice" [Just "DONE"] =<< keywordsOf answer
@@ -684,6 +700,91 @@ sheetSpec shell = testGroup "Shell sheet"
                     =<< pairsAt "props" answer
         assertEqual "still dirty against the file, and still synced-looking"
                     "synced" =<< textAt "state" answer
+  ]
+
+-- | The settings sheet, driven through the keys a reader presses.  What is
+-- asserted is this page's half: that the chord raises it over the layers
+-- @\/config@ served, that a box holds one file's @#+TODO:@ lines verbatim, that
+-- closing it is the save, and that a pristine one costs no request.  The splice
+-- itself is @configSpec@'s subject and the grammar is @TestConfig@'s; nothing
+-- here re-states either.
+settingsSpec :: IO T.Text -> TestTree
+settingsSpec shell = testGroup "Shell settings"
+  [ testCase "C-c C-, opens it over the layers the server serves" $
+      bootOf shell "" 500 "C-c C-," "" $ \answer -> do
+        assertEqual "the sheet is up" "on" =<< textAt "settings" answer
+        assertEqual "one box per layer, the lines verbatim"
+                    ["", "#+TODO: TODO READING | READ"] =<< textsAt "cshown" answer
+        assertEqual "the union is previewed" "TODO | DONE" =<< textAt "ceff" answer
+        assertEqual "and it opens synced" "synced" =<< textAt "cstate" answer
+        assertEqual "with nothing written" ([] :: [Value]) =<< listAt "configWrites" answer
+
+    -- The sheet's own rule, and the reason it has no buttons: the way out is
+    -- the save.  Only the layer that moved is written.
+  , testCase "ESC syncs the layers that moved and closes" $
+      bootOf shell "" 500 "C-c C-," "ctext:0=#+TODO:_TODO_STARTED_|_DONE press:Escape" $
+        \answer -> do
+          writes <- listAt "configWrites" answer
+          assertEqual "one write, for the layer that moved" 1 (length writes)
+          assertEqual "the system layer" "/o/.org-glance/config/system.org"
+            =<< textAt "path" (head writes)
+          assertEqual "its lines, as typed" ["#+TODO:_TODO_STARTED_|_DONE"]
+            =<< textsAt "lines" (head writes)
+          -- The empty digest is the pin an absent file carries, handed straight
+          -- back: creating the first layer is a write like any other.
+          assertEqual "pinned to the digest it was read with" ""
+            =<< textAt "digest" (head writes)
+          assertEqual "and the sheet is down" "" =<< textAt "settings" answer
+
+  , testCase "a pristine sheet closes without asking the server for anything" $
+      bootOf shell "" 500 "C-c C-," "press:Escape" $ \answer -> do
+        assertEqual "no write" ([] :: [Value]) =<< listAt "configWrites" answer
+        assertEqual "the sheet is down" "" =<< textAt "settings" answer
+
+    -- Two sheets over one page would leave `C-x C-s' and `ESC' guessing which
+    -- one they meant.  `typing()' is not what keeps them apart, which is the
+    -- point of the case: a click on the open sheet's own header blurs its
+    -- textarea, and every `table' row is live again the moment it does.  So the
+    -- refusal is stated in `openSettings' rather than left to the focus.
+  , testCase "it will not open over the materialize sheet" $
+      bootOf shell "" 500 "Enter" "blur press:C-c press:C-," $ \answer -> do
+        assertEqual "the settings sheet stayed down" "" =<< textAt "settings" answer
+        assertEqual "and the subtree is still the one open" "on"
+          =<< textAt "modal" answer
+
+  , testCase "C-x C-s syncs mid-edit and leaves the sheet open" $
+      bootOf shell "" 500 "C-c C-," "ctext:1=#+TODO:_A_|_B press:C-x press:C-s" $
+        \answer -> do
+          assertEqual "one write" 1 . length =<< listAt "configWrites" answer
+          assertEqual "the sheet is still up" "on" =<< textAt "settings" answer
+          assertEqual "and it is synced again" "synced" =<< textAt "cstate" answer
+
+    -- A file that moved under the sheet is a 409 and the sheet stays open at
+    -- `conflict', where C-x C-s overwrites and ESC discards — the materialize
+    -- sheet's flow, over config files.
+  , testCase "a layer that moved underneath lands at conflict, and ESC discards" $
+      bootOf shell "" 500 "C-c C-," "ctext:1=#+TODO:_A_|_B cmoved press:C-x press:C-s" $
+        \answer -> do
+          assertEqual "the write was refused" 1 . length =<< listAt "configWrites" answer
+          assertEqual "the sheet waits" "conflict" =<< textAt "cstate" answer
+          assertEqual "and is still up" "on" =<< textAt "settings" answer
+  , testCase "and the second ESC there closes it without writing" $
+      bootOf shell "" 500 "C-c C-,"
+             "ctext:1=#+TODO:_A_|_B cmoved press:C-x press:C-s press:Escape" $ \answer -> do
+        assertEqual "no second write" 1 . length =<< listAt "configWrites" answer
+        assertEqual "the sheet is down" "" =<< textAt "settings" answer
+
+    -- The one that matters most here: writing a layer is what moves the
+    -- columns, so the close that follows a successful save is `view-changed'.
+    -- The sheet is a sibling of `#app' and outlives the remount by where it
+    -- sits — asserted rather than assumed, since it is a layout fact.
+  , testCase "a view-changed remount leaves the sheet standing" $
+      bootOf shell "" 500 "C-c C-," "ctext:1=#+TODO:_A_|_B close:view-changed" $
+        \answer -> do
+          assertEqual "the mount was rebuilt" 2 =<< intAt "mounts" answer
+          assertEqual "the sheet is still up" "on" =<< textAt "settings" answer
+          assertEqual "with the edit still in it"
+                      ["", "#+TODO:_A_|_B"] =<< textsAt "cshown" answer
   ]
 
 -- | The commands the page posted, as the name and the ids each one named.
@@ -1166,8 +1267,20 @@ shellGlue =
   -- everywhere else.  All of them in the one block, which is where every rule
   -- a touch device gets lives — the panes stacking there included.
   , glue "a coarse pointer gets fields iOS will not zoom into"
-      [ "#mtext,#pinput,.prow input{font-size:16px}}", "font:12px/1.5 var(--dk-mono)"
+      [ "#mtext,#pinput,.prow input,.ctext{font-size:16px}}", "font:12px/1.5 var(--dk-mono)"
       , "#mpanes{flex-direction:column}" ]
+
+  -- The keyboard-first exception, and the second one the page makes: `C-c C-,'
+  -- is the way into settings wherever there are keys, so the gear exists only
+  -- where there are none.  It needs no `coarse()' of its own — the rule that
+  -- shows it is inside the one block, and an element that is not displayed
+  -- cannot be tapped.
+  , glue "a coarse pointer gets a gear where the settings chord cannot be typed"
+      [ "<button id=\"gear\" title=\"settings\">"
+      , "#gear{display:none}"
+      , "    #gear{display:inline-block;"
+      , "min-width:44px;min-height:44px"
+      , "el(\"gear\").addEventListener(\"click\", openSettings);" ]
 
   , glue "asks for one font stack, everywhere in the page"
       [ "--glance-mono:\"JetBrains Mono\", \"Fira Code\", \"SF Mono\", Menlo, Consolas, monospace"
@@ -1225,6 +1338,17 @@ indexingSpec = testGroup "Indexing (bind before load)"
       application' <- indexingApp
       r <- getFrom application' "/ws"
       assertEqual "status" 503 (status r)
+
+    -- The layer list comes off the store's own `clDirs' — the config
+    -- directories the WALK met — so serving it early would answer with the
+    -- fallback guess and hand a client digests for files it had not looked at.
+  , testCase "/config waits for the walk, since the layers are what it found" $ do
+      application' <- indexingApp
+      r <- getFrom application' "/config"
+      assertEqual "GET" 503 (status r)
+      w <- postTo application' "/config" (configBody "/x.org" [] "")
+      assertEqual "POST" 503 (status w)
+      assertEqual "retry" (Just "1") (header "Retry-After" w)
 
   , testCase "the elapsed seconds are the load's age, rounded to a tenth" $ do
       -- The case above pins the shape against an age of microseconds, where
@@ -2177,6 +2301,188 @@ commandSpec = testGroup "POST /command"
         assertContains "hint" "/command takes POST" (body r)
   ]
 
+-- | The keyword layers, read and written.  @GET@ lists every config file the
+-- served tree has — plus the @system.org@ it could have — and @POST@ puts one
+-- layer's @#+TODO:@ block back, through the same engine, the same lock and the
+-- same atomic rename every other write uses.
+configSpec :: TestTree
+configSpec = testGroup "GET and POST /config"
+  [ testCase "lists each layer with its lines and the digest a write pins" $
+      withConfigTree $ \a dir -> do
+        r <- getFrom a "/config"
+        assertEqual "status" 200 (status r)
+        v <- decoded r
+        layers <- listAt "layers" v
+        assertEqual "system first, then the tag configs by name"
+                    [systemAt dir, tagAt dir "book", tagAt dir "film"]
+          =<< traverse (textAt "path") layers
+        assertEqual "which layer each is" [Nothing, Just "book", Just "film"]
+          =<< traverse (maybeTextAt "tag") layers
+        assertEqual "the lines, verbatim"
+                    [[], ["#+TODO:  TODO READING | READ ABANDONED"], []]
+          =<< traverse (textsAt "lines") layers
+        -- The union is the store's own palette, so the preview and the badges
+        -- a reader is looking at cannot disagree.
+        keywords <- field "keywords" v
+        assertEqual "active" ["READING", "TODO"] =<< textsAt "active" keywords
+        assertEqual "inactive" ["ABANDONED", "READ", "DONE"] =<< textsAt "inactive" keywords
+
+    -- A tree that has never had a system layer still has the place for one, and
+    -- the empty digest is what says so: it is the pin an absent file carries,
+    -- so the record a reader is handed is the lock a writer presents back.
+  , testCase "a tree with no system.org lists it anyway, as creatable" $
+      withConfigTree $ \a dir -> do
+        layers <- listAt "layers" =<< decoded =<< getFrom a "/config"
+        digests <- traverse (textAt "digest") layers
+        assertEqual "the system layer is not a file yet" "" (head digests)
+        assertBool "and the tag config is one" (not (T.null (digests !! 1)))
+        assertEqual "which one it would be" (systemAt dir) =<< textAt "path" (head layers)
+
+  , testCase "replaces the block and leaves every other byte alone" $
+      withConfigTree $ \a dir -> do
+        before <- document (T.unpack (tagAt dir "book"))
+        digest <- digestOnDisk (T.unpack (tagAt dir "book"))
+        r <- postTo a "/config"
+               (configBody (tagAt dir "book") ["#+TODO: TODO READING NEXT | READ"] digest)
+        assertEqual "status" 200 (status r)
+        after <- document (T.unpack (tagAt dir "book"))
+        assertEqual "the pragma line, and nothing else"
+                    (T.replace "#+TODO:  TODO READING | READ ABANDONED"
+                               "#+TODO: TODO READING NEXT | READ" before)
+                    after
+        -- The receipt is the file's new digest, so a second write needs no
+        -- second read.
+        receipt <- textAt "digest" =<< decoded r
+        onDisk <- digestOnDisk (T.unpack (tagAt dir "book"))
+        assertEqual "the receipt is the file's new digest" onDisk receipt
+
+  , testCase "inserts under the header when the file carries no block" $
+      withConfigTree $ \a dir -> do
+        let path = T.unpack (tagAt dir "film")
+        digest <- digestOnDisk path
+        r <- postTo a "/config" (configBody (tagAt dir "film") ["#+TODO: A | B"] digest)
+        assertEqual "status" 200 (status r)
+        -- After the `#+TITLE:' run the file opens with, which is where org
+        -- would have put it, and ahead of everything that is not a header.
+        assertEqual "placed under the header"
+                    "#+TITLE: Film\n#+TODO: A | B\n\n* %?\n" =<< document path
+
+  , testCase "creates the file, and the directories over it" $
+      withConfigTree $ \a dir -> do
+        r <- postTo a "/config"
+               (configBody (systemAt dir) ["#+TODO: TODO STARTED | DONE"] "")
+        assertEqual "status" 200 (status r)
+        assertEqual "the whole file is the block"
+                    "#+TODO: TODO STARTED | DONE\n" =<< document (T.unpack (systemAt dir))
+
+  , testCase "an empty block takes the layer's line off" $
+      withConfigTree $ \a dir -> do
+        let path = T.unpack (tagAt dir "book")
+        digest <- digestOnDisk path
+        r <- postTo a "/config" (configBody (tagAt dir "book") [] digest)
+        assertEqual "status" 200 (status r)
+        assertEqual "the line is gone and the template is not"
+                    "#+TITLE: Book\n\n* Book\n" =<< document path
+
+  , testCase "a digest the file no longer carries is a 409 with nothing written" $
+      withConfigTree $ \a dir -> do
+        let path = T.unpack (tagAt dir "book")
+        before <- document path
+        r <- postTo a "/config" (configBody (tagAt dir "book") ["#+TODO: A | B"] "deadbeef")
+        assertEqual "status" 409 (status r)
+        assertEqual "reason" "drift" =<< textAt "reason" =<< decoded r
+        assertEqual "the file is as it was" before =<< document path
+
+    -- The empty digest means "nothing is there", so a file that turned up
+    -- meanwhile refuses the way a moved one does rather than being overwritten.
+  , testCase "creating over a file that exists is the same refusal" $
+      withConfigTree $ \a dir -> do
+        r <- postTo a "/config" (configBody (tagAt dir "book") ["#+TODO: A | B"] "")
+        assertEqual "status" 409 (status r)
+        assertEqual "reason" "drift" =<< textAt "reason" =<< decoded r
+
+  , testCase "refuses lines that are not a #+TODO: block" $
+      withConfigTree $ \a dir -> do
+        let path = T.unpack (tagAt dir "book")
+        before <- document path
+        digest <- digestOnDisk path
+        mapM_ (\(what, lines') -> do
+                 r <- postTo a "/config" (configBody (tagAt dir "book") lines' digest)
+                 assertEqual what 400 (status r))
+              [ ("a headline is not a pragma", ["* TODO not a pragma"])
+              , ("nor is a title", ["#+TITLE: no"])
+              , ("a pragma declaring nothing", ["#+TODO:"])
+              -- The group meta-values are not keywords, and the parser is
+              -- what refuses them: no keyword token holds an asterisk.
+              , ("the filter's group names", ["#+TODO: *active* | *inactive*"])
+              , ("and one bad line spoils the block", ["#+TODO: A | B", "oops"]) ]
+        assertEqual "and nothing was written" before =<< document path
+
+  , testCase "refuses a path that is not one of this tree's layers" $
+      withConfigTree $ \a _dir -> do
+        r <- postTo a "/config" (configBody "/etc/passwd" ["#+TODO: A | B"] "")
+        assertEqual "status" 400 (status r)
+        assertContains "says which paths there are" ".org-glance/config/system.org"
+          =<< textAt "error" =<< decoded r
+
+  , testCase "and a body that is not a layer write" $
+      withConfigTree $ \a _dir -> do
+        r <- postTo a "/config" (encode (object ["nope" .= True]))
+        assertEqual "status" 400 (status r)
+
+  , testCase "takes GET and POST and nothing else" $
+      withConfigTree $ \a _dir -> do
+        r <- runSession (request (setPath defaultRequest "/config")
+                                   { requestMethod = methodDelete }) a
+        assertEqual "status" 405 (status r)
+        assertEqual "content type"
+                    (Just "application/json; charset=utf-8") (header "Content-Type" r)
+
+    -- The route is a writer like the other two, so it leaves the store alone:
+    -- the rows and the palette arrive when the watch has seen the config move.
+  , testCase "leaves the store alone — the watch is what reseeds" $
+      withConfigTree $ \a dir -> do
+        before <- badgeValues =<< decoded =<< getFrom a "/headlines"
+        digest <- digestOnDisk (T.unpack (tagAt dir "book"))
+        _ <- postTo a "/config"
+               (configBody (tagAt dir "book") ["#+TODO: TODO READING NEXT | READ"] digest)
+        -- The files say the new thing at once, since @/config@ reads them; the
+        -- palette is the store's and cannot move until the watch has run.
+        layers <- listAt "layers" =<< decoded =<< getFrom a "/config"
+        assertEqual "the file"
+                    [[], ["#+TODO: TODO READING NEXT | READ"], []]
+          =<< traverse (textsAt "lines") layers
+        assertEqual "the badges the table is showing" before
+          =<< badgeValues =<< decoded =<< getFrom a "/headlines"
+        assertBool "and NEXT is not among them" ("NEXT" `notElem` before)
+  ]
+
+-- | A tree laid out the way org-glance lays one out: a tag config with a cycle
+-- and a capture template, one with a header and no cycle, no system layer at
+-- all, and one ordinary document.
+withConfigTree :: (Application -> FilePath -> Assertion) -> Assertion
+withConfigTree k = withTempDir $ \dir -> do
+  let tags = dir </> ".org-glance" </> "config" </> "tags"
+  createDirectoryIfMissing True tags
+  TIO.writeFile (tags </> "book.org")
+    "#+TITLE: Book\n#+TODO:  TODO READING | READ ABANDONED\n\n* Book\n"
+  TIO.writeFile (tags </> "film.org") "#+TITLE: Film\n\n* %?\n"
+  _ <- orgFile dir "notes.org" "* READING War and Peace\n"
+  (a, _hub) <- serverOver dir
+  k a dir
+
+systemAt :: FilePath -> T.Text
+systemAt dir = T.pack (dir </> ".org-glance" </> "config" </> "system.org")
+
+tagAt :: FilePath -> FilePath -> T.Text
+tagAt dir tag = T.pack (dir </> ".org-glance" </> "config" </> "tags" </> tag <> ".org")
+
+-- | A layer write: which file, the lines to put in it, and the digest it was
+-- read with.
+configBody :: T.Text -> [T.Text] -> T.Text -> BL.ByteString
+configBody path lines' digest =
+  encode (object ["path" .= path, "lines" .= lines', "digest" .= digest])
+
 -- | Archived rows are out of the view unless the query asks for them.  @D@
 -- archives rather than deletes, so this is what keeps the default table from
 -- growing without bound — and what must never hide the key that reaches them.
@@ -2396,6 +2702,7 @@ pageSpec shell = testGroup "GET /"
         , (["filter-rows"], "filter")
         , (["org-glance-overview:refresh"], "refresh")
         , (["filter-drop-token"], "drop token")
+        , (["customize"], "settings")
         , (["quit-window"], "quit")
         ] hints
       -- And every command it names is one the map binds, in the table scope,
@@ -2478,6 +2785,12 @@ expectedShared =
        Just "set the state of the marked rows, or the row at point")
   , (["C-c", "C-s"], "C-c C-s", "org-glance-overview:schedule",    Nothing,               "table", Nothing)
   , (["C-c", "C-d"], "C-c C-d", "org-glance-overview:deadline",    Nothing,               "table", Nothing)
+  -- Emacs's own name, since org-glance has no settings command and inventing
+  -- one would put a name in this table that no map anywhere carries.  The
+  -- chord is free in both profiles, which the uniqueness case below is what
+  -- actually checks.
+  , (["C-c", "C-,"], "C-c C-,", "customize",                       Just "openSettings",   "table",
+       Just "the keyword cycles, a config layer at a time")
   , (["C-x", "C-s"], "C-x C-s", "save-buffer",                     Just "save",           "modal",
        Just "sync the sheet now; again to overwrite a conflict")
   , (["C-c", "'"],   "C-c '",   "org-edit-special",                Just "toggleRaw",      "modal",

@@ -473,10 +473,15 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   twice or opens a longer one. Sequences and command names are org-glance's; a
   row with no handler is recognized and says what will back it.
   `RESERVED` = `C-l`, `C-r`, `C-t`, `C-w`, `C-n`, `C-p`, `<f5>`: a reserved key
-  reaches the browser UNLESS it completes a bound sequence, which is what keeps
-  `C-c C-t` working while `C-x C-l` still opens a new window. What the list
+  reaches the browser UNLESS it completes a bound sequence. What the list
   actually buys is the abandoned prefix — without it a dead-end chord would be
-  swallowed as undefined. Prefix opening is guarded by `selecting()`, one
+  swallowed as undefined. That rule is the PAGE's half and is all a page has:
+  Chromium handles `Ctrl+T`, `Ctrl+N` and `Ctrl+W` above the document, so
+  `preventDefault` on the completing chord does not reach them and `C-c C-t` is
+  dead in the browser however correctly it is dispatched (`TestServe`, "the
+  completing chord is claimed, reserved or not", pins the half that IS ours).
+  `C-x C-s` works because `Ctrl+S` is a page default action rather than a
+  browser one. Prefix opening is guarded by `selecting()`, one
   predicate over the focused field's range and the document selection, and it
   covers every prefix rather than `C-c`/`C-x` alone, so vim's `g` obeys it too.
   Auto-repeat is movement's — a held `n` crosses the table — so the keys that
@@ -566,6 +571,35 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   Config lives at `<root>/.org-glance/config/{system.org,tags/*.org}`,
   is never a row source, and a config change reseeds and reloads the
   world (debounced, view-changed follows).
+- `clSeed` is stored, not derived: `clTags` keeps the FIRST config of each tag
+  across directories while the seed unions every entry read, shadowed ones
+  included.
+- `GET`/`POST /config` serve and replace ONE layer's `#+TODO:` block through the
+  ordinary write path — `configEdits` for the spans, `replaceSpans` for the
+  drift-locked atomic write — so a `#+TITLE:`, a comment and the capture
+  template come back byte for byte. The route never writes the store; the watch
+  reseeds. `GET` reads the files (the digest handed out is the lock), and its
+  layer list IS the POST allowlist and the read the edits are measured in.
+  Which directories comes off `clDirs`, falling back to `configDirIn` of the
+  served root. An EMPTY digest is the pin for a file that is not there:
+  `Data.Org.Edit` treats it as the empty document, makes the directories and
+  creates; a file that turned up meanwhile drifts. Refusals: a non-`#+TODO:`
+  line, a block declaring no keyword (which is also what refuses `*active*` —
+  a keyword token is letters and `_`, so the group names cannot parse into one),
+  an unknown path, a bad body — all 400; 409 on drift; 413 past 1 MiB. An empty
+  `lines` deletes the layer's cycle.
+- KNOWN GAP: creating the FIRST `.org-glance/config` in a tree that had none
+  races fsnotify's watch-arming, so that one write does not reseed until a
+  restart or a later config edit. The watch's property, not the route's.
+- Settings sheet = `C-c C-,` (`customize`), the materialize sheet's pattern over
+  `/config`: buttonless, ESC/backdrop syncs the layers that moved and closes,
+  pristine closes with no request, `C-x C-s` syncs mid-edit, `conflict` waits
+  for a keystroke. One box per layer holding its `#+TODO:` lines VERBATIM — the
+  page has no org parser and must not grow one. `#config`/`#cbox` share the
+  existing z band with `#modal`/`#sheet` and `#prompt`/`#pbox`, so the four
+  values still stand. A coarse pointer gets a gear in the corner, hidden by the
+  one `pointer:coarse` block. The sheet is a sibling of `#app`, so the
+  `view-changed` its own write causes leaves it standing.
 
 ## Build
 

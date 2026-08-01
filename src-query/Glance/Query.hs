@@ -32,7 +32,8 @@
 -- copy it, and leave the cells where they are.  'hrDoc' names the same text
 -- 'hrHeadline' already shares, so materialize costs a pointer per row and no
 -- array: the file was retained before the field existed.
-module Glance.Query ( ConfigLayers (..)
+module Glance.Query ( ConfigLayerFile (..)
+                    , ConfigLayers (..)
                     , HeadlineParts (..)
                     , HeadlineRecord (..)
                     , IdCollision (..)
@@ -47,6 +48,8 @@ module Glance.Query ( ConfigLayers (..)
                     , archiveTag
                     , archived
                     , cellSep
+                    , configDirIn
+                    , configEdits
                     , configPath
                     , defaultWalk
                     , derivedPath
@@ -66,6 +69,7 @@ module Glance.Query ( ConfigLayers (..)
                     , mergeKeywords
                     , noConfig
                     , orderedForView
+                    , readConfigLayers
                     , recomposedSubtree
                     , replaceSpans
                     , resolveIds
@@ -74,6 +78,7 @@ module Glance.Query ( ConfigLayers (..)
                     , sortedForView
                     , subtreeText
                     , tagsOfCell
+                    , todoLines
                     , viewJSON
                     , viewJSONTextWith
                     , viewJSONWith
@@ -108,9 +113,10 @@ import Data.Org ( Context, Element (EHeadline), Headline
                 , hsFull, identity, indent, metaCategory, orgParse, priority
                 , schedule, sliceSpan, spans, tags, title, todo, todoActive
                 , todoInactive )
-import Data.Org.Config ( ConfigLayers (..), TodoKeywords (..), classify
-                       , declaredKeywords, loadConfigDirs, mergeKeywords, noConfig
-                       , seedContext )
+import Data.Org.Config ( ConfigLayerFile (..), ConfigLayers (..), TodoKeywords (..)
+                       , classify, configDirIn, declaredKeywords, isTodoPragma
+                       , loadConfigDirs, mergeKeywords, noConfig, readConfigLayers
+                       , seedContext, todoLineEdits, todoLines, todoPragmas )
 import Data.Org.Walk ( Found (..), WalkOptions (..), beatsForId, defaultWalk
                      , findOrgFilesWith, isConfig, isDerived, isDocument
                      , mapFilesConcurrently )
@@ -913,6 +919,50 @@ archiveEdits r
     hs = headlineSpans r
     titleLineEnd = foldl' max (spanEnd (hsStars hs))
                      [ spanEnd sp | Just sp <- [hsTodo hs, hsPriority hs, hsTitle hs] ]
+
+-- | The span edits writing LINES as the @#+TODO:@ block of a config file
+-- holding DOC, or why LINES are not a block.
+--
+-- What a keyword layer may say is one small grammar, and it is checked ahead of
+-- the write rather than discovered after it: blank lines are dropped, every
+-- line left has to be a @#+TODO:@ pragma, and the block has to declare at least
+-- one keyword — a pragma the parser reads as declaring nothing would leave a
+-- layer looking configured and doing nothing.  An EMPTY block is always
+-- allowed, and it is the deletion: posting nothing is how a layer is taken off,
+-- and how a file that never had a line stays that way.
+--
+-- The state column's group meta-values need no rule of their own here, and a
+-- guard against them would be unreachable: a keyword token is letters and
+-- underscores ('Data.Org.Parser.keywordTextP'), so @#+TODO: *active* | DONE@
+-- does not parse as a cycle at all and is refused as declaring nothing.  It is
+-- the same wall 'setStateEdits' puts up from the other side, reached earlier —
+-- the parser will not let the word into a keyword set, so nothing can write it
+-- into one either.  The message says so, since that is the refusal a reader
+-- typing the group name gets.
+--
+-- The spans are the file's own lines ('Data.Org.Config.todoLineEdits'), so
+-- everything a config file is besides its cycle — the @#+TITLE:@, the comments,
+-- the capture template — is bytes this never names.
+configEdits :: Text -> [Text] -> Either Text [(Span, Text)]
+configEdits doc asked
+  | not (null strange) = Left ("not a #+TODO: line: " <> T.intercalate " · " strange)
+  | null lines'        = Right (todoLineEdits doc [])
+  | null declared      = Left declaresNothing
+  | otherwise          = Right (todoLineEdits doc lines')
+  where
+    lines'   = filter (not . T.null . T.strip) asked
+    -- A LINE, and the pragma test is a prefix one: an entry carrying a newline
+    -- of its own would pass it and write everything past that newline into the
+    -- file unread.  One line per line is what makes this a #+TODO:-only splice.
+    strange  = filter (\l -> not (isTodoPragma l) || T.isInfixOf "\n" l) lines'
+    keywords = todoPragmas (T.unlines lines')
+    declared = tkActive keywords <> tkInactive keywords
+
+declaresNothing :: Text
+declaresNothing =
+  "#+TODO: declares no keyword org would read: a keyword is letters and underscores, "
+    <> "active states before the bar and done-like ones after it. "
+    <> "*active* and *inactive* are the filter's group names, not keywords."
 
 -- | R's headline spans, which is where every command's offsets come from.
 headlineSpans :: HeadlineRecord -> HeadlineSpans
