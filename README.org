@@ -144,15 +144,33 @@ reconnecting.
 so hitting =RET= on the selected row (or double-clicking it) opens that
 headline over the table as *two panes*: a textarea holding the subtree's text —
 stars, planning line, body and every child, exactly as the file spells them —
-and a *properties panel* beside it holding the headline's own drawer, a row of
-two fields per property. Tab walks them in the order the file writes them. The
-last row is always empty: type in it and the next empty one appears under it,
-which is the whole of the "add" affordance, since there is nothing to press.
-Empty a key and that property is deleted on the next sync. =ORG_GLANCE_ID= is
-shown like any other row, with a line under it saying what it is — the row id
-*is* that value, so renaming it renames the row.
+and a *properties panel* beside it holding the headline's own drawer, a row per
+property in the order the file writes them. =ORG_GLANCE_ID= is shown like any
+other row, with a line under it saying what it is — the row id *is* that value,
+so renaming it renames the row.
 
-The sheet has no buttons. =ESC=, or a click outside the box, closes it —
+*The panel is modal*, dired's shape rather than a form's. In *nav* the rows are
+read-only text with a cursor on one of them and nothing focusable at all, which
+is what leaves the plain letters free: =n= / =p= and =j= / =k= both move the
+cursor, under either profile, and so do the arrows. =RET= opens the row at
+point, and only then are there fields to type into: the value takes the focus,
+except on the trailing empty row, where the key does. Inside an open row =TAB=
+hops between its two fields, =RET= commits it and goes back to nav, and =ESC=
+puts back the text the row was opened on. The last row is always empty: commit
+something into it and the next empty one appears under it, cursor and all, which
+is the whole of the "add" affordance, since there is nothing to press. Empty a
+key and that property is deleted on the next sync.
+
+=TAB= crosses between the panes — out of the text into the panel's cursor, out
+of nav back into the text — and the cursor is where you left it. There are two
+stops, so =S-TAB= is that same toggle rather than a second walk. The crossing is
+suspended while a row is open, since inside one row =TAB= has the two fields to
+mean. The raw shape =C-c '= swaps to has one pane and nothing to cross to, so
+=TAB= is the browser's again there.
+
+The sheet has no buttons. =ESC= is a ladder: over an open property row it is
+that row's and puts it back, so the sheet only ever sees the key from nav.
+=ESC= from there, or a click outside the box, closes it —
 flushing first when *either* pane has moved, and closing on the server's 200; a
 sheet you only read closes with no request at all and touches no file. The write
 goes back over the same character span, leaving every other byte alone, and the
@@ -430,9 +448,10 @@ the key line hold their places whatever arrives.
 A staged key is recognized in full and then says what it is waiting for: the map
 is complete ahead of the commands that will back it, which reads better than a
 key that silently does nothing. The keys are inert while a text field has focus
-— typing in the palette or the sheet types — except =C-x C-s=, =C-c '= and
-=ESC=, which is what makes the sheet's Emacs muscle memory work, in the
-properties panel's fields as much as in its textarea. =C-c= and =C-x= become
+— typing in the palette or the sheet types — and while the property panel is
+holding them, which it does with nothing focused at all; the exceptions are
+=C-x C-s=, =C-c '= and =ESC=, which is what makes the sheet's Emacs muscle
+memory work, over the properties panel as much as in its textarea. =C-c= and =C-x= become
 prefixes only with the selection collapsed, so a copy or a cut is still one, and
 =C-l=, =C-r=, =C-t=, =C-w=, =C-n=, =C-p= and =<f5>= always reach the browser —
 which is why neither profile moves on =C-n= or =C-p=, however much Emacs would

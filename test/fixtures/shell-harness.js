@@ -18,13 +18,15 @@
 //
 //   close:REASON  the socket closes, the way the server closes one
 //   sheet:TEXT    TEXT typed into the open sheet's textarea
-//   pkey:I=TEXT   TEXT typed into property row I's key field
-//   pval:I=TEXT   TEXT typed into property row I's value field
+//   pkey:I=TEXT   TEXT typed into property row I's key field, the row having
+//                 been opened for editing first — a closed one has no fields
+//   pval:I=TEXT   TEXT typed into property row I's value field, likewise
 //   filter:TEXT   TEXT typed into the raised palette
 //   moved         the store moves: a new ETag, and a row more to fetch
 //   recolumn      the store moves and its columns move with it
 //   rewritten     the file behind the open sheet moves: a new digest
-//   press:KEY     KEY pressed, so a key can follow an act rather than precede it
+//   press:KEY     KEY pressed, so a key can follow an act rather than precede
+//                 it; `C-x' and `S-Tab' spell the modifiers
 //   type:TEXT     TEXT typed into the raised value palette, which narrows it
 //   refuse        the next /command answers that every row was refused
 //   bare          the mounted handle loses its mark calls, the way an older
@@ -287,15 +289,18 @@ eval(fs.readFileSync(dir + "/shell.js", "utf8"));
 
 // A `C-' prefix is the chord the page's own `keyName' spells that way, so a
 // sequence like `C-c C-t' is two of these and needs no other notation here.
+// `S-' is the shift held with it — `S-Tab' is the crossing back out of the
+// sheet's property panel, which the page tells from `Tab' by the modifier
+// alone.
 //
 // Whether the dispatch CLAIMED a key is recorded, because that is the half of
 // the reserved-chord rule behaviour can otherwise not show: a chord the page
 // leaves to the browser and one it takes both look like nothing happening.
 const press = (name) => {
-  const ctrl = name.startsWith("C-");
+  const ctrl = name.startsWith("C-"), shift = name.startsWith("S-");
   const event = {
-    key: ctrl ? name.slice(2) : name,
-    ctrlKey: ctrl, altKey: false, metaKey: false, shiftKey: false,
+    key: ctrl || shift ? name.slice(2) : name,
+    ctrlKey: ctrl, altKey: false, metaKey: false, shiftKey: shift,
     repeat: false, target: node, preventDefault: () => prevented.push(name),
   };
   for (const handler of pressed) handler(event);
@@ -315,12 +320,38 @@ const typeInto = (id, which, arg) => {
   const row = field(id).children[Number(arg.slice(0, at))];
   if (!row) throw new Error(`no ${id} row ${arg}`);
   const box = row.children[which];
+  // A property row is read-only text until it is opened, so typing into a
+  // closed one is a script that means nothing: say so rather than write into a
+  // cell nobody can see.
+  if (box.tagName !== "INPUT" && box.tagName !== "TEXTAREA")
+    throw new Error(`${id} row ${arg} is not open for editing`);
   box.value = arg.slice(at + 1);
   box.fire("input", { target: box });
 };
-/** The property panel as it stands: a [key, value] pair per row it is showing. */
+/**
+ * The property panel as it stands: a [key, value] pair per row it is showing.
+ * A closed row shows text and an open one holds fields, and the pair reads the
+ * same either way — which is what makes one assertion cover both modes.
+ */
+const shown = (e) => (e.tagName === "INPUT" ? e.value : e.textContent);
 const panel = () =>
-  field("mprops").children.map((row) => [row.children[0].value, row.children[1].value]);
+  field("mprops").children.map((row) => [shown(row.children[0]), shown(row.children[1])]);
+/** Which row wears the panel's cursor, and -1 when none does. */
+const patAt = () => field("mprops").children
+  .findIndex((row) => row.className.split(" ").indexOf("pat") !== -1);
+/**
+ * Which field of the sheet has the focus, named the way an act names one:
+ * `mtext' for the body pane, and the panel's own class over the row index for a
+ * panel field (`pkey:1', `pval:1').  A focus call moves nothing else, so this
+ * is the whole of what the sheet's navigation can be observed to have done.
+ */
+const focused = () => {
+  if (!active) return "";
+  if (active === field("mtext")) return "mtext";
+  const at = field("mprops").children
+    .findIndex((row) => row.children.indexOf(active) !== -1);
+  return at === -1 ? "" : `${active.className}:${at}`;
+};
 const ACTIONS = {
   close: (reason) => { if (socket && socket.onclose) socket.onclose({ reason }); },
   sheet: (text) => { field("mtext").value = text; },
@@ -385,9 +416,12 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     sheet: field("mtext").value, state: field("mnote").className,
     modal: field("modal").className,
     palette: field("filter").value,
-    // The sheet's other pane: every row the panel is showing, the lines it puts
-    // under one, which shape it is in, and every POST the syncs sent.
-    props: panel(),
+    // The sheet's other pane: every row the panel is showing, where its cursor
+    // is, whether it is the thing holding the keys, which field the focus is on
+    // if any, the lines it puts under a row, which shape the sheet is in, and
+    // every POST the syncs sent.
+    props: panel(), pat: patAt(), pnav: field("mprops").className === "on",
+    focus: focused(),
     notes: field("mprops").children.map((row) => row.children[2].textContent)
       .filter(Boolean),
     shape: field("sheet").className, writes,

@@ -530,15 +530,35 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   clears it.
 - The sheet is two panes over one subtree and the cut is the SERVER's: textarea
   = `body`, panel = `properties`, a flush posts both back. The page holds no org
-  parser and must not grow one. A panel row is key then value in file order,
-  which is the tab order (no `tabindex` anywhere); the trailing empty row is the
-  add affordance and grows the next on input; an emptied key deletes;
-  `ORG_GLANCE_ID` is shown with a line saying the row id is that value. `C-c '`
-  (org's `org-edit-special`) swaps two-pane and raw org by RE-MATERIALIZING —
-  a dirty sheet is refused with `sync first — C-x C-s`, since a local conversion
-  would need the parser this keeps out, and the re-read lands at `synced`. Stash
-  and restore carry both panes and the shape. The panes wrap rather than querying
-  a width; the `pointer:coarse` block pins the column.
+  parser and must not grow one. A panel row is key then value in file order (no
+  `tabindex` anywhere); the trailing empty row is the add affordance and grows
+  the next on commit; an emptied key deletes; `ORG_GLANCE_ID` is shown with a
+  line saying the row id is that value. `C-c '` (org's `org-edit-special`) swaps
+  two-pane and raw org by RE-MATERIALIZING — a dirty sheet is refused with `sync
+  first — C-x C-s`, since a local conversion would need the parser this keeps
+  out, and the re-read lands at `synced`. Stash and restore carry both panes and
+  the shape. The sheet is four fifths of the window each way (`min(80vw,100%)` ×
+  `min(80vh,100%)`); the panes wrap rather than querying a width, and the
+  `pointer:coarse` block pins the column.
+- The property panel is MODAL, and its keys are a SECOND document listener
+  behind the dispatch, like the value palette's. NAV: rows are read-only text
+  (spans, nothing focusable), one wears the cursor (`pcur`, class `pat`, drawn
+  only under `#mprops.on`), and movement is `n`/`p`, `j`/`k` and the arrows —
+  both profiles' letters bound unconditionally, since a row with no field in it
+  leaves every printable key free. Entering the panel BLURS the textarea and
+  sets `pnav`, which `typing()` counts as a focus of its own; without that the
+  table's own letters would move rows under the sheet. EDIT: `RET` opens the row
+  at point (`pedit`), value focused first, key first where there is no key yet
+  (the add-row); `TAB` hops the row's two fields and the pane crossing is
+  suspended; `RET` commits — the row takes its fields' text, and a last row that
+  now says something grows the next and hands the cursor on; `ESC` cancels
+  through the keymap's `cancel`, restoring what the row holds. A row HOLDS its
+  committed text and `props()` reads that, so an open edit is not dirty and only
+  a commit is. `TAB`/`S-TAB` is one two-stop toggle between the panes and the
+  cursor survives it; `shut` clears `pnav`/`pedit`. `preventDefault` fires only
+  where one of those bindings does, and only over an open subtree sheet: raw
+  mode has one pane so `TAB` is the browser's, and the settings sheet keeps
+  native tabbing. The planning rows land in this same two-mode list.
 - The whole page wears danneskjold, through one `--g-*` palette (surface, text,
   muted, border, selection, warn, bad) declared once and re-declared per theme.
   The sheet keeps exactly one variable of its own, `--dk-mono` (Hack first);

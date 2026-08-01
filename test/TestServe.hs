@@ -608,10 +608,14 @@ commandKeySpec shell = testGroup "Shell commands"
   ]
 
 -- | The sheet's two panes, driven through the keys a reader presses.  What is
--- asserted here is the half the page owns: what the panel shows, how it grows,
--- what an emptied key means, what a sync sends, and which of the two shapes the
--- sheet is in.  The cut between the panes is the server's and is @TestQuery@'s
--- subject; nothing here re-states it.
+-- asserted here is the half the page owns: what the panel shows, how it is
+-- moved over and opened, how it grows, what an emptied key means, what a sync
+-- sends, and which of the two shapes the sheet is in.  The cut between the
+-- panes is the server's and is @TestQuery@'s subject; nothing here re-states it.
+--
+-- The panel is modal, so most of these open with @TAB@ into it: @pnav@ is the
+-- panel holding the keys, @pat@ is the row its cursor is on, and @focus@ names
+-- a field only while a row is open — in nav there is nothing focused at all.
 --
 -- @Enter@ materializes the first row, which is where every case starts.
 sheetSpec :: IO T.Text -> TestTree
@@ -620,14 +624,17 @@ sheetSpec shell = testGroup "Shell sheet"
       bootOf shell "" 500 "Enter" "" $ \answer -> do
         assertEqual "the textarea holds the body, drawer and all gone"
                     "* TODO one\n" =<< textAt "sheet" answer
-        -- File order, key field then value field — which is the tab order,
-        -- since nothing sets a tab index and the fields are in the DOM in the
-        -- order the drawer writes them.  The trailing empty row is the add
-        -- affordance and is always there.
+        -- File order, key then value — the order the drawer writes them.  The
+        -- trailing empty row is the add affordance and is always there.
         assertEqual "the panel holds the drawer, in file order, plus the empty row"
                     [["ORG_GLANCE_ID", "r1"], ["EFFORT", "0:30"], ["", ""]]
                     =<< pairsAt "props" answer
         assertEqual "and the sheet is in its two-pane shape" "" =<< textAt "shape" answer
+        -- The panel is read-only text until it is crossed into: the keys are
+        -- the body's, and the cursor is waiting on the first row.
+        assertEqual "the keys are in the body pane" False =<< boolAt "pnav" answer
+        assertEqual "with the focus in it" "mtext" =<< textAt "focus" answer
+        assertEqual "and the panel's cursor at the top" 0 =<< intAt "pat" answer
 
     -- The row id IS this value, so the panel says what editing it costs rather
     -- than hiding the row — a hidden one would make the panel disagree with the
@@ -637,25 +644,117 @@ sheetSpec shell = testGroup "Shell sheet"
         assertEqual "one note, on the one row that earns it"
                     ["identity — renaming this renames the row"] <=< textsAt "notes"
 
-  , testCase "typing in the last row puts another empty one under it" $
-      bootOf shell "" 500 "Enter" "pkey:2=ADDED pval:2=yes" $
-        assertEqual "the added row, and a fresh empty one after it"
-                    [["ORG_GLANCE_ID", "r1"], ["EFFORT", "0:30"], ["ADDED", "yes"], ["", ""]]
-                    <=< pairsAt "props"
+    -- TAB crosses the panes and nothing else, so the panel keeps its cursor:
+    -- two stops, and the same key comes back to the row it left.
+  , testCase "TAB crosses to the panel and back, and the cursor is remembered" $ do
+      bootOf shell "" 500 "Enter" "press:Tab" $ \answer -> do
+        assertEqual "the panel has the keys" True =<< boolAt "pnav" answer
+        assertEqual "with nothing focused, which is what frees the letters"
+                    "" =<< textAt "focus" answer
+        assertEqual "and the cursor on its first row" 0 =<< intAt "pat" answer
+      bootOf shell "" 500 "Enter" "press:Tab press:n press:Tab" $ \answer -> do
+        assertEqual "back in the body" "mtext" =<< textAt "focus" answer
+        assertEqual "the panel let go of the keys" False =<< boolAt "pnav" answer
+        assertEqual "and kept where it had got to" 1 =<< intAt "pat" answer
+      bootOf shell "" 500 "Enter" "press:Tab press:n press:Tab press:Tab" $
+        assertEqual "which is where the next crossing lands" 1 <=< intAt "pat"
 
+    -- Two stops make the direction say nothing, so S-TAB is that one toggle
+    -- rather than a second walk with an end of its own to fall off.
+  , testCase "S-TAB is the same crossing, both ways" $ do
+      bootOf shell "" 500 "Enter" "press:S-Tab" $
+        assertEqual "into the panel" True <=< boolAt "pnav"
+      bootOf shell "" 500 "Enter" "press:Tab press:S-Tab" $
+        assertEqual "and out of it" "mtext" <=< textAt "focus"
+
+    -- Nothing is focused in nav, so every printable key is free: both profiles'
+    -- movement is bound at once, and the arrows ask for no profile at all.
+  , testCase "nav moves on n/p, j/k and the arrows, and stops at the ends" $ do
+      bootOf shell "" 500 "Enter" "press:Tab press:n press:n" $ \answer -> do
+        assertEqual "two rows down" 2 =<< intAt "pat" answer
+        -- The panel holding the keys with nothing focused is a focus of its own
+        -- as far as the map is concerned, or these letters would move the table
+        -- under the sheet as well.
+        assertEqual "and the table's own row did not move" 0 =<< intAt "cursor" answer
+      bootOf shell "" 500 "Enter" "press:Tab press:j press:j press:k" $
+        assertEqual "vi's pair walks the same rows" 1 <=< intAt "pat"
+      bootOf shell "" 500 "Enter" "press:Tab press:ArrowDown press:ArrowDown press:ArrowUp" $
+        assertEqual "and so do the arrows" 1 <=< intAt "pat"
+      bootOf shell "" 500 "Enter" "press:Tab press:p" $
+        assertEqual "the first row is the end of the walk up" 0 <=< intAt "pat"
+      bootOf shell "" 500 "Enter" "press:Tab press:n press:n press:n" $
+        assertEqual "and the add row the end of the walk down" 2 <=< intAt "pat"
+
+    -- Editing a property that is there is almost always editing its value; the
+    -- add row has no key yet, and there the key is the thing being typed.
+  , testCase "RET opens the row at point, value first and add row key first" $ do
+      bootOf shell "" 500 "Enter" "press:Tab press:Enter" $
+        assertEqual "the value of the row at point" "pval:0" <=< textAt "focus"
+      bootOf shell "" 500 "Enter" "press:Tab press:n press:n press:Enter" $
+        assertEqual "the key of the empty one" "pkey:2" <=< textAt "focus"
+
+    -- One row, two fields: TAB has nothing else to mean inside an open row, so
+    -- the pane crossing is suspended for as long as one is open.
+  , testCase "TAB hops the open row's two fields rather than leaving" $ do
+      bootOf shell "" 500 "Enter" "press:Tab press:Enter press:Tab" $ \answer -> do
+        assertEqual "over to the key" "pkey:0" =<< textAt "focus" answer
+        assertEqual "and still in the panel" True =<< boolAt "pnav" answer
+      bootOf shell "" 500 "Enter" "press:Tab press:Enter press:Tab press:Tab" $
+        assertEqual "and back to the value" "pval:0" <=< textAt "focus"
+      bootOf shell "" 500 "Enter" "press:Tab press:Enter press:S-Tab" $
+        assertEqual "S-TAB is that same hop" "pkey:0" <=< textAt "focus"
+
+  , testCase "RET commits the open row and goes back to nav" $
+      bootOf shell "" 500 "Enter" "press:Tab press:n press:Enter pval:1=0:45 press:Enter" $
+        \answer -> do
+          assertEqual "the row took the text its field was holding"
+                      [["ORG_GLANCE_ID", "r1"], ["EFFORT", "0:45"], ["", ""]]
+                      =<< pairsAt "props" answer
+          assertEqual "the fields are gone" "" =<< textAt "focus" answer
+          assertEqual "the panel still has the keys" True =<< boolAt "pnav" answer
+          assertEqual "and the cursor stayed on the row" 1 =<< intAt "pat" answer
+
+  , testCase "committing the add row puts another empty one under it" $
+      bootOf shell "" 500 "Enter"
+             "press:Tab press:n press:n press:Enter pkey:2=ADDED press:Enter" $ \answer -> do
+        assertEqual "the added row, and a fresh empty one after it"
+                    [["ORG_GLANCE_ID", "r1"], ["EFFORT", "0:30"], ["ADDED", ""], ["", ""]]
+                    =<< pairsAt "props" answer
+        assertEqual "with the cursor moved on to it" 3 =<< intAt "pat" answer
+
+    -- ESC over an open row is the ROW's, and puts back the text it was opened
+    -- on; only from nav does the key reach the sheet's own ladder.
+  , testCase "ESC puts an open row back, and the next one closes the sheet" $ do
+      bootOf shell "" 500 "Enter"
+             "press:Tab press:n press:Enter pval:1=0:45 press:Escape" $ \answer -> do
+        assertEqual "the value it was opened on"
+                    [["ORG_GLANCE_ID", "r1"], ["EFFORT", "0:30"], ["", ""]]
+                    =<< pairsAt "props" answer
+        assertEqual "the sheet is still up" "on" =<< textAt "modal" answer
+        assertEqual "and back in nav" True =<< boolAt "pnav" answer
+        assertEqual "with nothing written" ([] :: [Value]) =<< listAt "writes" answer
+      bootOf shell "" 500 "Enter"
+             "press:Tab press:n press:Enter press:Escape press:Escape" $
+        assertEqual "the second one is the sheet's" "" <=< textAt "modal"
+
+    -- What a sync sends is the committed panel, which is what makes the commit
+    -- the thing that means yes.
   , testCase "a sync sends the two panes apart, and the empty row is not one" $
-      bootOf shell "" 500 "Enter" "pval:1=0:45 press:C-x press:C-s" $ \answer -> do
-        assertEqual "one write" ["* TODO one\n"] =<< traverse (textAt "body")
-                                                 =<< listAt "writes" answer
-        assertEqual "carrying the panel, edit and all"
-                    [[["ORG_GLANCE_ID", "r1"], ["EFFORT", "0:45"]]]
-                    =<< traverse (pairsAt "properties") =<< listAt "writes" answer
-        assertEqual "and it landed" "synced" =<< textAt "state" answer
+      bootOf shell "" 500 "Enter"
+             "press:Tab press:n press:Enter pval:1=0:45 press:Enter press:C-x press:C-s" $
+        \answer -> do
+          assertEqual "one write" ["* TODO one\n"] =<< traverse (textAt "body")
+                                                   =<< listAt "writes" answer
+          assertEqual "carrying the panel, edit and all"
+                      [[["ORG_GLANCE_ID", "r1"], ["EFFORT", "0:45"]]]
+                      =<< traverse (pairsAt "properties") =<< listAt "writes" answer
+          assertEqual "and it landed" "synced" =<< textAt "state" answer
 
     -- Emptying a key is how a property is deleted: there is no key to press for
     -- it, and none is owed — the row simply stops naming anything.
   , testCase "an emptied key is a property deleted" $
-      bootOf shell "" 500 "Enter" "pkey:1= press:C-x press:C-s" $
+      bootOf shell "" 500 "Enter"
+             "press:Tab press:n press:Enter pkey:1= press:Enter press:C-x press:C-s" $
         assertEqual "the drawer the write asks for"
                     [[["ORG_GLANCE_ID", "r1"]]]
                     <=< (traverse (pairsAt "properties") <=< listAt "writes")
@@ -686,20 +785,50 @@ sheetSpec shell = testGroup "Shell sheet"
         assertEqual "and the shape with it" "" =<< textAt "shape" answer
         assertEqual "named the key" "C-c ' → sync first — C-x C-s"
                     =<< textAt "echo" answer
-      bootOf shell "" 500 "Enter" "pval:1=0:45 press:C-c press:'" $ \answer -> do
-        assertEqual "a panel edit is dirty too" "" =<< textAt "shape" answer
-        assertEqual "same refusal" "C-c ' → sync first — C-x C-s" =<< textAt "echo" answer
+      bootOf shell "" 500 "Enter"
+             "press:Tab press:n press:Enter pval:1=0:45 press:Enter press:C-c press:'" $
+        \answer -> do
+          assertEqual "a committed panel edit is dirty too" "" =<< textAt "shape" answer
+          assertEqual "same refusal" "C-c ' → sync first — C-x C-s"
+                      =<< textAt "echo" answer
+
+    -- The other half of that rule: an edit nobody committed is not one, so the
+    -- toggle goes through exactly as it would over a sheet nobody touched.
+  , testCase "an open row is not an edit until it is committed" $
+      bootOf shell "" 500 "Enter"
+             "press:Tab press:n press:Enter pval:1=0:45 press:C-c press:'" $ \answer -> do
+        assertEqual "the toggle went through" "raw" =<< textAt "shape" answer
+        assertEqual "and said so" "C-c ' → raw org" =<< textAt "echo" answer
 
     -- A remount takes the sheet down and puts it back: both panes, and the work
     -- in either of them.
   , testCase "a remount carries the panel across it" $
-      bootOf shell "" 500 "Enter" "pval:1=0:45 close:view-changed" $ \answer -> do
-        assertEqual "mounted twice" 2 =<< intAt "mounts" answer
-        assertEqual "the panel is back, edit and all"
-                    [["ORG_GLANCE_ID", "r1"], ["EFFORT", "0:45"], ["", ""]]
-                    =<< pairsAt "props" answer
-        assertEqual "still dirty against the file, and still synced-looking"
-                    "synced" =<< textAt "state" answer
+      bootOf shell "" 500 "Enter"
+             "press:Tab press:n press:Enter pval:1=0:45 press:Enter close:view-changed" $
+        \answer -> do
+          assertEqual "mounted twice" 2 =<< intAt "mounts" answer
+          assertEqual "the panel is back, edit and all"
+                      [["ORG_GLANCE_ID", "r1"], ["EFFORT", "0:45"], ["", ""]]
+                      =<< pairsAt "props" answer
+          assertEqual "still dirty against the file, and still synced-looking"
+                      "synced" =<< textAt "state" answer
+
+    -- One pane, nothing to cross to: the key goes back to the browser, which is
+    -- the whole of what raw mode changes here.
+  , testCase "raw mode leaves TAB to the browser" $
+      bootOf shell "" 500 "Enter" "press:C-c press:' press:Tab" $ \answer -> do
+        assertEqual "the focus stayed in the text" "mtext" =<< textAt "focus" answer
+        assertEqual "and the panel never took the keys" False =<< boolAt "pnav" answer
+        assertBool "nor the key off the browser"
+          . notElem "Tab" =<< textsAt "prevented" answer
+
+    -- Where the cursor was left belongs to the sheet that was open: the next
+    -- materialize is a fresh drawer, read-only and at the top of itself.
+  , testCase "the panel opens at the top again when the sheet is reopened" $
+      bootOf shell "" 500 "Enter" "press:Tab press:n press:Escape press:Enter" $
+        \answer -> do
+          assertEqual "the cursor is back on the first row" 0 =<< intAt "pat" answer
+          assertEqual "and the keys back in the body" False =<< boolAt "pnav" answer
   ]
 
 -- | The settings sheet, driven through the keys a reader presses.  What is
@@ -1047,27 +1176,37 @@ shellGlue =
       , "base = raw ? h.org : h.body;"
       , "drawProps(raw ? [] : h.properties || []);"
       , "{ body: el(\"mtext\").value, properties: props() }"
-      -- The panel: a row of two fields, the trailing empty one that grows the
-      -- next, and the emptied key that deletes.
-      , "row.className = \"prow\";"
+      -- The panel: a row is text until it is opened and fields while it is, the
+      -- trailing empty one grows the next, and the emptied key deletes.
+      , "(prows[i].row.className = i === pcur ? \"prow pat\" : \"prow\");"
+      , "const e = document.createElement(open ? \"input\" : \"span\");"
       , "addRow(\"\", \"\");   // the one that grows the next"
-      , "if (last && (last.key.value || last.val.value)) addRow(\"\", \"\");"
+      , "if ((r.key || r.val) && at === prows.length - 1)"
       -- Trimmed both sides, since the server hands them over trimmed: what the
       -- panel can show is exactly what it can write.
-      , "[r.key.value.trim(), r.val.value.trim()]"
+      , "[r.key.trim(), r.val.trim()]"
       , ".filter((p) => p[0] !== \"\");"
       , "const IDENTITY = \"ORG_GLANCE_ID\";"
       -- The toggle re-reads rather than converting, and refuses a dirty sheet.
       , "if (dirty()) { echo(`${b.seq} → sync first — C-x C-s`); return; }"
       , "headline(h.id).then((fresh) => {"
+      -- The panel's own keys: TAB crosses the panes and hops an open row's two
+      -- fields, nav movement is both profiles' letters and the arrows, and RET
+      -- opens a row and commits it.
+      , "const k = keyName(e), crossing = k === \"TAB\" || k === \"S-TAB\";"
+      , "else if (k === \"<down>\" || k === \"n\" || k === \"j\") moveCur(1);"
+      , "} else if (crossing) leavePanel();"
+      , "pnav = true; el(\"mprops\").className = \"on\"; el(\"mtext\").blur();"
+      -- Nav holds the keys with nothing focused, so the map has to be told.
+      , "return pnav || (!!a && (a.tagName === \"INPUT\""
       -- The panel stacks under the text when there is no room beside it, which
       -- is a wrap rather than a second breakpoint to keep in step.
       , "#mpanes{flex:1;min-height:0;display:flex;flex-wrap:wrap;gap:10px}"
       , "#sheet.raw #mprops{display:none}"
       , ".pnote:empty{display:none}" ]
-      -- Tab order is the DOM's: the fields are in the order the drawer writes
-      -- them and nothing reorders the focus.  And no parser: the page never
-      -- goes looking for a drawer in the text it holds.
+      -- Field order is the DOM's: the fields are in the order the drawer writes
+      -- them and nothing reorders them.  And no parser: the page never goes
+      -- looking for a drawer in the text it holds.
       [ "tabindex", ":PROPERTIES:", ":END:" ]
 
   -- The author's Emacs theme in one set of custom properties: white on true

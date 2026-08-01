@@ -1383,8 +1383,8 @@ on.
   the server joins them. The page never looks for a drawer in the text it is
   holding — there is no org parser in this browser, and the whole point of the
   route serving both shapes is that there does not have to be. A panel row is
-  two fields, key then value, in the order the file writes them, which IS the tab
-  order: nothing sets a `tabindex`. The last row is always empty and typing in it
+  two fields, key then value, in the order the file writes them — nothing sets a
+  `tabindex`. The last row is always empty and committing something into it
   grows the next, so the add affordance is that row rather than a button; a row
   whose key is emptied is a property deleted, and the trailing row is not a
   property yet — one filter covers both. `ORG_GLANCE_ID` is shown like every
@@ -1405,6 +1405,46 @@ on.
   `TestServe` "Shell sheet" (the node harness: two panes, growth, deletion, the
   identity note, both toggle directions, the dirty refusal, the remount) and "the
   sheet is a body pane and a property panel". **test**
+- **The property panel is modal: nav moves over read-only rows, `RET` opens one
+  for editing, and `TAB` crosses the panes.** The keys are a second document
+  listener behind the dispatch, the way the value palette's are and safe for the
+  same reason: while the panel holds the keys `typing()` is true, so every
+  `table` row is dead and nothing here takes a key the map wanted. In NAV the
+  rows are read-only text — spans, not fields, with nothing focusable in them —
+  and one wears the cursor (`pcur`, class `pat`, painted only under
+  `#mprops.on`). That is what pays for the movement being plain letters: `n`/`p`
+  and `j`/`k` are both bound, unconditionally and under either profile, because
+  a row with no field in it leaves every printable key free and satisfying both
+  editors at once costs nothing; the arrows need no profile at all. Entering the
+  panel BLURS the textarea and raises `pnav`, and `typing()` counts `pnav` as a
+  focus of its own — without that, nothing is focused and the table's own
+  letters move rows under the open sheet. `RET` opens the row at point: its
+  cells become fields, the value taking the focus because editing a property
+  that is there is almost always editing its value, and the key taking it where
+  there is none yet, which is the add-row. Inside an open row `TAB` is the hop
+  between its two fields and the pane crossing is suspended, since one row and
+  two fields leave it nothing else to mean. `RET` commits — the row takes the
+  text its fields hold, and a last row that now says something grows the next
+  and hands the cursor on — and `ESC` cancels, putting back the text the row was
+  opened on. A row HOLDS its committed text and `props()` reads that rather than
+  the fields, so an edit nobody committed is not dirty and cannot be written;
+  the commit is the thing that means yes. `ESC` runs through the keymap's
+  `cancel`, which tries the open row before the sheet, so the sheet's own ladder
+  only ever sees the key from nav. `TAB`/`S-TAB` is one toggle rather than a
+  direction each — there are two stops, so a direction says nothing — between
+  the body and the panel's cursor, which is where it was left; `shut` clears
+  `pnav` and `pedit`, so the next sheet opens read-only at its top.
+  `preventDefault` fires exactly where one of those bindings does, and only over
+  an open subtree sheet — raw mode has one pane and nothing to cross to, so `TAB`
+  is the browser's there, and the settings sheet keeps native tabbing. The
+  planning rows are the same two modes over the same kind of row and belong in
+  this list rather than a second one. Evidence: `TestServe` "Shell sheet" (the
+  crossing and its remembered cursor, `S-TAB` parity, nav movement on all three
+  pairs with the table's own row staying put under it, `RET` opening value-first
+  and add-row key-first, `TAB` hopping the open row, the commit and the growth,
+  `ESC` restoring the row and the next one closing the sheet, an open row not
+  counting as an edit, raw mode leaving `TAB` alone, and the reset on close).
+  **test**
 - **The whole page wears danneskjold, through one `--g-*` palette.** Surface,
   text, muted text, border, selection, warn and bad are declared once and
   re-declared per theme, and every `var()` on the page reads one of them, the

@@ -1865,59 +1865,74 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    const dirty = () => editing !== null"
   , "      && (el(\"mtext\").value !== base"
   , "          || (!raw && JSON.stringify(props()) !== baseProps));"
-    -- The property panel.  A row is two fields — key and value — so the drawer
-    -- is edited as what it is rather than as text that happens to look like a
-    -- drawer, and Tab walks it because the fields are in the order the file
-    -- writes them and nothing here reorders the focus.
+    -- The property panel.  A row is a key and a value — so the drawer is edited
+    -- as what it is rather than as text that happens to look like a drawer — and
+    -- the rows sit in the order the file writes them.
+    --
+    -- It is MODAL, dired's shape rather than a form's.  In NAV the rows are
+    -- read-only text with a cursor on one of them and nothing focusable at all,
+    -- which is what leaves the plain letters free to be movement; RET opens the
+    -- row at point, and only then are there fields to type into.  A panel of
+    -- boxes would have taken n and j away and given a keystroke two meanings.
     --
     -- The rows are held in this array rather than read back out of the DOM: the
     -- panel is this page's own chrome, and a selector over it would be a second
-    -- description of a structure written three lines above.
-  , "    let prows = [];"
+    -- description of a structure written three lines above.  What a row HOLDS is
+    -- its committed text; the open row's two fields are the edit in progress and
+    -- nothing else reads them, which is what makes a commit the only thing that
+    -- can make the sheet dirty.
+    --
+    -- The planning rows are the same two modes over the same kind of row, so
+    -- they belong in this list rather than in a second one of their own.
+  , "    let prows = [], pcur = 0, pedit = -1, pnav = false;"
   , "    function drawProps(list) {"
   , "      el(\"mprops\").textContent = \"\";"
-  , "      prows = [];"
+  , "      el(\"mprops\").className = \"\";"
+  , "      prows = []; pcur = 0; pedit = -1; pnav = false;"
   , "      for (const p of list) addRow(p[0], p[1]);"
   , "      addRow(\"\", \"\");   // the one that grows the next"
   , "    }"
-    -- The add-row affordance, and the whole of it: the last row is always
-    -- empty, typing into it puts another empty one under it, and a row whose key
-    -- is emptied is a property deleted.  Keyboard-first means no button here —
-    -- there is nothing to press, only somewhere to type.
+    -- The add-row affordance, and the whole of it: the last row is always empty,
+    -- committing something into it puts another empty one under it, and a row
+    -- whose key is emptied is a property deleted.  Keyboard-first means no
+    -- button here — there is nothing to press, only somewhere to type.
   , "    function addRow(key, value) {"
   , "      const row = document.createElement(\"div\");"
-  , "      row.className = \"prow\";"
-  , "      const k = cell(\"pkey\", key, \"property\"), v = cell(\"pval\", value, \"value\");"
-  , "      const note = document.createElement(\"div\");"
-  , "      note.className = \"pnote\";"
-  , "      row.appendChild(k); row.appendChild(v); row.appendChild(note);"
   , "      el(\"mprops\").appendChild(row);"
-  , "      const held = { key: k, val: v, note };"
-  , "      prows.push(held);"
-  , "      k.addEventListener(\"input\", () => { identify(held); grow(); });"
-  , "      v.addEventListener(\"input\", grow);"
-  , "      identify(held);"
-  , "      return held;"
-  , "    }"
-  , "    function cell(kind, value, hint) {"
-  , "      const input = document.createElement(\"input\");"
-  , "      input.className = kind;"
-  , "      input.value = value;"
-  , "      input.placeholder = hint;"
-  , "      input.spellcheck = false;"
-  , "      return input;"
+  , "      prows.push({ key, val: value, row });"
+  , "      drawRow(prows.length - 1);"
   , "    }"
     -- The identity property is shown like any other and says what it is: the
     -- row id IS this value, so renaming it here renames the row the table keys
     -- updates off and the sheet is looking at a different headline afterwards.
     -- Hiding it would be worse — the drawer would stop being what the file says.
   , "    const IDENTITY = \"ORG_GLANCE_ID\";"
-  , "    const identify = (row) => (row.note.textContent ="
-  , "      row.key.value.trim() === IDENTITY"
-  , "        ? \"identity — renaming this renames the row\" : \"\");"
-  , "    function grow() {"
-  , "      const last = prows[prows.length - 1];"
-  , "      if (last && (last.key.value || last.val.value)) addRow(\"\", \"\");"
+  , "    const noteFor = (key) => (key.trim() === IDENTITY"
+  , "      ? \"identity — renaming this renames the row\" : \"\");"
+    -- One row, in whichever mode it is in.  The cells are spans until the row is
+    -- opened and fields while it is, which is the whole of the difference: an
+    -- empty span wears its hint through the stylesheet, so what the panel SAYS
+    -- an empty cell is stays out of what it holds.
+  , "    const cls = (i) =>"
+  , "      (prows[i].row.className = i === pcur ? \"prow pat\" : \"prow\");"
+  , "    function drawRow(i) {"
+  , "      const r = prows[i], open = i === pedit;"
+  , "      r.row.textContent = \"\";"
+  , "      cls(i);"
+  , "      const k = cell(open, \"pkey\", r.key, \"property\");"
+  , "      const v = cell(open, \"pval\", r.val, \"value\");"
+  , "      const note = document.createElement(\"div\");"
+  , "      note.className = \"pnote\";"
+  , "      note.textContent = noteFor(r.key);"
+  , "      r.row.appendChild(k); r.row.appendChild(v); r.row.appendChild(note);"
+  , "      return [k, v];"
+  , "    }"
+  , "    function cell(open, kind, value, hint) {"
+  , "      const e = document.createElement(open ? \"input\" : \"span\");"
+  , "      e.className = kind;"
+  , "      if (open) { e.value = value; e.placeholder = hint; e.spellcheck = false; }"
+  , "      else { e.textContent = value; e.dataset.hint = hint; }"
+  , "      return e;"
   , "    }"
     -- What the panel would write: every row carrying a key, in the order they
     -- sit in.  A row whose key has been emptied is a deletion and the trailing
@@ -1926,8 +1941,89 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
     -- them over trimmed: what the panel can show is then exactly what it can
     -- write, and a space nobody could ever see again cannot be typed into a file.
   , "    const props = () => prows"
-  , "      .map((r) => [r.key.value.trim(), r.val.value.trim()])"
+  , "      .map((r) => [r.key.trim(), r.val.trim()])"
   , "      .filter((p) => p[0] !== \"\");"
+    -- Crossing the panes, and the two modes.  Entering the panel BLURS the
+    -- textarea: nav holds the keys with nothing focused, so a field left focused
+    -- behind it would take every letter as text.  `pnav' is that state, and
+    -- `typing()' counts it as a focus of its own so the table's keys stay dead
+    -- under it; the mouse can undo it by clicking back into the text, which is
+    -- what the focus listener is for.
+  , "    function enterPanel() {"
+  , "      pnav = true; el(\"mprops\").className = \"on\"; el(\"mtext\").blur();"
+  , "    }"
+  , "    function leavePanel() {"
+  , "      pnav = false; el(\"mprops\").className = \"\"; el(\"mtext\").focus();"
+  , "    }"
+  , "    el(\"mtext\").addEventListener(\"focus\", () => pnav && leavePanel());"
+  , "    function moveCur(step) {"
+  , "      const at = pcur + step;"
+  , "      if (at < 0 || at >= prows.length) return;"
+  , "      const was = pcur; pcur = at; cls(was); cls(at);"
+  , "    }"
+    -- Opening a row: the value takes the focus, since editing an existing
+    -- property is almost always editing its value — except where there is no key
+    -- yet, which is the add-row, and there the key is the thing being typed.
+  , "    function openRow() {"
+  , "      pedit = pcur;"
+  , "      const [k, v] = drawRow(pcur);"
+  , "      (prows[pcur].key ? v : k).focus();"
+  , "    }"
+    -- Committing: the row takes the text its fields are holding and goes back to
+    -- being text, and a last row that now says something grows the next under it
+    -- and hands the cursor on.  This is the one thing that can make the sheet
+    -- dirty from the panel — an edit nobody committed was never in `props()'.
+  , "    function commitRow() {"
+  , "      const at = pedit, r = prows[at];"
+  , "      r.key = r.row.children[0].value; r.val = r.row.children[1].value;"
+  , "      pedit = -1;"
+  , "      drawRow(at);"
+  , "      if ((r.key || r.val) && at === prows.length - 1)"
+  , "        { addRow(\"\", \"\"); moveCur(1); }"
+  , "    }"
+    -- ESC over an open row is the ROW's: the fields go and the text the row is
+    -- holding comes back, which is the text it was opened on.  The sheet's own
+    -- ESC ladder therefore only ever sees the key from nav — that is why this
+    -- runs from the keymap's `cancel' rather than from a listener of its own.
+  , "    function cancelRow() {"
+  , "      const at = pedit; pedit = -1; drawRow(at);"
+  , "      echo(\"ESC → row unchanged\");"
+  , "    }"
+    -- The panel's own keys, behind the dispatch and for the reason the value
+    -- palette's are: while the panel holds them `typing()' is true, so every
+    -- `table' row is dead and nothing here takes a key the map wanted.
+    --
+    -- TAB crosses the panes — out of the body into the panel's cursor, out of
+    -- nav back into the body — and the cursor is where it was left.  Two stops,
+    -- so both directions are one toggle and S-TAB is the same line.  In nav the
+    -- keys are movement: n/p and j/k both, unconditionally, because a row with
+    -- no field in it leaves every printable key free and the two profiles cost
+    -- nothing to satisfy at once; the arrows are the pair that needs no profile
+    -- at all.  RET opens the row at point.
+    --
+    -- In edit TAB is the hop between the row's two fields — one row, two fields,
+    -- and nothing else for it to mean — so the crossing is suspended for as long
+    -- as a row is open.  RET commits.  Raw mode has one pane and nowhere to
+    -- cross to, so TAB is the browser's there.
+  , "    document.addEventListener(\"keydown\", (e) => {"
+  , "      if (!editing) return;"
+  , "      const k = keyName(e), crossing = k === \"TAB\" || k === \"S-TAB\";"
+  , "      if (pedit !== -1) {"
+  , "        const two = prows[pedit].row.children;"
+  , "        if (crossing)"
+  , "          (document.activeElement === two[0] ? two[1] : two[0]).focus();"
+  , "        else if (k === \"RET\") commitRow();"
+  , "        else return;   // ESC is the keymap's, and puts the row back"
+  , "      } else if (!pnav) {"
+  , "        if (raw || !crossing || document.activeElement !== el(\"mtext\")) return;"
+  , "        enterPanel();"
+  , "      } else if (crossing) leavePanel();"
+  , "      else if (k === \"RET\") openRow();"
+  , "      else if (k === \"<down>\" || k === \"n\" || k === \"j\") moveCur(1);"
+  , "      else if (k === \"<up>\" || k === \"p\" || k === \"k\") moveCur(-1);"
+  , "      else return;"
+  , "      e.preventDefault();"
+  , "    });"
     -- What a flush sends: the subtree whole in raw mode, the two panes apart
     -- otherwise.  The server joins them, so this page never spells a drawer.
   , "    const asked = () => raw"
@@ -1950,6 +2046,7 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    const stuck = (why) => sync(\"error\", why && `${why} — C-x C-s retry · ESC discard`);"
   , "    function shut() {"
   , "      el(\"modal\").className = \"\"; editing = null; base = \"\"; baseProps = null;"
+  , "      pedit = -1; pnav = false;   // the keys go back to the table"
   , "    }"
   , "    // POST the sheet over the subtree, pinned to DIGEST.  A 200 carries"
   , "    // the file's new digest — the receipt chains, so the next flush needs no"
@@ -2541,11 +2638,13 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
   , "    }"
   , "    // A focus that keeps its own keys: the filter box, the sheet, and the"
   , "    // keys select, which navigates on the arrows this map would otherwise"
-  , "    // take for row movement."
+  , "    // take for row movement — and the property panel in nav, which holds"
+  , "    // the keys with nothing focused and would otherwise leave the table's"
+  , "    // own letters live under its movement."
   , "    const typing = () => {"
   , "      const a = document.activeElement;"
-  , "      return !!a && (a.tagName === \"INPUT\" || a.tagName === \"TEXTAREA\""
-  , "                     || a.tagName === \"SELECT\" || a.isContentEditable);"
+  , "      return pnav || (!!a && (a.tagName === \"INPUT\" || a.tagName === \"TEXTAREA\""
+  , "                     || a.tagName === \"SELECT\" || a.isContentEditable));"
   , "    };"
     -- `modal' is "a sheet is up", and there are two of them: the subtree's and
     -- the settings'.  Never both — `openSettings' refuses over an open sheet,
@@ -2609,6 +2708,9 @@ demoShell opts font = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlin
     -- one that can be raised over an open sheet.
   , "      cancel: () => {"
   , "        if (prompting) unask();"
+    -- The panel's open row is a rung of its own, under the sheet's: while one
+    -- is open ESC puts it back, and only from nav does the key reach the sheet.
+  , "        else if (pedit !== -1) cancelRow();"
   , "        else if (editing) leave();"
   , "        else if (settings) leaveSettings();"
   , "        else if (typing()) document.activeElement.blur();"
@@ -2909,9 +3011,13 @@ page head' title body = T.unlines
   , "    align-items:center;justify-content:center}"
   , "  #modal.on,#prompt.on,#config.on{display:flex}"
   , "  #prompt{align-items:flex-start;padding-top:15vh}"
+  -- Four fifths of the window, in both directions: two panes of monospace want
+  -- the room, and the fifth left over is what says there is a table under this
+  -- rather than a page of its own.  The `min' keeps it inside the backdrop's
+  -- padding on a window too narrow for the share to fit.
   , "  #sheet{display:flex;flex-direction:column;gap:8px;padding:14px;border-radius:6px;"
   , "    position:relative;z-index:101;"
-  , "    width:min(900px,100%);height:min(80vh,100%);font-family:var(--dk-mono);"
+  , "    width:min(80vw,100%);height:min(80vh,100%);font-family:var(--dk-mono);"
   , "    background:var(--g-bg);color:var(--g-fg);border:1px solid var(--g-border)}"
   , "  #mhead{display:flex;justify-content:space-between;gap:12px;font-size:12px}"
   , "  #mfile{color:var(--g-mute)}"
@@ -2927,20 +3033,26 @@ page head' title body = T.unlines
   , "    border-radius:4px;"
   , "    border:1px solid var(--g-border);background:transparent;color:inherit;resize:none}"
   , "  #mtext::selection{background:var(--g-sel);color:var(--g-fg)}"
-  -- The property panel: a row of two fields per property, the last one empty so
-  -- there is always somewhere to type the next.  Tab walks them in file order
-  -- because that is the order they are in — nothing here sets a tab index.
+  -- The property panel: a row per property, the last one empty so there is
+  -- always somewhere to type the next.  They sit in file order because that is
+  -- the order they are in — nothing here sets a tab index, and the keys that
+  -- move over them and open one are the glue's.
   , "  #mprops{flex:1 1 240px;min-width:0;overflow-y:auto;"
   , "    display:flex;flex-direction:column;gap:4px}"
   , "  #sheet.raw #mprops{display:none}"
-  , "  .prow{display:flex;flex-wrap:wrap;gap:4px}"
-      -- Minimal chrome: the fields are bare text, the 4px row gap is the
+  , "  .prow{display:flex;flex-wrap:wrap;gap:4px;border-radius:4px}"
+      -- Minimal chrome: a cell is bare text whichever mode it is in — the same
+      -- box either way, so opening a row moves nothing — the 4px row gap is the
       -- separation, and the border exists only under the focused field so the
-      -- keyboard's place stays visible.
-  , "  .prow input{font:12px/1.5 var(--dk-mono);padding:4px 6px;"
+      -- keyboard's place stays visible.  The row at point wears the page's own
+      -- selection, and only while the panel is the thing holding the keys.
+  , "  .prow input,.prow span{font:12px/1.5 var(--dk-mono);padding:4px 6px;"
   , "    border:none;border-bottom:1px solid transparent;"
   , "    background:transparent;color:inherit;min-width:0}"
+  , "  .prow span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}"
+  , "  .prow span:empty::after{content:attr(data-hint);color:var(--g-mute)}"
   , "  .prow input:focus{outline:none;border-bottom-color:var(--g-border)}"
+  , "  #mprops.on .pat{background:var(--g-sel);color:var(--g-fg)}"
   , "  .pkey{flex:1 1 40%}"
   , "  .pval{flex:2 1 50%}"
   , "  .prow input::selection{background:var(--g-sel);color:var(--g-fg)}"
