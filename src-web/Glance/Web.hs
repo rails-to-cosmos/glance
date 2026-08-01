@@ -2934,8 +2934,13 @@ page head' title body = T.unlines
   , "    display:flex;flex-direction:column;gap:4px}"
   , "  #sheet.raw #mprops{display:none}"
   , "  .prow{display:flex;flex-wrap:wrap;gap:4px}"
-  , "  .prow input{font:12px/1.5 var(--dk-mono);padding:4px 6px;border-radius:4px;"
-  , "    border:1px solid var(--g-border);background:transparent;color:inherit;min-width:0}"
+      -- Minimal chrome: the fields are bare text, the 4px row gap is the
+      -- separation, and the border exists only under the focused field so the
+      -- keyboard's place stays visible.
+  , "  .prow input{font:12px/1.5 var(--dk-mono);padding:4px 6px;"
+  , "    border:none;border-bottom:1px solid transparent;"
+  , "    background:transparent;color:inherit;min-width:0}"
+  , "  .prow input:focus{outline:none;border-bottom-color:var(--g-border)}"
   , "  .pkey{flex:1 1 40%}"
   , "  .pval{flex:2 1 50%}"
   , "  .prow input::selection{background:var(--g-sel);color:var(--g-fg)}"
