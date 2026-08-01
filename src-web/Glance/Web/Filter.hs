@@ -57,8 +57,7 @@ import Data.Text (Text)
 
 import qualified Data.Text as T
 
-import Glance.Query ( HeadlineRecord (hrKeywords, hrSearch, hrState)
-                    , TodoKeywords (tkActive, tkInactive), archiveTag, cellSep
+import Glance.Query ( HeadlineRecord (hrActive, hrSearch), archiveTag, cellSep
                     , filterKeys, tagsOfCell )
 
 -- Grammar
@@ -264,17 +263,19 @@ keyTest key (Col i) value
   | otherwise           = T.isInfixOf value . cell
   where
     cell = cellOf i
-    -- The two meta-values SCHEMA.md lets a producer add: membership in the
-    -- record's own keyword sets, which are its file's `#+TODO:' line.  A
-    -- headline with no keyword is in neither.  Each answers to two spellings —
-    -- org-glance writes the groups `*active*' and `*inactive*', and the view
-    -- offers those ('Glance.Query.stateValues') — so the stars come off before
-    -- the comparison and `state:active' stays the alias it always was.
-    state r | meta == "active"   = grouped tkActive r
-            | meta == "inactive" = grouped tkInactive r
+    -- The two meta-values SCHEMA.md lets a producer add.  Group membership is
+    -- resolved at LOAD, per row, by the nearest scope that classifies the
+    -- keyword — the row's file, then its tags' configs, then the system layer,
+    -- then org's TODO/DONE ('Data.Org.Config.classify') — and arrives here as
+    -- 'hrActive'.  A row with no keyword is 'Nothing' and is in neither group,
+    -- which is why both tests are against a `Just'.  Each answers to two
+    -- spellings — org-glance writes the groups `*active*' and `*inactive*', and
+    -- the view offers those ('Glance.Query.stateValues') — so the stars come
+    -- off before the comparison and `state:active' stays the alias it was.
+    state r | meta == "active"   = hrActive r == Just True
+            | meta == "inactive" = hrActive r == Just False
             | otherwise          = cell r == value      -- badge: whole value
     meta = starless value
-    grouped set r = maybe False (`elem` set (hrKeywords r)) (hrState r)
 
 -- | VALUE with one matched pair of asterisks taken off it.  The alias reaches
 -- the two state meta-values alone, where it is asked for the group names

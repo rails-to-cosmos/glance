@@ -307,6 +307,28 @@ on.
   test-suite stanza, which is out of proportion to the problem. **none** (the
   gate still passes; what changed is that it is audible)
 
+## Keyword configuration (layered)
+
+- **Recognition is a superset; classification is nearest-scope.** The parse
+  seed for every file unions `defaultContext` with `#+TODO:` sets read from
+  `<root>/.org-glance/config/system.org` (when present) and
+  `config/tags/*.org` (tag name = filename), so a keyword declared anywhere
+  parses as a state everywhere — the STARTED-in-title misparse class ends
+  here. Active-vs-inactive resolves per headline by nearest scope: file
+  pragma > its tags' configs (first tag wins) > system > built-in
+  TODO/DONE; the palette and the `state:*active*` metas consult the
+  resolver, while parse-time `Todo.active` keeps its position-dependent
+  snapshot semantics. Evidence: `src/Data/Org/Config.hs`, `TestConfig`.
+  Breaks: dropping the union re-scatters foreign-keyword headlines into
+  titles; flipping the precedence misclassifies file-local overrides.
+  **test + corpus** (`scan` reports `config keywords`)
+- **Config files are inputs, never rows.** `config/` under `.org-glance`
+  is skipped by the walk (reported as `config skipped`); the config reader
+  reaches it directly by path. A config-file change triggers a full reseed
+  and reload (recognition changed means every file's parse may change),
+  debounced, with `view-changed` following via the keyword-union move.
+  **test**
+
 ## Walk
 
 - **Derived org-glance directories are not walked.** org-glance keeps its

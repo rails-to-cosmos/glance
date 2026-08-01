@@ -558,6 +558,15 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   it and stamps the attribute before the first paint. Without that line a dark
   page flashes light.
 
+## Keyword config
+
+- Recognition unions system + tag configs + file pragmas (superset — a
+  keyword declared anywhere parses everywhere); classification is
+  nearest-scope: file > tags (first wins) > system > built-in.
+  Config lives at `<root>/.org-glance/config/{system.org,tags/*.org}`,
+  is never a row source, and a config change reseeds and reloads the
+  world (debounced, view-changed follows).
+
 ## Build
 
 - `glance.cabal` is hand-maintained; package.yaml/hpack removed — do not

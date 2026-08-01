@@ -38,6 +38,7 @@ module Glance.Web.Store
   , storeTags
   , applyFile
   , dropFile
+  , reseeded
     -- * Frames
   , Frame (..)
   , frameJSON
@@ -73,10 +74,11 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Text as T
 
-import Glance.Query ( HeadlineRecord (hrDigest, hrId, hrKeywords, hrTags), LoadFailure (..)
+import Glance.Query ( ConfigLayers (clPrint, clSeed)
+                    , HeadlineRecord (hrDigest, hrId, hrKeywords, hrTags), LoadFailure (..)
                     , QueryResult (..), TodoKeywords, WalkOptions, defaultWalk
-                    , digestOfText, loadDirFilesWith, mergeKeywords, resolveIds
-                    , rowJSON, tagsOfCell )
+                    , digestOfText, loadDirWithConfig, mergeKeywords, noConfig
+                    , resolveIds, rowJSON, tagsOfCell )
 
 -- The store
 
@@ -89,6 +91,7 @@ data Store = Store
   , stDirErrs :: !Int                       -- ^ directories the startup walk could not list.
   , stGen     :: !Int                       -- ^ update counter; see 'guarded'.
   , stPrint   :: !Text                      -- ^ which tree this is; see 'fingerprintOf'.
+  , stConfig  :: !ConfigLayers              -- ^ the keyword config every file here was parsed under.
   }
 
 -- | What the store holds for one file: the rows it contributes, and how its
@@ -100,27 +103,36 @@ data FileEntry = FileEntry
   }
 
 emptyStore :: Store
-emptyStore = Store Map.empty Map.empty 0 0 ""
+emptyStore = Store Map.empty Map.empty 0 0 "" noConfig
 
 -- | DIR walked and parsed into a store: the same files 'Glance.Query.loadDir'
 -- visits, with the per-file breakdown kept instead of folded into counts.
 loadStore :: FilePath -> IO Store
 loadStore = loadStoreWith defaultWalk
 
--- | 'loadStore' over the tree OPTS asks for.  The fingerprint is taken here,
--- over the finished store: it says which tree this is, and the walk is the one
--- moment the answer is known to be the directory's.
+-- | 'loadStore' over the tree OPTS asks for.  The config is read first and kept
+-- ('stConfig'): every file is parsed under it, and the watch re-reads one file
+-- under the same layers, so a row that arrives by inotify is the row the walk
+-- would have produced.  The fingerprint is taken last, over the finished store:
+-- it says which tree this is, and the walk is the one moment the answer is
+-- known to be the directory's.
 loadStoreWith :: WalkOptions -> FilePath -> IO Store
 loadStoreWith opts dir = do
-  (files, dirErrs) <- loadDirFilesWith opts dir
-  let loaded = foldl' seed (emptyStore { stDirErrs = dirErrs }) files
+  (cfg, files, dirErrs) <- loadDirWithConfig opts dir
+  let loaded = foldl' seed (emptyStore { stDirErrs = dirErrs, stConfig = cfg }) files
   pure $! loaded { stPrint = fingerprintOf loaded }
   where seed st (path, outcome) = putFile path outcome st
 
--- | What tree ST is: one digest over every file's path and the digest of the
--- bytes it was parsed from ('Glance.Query.hrDigest', pinned at load).  Files
--- fold in path order, so the value describes the tree rather than the walk that
--- found it, and two loads of identical trees print identically.
+-- | What tree ST is: one digest over the config it was parsed under and then
+-- over every file's path and the digest of the bytes it was parsed from
+-- ('Glance.Query.hrDigest', pinned at load).  Files fold in path order, so the
+-- value describes the tree rather than the walk that found it, and two loads of
+-- identical trees print identically.
+--
+-- The config is in it because it decides what the files MEAN: the same bytes
+-- read under a config that has since gained a keyword are different rows, and
+-- across a restart the generation — zero in every process — has nothing to say
+-- about that.
 --
 -- This is the half of the @ETag@ that survives a restart.  'stGen' starts at
 -- zero in every process, so a tag of the generation alone tells a client
@@ -134,8 +146,9 @@ loadStoreWith opts dir = do
 -- response either, so nothing a client can see hides behind the tag.
 fingerprintOf :: Store -> Text
 fingerprintOf st =
-  digestOfText (T.unlines [ T.pack path <> "\t" <> stamp entry
-                          | (path, entry) <- Map.toAscList (stFiles st) ])
+  digestOfText (T.unlines (("config\t" <> clPrint (stConfig st))
+                            : [ T.pack path <> "\t" <> stamp entry
+                              | (path, entry) <- Map.toAscList (stFiles st) ]))
   where stamp = maybe "" hrDigest . listToMaybe . feRecords
 
 -- | Every row the store holds, in walk order, before the id resolution — what
@@ -191,12 +204,22 @@ storeHeadline rid = find ((== rid) . hrId) . storeRecords
 storeTags :: Store -> [Text]
 storeTags = Map.keys . stTags
 
--- | The palette the store's columns carry.  One record per file is enough:
--- every row of a file shares its keyword sets and 'mergeKeywords' deduplicates,
--- so this is the same answer as merging all of them, at one merge per file.
+-- | The palette the store's columns carry: the config's keywords, then
+-- whatever the files add.
+--
+-- One record per file is enough for the second half: every row of a file shares
+-- its keyword sets and 'mergeKeywords' deduplicates, so this is the same answer
+-- as merging all of them, at one merge per file.  The config leads for two
+-- reasons.  It pins the ORDER — palette order is sort priority (SCHEMA.md), and
+-- taking it off whichever file sorts first would let a new file at the top of
+-- the tree reshuffle the badges.  And it is the only thing left when the files
+-- are gone: an empty tree under a config still has the states its author
+-- configured, where deriving the palette from rows would answer that a
+-- configured keyword does not exist.
 storeKeywords :: Store -> TodoKeywords
-storeKeywords = mergeKeywords . mapMaybe (fmap hrKeywords . listToMaybe . feRecords)
-              . Map.elems . stFiles
+storeKeywords st = mergeKeywords (clSeed (stConfig st) : perFile)
+  where perFile = mapMaybe (fmap hrKeywords . listToMaybe . feRecords)
+                           (Map.elems (stFiles st))
 
 -- Updates
 
@@ -209,6 +232,45 @@ applyFile path outcome = guarded path (streamed path (putFile path outcome))
 -- | PATH gone from the store: every row only it carried goes with it.
 dropFile :: FilePath -> Store -> (Store, [Frame])
 dropFile path = guarded path (streamed path (removeFile path))
+
+-- | ST replaced by FRESH, and the frames that costs.
+--
+-- The one update that is not about a file.  A @.org-glance\/config@ edit moves
+-- what every OTHER file's parse RECOGNIZES, so no per-file step can express it:
+-- a word that was the first token of a title in four thousand documents is a
+-- state in all of them a moment later.  The watch answers by re-walking and
+-- re-parsing the tree ('Glance.Web.Watch.reseed') and handing the result here.
+--
+-- The diff is over every id on both sides rather than one file's, which is the
+-- expensive half and the correct one; the frames are then the ordinary ops, so
+-- a client that missed the reason still ends up holding the rows the server
+-- has.  A moved palette REPLACES them with 'ViewChanged', exactly as 'guarded'
+-- does and for the same reason — rows built against a palette that is already
+-- gone are rows a client draws wrong.
+--
+-- This is the third writer of the generation, and the only one that is not
+-- 'guarded'.  The counter carries over from ST rather than restarting at
+-- FRESH's zero: a client revalidating across a reseed must never be handed a
+-- tag it has already seen.  It moves on the same two conditions 'guarded' uses
+-- — frames, or a load outcome — and NOT on the fingerprint, which moves itself:
+-- a config edit that changes no keyword rewrites bytes the fingerprint covers,
+-- so the @ETag@ already differs and the generation has nothing to add.
+reseeded :: Store -> Store -> (Store, [Frame])
+reseeded fresh st = (fresh { stGen = stGen st + if moved then 1 else 0 }, out)
+  where
+    before   = rowsById st
+    after    = rowsById fresh
+    upserts  = [ UpsertRow row | (i, row) <- Map.toList after, Map.lookup i before /= Just row ]
+    deletes  = [ DeleteRow i | i <- Map.keys before, Map.notMember i after ]
+    out      = if storeKeywords st /= storeKeywords fresh then [ViewChanged]
+                                                          else upserts <> deletes
+    moved    = not (null out) || outcomes st /= outcomes fresh
+    outcomes = Map.map feFailure . stFiles
+
+-- | Every row ST serves, by id — the resolved view, which is what a frame
+-- carries and what a diff of two stores has to compare.
+rowsById :: Store -> Map Text Value
+rowsById st = Map.fromList [ (hrId r, rowJSON r) | r <- storeRecords st ]
 
 -- | STEP, with the columns watched and the generation moved.  The palette can
 -- only move when the file STEP touched changes what it declares, every other

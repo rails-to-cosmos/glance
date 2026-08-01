@@ -2,15 +2,23 @@
 -- them.  Shared by the CLI scan and the 'Glance.Query' loader so both see the
 -- same file set and cross it the same way; each adds its own reporting on top.
 --
--- One thing the walk refuses by default: org-glance's own derived mirrors.
--- @org-glance@ keeps a canonical store under @.org-glance\/data\/@ and writes
--- overview and agenda buffers beside it under @.org-glance\/overviews\/@ and
--- @.org-glance\/meta\/@, which repeat the same headlines — same
--- @ORG_GLANCE_ID@, different file.  Serving those is serving a derived artifact
--- as truth: one headline turns up twice in a table, and its second copy comes
--- out of a file nobody edits.  So the two mirror directories are skipped and
--- @data@ is kept, and @--include-derived@ turns the whole exclusion off for
--- someone who wants to look at them.
+-- Two things the walk refuses.
+--
+-- org-glance's own derived mirrors, by default.  @org-glance@ keeps a canonical
+-- store under @.org-glance\/data\/@ and writes overview and agenda buffers
+-- beside it under @.org-glance\/overviews\/@ and @.org-glance\/meta\/@, which
+-- repeat the same headlines — same @ORG_GLANCE_ID@, different file.  Serving
+-- those is serving a derived artifact as truth: one headline turns up twice in
+-- a table, and its second copy comes out of a file nobody edits.  So the two
+-- mirror directories are skipped and @data@ is kept, and @--include-derived@
+-- turns that exclusion off for someone who wants to look at them.
+--
+-- And @.org-glance\/config\/@, always.  Those files are INPUT to a parse rather
+-- than content in a table: @Data.Org.Config@ reads their @#+TODO:@ lines by
+-- path and every file under the root is parsed knowing them.  A capture
+-- template served as a row is noise, and @--include-derived@ does not reach it
+-- — nothing about them is derived, so nothing about them becomes truth by
+-- asking louder.
 module Data.Org.Walk ( Found (..)
                      , WalkOptions (..)
                      , beatsForId
@@ -19,6 +27,7 @@ module Data.Org.Walk ( Found (..)
                      , findOrgFiles
                      , findOrgFilesWith
                      , isCanonical
+                     , isConfig
                      , isDerived
                      , isDocument
                      , isOrg
@@ -40,12 +49,13 @@ import qualified Data.Char as Char
 import qualified Data.Text as T
 
 -- | What a walk turned up: .org files, the directories it could not read, and
--- the derived directories it declined to enter.  All three accumulate in
--- reverse; callers sort them.
+-- the derived and config directories it declined to enter.  All four
+-- accumulate in reverse; callers sort them.
 data Found = Found
   { foundFiles   :: ![FilePath]
   , foundDirErrs :: ![(FilePath, Text)]
   , foundDerived :: ![FilePath]
+  , foundConfig  :: ![FilePath]
   }
 
 -- | What a walk covers besides the plain tree.
@@ -75,6 +85,14 @@ orgGlanceTails path = [ rest | ".org-glance" : rest <- tails (splitDirectories p
 isDerived :: FilePath -> Bool
 isDerived path = or [ d `elem` derivedDirs | d : _rest <- orgGlanceTails path ]
 
+-- | Is PATH inside org-glance's config area — a @config@ directory sitting
+-- directly under a @.org-glance@ one?  The same shape as 'isDerived' and a
+-- different question: these files are read, by @Data.Org.Config@ and by path,
+-- and they are never rows.  Unconditional, so @--include-derived@ leaves it
+-- standing.
+isConfig :: FilePath -> Bool
+isConfig path = or [ d == "config" | d : _rest <- orgGlanceTails path ]
+
 -- | Is PATH inside org-glance's canonical store?  The one directory under
 -- @.org-glance@ holding documents rather than renders of them, so a headline
 -- from it outranks one from anywhere else claiming its @ORG_GLANCE_ID@
@@ -92,7 +110,7 @@ beatsForId :: FilePath -> FilePath -> Bool
 beatsForId a b = isCanonical a && not (isCanonical b)
 
 emptyFound :: Found
-emptyFound = Found [] [] []
+emptyFound = Found [] [] [] []
 
 -- | The .org files under ROOTS, org-glance's mirrors excluded.
 findOrgFiles :: [FilePath] -> IO Found
@@ -130,18 +148,24 @@ walk opts acc dir = do
 -- forced at every entry: a thunk per entry would retain the whole tree.  A
 -- named root is walked whatever it is, so pointing the walk straight at a
 -- mirror still reads it — the exclusion is about what a tree contains.
+--
+-- Config outranks derived where a path is both, which it cannot be: the two
+-- rules test the same component against disjoint names.  They are asked apart
+-- so each declined directory lands in the count that explains it.
 visit :: WalkOptions -> FilePath -> Found -> FilePath -> IO Found
 visit opts dir acc name = do
   isDir <- doesDirectoryExist path
   if isDir
-    then if skip then pure $! keepDerived path acc else do
-      link <- try (pathIsSymbolicLink path) :: IO (Either IOException Bool)
-      case link of
-        Right False -> walk opts acc path
-        _symlink    -> pure acc
-    else pure $! if isDocument path && not skip then keepFile path acc else acc
+    then if config then pure $! keepConfig path acc
+         else if derived then pure $! keepDerived path acc else do
+           link <- try (pathIsSymbolicLink path) :: IO (Either IOException Bool)
+           case link of
+             Right False -> walk opts acc path
+             _symlink    -> pure acc
+    else pure $! if isDocument path && not (config || derived) then keepFile path acc else acc
   where path = dir </> name
-        skip = not (woIncludeDerived opts) && isDerived path
+        config = isConfig path
+        derived = not (woIncludeDerived opts) && isDerived path
 
 keepFile :: FilePath -> Found -> Found
 keepFile path acc = acc { foundFiles = path : foundFiles acc }
@@ -151,6 +175,9 @@ keepDirErr path why acc = acc { foundDirErrs = (path, why) : foundDirErrs acc }
 
 keepDerived :: FilePath -> Found -> Found
 keepDerived path acc = acc { foundDerived = path : foundDerived acc }
+
+keepConfig :: FilePath -> Found -> Found
+keepConfig path acc = acc { foundConfig = path : foundConfig acc }
 
 -- Reading what the walk found
 

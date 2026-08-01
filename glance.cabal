@@ -30,6 +30,7 @@ library glance-internal
   visibility: private
   exposed-modules:
       Data.Org
+      Data.Org.Config
       Data.Org.Edit
       Data.Org.Types
       Data.Org.Parser
@@ -150,6 +151,7 @@ test-suite glance-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
+      TestConfig
       TestDefaults
       TestEdit
       TestFilter

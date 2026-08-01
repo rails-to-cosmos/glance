@@ -32,7 +32,8 @@
 -- copy it, and leave the cells where they are.  'hrDoc' names the same text
 -- 'hrHeadline' already shares, so materialize costs a pointer per row and no
 -- array: the file was retained before the field existed.
-module Glance.Query ( HeadlineParts (..)
+module Glance.Query ( ConfigLayers (..)
+                    , HeadlineParts (..)
                     , HeadlineRecord (..)
                     , IdCollision (..)
                     , LoadFailure (..)
@@ -46,6 +47,7 @@ module Glance.Query ( HeadlineParts (..)
                     , archiveTag
                     , archived
                     , cellSep
+                    , configPath
                     , defaultWalk
                     , derivedPath
                     , digestOfText
@@ -57,9 +59,12 @@ module Glance.Query ( HeadlineParts (..)
                     , loadDirFilesSerially
                     , loadDirFilesWith
                     , loadDirWith
+                    , loadDirWithConfig
                     , loadFile
+                    , loadFileWith
                     , matchesSearch
                     , mergeKeywords
+                    , noConfig
                     , orderedForView
                     , recomposedSubtree
                     , replaceSpans
@@ -99,12 +104,15 @@ import Data.Org ( Context, Element (EHeadline), Headline
                 , Indent (Indent)
                 , Priority (Priority), Span (..), Spanned (valueOf)
                 , Timestamp (tsStart), Todo (name)
-                , TsMoment (tsmHasTime, tsmTime), deadline, defaultContext
+                , TsMoment (tsmHasTime, tsmTime), deadline
                 , hsFull, identity, indent, metaCategory, orgParse, priority
                 , schedule, sliceSpan, spans, tags, title, todo, todoActive
                 , todoInactive )
+import Data.Org.Config ( ConfigLayers (..), TodoKeywords (..), classify
+                       , declaredKeywords, loadConfigDirs, mergeKeywords, noConfig
+                       , seedContext )
 import Data.Org.Walk ( Found (..), WalkOptions (..), beatsForId, defaultWalk
-                     , findOrgFilesWith, isDerived, isDocument
+                     , findOrgFilesWith, isConfig, isDerived, isDocument
                      , mapFilesConcurrently )
 
 import qualified Data.Org.Edit as Edit
@@ -119,7 +127,7 @@ data HeadlineRecord = HeadlineRecord
   , hrId        :: !Text            -- ^ row identity; see 'rowId'.
   , hrCategory  :: !Text            -- ^ the file's final @#+CATEGORY@, empty when unset.
   , hrHeadline  :: !Headline        -- ^ the parsed headline; its type stays private.
-  , hrKeywords  :: !TodoKeywords    -- ^ the file's TODO keywords; one value shared per file.
+  , hrKeywords  :: !TodoKeywords    -- ^ every keyword the file's parse recognized — config seed included; one value shared per file.
   , hrDoc       :: !Text            -- ^ the file's text as parsed; shared with 'hrHeadline', not copied.
   , hrDigest    :: !Text            -- ^ SHA-256 of that text's bytes, lowercase hex; one value shared per file.
   , hrSubtree   :: !Span            -- ^ the headline's outline extent in 'hrDoc'; see 'subtreeSpans'.
@@ -130,14 +138,8 @@ data HeadlineRecord = HeadlineRecord
   , hrScheduled :: !(Maybe Text)    -- ^ ISO date, see 'isoStamp'.
   , hrDeadline  :: !(Maybe Text)    -- ^ ISO date, see 'isoStamp'.
   , hrSearch    :: !Text            -- ^ the cells as they display, lowercased; see 'searchTextOf'.
+  , hrActive    :: !(Maybe Bool)    -- ^ whether 'hrState' is an active state HERE; see 'Data.Org.Config.classify'.
   } deriving (Show)
-
--- | The TODO keywords one file's context declared, active ones apart from the
--- done-like ones, each set in the order 'Data.Set.Set' keeps it.
-data TodoKeywords = TodoKeywords
-  { tkActive   :: ![Text]
-  , tkInactive :: ![Text]
-  } deriving (Eq, Show)
 
 -- | A load: the rows, and what did not make it into them.  The counts are the
 -- coverage the web layer surfaces — a silently skipped file is a bug report
@@ -175,10 +177,10 @@ emptyResult = QueryResult [] 0 0 0 0 []
 
 -- Loading
 
--- | Every headline under DIR, one record each.  Walks @*.org@ recursively,
--- reads each file strictly and parses it from 'defaultContext' — per-file
--- context is an invariant: keywords declared in one file never reach another.
--- org-glance's derived mirrors are not walked ('Data.Org.Walk').
+-- | Every headline under DIR, one record each.  Walks @*.org@ recursively and
+-- reads each file strictly.  org-glance's derived mirrors are not walked, and
+-- neither is its config ('Data.Org.Walk') — the config is read instead, by
+-- path, and seeds every parse.
 loadDir :: FilePath -> IO QueryResult
 loadDir = loadDirWith defaultWalk
 
@@ -196,14 +198,25 @@ loadDirWith opts dir = do
 -- same way.
 --
 -- The files are read on a pool ('Data.Org.Walk.mapFilesConcurrently'), which is
--- sound because a file is parsed from 'defaultContext' and shares no state with
--- any other.  The answer is the sorted path list zipped with its outcomes, so
--- it is the sequence 'loadDirFilesSerially' produces whatever order the pool
+-- sound because a file is parsed from one constant seed and shares no state
+-- with any other.  The answer is the sorted path list zipped with its outcomes,
+-- so it is the sequence 'loadDirFilesSerially' produces whatever order the pool
 -- finished in — and everything downstream (id resolution, the store's walk
 -- order, the counts) reads that sequence rather than the completion order.
 loadDirFilesWith :: WalkOptions -> FilePath
                  -> IO ([(FilePath, Either LoadFailure [HeadlineRecord])], Int)
-loadDirFilesWith = loadDirFilesUsing mapFilesConcurrently
+loadDirFilesWith opts dir = withoutConfig <$> loadDirWithConfig opts dir
+
+-- | 'loadDirFilesWith' keeping the config the walk found.
+--
+-- ONE walk answers both halves, and it has to: the config directories are
+-- discovered by crossing the tree ('Data.Org.Walk.foundConfig') and every file
+-- in it is parsed knowing them.  A caller that keeps the layers — the store
+-- does, so its watch can re-read one file the way the load read it — takes them
+-- from here rather than walking a second time.
+loadDirWithConfig :: WalkOptions -> FilePath
+                  -> IO (ConfigLayers, [(FilePath, Either LoadFailure [HeadlineRecord])], Int)
+loadDirWithConfig = loadDirFilesUsing mapFilesConcurrently
 
 -- | 'loadDirFilesWith' with the pool taken out — one file after another on the
 -- calling thread.  It is the reference the parallel load is asserted equal to
@@ -212,43 +225,54 @@ loadDirFilesWith = loadDirFilesUsing mapFilesConcurrently
 -- agree everywhere.
 loadDirFilesSerially :: WalkOptions -> FilePath
                      -> IO ([(FilePath, Either LoadFailure [HeadlineRecord])], Int)
-loadDirFilesSerially = loadDirFilesUsing mapM
+loadDirFilesSerially opts dir = withoutConfig <$> loadDirFilesUsing mapM opts dir
 
--- | 'loadDirFilesWith' with OVER deciding how the walk's files are crossed.
+-- | A load with its config dropped, for the callers that only want the files.
+withoutConfig :: (ConfigLayers, [a], Int) -> ([a], Int)
+withoutConfig (_cfg, files, dirErrs) = (files, dirErrs)
+
+-- | 'loadDirWithConfig' with OVER deciding how the walk's files are crossed.
 loadDirFilesUsing :: ((FilePath -> IO (Either LoadFailure [HeadlineRecord]))
                       -> [FilePath] -> IO [Either LoadFailure [HeadlineRecord]])
                   -> WalkOptions -> FilePath
-                  -> IO ([(FilePath, Either LoadFailure [HeadlineRecord])], Int)
+                  -> IO (ConfigLayers, [(FilePath, Either LoadFailure [HeadlineRecord])], Int)
 loadDirFilesUsing over opts dir = do
   found <- findOrgFilesWith opts [dir]
+  cfg <- loadConfigDirs (sort (foundConfig found))
   let paths = sort (foundFiles found)
-  outcomes <- over loadFile paths
-  pure (zip paths outcomes, length (foundDirErrs found))
+  outcomes <- over (loadFileWith cfg) paths
+  pure (cfg, zip paths outcomes, length (foundDirErrs found))
 
--- | PATH's headlines, or why it has none.  Reads the file strictly and parses
--- it from 'defaultContext': a file's own @#+TODO:@ lines are the only ones that
--- reach its headlines, whether it is loaded with a directory on a pool or on
--- its own after an edit.
+-- | PATH's headlines with no config in force, or why it has none.
+loadFile :: FilePath -> IO (Either LoadFailure [HeadlineRecord])
+loadFile = loadFileWith noConfig
+
+-- | PATH's headlines under CFG, or why it has none.  Reads the file strictly
+-- and parses it from CFG's seed — 'Data.Org.defaultContext' plus every keyword
+-- the config layers name, one constant per load.  Nothing accumulates between
+-- files: what a file's own @#+TODO:@ adds reaches that file's headlines and no
+-- other's, whether it is loaded with a directory on a pool or on its own after
+-- an edit.
 --
 -- The rows come back forced: a caller running this on a pool needs the work
 -- done by the worker that took the file, and a caller of any kind needs the
 -- document dropped rather than retained under an unevaluated cell
 -- (docs\/invariants.md, Scan).
-loadFile :: FilePath -> IO (Either LoadFailure [HeadlineRecord])
-loadFile path = do
+loadFileWith :: ConfigLayers -> FilePath -> IO (Either LoadFailure [HeadlineRecord])
+loadFileWith cfg path = do
   raw <- try (BS.readFile path) :: IO (Either IOException BS.ByteString)
   evaluate $ case raw of
     Left _err -> Left ReadFailed
     Right bytes -> case TE.decodeUtf8' bytes of
       Left _err -> Left DecodeFailed
-      Right doc -> case orgParse defaultContext doc of
+      Right doc -> case orgParse (seedContext cfg) doc of
         (_elems, _ctx, Just _err) -> Left ParseFailed
         (elems, ctx, Nothing)     -> forcing rs (Right rs)
           -- The digest is of the very bytes these spans were computed against,
           -- taken here rather than by a later read: a write pinned to a digest
           -- read at some other moment would splice offsets into a document
           -- they were never measured in.
-          where rs = recordsOf path doc (Edit.digestOf bytes) ctx elems
+          where rs = recordsOf cfg path doc (Edit.digestOf bytes) ctx elems
 
 -- | FILES folded into one result, with DIRERRS unlistable directories already
 -- counted as read failures.
@@ -268,17 +292,28 @@ summarise dirErrs files =
 -- | The rows FILE contributes, cells cut out of DOC and DIGEST pinning it,
 -- categorised by CTX — the context the file parsed to, so a @#+CATEGORY@
 -- anywhere in it labels the whole file.
-recordsOf :: FilePath -> Text -> Text -> Context -> [Spanned Element] -> [HeadlineRecord]
-recordsOf path doc digest ctx elems =
-  zipWith (recordOf path doc digest category keywords) heads
+--
+-- Two keyword values come out of one parse and they are not the same thing.
+-- CTX's sets are what the parse RECOGNIZED, CFG's seed included, and they are
+-- the file's palette contribution and the vocabulary a command may write.  The
+-- file's own @#+TODO:@ declarations ('declaredKeywords' over the elements) are
+-- the nearest scope a row's active-ness is CLASSIFIED by, and they are read
+-- over the whole file rather than positionally: a document declaring one
+-- keyword two ways at two depths is not something org writes, and recognition
+-- stays positional either way.
+recordsOf :: ConfigLayers -> FilePath -> Text -> Text -> Context -> [Spanned Element]
+          -> [HeadlineRecord]
+recordsOf cfg path doc digest ctx elems =
+  zipWith (recordOf cfg declared path doc digest category keywords) heads
           (subtreeSpans (T.length doc) heads)
   where category = detach (metaCategory ctx)
         keywords = keywordsOf ctx
+        declared = declaredKeywords elems
         heads    = [ h | e <- elems, EHeadline h <- [valueOf e] ]
 
-recordOf :: FilePath -> Text -> Text -> Text -> TodoKeywords -> Headline -> Span
-         -> HeadlineRecord
-recordOf path doc digest category keywords h subtree = forceRecord HeadlineRecord
+recordOf :: ConfigLayers -> TodoKeywords -> FilePath -> Text -> Text -> Text
+         -> TodoKeywords -> Headline -> Span -> HeadlineRecord
+recordOf cfg declared path doc digest category keywords h subtree = forceRecord HeadlineRecord
   { hrFile      = path
   , hrId        = rowId path h
   , hrCategory  = category
@@ -295,6 +330,7 @@ recordOf path doc digest category keywords h subtree = forceRecord HeadlineRecor
   , hrDeadline  = due
   , hrSearch    = searchTextOf [ opt state, opt pri, titleCell, tagsCell
                                , opt scheduled, opt due ]
+  , hrActive    = classify cfg declared (tagsOfCell tagsCell) <$> state
   }
   where sp = spans h
         -- The span is the lossless channel; the render is what is left when a
@@ -443,6 +479,14 @@ derivedPath = isDerived
 -- by inotify, or a file it read that no event can ever refresh.
 documentPath :: FilePath -> Bool
 documentPath = isDocument
+
+-- | Is PATH inside org-glance's config area ('Data.Org.Walk.isConfig')?
+-- Re-exported for the third answer a watcher owes an event: a file the walk
+-- refused AND still has to act on.  A config file is never a row, and a change
+-- to one changes how every OTHER file parses, so the watch answers it by
+-- reseeding rather than by re-reading the path it was handed.
+configPath :: FilePath -> Bool
+configPath = isConfig
 
 -- | RECORDS in the order 'viewJSON' declares them sorted: scheduled ascending,
 -- an unscheduled row first, ties left in walk order.  A page has to be cut out
@@ -696,7 +740,9 @@ subtreeSpans len heads = snd (foldl' place ([], []) (reverse (map extent heads))
               []                     -> len
 
 -- | CTX's keyword sets, forced and detached: one 'TodoKeywords' per file,
--- shared by every row that file contributes.
+-- shared by every row that file contributes.  This is RECOGNITION — org's
+-- TODO\/DONE, the config seed and the file's own @#+TODO:@ lines together —
+-- which is why a row's active-ness is 'hrActive' rather than a lookup in here.
 keywordsOf :: Context -> TodoKeywords
 keywordsOf ctx = forcing (actives <> inactives) (TodoKeywords actives inactives)
   where actives   = kept todoActive
@@ -736,7 +782,8 @@ forcing ts x = foldr seq x ts
 -- are the one thing a loaded record has no other reason to keep.
 forceRecord :: HeadlineRecord -> HeadlineRecord
 forceRecord r =
-  forcing (hrId r : hrCategory r : hrTitle r : hrTags r : hrDigest r : hrSearch r : optional) r
+  forcing (hrId r : hrCategory r : hrTitle r : hrTags r : hrDigest r : hrSearch r : optional)
+          (foldr seq r (hrActive r))
   where optional = catMaybes [hrState r, hrPriority r, hrScheduled r, hrDeadline r]
 
 -- Digests
@@ -821,12 +868,14 @@ archived r = T.toLower archiveTag `elem` tagsOfCell (hrTags r)
 -- keeps the newline that ends it.  A headline with no keyword asked to drop one
 -- costs no edit.
 --
--- KEYWORD is refused unless R's own file declares it ('hrKeywords').  Legality
--- is per file because @#+TODO:@ is: a word is a keyword in one document and the
--- first word of a title in the next, and writing one a file does not declare
--- makes a headline the parser will read differently than the writer meant.  The
--- state column's group meta-values (@*active*@, @*inactive*@) are in no keyword
--- set, so they are refused here like any other word that is not one.
+-- KEYWORD is refused unless R's own parse recognized it ('hrKeywords'): the
+-- file's @#+TODO:@ lines, the config layers' keywords and org's TODO\/DONE.
+-- The bar is recognition rather than declaration because that is what the
+-- parser reads back — writing a word this file would parse as the first word of
+-- a title makes a headline the reader sees differently than the writer meant,
+-- and the config layer is precisely the thing that stops a word being that.
+-- The state column's group meta-values (@*active*@, @*inactive*@) are in no
+-- keyword set, so they are refused here like any other word that is not one.
 setStateEdits :: Maybe Text -> HeadlineRecord -> Either Text [(Span, Text)]
 setStateEdits Nothing r = Right [ (Span (spanStart sp) (spanEnd sp + trailing sp), "")
                                 | Just sp <- [hsTodo (headlineSpans r)] ]
@@ -1006,27 +1055,6 @@ badges (TodoKeywords actives inactives) =
     <> zipWith badge (cycled inactiveColors inactives) inactives
   where cycled hues ks = take (length ks) (cycle hues)
         badge color value = object [ "value" .= value, "color" .= color ]
-
--- | The keyword sets of several files as one palette: first-seen order across
--- the list, a keyword declared both ways anywhere counting as active.  This is
--- the only thing a view's columns vary on, so a caller watching for a column
--- change watches this value.  Deduplication makes runs irrelevant: passing one
--- record per file gives the same answer as passing every record.
-mergeKeywords :: [TodoKeywords] -> TodoKeywords
-mergeKeywords keywords = TodoKeywords actives inactives
-  where actives   = declared tkActive
-        inactives = filter (`notElem` actives) (declared tkInactive)
-        declared f = firstSeen (concatMap f keywords)
-
--- | XS deduplicated, each element kept where it first appeared.
--- 'Data.List.nub' reads the same and costs O(n · distinct); this merge runs
--- over one entry per file on every @\/headlines@ request, and at 6300 files
--- that quadratic was most of the request.
-firstSeen :: Ord a => [a] -> [a]
-firstSeen = go Set.empty
-  where go _ [] = []
-        go seen (x : xs) | Set.member x seen = go seen xs
-                         | otherwise         = x : go (Set.insert x seen) xs
 
 -- | Warm hues for keywords that still want work.
 activeColors :: [Text]

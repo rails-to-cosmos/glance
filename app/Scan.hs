@@ -17,6 +17,8 @@ import qualified Data.Text.IO as TIO
 import qualified TextShow as TS
 
 import Data.Org
+import Data.Org.Config ( ConfigLayers (clSeed), TodoKeywords (..), loadConfigDirs
+                       , seedContext )
 import Data.Org.Walk ( Found (..), WalkOptions (..), beatsForId, errText
                      , findOrgFilesWith, mapFilesConcurrently )
 
@@ -31,6 +33,12 @@ sampleLimit = 20
 -- | Scan ROOTS for .org files as OPTS asks, parse each one, and print a
 -- summary report.
 --
+-- Every file is parsed from the same seed the loader uses — org's TODO\/DONE
+-- plus every keyword the roots' @.org-glance\/config@ names ('loadConfigs') —
+-- so the counts describe the tree the daemon serves rather than a stricter
+-- reading of it.  Without it the scan would report a keyword the browser shows
+-- as a state as the first word of a title.
+--
 -- The files are read on the loader's own pool ('mapFilesConcurrently'), which
 -- forces each 'FileResult' in the worker that produced it; the fold that turns
 -- them into 'Totals' stays here and stays serial, over the sorted path list, so
@@ -43,12 +51,15 @@ runScan opts roots = do
   let paths = sort (foundFiles found)
       dirErrs = sort (foundDirErrs found)
       derived = sort (foundDerived found)
+      configDirs = sort (foundConfig found)
+  config <- loadConfigDirs configDirs
+  let seed = clSeed config
   walked <- getCurrentTime
-  results <- mapFilesConcurrently scanFile paths
+  results <- mapFilesConcurrently (scanFile (seedContext config)) paths
   let totals = foldl' visitFile emptyTotals (zip paths results)
   finished <- totals `seq` getCurrentTime
   let elapsed from to = realToFrac (diffUTCTime to from) :: Double
-  report roots (length paths) totals dirErrs derived
+  report roots (length paths) totals dirErrs derived configDirs seed
          (elapsed started walked) (elapsed started finished)
   where visitFile t (path, result) = merge t path result
 
@@ -67,24 +78,25 @@ data FileResult = FileResult
   , frIds        :: ![Text]     -- ^ the ORG_GLANCE_IDs the file claims, copied.
   }
 
--- | Read, decode and parse PATH, forcing the result before returning it.
-scanFile :: FilePath -> IO FileResult
-scanFile path = do
+-- | Read, decode and parse PATH from SEED, forcing the result before returning
+-- it.
+scanFile :: Context -> FilePath -> IO FileResult
+scanFile seed path = do
   raw <- try (BS.readFile path) :: IO (Either IOException BS.ByteString)
   case raw of
     Left e -> pure (bare (BRead (errText e)))
     Right bytes -> case TE.decodeUtf8' bytes of
       Left e -> pure (bare (BDecode (errText e)))
       Right doc -> do
-        outcome <- try (evaluate (forceResult (analyse path doc)))
+        outcome <- try (evaluate (forceResult (analyse seed path doc)))
         pure $ case outcome of
           Left e  -> bare (BParse ("exception: " <> errText (e :: SomeException)))
           Right r -> r
   where bare b = FileResult b 0 0 0 [] []
 
--- | Parse DOC and tally its elements, headlines and span violations.
-analyse :: FilePath -> Text -> FileResult
-analyse path doc = case orgParse defaultContext doc of
+-- | Parse DOC from SEED and tally its elements, headlines and span violations.
+analyse :: Context -> FilePath -> Text -> FileResult
+analyse seed path doc = case orgParse seed doc of
   (_elems, _ctx, Just err) -> FileResult (BParse (errorReason err)) 0 0 0 [] []
   (elems, _ctx, Nothing)   ->
     let acc = foldl' (step path doc (T.length doc)) (Acc 0 0 0 [] (Cursor 0 doc)) elems
@@ -241,10 +253,12 @@ capped old new
 
 -- | The run's summary.  WALKSECS is how much of SECS the serial directory walk
 -- took, which is the half of the wall the pool cannot touch — worth a row of
--- its own now that the reads are parallel and the walk stays serial.
-report :: [FilePath] -> Int -> Totals -> [(FilePath, Text)] -> [FilePath]
-       -> Double -> Double -> IO ()
-report roots files t dirErrs derived walkSecs secs = do
+-- its own now that the reads are parallel and the walk stays serial.  SEED is
+-- the config's recognition union, reported because it is the one input to these
+-- counts that is not a file under a root.
+report :: [FilePath] -> Int -> Totals -> [(FilePath, Text)] -> [FilePath] -> [FilePath]
+       -> TodoKeywords -> Double -> Double -> IO ()
+report roots files t dirErrs derived configDirs seed walkSecs secs = do
   TIO.putStrLn ("scan " <> T.intercalate " " (map T.pack roots))
   mapM_ TIO.putStrLn
     [ row "dirs scanned"    (num (length roots))
@@ -255,6 +269,8 @@ report roots files t dirErrs derived walkSecs secs = do
     , row "parse failures"  (num (tParse t))
     , row "unreadable dirs" (num (length dirErrs))
     , row "derived skipped" (num (length derived))
+    , row "config skipped"  (num (length configDirs))
+    , row "config keywords" (num (length keywords))
     , row "elements"        (num (tElements t))
     , row "headlines"       (num (tHeadlines t))
     , row "span violations" (num (tViolations t))
@@ -272,8 +288,11 @@ report roots files t dirErrs derived walkSecs secs = do
   section "span violations" (tViolations t) (tViolSample t)
   section "id collisions" (tCollisions t) (tCollSample t)
   section "derived skipped" (length derived) (map T.pack (take sampleLimit derived))
+  section "config skipped" (length configDirs) (map T.pack (take sampleLimit configDirs))
+  section "config keywords" (length keywords) [T.unwords keywords]
   where rate | secs > 0  = fromIntegral files / secs
              | otherwise = 0
+        keywords = tkActive seed <> tkInactive seed
 
 section :: Text -> Int -> [Text] -> IO ()
 section title total entries

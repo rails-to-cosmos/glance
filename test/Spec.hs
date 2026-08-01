@@ -1,6 +1,7 @@
 module Main (main) where
 
 import Test.Tasty (TestTree, defaultMain, testGroup)
+import qualified TestConfig as Config
 import qualified TestEdit as Edit
 import qualified TestFilter as Filter
 import qualified TestParser as Parser
@@ -31,6 +32,7 @@ tests = testGroup "Tests"
   , Subtree.spec
   , Serve.spec
   , Store.spec
+  , Config.spec
   , Desktop.spec
   ]
 
