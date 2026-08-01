@@ -1227,12 +1227,12 @@ sharedKeys =
   , bind ["+"]          "org-glance-overview:capture"     Nothing                 "table"
   , bind ["D"]          "org-glance-overview:delete"      (Just "archiveRows")    "table"
       `helps` "archive the marked rows, or the row at point — never a delete"
-  , bind ["C-c", "C-t"] "org-glance-overview:todo"        (Just "setState")       "table"
+      -- The user's own spelling; Chromium owns Ctrl+T above the document, so
+      -- the org chord stays as the secondary for browsers that deliver it.
+  , bind ["t"]          "org-glance-overview:todo"        (Just "setState")       "table"
       `helps` "set the state of the marked rows, or the row at point"
-      -- Chromium owns Ctrl+T above the document, so the org spelling can
-      -- never complete there; "C-c t" is the alias a browser will deliver.
-  , bind ["C-c", "t"]   "org-glance-overview:todo"        (Just "setState")       "table"
-      `helps` "set the state — the spelling Chromium cannot swallow"
+  , bind ["C-c", "C-t"] "org-glance-overview:todo"        (Just "setState")       "table"
+      `helps` "the org spelling, where the browser lets it through"
   , bind ["C-c", "C-s"] "org-glance-overview:schedule"    Nothing                 "table"
   , bind ["C-c", "C-d"] "org-glance-overview:deadline"    Nothing                 "table"
   , bind ["C-c", "C-,"] "customize"                       (Just "openSettings")   "table"
