@@ -24,19 +24,19 @@
         "state": "NEXT", "priority": "A", "title": "Ship the table view",
         "tag": ":web:glance:", "scheduled": "2026-08-01 09:30",
         "deadline": "2026-08-05" } },
-    { "id": "test/fixtures/view/sample.org:210", "cells": {
+    { "id": "test/fixtures/view/sample.org#1", "cells": {
         "state": "TODO", "priority": "B", "title": "Привет мир",
         "tag": ":unicode:", "scheduled": "2026-08-03", "deadline": null } },
-    { "id": "test/fixtures/view/sample.org:271", "cells": {
+    { "id": "test/fixtures/view/sample.org#2", "cells": {
         "state": "WAITING", "priority": null, "title": "Reply from the печатник",
         "tag": "", "scheduled": null, "deadline": "2026-08-10 17:00" } },
-    { "id": "test/fixtures/view/sample.org:338", "cells": {
+    { "id": "test/fixtures/view/sample.org#3", "cells": {
         "state": null, "priority": null, "title": "Plain headline without a state",
         "tag": "", "scheduled": null, "deadline": null } },
-    { "id": "test/fixtures/view/sample.org:371", "cells": {
+    { "id": "test/fixtures/view/sample.org#4", "cells": {
         "state": "CANCELLED", "priority": "C", "title": "Drop the old renderer",
         "tag": ":cleanup:", "scheduled": null, "deadline": null } },
-    { "id": "test/fixtures/view/sample.org:451", "cells": {
+    { "id": "test/fixtures/view/sample.org#5", "cells": {
         "state": "DONE", "priority": null, "title": "Read the schema",
         "tag": ":web:", "scheduled": null, "deadline": null } }
   ]

@@ -6,9 +6,9 @@ module TestQuery (spec) where
 import Control.Concurrent (getNumCapabilities, rtsSupportsBoundThreads)
 import Control.Monad (forM_, replicateM, (<=<))
 import Data.Aeson (Value (Bool, Object, String), eitherDecodeFileStrict')
-import Data.Char (isDigit)
 import Data.List (foldl', nub, sort)
 import Data.Text (Text)
+import System.Directory (createDirectoryIfMissing)
 import System.FilePath ((</>))
 import System.Posix.Files (createSymbolicLink)
 import Test.Tasty (TestTree, testGroup)
@@ -96,8 +96,8 @@ maybeBoolAt key v = assertFailure ("expected an object with " <> show key
 
 spec :: TestTree
 spec = testGroup "Query"
-  [ loadSpec, levelSpec, parallelSpec, cellSpec, searchSpec, viewSpec, schemaSpec
-  , commandSpec, lensSpec ]
+  [ loadSpec, walkSpec, levelSpec, parallelSpec, cellSpec, searchSpec, viewSpec
+  , schemaSpec, commandSpec, lensSpec ]
 
 -- | The subtree lens: a subtree split into the parts a client edits and the
 -- parts the server keeps, and put back.
@@ -656,6 +656,66 @@ loadSpec = testGroup "Load"
       assertEqual "categories" (replicate 6 "sample") (map hrCategory recs)
   ]
 
+-- | What the walk crosses and what it declines, over a tree carrying every
+-- shape at once.  One @lstat@ classifies an entry ('Data.Org.Walk'), and a
+-- symlink pays a second stat to classify its TARGET, so the four answers are:
+-- a symlinked DIRECTORY is never followed, a symlinked FILE is walked like a
+-- real one, a link whose target is missing is walked and fails on the read, and
+-- Emacs's lock is refused by NAME before either stat is asked.
+--
+-- Asserted as the sorted file list rather than as a count, because the two ways
+-- this breaks look alike in a total: a tree entered twice through a link adds
+-- files, and a file quietly dropped removes one.  The links point OUTSIDE the
+-- walked root for the same reason — a followed one shows up as a path that
+-- could not have been reached any other way.
+-- The paths are asserted first and on their own, because they are the half a
+-- reader can act on: a matrix failure reads as one missing or one extra path
+-- long before it reads as an outcome list.  The dangling link is then the one
+-- the walk keeps on purpose and the read refuses — a genuine .org symlink its
+-- author broke is a real file — while Emacs's lock is the case that must never
+-- get that far, and does not, never becoming a path at all.
+walkSpec :: TestTree
+walkSpec = testGroup "Walk"
+  [ testCase "the symlink matrix, as the files walked and what they loaded to" $
+      withSymlinkTree $ \tree files -> do
+        let outcomes = [ (tree </> "dangling.org", Left ReadFailed)
+                       , (tree </> "linked.org", Right ["four"])
+                       , (tree </> "notes.org", Right ["one"])
+                       , (tree </> "realdir.org" </> "deep.org", Right ["three"])
+                       , (tree </> "under" </> "inner.org", Right ["two"]) ]
+        assertEqual "files walked" (map fst outcomes) (map fst files)
+        assertEqual "and what each loaded to" outcomes
+                    [ (path, map hrTitle <$> outcome) | (path, outcome) <- files ]
+  ]
+
+-- | Run ACT over a walked root and the files a load of it turned up.  Every
+-- link points into a sibling directory the walk is never given, so a followed
+-- one is a path in the answer rather than a duplicate of one.
+--
+-- Two names carry their own case.  @realdir.org@ is a real DIRECTORY spelled
+-- like a document, so the type decides and the walk enters it; @dirlink.org@ is
+-- a symlink to a directory spelled the same way, so the name alone would keep
+-- it and the target's type is what refuses it.
+withSymlinkTree :: (FilePath -> [(FilePath, Either LoadFailure [HeadlineRecord])] -> Assertion)
+                -> Assertion
+withSymlinkTree act = withTempDirNamed "walk" $ \root -> do
+  let tree = root </> "tree"
+      away = root </> "away"
+  mapM_ (createDirectoryIfMissing True)
+        [tree </> "under", tree </> "realdir.org", away </> "elsewhere"]
+  _ <- orgFile tree "notes.org" "* TODO one\n"
+  _ <- orgFile (tree </> "under") "inner.org" "* TODO two\n"
+  _ <- orgFile (tree </> "realdir.org") "deep.org" "* TODO three\n"
+  _ <- orgFile tree "plain.txt" "not a document\n"
+  _ <- orgFile away "target.org" "* TODO four\n"
+  _ <- orgFile (away </> "elsewhere") "unreachable.org" "* TODO five\n"
+  createSymbolicLink (away </> "target.org") (tree </> "linked.org")
+  createSymbolicLink (away </> "elsewhere") (tree </> "dirlink")
+  createSymbolicLink (away </> "elsewhere") (tree </> "dirlink.org")
+  createSymbolicLink "nowhere-at-all" (tree </> "dangling.org")
+  createSymbolicLink "dmitry@host.4242:1750000000" (tree </> ".#notes.org")
+  act tree . fst =<< loadDirFilesWith defaultWalk tree
+
 -- | Which headlines become rows.  The table is a list of top entries: one row
 -- per level-one headline, and everything under one reachable by materializing
 -- it rather than by a row of its own.
@@ -789,14 +849,22 @@ cellSpec = testGroup "Cells"
   , testCase "an ORG_GLANCE_ID is the row id" $ withRecords $ \recs ->
       assertEqual "id" ["ship-table-view"] (map hrId (take 1 recs))
 
-  , testCase "without one the row id is FILE:START" $ withRecords $ \recs ->
-      case drop 1 recs of
-        (r : _) -> do
-          let (prefix, offset) = T.breakOnEnd ":" (hrId r)
-          assertEqual "file prefix" (T.pack (hrFile r) <> ":") prefix
-          assertBool ("offset in " <> show (hrId r))
-                     (not (T.null offset) && T.all isDigit offset)
-        [] -> assertFailure "expected more than one record"
+    -- FILE#K, K counted over the file's TOP ENTRIES: the sample's first row
+    -- carries an ORG_GLANCE_ID and the rest do not, so the ordinals run 1..5
+    -- with 0 spent on the entry that did not need it.  Numbering the entries
+    -- rather than the ids is what keeps a K meaningful — it is a position in
+    -- the file, whatever the rows around it are called.
+  , testCase "without one the row id is FILE#K, K the entry's place in the file" $
+      withRecords $ \recs ->
+        assertEqual "ids" (map (\k -> T.pack (viewDir </> "sample.org") <> "#" <> k)
+                               ["1", "2", "3", "4", "5"])
+                    (map hrId (drop 1 recs))
+
+  , testCase "and K counts entries: a child spends no ordinal" $
+      withRecordsOf (T.unlines ["* one", "** a child", "*** and another", "* two"]) $ \recs -> do
+        assertEqual "titles" ["one", "two"] (map hrTitle recs)
+        assertEqual "ids" [ T.pack (hrFile r) <> k | (r, k) <- zip recs ["#0", "#1"] ]
+                    (map hrId recs)
   ]
 
 -- | The view document itself.  The golden pins every value in it, so what is

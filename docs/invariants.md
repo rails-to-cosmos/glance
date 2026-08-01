@@ -469,14 +469,36 @@ on.
   skipped` entry. A comment in `Walk.hs` claiming a mirror named as a root is
   read describes that second spelling and is wrong about it. **none** — no test
   builds a root inside a `.org-glance` tree.
-- **Symlinked directories are never followed, and a failed probe looks exactly
-  like one.** The walk asks `pathIsSymbolicLink` inside `try` and treats
-  everything but `Right False` as "skip", so a symlinked directory and a
-  directory whose probe raised are both dropped with no `dirErrs` entry, no
-  `derived` entry and no counter. An unlistable directory IS reported, which
-  makes the silence specific to this branch and easy to misread as "there was
-  nothing there". The reason not to follow is a symlink loop, and counting one
-  tree twice. **none**
+- **One `lstat` an entry classifies it, and a symlink pays a second stat.**
+  `visit` asks `getSymbolicLinkStatus` — which never follows — inside `try`, and
+  that one answer routes the entry: a real directory is entered, anything that
+  is neither a directory nor a link is kept on its name, and a LINK is the only
+  shape needing more. For a link the walk then asks `getFileStatus`, which does
+  follow, and only when the answer could change what it collects — a link that
+  is neither a document by name nor inside a declined directory contributes
+  nothing whatever it points at, so Emacs's `.#name.org` is refused by name
+  ahead of both stats rather than by dangling. The four answers are the ones the
+  pair before it gave: a symlinked DIRECTORY is never entered (the reason is a
+  link loop, and counting one tree twice), a symlinked FILE is kept on its name
+  like a real one, a link whose target is missing reads as a non-directory and
+  is walked, and a failed `lstat` lands in that same branch — silently, the way
+  `doesDirectoryExist` used to swallow one into a `False`. A symlinked mirror or
+  config directory is still counted where it is declined, which is why the
+  target's type is asked at all in that case — no test reaches `foundDerived` or
+  `foundConfig`, so that half was checked by running the same fixture tree
+  through both implementations by hand (2 derived, 1 config, 2 config keywords,
+  identical).
+
+  The silence is worth naming twice: an unlistable directory IS reported in
+  `dirErrs`, a symlinked one is not, and neither is one whose stat raised — so
+  "nothing under here" and "we declined to look" read alike in a report.
+  Evidence: `TestQuery` "Walk" — one fixture tree carrying all five shapes at
+  once (real subdirectory, real directory named `*.org`, symlinked file,
+  symlinked directory, symlinked directory named `*.org`, dangling link,
+  Emacs's lock), asserted as the sorted list of files walked and their load
+  outcomes, since a tree entered twice through a link and a file quietly
+  dropped are both invisible in a total. Verified against the pre-`lstat`
+  implementation: same list, same outcomes. **test**
 - **A dangling `.org` symlink is a permanent read failure — but Emacs's lock is
   not one any more.** The non-directory branch keeps a path on `isDocument`,
   with no existence check — only a named root is probed — so a broken link is
@@ -507,24 +529,50 @@ on.
   reports `1` for a tree of any size, and `glance scan a b c` reports `3` even
   when `a` is a plain file. Read it as "arguments accepted", not as coverage.
   **none**
-- **The serial walk is most of the wall, and the row that says so is new.**
-  Measured 2026-07-31 over ~/sync, which is 6290 `.org` files inside 89874
-  directories and 702962 entries: the walk is 11.8–13.5 s of a 13.6–15.4 s
-  `glance scan`, and the parallel read of every file is 1.2 s of it. `serve` is
-  the same shape — 14.2 s to `loaded:` over ~/sync against 1.7 s over
-  ~/sync/views, which holds almost the same file count inside a tree of ~8700
-  directories. So a corpus's cost here is its DIRECTORY count, and the pool
-  cannot touch that half; `scan`'s `walk seconds` row exists to keep the two
-  apart. Two further facts, both measured: the walk costs ~15 µs an entry
-  against `find`'s ~0.5, which is two `stat`s per entry
-  (`doesDirectoryExist` then `pathIsSymbolicLink`) plus `String` marshalling
-  plus `isDerived` re-splitting the path — `--include-derived`, which
-  short-circuits that last one, takes ~1 s off; and it gets SLOWER as `-N` rises
-  (11.9 s at `-N1`, 13.5 s at `-N8`) with GC steady at 1.0 s elapsed either way,
-  so that cost sits in the syscalls. The lever, when this is worth pulling, is one
-  `getSymbolicLinkStatus` in `visit` answering both questions, and it would move
-  the symlinked-directory rule above, so it is a decision rather than an
-  optimization. **docs**
+- **The serial walk is most of the wall, and what it is made of has been
+  measured.** Measured 2026-08-01 over ~/sync, which is 6287 `.org` files inside
+  89691 directories and 702296 entries: the walk is 10.4 s of a `glance scan`,
+  and the parallel read of every file is ~1.2 s of it. `serve` is the same shape.
+  So a corpus's cost here is its DIRECTORY count, the pool cannot touch that
+  half, and `scan`'s `walk seconds` row exists to keep the two apart.
+
+  The 12.9 s that row used to report came down in two moves, both landed
+  2026-08-01. `visit` went from two stats an entry (`doesDirectoryExist` then
+  `pathIsSymbolicLink`) to one `lstat`, worth 12.9 → 12.1 s. And
+  `orgGlanceTails` — which `isDerived` and `isConfig` each call, so twice an
+  entry — grew an allocation-free character scan for `.org-glance` ahead of the
+  `splitDirectories`/`tails` pair, worth 12.1 → 10.4 s. The guard is exact: a
+  path that does not spell the string cannot hold the component, so the fast
+  exit answers what the split would have. It is hand-written rather than
+  `Data.List.isInfixOf` on measurement — the two allocate alike at `-O1`, but
+  `isInfixOf` reaches `isPrefixOf` through the `Eq Char` dictionary per
+  position and costs ~0.45 s more over the corpus.
+
+  ONE MEASURED THING DECLINED: `isDerived` and `isConfig` each call
+  `orgGlanceTails` themselves, so an entry scans its path twice. Sharing one
+  result between them saves ~130 ms of the 10.4 s (~1.2%) and costs splitting
+  both rules into a pair of functions — the one-definition-each shape is what
+  keeps the walk and the watch answering alike, and it is not worth 1.2%.
+
+  WHERE THE REST IS, decomposed with a standalone harness over the same tree
+  (3-run medians, warm): `find .` crosses it in 2.0 s, so ~2 s is the syscall
+  floor. A `listDirectory` + `lstat` loop in `String` is 7.6 s of the 10.4;
+  the same loop on `RawFilePath` (`System.Posix.Directory.ByteString` +
+  `System.Posix.Files.ByteString`) is 3.3 s. So ~4.3 s is GHC marshalling a
+  `FilePath` — decoding every one of 702k names out of `readdir` and encoding
+  each back for the stat — and it is the whole of the remaining gap to a
+  2–5 s walk. THE PRICE of taking it is the reason it is a decision rather
+  than an optimization: `isDocument`, `isDerived` and `isConfig` are one
+  `FilePath` rule apiece serving both the walk and the watch
+  (`Glance.Query.documentPath`/`derivedPath`), and a byte-level walk needs a
+  byte-level spelling of each — two encodings of one rule, which is the drift
+  those single definitions exist to prevent. A walk that decoded only the paths
+  it KEEPS (~6.3k of 702k) would pay the marshalling where it is cheap, but it
+  still owes a byte-level `isOrg`/`isSidecar` to decide what to keep.
+
+  One older measurement stands: the walk got SLOWER as `-N` rose (11.9 s at
+  `-N1`, 13.5 s at `-N8`) with GC steady at 1.0 s elapsed either way, so the
+  cost is not the collector. **docs**
 - **A row is a top entry.** `Glance.Query.recordsOf` keeps the headlines
   `topLevel` accepts — one star, no ancestor — and everything deeper is carried
   inside an ancestor's `hrSubtree` rather than beside it. `subtreeSpans` runs
@@ -572,6 +620,52 @@ on.
   mirrors walked, 9 without — those nine are genuine duplicates between real
   files (an elpa working copy of a checkout; documents whose `data.org` repeats
   the source document's id). **test + corpus**
+- **A row id is its `ORG_GLANCE_ID`, else `FILE#K`, where K is an ORDINAL.**
+  K is the headline's 0-based place among its FILE's top entries, numbered in
+  `Glance.Query.recordsOf` after the `topLevel` filter, so a child spends no
+  ordinal and a deeper headline can never take one. What that buys is what a
+  table needs: the id survives every edit that does not move the file's top
+  entries past each other. A preamble inserted above row 0, a retitled headline,
+  a state flipped, a body that grew, a drawer added, a child edited — none of
+  them renames anything, so the store streams the row that actually changed and
+  a reader's selection, marks and open sheet all hold.
+
+  THE BREAKAGE CLASS, stated because it is real and cannot be designed away
+  without an `ORG_GLANCE_ID`: reordering top entries, inserting one ahead of
+  others, or removing one renumbers everything behind it. A swap re-points two
+  ids at each other's headlines; a new first entry re-points every id at its
+  predecessor and adds one at the end. No delete-plus-insert is streamed in
+  either case — the id set is the same or a superset — so a client sees cells
+  change under stable ids, which is the honest wire answer and the reason
+  writing an `ORG_GLANCE_ID` still matters for a file whose entries get shuffled.
+
+  This replaced `FILE:START`, the character offset `hsFull` began at, which moved
+  on ANY edit above the headline: a byte typed into the preamble renamed every
+  row in the file, and the store could not tell that from every row being deleted
+  and re-inserted. Measured live 2026-08-01 over a three-entry file — a preamble
+  added, a body line added and one state flipped in one save — one `upsert-row`,
+  where the offset id would have shipped three deletes and three inserts.
+
+  The two forms share one namespace and are resolved by exact string
+  (`resolveIds`); nothing anywhere parses an id apart, so no rule turns on the
+  separator. It is `#` rather than `:` because a path may hold either and a
+  walked path always ends in its `.org` extension, which makes `FILE#K`
+  recoverable at its last `#` for every file this library can reach. A headline
+  whose `ORG_GLANCE_ID` literally spells another row's `FILE#K` collides the way
+  any two headlines claiming one id collide — one is kept, the other reported —
+  so a pathological tree costs a row and never points an id at the wrong one.
+  Ordinals cannot collide with each other: unique per file by construction, and
+  prefixed by the path across files. Corpus at 2026-08-01: store rows 10685 and
+  id collisions 7, both unchanged by the switch.
+
+  ONE CONSEQUENCE ELSEWHERE: the id carries a `#`, which a raw URL reads as a
+  fragment. `/headline?id=…` is safe because the id rides in the query string
+  and both sides percent-encode it — `renderQuery` in the suite,
+  `encodeURIComponent` in the shell — and `POST /command` carries ids in a JSON
+  body. Evidence: `TestQuery` "without one the row id is FILE#K…" and the
+  child-spends-no-ordinal case, `TestStore`'s five stability/churn cases,
+  `TestServe` "an id carrying a hash and slashes round-trips". **test + corpus
+  + live**
 
 ## Architecture (constrains this code; from docs/)
 
@@ -1001,7 +1095,7 @@ on.
   parsed from, folded in path order. Identical tree, identical fingerprint, so a
   client's 304 is honest; a byte, a name or a root moved, and it is a different
   tag whatever the generation says. The path is in it because an id-less
-  headline's row id is `FILE:START` — same bytes under another name is a
+  headline's row id is `FILE#K` — same bytes under another name is a
   different document. A file that contributed no rows (empty, or a failed load)
   stands as its path alone, which is sound because it contributes no rows to a
   response either. The fingerprint is deliberately NOT recomputed per edit: the

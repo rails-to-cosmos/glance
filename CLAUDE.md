@@ -99,9 +99,11 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   and `hrDoc` deliberately keep the document, which is why a loaded store still
   retains what it parsed.
 - Corpus check: `cabal run -v0 glance -- scan ~/sync` — expect 0 span
-  violations, ~12.9k headlines, wall ~14 s warm of which the `walk seconds` row
-  is ~13. (2026-07-31: 13.4k → 12.9k when the derived mirrors left the walk; a
-  semantic correction rather than a loss.)
+  violations, ~12.9k headlines, and a `walk seconds` row of ~10.4 (2026-08-01,
+  warm, of a ~11.6 s wall). (2026-07-31: 13.4k → 12.9k headlines when the
+  derived mirrors left the walk, a semantic correction rather than a loss;
+  2026-08-01: ~13 → ~10.4 walk seconds on the lstat and the `orgGlanceTails`
+  guard, see Walk.)
 - The `GLANCE_CORPUS` groups still PASS when the variable is unset, and say so:
   `TestDefaults.withCorpusSample` prints `SKIPPED — GLANCE_CORPUS is unset` on
   stderr for each. A green run without those two lines answered is unverified on
@@ -129,9 +131,14 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   runs only where a directory is declined. A skipped file is dropped with no
   record, which is reachable only in the cd-inside case above — where the run
   reports nothing at all.
-- Symlinked directories are never followed, and the symlink probe failing is
-  treated the same way: `pure acc`, no error kept, nothing counted. An
-  unlistable directory IS reported; a symlinked one vanishes silently.
+- ONE `lstat` an entry classifies it (`getSymbolicLinkStatus`, never follows);
+  a SYMLINK pays a second `getFileStatus` to classify its target, and only when
+  the answer could change what is collected — a link neither named like a
+  document nor inside a declined directory is dropped before that stat, which
+  is where Emacs's lock exits. Symlinked directories are never followed;
+  a failed `lstat` falls to the keep-on-name branch, silently, the way
+  `doesDirectoryExist` swallowed one into `False`. An unlistable directory IS
+  reported; a symlinked one vanishes silently.
 - A non-directory is kept on name alone — no existence check — so a dangling
   `.org` symlink is walked and its load fails as `ReadFailed`, counted once at
   startup and for the life of the process, since the watch is filtered by the
@@ -139,6 +146,13 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   rule: `isDocument` = `isOrg` minus `isSidecar` (`.#name.org`, the lock
   symlink that dangles, and `#name.org#`), one predicate for the walk and, via
   `Glance.Query.documentPath`, for `isWatchable`.
+- `orgGlanceTails` guards its `splitDirectories`/`tails` pair with an
+  allocation-free character scan for `.org-glance`: a path that does not spell
+  the string cannot hold the component, so it is the same function with a fast
+  exit. Walk over ~/sync, 2026-08-01: 12.92 s → 12.09 (lstat) → 10.44 (guard).
+  The 2–5 s band needs a `RawFilePath` walk — ~4.3 s of what is left is GHC
+  marshalling 702k names — and that costs byte-level twins of `isOrg`,
+  `isSidecar`, `isDerived` and `isConfig`, so it is an open decision.
 - `scan`'s argument parser recognizes `--include-derived` and treats every other
   token as a root, so `glance scan --dir X` walks a nonexistent `--dir`. `serve`
   and `desktop` reject unknown arguments; `scan` alone is permissive, and has no
@@ -156,6 +170,19 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   it counts headlines and ids off `orgParse`, never through `recordsOf`,
   because it is a parser oracle rather than a view. ~/sync at 2026-08-01: store
   rows 12875 → 10685, collisions 9 → 7; scan 12884 and 9, unmoved.
+- A ROW ID IS `ORG_GLANCE_ID`, else `FILE#K` — K the headline's 0-based place
+  among its FILE's TOP ENTRIES, numbered in `recordsOf` after the `topLevel`
+  filter, so a child spends no ordinal. An edit ABOVE a row no longer renames
+  it: preamble, title, state, body, drawer and child edits all keep the id, and
+  the store streams the row that moved. What still renumbers is the top entries
+  moving past each other — reorder, insert-ahead, remove — and that ships cells
+  under stable ids rather than a delete plus an insert; `ORG_GLANCE_ID` is the
+  only immunity. Replaced `FILE:START`, the offset, which moved on any edit
+  above the headline. Nothing parses an id apart (`resolveIds` is exact-string),
+  so the separator carries no rule; `#` is safe in `/headline?id=` because both
+  sides percent-encode, and `POST /command` carries ids in JSON. Ordinals cannot
+  collide with each other — unique per file, path-prefixed across files — and an
+  `ORG_GLANCE_ID` spelling another row's `FILE#K` is an ordinary collision.
 - An edit under a child moves `hrDoc`/`hrDigest`/the extent and no cell: the
   store still refreshes the entry (so materialize is drift-free) and emits NO
   frame and no generation bump, `streamed` diffing row JSON and `guarded`

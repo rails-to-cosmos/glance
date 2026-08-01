@@ -125,7 +125,8 @@ postTo application' path payload = runSession (srequest (SRequest req payload)) 
                 , requestHeaders = [("Content-Type", "application/json")] }
 
 -- | @\/headline?id=…@ with ID percent-encoded, the way a client builds it: a
--- row id is @FILE:START@ and carries both separators the path would fight over.
+-- row id is @FILE#K@ and carries both the slashes a path segment would fight
+-- over and the hash a raw URL would read as a fragment.
 headlinePath :: T.Text -> ByteString
 headlinePath rid = "/headline" <> renderQuery True [("id", Just (TE.encodeUtf8 rid))]
 
@@ -2011,11 +2012,11 @@ indexingSpec = testGroup "Indexing (bind before load)"
 
   , testCase "materialize and commit wait for the load too" $ do
       application' <- indexingApp
-      r <- getFrom application' (headlinePath "sample.org:0")
+      r <- getFrom application' (headlinePath "sample.org#0")
       assertEqual "GET /headline" 503 (status r)
       -- A commit before the load would be refused as a headline the file does
       -- have: the 503 is the honest answer, and the retriable one.
-      w <- postTo application' (headlinePath "sample.org:0") (commitBody "* x\n" "deadbeef")
+      w <- postTo application' (headlinePath "sample.org#0") (commitBody "* x\n" "deadbeef")
       assertEqual "POST /headline" 503 (status w)
       assertEqual "retry" (Just "1") (header "Retry-After" w)
 
@@ -2516,9 +2517,14 @@ materializeSpec = testGroup "GET /headline"
                   (T.unlines ["* TODO parent", "** child", "child body", "*** grandchild"])
                   =<< textAt "body" v
 
-  , testCase "an id carrying a colon and slashes round-trips" $ do
+    -- A row id with no ORG_GLANCE_ID is FILE#K, so it carries slashes and a
+    -- HASH.  The hash is the one that would bite: spelled into a URL raw it
+    -- opens a fragment and the id arrives truncated at the first slash-free
+    -- half of it.  The query string plus percent-encoding is what makes it a
+    -- non-issue, on this side and in the shell (`encodeURIComponent').
+  , testCase "an id carrying a hash and slashes round-trips" $ do
       (a, _hub) <- serverOver viewDir
-      let rid = T.pack sampleFile <> ":210"
+      let rid = T.pack sampleFile <> "#1"
       r <- getFrom a (headlinePath rid)
       assertEqual "status" 200 (status r)
       v <- decoded r
@@ -2549,7 +2555,7 @@ materializeSpec = testGroup "GET /headline"
 
   , testCase "a headline with no drawer is all body and no pairs" $ do
       (a, _hub) <- serverOver viewDir
-      v <- getFrom a (headlinePath (T.pack sampleFile <> ":210")) >>= decoded
+      v <- getFrom a (headlinePath (T.pack sampleFile <> "#1")) >>= decoded
       assertEqual "the body is the subtree, its planning line lifted out"
                   "* TODO [#B] Привет мир :unicode:\n" =<< textAt "body" v
       assertEqual "with nothing to show beside it" [] =<< pairsAt "properties" v

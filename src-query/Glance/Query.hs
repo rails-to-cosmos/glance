@@ -333,13 +333,16 @@ summarise dirErrs files =
 recordsOf :: ConfigLayers -> FilePath -> Text -> Text -> Context -> [Spanned Element]
           -> [HeadlineRecord]
 recordsOf cfg path doc digest ctx elems =
-  [ recordOf cfg declared path doc digest category keywords h subtree
-  | (h, subtree) <- zip heads (subtreeSpans (T.length doc) heads)
-  , topLevel h ]
+  [ recordOf cfg declared path ordinal doc digest category keywords h subtree
+  | (ordinal, (h, subtree)) <- zip [0 ..] entries ]
   where category = detach (metaCategory ctx)
         keywords = keywordsOf ctx
         declared = declaredKeywords elems
         heads    = [ h | e <- elems, EHeadline h <- [valueOf e] ]
+        -- The position in THIS list is the row's ordinal ('rowId'), so the
+        -- filter has to run before the numbering: a child between two entries
+        -- would otherwise consume an ordinal and shift every row behind it.
+        entries  = filter (topLevel . fst) (zip heads (subtreeSpans (T.length doc) heads))
 
 -- | Is H a headline the table shows — one star, no ancestor?
 --
@@ -356,11 +359,11 @@ recordsOf cfg path doc digest ctx elems =
 topLevel :: Headline -> Bool
 topLevel h = case indent h of Indent n -> n == 1
 
-recordOf :: ConfigLayers -> TodoKeywords -> FilePath -> Text -> Text -> Text
+recordOf :: ConfigLayers -> TodoKeywords -> FilePath -> Int -> Text -> Text -> Text
          -> TodoKeywords -> Headline -> Span -> HeadlineRecord
-recordOf cfg declared path doc digest category keywords h subtree = forceRecord HeadlineRecord
+recordOf cfg declared path ordinal doc digest category keywords h subtree = forceRecord HeadlineRecord
   { hrFile      = path
-  , hrId        = rowId path h
+  , hrId        = rowId path ordinal h
   , hrCategory  = category
   , hrHeadline  = h
   , hrKeywords  = keywords
@@ -1033,13 +1036,35 @@ keywordsOf ctx = forcing (actives <> inactives) (TodoKeywords actives inactives)
         inactives = kept todoInactive
         kept f = map detach (Set.toAscList (f ctx))
 
--- | H's row identity: its @ORG_GLANCE_ID@ property, else @"FILE:START"@ — the
--- path and the character offset 'hsFull' starts at.  The fallback is stable
--- only while the bytes ahead of the headline stay put, so an edit above it
--- renames the row; S5's file watch is where that gets revisited.
-rowId :: FilePath -> Headline -> Text
-rowId path h = maybe fallback detach (identity h)
-  where fallback = T.pack path <> ":" <> T.pack (show (spanStart (hsFull (spans h))))
+-- | H's row identity: its @ORG_GLANCE_ID@ property, else @"FILE#K"@ — the path
+-- and ORDINAL, which is H's 0-based position among the file's TOP ENTRIES
+-- ('recordsOf', where the numbering happens after the 'topLevel' filter).
+--
+-- The ordinal is what a row's identity survives.  It moves only when the file's
+-- top entries are REORDERED, INSERTED into or REMOVED from ahead of this one —
+-- so editing a title, a state, a body, a drawer, a child, or anything at all in
+-- the entry above, renames nothing and the table keeps its selection.  What
+-- still churns, honestly, is the class the ordinal cannot absorb: a new first
+-- entry renumbers every row behind it, and so does deleting one or swapping two.
+-- An @ORG_GLANCE_ID@ is immune to all of it, which is the reason to write one.
+--
+-- The character offset this replaced moved on ANY edit above the headline,
+-- which is most edits: a byte typed into the preamble renamed every row in the
+-- file, and the store could not tell that from every row being deleted and
+-- re-inserted.
+--
+-- The two forms share one namespace and are resolved by exact string
+-- ('resolveIds'), never by parsing an id apart, so nothing turns on the
+-- separator being unambiguous.  It is @#@ rather than @:@ because a path is
+-- allowed to hold either, and a walked path always ends in its @.org@
+-- extension: @FILE#K@ therefore recovers K at its last @#@ for every file this
+-- library can reach.  A headline that WRITES an @ORG_GLANCE_ID@ spelling
+-- another row's @FILE#K@ collides the way any two headlines claiming one id
+-- collide — one row is kept and the other is reported, so a pathological tree
+-- costs a row and never points an id at the wrong one.
+rowId :: FilePath -> Int -> Headline -> Text
+rowId path ordinal h = maybe fallback detach (identity h)
+  where fallback = T.pack path <> "#" <> T.pack (show ordinal)
 
 -- | TS's start as the wire spells a date: @"YYYY-MM-DD"@, plus @" HH:MM"@ when
 -- the source carried a time of day.  A computed value rather than a slice: ISO

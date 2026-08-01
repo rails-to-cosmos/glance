@@ -94,6 +94,9 @@ are cut from spans at load time and copied out of the document; `hrHeadline`
 still shares text with its file, so full-store residency is the S3 number to
 watch. Row identity is the `ORG_GLANCE_ID` property, else `FILE:START` — an
 edit above a headline renames its row, which S5's watch has to answer.
+*(Corrected 2026-08-01: the fallback is now `FILE#K`, K the headline's place
+among the file's top entries, so an edit above a row no longer renames it. See
+"Ordinal row ids" below.)*
 
 ## S3 — M0: headlines in a browser tab
 
@@ -247,6 +250,9 @@ The store keeps the last good parse's rows, counts the file as a parse failure
 the store cannot tell that from a deletion plus an insertion — it emits both.
 Marked headlines edit in place under one id. S8's write-back is where a stable
 id for an unmarked headline would have to come from.
+*(Corrected 2026-08-01: the ordinal id ended this class. Text above a row no
+longer renames it, and the same save now emits one upsert for the row that
+actually moved. What is left is reordering — see "Ordinal row ids" below.)*
 
 Suite: 274 → **301 tests**.
 
@@ -272,7 +278,9 @@ Exit:
       id. Actual: the id rides in the query string rather than in a path
       segment — a row id is `FILE:START` and carries both a slash and a colon,
       and WAI has decoded the query by the time the route runs. Everything is
-      served from the store; nothing re-reads the file.
+      served from the store; nothing re-reads the file. *(2026-08-01: the id is
+      `FILE#K` now, so the hash it carries would open a URL fragment; the query
+      string plus percent-encoding on both sides is what keeps that a non-issue.)*
 - [x] `POST /headline?id=…` with `{org, digest}` writes the span and answers
       the new digest. Actual: one `Edit` through `editFile` — atomic
       temp+rename, permission bits kept — and 200 `{"digest": …}`.
@@ -392,6 +400,9 @@ second headline has no `ORG_GLANCE_ID`, the edit above it moved its offset from
 `FILE:START` cannot tell that from a deletion and an insertion. Materialize
 makes this reachable from a browser rather than only from an editor; a stable
 id for an unmarked headline is still S8's problem.
+*(Answered 2026-08-01 by the ordinal id: the same edit moves no id at all, since
+K counts the file's top entries and the byte offsets are not in the name. The
+loop's numbers otherwise stand.)*
 
 **Corpus.** `GLANCE_CORPUS=~/sync cabal test` samples every 98th path of 6313 —
 65 files, 91 headlines — and every subtree geometry claim holds on them:
@@ -857,6 +868,79 @@ pool's gain on `scan`, which is why `scan`'s wall barely moves while `serve`'s
 drops 2.8 s. The next lever is one `getSymbolicLinkStatus` per entry answering
 both questions, and it moves the symlinked-directory rule
 (`docs/invariants.md`, Walk), so it is a decision rather than a tidy-up.
+
+## Walk on lstat (2026-08-01) — and what it did not buy
+
+The lever above, pulled. `visit` now asks one `getSymbolicLinkStatus` — `lstat`,
+which never follows — and routes on it; a SYMLINK pays a second
+`getFileStatus` to classify its target, and only when the answer could change
+what the walk collects, so Emacs's `.#name.org` is refused by name ahead of both
+stats. Semantics are preserved exactly, and the new `TestQuery` "Walk" group
+pins the matrix as a sorted file list over a fixture tree carrying every shape:
+symlinked directory skipped, symlinked file walked, dangling link walked and
+failing as `ReadFailed`, lock symlink excluded, a real directory named `*.org`
+entered, a symlinked directory named `*.org` refused. The same fixture was run
+against the pre-change walk and answers identically.
+
+Then a second, smaller move: `orgGlanceTails` — called twice an entry, by
+`isDerived` and `isConfig` — grew an allocation-free character scan for
+`.org-glance` ahead of its `splitDirectories`/`tails` pair. A path that does not
+spell the string cannot hold the component, so it is the same function with a
+fast exit.
+
+Measured over ~/sync (3-run medians, warm, `walk seconds` from the scan report):
+**12.92 s → 12.09 s** on the lstat, **→ 10.44 s** with the guard. Every count
+identical at each step — 6287 files, 12884 headlines, 9 parse failures, 0 read
+failures, 0 span violations, 9 scan collisions, 2 derived and 1 config skipped;
+store side 10685 rows and 7 id collisions.
+
+**The 2–5 s target was not reached, and this is why.** Decomposed with a
+standalone harness over the same tree: `find .` crosses 702296 entries in 2.0 s,
+which is the syscall floor. A `listDirectory` + `lstat` loop in `String` is
+7.6 s; the identical loop on `RawFilePath`
+(`System.Posix.Directory.ByteString` + `System.Posix.Files.ByteString`) is
+3.3 s. So ~4.3 s of the remaining 10.4 is GHC marshalling a `FilePath` —
+decoding 702k names out of `readdir` and encoding each back for the stat — and
+that is the whole of the gap to the target band. Taking it means a byte-level
+walk, and a byte-level walk needs byte-level spellings of `isOrg`, `isSidecar`,
+`isDerived` and `isConfig` to decide what to keep: two encodings of four rules
+that today have one definition apiece, shared with the watch through
+`Glance.Query.documentPath`/`derivedPath`. That is the drift those single
+definitions exist to prevent, so it is left as a decision with its price
+written down rather than taken here.
+
+## Ordinal row ids (2026-08-01)
+
+`Glance.Query.rowId`'s fallback moved from `FILE:START` — the character offset
+`hsFull` began at — to `FILE#K`, K the headline's 0-based place among its
+FILE's top entries, numbered in `recordsOf` after the `topLevel` filter so a
+child spends no ordinal. `ORG_GLANCE_ID` rows are untouched.
+
+What it ends: an edit ABOVE a row no longer renames it. Smoked live over a
+three-entry file with a websocket client attached — one save adding a two-line
+preamble, adding a body line and flipping one state produced exactly ONE
+`upsert-row`, for the row whose state moved, with every id standing. The offset
+id would have shipped three deletes and three inserts.
+
+What it does not end, pinned rather than papered over: reordering top entries,
+inserting one ahead of the others, or removing one renumbers everything behind
+it, so ids re-point at neighbouring headlines. No delete-plus-insert is
+streamed there either — the id set is the same or a superset — so the wire
+carries cells changing under stable ids. Writing an `ORG_GLANCE_ID` is still
+what makes a row immune.
+
+Separator: `#`. Nothing parses an id apart — resolution is exact string
+through `resolveIds` — so the choice buys readability rather than a rule, and a
+walked path always ends in `.org`, which makes `FILE#K` recoverable at its last
+`#` anyway. The one consequence with teeth is that `#` opens a URL fragment;
+`/headline?id=…` carries the id in the query string with `renderQuery` and
+`encodeURIComponent` percent-encoding it on either side, and `POST /command`
+carries ids in a JSON body. Counts over ~/sync are unchanged: 10685 store rows,
+7 id collisions, 9 in the scan's own tally.
+
+Suite 847 → 853: one walk-matrix case, two id-shape cases, and the S5 churn case
+replaced by five — stability under an edit above, stability under an edit to one
+row, and the three honest reorder shapes (swap, new first entry, append).
 
 Residency is the price and it is the priced-in one: pool width × one document,
 measured at 21.9 MB (`-N1`), 23.4 (`-N2`), 28.9 (`-N4`), 37.8 (`-N8`) — linear

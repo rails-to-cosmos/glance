@@ -213,7 +213,7 @@ fingerprintSpec = testGroup "Fingerprint"
 
   , testCase "and so does a file renamed under the same content"
       $ withTempDir $ \dir -> do
-      -- An id-less headline's row id is FILE:START, so the path IS part of the
+      -- An id-less headline's row id is FILE#K, so the path IS part of the
       -- answer: two trees of the same bytes under different names serve
       -- different ids and must not share a tag.
       path <- orgFile dir "a.org" "* TODO one\n"
@@ -485,19 +485,69 @@ diffSpec = testGroup "File diff"
       assertEqual "deletes" ["two"] (deleteIds frames)
       assertEqual "rows" ["one"] (map hrId (storeRecords next))
 
-  -- Documented churn: without an ORG_GLANCE_ID a row is FILE:START, so text
-  -- inserted above a headline renames it.  The store cannot tell that from a
-  -- deletion and an insertion, and says so on the wire.  S8's write-back is
-  -- where a stable id for an unmarked headline would have to come from.
-  , testCase "an id-less headline that moves is a delete and an insert" $ withTempDir $ \dir -> do
-      path <- orgFile dir "a.org" "* TODO one\n* TODO two\n"
+  -- An id-less row is FILE#K, K its place among the file's top entries, so
+  -- BYTES above it are not part of its name: a preamble, a longer title, a body
+  -- that grew.  This case used to pin the opposite — the offset moved, every row
+  -- of the file was renamed, and the store shipped a delete plus an insert for
+  -- each because it could not tell a rename from one.
+  , testCase "text inserted above an id-less row leaves its id alone" $ withTempDir $ \dir -> do
+      path <- orgFile dir "a.org" twoEntries
       store <- loadStore dir
       let before = map hrId (storeRecords store)
       (next, frames) <- rewrite path "#+TITLE: notes\n* TODO one\n* TODO two\n" store
+      assertEqual "the ids stand" before (map hrId (storeRecords next))
+      assertEqual "so nothing is deleted" [] (deleteIds frames)
+      assertEqual "and nothing is reinserted" [] (upsertIds frames)
+
+  , testCase "and an edit to one row is that row alone" $ withTempDir $ \dir -> do
+      path <- orgFile dir "a.org" twoEntries
+      store <- loadStore dir
+      let before = map hrId (storeRecords store)
+      (next, frames) <- rewrite path "* TODO one\n  a body line\n* DONE two\n" store
+      assertEqual "the ids stand" before (map hrId (storeRecords next))
+      assertEqual "one upsert, the row that moved" (drop 1 before) (upsertIds frames)
+      assertEqual "no deletes" [] (deleteIds frames)
+
+  -- The churn the ordinal cannot absorb, pinned so the trade is written down:
+  -- what renumbers a file is its TOP ENTRIES moving, and a swap moves two.  The
+  -- ids are the same two strings before and after, so the wire carries the cells
+  -- trading places rather than a delete and an insert — the row at #0 is now the
+  -- other headline.
+  , testCase "swapping two id-less entries renumbers both" $ withTempDir $ \dir -> do
+      path <- orgFile dir "a.org" twoEntries
+      store <- loadStore dir
+      let before = map hrId (storeRecords store)
+      (next, frames) <- rewrite path "* TODO two\n* TODO one\n" store
+      assertEqual "the ids are the same set" before (map hrId (storeRecords next))
+      assertEqual "and both rows are re-sent under them" before (upsertIds frames)
+      assertEqual "nothing is deleted" [] (deleteIds frames)
+      assertEqual "the row at #0 is the other headline"
+                  ["two", "one"] (map hrTitle (storeRecords next))
+
+    -- An entry inserted AHEAD of the others is the honest cost: every ordinal
+    -- behind it moves up one, so the last id is new and every earlier one now
+    -- names a different headline.  A file whose entries only ever grow at the
+    -- END costs nothing at all.
+  , testCase "a new first entry renumbers the rows behind it" $ withTempDir $ \dir -> do
+      path <- orgFile dir "a.org" twoEntries
+      store <- loadStore dir
+      let before = map hrId (storeRecords store)
+      (next, frames) <- rewrite path "* TODO zero\n* TODO one\n* TODO two\n" store
       let after = map hrId (storeRecords next)
-      assertEqual "every row is reinserted" after (upsertIds frames)
-      assertEqual "every old row is dropped" before (deleteIds frames)
-      assertBool "ids overlap" (not (any (`elem` after) before))
+      assertEqual "the old ids all survive, and #2 joins them"
+                  (before <> [T.pack path <> "#2"]) after
+      assertEqual "every row is (re)sent" after (upsertIds frames)
+      assertEqual "and none is deleted" [] (deleteIds frames)
+      assertEqual "each id names the headline one place later"
+                  ["zero", "one", "two"] (map hrTitle (storeRecords next))
+
+  , testCase "an entry appended after them all costs one upsert" $ withTempDir $ \dir -> do
+      path <- orgFile dir "a.org" twoEntries
+      store <- loadStore dir
+      (next, frames) <- rewrite path "* TODO one\n* TODO two\n* TODO three\n" store
+      assertEqual "the rows" 3 (length (storeRecords next))
+      assertEqual "the new row alone" [T.pack path <> "#2"] (upsertIds frames)
+      assertEqual "no deletes" [] (deleteIds frames)
 
   , testCase "a deleted file drops the rows it carried" $ withTempDir $ \dir -> do
       path <- orgFile dir "a.org" (entry "one" <> entry "two")
@@ -549,6 +599,9 @@ diffSpec = testGroup "File diff"
       assertEqual "rows" (map hrId (qrRecords loaded)) (map hrId (storeRecords next))
       assertEqual "files" (qrFiles loaded) (qrFiles (storeResult next))
   ]
+  -- The id-stability cases below all rewrite THIS file, so what each of them
+  -- varies is the rewrite alone and the base cannot drift between them.
+  where twoEntries = "* TODO one\n* TODO two\n"
 
 -- | A file that stops loading keeps the rows it had.  'orgParse' is
 -- all-or-nothing, so a save caught mid-write is indistinguishable from a file

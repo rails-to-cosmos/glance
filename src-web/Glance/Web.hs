@@ -538,9 +538,11 @@ bodyLimit = 1024 * 1024
 -- the digest a commit has to present and the extent the text was cut from.
 --
 -- The id travels in the query string rather than in the path.  A row id is
--- @FILE:START@ — slashes and a colon — so a path segment would have to be
+-- @FILE#K@ — slashes and a hash — so a path segment would have to be
 -- percent-encoded by every client and decoded here, while WAI has already
--- decoded the query string by the time this runs.
+-- decoded the query string by the time this runs.  The hash is the sharper
+-- half: spelled into a URL raw it opens a FRAGMENT and the id never reaches the
+-- server at all, which is why the shell builds this with @encodeURIComponent@.
 --
 -- Every field comes out of the store, which is the read model.  The offsets
 -- and the digest then describe one document, the text this process parsed:
