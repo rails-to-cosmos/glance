@@ -365,9 +365,9 @@ parameter and a key line that had to be rewritten whenever it moved.
 | =u=         | =unmark=                          | clears this row's flag, else its mark         |
 | =U=         | =unmark-all=                      | clears every mark and every flag              |
 | =M=         | =mark-all=                        | marks every row loaded                        |
-| =d=         | =archive-flag=                    | flags this row; =d= again archives it         |
-| =D=         | =org-glance-overview:delete=      | archives the marked rows, or the one at point |
-| =t=         | =org-glance-overview:todo=        | asks which state, and sets it on them         |
+| =d=         | =archive-flag=                    | flags this row; =d= again archives it          |
+| =D=         | =org-glance-overview:delete=      | archives the flagged rows, or the one at point |
+| =t=         | =org-glance-overview:todo=        | asks which state over the marked rows          |
 | =,=         | =customize=                       | the keyword cycles and the default view       |
 | =q=         | =quit-window=                     | closes the sheet; never the tab               |
 | =C-x C-s=   | =save-buffer=                     | syncs the sheet; again to overwrite           |
@@ -432,11 +432,20 @@ are how you leave it.
 
 *Archiving is two presses.* =d= flags the row under the cursor and says so
 (=d → flagged — d again archives=); a second =d= on that same row archives it.
-The flag is the confirmation, so there is no prompt and no undo to build — =u=
-takes a flag off before it touches a mark, and =U= clears both. Flags are keyed
-by row id like marks, so one survives a filter, a page turn and a re-sort. =D=
-is the mass action and is unchanged: the marked set, or the row at point. Both
-are held-key-safe — a key you lean on delivers exactly one press.
+=D= is the same idea over the whole flagged set — flag a few rows, then =D= —
+and falls back to the row at point when nothing is flagged. The pill names the
+set it ran over: =D → archived (4 flagged)=, or =D → archived (row)=. The flag
+is the confirmation, so there is no prompt and no undo to build; =u= takes a flag
+off before it touches a mark, and =U= clears both. Flags are keyed by row id like
+marks, so one survives a filter, a page turn and a re-sort, and nothing has to
+clear them after a =D= — the rows carry the tag now and leave the default view.
+Both keys are held-key-safe: a key you lean on delivers exactly one press.
+
+*Marks and flags are different selections, on purpose.* A mark is the generic
+bulk selection — lay a run of them down and =t= sets a state over the lot. A flag
+is a selection made for archiving and nothing else. =D= reads flags and never
+marks, which is what stops a mark you laid down for a state change from becoming
+a row you archive by reflex.
 
 Switch in the status corner, top right: the connection dot and a =theme:=
 selector, in that order. It is a native =select=, so Tab reaches it and the
@@ -453,8 +462,8 @@ flashes light on the way in. The whole page wears danneskjold through one set of
 materialize sheet keeps a single =--dk-mono= of its own, the Hack font stack.
 
 The page's last line is that map, resident: =n/p rows · f/b cells · [/] pages ·
-RET materialize · m/u/U/M mark · t state · d archive · D archive marked ·
-/ filter · g default view · DEL drop token · , settings · q quit=. It is named by
+RET materialize · m/u/U/M mark · t state · d flag for archive · d/D archive
+flagged · / filter · g default view · DEL drop token · , settings · q quit=. It is named by
 command and spelled from the same blob the dispatch reads, so it can never offer
 a key nothing is bound to. The pill says what just ran; the line says what can.
 

@@ -496,7 +496,8 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   stored choice, a URL parameter and a key line that had to be rewritten. Ends
   are `<` and `>`, plus vi's `G` beside `>`. `g` is `apply-default-filter`, `,`
   is `customize`, `o` and `!` are the open stub, `M` is `mark-all`, `d` is
-  `archive-flag` and `D` is `org-glance-overview:delete`. No sequence is bound
+  `archive-flag` and `D` is `org-glance-overview:delete` (both over FLAGS, never
+  marks). No sequence is bound
   twice or opens a longer one. Sequences and command names are org-glance's where
   org-glance has one; a row with no handler is recognized and says what will
   back it.
@@ -518,21 +519,29 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   holds under both spellings of a command. `archive-flag` needs it most: a repeat
   that survived would flag a row and archive it from ONE press, which is the
   confirmation the two-press shape exists to be.
-- Three keys write without a sheet, all `POST /command`. `D` and `t`/`C-c C-t`
-  run over the marked set when there is one and the row at point otherwise
-  (dired's rule; `getMarked()` is asked for AT command time and no set is kept
-  here). `D` is `org-glance-overview:delete` and archives — the help line says
-  so, since the name is wider than the behaviour.
+- Three keys write without a sheet, all `POST /command`, and WHICH ROWS is per
+  command rather than one rule. `t`/`C-c C-t` (`set-state`) take the MARKED set
+  when there is one and the row at point otherwise — dired's rule, and the
+  generic bulk selection. `D` and `d` take the FLAGGED set instead and never read
+  marks: a mark is what a reader lays down to set a state over a run of rows, and
+  letting the archive key inherit one makes every mark a loaded gun. Both sets
+  are the renderer's and are asked for AT command time; no set is kept here.
 - `d` is dired's FLAG, in two presses: the first flags the row at point
   (`archive-flag`, echo `d → flagged — d again archives`) and a second `d` on an
-  already-flagged row archives THAT row and spends the flag. The flag is the
+  already-flagged row archives THAT row and spends the flag. `D`
+  (`org-glance-overview:delete`) is the same idea over the whole flagged set —
+  every flagged row when there is one, the row at point otherwise, echoing
+  `D → archived (4 flagged)` or `D → archived (row)` and giving that name up for
+  the bare count when nothing landed, since a set name over zero rows reads as a
+  write that worked. Nothing clears flags after `D`: the rows carry the tag and
+  leave the default view, which takes their flags with them. The flag is the
   confirmation, so there is no prompt; `u` on a flagged row takes the flag off
   before it touches a mark (`u → flag cleared`) and `U` clears flags with marks.
   Flags are the RENDERER's session state, keyed by id like marks —
-  `flagRow`/`unflagRow`/`getFlagged`/`clearFlags`, feature-detected as a pair, an
-  asset without them echoing `this table-view.js has no archive flags` and
-  writing nothing. HANDOFF: that API and the `.tv-flagged` wash are a
-  table-view.js change this repo does not make.
+  `flagRow`/`unflagRow`/`getFlagged`/`clearFlags`, feature-detected as a pair; an
+  asset without them echoes `this table-view.js has no archive flags` and writes
+  nothing, and `D` there falls through to the row at point. HANDOFF: that API and
+  the `.tv-flagged` wash are a table-view.js change this repo does not make.
 - `t`/`C-c C-t` raise a value palette of the shell's OWN — the state column's
   `badges` plus `*clear*`, never its `values` (`*active*` is not a keyword) —
   typed to narrow, `C-n`/`C-p` and the arrows to walk, `RET` to commit, `ESC`

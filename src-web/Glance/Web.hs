@@ -1310,14 +1310,15 @@ keyBindings =
   , bind ["a"]          "org-glance-agenda"               Nothing                 "table"
   , bind ["@"]          "org-glance-overview:relations"   Nothing                 "table"
   , bind ["+"]          "org-glance-overview:capture"     Nothing                 "table"
-  -- dired's flag, and dired's rule for it: the first press marks the row for
-  -- archiving and the second one does it.  The flag IS the confirmation, so
-  -- there is no prompt and no undo to build — @u@ takes it off.  Plain @d@ is
-  -- never a write on its own, which is what makes a mis-key cost a keystroke.
+  -- dired's flag, and dired's rule for it: the first press flags the row and the
+  -- second one archives it.  The flag IS the confirmation, so there is no prompt
+  -- and no undo to build — @u@ takes it off.  Plain @d@ is never a write on its
+  -- own, which is what makes a mis-key cost a keystroke.  @D@ is the same idea
+  -- over the whole flagged set at once.
   , bind ["d"]          "archive-flag"                    (Just "archiveFlag")    "table"
-      `helps` "flag this row; d again archives it"
+      `helps` "flag for archive; d again archives it"
   , bind ["D"]          "org-glance-overview:delete"      (Just "archiveRows")    "table"
-      `helps` "archive the marked rows, or the row at point — never a delete"
+      `helps` "archive the flagged rows, or the row at point — never a delete"
       -- The user's own spelling; Chromium owns Ctrl+T above the document, so
       -- the org chord stays as the secondary for browsers that deliver it.
   , bind ["t"]          "org-glance-overview:todo"        (Just "setState")       "table"
@@ -1383,9 +1384,12 @@ keyHints =
   , (["org-glance-overview:materialize"],  "materialize")
   , (["mark-toggle", "unmark", "unmark-all", "mark-all"], "mark")
   -- The two structured commands, beside the keys that pick what they run over.
+  -- `state' runs over the MARKED set; archiving runs over the FLAGGED one, and
+  -- is named as the two steps it is — `d' puts a flag on, and either key takes
+  -- the flagged rows off.
   , (["org-glance-overview:todo"],         "state")
-  , (["archive-flag"],                     "archive")
-  , (["org-glance-overview:delete"],       "archive marked")
+  , (["archive-flag"],                     "flag for archive")
+  , (["archive-flag", "org-glance-overview:delete"], "archive flagged")
   , (["filter-rows"],                      "filter")
   , (["apply-default-filter"],             "default view")
   , (["filter-drop-token"],                "drop token")
@@ -1538,9 +1542,11 @@ shellPage opts hub = do
 -- this design exists to avoid.  Narrow windows and coarse pointers stack the
 -- panel under the text.
 --
--- Two keys write without a sheet.  @D@ archives and @C-c C-t@ sets a state,
--- both over the marked set when there is one and the row at point otherwise —
--- dired's rule, and org-glance's.  They are @POST \/command@ ('runCommand'):
+-- Two keys write without a sheet.  @D@ archives the FLAGGED set, else the row
+-- at point; @C-c C-t@ sets a state over the MARKED set, else the row at point.
+-- The split is deliberate: a mark is the generic bulk selection and a flag is a
+-- selection made for archiving, so the destructive-looking key inherits
+-- nothing.  They are @POST \/command@ ('runCommand'):
 -- the page sends row ids and a name, the server computes the spans, and the
 -- table is not touched at all, since the rows come back over the socket once
 -- the watch has re-read the files.  There is no confirmation step; the drift
@@ -2320,10 +2326,14 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- here touches the table afterwards either: the rows arrive over the socket
     -- once the watch has re-read the files, the way an editor's save arrives.
     --
-    -- Which rows is dired's rule, and the same one `D' has in an org-glance
-    -- overview: the marked set when there is one, the row at point otherwise.
-    -- The marks are the renderer's, so they are asked for when the command runs
-    -- rather than tracked here.
+    -- Which rows a command runs over is per COMMAND, and the two answers are
+    -- deliberately different.  `set-state' takes the MARKED set, which is the
+    -- generic bulk selection — mark a run of rows, set them all. Archiving takes
+    -- the FLAGGED set, which is a selection made for archiving and nothing else
+    -- (`flagged' below): the destructive-looking command must not inherit a
+    -- selection a reader built for some other purpose.  Either way the set is
+    -- the renderer's and is asked for when the command runs rather than tracked
+    -- here.
   , "    const targets = () => {"
   , "      const marked = marking() ? table.getMarked() : [];"
   , "      if (marked.length) return marked;"
@@ -2333,7 +2343,12 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- A partial answer is ordinary here: each file is its own write, so one
     -- that moved on disk refuses its rows while the rest land.  The count goes
     -- in the pill and every refusal in the log.
-  , "    function fire(b, name, ids, args, verb) {"
+    -- HOW names what the pill says inside the parentheses, and is given the
+    -- number of rows that LANDED so a partial answer cannot read as a whole one:
+    -- the count alone is the default, and a key that ran over a named set says
+    -- which set it was — falling back to the bare count when nothing landed,
+    -- since "row" over zero rows would be a lie.
+  , "    function fire(b, name, ids, args, verb, how) {"
   , "      fetch(\"/command\", {"
   , "        method: \"POST\","
   , "        headers: { \"content-type\": \"application/json\" },"
@@ -2342,7 +2357,8 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        if (!r.ok) throw new Error(answer.error || r.status);"
   , "        const results = answer.results || [];"
   , "        const bad = results.filter((x) => !x.ok);"
-  , "        echo(`${b.seq} → ${verb} (${results.length - bad.length})`);"
+  , "        const landed = results.length - bad.length;"
+  , "        echo(`${b.seq} → ${verb} (${how ? how(landed) : landed})`);"
   , "        if (bad.length) log(bad.map((x) => `${x.id}: ${x.error}`).join(\" · \"));"
   , "      })).catch((e) => { said(b, e.message); log(`${name} failed: ${e.message}`); });"
   , "    }"
@@ -2823,9 +2839,27 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      save: () => (settings ? saveConfig() : saveSheet()),"
     -- D is dired's key and org-glance's `delete', and here it archives: the tag
     -- goes on, the headline stays, and the default view stops showing it.
+    --
+    -- It runs over the FLAGGED set and never over the marked one.  A mark is the
+    -- generic bulk selection — a reader lays one down to set a state over a run
+    -- of rows — and letting the archive key inherit it makes every mark a loaded
+    -- gun.  A flag is a selection made for exactly this, so `d' over a few rows
+    -- and then `D' is the whole of the bulk archive path.
+    --
+    -- The flags are SPENT here, the way a second `d' spends the one it fires
+    -- over.  They have to be: the renderer keeps a flag whose row a filter has
+    -- hidden — which is what makes a flag survive the refetch this write causes
+    -- — so a set left standing would be re-archived by the next `D', and the
+    -- row at point would never be reachable again.
   , "      archiveRows: (b) => {"
-  , "        const ids = targets();"
-  , "        if (ids.length) fire(b, \"archive\", ids, {}, \"archived\");"
+  , "        const flags = flagging() ? table.getFlagged() : [];"
+  , "        if (flags.length) {"
+  , "          table.clearFlags();"
+  , "          fire(b, \"archive\", flags, {}, \"archived\", (n) => `${n} flagged`);"
+  , "          return;"
+  , "        }"
+  , "        const id = focusedId();"
+  , "        if (id) fire(b, \"archive\", [id], {}, \"archived\", (n) => (n ? \"row\" : n));"
   , "        else said(b, \"no row\");"
   , "      },"
     -- C-c C-t asks which state, over whatever the command would run on, and

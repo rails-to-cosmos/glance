@@ -626,32 +626,68 @@ markSpec shell = testGroup "Shell marks"
   ]
 
 -- | The two structured commands, driven through the keys a reader presses.
--- What is asserted is this page's half: which rows a command names — dired's
--- rule, the marked set winning over the row at point — what the value palette
+-- What is asserted is this page's half: which rows a command names — the
+-- FLAGGED set for archiving and the MARKED one for a state, each falling back
+-- to the row at point — what the value palette
 -- offers and commits, and what the pill says when the server refuses.  The
 -- edits themselves are @TestQuery@'s subject and the route is
 -- @POST \/command@'s; nothing here re-states either.
 commandKeySpec :: IO T.Text -> TestTree
 commandKeySpec shell = testGroup "Shell commands"
-  [ testCase "D archives the row at point" $
+  [ testCase "D with nothing flagged archives the row at point" $
       bootOf shell "" 500 "D" "" $ \answer -> do
         assertEqual "one archive, over the selected row"
                     [("archive", ["r1"])] =<< postedOf answer
-        assertEqual "and the pill counts it" "D → archived (1)" =<< textAt "echo" answer
+        assertEqual "and the pill says which" "D → archived (row)"
+          =<< textAt "echo" answer
 
-    -- The marked set wins, and it is the renderer's: the shell asks for it when
-    -- the command runs rather than keeping one.
-  , testCase "D over a marked set archives the set, not the row at point" $
+    -- The FLAGGED set is what `D' runs over. A flag is a selection made for
+    -- archiving; a mark is the generic bulk selection a reader lays down to set
+    -- a state over a run of rows, and letting the archive key inherit one would
+    -- make every mark a loaded gun.
+  , testCase "D archives the flagged set, and leaves the marks where they are" $
+      -- `m m' marks r1 and r2 and steps to r3; `d' flags r3.
+      bootOf shell "" 500 "m m d" "press:D" $ \answer -> do
+        assertEqual "the flagged row, and only it"
+                    [("archive", ["r3"])] =<< postedOf answer
+        assertEqual "named as the set it was" "D → archived (1 flagged)"
+          =<< textAt "echo" answer
+        assertEqual "the marks are untouched" ["r1", "r2"] =<< textsAt "marked" answer
+
+    -- The flags are spent, the way a second `d' spends the one it fires over.
+    -- They have to be: the renderer keeps a flag whose row a filter is hiding,
+    -- so a set left standing would be archived again by the next press and the
+    -- row at point would never be reachable again.
+  , testCase "D spends the flags it fired over, and the next D is the point row" $
+      bootOf shell "" 500 "d" "press:D press:D" $ \answer -> do
+        assertEqual "the flagged row, then the row under the cursor"
+                    [("archive", ["r1"]), ("archive", ["r1"])] =<< postedOf answer
+        assertEqual "nothing flagged is left" [] =<< textsAt "flagged" answer
+        assertEqual "and the second press said so" "D → archived (row)"
+          =<< textAt "echo" answer
+
+  , testCase "and with marks but no flags it is still the row at point" $
       bootOf shell "" 500 "m m D" "" $ \answer -> do
-        assertEqual "the marked rows, and only those"
-                    [("archive", ["r1", "r2"])] =<< postedOf answer
-        assertEqual "counted" "D → archived (2)" =<< textAt "echo" answer
-        assertEqual "and the cursor is where the marking left it" 2
-          =<< intAt "cursor" answer
+        assertEqual "the row under the cursor, never the marked pair"
+                    [("archive", ["r3"])] =<< postedOf answer
+        assertEqual "said as the point row" "D → archived (row)"
+          =<< textAt "echo" answer
+        assertEqual "and the marks stand" ["r1", "r2"] =<< textsAt "marked" answer
+
+    -- The other half of that split, unchanged: `set-state' is the command that
+    -- DOES read the marked set, so the two selections stay apart on both sides.
+  , testCase "set-state still runs over the marked set" $
+      bootOf shell "" 500 "m m d" "press:C-c press:C-t press:Enter" $ \answer -> do
+        assertEqual "the marked pair, and not the flagged row"
+                    [("set-state", ["r1", "r2"])] =<< postedOf answer
+        assertEqual "and the flag is still on, unspent" ["r3"]
+          =<< textsAt "flagged" answer
 
   , testCase "a server that refuses is counted out and logged" $
       bootOf shell "" 500 "" "refuse press:D" $ \answer -> do
         assertEqual "the command still went" 1 . length =<< postedOf answer
+        -- The set name gives way to the bare count: "row" over zero rows would
+        -- read as a write that landed.
         assertEqual "nothing landed" "D → archived (0)" =<< textAt "echo" answer
 
     -- C-c C-t is a chord, so this also exercises the prefix path: the first key
@@ -3080,11 +3116,12 @@ pageSpec shell = testGroup "GET /"
         -- `n/p rows', since the group is one idea.
         , (["mark-toggle", "unmark", "unmark-all", "mark-all"], "mark")
         -- The two structured commands, beside the keys that choose what they
-        -- run over: both read the marked set first and the row at point after.
+        -- run over.
         , (["org-glance-overview:todo"], "state")
-        -- `d' archives one row behind a flag; `D' archives the marked set.
-        , (["archive-flag"], "archive")
-        , (["org-glance-overview:delete"], "archive marked")
+        -- `state' runs over the MARKED set; archiving runs over the FLAGGED
+        -- one, and reads as the two steps it is.
+        , (["archive-flag"], "flag for archive")
+        , (["archive-flag", "org-glance-overview:delete"], "archive flagged")
         , (["filter-rows"], "filter")
         , (["apply-default-filter"], "default view")
         , (["filter-drop-token"], "drop token")
@@ -3177,11 +3214,11 @@ expectedRows =
   -- dired's flag, in two presses: the first marks the row for archiving and the
   -- second does it.  Plain @d@ is never a write on its own.
   , (["d"],          "d",       "archive-flag",                    Just "archiveFlag",    "table",
-       Just "flag this row; d again archives it")
+       Just "flag for archive; d again archives it")
   -- org-glance's own name for dired's key, and a help line because what it
   -- does here is narrower than the name: the headline is tagged, never removed.
   , (["D"],          "D",       "org-glance-overview:delete",      Just "archiveRows",    "table",
-       Just "archive the marked rows, or the row at point \8212 never a delete")
+       Just "archive the flagged rows, or the row at point \8212 never a delete")
   , (["t"],          "t",       "org-glance-overview:todo",        Just "setState",       "table",
        Just "set the state of the marked rows, or the row at point")
   , (["C-c", "C-t"], "C-c C-t", "org-glance-overview:todo",        Just "setState",       "table",

@@ -692,10 +692,10 @@ cross-file rollback and the answer is per id. The span math is `Glance.Query`'s
 obstructing one. Keyword legality is per file and refuses the whole request.
 `archive` is idempotent. The store is still written by the watch alone.
 
-In the shell: `D` archives the marked set (else the row at point) and `C-c C-t`
-raises a value palette over the same rows — the two staged rows that now have
-handlers. Confirm-free; the drift lock is the safety and `D` archives rather
-than deletes.
+In the shell: `D` archives and `C-c C-t` raises a value palette — the two staged
+rows that now have handlers. Both ran over the marked set at this step; `D` moved
+to the FLAGGED set when `d` landed (2026-08-01, below). Confirm-free; the drift
+lock is the safety and `D` archives rather than deletes.
 
 And the half that makes an archive worth having: `/headlines` leaves archived
 rows out unless the query names the `archive` key, reporting what it took in
@@ -917,14 +917,19 @@ single key is what the rest of the map reads like), `.` is unbound, `o` joins `!
 as the open stub, and `g` is the new `apply-default-filter`. `refresh` had no key
 left and the function went with it; `remount` still has callers.
 
-**`d` is dired's flag.** First press flags, second press on the same row
-archives, `u` clears a flag before a mark, `U` clears both, `D` is unchanged as
-the mass action. In `ONCE`, which is load-bearing here rather than polite: a
-held `d` that reached the handler twice would flag and archive from one press.
-**The renderer half is a handoff** — `flagRow`/`unflagRow`/`getFlagged`/
-`clearFlags` and a `.tv-flagged` wash are a `table-view.js` change this repo does
-not make. The shell feature-detects the pair, so the key is inert and honest
-until they land.
+**`d` is dired's flag, and `D` runs over flags.** First press flags, second
+press on the same row archives; `D` archives the whole flagged set, falling back
+to the row at point. `u` clears a flag before a mark, `U` clears both. `D` no
+longer reads the m-marked set at all — marks stay the generic bulk selection that
+`set-state` runs over, so a mark laid down for a state change can never become a
+row archived by reflex. In `ONCE`, which is load-bearing here rather than polite:
+a held `d` that reached the handler twice would flag and archive from one press.
+The renderer half is IN — `flagRow`/`unflagRow`/`getFlagged`/`clearFlags` and the
+`.tv-flagged` wash landed in `table-view.js` at 079fa20, so both keys are wired
+to real chrome. The shell keeps feature-detecting the pair, so an asset predating
+them is still honest rather than broken. `D` also SPENDS the flags it fires over:
+`setRows` keeps a flag whose row a filter is hiding, so a set left standing would
+be archived again by the next press.
 
 **The lens grew from one region to three.** Planning line, property drawer,
 logbook. Two things became SERVER-PRESERVED: `hiddenProperties`

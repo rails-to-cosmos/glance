@@ -1274,19 +1274,42 @@ on.
   Flags on other rows stand — one row per confirm. There is no prompt and no
   undo to build: `u` on a flagged row takes the flag off BEFORE it touches a
   mark (it is the more recent thing a reader put there, and the one that would
-  otherwise write a file) and `U` clears flags along with marks. `D` is
-  unchanged and is the mass action: the marked set, else the row at point. The
-  flags are the RENDERER's session state, keyed by id exactly as marks are, so a
-  flag survives a `setRows`, a filter that hides its row and a page it is not on;
-  this page keeps no set. **KNOWN GAP (open): the renderer half is a handoff.**
-  `flagRow`, `unflagRow`, `getFlagged`, `clearFlags` and a `.tv-flagged` wash —
-  warn-tinted, distinct from both the mark wash and the selection — are a
-  `table-view.js` change this repo does not make; the shell feature-detects the
-  pair and an asset without them echoes `this table-view.js has no archive flags`
-  and writes nothing, so the key is inert rather than broken until the renderer
-  lands it. Evidence: `TestServe` "Shell marks" — the two-press flow, the
-  synthetic auto-repeat burst that archives nothing, both flag-clear paths, and
-  the bare-asset case. **test** (the shell half) / **none** (the renderer's)
+  otherwise write a file) and `U` clears flags along with marks. `D` is the same
+  idea over the WHOLE flagged set — every flagged row when there is one, the row
+  at point otherwise — and it SPENDS them, the way the second `d` spends the one
+  it fires over. Spending is load-bearing rather than tidy: `setRows` keeps a
+  flag whose row a filter is hiding, which is exactly what makes a flag outlive
+  the refetch this write causes, so a set left standing would be archived again
+  by the next press and the row at point would never be reachable again. The pill
+  names the set it ran over (`D → archived (4 flagged)`, `D → archived (row)`)
+  and gives that name up for the bare count when nothing landed, a set name over
+  zero rows reading as a write that worked. The flags are the RENDERER's session
+  state, keyed by id exactly as marks are, so a flag survives a `setRows`, a
+  filter that hides its row and a page it is not on; this page keeps no set.
+- **The two selections are per COMMAND, and stay apart.** `set-state` runs over
+  the MARKED set (else the row at point); archiving runs over the FLAGGED set
+  (else the row at point). `D` never reads `getMarked()` and `set-state` never
+  reads `getFlagged()`. The reason is what each selection MEANS: a mark is the
+  generic bulk selection a reader lays down to set a state over a run of rows,
+  and a key that archives whatever is marked turns every one of them into a
+  loaded gun; a flag is a selection made for archiving and nothing else, which is
+  why the confirming key and the bulk key can share it. What the suite pins:
+  `m m d` then `D` archives one row and leaves two marks standing; `m m D` with
+  nothing flagged archives the row at point; and `m m d` then `C-c C-t` sets a
+  state over the two MARKED rows with the flag still on and unspent; and `D`
+  twice behind one flag, which archives the flagged row and then the row at
+  point. **test**
+- **The flag API lives on both sides, and the detection stays anyway.**
+  `flagRow`, `unflagRow`, `getFlagged`, `clearFlags` and the `.tv-flagged` wash
+  — warn-tinted, distinct from both the mark wash and the selection, with an
+  inset edge on the mark box so a flagged row under the cursor keeps saying it is
+  flagged — landed in `table-view.js` at 079fa20, which is what `d` and `D` are
+  wired to. The shell still feature-detects the pair rather than assuming it: an
+  asset predating them echoes `this table-view.js has no archive flags` and
+  writes nothing, and `D` there falls through to the row at point. Evidence:
+  `TestServe` "Shell marks" — the two-press flow, the synthetic auto-repeat burst
+  that archives nothing, both flag-clear paths, and the bare-asset case — and
+  "Shell commands" for the flags-versus-marks split. **test**
 - **`*word*` is the reserved-meta form.** A starred word marks a value with
   semantics of its own — never a literal keyword, never a cell value a file could
   hold. The family today: `state:*active*` and `state:*inactive*`, the filter's
@@ -1472,15 +1495,15 @@ on.
   and `SCHEMA.md` is. **test** (`TestQuery` imports the facade only; golden +
   schema-conformance groups)
 - **Two keys write without a sheet, and neither asks for confirmation.** `D`
-  archives and `C-c C-t` sets a state, both over the marked set when there is
-  one and the row at point otherwise — dired's rule, and org-glance's. They are
-  `POST /command`: the page sends row ids and a name, the server computes the
+  archives over the FLAGGED set and `C-c C-t` sets a state over the MARKED one,
+  each falling back to the row at point — dired's rule, and org-glance's. They
+  are `POST /command`: the page sends row ids and a name, the server computes the
   spans, and the table is not touched at all, the rows arriving over the socket
   once the watch has re-read the files. There is no confirmation step and there
   should not be: the drift lock is the safety, `D` archives rather than deletes,
   and org-glance's own rhythm is a key that acts. The pill counts what landed
   and the log carries a line per refusal, which is what a per-file answer
-  needs — a marked set spanning three files can come back two-thirds applied.
+  needs — a set spanning three files can come back two-thirds applied.
   `D` keeps org-glance's command name, `org-glance-overview:delete`, and earns a
   `kbHelp` because the name is wider than the behaviour. Evidence: `TestServe`
   "Shell commands", which drives both keys through the node harness and asserts
