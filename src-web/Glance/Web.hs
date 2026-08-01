@@ -1,3 +1,5 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 -- | The M1 web layer: headlines out of a directory, into a browser tab, and
 -- kept current there.
 --
@@ -8,8 +10,9 @@
 -- (docs/invariants.md, Architecture), kept where the solver can check it.
 --
 -- Six routes: @GET \/headlines@ is the view JSON, @GET \/@ a demo shell that
--- fetches it, @GET \/ws@ the live row stream, @GET \/NAME@ an asset out of the
--- @--assets@ directory, @\/headline@ the materialize round-trip — @GET@ for
+-- fetches it, @GET \/ws@ the live row stream, @GET \/NAME@ an asset (the
+-- renderer this binary carries, or a file under @--assets@), @\/headline@ the
+-- materialize round-trip — @GET@ for
 -- one headline's raw subtree, @POST@ to write an edited one back — and
 -- @POST \/command@ the structured writes, which name rows and let the server
 -- compute the spans.  The view's field set is the contract
@@ -53,15 +56,14 @@
 -- under org-glance's own command names — and the page carries it as JSON for
 -- its own dispatch to parse, so the map and the handlers cannot drift apart.
 -- Everything the shell needs comes from this server: inline styles, inline
--- glue, one script by name, and a font only when the assets directory has one
--- (docs\/invariants.md).
+-- glue, one script by name, and a font only when @--assets@ names a directory
+-- holding one (docs\/invariants.md).  That script is 'embeddedRenderer'.
 --
 -- The listener binds 127.0.0.1 and nothing else.  Read, write and automate
 -- tiers arrive at S7 (docs\/plan-org-console-web.md); until an unauthenticated
 -- connection is a read-only one by construction, the loopback interface is the
 -- whole access-control story.
 module Glance.Web ( ServeOptions (..)
-                  , defaultAssetsDir
                   , defaultPort
                   , application
                   , bannerLines
@@ -79,9 +81,10 @@ import Data.Aeson ( Value, eitherDecode', encode, object, toJSON, withObject
                   , (.:), (.:?), (.=) )
 import Data.Aeson.Types (Pair, parseEither)
 import Data.Bifunctor (first)
+import Data.FileEmbed (embedFile, makeRelativeToProject)
 import Data.List (find, nub)
 import Data.Map.Strict (Map)
-import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import Data.Text (Text)
 import GHC.Clock (getMonotonicTime)
 import Network.HTTP.Types ( Header, Status, hCacheControl, hContentType, methodGet
@@ -133,10 +136,10 @@ import Glance.Web.Watch (watchOrgTree)
 
 -- | What one server serves.
 data ServeOptions = ServeOptions
-  { soDir     :: !FilePath  -- ^ org root, walked once at startup and watched after.
-  , soPort    :: !Int       -- ^ loopback port to listen on.
-  , soAssets  :: !FilePath  -- ^ directory holding @table-view.js@; see 'defaultAssetsDir'.
-  , soDerived :: !Bool      -- ^ serve org-glance's mirror directories too; see 'Data.Org.Walk'.
+  { soDir     :: !FilePath          -- ^ org root, walked once at startup and watched after.
+  , soPort    :: !Int               -- ^ loopback port to listen on.
+  , soAssets  :: !(Maybe FilePath)  -- ^ @--assets@ directory; 'Nothing' serves 'embeddedRenderer'.
+  , soDerived :: !Bool              -- ^ serve org-glance's mirror directories too; see 'Data.Org.Walk'.
   } deriving (Eq, Show)
 
 -- | How OPTS wants the tree walked, for the load and for the watch alike: a
@@ -147,16 +150,23 @@ walkFor opts = WalkOptions { woIncludeDerived = soDerived opts }
 defaultPort :: Int
 defaultPort = 7777
 
--- | Where @table-view.js@ lives when @--assets@ says nothing: the sibling
--- checkout.  A missing directory costs the demo page and nothing else, so the
--- absolute path is a convenience rather than a requirement.  S4 gives the
--- renderer a fixtures dir of its own and this default a better home.
-defaultAssetsDir :: FilePath
-defaultAssetsDir = "/home/akatovda/sync/stuff/table-view/web"
-
--- | The asset the demo shell loads; its presence decides which page @\/@ serves.
+-- | The asset the demo shell loads.  Served from 'embeddedRenderer' by default;
+-- under @--assets@ its presence in that directory decides which page @\/@ serves.
 rendererAsset :: FilePath
 rendererAsset = "table-view.js"
+
+-- | The renderer, read at COMPILE time out of the repo's own @assets\/@ and
+-- carried in the binary.  This is what makes a built @glance@ self-contained:
+-- there is no directory it has to be started beside, no path off this repo in
+-- the source, and a clone plus a compiler is the whole of what serving the page
+-- takes.  @assets\/table-view.js@ is vendored from the sibling table-view
+-- checkout by @make sync-renderer@ and committed like any other file, so the
+-- bytes a build embeds are the bytes in the tree.
+--
+-- @--assets@ overrides it (see 'assetSource'), which is the renderer-hacking
+-- loop: point it at @..\/table-view\/web@ and reload instead of rebuilding.
+embeddedRenderer :: BS.ByteString
+embeddedRenderer = $(makeRelativeToProject "assets/table-view.js" >>= embedFile)
 
 -- Server
 
@@ -212,7 +222,9 @@ bannerLines :: String -> ServeOptions -> Bool -> [String]
 bannerLines mode opts assets =
   [ "glance " <> mode <> " — http://127.0.0.1:" <> show (soPort opts) <> "/"
   , "  org dir: " <> soDir opts
-  , "  assets:  " <> soAssets opts <> if assets then "" else "  (missing — /headlines only)"
+  , "  assets:  " <> case soAssets opts of
+      Nothing  -> "compiled in (--assets serves a directory instead)"
+      Just dir -> dir <> if assets then "" else "  (missing — /headlines only)"
   , "  live:    ws://127.0.0.1:" <> show (soPort opts) <> "/ws, watching " <> soDir opts
   , "  bound to 127.0.0.1; no auth tier before S7."
   , "  indexing — /headlines, /headline and /ws answer 503 until the walk lands."
@@ -252,11 +264,14 @@ seconds s = show (tenths s) <> " s"
 tenths :: Double -> Double
 tenths s = fromIntegral (round (s * 10) :: Int) / 10
 
--- | Does the assets directory hold the renderer?  Checked per request as well
--- as at startup, so pointing @--assets@ at a directory that fills up later
--- needs no restart.
+-- | Is there a renderer to serve?  The route's own question ('assetSource'),
+-- asked of the renderer's name, so what the banner and @\/@ report cannot
+-- disagree with what @\/table-view.js@ answers.  Without @--assets@ it is
+-- always yes; with it, whether that directory holds the file — asked per
+-- request as well as at startup, so a directory that fills up later needs no
+-- restart.
 hasRenderer :: ServeOptions -> IO Bool
-hasRenderer opts = doesFileExist (soAssets opts </> rendererAsset)
+hasRenderer opts = isJust <$> assetSource opts rendererAsset
 
 -- | OPTS over HUB as a WAI application.  Exported for the suite: the routes
 -- are tested through this, with no socket bound.  A request that is not a
@@ -1160,21 +1175,44 @@ statsHeaders qr =
   ]
   where count name n = (name, BSC.pack (show n))
 
--- | An asset out of the configured directory, or a 404 naming what was looked
--- for.  Only files directly in it are reachable — one segment, no traversal.
--- Every one-segment path lands here, so the miss doubles as the route list:
--- @\/graph@ is a mistyped route rather than a missing file, and reads better
--- when told so.
+-- | Where NAME's bytes come from under OPTS, and 'Nothing' when nothing serves
+-- it.  The two cases are exclusive: @--assets@ names the whole set of assets or
+-- the binary does, so a directory without a renderer in it does not silently
+-- fall back on the compiled one — that is the case 'assetsMissing' reports.
+--
+-- The one oracle for what this server has: 'asset' serves what it returns,
+-- 'hasRenderer' and 'localFont' ask it whether a name is there at all.  A page
+-- that declares a resource this would decline is the drift it exists to
+-- prevent.
+assetSource :: ServeOptions -> FilePath -> IO (Maybe (Either FilePath BS.ByteString))
+assetSource opts name = case soAssets opts of
+  Nothing  -> pure (if name == rendererAsset then Just (Right embeddedRenderer) else Nothing)
+  Just dir -> let path = dir </> name
+              in (\ok -> if ok then Just (Left path) else Nothing) <$> doesFileExist path
+
+-- | An asset out of 'assetSource', or a 404 naming what was looked for.  Under
+-- @--assets@ only files directly in that directory are reachable — one segment,
+-- no traversal.  Every one-segment path lands here, so the miss doubles as the
+-- route list: @\/graph@ is a mistyped route rather than a missing file, and
+-- reads better when told so.
+--
+-- One response either way, so the wire cannot tell a compiled-in renderer from
+-- a file: the same 'mimeOf' content type, and 'compressed' compresses both.  A
+-- @responseFile@ because 'GzipCompress' says to and the middleware takes the
+-- length off the file; the compiled bytes through 'sized', which is what gives
+-- the middleware a @Content-Length@ to compare against its threshold — a
+-- @responseLBS@ without one is left uncompressed.
 asset :: ServeOptions -> FilePath -> IO Response
-asset opts name = do
-  ok <- doesFileExist path
-  pure $ if ok
-    then responseFile status200 [(hContentType, mimeOf name)] path Nothing
-    else plain status404 (T.intercalate "\n"
-           [ "no such asset: " <> T.pack path
-           , "this server serves /, /headlines, and file names under "
-               <> T.pack (soAssets opts) ])
-  where path = soAssets opts </> name
+asset opts name = maybe missing serveFrom <$> assetSource opts name
+  where
+    serveFrom (Left onDisk)      = responseFile status200 [contentType] onDisk Nothing
+    serveFrom (Right compiledIn) = sized status200 [contentType] (BL.fromStrict compiledIn)
+    contentType = (hContentType, mimeOf name)
+    missing = plain status404 (T.intercalate "\n"
+      [ "no such asset: " <> T.pack name
+      , "this server serves /, /headlines, and " <> case soAssets opts of
+          Nothing  -> "the " <> T.pack rendererAsset <> " it carries"
+          Just dir -> "file names under " <> T.pack dir ])
 
 -- | Content types for what the renderer ships with.  Everything else is
 -- served as bytes; guessing wider would be guessing.
@@ -1197,9 +1235,9 @@ mimeOf name = case takeExtension name of
 
 -- | The type stack the shell asks for, in the table, the sheet and the widgets
 -- alike.  Nothing is fetched for it: these are names looked up on the machine,
--- and 'fontFace' adds an @\@font-face@ only when the assets directory holds a
--- file to point at.  A page that reaches the network for a font is a page that
--- renders differently offline, and this one is served over loopback to a
+-- and 'fontFace' adds an @\@font-face@ only when an @--assets@ directory holds
+-- a file to point at.  A page that reaches the network for a font is a page
+-- that renders differently offline, and this one is served over loopback to a
 -- machine that may have none (docs\/invariants.md).
 monoStack :: Text
 monoStack = "\"JetBrains Mono\", \"Fira Code\", \"SF Mono\", Menlo, Consolas, monospace"
@@ -1210,10 +1248,16 @@ monoStack = "\"JetBrains Mono\", \"Fira Code\", \"SF Mono\", Menlo, Consolas, mo
 fontAssets :: [FilePath]
 fontAssets = ["JetBrainsMono-Regular.woff2", "JetBrainsMono-Regular.ttf"]
 
--- | The first of 'fontAssets' under OPTS's assets directory.  Looked up per
--- request, the way the renderer is: dropping the file in needs no restart.
+-- | The first of 'fontAssets' this server can serve.  Asked of 'assetSource',
+-- the way the renderer is, so a font is declared exactly when the route would
+-- answer for it: per request, and never for a name the binary does not carry.
+--
+-- No font is embedded and none is invented — 'embeddedRenderer' is the whole of
+-- what the binary carries — so with no @--assets@ there is no @\@font-face@ and
+-- 'monoStack' is the whole story, exactly as a build without a font file beside
+-- the renderer behaved before.
 localFont :: ServeOptions -> IO (Maybe FilePath)
-localFont opts = listToMaybe <$> filterM (doesFileExist . (soAssets opts </>)) fontAssets
+localFont opts = listToMaybe <$> filterM (fmap isJust . assetSource opts) fontAssets
 
 -- | An @\@font-face@ for NAME, which the asset route serves out of the same
 -- directory the renderer comes from.  The @src@ is a bare file name, resolved
@@ -1457,9 +1501,11 @@ keyBindingsJSON = jsonLiteral $ object
 
 -- Pages
 
--- | @\/@: the demo shell when the renderer is on disk, and an explanation when
--- it is not.  A missing renderer leaves @\/headlines@ untouched — the server
--- is a JSON server that happens to ship a page.
+-- | @\/@: the demo shell, and an explanation in the one case there is no
+-- renderer to mount — @--assets@ naming a directory without one.  With no
+-- @--assets@ the shell always renders, since the binary carries the renderer.
+-- A missing one leaves @\/headlines@ untouched either way: the server is a JSON
+-- server that happens to ship a page.
 --
 -- The tree's default view is embedded at REQUEST time rather than at startup: a
 -- config change reseeds the store ('Glance.Web.Watch.settle'), so the next page
@@ -1471,8 +1517,9 @@ shellPage opts hub = do
   ok <- hasRenderer opts
   font <- localFont opts
   st <- readTVarIO (hubStore hub)
-  pure (html (if ok then demoShell opts font (defaultFilter (stConfig st))
-                    else assetsMissing opts))
+  pure . html $ case soAssets opts of
+    Just dir | not ok -> assetsMissing opts dir
+    _rendererInHand   -> demoShell opts font (defaultFilter (stConfig st))
 
 -- | The page a browser gets: load the renderer, fetch a page of the view,
 -- mount it, then hold a socket open and apply what it sends.  The glue is
@@ -3320,19 +3367,22 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "  </script>"
   ]
 
--- | The page a browser gets when the renderer is missing: what still works,
--- and the flag that fixes it.
-assetsMissing :: ServeOptions -> Text
-assetsMissing opts = page "" "glance — JSON only" $ T.unlines
+-- | The page a browser gets when DIR — the @--assets@ directory — holds no
+-- renderer: what still works, and the two ways out.  Reachable under that flag
+-- alone; drop it and 'embeddedRenderer' serves, so a default run never sees
+-- this page.
+assetsMissing :: ServeOptions -> FilePath -> Text
+assetsMissing opts dir = page "" "glance — JSON only" $ T.unlines
   [ "  <h1>glance — JSON-only mode</h1>"
   , "  <p>No <code>" <> T.pack rendererAsset <> "</code> under <code>"
-      <> escape (T.pack (soAssets opts)) <> "</code>, so there is no table to"
-      <> " render here. The server is otherwise complete:</p>"
+      <> escape (T.pack dir) <> "</code>, and <code>--assets</code> replaces the"
+      <> " renderer this binary carries, so there is no table to render here."
+      <> " The server is otherwise complete:</p>"
   , "  <p><code>curl -s localhost:" <> T.pack (show (soPort opts))
       <> "/headlines | jq '.rows | length'</code></p>"
-  , "  <p>Point <code>--assets</code> at a directory holding <code>"
-      <> T.pack rendererAsset <> "</code> (the <code>web/</code> directory of a"
-      <> " table-view checkout) and reload:</p>"
+  , "  <p>Drop <code>--assets</code> to get the built-in renderer back, or point"
+      <> " it at a directory holding <code>" <> T.pack rendererAsset
+      <> "</code> (the <code>web/</code> directory of a table-view checkout):</p>"
   , "  <p><code>glance serve --dir " <> escape (T.pack (soDir opts))
       <> " --assets /path/to/table-view/web</code></p>"
   ]

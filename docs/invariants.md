@@ -1399,6 +1399,34 @@ on.
   empty name, `.`, `..`, and any name carrying `/` or `\`. One segment and one
   guard is the whole of the traversal defence, so an asset directory laid out in
   subdirectories cannot be served without revisiting it. **test**
+- **The renderer is compiled in, and `--assets` REPLACES it.** `embeddedRenderer`
+  is `assets/table-view.js` read by a Template Haskell splice, so the binary is
+  the whole deployment: no directory beside it, no path off this repo, and a
+  `glance` copied anywhere serves the same page. `assetSource` is the one place
+  the two cases meet and they are exclusive — with `--assets` the named
+  directory is the whole asset set, so a directory without a renderer in it does
+  not silently fall back on the compiled one; that is what keeps `assetsMissing`
+  reachable and honest, and it is now reachable under that flag alone. Both
+  cases leave `asset` by the same door: one `mimeOf` content type, and
+  `compressed` compresses either — a `responseFile` because `GzipCompress` says
+  so, a `sized` body because a `Content-Length` is what the threshold reads. No
+  FONT is embedded: `localFont` answers `Nothing` without `--assets`, so the
+  `@font-face` stays exactly the `--assets` affordance it was. Evidence:
+  `TestServe` "Embedded renderer" — the served bytes equal the file in the tree,
+  `/` is the shell and never the JSON-only page, the fixture directory's stub
+  wins under `--assets`, and a bare directory still gets the JSON-only page.
+  **test**
+- **No source file names an absolute path outside the repository.** Until
+  2026-08-02 `defaultAssetsDir` was one author's home directory, read at run
+  time, which made a correct build serve a table-less page on every other
+  machine. The rule that replaced it is swept rather than reviewed:
+  `TestSelfContained` reads every `.hs` file under `src/`, `src-query/`,
+  `src-web/`, `src-desktop-native/` and `app/` and fails on the string `/home/`,
+  after first asserting it swept `src-web/Glance/Web.hs` and at least a dozen
+  files — a sweep that finds nothing passes, so it says what it looked at. The
+  same module asserts the `sync-renderer` target exists, since a vendored file
+  with no way to refresh it is a fork. A module of its own because neither case
+  drives the server: repo hygiene has no `Application` to hand it. **test**
 - **`Content-Length` comes from `sized`, and `Vary` from the gzip middleware.**
   `sized` writes the length on every JSON, HTML and plain response, the HTTP 503
   included; warp supplies it for the 304 and for `responseFile`. The gzip
@@ -1408,13 +1436,14 @@ on.
   nothing caches a 503. **test** (the HTTP half)
 - **The served pages fetch nothing off this server.** Styles are inline, the
   glue is inline, and the one `<script src>` is a file name the asset route
-  resolves inside `--assets`. No CDN, no web font, no analytics — a page that
-  reaches the network renders differently on a laptop in a tunnel, and this
-  daemon's whole point is that the org files are local. The JetBrains Mono
-  `@font-face` is the shape a resource takes here: emitted only when the assets
-  directory holds the file, pointing at a bare name this server serves. Evidence:
-  `TestServe` "no page this server serves reaches off it" — neither page
-  contains `http://`, `https://` or `@import`. **test**
+  answers out of the binary, or out of `--assets` when that is given. No CDN, no
+  web font, no analytics — a page that reaches the network renders differently
+  on a laptop in a tunnel, and this daemon's whole point is that the org files
+  are local. The JetBrains Mono `@font-face` is the shape a resource takes here:
+  emitted only when an `--assets` directory holds the file, pointing at a bare
+  name this server serves. Evidence: `TestServe` "no page this server serves
+  reaches off it" — neither page contains `http://`, `https://` or `@import`.
+  **test**
 - **The shell's keymap is data, and there is ONE of it.** `Glance.Web`'s
   `keyBindings` is the one table; the page carries it as a
   `<script type="application/json">` blob — `{rows, hints, reserved, once}` — and
@@ -2141,6 +2170,16 @@ on.
 - `glance.cabal` is hand-maintained; hpack/package.yaml were removed after
   diverging (regeneration dropped `OverloadedRecordDot` and deps and broke
   the build). Do not reintroduce without making it authoritative again.
+- **`assets/table-view.js` is a build input, and `make sync-renderer` is how it
+  moves.** The renderer's home is the sibling `table-view` repository; the copy
+  here is committed, listed in `extra-source-files`, and read by `Glance.Web`'s
+  `embedFile` splice — so `file-embed`'s `addDependentFile` recompiles the
+  module when the asset changes, and `cabal sdist` carries it. `sync-renderer`
+  copies `../table-view/web/table-view.js` over it and prints
+  `git diff --stat --no-index`; with no sibling checkout it says so and copies
+  nothing, which is what keeps a bare clone buildable. Editing the vendored copy
+  by hand is a fork — hack the sibling and sync. **test** (the target exists;
+  the byte equality of the served asset and the file)
 - **Six components, one direction.** `glance-internal` (`src/`) holds the
   parser, the AST and the file walk at `visibility: private`; the public
   `library` (`src-query/`) exposes `Glance.Query` and depends on it;

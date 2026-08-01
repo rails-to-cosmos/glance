@@ -30,10 +30,17 @@ file keeps it and the table skips it, since a line of six empty cells is nothing
 to read. =glance scan= still counts every headline at every level — it is a
 parser oracle rather than a view of one.
 
+Nothing has to be installed beside the binary. =table-view.js= is vendored at
+=assets/table-view.js= and compiled into =glance=, so a built binary carries the
+renderer wherever it is copied and reads no path off this repo.
+
 - =--port N= — default =7777=.
-- =--assets PATH= — the directory holding =table-view.js=, default the sibling
-  =table-view/web= checkout. When it is missing, =/= says so and =/headlines=
-  keeps working; the JSON stands on its own:
+- =--assets PATH= — serve assets out of PATH instead of the compiled-in
+  renderer. A development flag: point it at a =table-view= checkout's =web/= and
+  reload rather than rebuild (see [[*Hacking the renderer][Hacking the renderer]]).
+  It /replaces/ the built-in one, so a PATH without =table-view.js= in it means
+  no table — =/= says so and =/headlines= keeps working; the JSON stands on its
+  own:
 
 #+begin_src sh
 curl -s localhost:7777/headlines | jq '.rows | length'
@@ -530,9 +537,11 @@ too, by wrapping rather than by a breakpoint of its own.
 
 The whole page is monospace — /JetBrains Mono/, /Fira Code/, /SF Mono/, Menlo,
 Consolas, whichever is installed. Nothing is fetched for it. Drop a
-=JetBrainsMono-Regular.woff2= (or =.ttf=) into the =--assets= directory and the
+=JetBrainsMono-Regular.woff2= (or =.ttf=) into an =--assets= directory and the
 shell declares an =@font-face= against it and serves it from there; leave it out
-and the stack falls through, silently.
+and the stack falls through, silently. No font is compiled in — the renderer is
+the whole of what the binary carries — so a run without =--assets= uses whatever
+the machine has.
 
 *What is not walked.* org-glance keeps its canonical store under
 =.org-glance/data/= and writes overview and agenda buffers beside it under
@@ -687,6 +696,34 @@ The order is fixed: bind, window, walk, watch. The file watch starts after the
 walk lands, so its first event cannot fold into a store that is about to be
 replaced wholesale.
 
+** Hacking the renderer
+
+The table is drawn by [[https://github.com/rails-to-cosmos/table-view][table-view]], which lives in its own repository and is
+vendored here as =assets/table-view.js= — a committed file, read at *compile*
+time and carried in the binary. The loop for changing it:
+
+#+begin_src sh
+# 1. hack it in the sibling checkout, serving it off disk — no rebuild per edit
+cabal run glance -- serve --dir ~/org --assets ../table-view/web
+
+# 2. bring the result back into this repo, and see what moved
+make sync-renderer
+
+# 3. commit assets/table-view.js like any other file, and rebuild
+git add assets/table-view.js && cabal build
+#+end_src
+
+=make sync-renderer= copies =../table-view/web/table-view.js= over the vendored
+copy and prints the diff summary; without that sibling checkout it says so and
+changes nothing, so a clone of this repository alone still builds and still
+serves the page.
+
+That the binary is self-contained is a rule rather than a convenience: no source
+file here may name an absolute path outside the repository, and the suite sweeps
+=src*/= and =app/= for one (=test/TestSelfContained.hs=). The renderer used
+to be read at run time out of one machine's home directory, which meant a
+=glance= copied anywhere else served a page with no table on it.
+
 ** Directory Structure
 
 #+begin_src
@@ -694,6 +731,8 @@ glance/
 ├── app/
 │   ├── Main.hs          ← CLI entry point (repl · scan · serve · desktop)
 │   └── Scan.hs          ← Corpus scan and span-invariant report
+├── assets/               ← what the binary compiles in
+│   └── table-view.js    ← the renderer, vendored (make sync-renderer)
 ├── src/                  ← glance-internal (private sublibrary)
 │   ├── Data/
 │   │   ├── Org.hs       ← Re-export facade
@@ -781,7 +820,7 @@ A Haskeline-powered REPL that:
 | State/Monads | ~mtl~, ~stm~ |
 | Rendering | ~text-show~ |
 | REPL | ~haskeline~ |
-| Web | ~wai~, ~warp~, ~aeson~, ~websockets~, ~wai-websockets~, ~fsnotify~ |
+| Web | ~wai~, ~warp~, ~aeson~, ~websockets~, ~wai-websockets~, ~fsnotify~, ~file-embed~ |
 | Testing | ~tasty~, ~tasty-hunit~ |
 
 ** Org-Mode Features Supported

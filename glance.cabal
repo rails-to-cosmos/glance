@@ -13,6 +13,8 @@ license-file:   LICENSE
 build-type:     Simple
 extra-source-files:
     CHANGELOG.md
+    -- The renderer glance-web compiles in; vendored by `make sync-renderer'.
+    assets/table-view.js
     test/fixtures/*.js
     test/fixtures/*.json
     test/fixtures/assets/*.js
@@ -124,6 +126,7 @@ library glance-web
     , bytestring
     , containers
     , directory
+    , file-embed
     , filepath
     , fsnotify
     , glance:glance
@@ -202,6 +205,7 @@ test-suite glance-test
       TestParser
       TestQuery
       TestRoundtrip
+      TestSelfContained
       TestServe
       TestStore
       TestSubtree

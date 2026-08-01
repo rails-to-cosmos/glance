@@ -20,7 +20,7 @@ import Data.Org.Walk (WalkOptions (..), defaultWalk)
 import Glance.Desktop (DesktopOptions (..))
 import Glance.Desktop.Native (desktopWith)
 import Glance.Desktop.WebKit (nativeAvailable, nativeWindow)
-import Glance.Web (ServeOptions (..), defaultAssetsDir, defaultPort, serve)
+import Glance.Web (ServeOptions (..), defaultPort, serve)
 
 import System.Directory
 import System.FilePath
@@ -128,11 +128,11 @@ serveOf = doServe . dWindow
 desktopOptions :: [String] -> Either String Desktop
 desktopOptions = go (Desktop (DesktopOptions bare Nothing False) False)
   where
-    bare = ServeOptions "" defaultPort defaultAssetsDir (woIncludeDerived defaultWalk)
+    bare = ServeOptions "" defaultPort Nothing (woIncludeDerived defaultWalk)
     go d [] | null (soDir (serveOf d)) = Left "--dir is required"
             | otherwise                = Right d
     go d ("--dir":dir:rest)         = serving d (\s -> s { soDir = dir }) rest
-    go d ("--assets":path:rest)     = serving d (\s -> s { soAssets = path }) rest
+    go d ("--assets":path:rest)     = serving d (\s -> s { soAssets = Just path }) rest
     go d ("--include-derived":rest) = serving d (\s -> s { soDerived = True }) rest
     go d ("--browser":cmd:rest)     = window d (\w -> w { doBrowser = Just cmd }) rest
     go d ("--dry-run":rest)         = window d (\w -> w { doDryRun = True }) rest

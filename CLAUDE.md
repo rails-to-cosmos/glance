@@ -488,9 +488,21 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
     value `a=b`; a body opening with a separator has no key, which is what
     leaves `:work:` and `=code=` as text.
 - The served pages fetch nothing off this server: inline styles, inline glue,
-  and one `<script src>` naming a file under `--assets`. No CDN, no web font, no
-  analytics. The JetBrains Mono `@font-face` appears only when the assets
-  directory holds the file, pointing at a bare name this server serves.
+  and one `<script src>` the asset route answers out of the binary. No CDN, no
+  web font, no analytics. The JetBrains Mono `@font-face` appears only when an
+  `--assets` directory holds the file, pointing at a bare name this server
+  serves.
+- The renderer is COMPILED IN: `embeddedRenderer` = a TH splice over the
+  committed `assets/table-view.js`, so the binary is the whole deployment.
+  `--assets` REPLACES it (dev flag, live renderer hacking) — the named directory
+  is then the whole asset set, which is what keeps `assetsMissing` reachable and
+  makes it reachable under that flag alone. `assetSource` is where the two meet;
+  both leave `asset` by one door, so content type and gzip are identical. No
+  font is embedded. `make sync-renderer` copies from `../table-view/web`, prints
+  the diff summary, and says so honestly when there is no sibling checkout.
+- NO SOURCE FILE names an absolute path outside the repo. `TestSelfContained`
+  sweeps every `.hs` under `src*/` and `app/` for `/home/`, and asserts what it
+  swept first so an empty sweep cannot pass.
 - The shell is vanilla inline JS with no framework, build step or dependency,
   and shrinking it beats adding to it. It boots on `?limit=100`, pulls the rest
   in behind the painted table, mounts with `onFilter` so the server narrows, and
@@ -857,6 +869,9 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 
 - `glance.cabal` is hand-maintained; package.yaml/hpack removed — do not
   regenerate.
+- `assets/table-view.js` is a committed BUILD INPUT: in `extra-source-files`,
+  read by `Glance.Web`'s `embedFile` splice (`addDependentFile` recompiles on
+  change). Refresh it with `make sync-renderer`, never by hand.
 - Components: private sublibrary `glance-internal` (`src/`), public library
   `glance` (`src-query/`, `Glance.Query` only), private sublibrary
   `glance-web` (`src-web/`) on the public library alone, private sublibrary

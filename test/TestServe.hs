@@ -84,15 +84,30 @@ assetsDir = "test/fixtures/assets"
 missingAssetsDir :: FilePath
 missingAssetsDir = "test/fixtures/assets-not-here"
 
+-- | The renderer the binary compiles in, as it sits in the tree.  The suite
+-- runs from the package root, so this is the same path @Glance.Web@'s splice
+-- read at build time.
+vendoredRenderer :: FilePath
+vendoredRenderer = "assets/table-view.js"
+
 served :: FilePath -> ServeOptions
-served assets = ServeOptions { soDir = viewDir, soPort = defaultPort, soAssets = assets
-                             , soDerived = False }
+served assets = builtIn { soAssets = Just assets }
+
+-- | What a plain @glance serve@ runs: no @--assets@, so every asset is the
+-- binary's own.
+builtIn :: ServeOptions
+builtIn = ServeOptions { soDir = viewDir, soPort = defaultPort, soAssets = Nothing
+                       , soDerived = False }
 
 -- | The app a server with ASSETS runs, over a store loaded the way 'serve'
 -- loads one.  A fresh store per request is the suite's convenience; the server
 -- keeps one for its lifetime.
 app :: FilePath -> IO Application
-app assets = application (served assets) <$> (newHub =<< loadStore viewDir)
+app assets = appOf (served assets)
+
+-- | The app OPTS runs, over that same store.
+appOf :: ServeOptions -> IO Application
+appOf opts = application opts <$> (newHub =<< loadStore viewDir)
 
 -- | A server over DIR: the app, and the hub whose store it answers from — the
 -- write cases look at that store afterwards to show the route left it alone.
@@ -103,8 +118,16 @@ serverOver dir = do
 
 -- | GET PATH from a server configured with ASSETS.
 get :: FilePath -> ByteString -> IO SResponse
-get assets path = do
-  application' <- app assets
+get assets = getOf (served assets)
+
+-- | GET PATH from a server started without @--assets@.
+getBuiltIn :: ByteString -> IO SResponse
+getBuiltIn = getOf builtIn
+
+-- | GET PATH from a server running OPTS.
+getOf :: ServeOptions -> ByteString -> IO SResponse
+getOf opts path = do
+  application' <- appOf opts
   getFrom application' path
 
 -- | GET PATH from APPLICATION'.
@@ -299,7 +322,7 @@ spec = withResource (body <$> get assetsDir "/") (const (pure ())) $ \shell ->
     , commandKeySpec shell, whichKeySpec shell, logSpec shell, sheetSpec shell
     , settingsSpec shell
     , touchSpec shell
-    , shellFontSpec shell, assetSpec, errorSpec ]
+    , shellFontSpec shell, assetSpec, embeddedSpec, errorSpec ]
 
 -- | One boot of the shell's glue, run: the address bar it opens on, what the
 -- server answers as @X-Glance-Total@, the @\/headlines@ URLs that have to
@@ -2253,9 +2276,17 @@ bannerSpec = testGroup "Startup banner"
       assertBool "a missing renderer is not reported"
                  ("(missing — /headlines only)" `isInfixOf`
                     unlines (bannerLines "serve" opts False))
+
+    -- With no `--assets' there is no directory to name, and nothing that can
+    -- go missing: the binary carries the renderer.
+  , testCase "and says where the renderer came from" $ do
+      assertEqual "under --assets" "  assets:  /a"
+                  (bannerLines "serve" opts True !! 2)
+      assertEqual "without it" "  assets:  compiled in (--assets serves a directory instead)"
+                  (bannerLines "serve" opts { soAssets = Nothing } True !! 2)
   ]
   where opts = ServeOptions { soDir = "/o", soPort = defaultPort
-                            , soAssets = "/a", soDerived = False }
+                            , soAssets = Just "/a", soDerived = False }
 
 statsSpec :: TestTree
 statsSpec = testGroup "Load stats"
@@ -4002,6 +4033,66 @@ assetSpec = testGroup "Assets"
   , testCase "a traversal segment is not a file name" $ do
       r <- get assetsDir "/.."
       assertEqual "status" 404 (status r)
+  ]
+
+-- | The renderer the binary carries.  Without @--assets@ there is no directory
+-- to find and nothing to find it in: a @glance@ copied anywhere serves the same
+-- page, which is what makes @--assets@ a development flag rather than the way
+-- the program is normally run.
+embeddedSpec :: TestTree
+embeddedSpec = testGroup "Embedded renderer"
+  [ testCase "with no --assets, /table-view.js is the vendored file byte for byte" $ do
+      r <- getBuiltIn "/table-view.js"
+      assertEqual "status" 200 (status r)
+      vendored <- BS.readFile vendoredRenderer
+      assertEqual "the bytes `make sync-renderer' put in the tree"
+                  vendored (BL.toStrict (simpleBody r))
+      -- Big enough that a truncated or placeholder embed cannot pass the
+      -- comparison above by both sides being empty.
+      assertBool "and it is a renderer" (BS.length vendored > 100000)
+
+  , testCase "served with the content type and the length a file would be" $ do
+      r <- getBuiltIn "/table-view.js"
+      assertEqual "content type"
+                  (Just "text/javascript; charset=utf-8") (header "Content-Type" r)
+      size <- BS.length <$> BS.readFile vendoredRenderer
+      assertEqual "Content-Length"
+                  (Just (BSC.pack (show size))) (header "Content-Length" r)
+
+  , testCase "and compressed for a client that asks, the way the file was" $ do
+      a <- appOf builtIn
+      zipped <- getWith a "/table-view.js" [("Accept-Encoding", "gzip")]
+      assertEqual "status" 200 (status zipped)
+      assertEqual "Content-Encoding" (Just "gzip") (header "Content-Encoding" zipped)
+      assertEqual "Vary" (Just "Accept-Encoding") (header "Vary" zipped)
+
+  , testCase "so / is the shell, and the JSON-only page is unreachable" $ do
+      b <- body <$> getBuiltIn "/"
+      assertContains "renderer" "src=\"table-view.js\"" b
+      assertContains "mount" "TableView.mount(" b
+      holdsNone "the JSON-only page" ["JSON-only mode"] b
+
+  , testCase "--assets replaces the compiled-in renderer rather than adding to it" $ do
+      r <- get assetsDir "/table-view.js"
+      stub <- BS.readFile (assetsDir </> "table-view.js")
+      vendored <- BS.readFile vendoredRenderer
+      assertEqual "the directory's own file" stub (BL.toStrict (simpleBody r))
+      assertBool "which is not the compiled-in one" (stub /= vendored)
+
+  , testCase "and an --assets directory without one still gets the JSON-only page" $ do
+      b <- body <$> get missingAssetsDir "/"
+      assertContains "the JSON-only page" "JSON-only mode" b
+      assertContains "the directory it looked in" (T.pack missingAssetsDir) b
+      holdsNone "no table" ["TableView.mount("] b
+
+  , testCase "with no --assets the renderer is the only asset there is" $ do
+      -- Nothing else is compiled in, so nothing else can be asked for: the
+      -- font stays an `--assets' affordance and is not invented here.
+      mapM_ (\name -> do r <- getBuiltIn name
+                         assertEqual (show name) 404 (status r))
+            ["/table-view.css", "/JetBrainsMono-Regular.woff2", "/.."]
+      b <- body <$> getBuiltIn "/"
+      holdsNone "no @font-face without a file to point at" ["@font-face"] b
   ]
 
 errorSpec :: TestTree

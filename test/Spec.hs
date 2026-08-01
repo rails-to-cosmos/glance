@@ -13,6 +13,7 @@ import qualified TestNegative as Negative
 import qualified TestTextShow as TextShow
 import qualified TestSpans as Spans
 import qualified TestQuery as Query
+import qualified TestSelfContained as SelfContained
 import qualified TestServe as Serve
 import qualified TestStore as Store
 import qualified TestSubtree as Subtree
@@ -31,6 +32,7 @@ tests = testGroup "Tests"
   , Filter.spec
   , Subtree.spec
   , Serve.spec
+  , SelfContained.spec
   , Store.spec
   , Config.spec
   , Desktop.spec
