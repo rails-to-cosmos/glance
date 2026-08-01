@@ -3546,9 +3546,12 @@ page head' title body = T.unlines
   , "  .pln .pkey{color:var(--g-mute)}"
   -- The logbook: full width under both panes, muted, read-only and out of the
   -- tab order — it is the server's, and there is nothing here to press.
+      -- The same dress as the page's log strip: 12px muted on the surface
+      -- tint, one hairline, the shared 8px radius, 6px 10px padding.
   , "  #mlog{display:none;flex:0 0 auto;max-height:22vh;overflow:auto;margin:0;"
-  , "    font:11px/1.5 var(--dk-mono);color:var(--g-mute);white-space:pre-wrap;"
-  , "    padding:6px 8px;border:1px solid var(--g-border);border-radius:4px}"
+  , "    font-size:12px;font-family:var(--dk-mono);color:var(--g-mute);"
+  , "    white-space:pre-wrap;padding:6px 10px;background:var(--g-surface);"
+  , "    border:1px solid var(--g-border);border-radius:8px}"
   , "  #mlog.on{display:block}"
   , "  #sheet.raw #mlog{display:none}"
   -- The value palette.  Narrow, since what it holds is a word: the title says
