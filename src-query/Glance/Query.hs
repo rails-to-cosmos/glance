@@ -1353,12 +1353,19 @@ depthOf r = case indent (hrHeadline r) of Indent n -> max 0 (n - 1)
 -- | The state palette: every TODO keyword the loaded files declared, actives
 -- ahead of the done-like ones.  Palette order is also sort priority
 -- (SCHEMA.md), so a sort on the state column puts work before its aftermath.
+--
+-- Each badge names its @group@ — @active@ or @inactive@, the halves a
+-- @#+TODO:@ line's bar divides.  Order alone cannot say where the bar fell, and
+-- the producer is the only side that knows: the two @stateValues@ metas filter
+-- on exactly this split, and the shell's value palette rules between the groups
+-- rather than guessing from the hues.  A renderer with no use for it ignores an
+-- extra field.
 badges :: TodoKeywords -> [Value]
 badges (TodoKeywords actives inactives) =
-  zipWith badge (cycled activeColors actives) actives
-    <> zipWith badge (cycled inactiveColors inactives) inactives
-  where cycled hues ks = take (length ks) (cycle hues)
-        badge color value = object [ "value" .= value, "color" .= color ]
+  group "active" activeColors actives <> group "inactive" inactiveColors inactives
+  where group g hues = zipWith (badge g) (cycle hues)
+        badge g color value =
+          object [ "value" .= value, "color" .= color, "group" .= (g :: Text) ]
 
 -- | Warm hues for keywords that still want work.
 activeColors :: [Text]

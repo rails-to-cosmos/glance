@@ -27,7 +27,10 @@
 //   rewritten     the file behind the open sheet moves: a new digest
 //   press:KEY     KEY pressed, so a key can follow an act rather than precede
 //                 it; `C-x' and `S-Tab' spell the modifiers
-//   type:TEXT     TEXT typed into the raised value palette, which narrows it
+//   type:TEXT     TEXT typed into the value palette's field, which narrows it —
+//                 `/' has to have put the palette in that mode first
+//   assign:A,B,C  the which-key assignment run over that cycle, as the pure
+//                 function it is
 //   refuse        the next /command answers that every row was refused
 //   bare          the mounted handle loses its mark calls, the way an older
 //                 table-view.js never had them
@@ -50,9 +53,10 @@ const tags = [];
 let rows = ["one", "two", "three"].map((title, i) =>
   ({ id: `r${i + 1}`, cells: { state: "TODO", title, tag: ":web:" } }));
 // The state column carries its badge palette, since that is where the value
-// palette C-c C-t raises gets its keywords from.
+// palette C-c C-t raises gets its keywords, its colours and its groups from.
 let columns = [
-  { key: "state", badges: [{ value: "TODO" }, { value: "DONE" }] },
+  { key: "state", badges: [ { value: "TODO", color: "#e0af68", group: "active" }
+                          , { value: "DONE", color: "#73daca", group: "inactive" } ] },
   { key: "tag" },
 ];
 let tag = "\"t0\"";
@@ -302,7 +306,9 @@ const make = (tag) => {
 };
 const field = (id) => (fields[id] = fields[id] || make(TAGS[id] || "div"));
 const STATEFUL = [ "mtext", "mnote", "mfile", "modal", "mprops", "mlog", "sheet"
-                 , "echo", "prompt", "phead", "pinput"
+                 // The value palette: its list is a tree of key tokens and
+                 // underlined words, so it has to hold one.
+                 , "echo", "prompt", "phead", "pinput", "pbox", "plist", "pfoot"
                  , "config", "cnote", "clayers", "ceff"
                  // The event strip: a line per entry, each a row of spans, so it
                  // has to hold a tree rather than answer "" to everything.
@@ -395,6 +401,32 @@ const focused = () => {
   return at === -1 ? "" : `${active.className}:${at}`;
 };
 /**
+ * The value palette's list as it stands: one entry per row, with the key token
+ * it claimed and its word spelled with the underlined letter in brackets where
+ * it sits (`DELEGAT[E]D').  A hairline is a row of its own, so the groups are
+ * observable too.  The colour is read back off the inline style, which is where
+ * the badge's own hue is written.
+ */
+const paletteRows = () => field("plist").children.map((row) => {
+  // By CLASS, the way `patAt' reads the property panel: the producer labels the
+  // token and the word, so a third part added later cannot be mistaken for
+  // either.  A hairline has neither.
+  const kid = (cls) =>
+    row.children.find((e) => e.className.split(" ").indexOf(cls) !== -1);
+  const token = kid("pk"), word = kid("pw");
+  return {
+    cls: row.className,
+    key: token ? token.textContent : "",
+    word: !word ? ""
+      : word.children.length
+        ? word.children.map((p) => (p.tagName === "U" ? `[${p.textContent}]`
+                                                      : p.textContent)).join("")
+        : word.textContent,
+    color: word ? word.style.color || "" : "",
+  };
+});
+
+/**
  * The log strip as it stands: a line's severity class and the text it renders,
  * the parts joined by the space that separates them on screen.  The repeat
  * counter is empty until a line repeats, which is why the empty parts go.
@@ -404,8 +436,20 @@ const logged = () => field("log").children.map((line) => ({
   text: line.children.map((part) => part.textContent).filter(Boolean).join(" "),
 }));
 
+// What `assign' worked out, as `LETTER@INDEX' per entry and `-' for one that
+// claimed nothing.
+let assigned = [];
+
 const ACTIONS = {
   close: (reason) => { if (socket && socket.onclose) socket.onclose({ reason }); },
+  // The which-key assignment driven as the pure function it is: a comma-separated
+  // cycle in, the claimed letters out.  The glue is eval'd into this scope, so
+  // its own function is what answers — no second copy of the rule here.
+  assign: (arg) => {
+    const labels = arg.split(",");
+    assigned = whichKeys(labels).map((at, i) =>
+      (at === -1 ? "-" : `${letterAt(labels[i], at)}@${at}`));
+  },
   sheet: (text) => { field("mtext").value = text; },
   filter: (text) => { field("filter").value = text; },
   moved: () => {
@@ -420,7 +464,12 @@ const ACTIONS = {
   // about: the dispatch claims it either way and runs it only when it is not
   // one of the commands a hold must not repeat.
   repeat: (key) => press(key, true),
+  // The field is the fallback mode's and is hidden until `/' raises it, so a
+  // script that types without pressing `/' first is typing into nothing on a
+  // real page: say so rather than narrow a list no reader could have narrowed.
   type: (text) => {
+    if (field("pbox").className !== "narrow")
+      throw new Error("the value palette is not in its typing mode");
     const box = field("pinput");
     box.value = text;
     box.fire("input", { target: box });
@@ -500,8 +549,11 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     // The event strip, which is append-only: what is here is everything the
     // page has said since it booted, oldest first.
     log: logged(),
-    // The value palette, and what the keys posted through it.
-    prompt: field("prompt").className, phead: field("phead").textContent, commands,
+    // The value palette: whether it is up, which mode it is in, what it is
+    // setting, the entries it drew, the keys it names, and what a commit posted.
+    prompt: field("prompt").className, phead: field("phead").textContent,
+    pmode: field("pbox").className, plist: paletteRows(),
+    pfoot: field("pfoot").textContent, assigned, commands,
     // Which keys the dispatch took off the browser, in press order.
     prevented,
     // The settings sheet: whether it is up, the one word it wears, the lines

@@ -383,7 +383,10 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
     SCHEMA.md, and are the canonical spelling (org-glance's own, and what the
     default view boots on). The renderer has no group logic and matches them as
     literal badge text; the `state` column now ships them as `values` beside
-    its `badges`, so its autocomplete can at least offer them.
+    its `badges`, so its autocomplete can at least offer them. Each badge also
+    names its `group` (`active`/`inactive`) — order cannot say where a `#+TODO:`
+    bar fell and the hues are not a contract — which is what the value palette
+    rules its hairlines on. Additive; a renderer ignores the field.
   - Vocabulary scopes differ: the server's virtual keys are the whole store's
     tags, the renderer's are derived from the rows it currently holds. A tag
     outside the loaded page is a predicate on one side and free text on the
@@ -561,13 +564,36 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   predating it echoes `this table-view.js has no archive flags` and writes
   nothing, and `D` there falls through to the row at point.
 - `t`/`C-c C-t` raise a value palette of the shell's OWN — the state column's
-  `badges` plus `*clear*`, never its `values` (`*active*` is not a keyword) —
-  typed to narrow, `C-n`/`C-p` and the arrows to walk, `RET` to commit, `ESC`
-  through the keymap's `cancel`. Its keys live in a SECOND document listener
-  behind the dispatch, which is safe because `typing()` has already killed every
-  `table` row. Confirm-free: the drift lock is the safety. The pill counts what
+  `badges` plus `*clear*`, never its `values` (`*active*` is not a keyword). It
+  is WHICH-KEY: every entry wears a letter and that letter commits on its own,
+  since the palette IS the confirmation. No `RET` in letter mode, no confirm
+  step; the drift lock is the safety. `/` falls back to the completing-read —
+  the token column goes, a field appears, typing narrows, `C-n`/`C-p` and the
+  arrows walk, `RET` commits — and is entered, never left; `ESC` (the keymap's
+  `cancel`) is the one door out of either mode. Both modes commit through one
+  `takeChoice`. Its keys live in a SECOND document listener behind the dispatch,
+  safe because `typing()` — which the palette turns on with NO field focused,
+  the way the property panel's nav does — has already killed every `table` row,
+  so `n` moves nothing and `d` flags nothing while it is up. The pill counts what
   landed, the log names every row it landed on and every one refused, and the
-  rows arrive over the watch.
+  rows arrive over the watch. TWO GUARDS, one press each: `prompting.raising`
+  declines the keydown that OPENED the palette (that listener is behind the
+  dispatch, and `t` is both the opener and a letter), and `e.repeat` stops a HELD
+  `t` committing through what it opened — `ONCE` cannot reach it, since it
+  governs dispatch rows and the repeat lands while every row is dead.
+- Letters are `whichKeys(labels)`: over the palette-ordered labels, each entry
+  takes the INDEX of the first letter of its OWN spelling, downcased, that no
+  earlier entry claimed — one `a`–`z` pool, `-1` for none left, so `TODO DONE
+  DELEGATED` = `t d e`. Pure and order-only, so a tree's cycle always yields the
+  same letters. `*clear*` is in the pool with no privilege for being last (stars
+  are not letters, so `c`, else `l`, `e`…). `ask` folds the letter into each
+  entry once, so the drawing and the dispatch read ONE FIELD of one object
+  instead of agreeing on a parallel array's indices — `shown` narrows and
+  `choices` does not. Display teaches why: an accent-boxed key token, the
+  keyword in its OWN badge colour with the claimed letter UNDERLINED AT ITS
+  POSITION, a hairline wherever the producer's badge `group` changes, `*clear*`
+  last in the starred-meta italic, a muted `·` for an unbound entry (reachable
+  through `/` alone).
 - Row marks are the RENDERER's, behind `marks: true`: it draws the checkbox
   column, keys the marks by id and counts them, so a mark survives a `setRows`,
   a filter that hides its row and a page it is not on, and this page keeps no

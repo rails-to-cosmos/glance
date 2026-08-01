@@ -1646,11 +1646,15 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      <pre id=\"mlog\"></pre>"
   , "    </div>"
   , "  </div>"
+  -- The value palette.  Letter mode is the resident one and its field is
+  -- hidden, so the box carries the mode: `#pbox.narrow' is the completing-read
+  -- `/' falls back to.  The foot names the keys the list itself cannot draw.
   , "  <div id=\"prompt\">"
   , "    <div id=\"pbox\">"
   , "      <div id=\"phead\"></div>"
   , "      <input id=\"pinput\" spellcheck=\"false\" autocomplete=\"off\">"
   , "      <div id=\"plist\"></div>"
+  , "      <div id=\"pfoot\"></div>"
   , "    </div>"
   , "  </div>"
   -- The settings sheet: one section per keyword layer, then the union they
@@ -1689,6 +1693,16 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   -- The strip is capped in height, so its end can be out of sight.  Keep it in
   -- sight — unless the reader has scrolled up, which is a place they are holding
   -- on purpose.
+  -- One appended child: TAG under INTO, wearing CLS and holding TEXT when there
+  -- is any.  Both trees this page builds — the event strip's lines and the value
+  -- palette's entries — are rows of these.
+  , "    const part = (into, tag, cls, text) => {"
+  , "      const e = document.createElement(tag);"
+  , "      e.className = cls;"
+  , "      if (text !== undefined) e.textContent = text;"
+  , "      into.appendChild(e);"
+  , "      return e;"
+  , "    };"
   , "    const LOGCAP = 500;"
   , "    let logLast = null;"
   , "    function append(scope, sev, message) {"
@@ -1701,17 +1715,11 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      } else {"
   , "        const line = document.createElement(\"div\");"
   , "        line.className = sev;"
-  , "        const part = (cls, s) => {"
-  , "          const e = document.createElement(\"span\");"
-  , "          e.className = cls; e.textContent = s;"
-  , "          line.appendChild(e);"
-  , "          return e;"
-  , "        };"
-  , "        part(\"lt\", new Date().toTimeString().slice(0, 8));"
-  , "        part(\"lv\", sev);"
-  , "        part(\"lc\", scope);"
-  , "        part(\"lm\", text);"
-  , "        logLast = { scope, sev, text, n: 1, count: part(\"ln\", \"\") };"
+  , "        part(line, \"span\", \"lt\", new Date().toTimeString().slice(0, 8));"
+  , "        part(line, \"span\", \"lv\", sev);"
+  , "        part(line, \"span\", \"lc\", scope);"
+  , "        part(line, \"span\", \"lm\", text);"
+  , "        logLast = { scope, sev, text, n: 1, count: part(line, \"span\", \"ln\", \"\") };"
   , "        box.appendChild(line);"
   , "        while (box.children.length > LOGCAP) box.removeChild(box.children[0]);"
   , "      }"
@@ -2460,22 +2468,80 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      else said(b, \"no row\");"
   , "    }"
     -- The value palette: a prompt of this page's own, since the renderer's
-    -- overlay belongs to the filter and this page may not reach into it.  Type
-    -- to narrow, C-n/C-p or the arrows to walk, RET to commit; ESC is the
-    -- keymap's own `keyboard-quit', which closes whichever overlay is up.
+    -- overlay belongs to the filter and this page may not reach into it.  ESC is
+    -- the keymap's own `keyboard-quit', which closes whichever overlay is up.
+    --
+    -- It opens in WHICH-KEY mode: every entry wears a letter and that letter
+    -- commits on its own.  The palette IS the confirmation — a reader who
+    -- pressed `t' has seen the list saying `t' sets TODO — so there is no
+    -- second key, and the drift lock is what makes a mis-press cheap.  `/'
+    -- falls back to the completing-read this used to be, for a cycle wide
+    -- enough that some entry claimed nothing.
     --
     -- The keys are handled in a second document listener rather than on the
-    -- field, and that is safe because it runs after the dispatch: with a field
-    -- focused `typing()' has already made every `table' row dead, so the only
-    -- row that can fire ahead of this is the one that should.
+    -- field, and that is safe because it runs after the dispatch: while the
+    -- palette is up `typing()' has already made every `table' row dead, so the
+    -- only row that can fire ahead of this is ESC, which is the one that should.
   , "    let prompting = null;"
+    -- The which-key assignment: each entry claims the first letter of its OWN
+    -- spelling that no earlier entry took, over one a-z namespace in palette
+    -- order.  What comes back is that letter's INDEX — the display underlines
+    -- it there, which is what teaches why DELEGATED is `e' — and -1 for an
+    -- entry whose every letter was taken.  Pure and order-only, so one tree's
+    -- cycle always yields the same letters and the muscle memory holds.
+  , "    function whichKeys(labels) {"
+  , "      const taken = new Set();"
+  , "      return labels.map((label) => {"
+  , "        for (let i = 0; i < label.length; i += 1) {"
+  , "          const c = label[i].toLowerCase();"
+  , "          if (c >= \"a\" && c <= \"z\" && !taken.has(c)) { taken.add(c); return i; }"
+  , "        }"
+  , "        return -1;"
+  , "      });"
+  , "    }"
+    -- A declaration rather than a `const', so a direct `eval' of this glue
+    -- leaks it the way it leaks `whichKeys': the suite's harness reports the
+    -- assignment through THIS function rather than re-spelling the rule.
+  , "    function letterAt(label, at) {"
+  , "      return at === -1 ? null : label[at].toLowerCase();"
+  , "    }"
+    -- The letter is folded into each entry HERE, once, so the drawing and the
+    -- dispatch read one field of one object rather than agreeing on a parallel
+    -- array's indices — `shown' is narrowed and `choices' is not.
+    --
+    -- `raising' is the keydown that opened this: it is still travelling, and
+    -- this listener sits behind the dispatch, so the press that raised the
+    -- overlay arrives here next.  `t' raises it AND is a letter in it, so
+    -- without declining that one event the single press would open and commit
+    -- at once.  Consumed by the first key the palette sees, which is always
+    -- that one — `ask' is reached from the dispatch and nowhere else.
   , "    function ask(title, choices, commit) {"
-  , "      prompting = { choices, shown: choices, at: 0, commit };"
+  , "      const cuts = whichKeys(choices.map((c) => c.label));"
+  , "      const list = choices.map((c, i) =>"
+  , "        ({ ...c, cut: cuts[i], key: letterAt(c.label, cuts[i]) }));"
+  , "      prompting ="
+  , "        { choices: list, shown: list, at: 0, commit, narrow: false, raising: true };"
   , "      el(\"phead\").textContent = title;"
   , "      el(\"pinput\").value = \"\";"
   , "      el(\"prompt\").className = \"on\";"
-  , "      drawChoices();"
+  , "      mode(\"\", \"a letter sets it · / to search · ESC leaves\");"
+  , "    }"
+    -- The fallback, entered by `/' and never left: everything is reachable by
+    -- typing, the unbound entries included, and ESC closes the palette from
+    -- here the way it does from letter mode.  One door out, either mode.
+  , "    function narrowMode() {"
+  , "      prompting.narrow = true;"
+  , "      mode(\"narrow\", \"RET sets it · C-n/C-p walks · ESC leaves\");"
   , "      el(\"pinput\").focus();"
+  , "    }"
+    -- The chrome the mode owns — the box's class, which is what shows the
+    -- field, and the foot naming the keys the list cannot draw for itself.
+    -- Written at the two transitions, so `drawChoices' stays a list renderer
+    -- and a keystroke that narrows invalidates nothing outside the list.
+  , "    function mode(cls, foot) {"
+  , "      el(\"pbox\").className = cls;"
+  , "      el(\"pfoot\").textContent = foot;"
+  , "      drawChoices();"
   , "    }"
     -- Blurred as well as hidden: a focused field nobody can see would leave
     -- `typing()' true and swallow every key after it.
@@ -2484,14 +2550,30 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      el(\"prompt\").className = \"\";"
   , "      el(\"pinput\").blur();"
   , "    }"
+    -- One row per entry: the key token, then the keyword in its badge colour
+    -- with the claimed letter underlined where it sits.  A hairline falls
+    -- wherever the producer's group changes, so the actives stand above the
+    -- done-like ones and `*clear*' below both in the muted italic every starred
+    -- meta wears.  In narrow mode the token column goes: no letter commits
+    -- there, and drawing one would be a lie about what typing it does.
   , "    function drawChoices() {"
   , "      const list = el(\"plist\");"
   , "      list.textContent = \"\";"
+  , "      let group = null;"
   , "      prompting.shown.forEach((c, i) => {"
-  , "        const row = document.createElement(\"div\");"
-  , "        row.className = i === prompting.at ? \"pat\" : \"\";"
-  , "        row.textContent = c.label;"
-  , "        list.appendChild(row);"
+  , "        if (group !== null && c.group !== group) part(list, \"div\", \"psep\");"
+  , "        group = c.group;"
+  , "        const row = part(list, \"div\", \"pe\" + (c.group === \"meta\" ? \" pm\" : \"\")"
+  , "          + (prompting.narrow && i === prompting.at ? \" pat\" : \"\"));"
+  , "        const key = prompting.narrow ? null : c.key;"
+  , "        if (!prompting.narrow)"
+  , "          part(row, \"span\", key ? \"pk\" : \"pk off\", key || \"·\");"
+  , "        const word = part(row, \"span\", \"pw\");"
+  , "        if (c.color) word.style.color = c.color;"
+  , "        if (!key) { word.textContent = c.label; return; }"
+  , "        part(word, \"span\", \"\", c.label.slice(0, c.cut));"
+  , "        part(word, \"u\", \"\", c.label[c.cut]);"
+  , "        part(word, \"span\", \"\", c.label.slice(c.cut + 1));"
   , "      });"
   , "    }"
   , "    function narrowTo(text) {"
@@ -2505,8 +2587,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      if (n) prompting.at = Math.max(0, Math.min(n - 1, prompting.at + step));"
   , "      drawChoices();"
   , "    }"
-  , "    function takeChoice() {"
-  , "      const chosen = prompting.shown[prompting.at];"
+  , "    function takeChoice(chosen) {"
   , "      if (!chosen) return;"
   , "      const act = prompting.commit;"
   , "      unask();"
@@ -2524,15 +2605,21 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- `*clear*' wears the stars every reserved meta wears (docs/invariants.md):
     -- the starred form is the page's mark for a value with semantics rather than
     -- a word a file could hold, and the server refuses a starred string as a
-    -- keyword from the other side.  What it commits is a null keyword.
+    -- keyword from the other side.  What it commits is a null keyword.  It takes
+    -- its letter out of the same pool as every keyword and gets no privilege for
+    -- being last: `*clear*' is `c' where nothing else claimed one first.
   , "    const CLEAR = \"*clear*\";"
     -- What the tree falls back to with no `#+GLANCE_DEFAULT_FILTER:' line, which
     -- is what the settings field says an empty box means.
   , "    const BUILTIN_QUERY = " <> jsonText builtinFilter <> ";"
+    -- The colour is the badge's own, so a keyword reads in the palette as it
+    -- reads in the table; the group is the producer's, and it is what the
+    -- hairlines are drawn on.
   , "    const stateChoices = () =>"
   , "      ((cols.filter((c) => c.key === \"state\")[0] || {}).badges || [])"
-  , "        .map((x) => ({ label: x.value, keyword: x.value }))"
-  , "        .concat([{ label: CLEAR, keyword: null }]);"
+  , "        .map((x) => ({ label: x.value, keyword: x.value,"
+  , "                       color: x.color, group: x.group }))"
+  , "        .concat([{ label: CLEAR, keyword: null, group: \"meta\" }]);"
     -- Settings.  One section per keyword layer, and a layer is one config file
     -- and one box holding its `#+TODO:' lines VERBATIM.  The line is the
     -- contract org itself reads, so it is what is edited: a chip UI here would
@@ -2867,12 +2954,15 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    }"
   , "    // A focus that keeps its own keys: the filter box, the sheet, and the"
   , "    // keys select, which navigates on the arrows this map would otherwise"
-  , "    // take for row movement — and the property panel in nav, which holds"
-  , "    // the keys with nothing focused and would otherwise leave the table's"
-  , "    // own letters live under its movement."
+  , "    // take for row movement — and the two modal things that hold the keys"
+  , "    // with nothing focused at all: the property panel in nav, and the value"
+  , "    // palette in letter mode, whose whole offer is single letters the table"
+  , "    // also binds. Either would otherwise leave the table's own keys live"
+  , "    // underneath it."
   , "    const typing = () => {"
   , "      const a = document.activeElement;"
-  , "      return pnav || (!!a && (a.tagName === \"INPUT\" || a.tagName === \"TEXTAREA\""
+  , "      return pnav || !!prompting"
+  , "        || (!!a && (a.tagName === \"INPUT\" || a.tagName === \"TEXTAREA\""
   , "                     || a.tagName === \"SELECT\" || a.isContentEditable));"
   , "    };"
     -- `modal' is "a sheet is up", and there are two of them: the subtree's and
@@ -3009,18 +3099,40 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      if (MAPS.reserved.indexOf(k) === -1) e.preventDefault();"
   , "      echo(`${keys.join(\" \")} is undefined`);"
   , "    });"
-    -- The prompt's own keys, behind the dispatch above: while its field has
-    -- focus the only row that can have fired already is ESC, which is the one
-    -- that should.  C-n and C-p are reserved chords the map never claims, and
-    -- claiming them HERE is the field's business rather than the map's — the
-    -- same way a focused select keeps its arrows.
+    -- The prompt's own keys, behind the dispatch above: while it is up
+    -- `typing()' is true, so the only row that can have fired already is ESC,
+    -- which is the one that should.  C-n and C-p are reserved chords the map
+    -- never claims, and claiming them HERE is the palette's business rather
+    -- than the map's — the same way a focused select keeps its arrows.
+    --
+    -- Letter mode is bare letters only: `keyName' spells a chord `C-t' and a
+    -- held shift `T', neither of which is a claimed letter, so both fall
+    -- through to whatever else wants them.
   , "    document.addEventListener(\"keydown\", (e) => {"
   , "      if (!prompting) return;"
+  , "      if (prompting.raising) { prompting.raising = false; return; }"
   , "      const k = keyName(e);"
+    -- A bare modifier spells no key, and an unbound entry claims no letter:
+    -- without this the two nulls would meet and Shift would commit whatever
+    -- came out of the pool empty.
+  , "      if (!k) return;"
+    -- A letter writes, so it runs once per press — the `ONCE' rule, owed here
+    -- rather than by the map because the key that OPENS this palette is a
+    -- letter too, and a held one would raise it and commit through it.  The
+    -- repeat is claimed either way, the way the dispatch claims one it declines
+    -- to run.
+  , "      if (!prompting.narrow) {"
+  , "        const hit = prompting.choices.find((c) => c.key === k);"
+  , "        if (k === \"/\") narrowMode();"
+  , "        else if (!hit) return;"
+  , "        else if (!e.repeat) takeChoice(hit);"
+  , "        e.preventDefault();"
+  , "        return;"
+  , "      }"
   , "      const step = k === \"<down>\" || k === \"C-n\" ? 1"
   , "                 : k === \"<up>\" || k === \"C-p\" ? -1 : 0;"
   , "      if (step) walkChoices(step);"
-  , "      else if (k === \"RET\") takeChoice();"
+  , "      else if (k === \"RET\") takeChoice(prompting.shown[prompting.at]);"
   , "      else return;"
   , "      e.preventDefault();"
   , "    });"
@@ -3333,18 +3445,41 @@ page head' title body = T.unlines
   , "  #mlog.on{display:block}"
   , "  #sheet.raw #mlog{display:none}"
   -- The value palette.  Narrow, since what it holds is a word: the title says
-  -- what is being set and over how many rows, the field narrows the list, and
-  -- the row under point wears the page's own selection colour.
+  -- what is being set and over how many rows, and the foot names the two keys
+  -- the list cannot draw for itself.  The field is the fallback mode's and is
+  -- hidden until `/' asks for it — in letter mode there is nothing to type.
   , "  #pbox{display:flex;flex-direction:column;gap:6px;padding:10px;border-radius:6px;"
   , "    position:relative;z-index:101;"
   , "    width:min(420px,100%);font-family:var(--dk-mono);"
   , "    background:var(--g-bg);color:var(--g-fg);border:1px solid var(--g-border)}"
   , "  #phead{font-size:12px;color:var(--g-mute)}"
+  , "  #pfoot{font-size:11px;color:var(--g-mute)}"
   , "  #pinput{font:12px/1.5 var(--dk-mono);padding:5px 7px;border-radius:4px;"
   , "    border:1px solid var(--g-border);background:transparent;color:inherit}"
+  , "  #pbox:not(.narrow) #pinput{display:none}"
   , "  #plist{max-height:40vh;overflow-y:auto;font-size:12px}"
-  , "  #plist div{padding:2px 7px;border-radius:4px}"
+  -- An entry is its key token and its word.  The token is boxed in the accent
+  -- so the letters read as a column of their own, and the word keeps its badge
+  -- colour so a keyword looks the same here as it does in the table; the
+  -- claimed letter is underlined where it sits, which is what says why
+  -- DELEGATED answers to `e'.  An entry that claimed nothing shows a muted dot
+  -- and is reachable through `/' alone.
+  , "  .pe{display:flex;align-items:center;gap:8px;padding:3px 7px;border-radius:4px}"
+  , "  .pk{flex:none;min-width:1.6em;text-align:center;padding:1px 5px;border-radius:3px;"
+  , "    font:11px/1.4 var(--dk-mono);"
+  , "    border:1px solid var(--g-accent);color:var(--g-accent)}"
+  , "  .pk.off{border-color:transparent;color:var(--g-mute)}"
+  , "  .pw u{text-decoration-color:var(--g-accent);text-underline-offset:2px}"
+  -- The hairline between the producer's groups: the actives above it, the
+  -- done-like ones below, and `*clear*' under a second one in the muted italic
+  -- every starred meta wears.
+  , "  .psep{height:1px;margin:4px 7px;background:var(--g-border)}"
+  , "  .pm .pw{font-style:italic;color:var(--g-mute)}"
+  -- The fallback's cursor row wears the page's selection, which in the light
+  -- theme is a bright yellow — a badge hue written inline reads badly on it,
+  -- and this is the one place a declaration has to beat one.
   , "  #plist .pat{background:var(--g-sel);color:var(--g-fg)}"
+  , "  #plist .pat .pw{color:var(--g-fg)!important}"
   -- The settings sheet, third in the same two bands: one section per keyword
   -- layer, each a label saying which file it is and a box holding that file's
   -- `#+TODO:' lines.  High rather than centred, since the sections grow

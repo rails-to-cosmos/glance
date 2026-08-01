@@ -285,22 +285,41 @@ that stops parsing keeps the rows it had — including one saved from the browse
 with a typo in it, which is the same deal any editor offers. Restart the daemon
 and the tab re-fetches and re-mounts on its own, backing off from 1 s to 30 s.
 
-*Two keys write without opening anything.* =D= archives and =C-c C-t= sets a
-state, and both run over the *marked set* when there is one and over the row at
-point when there is not — dired's rule, and org-glance's. Mark a run of rows
-with =m=, press =D=, and the pill says =D → archived (5)=. There is no
+*Two keys write without opening anything.* =D= archives and =t= sets a state,
+and both run over the *marked set* when there is one and over the row at point
+when there is not — dired's rule, and org-glance's. Mark a run of rows with =m=,
+press =D=, and the pill says =D → archived (5)=. There is no
 confirmation: the page sends row ids and a name, the server works out which
 characters to move, and the rows come back over the socket a moment later
 because the file watch is still the only thing that updates the table. What
 makes that safe is the same optimistic lock the sheet uses — a file that moved
 under you refuses its rows and says so in the log, while the rest land.
 
-=C-c C-t= raises a small palette of the states your files declare, plus =clear=
-to take a keyword off. Type to narrow it, =C-n= / =C-p= or the arrows to walk
-it, =RET= to commit, =ESC= to leave. A keyword is legal per *file*: the palette
-offers the union of every =#+TODO:= line loaded, and a command naming one that a
-row's own file does not declare is refused whole rather than applied to the rows
-whose files do. The same two commands from a shell:
+=t= raises a small palette of the states your files declare, plus =*clear*= to
+take a keyword off. It is a *which-key* menu: every entry wears a letter, that
+letter commits on its own, and the palette itself is the confirmation — you have
+just read the line saying =t= sets =TODO= when you press =t=. No =RET= behind it
+and no confirm step; the optimistic lock is what makes a mis-press cheap.
+
+The letters are deterministic. Each entry claims the first letter of *its own
+spelling* that no entry above it took, in palette order, out of one =a=–=z=
+pool — so =TODO= is =t=, =DONE= is =d=, and =DELEGATED=, finding =d= gone, is
+=e=. The claimed letter is *underlined where it sits in the word*, which is the
+whole of the explanation. A hairline separates the active keywords from the
+done-like ones, =*clear*= sits under both, and it takes its letter out of the
+same pool as everything else — =c= where nothing claimed one, =l= where
+something did. One tree's keyword cycle always yields the same letters, so the
+muscle memory holds.
+
+An entry with no letter left shows a muted =·=. Press =/= for the
+completing-read: the letters go, a field appears, type to narrow, =C-n= / =C-p=
+or the arrows to walk, =RET= to commit. =ESC= leaves the palette from either
+mode.
+
+A keyword is legal per *file*: the palette offers the union of every =#+TODO:=
+line loaded, and a command naming one that a row's own file does not declare is
+refused whole rather than applied to the rows whose files do. The same two
+commands from a shell:
 
 #+begin_src sh
 curl -s -X POST -H 'content-type: application/json' localhost:7777/command \
@@ -367,7 +386,7 @@ parameter and a key line that had to be rewritten whenever it moved.
 | =M=         | =mark-all=                        | marks every row loaded                        |
 | =d=         | =archive-flag=                    | flags this row; =d= again archives it          |
 | =D=         | =org-glance-overview:delete=      | archives the flagged rows, or the one at point |
-| =t=         | =org-glance-overview:todo=        | asks which state over the marked rows          |
+| =t=         | =org-glance-overview:todo=        | the state palette, over the marked rows        |
 | =,=         | =customize=                       | the keyword cycles and the default view       |
 | =q=         | =quit-window=                     | closes the sheet; never the tab               |
 | =C-x C-s=   | =save-buffer=                     | syncs the sheet; again to overwrite           |
@@ -386,9 +405,9 @@ parameter and a key line that had to be rewritten whenever it moved.
 claimed by the page — and in Chromium the second chord never arrives, because
 =Ctrl+T= opens a tab in the browser process above the document and
 =preventDefault()= cannot reach it. Firefox reserves it the same way. The page's
-half is correct and tested; there is nothing a page can do about the other half.
-Until the binding is moved, set a state from the shell (=POST /command= above)
-or from Emacs.
+half is correct and tested; there is nothing a page can do about the other half,
+which is why the same command answers to a plain =t=. The chord stays bound for
+browsers that deliver it.
 
 No sequence is bound twice, and none opens a longer one — which is why =gg= and
 =dd= are not in the map: a complete sequence that also opens a longer one leaves

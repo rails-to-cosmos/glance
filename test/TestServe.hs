@@ -293,7 +293,8 @@ spec = withResource (body <$> get assetsDir "/") (const (pure ())) $ \shell ->
     , bootstrapSpec, materializeSpec, commitSpec, commandSpec, configSpec, indexingSpec
     , pageSpec shell, keymapSpec shell
     , glueSpec shell, bootSpec shell, liveSpec shell, paletteSpec shell, markSpec shell
-    , commandKeySpec shell, logSpec shell, sheetSpec shell, settingsSpec shell
+    , commandKeySpec shell, whichKeySpec shell, logSpec shell, sheetSpec shell
+    , settingsSpec shell
     , touchSpec shell
     , shellFontSpec shell, assetSpec, errorSpec ]
 
@@ -708,7 +709,7 @@ commandKeySpec shell = testGroup "Shell commands"
     -- The other half of that split, unchanged: `set-state' is the command that
     -- DOES read the marked set, so the two selections stay apart on both sides.
   , testCase "set-state still runs over the marked set" $
-      bootOf shell "" 500 "m m d" "press:C-c press:C-t press:Enter" $ \answer -> do
+      bootOf shell "" 500 "m m d" "press:C-c press:C-t press:t" $ \answer -> do
         assertEqual "the marked pair, and not the flagged row"
                     [("set-state", ["r1", "r2"])] =<< postedOf answer
         assertEqual "and the flag is still on, unspent" ["r3"]
@@ -723,12 +724,16 @@ commandKeySpec shell = testGroup "Shell commands"
 
     -- C-c C-t is a chord, so this also exercises the prefix path: the first key
     -- opens it and the second completes it, over a table with no field focused.
-  , testCase "C-c C-t raises the palette and RET commits what is under point" $
-      bootOf shell "" 500 "C-c C-t" "press:Enter" $ \answer -> do
+    -- The letter is the whole gesture: the palette IS the confirmation, so
+    -- there is no RET behind it.
+  , testCase "C-c C-t raises the palette and a letter commits on its own" $
+      bootOf shell "" 500 "C-c C-t" "press:t" $ \answer -> do
         assertEqual "the palette said what it was setting and over how many"
                     "set state · 1 row" =<< textAt "phead" answer
-        assertEqual "the first badge" [("set-state", ["r1"])] =<< postedOf answer
-        assertEqual "as the keyword" [Just "TODO"] =<< keywordsOf answer
+        assertEqual "one command, over the row at point"
+                    [("set-state", ["r1"])] =<< postedOf answer
+        assertEqual "as the keyword that letter names" [Just "TODO"]
+          =<< keywordsOf answer
         assertEqual "the pill names the state" "C-c C-t → TODO (1)"
           =<< textAt "echo" answer
         assertEqual "and the overlay is down" "" =<< textAt "prompt" answer
@@ -745,35 +750,146 @@ commandKeySpec shell = testGroup "Shell commands"
         assertEqual "neither chord was left to the browser"
                     ["C-c", "C-t"] =<< textsAt "prevented" answer
 
-  , testCase "typing narrows it, and RET takes what is left" $
-      bootOf shell "" 500 "C-c C-t" "type:done press:Enter" $ \answer -> do
+    -- RET is nobody's here: it commits in the fallback mode alone, and a reader
+    -- who pressed it out of habit gets the palette still standing rather than a
+    -- write they did not name.
+  , testCase "RET commits nothing in letter mode" $
+      bootOf shell "" 500 "C-c C-t" "press:Enter" $ \answer -> do
+        assertEqual "no command went" [] =<< postedOf answer
+        assertEqual "and the palette is still up" "on" =<< textAt "prompt" answer
+
+    -- `t' raises the palette AND is a letter inside it, and this listener sits
+    -- BEHIND the dispatch — so the one press that opened the overlay arrives in
+    -- it next.  Two presses, two jobs.
+  , testCase "the press that raises the palette is not a key in it" $ do
+      bootOf shell "" 500 "" "press:t" $ \answer -> do
+        assertEqual "the first press only opened it" [] =<< postedOf answer
+        assertEqual "and it is up" "on" =<< textAt "prompt" answer
+      bootOf shell "" 500 "" "press:t press:t" $ \answer -> do
+        assertEqual "the second is the letter" [("set-state", ["r1"])]
+          =<< postedOf answer
+        assertEqual "as TODO" [Just "TODO"] =<< keywordsOf answer
+
+    -- The `ONCE' rule, owed by the palette rather than by the map: a HELD `t'
+    -- would open and then commit through what it opened.  The dispatch's list
+    -- cannot reach that — it governs rows, and the repeat arrives while every
+    -- row is already dead.
+  , testCase "a held t opens the palette and stops there" $
+      bootOf shell "" 500 "" "press:t repeat:t repeat:t" $ \answer -> do
+        assertEqual "nothing was written" [] =<< postedOf answer
+        assertEqual "and the palette is waiting for a real press" "on"
+          =<< textAt "prompt" answer
+
+    -- The exclusivity the letters need: while the palette is up every `table'
+    -- row is dead, so `n' moves nothing and `d' — dired's archive flag out
+    -- there — is DONE in here.  The gating is `typing()', which the palette
+    -- turns on with no field focused at all.
+  , testCase "the table's own letters are the palette's while it is up" $
+      bootOf shell "" 500 "C-c C-t" "press:n press:d" $ \answer -> do
+        assertEqual "the cursor never moved" 0 =<< intAt "cursor" answer
+        assertEqual "nothing was flagged" [] =<< textsAt "flagged" answer
+        assertEqual "and d set a state" [("set-state", ["r1"])] =<< postedOf answer
+        assertEqual "the one it names" [Just "DONE"] =<< keywordsOf answer
+
+  , testCase "the meta entry clears the keyword rather than setting one" $
+      bootOf shell "" 500 "C-c C-t" "press:c" $ \answer -> do
+        assertEqual "a null keyword" [Nothing] =<< keywordsOf answer
+        assertEqual "and the pill says so" "C-c C-t → *clear* (1)"
+          =<< textAt "echo" answer
+
+  , testCase "/ falls back to typing, and RET takes what is left" $
+      bootOf shell "" 500 "C-c C-t" "press:/ type:done press:Enter" $ \answer -> do
         assertEqual "the narrowed choice" [Just "DONE"] =<< keywordsOf answer
         assertEqual "the pill" "C-c C-t → DONE (1)" =<< textAt "echo" answer
 
     -- C-n is a reserved chord the map never claims; the palette claims it while
     -- its own field has focus, the way a focused select keeps its arrows.
-  , testCase "C-n walks the list, and the arrows do the same" $
-      mapM_ (\key -> bootOf shell "" 500 "C-c C-t" ("press:" <> key)
+  , testCase "C-n walks the fallback list, and the arrows do the same" $
+      mapM_ (\key -> bootOf shell "" 500 "C-c C-t" ("press:/ press:" <> key)
                (assertEqual (T.unpack key <> ": stepped to the second badge")
                             [Just "DONE"] <=< keywordsOf))
             ["C-n press:Enter", "ArrowDown press:Enter"]
 
-  , testCase "the last choice clears the keyword rather than setting one" $
-      bootOf shell "" 500 "C-c C-t" "type:*clear* press:Enter" $ \answer -> do
-        assertEqual "a null keyword" [Nothing] =<< keywordsOf answer
-        assertEqual "and the pill says so" "C-c C-t → *clear* (1)"
-          =<< textAt "echo" answer
-
-  , testCase "ESC leaves the palette and writes nothing" $
-      bootOf shell "" 500 "C-c C-t" "press:Escape" $ \answer -> do
-        assertEqual "no command went" [] =<< postedOf answer
-        assertEqual "the overlay is down" "" =<< textAt "prompt" answer
+    -- One door out of either mode: `/' is entered and never left, so ESC is
+    -- what closes the palette wherever a reader is standing in it.
+  , testCase "ESC leaves the palette from either mode and writes nothing" $
+      mapM_ (\acts -> bootOf shell "" 500 "C-c C-t" acts $ \answer -> do
+               assertEqual (T.unpack acts <> ": no command went")
+                           [] =<< postedOf answer
+               assertEqual "the overlay is down" "" =<< textAt "prompt" answer)
+            ["press:Escape", "press:/ press:Escape"]
 
   , testCase "over a marked set it names the whole set" $
-      bootOf shell "" 500 "m m C-c C-t" "press:Enter" $ \answer -> do
+      bootOf shell "" 500 "m m C-c C-t" "press:t" $ \answer -> do
         assertEqual "the rows" [("set-state", ["r1", "r2"])] =<< postedOf answer
         assertEqual "and the title counts them" "set state · 2 rows"
           =<< textAt "phead" answer
+  ]
+
+-- | The which-key letters: the assignment, driven as the pure function it is,
+-- and the list it draws.  The letters are what a reader learns by heart, so
+-- what is pinned is that one cycle always yields the same ones — the rule is
+-- order-only and each entry claims the first still-free letter of its OWN
+-- spelling.  Which rows a commit names is @commandKeySpec@'s subject.
+whichKeySpec :: IO T.Text -> TestTree
+whichKeySpec shell = testGroup "Shell which-key"
+  [ testCase "the assignment, cycle by cycle" $ mapM_ (assigns shell)
+      -- The plain chain: DONE has the d, so DELEGATED falls through to its e.
+      [ ( "TODO,DONE,DELEGATED", ["t@0", "d@0", "e@1"] )
+      -- A whole tree's, in the order the producer sends it — actives as
+      -- declared, then the done-like ones, then the meta.  Nothing is
+      -- special-cased: DONE is `o' for the reason DELEGATED is `e'.
+      , ( "TODO,NEXT,STARTED,WAITING,DELEGATED,CANCELLED,DONE,*clear*"
+        , ["t@0", "n@0", "s@0", "w@0", "d@0", "c@0", "o@1", "l@2"] )
+      -- Synthetic, since no real cycle exhausts a letter pool: an entry with
+      -- nothing left is UNBOUND rather than stealing one, which is what keeps
+      -- the letters above it where they were.
+      , ( "ON,NO,NOON", ["o@0", "n@0", "-"] )
+      -- The meta is in the pool like any other, and last buys it no privilege:
+      -- its stars are not letters, so `c' where nothing took one, and its own
+      -- spelling is what it falls through when something did.
+      , ( "TODO,DONE,*clear*",    ["t@0", "d@0", "c@1"] )
+      , ( "CANCELLED,*clear*",    ["c@0", "l@2"] ) ]
+
+    -- What the reader sees, and why: a key token, then the word in its badge
+    -- colour with the claimed letter underlined WHERE IT SITS — which is the
+    -- whole of the teaching.  The hairlines are the producer's groups, and the
+    -- meta wears the muted italic every starred value wears.
+  , testCase "the list draws a key token and underlines the letter it claimed" $
+      bootOf shell "" 500 "C-c C-t" "" $ \answer -> do
+        assertEqual "the entries, the hairlines between the groups, and the colours"
+          [ ("pe",    "t", "[T]ODO",    "#e0af68")
+          , ("psep",  "",  "",          "")
+          , ("pe",    "d", "[D]ONE",    "#73daca")
+          , ("psep",  "",  "",          "")
+          , ("pe pm", "c", "*[c]lear*", "") ] =<< paletteOf answer
+        assertEqual "and the foot names the keys the list cannot draw"
+                    "a letter sets it · / to search · ESC leaves"
+          =<< textAt "pfoot" answer
+
+    -- The fallback drops the token column outright: no letter commits there, so
+    -- drawing one would be a lie about what typing it does.  The cursor is the
+    -- renderer of this list's own, and it opens on the first row.
+  , testCase "/ drops the letters and names its own keys" $
+      bootOf shell "" 500 "C-c C-t" "press:/" $ \answer -> do
+        assertEqual "the box says which mode it is in" "narrow"
+          =<< textAt "pmode" answer
+        assertEqual "the same entries, with a cursor and no tokens"
+          [ ("pe pat", "", "TODO",    "#e0af68")
+          , ("psep",   "", "",        "")
+          , ("pe",     "", "DONE",    "#73daca")
+          , ("psep",   "", "",        "")
+          , ("pe pm",  "", "*clear*", "") ] =<< paletteOf answer
+        assertEqual "and the foot names the keys that are live there"
+                    "RET sets it · C-n/C-p walks · ESC leaves"
+          =<< textAt "pfoot" answer
+
+  , testCase "typing there narrows to what matches" $
+      bootOf shell "" 500 "C-c C-t" "press:/ type:e" $ \answer ->
+        assertEqual "DONE and *clear* both hold an e, TODO does not"
+          [ ("pe pat", "", "DONE",    "#73daca")
+          , ("psep",   "", "",        "")
+          , ("pe pm",  "", "*clear*", "") ] =<< paletteOf answer
   ]
 
 -- | The sheet's two panes, driven through the keys a reader presses.  What is
@@ -1235,14 +1351,14 @@ logSpec shell = testGroup "Shell log"
 
     -- The state a row landed on, and the clear that is not a keyword.
   , testCase "a state that landed names the row and the keyword" $ do
-      bootOf shell "" 500 "C-c C-t" "press:Enter" $ \answer -> do
+      bootOf shell "" 500 "C-c C-t" "press:t" $ \answer -> do
         strip <- map message . drop 1 . map cut <$> logOf answer
         assertEqual "the keyword it took" ["headline \"one\" → TODO"] strip
-      bootOf shell "" 500 "m m C-c C-t" "press:Enter" $ \answer -> do
+      bootOf shell "" 500 "m m C-c C-t" "press:t" $ \answer -> do
         strip <- map message . drop 1 . map cut <$> logOf answer
         assertEqual "both marked rows" [ "headline \"one\" → TODO"
                                        , "headline \"two\" → TODO" ] strip
-      bootOf shell "" 500 "C-c C-t" "type:*clear* press:Enter" $ \answer -> do
+      bootOf shell "" 500 "C-c C-t" "press:c" $ \answer -> do
         strip <- map message . drop 1 . map cut <$> logOf answer
         assertEqual "the clear is not a keyword"
                     ["headline \"one\" state cleared"] strip
@@ -1292,6 +1408,23 @@ postedOf answer = traverse one =<< listAt "commands" answer
 keywordsOf :: Value -> IO [Maybe T.Text]
 keywordsOf answer =
   traverse (maybeTextAt "keyword" <=< field "args") =<< listAt "commands" answer
+
+-- | The value palette as it is drawn: per row, its classes, the key token it
+-- claimed, its word with the underlined letter bracketed where it sits, and the
+-- badge colour it wears.  A hairline is a row of its own, so the groups read
+-- out of the same list.
+paletteOf :: Value -> IO [(T.Text, T.Text, T.Text, T.Text)]
+paletteOf answer = traverse one =<< listAt "plist" answer
+  where one v = (,,,) <$> textAt "cls" v <*> textAt "key" v
+                      <*> textAt "word" v <*> textAt "color" v
+
+-- | WHAT: the which-key assignment over a comma-separated CYCLE is EXPECTED —
+-- one @LETTER\@INDEX@ per entry, and @-@ where an entry claimed nothing.  The
+-- rule runs under the harness as the pure function it is, over no page at all.
+assigns :: IO T.Text -> (T.Text, [T.Text]) -> Assertion
+assigns shell (keywords, expected) =
+  bootOf shell "" 500 "" ("assign:" <> keywords)
+         (assertEqual (T.unpack keywords) expected <=< textsAt "assigned")
 
 -- | SHELL's glue booted under node on SEARCH, with the server reporting TOTAL
 -- matches, KEYS pressed over the table once it settled and ACTS run after
@@ -1447,6 +1580,29 @@ shellGlue =
       -- marked at the moment it runs, which is the opposite of keeping a copy.
       ["let marked", "const marked = new Set", "marks.add", "marks.has"]
 
+  -- The value palette's letters. What they DO is asserted by driving them, in
+  -- "Shell which-key"; the needles here are the two things behaviour cannot
+  -- show. First, that the rule lives in ONE pure function over the ordered
+  -- labels — the display and the dispatch both read its answer, so a letter
+  -- drawn and a letter honoured cannot drift.
+  , Glue "the which-key letters are one pure function's answer"
+      [ "function whichKeys(labels) {"
+      , "function letterAt(label, at) {"
+      -- Folded into each entry once, so the drawing and the dispatch read one
+      -- field rather than agreeing on a parallel array's indices.
+      , "({ ...c, cut: cuts[i], key: letterAt(c.label, cuts[i]) })"
+      -- A badge hue is written inline, so it has to be told to give way under
+      -- the fallback's cursor row — `--g-sel' is a bright yellow in the light
+      -- theme, and this is the one declaration on the page that outranks one.
+      , "#plist .pat .pw{color:var(--g-fg)!important}"
+      -- And second, that both modes commit through one call, so the letter and
+      -- the fallback's RET are the same delivery.
+      , "else if (!e.repeat) takeChoice(hit);"
+      , "else if (k === \"RET\") takeChoice(prompting.shown[prompting.at]);" ]
+      -- No second copy of the assignment, and no confirmation step behind a
+      -- letter: the palette IS the confirmation.
+      ["const LETTERS", "confirm("]
+
   -- The overlay is raised and dissolved by the renderer, whose own input stops
   -- ESC and DEL before this page's document handler sees them.  What keeps the
   -- shell's rows off the palette either way is `typing()': every `table' row is
@@ -1572,8 +1728,9 @@ shellGlue =
       , "else if (k === \"<down>\" || k === \"n\" || k === \"j\") moveCur(1);"
       , "} else if (crossing) leavePanel();"
       , "pnav = true; el(\"mprops\").className = \"on\"; el(\"mtext\").blur();"
-      -- Nav holds the keys with nothing focused, so the map has to be told.
-      , "return pnav || (!!a && (a.tagName === \"INPUT\""
+      -- Nav holds the keys with nothing focused, so the map has to be told —
+      -- the value palette's letter mode is the other thing that does.
+      , "return pnav || !!prompting"
       -- The panel stacks under the text when there is no room beside it, which
       -- is a wrap rather than a second breakpoint to keep in step.
       , "#mpanes{flex:1;min-height:0;display:flex;flex-wrap:wrap;gap:10px}"

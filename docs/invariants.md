@@ -1121,9 +1121,18 @@ on.
   cannot be mistaken for a keyword. The renderer still has no group logic of its
   own, so a locally-filtered table matches these as literal badge text and finds
   nothing; that half of the asymmetry is intended, since the server knows the
-  keyword sets and the renderer does not. Evidence: `TestFilter` "and answer to
-  org-glance's starred spelling of the same groups", `TestQuery` "and the two
-  group values a filter can name". **test**
+  keyword sets and the renderer does not. The same split rides on each badge as
+  a `group` field (`active` / `inactive`) — the bar in a `#+TODO:` line is not
+  recoverable from palette order, the hues are not a contract, and the shell's
+  value palette rules its hairlines on it. Additive: a renderer with no use for
+  the field ignores it. KNOWN GAP: `table-view/SCHEMA.md`'s Badge object still
+  lists `value` and `color` alone, and SCHEMA has no general "unknown fields are
+  ignored" clause — so "a renderer ignores it" holds by how JS reads objects
+  rather than by the contract. `multi` and `depth` both went INTO SCHEMA marked
+  *Experimental*; this one owes the same row, one repo over. Evidence:
+  `TestFilter` "and answer to org-glance's starred spelling of the same
+  groups", `TestQuery` "and the two group values a filter can name" plus the
+  `sample-view.json` golden. **test** (the producer's half) / **none** (SCHEMA's)
 - **The two vocabularies have different scopes.** The server parses against
   `storeTags` — every tag in the tree, folded per file — so a predicate is a
   predicate whether or not any matching row is loaded. The renderer's
@@ -1345,9 +1354,9 @@ on.
   AND that both chords were `preventDefault`ed — the harness records them now,
   where before it discarded the call. Symptom to recognise live: a new tab
   opens, and the echo pill says `C-c - timed out` two seconds later. The fix is
-  a second chord the browser does not own (an alias row, e.g. `C-c t`), which is
-  a keymap decision rather than a bug fix. **test** (the page's half) / **none**
-  (the browser's)
+  in the keymap rather than in the dispatch: a plain `t` reaches the palette
+  everywhere, and the org chord stays bound as the secondary spelling for
+  browsers that deliver it. **test** (the page's half) / **none** (the browser's)
 - **Row marks belong to the renderer.** `mount` asks for them with `marks:
   true` and the renderer does the rest: the leading checkbox column, the wash on
   a marked row, and a set of ids that keys them — which is why a mark outlives a
@@ -1544,20 +1553,76 @@ on.
   "Shell commands", which drives both keys through the node harness and asserts
   the bodies they posted. **test**
 - **The value palette is the shell's own, and the filter's is still the
-  renderer's.** `C-c C-t` raises `#prompt`: the state column's `badges` plus a
-  `clear` entry, typed to narrow, `C-n`/`C-p` and the arrows to walk, `RET` to
-  commit. It is a second overlay rather than a reuse of `openFilter` because
-  that one belongs to the filter and this page may not reach into its chrome —
-  the same must-not-appear list that forbids `tv-veil` forbids driving it. What
-  it offers is `badges` and never `values`: the two group meta-values are filter
-  vocabulary, no file declares one, and offering a value the server will refuse
-  is worse than not offering it. Its keys sit in a SECOND document listener
-  registered behind the dispatch, which is safe rather than lucky: with its
-  field focused `typing()` has already made every `table` row dead, so the only
-  row that can have fired ahead of it is `ESC`, which is the one that should —
-  `cancel` closes whichever overlay is up, prompt first. `unask` blurs as well
-  as hides, since a focused field nobody can see would leave `typing()` true and
-  swallow every key after it. **test**
+  renderer's.** `C-c C-t` (and `t`) raises `#prompt` over the state column's
+  `badges` plus a `*clear*` entry. It is a second overlay rather than a reuse of
+  `openFilter` because that one belongs to the filter and this page may not
+  reach into its chrome — the same must-not-appear list that forbids `tv-veil`
+  forbids driving it. What it offers is `badges` and never `values`: the two
+  group meta-values are filter vocabulary, no file declares one, and offering a
+  value the server will refuse is worse than not offering it. Its keys sit in a
+  SECOND document listener registered behind the dispatch, which is safe rather
+  than lucky: while the palette is up `typing()` has already made every `table`
+  row dead, so the only row that can have fired ahead of it is `ESC`, which is
+  the one that should — `cancel` closes whichever overlay is up, prompt first.
+  `unask` blurs as well as hides, since a focused field nobody can see would
+  leave `typing()` true and swallow every key after it. Evidence: `TestServe`
+  "Shell commands". **test**
+- **The palette is which-key, and the palette IS the confirmation.** Every entry
+  wears a letter and that letter commits on its own — one `/command`, the
+  overlay dissolves, the pill and the log say what landed, exactly as the old
+  `RET` did and through the same `takeChoice`. There is no second key and no
+  confirm step: a reader who pressed `t` has just read the list saying `t` sets
+  TODO, and the drift lock is what makes a mis-press cheap. `RET` in letter mode
+  commits nothing and leaves the palette standing. `typing()` is what makes the
+  letters exclusive — the palette turns it on with NO field focused, the way the
+  property panel's nav does, so `n` moves no row and `d` lays down no archive
+  flag while the palette is up. `/` falls back to the completing-read this used
+  to be: the token column goes (no letter commits there, so drawing one would
+  lie), the field appears, typing narrows, `C-n`/`C-p` and the arrows walk, `RET`
+  commits. The fallback is entered and never left — `ESC` is the one door out of
+  either mode. Evidence: `TestServe` "Shell which-key" and "Shell commands".
+  **test**
+- **Two guards stand between `t` and a write it did not mean, and each has its
+  own press.** `t` raises the palette AND is a letter inside it, and the
+  palette's listener sits BEHIND the dispatch — so the very keydown that opened
+  the overlay arrives in it next. `prompting.raising`, set by `ask` and consumed
+  by the first key the palette sees, declines exactly that event; without it one
+  press would open and commit at once. The second guard is `e.repeat`, which
+  keeps a HELD `t` from committing through what it just opened. The keymap's
+  `ONCE` list cannot reach that: it governs dispatch rows, and the repeat arrives
+  while every `table` row is already dead. Deleting either one is a live write
+  from a key the reader never finished pressing. Evidence: `TestServe` "the press
+  that raises the palette is not a key in it" and "a held t opens the palette and
+  stops there". **test**
+- **The letters are deterministic, and the rule is one pure function.**
+  `whichKeys(labels)` walks the palette-ordered labels and gives each the INDEX
+  of the first letter of its OWN spelling, downcased, that no earlier entry
+  claimed — one `a`–`z` namespace, `-1` for an entry with nothing left. So
+  `TODO` `DONE` `DELEGATED` is `t` `d` `e`, and a whole cycle
+  `TODO NEXT STARTED WAITING DELEGATED CANCELLED DONE *clear*` is
+  `t n s w d c o l`. Order-only and side-effect-free, so one tree's cycle always
+  yields the same letters and the muscle memory holds. `*clear*` is in the pool
+  like any other entry and gets no privilege for being last: its stars are not
+  letters, so it is `c` where nothing took one and falls through `l`, `e`, `a`,
+  `r` where something did. An unbound entry draws a muted `·` and is reachable
+  through `/` alone. `ask` folds the letter into each entry once, so the drawing
+  and the dispatch read ONE FIELD of one object and a letter drawn cannot drift
+  from a letter honoured — a parallel array would have to stay indexed against
+  `shown`, which narrows, rather than `choices`, which does not. Evidence:
+  `TestServe` "Shell which-key", which drives `whichKeys` under the node harness
+  as the pure function it is. **test**
+- **The palette teaches why.** One row per entry: an accent-boxed key token,
+  then the keyword in ITS OWN badge colour with the claimed letter underlined
+  where it sits in the word (`D`ELEGAT`E`D underlines the `E`, which is the
+  whole of the explanation). A hairline falls wherever the producer's group
+  changes, so actives stand above the done-like ones and `*clear*` below both in
+  the muted italic every starred meta wears. The groups are the PRODUCER's:
+  `Glance.Query.badges` names each badge `active` or `inactive`, since order
+  alone cannot say where a `#+TODO:` bar fell and the hues are not a contract. A
+  renderer with no use for the field ignores it, which is what makes it additive
+  rather than a schema revision. The foot names the keys the list cannot draw
+  for itself — `a letter sets it · / to search · ESC leaves`, and the fallback's
+  own line in its own mode. Evidence: `TestServe` "Shell which-key". **test**
 - **The materialize sheet has no buttons, and closing it is the save.** Dirty is
   either pane against what the file holds as far as the page knows — the
   materialized original, then whatever the last 200 wrote — and it decides
