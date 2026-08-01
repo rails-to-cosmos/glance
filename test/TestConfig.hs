@@ -7,6 +7,7 @@
 -- change that collapses them passes half of this module and fails the other.
 module TestConfig (spec) where
 
+import Control.Monad ((<=<))
 import Control.Concurrent.STM (readTVarIO)
 import Data.Text (Text)
 import System.Directory (createDirectoryIfMissing, removeFile)
@@ -95,7 +96,7 @@ titles = map hrTitle
 -- | The rows DOCS make under the tree SYSTEM and TAGS configure.
 withRows :: Maybe Text -> [(FilePath, Text)] -> [(FilePath, Text)]
          -> ([HeadlineRecord] -> Assertion) -> Assertion
-withRows system tags docs k = withTree system tags docs (\dir -> loaded dir >>= k . snd)
+withRows system tags docs k = withTree system tags docs (k . snd <=< loaded)
 
 -- Discovery
 

@@ -4,7 +4,7 @@
 module TestQuery (spec) where
 
 import Control.Concurrent (getNumCapabilities, rtsSupportsBoundThreads)
-import Control.Monad (forM_, replicateM)
+import Control.Monad (forM_, replicateM, (<=<))
 import Data.Aeson (Value (Bool, Object, String), eitherDecodeFileStrict')
 import Data.Char (isDigit)
 import Data.List (foldl', nub, sort)
@@ -584,7 +584,7 @@ viewSpec = testGroup "View"
         cols <- columnKeysOf v
         rows <- listAt "rows" v
         assertBool "depth is a column" ("depth" `notElem` cols)
-        cells <- mapM (\r -> field "cells" r >>= keysOf) rows
+        cells <- mapM (keysOf <=< field "cells") rows
         assertBool (show cells <> " names depth") (all ("depth" `notElem`) cells)
   ]
 

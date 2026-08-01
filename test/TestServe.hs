@@ -622,10 +622,10 @@ sheetSpec shell = testGroup "Shell sheet"
                     ["identity — renaming this renames the row"] <=< textsAt "notes"
 
   , testCase "typing in the last row puts another empty one under it" $
-      bootOf shell "" 500 "Enter" "pkey:2=ADDED pval:2=yes" $ \answer ->
+      bootOf shell "" 500 "Enter" "pkey:2=ADDED pval:2=yes" $
         assertEqual "the added row, and a fresh empty one after it"
                     [["ORG_GLANCE_ID", "r1"], ["EFFORT", "0:30"], ["ADDED", "yes"], ["", ""]]
-                    =<< pairsAt "props" answer
+                    <=< pairsAt "props"
 
   , testCase "a sync sends the two panes apart, and the empty row is not one" $
       bootOf shell "" 500 "Enter" "pval:1=0:45 press:C-x press:C-s" $ \answer -> do
