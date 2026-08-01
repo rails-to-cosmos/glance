@@ -119,6 +119,10 @@ priority, scheduled date → cells). So glance is *just another table-view
 producer*, alongside `repos` and `ray-cluster`. **One renderer serves all
 three.** The mindmap is a second, sibling contract from the same read-model.
 
+*(Narrowed 2026-08-01: a row is a LEVEL-ONE headline. Deeper ones are carried
+inside their entry's subtree and reached by materializing it —
+`docs/invariants.md`, "A row is a top entry".)*
+
 One contract, many producers (repos / ray / glance), many clients (Emacs /
 browser / extensions).
 

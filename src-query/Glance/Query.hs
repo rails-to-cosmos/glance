@@ -136,6 +136,9 @@ import qualified Data.Org.Edit as Edit
 -- | One row's worth of a headline: where it came from, the cells the view
 -- shows, and the parsed headline itself as an opaque passthrough — later
 -- milestones read its spans (write-back) and its links (graph) from here.
+--
+-- A record is a LEVEL-ONE headline's ('topLevel').  Its descendants have no
+-- records of their own and are reached through 'hrSubtree', which covers them.
 data HeadlineRecord = HeadlineRecord
   { hrFile      :: !FilePath        -- ^ path the headline was read from, as walked.
   , hrId        :: !Text            -- ^ row identity; see 'rowId'.
@@ -191,10 +194,10 @@ emptyResult = QueryResult [] 0 0 0 0 []
 
 -- Loading
 
--- | Every headline under DIR, one record each.  Walks @*.org@ recursively and
--- reads each file strictly.  org-glance's derived mirrors are not walked, and
--- neither is its config ('Data.Org.Walk') — the config is read instead, by
--- path, and seeds every parse.
+-- | Every top entry under DIR, one record each ('topLevel').  Walks @*.org@
+-- recursively and reads each file strictly.  org-glance's derived mirrors are
+-- not walked, and neither is its config ('Data.Org.Walk') — the config is read
+-- instead, by path, and seeds every parse.
 loadDir :: FilePath -> IO QueryResult
 loadDir = loadDirWith defaultWalk
 
@@ -257,11 +260,11 @@ loadDirFilesUsing over opts dir = do
   outcomes <- over (loadFileWith cfg) paths
   pure (cfg, zip paths outcomes, length (foundDirErrs found))
 
--- | PATH's headlines with no config in force, or why it has none.
+-- | PATH's top entries with no config in force, or why it has none.
 loadFile :: FilePath -> IO (Either LoadFailure [HeadlineRecord])
 loadFile = loadFileWith noConfig
 
--- | PATH's headlines under CFG, or why it has none.  Reads the file strictly
+-- | PATH's top entries under CFG, or why it has none.  Reads the file strictly
 -- and parses it from CFG's seed — 'Data.Org.defaultContext' plus every keyword
 -- the config layers name, one constant per load.  Nothing accumulates between
 -- files: what a file's own @#+TODO:@ adds reaches that file's headlines and no
@@ -307,6 +310,18 @@ summarise dirErrs files =
 -- categorised by CTX — the context the file parsed to, so a @#+CATEGORY@
 -- anywhere in it labels the whole file.
 --
+-- A row is a LEVEL-ONE headline ('topLevel'); everything deeper is carried
+-- inside its ancestor's subtree rather than beside it.  The extents are
+-- computed over the WHOLE headline sequence and the filter applied to the zip
+-- afterwards.  For THIS predicate the two orders happen to agree — a level-one
+-- extent ends at the next headline at level one or shallower, which is another
+-- level-one headline, so the ones dropped never decided anything.  The order is
+-- kept anyway because 'subtreeSpans' is org's outline rule over a DOCUMENT, and
+-- running it over a subsequence is a different function: widen 'topLevel' to
+-- keep anything deeper and filtering first would end that row at the next KEPT
+-- headline instead of the next shallower one, which is a subtree missing its
+-- own children.
+--
 -- Two keyword values come out of one parse and they are not the same thing.
 -- CTX's sets are what the parse RECOGNIZED, CFG's seed included, and they are
 -- the file's palette contribution and the vocabulary a command may write.  The
@@ -318,12 +333,28 @@ summarise dirErrs files =
 recordsOf :: ConfigLayers -> FilePath -> Text -> Text -> Context -> [Spanned Element]
           -> [HeadlineRecord]
 recordsOf cfg path doc digest ctx elems =
-  zipWith (recordOf cfg declared path doc digest category keywords) heads
-          (subtreeSpans (T.length doc) heads)
+  [ recordOf cfg declared path doc digest category keywords h subtree
+  | (h, subtree) <- zip heads (subtreeSpans (T.length doc) heads)
+  , topLevel h ]
   where category = detach (metaCategory ctx)
         keywords = keywordsOf ctx
         declared = declaredKeywords elems
         heads    = [ h | e <- elems, EHeadline h <- [valueOf e] ]
+
+-- | Is H a headline the table shows — one star, no ancestor?
+--
+-- The table is a list of top entries, so a row is an entry rather than a line
+-- of one: a child's title, tags and dates are part of what its parent's subtree
+-- says, reachable by materializing that subtree, and they are not rows of their
+-- own.  Three things follow and are the intended semantics rather than
+-- oversights.  A word that appears only under a child matches nothing, since
+-- 'hrSearch' is built out of the cells of the rows that exist.  An
+-- @ORG_GLANCE_ID@ on a deeper headline is not a row id, so nothing addresses it
+-- and it cannot collide.  And a file whose outline never reaches level one —
+-- every headline written @**@ or deeper — contributes no rows at all, the same
+-- answer a file with no headlines gives.
+topLevel :: Headline -> Bool
+topLevel h = case indent h of Indent n -> n == 1
 
 recordOf :: ConfigLayers -> TodoKeywords -> FilePath -> Text -> Text -> Text
          -> TodoKeywords -> Headline -> Span -> HeadlineRecord
@@ -520,9 +551,10 @@ sortedForView = sortOn (fromMaybe "" . hrScheduled)
 -- was done, and a view whose declaration disagrees with its rows is one a
 -- renderer will re-sort out from under the reader.
 --
--- __Experimental__: reached by @\/headlines?order=document@ alone, paired with
--- the row @depth@ 'rowJSON' emits.  Nothing else in the wire contract turns on
--- it, and a renderer is free to ignore both.
+-- __Experimental__: reached by @\/headlines?order=document@ alone.  Nothing
+-- else in the wire contract turns on it, and a renderer is free to ignore it.
+-- Rows being top entries, document order is the order the files list them in
+-- rather than an outline the reader can see the shape of.
 data ViewOrder = ScheduledOrder | DocumentOrder
   deriving (Eq, Show)
 
@@ -1333,22 +1365,8 @@ column key header kind extra =
 rowJSON :: HeadlineRecord -> Value
 rowJSON r = object
   [ "id" .= hrId r
-  , "depth" .= depthOf r
   , "cells" .= object [ Key.fromText key .= cell r | (key, _header, _kind, cell) <- viewColumns ]
   ]
-
--- | R's outline depth, counted from zero: a top-level headline is 0 and each
--- star past the first is one level down.  'Data.Org.Indent' counts the stars
--- themselves, so the wire is one less than the file spells — SCHEMA.md's
--- @depth@ is 0-based, and a renderer indenting by it wants the root flush left.
---
--- __Experimental__: SCHEMA.md marks the field a renderer hint, so it rides on
--- every row and a renderer that draws no tree ignores it.  Every other field of
--- the row is a cell; this one is about the row's place among the others, which
--- is why it sits beside @id@ rather than among them, and why no column, filter
--- key or search field answers to it.
-depthOf :: HeadlineRecord -> Int
-depthOf r = case indent (hrHeadline r) of Indent n -> max 0 (n - 1)
 
 -- | The state palette: every TODO keyword the loaded files declared, actives
 -- ahead of the done-like ones.  Palette order is also sort priority

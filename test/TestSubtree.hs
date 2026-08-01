@@ -4,8 +4,9 @@
 -- spelled as the text itself rather than as an offset — an offset typed into a
 -- test is one the fixture drifts away from, and the slice is what a browser
 -- would show.  The invariant group then states the geometry the write path
--- rests on: subtrees nest, siblings do not overlap, each covers its own
--- headline, and the last one runs to the end of the file.
+-- rests on: one extent per top entry, each covering its own headline and every
+-- descendant, consecutive extents meeting exactly, and the last one running to
+-- the end of the file.
 --
 -- This module names the parser as well as the facade.  'hrSubtree' is a facade
 -- value, but the headline extent it must contain ('hsFull') is the parser's,
@@ -36,7 +37,7 @@ fixture name = fixtureDir <> "/" <> name
 
 -- Helpers
 
--- | The subtree of every headline in the fixture named NAME, as text.
+-- | The subtree of every record the fixture named NAME loads, as text.
 subtreesOf :: FilePath -> IO [Text]
 subtreesOf name = map subtreeText <$> recordsOf (fixture name)
 
@@ -51,17 +52,27 @@ fullOf = hsFull . spans . hrHeadline
 
 -- | The geometry every load must produce, stated over one file's RECORDS
 -- against its text DOC.  LABEL names the file in the failure.
+--
+-- Records are top entries, so the extents TILE rather than nest: each is one
+-- level-one headline and everything under it, and the next one begins exactly
+-- where it ends.  The nesting is inside a single extent, which is what a
+-- materialize hands over whole.
 assertGeometry :: String -> Text -> [HeadlineRecord] -> Assertion
 assertGeometry label doc recs = do
+  mapM_ isATopEntry recs
   mapM_ coversItsHeadline recs
-  mapM_ nestOrMiss (pairs recs)
-  mapM_ leavesNoGap (zip recs (drop 1 recs))
+  mapM_ abuts (zip recs (drop 1 recs))
   case recs of
     [] -> pure ()
     _  -> assertEqual (label <> ": the last subtree ends at the end of the file")
                       (T.length doc) (spanEnd (hrSubtree (last recs)))
   where
     at r = label <> ", subtree " <> show (hrSubtree r)
+
+    -- One star, no ancestor.  A deeper headline is inside somebody's extent
+    -- rather than beside it, so its presence here would mean two extents
+    -- covering one byte.
+    isATopEntry r = assertEqual (at r <> ": not a top entry") 1 (levelOf (hrHeadline r))
 
     -- A subtree starts at its own stars and runs at least to the end of the
     -- headline line: it is the headline plus what hangs off it, never less.
@@ -73,31 +84,11 @@ assertGeometry label doc recs = do
       assertBool (at r <> ": does not fit the document")
                  (spanEnd (hrSubtree r) <= T.length doc)
 
-    -- Any two subtrees are disjoint or one holds the other whole: an outline
-    -- has no crossing extents, and a deeper headline sits inside the one above
-    -- it while two at one level cannot share a character.
-    nestOrMiss (a, b) = assertBool
-      (label <> ": " <> show (hrSubtree a) <> " and " <> show (hrSubtree b) <> " cross")
-      (disjoint || inside b a || inside a b)
-      where disjoint = spanEnd (hrSubtree a) <= spanStart (hrSubtree b)
-                    || spanEnd (hrSubtree b) <= spanStart (hrSubtree a)
-            inside x y = spanStart (hrSubtree y) <= spanStart (hrSubtree x)
-                      && spanEnd (hrSubtree x) <= spanEnd (hrSubtree y)
-
-    -- The next headline in the file starts inside the current subtree (it is a
-    -- descendant) or exactly where it ends (it closes it).  A gap would be
-    -- text belonging to no subtree at all.
-    leavesNoGap (a, b) = do
-      assertBool (label <> ": headlines out of order") (start b >= start a)
-      assertBool (label <> ": a gap between " <> show (hrSubtree a) <> " and " <> show (hrSubtree b))
-                 (start b <= spanEnd (hrSubtree a))
-      assertBool (label <> ": a deeper headline outside its parent")
-                 (levelOf (hrHeadline b) <= levelOf (hrHeadline a)
-                   || spanEnd (hrSubtree b) <= spanEnd (hrSubtree a))
-      where start = spanStart . hrSubtree
-
-pairs :: [a] -> [(a, a)]
-pairs xs = [(a, b) | (i, a) <- zip [0 :: Int ..] xs, (j, b) <- zip [0 ..] xs, i < j]
+    -- Consecutive extents meet exactly: no gap, which would be text belonging
+    -- to no entry, and no overlap, which would be text belonging to two.
+    abuts (a, b) = assertEqual
+      (label <> ": " <> show (hrSubtree a) <> " and " <> show (hrSubtree b) <> " do not meet")
+      (spanEnd (hrSubtree a)) (spanStart (hrSubtree b))
 
 -- Spec
 
@@ -114,12 +105,12 @@ extentSpec = testGroup "Extent"
         , "* Three\nlast line\n"
         ]
 
-  , testCase "a parent carries its children, and each child carries its own" $
+    -- Rows are top entries, so this file's five headlines are two extents —
+    -- and the first of them is what carries every child, which is what a
+    -- materialize of it hands back.
+  , testCase "a top entry carries its whole outline, children and all" $
       subtreesOf "nested.org" >>= assertEqual "subtrees"
         [ "* Parent\nparent body\n** Child A\na body\n*** Grandchild\ndeep body\n** Child B\n"
-        , "** Child A\na body\n*** Grandchild\ndeep body\n"
-        , "*** Grandchild\ndeep body\n"
-        , "** Child B\n"
         , "* Next top\ntail\n"
         ]
 
@@ -140,7 +131,6 @@ extentSpec = testGroup "Extent"
       recs <- recordsOf (fixture "unicode.org")
       assertEqual "subtrees"
         [ "* Привет мир\nтело письма\n** Дочь :тег:\nвложенное\n"
-        , "** Дочь :тег:\nвложенное\n"
         , "* Последний\n"
         ]
         subtrees

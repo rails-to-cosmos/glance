@@ -13,7 +13,7 @@ import System.FilePath ((</>))
 import System.Posix.Files (createSymbolicLink)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
-import TestDefaults ( columnKeysOf, columnOf, entryAs, field, intAt, listAt
+import TestDefaults ( columnKeysOf, columnOf, entryAs, field, listAt
                     , orgFile, textAt, viewDir, withTempDirNamed )
 
 import qualified Data.Aeson.Key as Key
@@ -48,16 +48,21 @@ withRecords k = loadDir viewDir >>= k . qrRecords
 withView :: (Value -> Assertion) -> Assertion
 withView k = withRecords (k . viewJSON viewTitle)
 
--- | Run K over the view DOC alone makes, written into a file of its own so the
--- load path is the ordinary one.
-withViewOf :: Text -> (Value -> Assertion) -> Assertion
-withViewOf doc k = withTempDirNamed "view" $ \dir -> do
+-- | Run K over the records DOC alone makes, written into a file of its own so
+-- the load path is the ordinary one.  A file that loads with no rows reaches K
+-- as an empty list, which is an answer here rather than a failure.
+withRecordsOf :: Text -> ([HeadlineRecord] -> Assertion) -> Assertion
+withRecordsOf doc k = withTempDirNamed "view" $ \dir -> do
   path <- orgFile dir "tree.org" doc
-  loadFile path >>= either (assertFailure . show) (k . viewJSON viewTitle)
+  loadFile path >>= either (assertFailure . show) k
 
--- | An outline with a level at every depth the guides have a case for: a root
--- with a child and a grandchild, a second child under the same root, and a
--- second root.  The golden's fixture is flat, so this is where the ladder is.
+-- | Run K over the view DOC alone makes.
+withViewOf :: Text -> (Value -> Assertion) -> Assertion
+withViewOf doc k = withRecordsOf doc (k . viewJSON viewTitle)
+
+-- | An outline with a level at every depth: a root with a child and a
+-- grandchild, a second child under the same root, and a second root.  Two rows
+-- come out of it, the golden's fixture being flat.
 nested :: Text
 nested = T.unlines
   [ "* one", "** two", "*** three", "** four", "* five" ]
@@ -91,8 +96,8 @@ maybeBoolAt key v = assertFailure ("expected an object with " <> show key
 
 spec :: TestTree
 spec = testGroup "Query"
-  [ loadSpec, parallelSpec, cellSpec, searchSpec, viewSpec, schemaSpec, commandSpec
-  , lensSpec ]
+  [ loadSpec, levelSpec, parallelSpec, cellSpec, searchSpec, viewSpec, schemaSpec
+  , commandSpec, lensSpec ]
 
 -- | The subtree lens: a subtree split into the parts a client edits and the
 -- parts the server keeps, and put back.
@@ -651,6 +656,43 @@ loadSpec = testGroup "Load"
       assertEqual "categories" (replicate 6 "sample") (map hrCategory recs)
   ]
 
+-- | Which headlines become rows.  The table is a list of top entries: one row
+-- per level-one headline, and everything under one reachable by materializing
+-- it rather than by a row of its own.
+--
+-- The consequences are the cases, because each of them is a thing a reader can
+-- notice and none of them is an oversight: a child's words leave the search
+-- index, a child's @ORG_GLANCE_ID@ stops addressing anything, and a file whose
+-- outline never reaches level one contributes nothing at all.
+levelSpec :: TestTree
+levelSpec = testGroup "Top entries"
+  [ testCase "a nested outline is one record per level-one headline" $
+      withRecordsOf nested $ \recs ->
+        assertEqual "titles" ["one", "five"] (map hrTitle recs)
+
+  , testCase "and each record's subtree still holds the children" $
+      withRecordsOf nested $ \recs ->
+        assertEqual "subtrees"
+                    ["* one\n** two\n*** three\n** four\n", "* five\n"]
+                    (map subtreeText recs)
+
+    -- The rule is the star count rather than "shallowest headline in the
+    -- file": a file that opens at level two has no top entry to show, and
+    -- answers the way a file with no headlines does.
+  , testCase "a file that never reaches level one contributes no rows" $
+      withRecordsOf (T.unlines ["** two", "*** three"]) $ \recs ->
+        assertEqual "rows" [] (map hrTitle recs)
+
+    -- Intended, and the reason it is pinned: an id on a deeper headline names
+    -- nothing the table can address, so it is neither a row id nor a collision.
+  , testCase "an ORG_GLANCE_ID under a child is not a row id" $
+      withRecordsOf (T.unlines [ "* parent", "** child", ":PROPERTIES:"
+                               , ":ORG_GLANCE_ID: kid", ":END:" ]) $ \recs -> do
+        assertEqual "titles" ["parent"] (map hrTitle recs)
+        assertBool ("kid is a row id: " <> show (map hrId recs))
+                   ("kid" `notElem` map hrId recs)
+  ]
+
 -- | The search text a filter runs over, and the display semantics it mirrors.
 --
 -- The expected strings are written down rather than taken from the renderer,
@@ -699,6 +741,17 @@ searchSpec = testGroup "Search text"
         -- The cells are joined by a character no cell can hold, so the end of
         -- one and the start of the next never read as one string.
         assertEqual "across the join" 0 (matching "next a")
+
+    -- INTENDED, and pinned because it is the visible cost of rows being top
+    -- entries: the index is built out of the cells of the rows that exist, so a
+    -- word only a child carries reaches nothing.  What surfaces the child is
+    -- materializing the entry it belongs to.
+  , testCase "a word only a child carries matches nothing" $
+      withRecordsOf (T.unlines ["* parent", "** subterranean child"]) $ \recs -> do
+        assertEqual "the entry is a row" 1 (length (filter (matchesSearch "parent") recs))
+        assertEqual "the child is not" 0 (length (filter (matchesSearch "subterranean") recs))
+        assertBool "though its subtree still spells it"
+                   (all (T.isInfixOf "subterranean" . subtreeText) recs)
   ]
 
 -- | Cells are cut from the source, and dates are spelled the way the wire
@@ -762,20 +815,17 @@ viewSpec = testGroup "View"
       assertEqual "column keys"
         ["state", "priority", "title", "tag", "scheduled", "deadline"] keys
 
-  -- SCHEMA.md's experimental `depth': a renderer hint about where a row sits
-  -- in the outline, 0-based, so the golden's six top-level rows are all zero
-  -- and the ladder below is where the counting is checked.
-  , testCase "every row carries its outline depth, counted from zero" $
-      withViewOf nested $ \v -> do
-        rows <- listAt "rows" v
-        depths <- mapM (intAt "depth") rows
-        assertEqual "depths" [0, 1, 2, 1, 0] depths
-
-  , testCase "and it is a field of the row, never a cell" $
+  -- The renderer stopped drawing an outline, so the producer stopped
+  -- describing one: a row is an id and its cells, and nothing says where it
+  -- sits among the others.  Asked of a fixture that HAS an outline, the
+  -- golden's being flat.
+  , testCase "no row carries a depth, as a field or as a cell" $
       withViewOf nested $ \v -> do
         cols <- columnKeysOf v
         rows <- listAt "rows" v
         assertBool "depth is a column" ("depth" `notElem` cols)
+        fields <- mapM keysOf rows
+        assertBool (show fields <> " names depth") (all ("depth" `notElem`) fields)
         cells <- mapM (keysOf <=< field "cells") rows
         assertBool (show cells <> " names depth") (all ("depth" `notElem`) cells)
   ]

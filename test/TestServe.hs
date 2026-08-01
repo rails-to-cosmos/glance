@@ -2094,7 +2094,7 @@ headlineSpec = testGroup "GET /headlines"
                   (Just "application/json; charset=utf-8") (header "Content-Type" r)
       assertContains "unicode cell" "Привет мир" (body r)
 
-  , testCase "carries one row per headline" $ do
+  , testCase "carries one row per top entry" $ do
       r <- get assetsDir "/headlines"
       rows <- length . qrRecords <$> loadDir viewDir
       assertEqual "fixture rows" 6 rows
@@ -2408,8 +2408,8 @@ querySpec = testGroup "GET /headlines filter and paging"
 -- | @order=document@ — EXPERIMENTAL, and the only thing that reaches it is a
 -- typed URL.  It moves both halves of the ordering at once: the rows stay in
 -- walk order under a limit, and the view carries no @sort@ field for a renderer
--- to re-apply.  Paired with the @depth@ every row carries, that is what makes
--- the answer readable as the outline it was cut from.
+-- to re-apply.  What it orders is top entries, so it is the order the files
+-- list them in rather than an outline.
 orderSpec :: TestTree
 orderSpec = testGroup "GET /headlines?order=document"
   [ testCase "the default still declares the view's sort" $ do
@@ -2434,14 +2434,6 @@ orderSpec = testGroup "GET /headlines?order=document"
       -- Without this the case would pass over a fixture whose two orders agree.
       assertBool ("the fixture cannot tell them apart: " <> show byDate)
                  (byDate /= doc)
-
-  , testCase "every row carries its outline depth either way" $ do
-      a <- app assetsDir
-      let depths r = mapM (intAt "depth") =<< rowsOf r
-      sorted' <- depths =<< getFrom a "/headlines"
-      doc <- depths =<< getFrom a "/headlines?order=document"
-      assertEqual "the fixture is flat" (replicate 6 0) doc
-      assertEqual "and says so under either order" sorted' doc
 
   , testCase "anything else under order is a 400 naming it" $ do
       a <- app assetsDir
@@ -2506,6 +2498,23 @@ materializeSpec = testGroup "GET /headline"
       -- subtree and a commit cannot take it with the headline.
       assertEqual "the preamble sits ahead of the first subtree"
                   "#+CATEGORY: sample\n#+TODO: NEXT WAITING | CANCELLED\n\n" (T.take start doc)
+
+    -- Rows are top entries, so a child has no row of its own and materialize is
+    -- the whole of how a client reaches one.  What comes back is the outline,
+    -- children included — which is the claim the filtering rests on.
+  , testCase "a top entry materializes with its children in it" $ withTempDir $ \dir -> do
+      let doc = T.unlines [ "* TODO parent", ":PROPERTIES:", ":ORG_GLANCE_ID: top"
+                          , ":END:", "** child", "child body", "*** grandchild" ]
+      _ <- orgFile dir "tree.org" doc
+      (a, _hub) <- serverOver dir
+      assertEqual "one row for the file" 1 . length =<< rowsOf =<< getFrom a "/headlines"
+      v <- getFrom a (headlinePath "top") >>= decoded
+      assertEqual "the whole outline" doc =<< textAt "org" v
+      -- A child's drawer is body text here, so the split leaves the descendants
+      -- in the pane a client edits.
+      assertEqual "and the body keeps them"
+                  (T.unlines ["* TODO parent", "** child", "child body", "*** grandchild"])
+                  =<< textAt "body" v
 
   , testCase "an id carrying a colon and slashes round-trips" $ do
       (a, _hub) <- serverOver viewDir

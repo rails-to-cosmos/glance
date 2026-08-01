@@ -864,43 +864,66 @@ at ~2.3 MB a worker, which is the model rather than a leak. The flat ~19 MB the
 scan budget used to name was a single-threaded figure; it is quoted with a width
 now.
 
-## Tree display (experimental, 2026-08-01) — and what would make it real
+## Tree display (experimental, 2026-08-01) — and how it was answered
 
-Rows now carry an outline `depth` and the server can serve them in the order
-they nest. Both halves are marked experimental in the places that would
+Rows carried an outline `depth` and the server could serve them in the order
+they nest. Both halves were marked experimental in the places that would
 otherwise bind them: SCHEMA.md's Row object, `Glance.Query.ViewOrder`, the
-renderer's header and both READMEs. Neither is in `docs/invariants.md`, on
-purpose — nothing else in the wire contract turns on either, and a thing with no
-dependents has no invariant to state.
+renderer's header and both READMEs, and neither was in `docs/invariants.md` — a
+thing with no dependents has no invariant to state.
 
-What landed. `rowJSON` emits `depth` on every row, 0-based (`Data.Org.Indent`
-counts stars from one, so the wire is one less than the file spells); it rides
-beside `id` rather than among the cells, because it is about the row's place
-among the others rather than about anything shown in it, and no column, filter
-key or `hrSearch` field answers to it. `/headlines?order=document` moves the two
-halves of the ordering together — `Glance.Query.ViewOrder`, read by
-`orderedForView` for the rows and by `viewJSONWith` for the declaration — so the
-rows stay in walk order under any limit and the view carries no `sort` field for
-a renderer to re-apply. `order=scheduled` names the default and anything else is
-a 400. The browser renderer draws it behind `tree: true`: guides in the title
-column while the rows are the producer's own, indentation alone under a sort or
-a filter, adjacency read off the page.
+The exit criteria were (1) read it on ~/sync, (2) decide whether the degradation
+under the default `state:*active*` filter is right or merely honest, and only
+then (3) wire the shell. (1) and (2) were answered together, and the answer was
+to stop describing an outline rather than to draw a better one — see the next
+section. `depth` and its tests are out of `Glance.Query`; `?order=document` and
+`ViewOrder` stay, since walk order is still walk order and the parameter costs a
+`case` (its documentation now says it orders top entries rather than an
+outline). The renderer's `tree: true` is unreached from here, which is what it
+already was: the shell never mounted with it.
 
-What it stops short of, deliberately. **The shell does not mount with `tree:
-true` and offers no control for `order=`.** Wiring either would put experimental
-behaviour behind the default view, where `TestServe` pins the boot fetch
-sequence, the z-index bands and the must-not-appear lists — a real cost for a
-thing that has not been read on a real tree yet.
+## First-level-only rows (2026-08-01)
 
-Exit criteria, in the order they would have to be met. (1) Read it on ~/sync:
-document order over 12.9k rows, with the guides drawn, is where a page-local
-adjacency rule either reads or does not. (2) Decide whether the degradation is
-right or merely honest — under the shell's default `state:*active*` the guides
-are OFF, which means the interesting view is the one nobody sees; the choice is
-between dropping the default query for this mode and accepting indentation
-alone. (3) Only then, the shell: a mount option and a corner control, with the
-suite's shell contracts extended rather than worked around. Until (1) and (2)
-are answered the flags stay where they are and cost nothing to remove.
+**The table shows level-one headlines.** `Glance.Query.recordsOf` keeps the
+headlines `topLevel` accepts and drops the rest; a child is reached by
+materializing the entry it belongs to, which already carried it. The whole
+change is a filter over one zip: `subtreeSpans` runs over the full headline
+sequence and the filter is applied after. The two orders agree for this
+predicate — a level-one extent ends at another level-one headline, so the
+dropped ones never decided anything — and the order is kept because
+`subtreeSpans` is org's outline rule over a document rather than over whatever
+subsequence a caller hands it. Widen the predicate to keep levels {1,3} and
+they part company: the deeper row ends at the next kept headline instead of the
+next shallower one.
+
+Everything downstream came for free, which was the argument for putting the
+filter at the load rather than at the view. The store diffs records, so the
+watch filtered itself; `/headline` reads `hrSubtree`, so materialize and the
+lens are untouched; `resolveIds` sees fewer ids, so collisions fell without a
+rule changing.
+
+Four consequences, taken deliberately. A word only a child carries matches
+nothing — `hrSearch` is built from the cells of the rows that exist, and the row
+IS the top entry. An `ORG_GLANCE_ID` on a deeper headline stops being a row id,
+so it addresses nothing and cannot collide. A file whose outline never reaches
+level one contributes no rows, the answer a file with no headlines gives. And
+`scan` is unchanged in both tallies — it counts headlines and ids off
+`orgParse`'s elements and never through `recordsOf`, because it is a parser
+oracle rather than a view of one; a scan that shrank with the view would stop
+answering the question it exists for.
+
+Measured on ~/sync: store rows 12875 → 10685 (−17%), id collisions 9 → 7, scan
+headlines 12884 and scan collisions 9 both unmoved. On ~/sync/views: 7370 →
+6084, collisions 2 → 0.
+
+The watch decision, pinned because it has two halves that pull apart. An edit
+under a child moves `hrDoc`, `hrDigest` and the extent, and moves no cell. The
+step still runs — the file is re-read and the entry replaced, so a materialize
+after it is pinned to the digest the file now has — and it emits NO frame and
+does NOT move the generation, since `streamed` diffs row JSON and `guarded`
+moves the generation only on frames or a load outcome. Live-verified: 0 frames
+over the socket, `ETag` `…-g3` before and after, and `GET /headline` returning
+the new child text under a new digest.
 
 ## One keymap, three lens regions, and a configurable default view (2026-08-01)
 

@@ -24,10 +24,10 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 
-import Glance.Query ( HeadlineRecord (hrFile, hrId, hrTitle), IdCollision (..)
+import Glance.Query ( HeadlineRecord (hrDigest, hrFile, hrId, hrTitle), IdCollision (..)
                     , LoadFailure (..), QueryResult (..), TodoKeywords (..)
                     , WalkOptions (..), defaultWalk, loadDir, loadDirWith, loadFile
-                    , rowJSON )
+                    , rowJSON, subtreeText )
 import Glance.Web.Store ( Frame (..), Store (stGen, stPrint), applyFile, bootstrapFrame
                         , clientCapacity, dropFile, frameJSON, loadStore
                         , loadStoreWith, newHub, nextFrame, publish, storeKeywords
@@ -46,6 +46,13 @@ rewrite :: FilePath -> T.Text -> Store -> IO (Store, [Frame])
 rewrite path text store = do
   TIO.writeFile path text
   applyFile path <$> loadFile path <*> pure store
+
+-- | The one record STORE holds, LABEL naming the moment in the failure.  A
+-- store holding any other number is a fixture that stopped saying what it meant.
+oneRecord :: String -> Store -> IO HeadlineRecord
+oneRecord label store = case storeRecords store of
+  [r]  -> pure r
+  recs -> assertFailure (label <> ": expected one record, got " <> show (map hrId recs))
 
 -- | Ids the frames touch, upserts and deletes apart.
 upsertIds, deleteIds :: [Frame] -> [T.Text]
@@ -430,6 +437,28 @@ diffSpec = testGroup "File diff"
       -- so the rows the fixture put there are what makes it one.
       assertEqual "the fixture's rows" 2 (length (storeRecords store))
       assertEqual "frames" [] . snd =<< rewrite path doc store
+
+    -- Rows being top entries, a child is not one and an edit under one moves no
+    -- cell.  The step still runs — the file is re-read and the entry replaced —
+    -- so a materialize after it is pinned to the digest the file now has; what
+    -- it does not do is send a frame or move the generation, since neither the
+    -- rows nor the stats a response carries have changed.  This is the whole
+    -- decision, and both halves of it are load-bearing.
+  , testCase "an edit under a child streams nothing and still refreshes the entry"
+      $ withTempDir $ \dir -> do
+      let tree body = entryAs "one" "TODO parent" <> "** child\n" <> body
+      path <- orgFile dir "a.org" (tree "first\n")
+      store <- loadStore dir
+      was <- oneRecord "before" store
+      (next, frames) <- rewrite path (tree "second\n") store
+      assertEqual "frames" [] frames
+      assertEqual "the generation stays put, so the ETag does" (stGen store) (stGen next)
+      now <- oneRecord "after" next
+      assertEqual "the row is the row it was" (rowJSON was) (rowJSON now)
+      assertBool "the digest did not follow the file"
+                 (hrDigest was /= hrDigest now)
+      assertBool ("the subtree is stale: " <> show (subtreeText now))
+                 ("second" `T.isInfixOf` subtreeText now)
 
   , testCase "a new headline is one upsert" $ withTempDir $ \dir -> do
       path <- orgFile dir "a.org" (entry "one")

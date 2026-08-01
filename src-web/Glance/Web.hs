@@ -384,9 +384,8 @@ safeName name = not (T.null name)
 -- @order=document@ is the __experimental__ exception, and it moves both halves
 -- together ('Glance.Query.ViewOrder'): the rows stay in walk order whatever the
 -- limit, and the view carries no @sort@ field, so a renderer leaves them where
--- they landed.  Walk order is document order — file by file, headline by
--- headline down each — which is what makes the @depth@ each row carries
--- readable as a tree.  Anything else under @order=@ is a 400; @order=scheduled@
+-- they landed.  Walk order is document order — file by file, top entry by top
+-- entry down each.  Anything else under @order=@ is a 400; @order=scheduled@
 -- names the default.  There is no UI for it: the shell never asks, so a reader
 -- reaches it by typing the URL.
 --

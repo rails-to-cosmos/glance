@@ -70,16 +70,16 @@ on.
   to the start of the next headline in the same file at the headline's own
   level or shallower, and to the end of the document when there is none —
   org's outline rule, computed at load in one right-to-left pass over the
-  headlines with a stack. The geometry the write path rests on: extents nest
-  (a child's lies inside its parent's), two that do not nest are disjoint, each
-  covers its own `hsFull`, consecutive headlines leave no gap, and the last
-  extent of a file ends at `T.length doc`. Two consequences worth stating
-  because a materialize shows them: whatever sits between a subtree's last body
-  line and the next headline's stars, blank lines included, belongs to the
-  subtree above; and a file's `#+`-preamble sits ahead of the first extent and
-  belongs to no subtree, so a commit cannot carry it off. Evidence:
-  `TestSubtree` — five fixtures asserted as text, the geometry group over all
-  of them, and the same geometry over sampled real files behind
+  headlines with a stack, over EVERY headline the file has. Records keep the
+  top-level ones alone (Walk, "A row is a top entry"), so the extents that
+  survive tile: each covers its own `hsFull` and every descendant, consecutive
+  ones meet exactly, and the last extent of a file ends at `T.length doc`. Two
+  consequences worth stating because a materialize shows them: whatever sits
+  between a subtree's last body line and the next headline's stars, blank lines
+  included, belongs to the subtree above; and a file's `#+`-preamble sits ahead
+  of the first extent and belongs to no subtree, so a commit cannot carry it
+  off. Evidence: `TestSubtree` — five fixtures asserted as text, the geometry
+  group over all of them, and the same geometry over sampled real files behind
   `GLANCE_CORPUS`. **test + corpus**
 
 ## Parser
@@ -525,6 +525,35 @@ on.
   `getSymbolicLinkStatus` in `visit` answering both questions, and it would move
   the symlinked-directory rule above, so it is a decision rather than an
   optimization. **docs**
+- **A row is a top entry.** `Glance.Query.recordsOf` keeps the headlines
+  `topLevel` accepts — one star, no ancestor — and everything deeper is carried
+  inside an ancestor's `hrSubtree` rather than beside it. `subtreeSpans` runs
+  over the WHOLE headline sequence and the filter is applied to the zip
+  afterwards. For THIS predicate the two orders agree — a level-one extent ends
+  at the next headline at level one *or shallower*, which is another level-one
+  headline, so the dropped ones never decided anything (checked exhaustively
+  over every level shape up to five headlines). The order is kept anyway
+  because `subtreeSpans` is org's outline rule over a DOCUMENT and running it
+  over a subsequence is a different function: on a predicate keeping levels
+  {1,3} the two disagree, the deeper row ending at the next KEPT headline
+  instead of the next shallower one — a subtree missing its own children. Four
+  consequences, all intended and
+  each pinned: a word only a child carries matches nothing, `hrSearch` being
+  built from the cells of the rows that exist, and materializing the entry is
+  how the child is reached; an `ORG_GLANCE_ID` on a deeper headline is not a row
+  id, so it addresses nothing and cannot collide; a file whose outline never
+  reaches level one contributes no rows at all, the answer a file with no
+  headlines gives; and the extents now TILE rather than nest — consecutive ones
+  meet exactly, the nesting having moved inside a single extent. `scan` is
+  unaffected in either tally: it counts headlines and `ORG_GLANCE_ID`s off
+  `orgParse`'s own elements, never through `recordsOf`, because it is a parser
+  oracle rather than a view of one. Measured on `~/sync` at 2026-08-01: store
+  rows 12875 → 10685 and id collisions 9 → 7, while the scan's headline count
+  stays 12884 and its collision tally stays 9. Evidence: `TestQuery` "Top
+  entries" and the search-miss case,
+  `TestSubtree`'s geometry (top-entry check plus abutment) over five fixtures
+  and the corpus, `TestServe` "a top entry materializes with its children in
+  it". **test + corpus**
 - **One row per id, and the canonical file wins it.** A row id is what a
   renderer keys updates off (SCHEMA.md), so two rows cannot share one: the
   second would overwrite the first on every frame while the table showed the
@@ -1128,8 +1157,10 @@ on.
   the field ignores it. KNOWN GAP: `table-view/SCHEMA.md`'s Badge object still
   lists `value` and `color` alone, and SCHEMA has no general "unknown fields are
   ignored" clause — so "a renderer ignores it" holds by how JS reads objects
-  rather than by the contract. `multi` and `depth` both went INTO SCHEMA marked
-  *Experimental*; this one owes the same row, one repo over. Evidence:
+  rather than by the contract. `multi` went INTO SCHEMA marked *Experimental*
+  (so did `depth`, which this producer has since stopped emitting — rows are top
+  entries and describe no outline); this one owes the same row, one repo over.
+  Evidence:
   `TestFilter` "and answer to org-glance's starred spelling of the same
   groups", `TestQuery` "and the two group values a filter can name" plus the
   `sample-view.json` golden. **test** (the producer's half) / **none** (SCHEMA's)

@@ -27,8 +27,10 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   through `bare = map (stripSpans . valueOf)`, so the ~150 span-insensitive
   assertions go span-sensitive the moment it stops being total.
 - A subtree span runs from a headline's stars to the next headline at its level
-  or shallower, else to the end of the document; they nest, non-nesting pairs
-  are disjoint, and trailing blank lines belong to the subtree above.
+  or shallower, else to the end of the document; computed over EVERY headline,
+  though only the top-level ones keep records, so the surviving extents tile
+  and consecutive ones meet exactly. Trailing blank lines belong to the subtree
+  above.
 
 ## Parser
 
@@ -142,6 +144,22 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   and `desktop` reject unknown arguments; `scan` alone is permissive, and has no
   usage string.
 - `dirs scanned` is the number of ROOTS given, not directories traversed.
+- A ROW IS A TOP ENTRY. `recordsOf` keeps `topLevel` headlines (one star) and
+  drops the rest; the filter runs AFTER `subtreeSpans`. The orders agree for
+  this predicate (a level-one extent ends at another level-one headline) and
+  the order is kept because `subtreeSpans` is the outline rule over a DOCUMENT
+  — widen `topLevel` and filtering first ends a deeper row at the next KEPT
+  headline instead of the next shallower one. Intended consequences: a word only a
+  child carries matches nothing (`hrSearch` is the existing rows' cells), a
+  deeper `ORG_GLANCE_ID` is not a row id and cannot collide, and a file that
+  never reaches level one has no rows. `scan` is unaffected in BOTH tallies —
+  it counts headlines and ids off `orgParse`, never through `recordsOf`,
+  because it is a parser oracle rather than a view. ~/sync at 2026-08-01: store
+  rows 12875 → 10685, collisions 9 → 7; scan 12884 and 9, unmoved.
+- An edit under a child moves `hrDoc`/`hrDigest`/the extent and no cell: the
+  store still refreshes the entry (so materialize is drift-free) and emits NO
+  frame and no generation bump, `streamed` diffing row JSON and `guarded`
+  moving on frames or a load outcome alone.
 - One row per id. Two files claiming an `ORG_GLANCE_ID` are resolved by
   `Glance.Query.resolveIds` — a `.org-glance/data/` path wins, else walk order —
   and the losers are counted, in `X-Glance-Id-Collisions` and in the scan
