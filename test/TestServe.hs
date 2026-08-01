@@ -562,14 +562,16 @@ markSpec shell = testGroup "Shell marks"
         assertEqual "and nothing was written" [] =<< postedOf answer
         assertEqual "the pill says what the next press costs"
                     "d → flagged — d again archives" =<< textAt "echo" answer
-        -- A flag is not a mark: the two sets are the renderer's own and stay
-        -- apart, so `D' still has nothing to run over but the row at point.
+        -- The two sets are the renderer's own and stay apart: flagging a row
+        -- leaves the marked set exactly where it was.
         assertEqual "and no mark went on with it" [] =<< textsAt "marked" answer
+      -- One flag is a set of one, so the single-row flow is the general one and
+      -- reads as it: the second press is `D', and `D' names the set it ran over.
       bootOf shell "" 500 "d d" "" $ \answer -> do
-        assertEqual "the second press archives that row"
+        assertEqual "one flag is a set of one, so the second press takes it"
                     [("archive", ["r1"])] =<< postedOf answer
         assertEqual "and the flag is spent" [] =<< textsAt "flagged" answer
-        assertEqual "counted" "d → archived (1)" =<< textAt "echo" answer
+        assertEqual "counted" "d → archived (1 flagged)" =<< textAt "echo" answer
 
     -- The flag stays on the ROW rather than following the cursor, so a walk
     -- between the two presses is a walk back before the second one lands.
@@ -577,6 +579,26 @@ markSpec shell = testGroup "Shell marks"
       bootOf shell "" 500 "d n d" "" $ \answer -> do
         assertEqual "two rows flagged" ["r1", "r2"] =<< textsAt "flagged" answer
         assertEqual "and nothing written" [] =<< postedOf answer
+
+    -- dired's `dd': the second press is `D', so it takes the WHOLE flagged set
+    -- rather than the row under it.  `d n d n d' flags r1, r2 and r3 and leaves
+    -- the cursor on r3; the press after that archives all three at once.
+  , testCase "the second d archives every flagged row, not just the one under it" $
+      bootOf shell "" 500 "d n d n d" "press:d" $ \answer -> do
+        assertEqual "all three, in one request"
+                    [("archive", ["r1", "r2", "r3"])] =<< postedOf answer
+        assertEqual "and no flag is left" [] =<< textsAt "flagged" answer
+        assertEqual "named the way D names it" "d → archived (3 flagged)"
+          =<< textAt "echo" answer
+
+    -- The same set, the same request, the same pill: `D' is `d' without the
+    -- flagging press in front of it, and there is one implementation.
+  , testCase "D on that same set does exactly what the second d does" $
+      bootOf shell "" 500 "d n d n d" "press:D" $ \answer -> do
+        assertEqual "the same three" [("archive", ["r1", "r2", "r3"])]
+          =<< postedOf answer
+        assertEqual "the same pill, under its own key" "D → archived (3 flagged)"
+          =<< textAt "echo" answer
 
     -- `d' is in ONCE, and this is why: a HELD key reaching the handler twice
     -- would flag a row and archive it from one press, which is exactly the
@@ -3214,7 +3236,7 @@ expectedRows =
   -- dired's flag, in two presses: the first marks the row for archiving and the
   -- second does it.  Plain @d@ is never a write on its own.
   , (["d"],          "d",       "archive-flag",                    Just "archiveFlag",    "table",
-       Just "flag for archive; d again archives it")
+       Just "flag for archive; d again archives all flagged")
   -- org-glance's own name for dired's key, and a help line because what it
   -- does here is narrower than the name: the headline is tagged, never removed.
   , (["D"],          "D",       "org-glance-overview:delete",      Just "archiveRows",    "table",

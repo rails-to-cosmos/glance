@@ -1310,13 +1310,14 @@ keyBindings =
   , bind ["a"]          "org-glance-agenda"               Nothing                 "table"
   , bind ["@"]          "org-glance-overview:relations"   Nothing                 "table"
   , bind ["+"]          "org-glance-overview:capture"     Nothing                 "table"
-  -- dired's flag, and dired's rule for it: the first press flags the row and the
-  -- second one archives it.  The flag IS the confirmation, so there is no prompt
-  -- and no undo to build — @u@ takes it off.  Plain @d@ is never a write on its
-  -- own, which is what makes a mis-key cost a keystroke.  @D@ is the same idea
-  -- over the whole flagged set at once.
+  -- dired's flag, and dired's @dd@: the first press flags the row and the second
+  -- archives every flagged row at once — @D@'s own job, reached through @D@'s own
+  -- handler, so a lone flag is a set of one and the single-row flow is the
+  -- general one.  The flag IS the confirmation, so there is no prompt and no
+  -- undo to build — @u@ takes it off.  Plain @d@ is never a write on its own,
+  -- which is what makes a mis-key cost a keystroke.
   , bind ["d"]          "archive-flag"                    (Just "archiveFlag")    "table"
-      `helps` "flag for archive; d again archives it"
+      `helps` "flag for archive; d again archives all flagged"
   , bind ["D"]          "org-glance-overview:delete"      (Just "archiveRows")    "table"
       `helps` "archive the flagged rows, or the row at point — never a delete"
       -- The user's own spelling; Chromium owns Ctrl+T above the document, so
@@ -2362,6 +2363,32 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        if (bad.length) log(bad.map((x) => `${x.id}: ${x.error}`).join(\" · \"));"
   , "      })).catch((e) => { said(b, e.message); log(`${name} failed: ${e.message}`); });"
   , "    }"
+    -- Archiving: ONE implementation, reached by both keys.  The tag goes on, the
+    -- headline stays, and the default view stops showing it.  It runs over the
+    -- FLAGGED set when there is one and the row at point otherwise, and never
+    -- over the marked one — a mark is the generic bulk selection a reader lays
+    -- down to set a state over a run of rows, and letting the archive key
+    -- inherit it makes every mark a loaded gun.
+    --
+    -- `d' on an already-flagged row calls THIS, so dired's `dd' is flag then
+    -- mass-confirm: one flag archives one row, three flags archive three, from
+    -- the same second press.  `D' is the same gesture without the first half.
+    --
+    -- The flags are SPENT here.  They have to be: the renderer keeps a flag
+    -- whose row a filter has hidden — which is what makes a flag survive the
+    -- refetch this write causes — so a set left standing would be re-archived by
+    -- the next press, and the row at point would never be reachable again.
+  , "    function archive(b) {"
+  , "      const flags = flagging() ? table.getFlagged() : [];"
+  , "      if (flags.length) {"
+  , "        table.clearFlags();"
+  , "        fire(b, \"archive\", flags, {}, \"archived\", (n) => `${n} flagged`);"
+  , "        return;"
+  , "      }"
+  , "      const id = focusedId();"
+  , "      if (id) fire(b, \"archive\", [id], {}, \"archived\", (n) => (n ? \"row\" : n));"
+  , "      else said(b, \"no row\");"
+  , "    }"
     -- The value palette: a prompt of this page's own, since the renderer's
     -- overlay belongs to the filter and this page may not reach into it.  Type
     -- to narrow, C-n/C-p or the arrows to walk, RET to commit; ESC is the
@@ -2818,50 +2845,25 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        table.markAll();"
   , "        echo(`${b.seq} → marked (${table.markedCount()})`);"
   , "      },"
-    -- dired's `d', in two presses: the first flags the row and the second
-    -- archives it.  The flag IS the confirmation, so there is no prompt — and
-    -- the command is in ONCE, so a HELD `d' delivers exactly one press and can
-    -- never flag and archive from one keystroke.  `u' takes a flag off.
+    -- dired's `d', in two presses: the first flags the row and the second is
+    -- `D' — `archive' over every flagged row, this one included.  The flag IS
+    -- the confirmation, so there is no prompt — and the command is in ONCE, so a
+    -- HELD `d' delivers exactly one press and can never flag and archive from
+    -- one keystroke.  `u' takes a flag off.
   , "      archiveFlag: (b) => {"
   , "        if (!flagging()) { said(b, \"this table-view.js has no archive flags\"); return; }"
   , "        const id = focusedId();"
   , "        if (!id) { said(b, \"no row\"); return; }"
-  , "        if (!isFlagged(id)) {"
-  , "          table.flagRow(id);"
-  , "          echo(`${b.seq} → flagged — d again archives`);"
-  , "          return;"
-  , "        }"
-  , "        table.unflagRow(id);"
-  , "        fire(b, \"archive\", [id], {}, \"archived\");"
+  , "        if (isFlagged(id)) { archive(b); return; }"
+  , "        table.flagRow(id);"
+  , "        echo(`${b.seq} → flagged — d again archives`);"
   , "      },"
   , "      applyDefault, focusFilter, toggleRaw, openSettings,"
     -- One `save-buffer' over two sheets: whichever is up is what it syncs.
   , "      save: () => (settings ? saveConfig() : saveSheet()),"
-    -- D is dired's key and org-glance's `delete', and here it archives: the tag
-    -- goes on, the headline stays, and the default view stops showing it.
-    --
-    -- It runs over the FLAGGED set and never over the marked one.  A mark is the
-    -- generic bulk selection — a reader lays one down to set a state over a run
-    -- of rows — and letting the archive key inherit it makes every mark a loaded
-    -- gun.  A flag is a selection made for exactly this, so `d' over a few rows
-    -- and then `D' is the whole of the bulk archive path.
-    --
-    -- The flags are SPENT here, the way a second `d' spends the one it fires
-    -- over.  They have to be: the renderer keeps a flag whose row a filter has
-    -- hidden — which is what makes a flag survive the refetch this write causes
-    -- — so a set left standing would be re-archived by the next `D', and the
-    -- row at point would never be reachable again.
-  , "      archiveRows: (b) => {"
-  , "        const flags = flagging() ? table.getFlagged() : [];"
-  , "        if (flags.length) {"
-  , "          table.clearFlags();"
-  , "          fire(b, \"archive\", flags, {}, \"archived\", (n) => `${n} flagged`);"
-  , "          return;"
-  , "        }"
-  , "        const id = focusedId();"
-  , "        if (id) fire(b, \"archive\", [id], {}, \"archived\", (n) => (n ? \"row\" : n));"
-  , "        else said(b, \"no row\");"
-  , "      },"
+    -- D is dired's key and org-glance's `delete', and it is `archive' with no
+    -- flagging step in front of it — the same function the second `d' reaches.
+  , "      archiveRows: archive,"
     -- C-c C-t asks which state, over whatever the command would run on, and
     -- the server refuses a keyword the row's own file does not declare.
   , "      setState: (b) => {"

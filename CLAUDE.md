@@ -526,22 +526,28 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   marks: a mark is what a reader lays down to set a state over a run of rows, and
   letting the archive key inherit one makes every mark a loaded gun. Both sets
   are the renderer's and are asked for AT command time; no set is kept here.
-- `d` is dired's FLAG, in two presses: the first flags the row at point
-  (`archive-flag`, echo `d → flagged — d again archives`) and a second `d` on an
-  already-flagged row archives THAT row and spends the flag. `D`
-  (`org-glance-overview:delete`) is the same idea over the whole flagged set —
+- `d` is dired's FLAG and dired's `dd`, in two presses: the first flags the row
+  at point (`archive-flag`, echo `d → flagged — d again archives`) and a second
+  `d` on an already-flagged row IS `D` — it calls the same handler, so it
+  archives EVERY flagged row rather than the one under it. A lone flag is a set
+  of one, which is what leaves the single-row flow unchanged. There is no
+  sequence machinery: `d` stays one complete binding. `D`
+  (`org-glance-overview:delete`) is that handler without the flagging press —
   every flagged row when there is one, the row at point otherwise, echoing
   `D → archived (4 flagged)` or `D → archived (row)` and giving that name up for
   the bare count when nothing landed, since a set name over zero rows reads as a
-  write that worked. Nothing clears flags after `D`: the rows carry the tag and
-  leave the default view, which takes their flags with them. The flag is the
-  confirmation, so there is no prompt; `u` on a flagged row takes the flag off
-  before it touches a mark (`u → flag cleared`) and `U` clears flags with marks.
+  write that worked. `D` SPENDS the flags it fired over, the way the second `d`
+  spends its one: `setRows` keeps a flag whose row a filter is hiding — which is
+  what makes a flag outlive the refetch the write causes — so a set left standing
+  would be archived again by the next press and the row at point would never be
+  reachable again. The flag is the confirmation, so there is no prompt; `u` on a
+  flagged row takes the flag off before it touches a mark (`u → flag cleared`)
+  and `U` clears flags with marks.
   Flags are the RENDERER's session state, keyed by id like marks —
-  `flagRow`/`unflagRow`/`getFlagged`/`clearFlags`, feature-detected as a pair; an
-  asset without them echoes `this table-view.js has no archive flags` and writes
-  nothing, and `D` there falls through to the row at point. HANDOFF: that API and
-  the `.tv-flagged` wash are a table-view.js change this repo does not make.
+  `flagRow`/`unflagRow`/`getFlagged`/`clearFlags` and the `.tv-flagged` wash,
+  landed in table-view at 079fa20. The pair is still feature-detected: an asset
+  predating it echoes `this table-view.js has no archive flags` and writes
+  nothing, and `D` there falls through to the row at point.
 - `t`/`C-c C-t` raise a value palette of the shell's OWN — the state column's
   `badges` plus `*clear*`, never its `values` (`*active*` is not a keyword) —
   typed to narrow, `C-n`/`C-p` and the arrows to walk, `RET` to commit, `ESC`

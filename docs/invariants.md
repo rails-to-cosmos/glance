@@ -1268,16 +1268,20 @@ on.
   parses the blob, compares it to a written-down map, checks the two uniqueness
   rules, asserts that both spellings of row and cell movement are present, and
   asserts that the profile machinery is absent from the page. **test**
-- **`d` is dired's flag, and the flag IS the confirmation.** The first `d` on a
-  row flags it for archiving and echoes `d → flagged — d again archives`; a
-  second `d` on an ALREADY-FLAGGED row archives that row and spends the flag.
-  Flags on other rows stand — one row per confirm. There is no prompt and no
+- **`d` is dired's flag and dired's `dd`, and the flag IS the confirmation.** The
+  first `d` on a row flags it for archiving and echoes `d → flagged — d again
+  archives`; a second `d` on an ALREADY-FLAGGED row is `D`, and reaches `D`'s own
+  handler: it archives EVERY flagged row, not the one under the cursor. Flag
+  three rows and the third press takes all three. A lone flag is a set of one, so
+  the single-row flow is the general one rather than a case beside it, and there
+  is no sequence machinery — `d` stays one complete binding, in `ONCE` for the
+  same reason it always was. There is no prompt and no
   undo to build: `u` on a flagged row takes the flag off BEFORE it touches a
   mark (it is the more recent thing a reader put there, and the one that would
-  otherwise write a file) and `U` clears flags along with marks. `D` is the same
-  idea over the WHOLE flagged set — every flagged row when there is one, the row
-  at point otherwise — and it SPENDS them, the way the second `d` spends the one
-  it fires over. Spending is load-bearing rather than tidy: `setRows` keeps a
+  otherwise write a file) and `U` clears flags along with marks. `D` is that
+  handler with no flagging press in front of it — every flagged row when there is
+  one, the row at point otherwise — and both SPEND the flags they fire over.
+  Spending is load-bearing rather than tidy: `setRows` keeps a
   flag whose row a filter is hiding, which is exactly what makes a flag outlive
   the refetch this write causes, so a set left standing would be archived again
   by the next press and the row at point would never be reachable again. The pill

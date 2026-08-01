@@ -917,9 +917,13 @@ single key is what the rest of the map reads like), `.` is unbound, `o` joins `!
 as the open stub, and `g` is the new `apply-default-filter`. `refresh` had no key
 left and the function went with it; `remount` still has callers.
 
-**`d` is dired's flag, and `D` runs over flags.** First press flags, second
-press on the same row archives; `D` archives the whole flagged set, falling back
-to the row at point. `u` clears a flag before a mark, `U` clears both. `D` no
+**`d` is dired's flag, and `D` runs over flags.** First press flags; the second
+press on a flagged row IS `D` — dired's `dd` — and reaches `D`'s handler, so it
+archives the whole flagged set. A lone flag is a set of one, which is what leaves
+the single-row flow alone; there is one implementation and no sequence
+machinery. `D` is the same handler with no flagging press in front of it,
+falling back to the row at point. `u` clears a flag before a mark, `U` clears
+both. `D` no
 longer reads the m-marked set at all — marks stay the generic bulk selection that
 `set-state` runs over, so a mark laid down for a state change can never become a
 row archived by reflex. In `ONCE`, which is load-bearing here rather than polite:
