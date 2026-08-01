@@ -24,6 +24,18 @@ source-repository head
   type: git
   location: https://github.com/rails-to-cosmos/glance
 
+-- Build `glance desktop''s own WebKitGTK window instead of borrowing a
+-- browser.  Off by default and manual, because on it the solver pulls the
+-- haskell-gi tree -- some 28 packages, 25 of them under gi-gtk 3, each
+-- generated at build time from the machine's own typelibs -- and the build
+-- needs GTK3 and WebKit2GTK *4.0* development files (the libsoup2 generation;
+-- webkit2gtk-4.1 alone will not do).  Off, nothing above resolves, the suite
+-- runs without GTK, and `glance desktop' is exactly stage 1.
+flag native-window
+  description: Build the native WebKitGTK window (gi-gtk 3 + gi-webkit2).
+  default: False
+  manual: True
+
 -- The parser and its AST.  Private: only this package's own components may
 -- depend on it, so a future daemon or web target cannot reach past the facade.
 library glance-internal
@@ -91,6 +103,7 @@ library glance-web
   visibility: private
   exposed-modules:
       Glance.Desktop
+      Glance.Desktop.Native
       Glance.Web
       Glance.Web.Filter
       Glance.Web.Store
@@ -122,6 +135,30 @@ library glance-web
     , websockets
   default-language: Haskell2010
 
+-- The native window and nothing else: no daemon, no store, no glance module in
+-- its build-depends.  Always built and trivial when `native-window' is off,
+-- which is what keeps the flag out of every other stanza -- the rest of the
+-- program asks it one question, `nativeAvailable', and gets a Bool.
+library glance-desktop-native
+  visibility: private
+  exposed-modules:
+      Glance.Desktop.WebKit
+  hs-source-dirs:
+      src-desktop-native
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
+  build-depends:
+      base >=4.7 && <5
+  if flag(native-window)
+    cpp-options: -DNATIVE_WINDOW
+    build-depends:
+        gi-gdk >=3.0 && <3.1
+      , gi-glib >=2.0 && <2.1
+      , gi-gtk >=3.0 && <3.1
+      , gi-webkit2 >=4.0 && <4.1
+      , text
+      , unix
+  default-language: Haskell2010
+
 executable glance
   main-is: Main.hs
   other-modules:
@@ -139,7 +176,7 @@ executable glance
     , containers
     , directory
     , filepath
-    , glance:{glance-internal, glance-web}
+    , glance:{glance-desktop-native, glance-internal, glance-web}
     , haskeline
     , megaparsec
     , text

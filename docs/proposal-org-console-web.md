@@ -192,17 +192,35 @@ path cannot (never as the primary path): the materialize sheet is buttonless
 (sync-on-close, `C-x C-s`), actions render as key hints in the hint line,
 conflicts resolve by keystroke. Mouse still works; it is never required.
 
-**Desktop shell (rev 4).** glance as a desktop application, in two stages,
-architecture unchanged (daemon + bridge + web UI; the shell is one more
-client):
+**Desktop shell (rev 4), both stages landed.** glance as a desktop
+application, architecture unchanged (daemon + bridge + web UI; the shell is one
+more client):
 
-1. *Now, zero code:* `glance desktop` — start the daemon, open an app-mode
+1. *Landed, zero code:* `glance desktop` — start the daemon, open an app-mode
    window (`chromium --app=http://127.0.0.1:PORT` / equivalent; fallback
    `xdg-open`). No browser chrome, dock icon, feels native.
-2. *Later, single binary:* Haskell webview bindings over the system engine
-   (WebKitGTK here) — one `glance` binary that opens its own window. A spike,
-   only if stage 1 chafes; Electron is rejected outright (a bundled Chromium
-   per app contradicts the tiny-frontend rule).
+2. *Landed behind `-f native-window`:* a WebKitGTK window in the binary. Stage
+   1 chafed on the keyboard: Chromium and Firefox take `Ctrl+T`, `Ctrl+N` and
+   `Ctrl+W` in the browser process above the document, so `C-c C-t` cannot
+   complete in a borrowed window and the keymap has to carry a plain `t` as the
+   spelling that works. A bare `WebKitWebView` in a plain `GtkWindow` has no
+   chrome to bind those to. Electron stays rejected (a bundled Chromium per app
+   contradicts the tiny-frontend rule); this borrows the system engine.
+
+   Two modules: `Glance.Desktop.WebKit` in the private sublibrary
+   `glance-desktop-native`, which is the engine and knows no daemon, and
+   `Glance.Desktop.Native` in `glance-web`, which is the flow — prefer the
+   native window unless a browser is named, fork the daemon, hand the main
+   thread to GTK, stop the daemon when the window closes (`--keep-serving` to
+   keep stage 1's semantics). The flow takes the window as a `String -> IO ()`,
+   so it compiles and is tested in both flag states and the suite needs no GTK.
+
+   The flag is manual and default-off, because on it the solver pulls ~28
+   packages and the build needs `webkit2gtk-4.0` development files — the
+   libsoup2 generation. A machine carrying only `webkit2gtk-4.1` (and no
+   `webkitgtk-6.0` for the GTK4 binding) cannot build it at all; there the
+   window is written and unverified, and the flag is what makes that cost
+   nothing.
 
 The phone, the shared read-only slice, and the automation extension keep
 using real browsers; the desktop shell adds a surface, replacing none.

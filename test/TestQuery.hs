@@ -7,6 +7,7 @@ import Control.Concurrent (getNumCapabilities, rtsSupportsBoundThreads)
 import Control.Monad (forM_, replicateM, (<=<))
 import Data.Aeson (Value (Bool, Object, String), eitherDecodeFileStrict')
 import Data.List (foldl', nub, sort)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath ((</>))
@@ -96,8 +97,8 @@ maybeBoolAt key v = assertFailure ("expected an object with " <> show key
 
 spec :: TestTree
 spec = testGroup "Query"
-  [ loadSpec, walkSpec, levelSpec, parallelSpec, cellSpec, searchSpec, viewSpec
-  , schemaSpec, commandSpec, lensSpec ]
+  [ loadSpec, walkSpec, levelSpec, blankSpec, parallelSpec, cellSpec, searchSpec
+  , viewSpec, schemaSpec, commandSpec, lensSpec ]
 
 -- | The subtree lens: a subtree split into the parts a client edits and the
 -- parts the server keeps, and put back.
@@ -753,6 +754,90 @@ levelSpec = testGroup "Top entries"
                    ("kid" `notElem` map hrId recs)
   ]
 
+-- | The other half of the row rule: a top entry with nothing in any of the six
+-- columns is not a row.  The file keeps it — org is the source of truth — and
+-- the table skips it, so what used to be a line of six empty cells is now no
+-- line.
+--
+-- The cases are the boundary from both sides.  One filled column is enough, and
+-- nothing the table has no column for rescues an entry: a @CLOSED:@ stamp, a
+-- drawer, a body, children.  The two costs are pinned rather than described —
+-- a blank entry has no id, so no command can address it, and the ordinal counts
+-- rows rather than entries, so an entry going blank renumbers the ones behind
+-- it.
+blankSpec :: TestTree
+blankSpec = testGroup "Blank entries"
+  [ testCase "an entry with nothing to show is no row" $
+      mapM_ (\(what, doc) -> withRecordsOf doc $ \recs ->
+                assertEqual what [] (map hrId recs))
+            [ ("stars and a space", "* \n")
+            , ("stars alone",       "*\n") ]
+
+    -- One case per column, and the assertion names the column: a row whose
+    -- state is filled and whose other five are empty is what "the todo alone
+    -- keeps it" means.
+  , testCase "one filled column is enough, and it is the one that was filled" $
+      mapM_ (\(want, doc) -> withRecordsOf doc $ \recs ->
+                assertEqual (T.unpack want) [[want]] (map filledColumns recs))
+            [ ("state",     "* TODO\n")
+            , ("priority",  "* [#A]\n")
+            , ("title",     "* a title\n")
+            , ("scheduled", "* \nSCHEDULED: <2026-08-01 Sat>\n")
+            , ("deadline",  "* \nDEADLINE: <2026-08-01 Sat>\n") ]
+
+    -- The tags clause of the rule never fires alone, and this is why: org
+    -- spells tags after a title, so the parser reads a headline that is nothing
+    -- but colons as a TITLE of colons.  Either way the entry shows something
+    -- and stays a row.
+  , testCase "a headline of nothing but tags is a title of colons" $
+      withRecordsOf "* :work:\n" $ \recs -> do
+        assertEqual "columns" [["title"]] (map filledColumns recs)
+        assertEqual "the colons are the title" [":work:"] (map hrTitle recs)
+
+  , testCase "and tags proper keep a row the title already kept" $
+      withRecordsOf "* a title :work:\n" $ \recs ->
+        assertEqual "columns" [["title", "tag"]] (map filledColumns recs)
+
+    -- What a row shows is what a column can carry, so everything else leaves
+    -- the entry blank however much of it there is.  The drawer case costs the
+    -- most: a blank entry has no row id, so an ORG_GLANCE_ID on one addresses
+    -- nothing and no command can reach it.
+  , testCase "nothing outside the six columns rescues an entry" $
+      mapM_ (\(what, doc) -> withRecordsOf doc $ \recs ->
+                assertEqual what [] (map hrId recs))
+            [ ("closed",   "* \nCLOSED: [2026-08-01 Sat]\n")
+            , ("drawer",   "* \n:PROPERTIES:\n:ORG_GLANCE_ID: solo\n:END:\n")
+            , ("body",     "* \nsome text under it\n")
+            , ("children", "* \n** TODO a child\n") ]
+
+    -- The ordinal numbers EMITTED rows ('rowId'), so a blank entry spends none
+    -- and every K behind it is one lower than the entry count would give.  Same
+    -- class as the reorder churn: an entry going blank is a removal, and
+    -- clearing the last keyword off a title-less row is how a reader gets there.
+  , testCase "a blank entry spends no ordinal" $
+      withRecordsOf (T.unlines ["* one", "* ", "* two"]) $ \recs -> do
+        assertEqual "titles" ["one", "two"] (map hrTitle recs)
+        assertEqual "ids" [ T.pack (hrFile r) <> k | (r, k) <- zip recs ["#0", "#1"] ]
+                    (map hrId recs)
+
+    -- The rule stated over the records rather than over the headlines it is
+    -- computed from: the two layers agree, and this is what that agreement
+    -- looks like from the outside.
+  , testCase "so no row the loader emits has six empty cells" $ withRecords $ \recs -> do
+      assertEqual "the fixture's rows" 6 (length recs)
+      assertEqual "blank rows" [] [ hrId r | r <- recs, null (filledColumns r) ]
+  ]
+
+-- | The column keys R fills, in column order.  Six cells, and a row exists
+-- because at least one of them is not empty.
+filledColumns :: HeadlineRecord -> [Text]
+filledColumns r =
+  [ key | (key, cell) <- zip ["state", "priority", "title", "tag", "scheduled", "deadline"]
+                             [ opt (hrState r), opt (hrPriority r), hrTitle r
+                             , hrTags r, opt (hrScheduled r), opt (hrDeadline r) ]
+        , not (T.null cell) ]
+  where opt = fromMaybe ""
+
 -- | The search text a filter runs over, and the display semantics it mirrors.
 --
 -- The expected strings are written down rather than taken from the renderer,
@@ -1018,8 +1103,12 @@ commandSpec = testGroup "Commands"
         setStateIs "inserted" "* [#B] Plain :tag:\n" (Just "TODO")
                               "* TODO [#B] Plain :tag:\n"
 
-    , testCase "into a headline that is stars and nothing else" $
-        setStateIs "bare" "*\n" (Just "TODO") "* TODO\n"
+      -- The smallest headline a command can reach.  Stars and nothing else is
+      -- no row at all ('blankEntry'), so it carries no id and nothing addresses
+      -- it; one shown attribute is what it takes, and the insertion point is
+      -- still the stars'.
+    , testCase "into a headline whose only content is a priority" $
+        setStateIs "bare" "* [#B]\n" (Just "TODO") "* TODO [#B]\n"
 
       -- The space behind the keyword goes with it, so the title closes up
       -- rather than starting a column late.

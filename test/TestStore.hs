@@ -27,7 +27,7 @@ import qualified Data.Text.IO as TIO
 import Glance.Query ( HeadlineRecord (hrDigest, hrFile, hrId, hrTitle), IdCollision (..)
                     , LoadFailure (..), QueryResult (..), TodoKeywords (..)
                     , WalkOptions (..), defaultWalk, loadDir, loadDirWith, loadFile
-                    , rowJSON, subtreeText )
+                    , replaceSpans, rowJSON, setStateEdits, subtreeText )
 import Glance.Web.Store ( Frame (..), Store (stGen, stPrint), applyFile, bootstrapFrame
                         , clientCapacity, dropFile, frameJSON, loadStore
                         , loadStoreWith, newHub, nextFrame, publish, storeKeywords
@@ -53,6 +53,10 @@ oneRecord :: String -> Store -> IO HeadlineRecord
 oneRecord label store = case storeRecords store of
   [r]  -> pure r
   recs -> assertFailure (label <> ": expected one record, got " <> show (map hrId recs))
+
+-- | The rows STORE holds for PATH: its own answer, narrowed to one file.
+rowsUnder :: FilePath -> Store -> [HeadlineRecord]
+rowsUnder path store = [ r | r <- storeRecords store, hrFile r == path ]
 
 -- | Ids the frames touch, upserts and deletes apart.
 upsertIds, deleteIds :: [Frame] -> [T.Text]
@@ -548,6 +552,48 @@ diffSpec = testGroup "File diff"
       assertEqual "the rows" 3 (length (storeRecords next))
       assertEqual "the new row alone" [T.pack path <> "#2"] (upsertIds frames)
       assertEqual "no deletes" [] (deleteIds frames)
+
+    -- The row rule end to end.  Clearing the keyword off a title-less entry
+    -- leaves a headline with nothing in any column, so the ENTRY stays in the
+    -- file and the ROW leaves the table.  The command writes the file and the
+    -- watch is what tells the browser: the route never updates the store, so
+    -- the delete arrives here or not at all.
+    --
+    -- The second file is what makes the delete visible.  A file whose last row
+    -- goes takes its keyword contribution with it, and the only file in a tree
+    -- taking TODO with it is a moved palette, which 'guarded' answers with
+    -- 'ViewChanged' INSTEAD of the rows.  b.org keeps the palette still so the
+    -- subject here is the row.
+  , testCase "clearing the last keyword off a title-less row deletes the row"
+      $ withTempDir $ \dir -> do
+      path <- orgFile dir "a.org" "* TODO\n"
+      _ <- orgFile dir "b.org" "* TODO another file, another keyword\n"
+      store <- loadStore dir
+      was <- case rowsUnder path store of
+        [r] -> pure r
+        rs  -> assertFailure ("expected one row under a.org, got " <> show (map hrId rs))
+      edits <- either (assertFailure . T.unpack) pure (setStateEdits Nothing was)
+      _ <- either (assertFailure . show) pure
+             =<< replaceSpans path (hrDigest was) edits
+      left <- TIO.readFile path
+      assertEqual "the file keeps the entry" "* \n" left
+      (next, frames) <- applyFile path <$> loadFile path <*> pure store
+      assertEqual "deletes" [hrId was] (deleteIds frames)
+      assertEqual "upserts" [] (upsertIds frames)
+      assertEqual "and a.org keeps no row" [] (map hrId (rowsUnder path next))
+
+    -- And the cost of that, which is the renumbering: an entry going blank is a
+    -- removal as far as the ordinal is concerned, so #0 now names the headline
+    -- that was #1 and #1 is gone.  The same wire shape a swap produces.
+  , testCase "and the rows behind a blanked entry renumber" $ withTempDir $ \dir -> do
+      path <- orgFile dir "a.org" twoEntries
+      store <- loadStore dir
+      let before = map hrId (storeRecords store)
+      (next, frames) <- rewrite path "* \n* TODO two\n" store
+      assertEqual "the row at #0 is the other headline"
+                  ["two"] (map hrTitle (storeRecords next))
+      assertEqual "so #0 is re-sent" (take 1 before) (upsertIds frames)
+      assertEqual "and #1 is deleted" (drop 1 before) (deleteIds frames)
 
   , testCase "a deleted file drops the rows it carried" $ withTempDir $ \dir -> do
       path <- orgFile dir "a.org" (entry "one" <> entry "two")

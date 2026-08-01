@@ -178,14 +178,30 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   it counts headlines and ids off `orgParse`, never through `recordsOf`,
   because it is a parser oracle rather than a view. ~/sync at 2026-08-01: store
   rows 12875 → 10685, collisions 9 → 7; scan 12884 and 9, unmoved.
+- AND A ROW HAS SOMETHING TO SHOW. `blankEntry` beside `topLevel` in
+  `recordsOf`: a top entry carrying none of the six column sub-spans — todo,
+  priority, title, tags, scheduled, deadline — emits no row. The file keeps the
+  entry, the table skips it. It is the RECORD's rule (every cell empty) computed
+  at the HEADLINE's layer, because the ordinal numbers EMITTED rows and there is
+  no record to ask before the numbering; the layers agree because each span is
+  `Nothing` exactly where `recordOf` cuts an empty cell. Nothing without a
+  column rescues an entry: `CLOSED:`, a drawer — so a blank entry has no row id
+  and no command can address it — a body, children. Reading the rule's "no
+  planning" as the two planning COLUMNS is the one place it could have gone the
+  other way. The tags clause never fires alone, org spelling tags after a title
+  and the parser giving `* :tag:` its colons as one. `scan` is unaffected
+  (parser oracle). ~/sync at 2026-08-01: 10441 top entries, 0 of them blank, so
+  the rule costs the corpus nothing and reaches only what an edit blanks.
 - A ROW ID IS `ORG_GLANCE_ID`, else `FILE#K` — K the headline's 0-based place
-  among its FILE's TOP ENTRIES, numbered in `recordsOf` after the `topLevel`
-  filter, so a child spends no ordinal. An edit ABOVE a row no longer renames
-  it: preamble, title, state, body, drawer and child edits all keep the id, and
-  the store streams the row that moved. What still renumbers is the top entries
-  moving past each other — reorder, insert-ahead, remove — and that ships cells
-  under stable ids rather than a delete plus an insert; `ORG_GLANCE_ID` is the
-  only immunity. Replaced `FILE:START`, the offset, which moved on any edit
+  among its FILE's EMITTED ROWS, numbered in `recordsOf` after BOTH filters, so
+  a child and a blank entry each spend no ordinal. An edit ABOVE a row no longer
+  renames it: preamble, title, state, body, drawer and child edits all keep the
+  id, and the store streams the row that moved. What still renumbers is the rows
+  moving past each other — reorder, insert-ahead, remove, and an entry going
+  blank, which is a remove wearing another hat — and that ships cells under
+  stable ids rather than a delete plus an insert; `ORG_GLANCE_ID` is the only
+  immunity. `set-state` clearing the last keyword off a title-less row is how a
+  reader reaches it: the row is deleted and every K behind it moves up one. Replaced `FILE:START`, the offset, which moved on any edit
   above the headline. Nothing parses an id apart (`resolveIds` is exact-string),
   so the separator carries no rule; `#` is safe in `/headline?id=` because both
   sides percent-encode, and `POST /command` carries ids in JSON. Ordinals cannot
@@ -267,6 +283,24 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   on PATH, run as `CMD --app=URL`; then `xdg-open URL`; then the URL printed. No
   window failure ever fails the daemon. `--dry-run` prints the resolved command
   and exits before binding.
+- A build carrying its own window (`cabal -f native-window`) prefers it, and
+  naming a browser beats it: `prefersNative` is the flag AND neither
+  `$GLANCE_BROWSER` nor `--browser`. GTK owns the MAIN thread, so `runNative`
+  forks the daemon and hands this thread to the window, which is the reverse of
+  every other path here. The window opens at the socket, like stage 1's. Closing
+  it stops the daemon — the window IS the app — and `--keep-serving` restores
+  stage 1, where the daemon outlives it. A window that never opened leaves the
+  daemon serving; a daemon that stops before it listens exits 1 rather than
+  waiting for a socket that is not coming. `--dry-run` prints `native window`
+  where it prints the browser command, by replacing that one line of
+  `dryRunLines` rather than by writing three of its own.
+- The flag is manual and default False, and the unflagged build resolves no
+  haskell-gi: `Glance.Desktop.WebKit` answers `nativeAvailable = False` and
+  nothing else in the program asks about the flag. `Glance.Desktop.Native` holds
+  the whole flow with no GTK in it and takes the window as a `String -> IO ()`,
+  so both flag states compile and the suite tests the flow against a fake
+  window in either. The engine knows no daemon and the flow knows no GTK; they
+  meet in `app/Main.hs`.
 - The socket carries SCHEMA.md's row ops alone. A column change (the TODO
   keyword union moving) closes it with reason `view-changed` and the client
   re-fetches. `ViewChanged` is a `Frame` like the row ops, and `frameJSON` gives
@@ -825,9 +859,19 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   regenerate.
 - Components: private sublibrary `glance-internal` (`src/`), public library
   `glance` (`src-query/`, `Glance.Query` only), private sublibrary
-  `glance-web` (`src-web/`) on the public library alone, one CLI dispatching
-  to both sublibraries, one suite naming all three. A new web or daemon target
-  depends on the public library alone.
-- `glance-web` exposes five modules and has no `other-modules`:
-  `Glance.Desktop`, `Glance.Web`, `Glance.Web.Filter`, `Glance.Web.Store`,
-  `Glance.Web.Watch`.
+  `glance-web` (`src-web/`) on the public library alone, private sublibrary
+  `glance-desktop-native` (`src-desktop-native/`) on `base` alone, one CLI
+  dispatching to three sublibraries, one suite naming the three that carry
+  testable code. A new web or daemon target depends on the public library alone.
+- `glance-web` exposes six modules and has no `other-modules`:
+  `Glance.Desktop`, `Glance.Desktop.Native`, `Glance.Web`, `Glance.Web.Filter`,
+  `Glance.Web.Store`, `Glance.Web.Watch`.
+- `glance-desktop-native` exposes `Glance.Desktop.WebKit` alone and is the ONLY
+  stanza the `native-window` flag reaches: `if flag(native-window)` adds
+  `-DNATIVE_WINDOW` and gi-gdk/gi-glib/gi-gtk 3/gi-webkit2/text/unix there and
+  nowhere else. Unflagged it builds on `base` in one module, so every other
+  component is byte-identical either way and CI never needs GTK. Flagged, the
+  solver pulls ~28 packages and the build wants `webkit2gtk-4.0` development
+  files — the libsoup2 generation, absent from a machine shipping only
+  `webkit2gtk-4.1`, where the flagged build stops in the solver with
+  `pkg-config package webkit2gtk-4.0-any, not found`.

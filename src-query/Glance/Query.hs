@@ -137,8 +137,9 @@ import qualified Data.Org.Edit as Edit
 -- shows, and the parsed headline itself as an opaque passthrough — later
 -- milestones read its spans (write-back) and its links (graph) from here.
 --
--- A record is a LEVEL-ONE headline's ('topLevel').  Its descendants have no
--- records of their own and are reached through 'hrSubtree', which covers them.
+-- A record is a LEVEL-ONE headline's ('topLevel') with something to show
+-- ('blankEntry').  Its descendants have no records of their own and are reached
+-- through 'hrSubtree', which covers them.
 data HeadlineRecord = HeadlineRecord
   { hrFile      :: !FilePath        -- ^ path the headline was read from, as walked.
   , hrId        :: !Text            -- ^ row identity; see 'rowId'.
@@ -194,10 +195,11 @@ emptyResult = QueryResult [] 0 0 0 0 []
 
 -- Loading
 
--- | Every top entry under DIR, one record each ('topLevel').  Walks @*.org@
--- recursively and reads each file strictly.  org-glance's derived mirrors are
--- not walked, and neither is its config ('Data.Org.Walk') — the config is read
--- instead, by path, and seeds every parse.
+-- | Every top entry under DIR the table can show, one record each ('topLevel',
+-- 'blankEntry').  Walks @*.org@ recursively and reads each file strictly.
+-- org-glance's derived mirrors are not walked, and neither is its config
+-- ('Data.Org.Walk') — the config is read instead, by path, and seeds every
+-- parse.
 loadDir :: FilePath -> IO QueryResult
 loadDir = loadDirWith defaultWalk
 
@@ -339,12 +341,15 @@ recordsOf cfg path doc digest ctx elems =
         keywords = keywordsOf ctx
         declared = declaredKeywords elems
         heads    = [ h | e <- elems, EHeadline h <- [valueOf e] ]
-        -- The position in THIS list is the row's ordinal ('rowId'), so the
-        -- filter has to run before the numbering: a child between two entries
-        -- would otherwise consume an ordinal and shift every row behind it.
-        entries  = filter (topLevel . fst) (zip heads (subtreeSpans (T.length doc) heads))
+        -- The position in THIS list is the row's ordinal ('rowId'), so BOTH
+        -- filters run before the numbering: a child or a blank entry between
+        -- two rows would otherwise consume an ordinal and shift every row
+        -- behind it.
+        entries  = [ e | e@(h, _subtree) <- zip heads (subtreeSpans (T.length doc) heads)
+                       , topLevel h, not (blankEntry h) ]
 
--- | Is H a headline the table shows — one star, no ancestor?
+-- | Is H a top entry — one star, no ancestor?  Half of being a row; the other
+-- half is having something to show ('blankEntry').
 --
 -- The table is a list of top entries, so a row is an entry rather than a line
 -- of one: a child's title, tags and dates are part of what its parent's subtree
@@ -358,6 +363,36 @@ recordsOf cfg path doc digest ctx elems =
 -- answer a file with no headlines gives.
 topLevel :: Headline -> Bool
 topLevel h = case indent h of Indent n -> n == 1
+
+-- | Has H nothing the table can show?  Six sub-spans, one per column: a
+-- headline carrying none of them renders six empty cells, and a row a reader
+-- can neither read nor tell from the next one is not a row.  The file keeps the
+-- entry — org is the source of truth and nothing here rewrites it — and the
+-- table skips it.
+--
+-- This is the RECORD's rule computed at the HEADLINE's layer, and it has to be:
+-- the ordinal numbers emitted rows, so the filter runs before the numbering and
+-- there is no record yet to ask.  The layers agree by construction — each span
+-- is 'Nothing' exactly where 'recordOf' would cut an empty cell, and one that is
+-- there is tight, so it cuts a non-empty one.
+--
+-- What does NOT rescue an entry is everything the table has no column for: a
+-- @CLOSED:@ stamp, a properties drawer — an @ORG_GLANCE_ID@ included, so a
+-- blank entry carries no row id and no command can address it — a body, and
+-- children, a blank parent taking its whole subtree out of the view the way a
+-- file that never reaches level one already does.  Reading the rule's \"no
+-- planning\" as the two planning COLUMNS is the one place it could have gone
+-- the other way: counting @CLOSED:@ would keep an entry whose every cell is
+-- still empty.
+--
+-- The tags clause never fires alone.  Org spells tags after a title and the
+-- parser hands @* :tag:@ its colons as the title, so no headline carries
+-- 'hsTags' without 'hsTitle'.  It is written down because the rule is over the
+-- columns rather than over what the parser happens to reach.
+blankEntry :: Headline -> Bool
+blankEntry h = not (any isJust [ hsTodo sp, hsPriority sp, hsTitle sp, hsTags sp
+                               , hsSchedule sp, hsDeadline sp ])
+  where sp = spans h
 
 recordOf :: ConfigLayers -> TodoKeywords -> FilePath -> Int -> Text -> Text -> Text
          -> TodoKeywords -> Headline -> Span -> HeadlineRecord
@@ -1037,16 +1072,20 @@ keywordsOf ctx = forcing (actives <> inactives) (TodoKeywords actives inactives)
         kept f = map detach (Set.toAscList (f ctx))
 
 -- | H's row identity: its @ORG_GLANCE_ID@ property, else @"FILE#K"@ — the path
--- and ORDINAL, which is H's 0-based position among the file's TOP ENTRIES
--- ('recordsOf', where the numbering happens after the 'topLevel' filter).
+-- and ORDINAL, which is H's 0-based position among the file's EMITTED ROWS
+-- ('recordsOf', where the numbering happens after both filters, 'topLevel' and
+-- 'blankEntry').
 --
 -- The ordinal is what a row's identity survives.  It moves only when the file's
--- top entries are REORDERED, INSERTED into or REMOVED from ahead of this one —
--- so editing a title, a state, a body, a drawer, a child, or anything at all in
+-- rows are REORDERED, INSERTED into or REMOVED from ahead of this one — so
+-- editing a title, a state, a body, a drawer, a child, or anything at all in
 -- the entry above, renames nothing and the table keeps its selection.  What
 -- still churns, honestly, is the class the ordinal cannot absorb: a new first
 -- entry renumbers every row behind it, and so does deleting one or swapping two.
--- An @ORG_GLANCE_ID@ is immune to all of it, which is the reason to write one.
+-- An entry going blank, or stopping being blank, is that same class wearing
+-- another hat — clearing the last keyword off a title-less entry removes a row,
+-- and every K behind it moves up one.  An @ORG_GLANCE_ID@ is immune to all of
+-- it, which is the reason to write one.
 --
 -- The character offset this replaced moved on ANY edit above the headline,
 -- which is most edits: a byte typed into the preamble renamed every row in the

@@ -1009,6 +1009,46 @@ moves the generation only on frames or a load outcome. Live-verified: 0 frames
 over the socket, `ETag` `…-g3` before and after, and `GET /headline` returning
 the new child text under a new digest.
 
+## Blank entries emit no row (2026-08-01)
+
+**A row has something to show.** The second half of the row rule, landing as a
+second predicate beside `topLevel` in `recordsOf`: `blankEntry` drops a top
+entry carrying none of the six column sub-spans — todo, priority, title, tags,
+scheduled, deadline. The file keeps the entry, org being the source of truth,
+and the table skips it, because a line of six empty cells is nothing a reader
+can read or tell apart from the next one.
+
+The layer was the decision. The rule means "every cell this record would show is
+empty", a property of the RECORD, but the ordinal numbers emitted rows and the
+filter therefore has to run before the numbering, where no record exists yet. So
+it is computed over the HEADLINE's spans, and the two layers agree by
+construction: each span is `Nothing` exactly where `recordOf` cuts an empty
+cell, and a span that is there is tight, so it cuts a non-empty one. The
+agreement is asserted from the record's side rather than assumed — no row the
+loader emits has six empty cells.
+
+Reading the rule's "no planning" as the two planning COLUMNS rather than org's
+three keywords is where it could have gone the other way. Counting `CLOSED:`
+would have kept an entry whose every cell is still empty, which is the shape
+being removed. Nothing else without a column rescues an entry either: a
+properties drawer, a body, children. The drawer case costs the most — a blank
+entry has no row id, so an `ORG_GLANCE_ID` on one addresses nothing and no
+command can reach it, and the set-state case that used to fire into `*\n` now
+fires into a headline whose only content is a priority.
+
+The reachable path to a blank entry is one command: `set-state` with a null
+keyword over a title-less row leaves `* ` in the file and takes the row off the
+table. That lands in the ordinal's churn class — every K behind it moves up one,
+the shape a removal has. One interaction is worth naming: a file whose last row
+goes takes its keyword contribution with it, so where it was the only file
+declaring `TODO` the step is a moved palette and `guarded` answers
+`ViewChanged` instead of the delete.
+
+Measured on ~/sync: 6287 files, 10441 top entries, 0 of them blank. The rule
+costs a real tree nothing and reaches only what an edit blanks — which is why it
+is a correctness fix rather than a filter. `scan` is unchanged, counting
+headlines off `orgParse` rather than through `recordsOf`.
+
 ## One keymap, three lens regions, and a configurable default view (2026-08-01)
 
 Seven changes landed together because they all reach the same two files.

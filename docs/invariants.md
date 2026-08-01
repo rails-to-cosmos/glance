@@ -613,6 +613,51 @@ on.
   `TestSubtree`'s geometry (top-entry check plus abutment) over five fixtures
   and the corpus, `TestServe` "a top entry materializes with its children in
   it". **test + corpus**
+- **A row has something to show.** `Glance.Query.blankEntry`, beside `topLevel`
+  in `recordsOf`: a top entry carrying none of the six column sub-spans —
+  `hsTodo`, `hsPriority`, `hsTitle`, `hsTags`, `hsSchedule`, `hsDeadline` —
+  emits no row. The file keeps the entry, org being the source of truth; the
+  table skips it, so what was a line of six empty cells is no line.
+
+  THE LAYER IS A DECISION and it went to the headline. The rule MEANS "every
+  cell this record would show is empty", which is a property of the record, but
+  the ordinal numbers EMITTED rows (`rowId`), so the filter runs before the
+  numbering and there is no record yet to ask. The two layers agree by
+  construction: each of the six spans is `Nothing` exactly where `recordOf`
+  would cut an empty cell, and a span that is there is tight, so it cuts a
+  non-empty one. `TestQuery`'s "so no row the loader emits has six empty cells"
+  is that agreement stated from the record's side.
+
+  Nothing the table has no column for rescues an entry: a `CLOSED:` stamp, a
+  properties drawer, a body, children. Two of those cost something and are
+  pinned rather than described. A blank entry has no row id, so an
+  `ORG_GLANCE_ID` on one addresses nothing and no command can reach it — which
+  is why `TestQuery`'s set-state-into-bare-stars case moved to a headline whose
+  only content is a priority. And a blank parent takes its whole subtree out of
+  the view, the answer a file that never reaches level one already gives.
+  Reading the rule's "no planning" as the two planning COLUMNS rather than org's
+  three keywords is the one place this could have gone the other way: counting
+  `CLOSED:` would keep an entry whose every cell is still empty.
+
+  The tags clause never fires alone. Org spells tags after a title and the
+  parser hands `* :tag:` its colons as the TITLE, so no headline carries
+  `hsTags` without `hsTitle`. It is written down because the rule is over the
+  columns rather than over what the parser happens to reach.
+
+  ON THE WIRE: `set-state` with a null keyword over a title-less row leaves `* `
+  in the file and deletes the row, which is the whole reachable path to a blank
+  entry. The churn it lands in is the ordinal's — every K behind it moves up
+  one, the shape a removal has. One interaction is worth naming: a file whose
+  LAST row goes takes its keyword contribution with it, so in a tree where it
+  was the only file declaring `TODO` the step is a moved palette and `guarded`
+  answers `ViewChanged` INSTEAD of the delete. `TestStore` keeps a second file
+  for exactly that reason.
+
+  `scan` is unaffected, counting headlines off `orgParse` rather than through
+  `recordsOf`. Corpus at 2026-08-01: 6287 files, 10441 top entries, 0 of them
+  blank — the rule costs a real tree nothing and reaches only what an edit
+  blanks. Evidence: `TestQuery` "Blank entries" (seven cases), `TestStore`'s
+  clear-flow and renumber pair. **test + corpus**
 - **One row per id, and the canonical file wins it.** A row id is what a
   renderer keys updates off (SCHEMA.md), so two rows cannot share one: the
   second would overwrite the first on every frame while the table showed the
@@ -632,19 +677,20 @@ on.
   files (an elpa working copy of a checkout; documents whose `data.org` repeats
   the source document's id). **test + corpus**
 - **A row id is its `ORG_GLANCE_ID`, else `FILE#K`, where K is an ORDINAL.**
-  K is the headline's 0-based place among its FILE's top entries, numbered in
-  `Glance.Query.recordsOf` after the `topLevel` filter, so a child spends no
-  ordinal and a deeper headline can never take one. What that buys is what a
-  table needs: the id survives every edit that does not move the file's top
-  entries past each other. A preamble inserted above row 0, a retitled headline,
+  K is the headline's 0-based place among its FILE's EMITTED ROWS, numbered in
+  `Glance.Query.recordsOf` after both filters, so a child and a blank entry each
+  spend no ordinal and a deeper headline can never take one. What that buys is
+  what a table needs: the id survives every edit that does not move the file's
+  rows past each other. A preamble inserted above row 0, a retitled headline,
   a state flipped, a body that grew, a drawer added, a child edited — none of
   them renames anything, so the store streams the row that actually changed and
   a reader's selection, marks and open sheet all hold.
 
   THE BREAKAGE CLASS, stated because it is real and cannot be designed away
   without an `ORG_GLANCE_ID`: reordering top entries, inserting one ahead of
-  others, or removing one renumbers everything behind it. A swap re-points two
-  ids at each other's headlines; a new first entry re-points every id at its
+  others, or removing one renumbers everything behind it, and an entry going
+  BLANK is a removal for this purpose (`blankEntry`). A swap re-points two ids
+  at each other's headlines; a new first entry re-points every id at its
   predecessor and adds one at the end. No delete-plus-insert is streamed in
   either case — the id set is the same or a superset — so a client sees cells
   change under stable ids, which is the honest wire answer and the reason
@@ -1492,7 +1538,13 @@ on.
   opens, and the echo pill says `C-c - timed out` two seconds later. The fix is
   in the keymap rather than in the dispatch: a plain `t` reaches the palette
   everywhere, and the org chord stays bound as the secondary spelling for
-  browsers that deliver it. **test** (the page's half) / **none** (the browser's)
+  browsers that deliver it. The native window is the other half of the fix and
+  removes the cause: a bare `WebKitWebView` in a plain `GtkWindow` has no chrome
+  to bind `Ctrl+T`, `Ctrl+N` or `Ctrl+W` to, so every chord the page claims
+  reaches it. That claim is reasoned rather than measured — the flagged build
+  does not compile on this machine (Desktop, KNOWN GAP) — and it is the first
+  thing to check by hand on a machine where it does. **test** (the page's half)
+  / **none** (the browser's, and the native window's)
 - **Row marks belong to the renderer.** `mount` asks for them with `marks:
   true` and the renderer does the rest: the leading checkbox column, the wash on
   a marked row, and a set of ids that keys them — which is why a mark outlives a
@@ -2005,29 +2057,85 @@ on.
   would run and the URL it would open, and starts nothing, so it is the way to
   ask what a machine resolves to without taking the port. Anything that moves
   the resolution has to move this output with it, or the flag stops answering
-  the question it exists for. **test**
+  the question it exists for. The native path prints `native window` in the
+  same slot by REPLACING that one line of `dryRunLines` rather than writing
+  three of its own, so the two lines the two paths share cannot drift. **test**
+- **A build with a window of its own prefers it, and naming a browser beats
+  it.** `prefersNative` is the flag AND neither `$GLANCE_BROWSER` nor
+  `--browser`: eight rows, one of them True. Explicit beats native because the
+  environment variable is how a machine is set up once and obeyed by every
+  launcher — an operator who wrote it down meant it, and a build that grew a
+  window since then must not quietly ignore it. Unflagged the whole table is
+  False and `glance desktop` is stage 1 to the byte. **test**
+- **GTK owns the main thread, so the daemon moves off it.** Every other path
+  here blocks the main thread in warp; `runNative` forks the daemon and hands
+  this thread to the window, because `gtk_main` may run nowhere else. The order
+  it keeps is stage 1's: the window opens at the SOCKET rather than at the
+  loaded store, so a cold daemon shows the indexing page instead of nothing.
+  A daemon that stops before it listens — a missing directory, a taken port —
+  has already said why, and this exits 1 rather than waiting for a socket that
+  is not coming. **test**
+- **The window IS the app: closing it stops the daemon, and `--keep-serving`
+  puts stage 1 back.** Stage 1's window is a browser's and closing it is
+  closing a tab; this one is this process, and leaving a headless daemon on the
+  port after its window is gone would be a surprise with no way to see it. A
+  window that never OPENED is the exception and leaves the daemon serving: a
+  GTK that would not start is a window failure, and no window failure has ever
+  taken this daemon down. `gtk_init_check` is what makes that reachable —
+  `gtk_init` would print and exit the process over a missing display, taking
+  the daemon with it. `Ctrl-C` stops both, through a handler that asks the
+  GTK loop to quit: the main thread is inside a foreign call where the RTS
+  cannot deliver the interrupt, and the handler puts the previous one back
+  before it returns, so a `--keep-serving` session still waiting is
+  interruptible again. **test** (the close rules) / **none** (the signal
+  handler, which needs the flagged build)
+- **KNOWN GAP (open): the flagged build is unbuilt and unverified here.**
+  `gi-webkit2` wants `webkit2gtk-4.0`, `gi-javascriptcore4` wants
+  `javascriptcoregtk-4.0` and `gi-soup2` wants `libsoup-2.4` — the libsoup2
+  generation of WebKitGTK, which this machine does not carry; it ships
+  `webkit2gtk-4.1` and no `webkitgtk-6.0` either, so the GTK4 binding
+  (`gi-webkit`) is out too. `cabal build all -f native-window` therefore stops
+  in the solver with `pkg-config package webkit2gtk-4.0-any, not found in the
+  pkg-config database`, and `Glance.Desktop.WebKit`'s GTK half has never been
+  compiled. What IS verified: the flag wiring (the solver reaches the missing
+  package and nothing else), the gi-gtk 3 half of the tree resolving on its own
+  (25 packages), and every line of the flow above, which has no GTK in it.
+  What the flagged build needs is the system package, not a change here.
+  **none**
 
 ## Build
 
 - `glance.cabal` is hand-maintained; hpack/package.yaml were removed after
   diverging (regeneration dropped `OverloadedRecordDot` and deps and broke
   the build). Do not reintroduce without making it authoritative again.
-- **Five components, one direction.** `glance-internal` (`src/`) holds the
+- **Six components, one direction.** `glance-internal` (`src/`) holds the
   parser, the AST and the file walk at `visibility: private`; the public
   `library` (`src-query/`) exposes `Glance.Query` and depends on it;
   `glance-web` (`src-web/`) is private and depends on the public library
-  alone; the CLI depends on the two sublibraries and the suite on all three
+  alone; `glance-desktop-native` (`src-desktop-native/`) is private and depends
+  on `base` alone; the CLI depends on the three sublibraries and the suite on
+  the three that carry testable code
   (`glance:{glance, glance-internal, glance-web}`, which pins internals in the
   older modules and exercises the facade alone in
-  `TestQuery`/`TestServe`/`TestStore`). `glance-web` exposes five modules and
-  declares no `other-modules`: `Glance.Desktop`, `Glance.Web`,
-  `Glance.Web.Filter`, `Glance.Web.Store`, `Glance.Web.Watch`. It gained every
-  one of them past `Glance.Web` without gaining a direction — what they needed,
-  per-file loading, row JSON, the keyword merge, the derived and org path
-  predicates, was added to `Glance.Query` rather than reached for behind it.
-  Putting `Data.Org.*` in a web or daemon target's build-depends is impossible
-  from outside the package — the S2 exit bar, enforced by the solver rather
-  than by review. **test** (it would not build)
+  `TestQuery`/`TestServe`/`TestStore`). `glance-web` exposes six modules and
+  declares no `other-modules`: `Glance.Desktop`, `Glance.Desktop.Native`,
+  `Glance.Web`, `Glance.Web.Filter`, `Glance.Web.Store`, `Glance.Web.Watch`. It
+  gained every one of them past `Glance.Web` without gaining a direction — what
+  they needed, per-file loading, row JSON, the keyword merge, the derived and
+  org path predicates, was added to `Glance.Query` rather than reached for
+  behind it. Putting `Data.Org.*` in a web or daemon target's build-depends is
+  impossible from outside the package — the S2 exit bar, enforced by the solver
+  rather than by review. **test** (it would not build)
+- **One stanza sees the `native-window` flag.** `glance-desktop-native` is the
+  only place `if flag(native-window)` appears, and all it does there is add
+  `-DNATIVE_WINDOW` and the haskell-gi dependencies. Every other component is
+  the same build either way, which is what lets the suite stay green and CI stay
+  GTK-free with a window in the tree. The flag is `manual: True`, so the solver
+  never turns it on to satisfy something else. The cost when it IS on is real —
+  ~28 packages, of which 25 are the gi-gtk 3 tree, all of them generated from
+  the system's typelibs at build time — and paying it is a choice made at the
+  command line rather than by whoever runs `cabal build`. **test** (the
+  unflagged build is the one the suite runs)
 - **The suite shells out where a claim needs a real interpreter**, and degrades
   where the machine has none: `node --check` over the extracted glue, and
   `test/fixtures/shell-harness.js`, which boots that glue over a stubbed browser
