@@ -2783,6 +2783,8 @@ expectedShared =
        Just "archive the marked rows, or the row at point \8212 never a delete")
   , (["C-c", "C-t"], "C-c C-t", "org-glance-overview:todo",        Just "setState",       "table",
        Just "set the state of the marked rows, or the row at point")
+  , (["C-c", "t"],   "C-c t",   "org-glance-overview:todo",        Just "setState",       "table",
+       Just "set the state \8212 the spelling Chromium cannot swallow")
   , (["C-c", "C-s"], "C-c C-s", "org-glance-overview:schedule",    Nothing,               "table", Nothing)
   , (["C-c", "C-d"], "C-c C-d", "org-glance-overview:deadline",    Nothing,               "table", Nothing)
   -- Emacs's own name, since org-glance has no settings command and inventing

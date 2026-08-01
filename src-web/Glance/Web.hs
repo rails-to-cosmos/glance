@@ -1229,6 +1229,10 @@ sharedKeys =
       `helps` "archive the marked rows, or the row at point — never a delete"
   , bind ["C-c", "C-t"] "org-glance-overview:todo"        (Just "setState")       "table"
       `helps` "set the state of the marked rows, or the row at point"
+      -- Chromium owns Ctrl+T above the document, so the org spelling can
+      -- never complete there; "C-c t" is the alias a browser will deliver.
+  , bind ["C-c", "t"]   "org-glance-overview:todo"        (Just "setState")       "table"
+      `helps` "set the state — the spelling Chromium cannot swallow"
   , bind ["C-c", "C-s"] "org-glance-overview:schedule"    Nothing                 "table"
   , bind ["C-c", "C-d"] "org-glance-overview:deadline"    Nothing                 "table"
   , bind ["C-c", "C-,"] "customize"                       (Just "openSettings")   "table"
