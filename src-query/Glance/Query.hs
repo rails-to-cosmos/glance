@@ -96,7 +96,7 @@ import Data.Aeson.Text (encodeToLazyText)
 import Data.Aeson.Types (Pair)
 import Data.Either (fromRight)
 import Data.List (foldl', sort, sortOn)
-import Data.Maybe (catMaybes, fromMaybe, isJust)
+import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing)
 import Data.Text (Text)
 import TextShow (showt)
 
@@ -345,7 +345,7 @@ recordsOf cfg path doc digest ctx elems =
         -- filters run before the numbering: a child or a blank entry between
         -- two rows would otherwise consume an ordinal and shift every row
         -- behind it.
-        entries  = [ e | e@(h, _subtree) <- zip heads (subtreeSpans (T.length doc) heads)
+        entries  = [ e | e@(h, _sub) <- zip heads (subtreeSpans (T.length doc) heads)
                        , topLevel h, not (blankEntry h) ]
 
 -- | Is H a top entry — one star, no ancestor?  Half of being a row; the other
@@ -380,18 +380,18 @@ topLevel h = case indent h of Indent n -> n == 1
 -- @CLOSED:@ stamp, a properties drawer — an @ORG_GLANCE_ID@ included, so a
 -- blank entry carries no row id and no command can address it — a body, and
 -- children, a blank parent taking its whole subtree out of the view the way a
--- file that never reaches level one already does.  Reading the rule's \"no
--- planning\" as the two planning COLUMNS is the one place it could have gone
--- the other way: counting @CLOSED:@ would keep an entry whose every cell is
--- still empty.
+-- file that never reaches level one already does.  Reading the rule's
+-- no-planning clause as the two planning COLUMNS is the one place it could have
+-- gone the other way: counting @CLOSED:@ would keep an entry whose every cell
+-- is still empty.
 --
 -- The tags clause never fires alone.  Org spells tags after a title and the
 -- parser hands @* :tag:@ its colons as the title, so no headline carries
 -- 'hsTags' without 'hsTitle'.  It is written down because the rule is over the
 -- columns rather than over what the parser happens to reach.
 blankEntry :: Headline -> Bool
-blankEntry h = not (any isJust [ hsTodo sp, hsPriority sp, hsTitle sp, hsTags sp
-                               , hsSchedule sp, hsDeadline sp ])
+blankEntry h = all isNothing [ hsTodo sp, hsPriority sp, hsTitle sp, hsTags sp
+                             , hsSchedule sp, hsDeadline sp ]
   where sp = spans h
 
 recordOf :: ConfigLayers -> TodoKeywords -> FilePath -> Int -> Text -> Text -> Text
