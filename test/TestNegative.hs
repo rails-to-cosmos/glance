@@ -84,6 +84,15 @@ spec = testGroup "Negative / Edge cases"
           assertEqual "No TODO" Nothing (todo h)
           assertEqual "Has priority" (Just (Priority 'A')) (priority h)
 
+    -- The stars consume horizontal space alone, so an empty title ends at the
+    -- line it was written on rather than running on into the next headline.
+    , testCase "An empty headline does not swallow the one after it" $
+        assertEqual "elements"
+          [ EHeadline (titled "First")
+          , EHeadline defaultHeadline
+          , EHeadline (titled "Third") ]
+          (bareParse defaultContext "* First\n\n* \n\n* Third")
+
     , testCase "Multiple headlines in sequence" $
         assertEqual "elements"
           [ EHeadline (titled "First")
@@ -109,6 +118,18 @@ spec = testGroup "Negative / Edge cases"
 
     , testCase "Indented stars are not a headline" $
         assertBool "Should be token" (parsesAs "  * Task" isToken)
+
+    -- Column 1 is necessary and not sufficient: org wants whitespace after the
+    -- stars too, so a body line opening with emphasis is text wherever it sits.
+    , testCase "Emphasis at column 1 is not a headline" $
+        assertEqual "No headline expected" 0 (headlineCount "*Passport requirements*")
+
+    , testCase "Emphasis at column 1 under a headline stays body text" $
+        assertEqual "Only the real headline" 1
+          (headlineCount "* Task\n*TODO* [[link][do it]]")
+
+    , testCase "A star run with no space after it is text" $
+        assertEqual "No headline expected" 0 (headlineCount "**bold** claim")
     ]
 
   , testGroup "Timestamp edge cases"

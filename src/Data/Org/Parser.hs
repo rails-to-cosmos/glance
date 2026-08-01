@@ -145,9 +145,22 @@ instance Parse Headline where
 
     return headline
 
--- | Parse the stars, spanning them alone; the trailing space is still consumed.
+-- | Parse the stars, spanning them alone; the horizontal space after them is
+-- consumed, and something has to end the run.
+--
+-- Org's own rule — @org-outline-regexp@ is @\\*+ @ — so a star run opens a
+-- headline only when whitespace follows it.  @*bold*@ opening a body line is
+-- emphasis, and reading it as a headline put body text in the table as a row of
+-- its own.  The end of the line ends the run too, which leaves a bare star run
+-- the empty headline this has always read it as.
+--
+-- Horizontal space alone, never 'MPC.space': eating the newline let a headline
+-- with an empty title run on into the next line and take it — stars included —
+-- as its own title, so @* @ above @* Delta@ parsed as ONE headline titled
+-- @* Delta@.
 indentP :: StatefulParser (Spanned Indent)
-indentP = lexemeP (Indent . length <$> MP.some (MPC.char '*'))
+indentP = spannedP (Indent . length <$> MP.some (MPC.char '*'))
+          <* (void MPC.hspace1 <|> lookAhead (void eol <|> eof))
 
 instance Parse Keyword where
   parse = Keyword . T.toUpper <$> keywordTextP
