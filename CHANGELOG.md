@@ -11,6 +11,30 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ## Unreleased
 
+### Added
+- `:` manages tags over the marked rows, or the row at point: a which-key
+  palette of the set's own tags where a letter toggles one under dired's
+  normalize-up rule — a tag every row carries comes off all of them, one only
+  some of them carry goes on to the rows that lack it, and a partial entry wears
+  its count. The palette stays open across commits and refreshes from what the
+  write answered; `/` finds a tag the tree already holds and `+` creates one it
+  does not.
+- `POST /command` takes `add-tag {tag}` and `remove-tag {tag}`, batched per file
+  and answered per id like every other command; a tag the org parser would not
+  read back refuses the whole request.
+- `GET /tags?ids=…` reports what the named rows are tagged with and the whole
+  store's tag vocabulary.
+
+### Changed
+- `@` asks before it applies: a row nothing refers to leaves the table, the
+  filter and the trail exactly where they were, with one log line saying so.
+- `@` out of an empty filter leaves no crumb — "all rows" already is the empty
+  query, which `DEL` reaches without one.
+- The value palette drops its key-token column: a keyword's committing letter is
+  marked inside the word, bold and underlined in that state's own badge colour.
+- `*clear*` commits on `DEL` instead of claiming a letter, so the whole `a`-`z`
+  pool goes to keywords and a wide cycle keeps the letter the entry used to take.
+
 ## 0.4.0.0 - 2026-08-02
 
 The interaction surface: one keymap, a palette in front of every write, marks

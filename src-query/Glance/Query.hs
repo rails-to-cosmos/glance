@@ -44,6 +44,7 @@ module Glance.Query ( ConfigLayerFile (..)
                     , ViewOrder (..)
                     , WalkOptions (..)
                     , WriteFailure (..)
+                    , addTagEdits
                     , archiveEdits
                     , archiveTag
                     , archived
@@ -90,6 +91,7 @@ module Glance.Query ( ConfigLayerFile (..)
                     , refSpellings
                     , refTargetOf
                     , refTargets
+                    , removeTagEdits
                     , replaceSpans
                     , resolveIds
                     , rowJSON
@@ -99,6 +101,8 @@ module Glance.Query ( ConfigLayerFile (..)
                     , sortedForView
                     , subtreeLinks
                     , subtreeText
+                    , tagText
+                    , tagged
                     , tagsOfCell
                     , todoLines
                     , viewJSON
@@ -113,7 +117,7 @@ import Data.Aeson.Text (encodeToLazyText)
 import Data.Aeson.Types (Pair)
 import Data.Char (isAlphaNum)
 import Data.Either (fromRight)
-import Data.List (foldl', nub, sort, sortOn)
+import Data.List (foldl', nub, partition, sort, sortOn)
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
 import Data.Text (Text)
 import TextShow (showt)
@@ -135,7 +139,7 @@ import Data.Org ( Context, Element (EHeadline), Headline
                 , Priority (Priority), Span (..), Spanned (valueOf)
                 , Timestamp (tsStart), Todo (name)
                 , TsMoment (tsmHasTime, tsmTime), deadline, defaultContext
-                , hsFull, identity, indent, metaCategory, orgParse, priority
+                , hsFull, identity, indent, isTagChar, metaCategory, orgParse, priority
                 , schedule, sliceSpan, spans, tags, title, todo, todoActive
                 , todoInactive )
 import Data.Org.Config ( ConfigLayerFile (..), ConfigLayers (..), TodoKeywords (..)
@@ -1419,13 +1423,43 @@ replaceSpans path digest edits =
 archiveTag :: Text
 archiveTag = "ARCHIVE"
 
--- | Does R carry 'archiveTag'?  Read off the tags cell through the same
--- 'tagsOfCell' the filter vocabulary is built with, so "archived" means exactly
--- what the query @archive:@ means.  Two readers: 'archiveEdits', which owes
--- nothing to a row that is already there, and the served view, which hides one
--- unless asked.
+-- | Does R carry TAG?  Read off the tags cell through the same 'tagsOfCell' the
+-- filter vocabulary is built with, so presence here means exactly what a
+-- @TAG:@ predicate means — FOLDED, so a row spelling @:Work:@ carries @work@ and
+-- adding it again costs no edit.
+--
+-- It is what makes both tag commands idempotent, from opposite sides:
+-- 'addTagEdits' owes nothing to a row that has it, 'removeTagEdits' nothing to a
+-- row that does not.
+--
+-- The fold happens on the TAG, once per partial application, which is what
+-- keeps 'archived' — a predicate over every row of every @\/headlines@ — from
+-- re-folding a constant per row.
+tagged :: Text -> HeadlineRecord -> Bool
+tagged tag = \r -> want `elem` tagsOfCell (hrTags r)
+  where want = T.toLower tag
+
+-- | Does R carry 'archiveTag'?  Archiving is adding ONE tag, so this is
+-- 'tagged' at that name and the served view's exclusion reads the same presence
+-- rule a @-archive:@ predicate does.
 archived :: HeadlineRecord -> Bool
-archived r = T.toLower archiveTag `elem` tagsOfCell (hrTags r)
+archived = tagged archiveTag
+
+-- | TEXT as an org tag, or why it is not one.  The wall @add-tag@ and
+-- @remove-tag@ put up, and a whole-request refusal rather than a per-row one: a
+-- string that is not a tag is not a tag for any row.
+--
+-- The charset is the PARSER's own ('Data.Org.isTagChar') rather than a copy of
+-- org's @org-tag-re@, because what this server writes has to reparse HERE: a
+-- tag carrying a character 'Data.Org.Parser.tagsP' declines does not end up in
+-- the tags run, it takes the whole run down into title text on the next load.
+-- The two sets differ by @-@ and @%@ and the parser's is the one that binds.
+tagText :: Text -> Either Text Text
+tagText text
+  | T.null text            = Left "a tag is at least one character"
+  | T.all isTagChar text   = Right text
+  | otherwise              = Left (text <> " is not an org tag: a tag is letters,"
+                                     <> " digits, and _ - @ or #")
 
 -- | The classification chain behind ROWS, made visible: one entry per SOURCE in
 -- precedence order, each holding the keywords it is the WIDEST to declare.
@@ -1536,13 +1570,13 @@ settableStates :: ConfigLayers -> HeadlineRecord -> [Text]
 settableStates cfg r =
   [ word | (_source, kw) <- keywordSources cfg [r], word <- tkActive kw <> tkInactive kw ]
 
--- | The span edits @archive@ makes to R: 'archiveTag' added to its tag list.  A
--- row already carrying it costs no edit at all, which is what makes the command
--- idempotent — archiving a marked set twice writes each file twice and changes
--- it once.
+-- | The span edits @add-tag@ makes to R: TAG joining its tag list.  A row
+-- already carrying it ('tagged') costs no edit at all, which is what makes the
+-- command idempotent — adding a tag over a marked set twice writes each file
+-- twice and changes it once.
 --
 -- Two shapes.  With tags present the tag joins the list as its own last entry
--- (@:a:b:@ becomes @:a:b:ARCHIVE:@): the span ends past the closing colon, so
+-- (@:a:b:@ becomes @:a:b:TAG:@): the span ends past the closing colon, so
 -- the whole insertion is the tag and one colon at that offset, which leaves the
 -- tags already there byte-identical.  With none it is appended to the title
 -- line, after the last
@@ -1550,12 +1584,80 @@ settableStates cfg r =
 -- stars themselves.  'hsFull' cannot serve there: its end is the last part in
 -- span order, which for a scheduled headline is a timestamp on the NEXT line
 -- and for one with a drawer is its @:END:@.
-archiveEdits :: HeadlineRecord -> [(Span, Text)]
-archiveEdits r
-  | archived r           = []
-  | Just sp <- hsTags hs = [ (insertAt (spanEnd sp), archiveTag <> ":") ]
-  | otherwise            = [ (insertAt (titleLineEnd hs), " :" <> archiveTag <> ":") ]
+--
+-- TAG is written as it was given.  Presence is folded, so a row spelling
+-- @:Work:@ is not given a second @:work:@; a row with no tag at all takes the
+-- spelling the caller sent.
+addTagEdits :: Text -> HeadlineRecord -> [(Span, Text)]
+addTagEdits tag r
+  | tagged tag r         = []
+  | Just sp <- hsTags hs = [ (insertAt (spanEnd sp), tag <> ":") ]
+  | otherwise            = [ (insertAt (titleLineEnd hs), " :" <> tag <> ":") ]
   where hs = headlineSpans r
+
+-- | The span edits @remove-tag@ makes to R: TAG cut out of its tag list.  A row
+-- that does not carry it costs no edit, which is the other half of the pair's
+-- idempotence.
+--
+-- Two shapes, and which one is decided by what the run has LEFT.  An entry with
+-- neighbours is cut as @TAG:@ — itself and the colon that closes it — so
+-- @:a:b:c:@ minus @b@ is @:a:c:@ and the surviving entries keep their bytes.
+-- The LAST entry takes the whole run with it, together with the horizontal space
+-- that separated the run from the title: a lone @:@ is not a tag list, and
+-- @* Title :done:@ has to close up to @* Title@ rather than keep a trailing
+-- space.  That run is the parser's own separator ('Data.Org.Parser.tagsP' opens
+-- on @hspace1@), so there is always one and it is inside this line.
+--
+-- Matching is FOLDED and takes EVERY entry spelling the tag, which is what makes
+-- "remove it" leave the row not carrying it under 'tagged' — a file spelling one
+-- tag twice, or spelling it @:Work:@ where the caller said @work@, is still
+-- clean afterwards.
+--
+-- The TITLE LINE is cut once and every scan below runs inside it, which is
+-- 'setPlanningEdits'' own rule and reached more cheaply here: a headline parses
+-- at column 1, so its stars ARE its line's start and no @lineStart@ walk down
+-- the document prefix is owed for the answer.
+removeTagEdits :: Text -> HeadlineRecord -> [(Span, Text)]
+removeTagEdits tag r = case hsTags hs of
+  Nothing  -> []
+  Just run -> cut run
+  where
+    hs   = headlineSpans r
+    from = spanStart (hsStars hs)
+    want = T.toLower tag
+    matches (_at, entry) = T.toLower entry == want
+
+    cut run
+      | null hit  = []
+      | null left = [ (Span (spanStart run - separator) (spanEnd run), "") ]
+      | otherwise = [ (Span (spanStart run + at) (spanStart run + at + T.length e + 1), "")
+                    | (at, e) <- hit ]
+      where
+        line  = sliceSpan (hrDoc r) (Span from (spanEnd run))
+        ahead = spanStart run - from
+        (hit, left) = partition matches (tagEntries (T.drop ahead line))
+        -- The horizontal run between the title and the tags, which comes off
+        -- with the whole list.
+        separator = T.length (T.takeWhileEnd horizontal (T.take ahead line))
+
+-- | The entries of a tag RUN — @":a:b:"@ — as their offsets into it and their
+-- text: @[(1, "a"), (3, "b")]@.  The empty pieces the opening and closing colons
+-- leave are dropped, which is what makes an entry's own colon the character
+-- after it.
+tagEntries :: Text -> [(Int, Text)]
+tagEntries run = case offsets 0 (T.splitOn ":" run) of
+  pieces@(_ : _ : _) -> drop 1 (init pieces)
+  _notARun           -> []
+  where offsets _ []          = []
+        offsets at (p : rest) = (at, p) : offsets (at + T.length p + 1) rest
+
+-- | The span edits @archive@ makes to R: 'archiveTag' added to its tag list.
+--
+-- Archiving IS adding one tag, so this is 'addTagEdits' at that name and there
+-- is one insertion rule rather than two that have to agree.  Its idempotence is
+-- that function's: a row already carrying the tag costs no edit.
+archiveEdits :: HeadlineRecord -> [(Span, Text)]
+archiveEdits = addTagEdits archiveTag
 
 -- | Where HS's title LINE ends: the greatest end among the parts org writes on
 -- it — the stars, the keyword, the priority, the title and the tags.

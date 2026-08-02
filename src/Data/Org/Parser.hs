@@ -3,6 +3,7 @@ module Data.Org.Parser ( Parse (..)
                        , StatelessParser
                        , OrgParser
                        , OrgParserResult
+                       , isTagChar
                        , orgParse
                        ) where
 
@@ -277,7 +278,19 @@ tagsP = do
     Spanned sp ts <- spannedP (char ':' *> many tag)
     return (if null ts then Nothing else Just sp, Tags ts)
     where tag = takeWhile1P (Just "tag") isTagChar <* char ':'
-          isTagChar c = isAlphaNum c || c == '_' || c == '-' || c == '@' || c == '#'
+
+-- | Is C a character an org tag is spelled with?  A non-empty run of these
+-- between two colons is a tag and nothing else is, so this predicate is the
+-- whole grammar of one — which is why it is exported: a command layer WRITING a
+-- tag has to write something this parser reads back, and re-spelling the set
+-- there would be a second grammar to keep in step ('Glance.Query.tagText').
+--
+-- Org's own @org-tag-re@ is @[[:alnum:]_@@#%]+@, so this set differs from it in
+-- two characters: @-@ is here and not there, @%@ is there and not here.  The
+-- divergence predates the write path and the corpus depends on the first half
+-- of it.
+isTagChar :: Char -> Bool
+isTagChar c = isAlphaNum c || c == '_' || c == '-' || c == '@' || c == '#'
 
 instance Parse Timestamp where
   parse = State.lift tsParser

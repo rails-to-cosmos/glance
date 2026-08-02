@@ -5,7 +5,7 @@
 *Glance* is an experimental /stateful org-mode parser/ written in *Haskell*. Its goal is to explore org-mode parsing combined with database interactions, providing a system for managing, querying, and relating org-mode content.
 
 - *Author:* Dmitry Akatov
-- *Version:* =0.1.0.0=
+- *Version:* =0.4.0.0= — see [[file:CHANGELOG.md][CHANGELOG.md]] for what each cut carries
 - *License:* BSD3
 - *Upstream:* https://github.com/rails-to-cosmos/glance
 
@@ -307,9 +307,10 @@ that stops parsing keeps the rows it had — including one saved from the browse
 with a typo in it, which is the same deal any editor offers. Restart the daemon
 and the tab re-fetches and re-mounts on its own, backing off from 1 s to 30 s.
 
-*Six keys write without opening anything.* =D= archives, =t= sets a state,
-=C-c C-s= and =C-c C-d= set a schedule and a deadline, and =+= captures. The
-four that edit rows run over the *marked set* when there is one and over the row
+*Seven keys write without opening anything.* =D= archives, =t= sets a state,
+=:= manages tags, =C-c C-s= and =C-c C-d= set a schedule and a deadline, and =+=
+captures. The
+five that edit rows run over the *marked set* when there is one and over the row
 at point when there is not — dired's rule, and org-glance's; =+= names no row at
 all, because it makes one. Mark a run of rows with =m=, press =D=, and the pill
 says =D → archived (5)=. There is no
@@ -325,6 +326,14 @@ letter, that letter commits on its own, and the palette itself is the
 confirmation — you have just read the line saying =t= sets =TODO= when you press
 =t=. No =RET= behind it and no confirm step; the optimistic lock is what makes a
 mis-press cheap.
+
+The letter is marked *inside the keyword* — bold and underlined at its position,
+the underline in that state's own badge colour — rather than boxed in a column
+beside it: an entry is its keyword and nothing else. =*clear*= is the one
+exception, and it says why: it answers to =DEL=, which has no position in a word
+to mark, so that row alone carries a key token. Binding it there also hands the
+whole =a=–=z= pool back to the keywords, so a wide cycle keeps the letter the
+entry used to take.
 
 *The palette is the resolver's answer.* It is a table — =Source= | =Active= |
 =Inactive= — with one row per layer that has something to say about the rows you
@@ -400,6 +409,24 @@ marked set spanning three files is three atomic writes rather than one per row.
 The answer is per id — =[{"id": …, "ok": true, "digest": …}]=, or an =error=
 where a file had moved — in the order you named them. =set-planning= below
 answers the same way; =capture=, which names no rows, has its own shape.
+
+*=:= manages tags, and the palette stays up.* =:= is the agenda's own key for
+the same question, over the same rows every other keyed write takes: the marked
+set, else the row at point. It raises a which-key list of the *set's* tags —
+the union of what those rows carry, in the order the rows introduce them — and a
+letter *toggles* one. The rule is dired's *normalize-up*: a tag every row
+carries comes *off* all of them, and a tag only some of them carry — or none —
+goes *on* to the rows that lack it. So a mixed set is levelled by the first
+press and only the second takes anything away, and an entry that is partial says
+so: =web 2/3= beside the word.
+
+Unlike the state palette, this one does not close after a commit — managing tags
+is several ops over one set. The list refreshes from what the write *answered*,
+so the count is level the moment it lands and the next letter means what it
+looks like. =/= finds a tag the tree already holds, completing over the whole
+store's vocabulary rather than the rows on screen; =+= creates one it does not,
+in a field of its own, and =ESC= there steps back to the letters rather than
+out. =ESC= from the letters closes.
 
 *=C-c C-s= and =C-c C-d= reschedule.* Both raise a one-line prompt — the value
 palette's overlay with a field in place of its list — titled with the keyword
@@ -525,6 +552,15 @@ of "Tanik" · 12)= in the pill and the query in the chips and in the URL like an
 other. It leaves a *breadcrumb* behind: a muted chip naming the view you came
 from, up to four of them before the rest fold into =… +N=.
 
+Two things it declines to do. A row nothing points at applies *no view*: =@=
+asks the server for a count first, and =@ → org-glance-overview:relations (no
+references to "Tanik")= leaves the table, the filter and the trail exactly where
+they were — an empty view is the one landing you can read nothing off. And a
+drill out of the *empty* query leaves no crumb, because "all rows" already is
+the empty filter: =DEL= strips the =ref:= token, the query goes empty, and with
+no trail behind it the key clears the filter — the very view a crumb would have
+restored.
+
 =DEL= is the way back, and it is one ladder rather than two keys. While the
 query still has tokens in it =DEL= takes the last one off, as it always has;
 once the strip empties the query and a trail is standing, the same key pops the
@@ -570,6 +606,7 @@ parameter and a key line that had to be rewritten whenever it moved.
 | =d=         | =archive-flag=                    | flags this row; =d= again archives it          |
 | =D=         | =org-glance-overview:delete=      | archives the flagged rows, or the one at point |
 | =t=         | =org-glance-overview:todo=        | the state palette, over the marked rows        |
+| =:=         | =org-agenda-set-tags=             | the tag palette, over the marked rows          |
 | =+=         | =org-glance-overview:capture=     | one line of org into the inbox                |
 | =,=         | =customize=                       | the keyword cycles and the default view       |
 | =q=         | =quit-window=                     | closes the sheet; never the tab               |

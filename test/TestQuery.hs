@@ -6,8 +6,8 @@ module TestQuery (spec) where
 import Control.Concurrent (getNumCapabilities, rtsSupportsBoundThreads)
 import Control.Monad (forM_, replicateM, (<=<))
 import Data.Aeson (Value (Bool, Object, String), eitherDecodeFileStrict')
-import Data.Either (fromRight)
-import Data.List (foldl', nub, sort)
+import Data.Either (fromRight, isRight)
+import Data.List (foldl', nub, sort, sortOn)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import System.Directory (createDirectoryIfMissing)
@@ -26,14 +26,15 @@ import qualified Data.Time as Time
 
 import Glance.Query ( ConfigLayers (..), HeadlineParts (..), HeadlineRecord (..)
                     , LoadFailure (..)
-                    , QueryResult (..), Span (..), TodoKeywords (..), archiveEdits, archived
+                    , QueryResult (..), Span (..), TodoKeywords (..), addTagEdits
+                    , archiveEdits, archived
                     , captureEdits, captureStamp, defaultWalk
                     , displayText, headlineParts, hiddenProperties, keywordSources, loadDir
                     , loadDirFilesSerially, loadDirFilesWith, loadFile, matchesSearch
                     , noConfig, orgLinks
                     , planningTimestamp, readsAsTimestamp, recomposedSubtree
-                    , setPlanningEdits, setStateEdits, settableStates, subtreeLinks
-                    , subtreeText, viewJSON )
+                    , removeTagEdits, setPlanningEdits, setStateEdits, settableStates
+                    , subtreeLinks, subtreeText, tagText, tagged, viewJSON )
 
 -- Fixtures
 
@@ -1183,10 +1184,14 @@ schemaSpec = testGroup "Schema conformance"
 -- around the edit are checked by the same assertion as the edit.
 
 -- | DOC with EDITS applied, right to left so an earlier offset is never moved
--- by a later splice.  The suite's own splice: three lines, no engine.
+-- by a later splice.  The suite's own splice: four lines, no engine.
+--
+-- The order is taken rather than assumed, since 'Data.Org.Edit.applyEdits'
+-- sorts too and a command handing its edits back ascending — @remove-tag@ over
+-- a tag a file spells twice — is not a caller mistake this oracle may punish.
 splice :: Text -> [(Span, Text)] -> Text
-splice = foldl' one
-  where one doc (Span s e, new) = T.take s doc <> new <> T.drop e doc
+splice doc edits = foldl' one doc (sortOn (negate . spanStart . fst) edits)
+  where one text (Span s e, new) = T.take s text <> new <> T.drop e text
 
 -- | Run K over the one record DOC parses to, written into a file of its own so
 -- the load path is the ordinary one.
@@ -1232,10 +1237,29 @@ layered = noConfig
     -- either of them settable anywhere.
   , clSeed   = TodoKeywords ["STARTED", "READING", "WATCHING"] ["READ", "WATCHED"] }
 
+-- | WHAT: DOC with EDITS applied to its one headline is WANTED.  The whole
+-- document is asserted, so the bytes around the edit are checked by the same
+-- assertion as the edit.
+editsAre :: String -> Text -> (HeadlineRecord -> [(Span, Text)]) -> Text -> Assertion
+editsAre what doc edits wanted =
+  withRecord doc (assertEqual what wanted . splice doc . edits)
+
 -- | WHAT: DOC with @archive@ applied to its one headline is WANTED.
 archiveIs :: String -> Text -> Text -> Assertion
-archiveIs what doc wanted =
-  withRecord doc (assertEqual what wanted . splice doc . archiveEdits)
+archiveIs what doc = editsAre what doc archiveEdits
+
+-- | WHAT: DOC with @add-tag TAG@ applied to its one headline is WANTED.
+addTagIs :: String -> Text -> Text -> Text -> Assertion
+addTagIs what doc tag = editsAre what doc (addTagEdits tag)
+
+-- | WHAT: DOC with @remove-tag TAG@ applied to its one headline is WANTED.
+removeTagIs :: String -> Text -> Text -> Text -> Assertion
+removeTagIs what doc tag = editsAre what doc (removeTagEdits tag)
+
+-- | Is TEXT a tag, as 'tagText' answers?  The predicate is the parser's own
+-- charset, so what this pins is the pair agreeing rather than a second list.
+tagIs :: (Text, Bool) -> Assertion
+tagIs (text, wanted) = assertEqual (show text) wanted (isRight (tagText text))
 
 -- | A document declaring keywords past org's own two, so the legality check
 -- has something to be right about.
@@ -1387,6 +1411,119 @@ commandSpec = testGroup "Commands"
     , testCase "and an untagged row does not read as archived" $
         withRecord "* TODO Ship it :web:\n"
                    (assertBool "not archived" . not . archived)
+
+      -- Archiving IS adding one tag, so the two are one function and there is
+      -- no second insertion rule that could drift out of step with this one.
+    , testCase "archive is add-tag at org's own name" $
+        mapM_ (\doc -> withRecord doc $ \r ->
+                 assertEqual (T.unpack doc) (addTagEdits "ARCHIVE" r) (archiveEdits r))
+              [ "* TODO Ship it :web:\n", "* TODO Ship it\n"
+              , "* TODO Ship it :ARCHIVE:\n", "* TODO\n" ]
+    ]
+
+    -- The pair the tag palette commits.  Both are idempotent, from opposite
+    -- sides — adding what is there and removing what is not each cost no edit —
+    -- which is what lets a bulk toggle be pressed at.
+  , testGroup "add-tag"
+    [ testCase "joins the run, ahead of its closing colon" $
+        addTagIs "into the run" "* TODO Ship it :web:glance:\n" "work"
+                                "* TODO Ship it :web:glance:work:\n"
+
+    , testCase "with no run, opens one at the end of the title line" $
+        addTagIs "creating" "* TODO Ship it\n" "work" "* TODO Ship it :work:\n"
+
+      -- `hsFull' ends at the LAST part in span order, which here is a timestamp
+      -- on the next line: appending there would put the tag on the wrong one.
+    , testCase "past a planning line, still on the title line" $
+        addTagIs "planned" (T.unlines [ "* TODO Ship it"
+                                      , "SCHEDULED: <2026-08-01 Sat>" ])
+                           "work"
+                           (T.unlines [ "* TODO Ship it :work:"
+                                      , "SCHEDULED: <2026-08-01 Sat>" ])
+
+    , testCase "a row already carrying it costs no edit" $
+        withRecord "* TODO Ship it :web:work:\n" $ \r -> do
+          assertBool "reads as tagged" (tagged "work" r)
+          assertEqual "no edits" [] (addTagEdits "work" r)
+
+      -- Presence folds, the way the filter's vocabulary does, so the palette
+      -- never offers to write a second spelling of a tag the row has.
+    , testCase "however the file spells it" $
+        withRecord "* TODO Ship it :Work:\n" $ \r -> do
+          assertBool "reads as tagged" (tagged "work" r)
+          assertEqual "no edits" [] (addTagEdits "work" r)
+    ]
+
+  , testGroup "remove-tag"
+    [ testCase "cuts the entry and the colon that closes it" $
+        removeTagIs "from the middle" "* TODO Ship it :web:glance:work:\n" "glance"
+                                      "* TODO Ship it :web:work:\n"
+
+    , testCase "the last entry takes the run and its space with it" $
+        removeTagIs "emptying" "* TODO Ship it :work:\n" "work" "* TODO Ship it\n"
+
+      -- The run is the only thing on the title line past the title, so the
+      -- horizontal space in front of it is the separator and comes off too.
+    , testCase "and a wider gap comes off whole" $
+        removeTagIs "spaced" "* TODO Ship it    :work:\n" "work" "* TODO Ship it\n"
+
+    , testCase "emptying it leaves the lines under the headline alone" $
+        removeTagIs "planned" (T.unlines [ "* TODO Ship it :work:"
+                                         , "SCHEDULED: <2026-08-01 Sat>"
+                                         , ":PROPERTIES:"
+                                         , ":ORG_GLANCE_ID: ship"
+                                         , ":END:" ])
+                              "work"
+                              (T.unlines [ "* TODO Ship it"
+                                         , "SCHEDULED: <2026-08-01 Sat>"
+                                         , ":PROPERTIES:"
+                                         , ":ORG_GLANCE_ID: ship"
+                                         , ":END:" ])
+
+    , testCase "a row that never had it costs no edit" $
+        withRecord "* TODO Ship it :web:\n" $ \r -> do
+          assertBool "not tagged" (not (tagged "work" r))
+          assertEqual "no edits" [] (removeTagEdits "work" r)
+
+    , testCase "and a row with no run at all costs none either" $
+        withRecord "* TODO Ship it\n" $ \r ->
+          assertEqual "no edits" [] (removeTagEdits "work" r)
+
+      -- Folded, and EVERY entry spelling it, so what "removed" means is that
+      -- the row does not answer to 'tagged' afterwards — which a file spelling
+      -- one tag twice would otherwise break.
+    , testCase "however the file spells it, and however often" $ do
+        removeTagIs "folded" "* TODO Ship it :Work:\n" "work" "* TODO Ship it\n"
+        removeTagIs "twice" "* TODO Ship it :work:web:Work:\n" "work"
+                            "* TODO Ship it :web:\n"
+
+      -- Add then remove is the identity on the bytes, which is the property a
+      -- toggle rests on: a mis-press costs a write and no text.
+    , testCase "removing what was just added puts the file back" $ do
+        let doc = "* TODO Ship it :web:\n"
+        withRecord doc $ \r -> do
+          let added = splice doc (addTagEdits "work" r)
+          assertEqual "added" "* TODO Ship it :web:work:\n" added
+          withRecord added $ \r' ->
+            assertEqual "and back" doc (splice added (removeTagEdits "work" r'))
+    ]
+
+    -- The wall both tag commands put up, and it is the PARSER's own charset:
+    -- what this server writes has to reparse here, and a tag carrying a
+    -- character `tagsP' declines takes the whole run down into title text.
+  , testGroup "the tags add-tag and remove-tag take"
+    [ testCase "each spelling, and whether it is one" $ mapM_ tagIs
+        [ ("work", True), ("WORK", True), ("work_2", True), ("a-b", True)
+        , ("@home", True), ("c#", True), ("2026", True)
+        -- Org's own set carries `%' and this parser's does not; the parser's is
+        -- the one that binds, since it is what reads the write back.
+        , ("50%", False)
+        , ("", False), ("two words", False), (":work:", False), ("a.b", False) ]
+
+    , testCase "a refusal names what it turned down" $
+        case tagText "50%" of
+          Right kept -> assertFailure ("expected a refusal, got " <> show kept)
+          Left why   -> assertContains "names the input" "50%" why
     ]
 
     -- The date a key collects, worked out against a fixed today so the answers

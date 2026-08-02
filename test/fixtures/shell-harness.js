@@ -40,8 +40,13 @@
 //   sortless      and its programmatic sort, which the agenda asks for
 //   crumbless     and its crumb trail, which `@' needs before it will drill
 //   onemailto     the row points at one link that is not http(s)
+//   partly        two of the three rows carry `web' and the third does not,
+//                 which is the mixed set manage-tags normalizes up
+//   untagged      no row carries a tag at all
+//   unknownrows   the store knows none of the rows the palette named
 //   onelink       the row `o' names points at exactly one place
 //   nolinks       and at none at all — three is the default, which is a palette
+//   noreferences  nothing points at the row `@' names
 //   rows:N        the store holds N rows rather than the three at the top
 //   paged:N       the renderer shows N of them a page, so there are pages to
 //                 turn and ends of a page to reach
@@ -73,6 +78,11 @@ let columns = [
   { key: "tag" },
 ];
 let tag = "\"t0\"";
+// Set by `noreferences': nothing points at the row `@' names, so the ref query
+// answers empty — which is what the drill's probe reads before it applies
+// anything.  Targeted at the ref query alone, so the boot and the parity
+// baseline still answer for the whole store.
+let unreferenced = false;
 let served = +total;
 // The subtree behind /headline, in the two shapes the route serves it in — the
 // raw text, and the body with the drawer lifted out — plus the digest a write
@@ -132,6 +142,22 @@ let links = [
 // Every /links URL asked for, and every tab the page opened.
 const linked = [];
 const opened = [];
+// What /tags answers for the rows a tag command names: each row's own tags,
+// folded the way the store reports them, plus the tree's whole vocabulary,
+// which is what `/' over the palette narrows.  Canned like the resolution
+// above — the reading is the server's and TestQuery is where the rule is
+// tested; what the page owes is the union, the partial counts and the toggle
+// over whatever comes back.
+//
+// A tag command does NOT move this, deliberately: the route never writes the
+// store, so a palette that re-read after a commit would answer with what the
+// files said before it.  What the list shows next has to come out of the
+// command's own per-id answer.
+let rowTags = { r1: ["web"], r2: ["web"], r3: ["web"] };
+let vocabulary = ["archive", "book", "web", "work"];
+// Every /tags URL asked for, which is what says WHICH rows the palette
+// resolved for.
+const tagged = [];
 // The default view `system.org' names, which `g' applies and the settings sheet
 // edits beside that layer's cycle.
 let viewQuery = "state:*active*";
@@ -166,8 +192,9 @@ globalThis.fetch = (url, init) => {
     if (sent) tags.push(sent);
     // The server's own answer to a tag it still stands behind: no body at all.
     if (sent === tag) return answer(304, null, {});
-    return answer(200, { title: "t", columns, rows },
-                  { "x-glance-total": String(served), etag: tag });
+    const empty = unreferenced && String(url).indexOf("q=ref%3A") !== -1;
+    return answer(200, { title: "t", columns, rows: empty ? [] : rows },
+                  { "x-glance-total": empty ? "0" : String(served), etag: tag });
   }
   if (String(url) === "/command") {
     const sent = JSON.parse((init || {}).body || "{}");
@@ -192,6 +219,18 @@ globalThis.fetch = (url, init) => {
     if (stalling) return new Promise(() => {});
     return refusing ? answer(400, { error: "GET /keywords?ids=<row id>" })
                     : answer(200, { sources, unknown: [] });
+  }
+  if (String(url).startsWith("/tags?ids=")) {
+    tagged.push(url);
+    if (stalling) return new Promise(() => {});
+    if (refusing) return answer(400, { error: "GET /tags?ids=<row id>" });
+    const ids = String(url).slice("/tags?".length).split("&")
+      .map((p) => decodeURIComponent(p.slice("ids=".length)));
+    return answer(200, {
+      rows: ids.filter((id) => rowTags[id]).map((id) => ({ id, tags: rowTags[id].slice() })),
+      vocabulary,
+      unknown: ids.filter((id) => !rowTags[id]),
+    });
   }
   if (String(url).startsWith("/links?id=")) {
     linked.push(url);
@@ -573,7 +612,7 @@ const parts = (e, cls) =>
   e.children.filter((x) => x.className.split(" ").indexOf(cls) !== -1);
 /** A bare word where an entry is read: the header's column names, and the line
  * the palette stands on while the resolution is out. */
-const asWord = (word) => ({ key: "", word, color: "" });
+const asWord = (word) => ({ key: "", word, color: "", hint: "", mark: "" });
 /**
  * One palette entry as it is drawn: the key token it claimed, its word spelled
  * with the BOLD letter in brackets where it sits (`DELEGAT[E]D'), and the
@@ -581,14 +620,25 @@ const asWord = (word) => ({ key: "", word, color: "" });
  * written.
  */
 const paletteEntry = (e) => {
-  const token = parts(e, "pk")[0], word = parts(e, "pw")[0];
+  const token = parts(e, "pk")[0], word = parts(e, "pw")[0], aside = parts(e, "pt")[0];
+  const hot = word.children.find((p) => p.tagName === "B");
   return {
+    // Empty for every entry but the one whose key names no position in a word:
+    // the letter is marked INSIDE the keyword and there is no token column.
     key: token ? token.textContent : "",
     word: word.children.length
       ? word.children.map((p) => (p.tagName === "B" ? `[${p.textContent}]`
                                                     : p.textContent)).join("")
       : word.textContent,
     color: word.style.color || "",
+    // The rule under the claimed letter, which takes that state's badge hue —
+    // the only place a reader is told which key commits now that the token
+    // column is gone.
+    mark: hot ? hot.style.textDecorationColor || "" : "",
+    // The muted aside: the tag palette's partial count, the link palette's
+    // target.  Empty where the entry has none, which is what a tag every
+    // target already carries looks like.
+    hint: aside ? aside.textContent : "",
   };
 };
 /** One table cell's entries.  The header's cells hold a word rather than
@@ -649,6 +699,14 @@ const ACTIONS = {
   // The resolution a marked set spanning two tags comes back as: org's own pair
   // and then two tag sources, in the order the server put them, and no file
   // layer at all.
+  // The mixed set normalize-up is about: two of the three rows carry `web' and
+  // the third does not, so the first press over the set is the levelling one.
+  partly: () => { rowTags = { r1: ["web"], r2: ["web"], r3: [] }; },
+  // Rows with no tags at all, which is where a first `:' has nothing to list
+  // and `/' is the only way in.
+  untagged: () => { rowTags = { r1: [], r2: [], r3: [] }; },
+  // A store that knows none of the rows the palette named.
+  unknownrows: () => { rowTags = {}; },
   twotags: () => {
     sources = [
       { source: "default", active: ["TODO"], inactive: ["DONE"] },
@@ -705,6 +763,9 @@ const ACTIONS = {
   // second writer causes.
   cmoved: () => { for (const l of layers) l.digest = "gone"; },
   refuse: () => { refusing = true; },
+  // Nothing refers to the row `@' names, which is the answer that leaves the
+  // table standing rather than replacing it with an empty view.
+  noreferences: () => { unreferenced = true; },
   // A click on an open sheet's own chrome — its header, its file line — takes
   // the focus off whatever field had it without closing anything.  That is when
   // `typing()' goes false again and every `table' row comes back to life over a
@@ -809,7 +870,7 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     pfoot: field("pfoot").textContent, assigned, commands,
     // Following a link: which rows were asked about, which tabs were opened,
     // and the sort the agenda insisted on.
-    linked, opened, sorted,
+    linked, opened, sorted, tagged,
     // The drill-down trail as the strip would draw it, labels alone — the
     // queries behind them are the shell's business and the URL already carries
     // them.

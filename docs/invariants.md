@@ -445,6 +445,21 @@ on.
   shell writes one parameter per id and the comma form is left to a caller
   typing one out. Evidence:
   `Glance.Query.keywordSources`, `TestServe` "GET /keywords". **test**
+- **`GET /tags` is the tag palette's source of truth, and it answers PER ROW.**
+  `?ids=A,B` answers `{rows: [{id, tags}], vocabulary, unknown}`: `rows` in the
+  order the ids were named, each row's tags in the order its FILE spells them and
+  folded through `tagsOfCell` — the same reading `tagged` matches with and the
+  filter vocabulary is built from, so what this reports about a row is exactly
+  what a write to it will find there. Per row rather than as one union because
+  the client needs to know WHICH rows lack a tag: adding one writes the rows that
+  do not carry it and no others, and a union cannot say which those are. The
+  union, its partial counts and its first-seen order are the palette's, computed
+  off this. `vocabulary` is the whole store's (`storeTags`) rather than the named
+  rows', because a completing read has to reach a tag none of the targets carries
+  and the rows a page holds are a fraction of the tree. Refusals follow
+  `/keywords`': no ids is a 400, an unknown id is named in `unknown` and left
+  out, POST is 405, and it waits for the store like every route that reads one.
+  Evidence: `TestServe` "GET /tags". **test**
 - **Several rows merge by source NAME, and the merge costs two properties.** The
   marked set is one answer: the `file` entry is the union of those rows' files'
   own pragmas, and the tags are every tag any of them carries in first-seen
@@ -1265,11 +1280,49 @@ on.
   line it rewrites (`drawerStyle`, `planningStyle`); the commands now do it for
   the ones they add. **test** (`TestQuery` "into a CRLF file, the entry is CRLF
   too")
-- **`archive` is idempotent because an archived row costs no edit.**
-  `archiveEdits` answers `[]` for a row already carrying the tag, matched
-  through `Glance.Query.archived`, which reads `tagsOfCell . hrTags` — the same
-  folding the filter vocabulary is built with, so "archived" means exactly what
-  the query `archive:` means and a file spelling the tag `:archive:` counts. The
+- **Archiving IS adding one tag, so there is one insertion rule.**
+  `archiveEdits = addTagEdits archiveTag`, and `addTagEdits` is the whole of the
+  placement: `TAG:` at `spanEnd hsTags` where the headline has a run — the span
+  ends past the closing colon, so the insertion is the tag and one colon and the
+  entries already there stay byte-identical — else `" :TAG:"` at `titleLineEnd`,
+  which is where an archive tag went and for the reason it went there (`hsFull`
+  ends at a planning timestamp or an `:END:` on a later line). Two functions with
+  a shared shape would be two functions to keep in step; there is one, and the
+  suite asserts they agree over four headline shapes. Evidence: `TestQuery`
+  "archive is add-tag at org's own name", "add-tag". **test**
+- **`removeTagEdits` cuts an entry, and the LAST entry takes the run with it.**
+  An entry with neighbours is cut as `TAG:` — itself and the colon that closes
+  it — so `:a:b:c:` minus `b` is `:a:c:` and the survivors keep their bytes. The
+  last one takes the whole run AND the horizontal space in front of it, because a
+  lone `:` is not a tag list and `* Title :done:` has to close up to `* Title`
+  rather than keep a trailing space. That space is always there: `tagsP` opens on
+  `hspace1`, which is also why `* :tag:` parses its colons as a TITLE and
+  `hsTags` never sits at a line start. Matching is FOLDED and takes EVERY entry
+  spelling the tag, so "removed" means the row stops answering to `tagged` — a
+  file spelling one tag twice, or spelling it `:Work:` where the caller said
+  `work`, is clean afterwards. Add-then-remove is the identity on the bytes,
+  which is the property a toggle rests on. Evidence: `TestQuery` "remove-tag",
+  which asserts the whole document each time. **test**
+- **A tag is refused where the PARSER would not read it back.**
+  `Glance.Query.tagText` checks against `Data.Org.isTagChar`, hoisted out of
+  `tagsP` and exported for exactly this: what this server writes has to reparse
+  HERE, and a tag carrying a character the parser declines does not land in the
+  tags run — it takes the whole run down into title text on the next load, and
+  the entry the author set is gone with it. Org's own `org-tag-re` is
+  `[[:alnum:]_@#%]+`, so the two sets differ by `-` (here, not there) and `%`
+  (there, not here); the parser's is the one that binds, since it is what reads
+  the write. The refusal is the WHOLE request's, decided in `parseCommand` with
+  the rest of the shape: a word that is not a tag is not a tag for any row.
+  Evidence: `TestQuery` "the tags add-tag and remove-tag take", `TestServe`
+  "a tag no parser reads refuses the request, naming it". **test**
+- **Both tag commands are idempotent, from opposite sides.** `addTagEdits`
+  answers `[]` for a row `tagged` already finds it on and `removeTagEdits` for
+  one it does not, so a palette may commit the same letter twice without the
+  second press meaning anything. `archive`'s idempotence is that first half,
+  matched through `Glance.Query.archived`, which reads `tagsOfCell . hrTags` —
+  the same folding the filter vocabulary is built with, so "archived" means
+  exactly what the query `archive:` means and a file spelling the tag
+  `:archive:` counts. The
   file is still rewritten (the engine has no equality short-circuit), so the
   cost of archiving a marked set twice is an inotify event and a re-parse per
   file, and `guarded` then finds nothing moved and leaves the generation alone.
@@ -2177,9 +2230,10 @@ on.
   carries a `ToJSON` instance: deriving one would make the AST the contract,
   and `SCHEMA.md` is. **test** (`TestQuery` imports the facade only; golden +
   schema-conformance groups)
-- **Six keys write without a sheet, and none asks for confirmation.** `D`
-  archives over the FLAGGED set; `t` / `C-c C-t` set a state and `C-c C-s` /
-  `C-c C-d` set a planning entry, all three over the MARKED one; each falls back
+- **Seven keys write without a sheet, and none asks for confirmation.** `D`
+  archives over the FLAGGED set; `t` / `C-c C-t` set a state, `:` manages tags
+  and `C-c C-s` / `C-c C-d` set a planning entry, all four over the MARKED one;
+  each falls back
   to the row at point — dired's rule, and org-glance's. `+` captures and takes no
   rows at all. They are `POST /command`: the page sends row ids and a name, the
   server computes the spans, and the table is not touched at all, the rows
@@ -2250,6 +2304,78 @@ on.
   commits. The fallback is entered and never left — `ESC` is the one door out of
   either mode. Evidence: `TestServe` "Shell which-key" and "Shell commands".
   **test**
+- **`*clear*` answers to `DEL`, and spends no letter.** `DEL` already means
+  take-it-off wherever this page binds one, and binding the meta to it hands the
+  whole `a`–`z` pool back to the keywords — the entry a wide cycle used to lose
+  is the letter `*clear*` was holding. It is the ONE entry that keeps a key
+  token, since `DEL` names no position in a word to mark. In the fallback mode
+  `DEL` is the field's own text editing and `*clear*` is reached by narrowing to
+  it, like every other entry. A palette with no clear in it — the tag one —
+  leaves the press to nobody: the map's own `DEL` is already dead under
+  `typing()`. Evidence: `TestServe` "the meta entry clears the keyword rather
+  than setting one", "DEL fires nothing in a palette that has no clear". **test**
+- **The manage-tags palette STAYS UP, and it is the only one that does.**
+  `:` — the agenda's own key for the same question over there — raises the same
+  overlay over `GET /tags`' answer, and a letter commits WITHOUT dissolving it:
+  tagging is several ops over one set where setting a state is one, and closing
+  after each would make the second op a fresh press and a fresh resolution.
+  `takeChoice` branches on `prompting.sticky` and on nothing else; the commit
+  runs either way, and what the flag decides is whether `prompting` is still the
+  live palette while it does — which is what lets the answer land back in the
+  list it came out of.
+  Evidence: `TestServe` "Shell tags". **test**
+- **A letter TOGGLES, under dired's normalize-up rule.** A tag EVERY target
+  carries comes off all of them; a tag only SOME of them carry — or none — goes
+  on to the rows that LACK it. So over a mixed set the first press LEVELS it and
+  only the second takes anything away, which is what makes a bulk tag safe to
+  press at: the destructive reading of a letter is never the first one. The
+  partial entries say so — `3/5` in the muted `.pt` aside the link palette puts a
+  target in, absent where the set is level — so the rule reads off the list
+  rather than only out of this file. The write goes to the rows it is FOR (the
+  ones lacking the tag when adding, the ones carrying it when taking it off), so
+  the answer's landed count is a count of rows that MOVED. Evidence: `TestServe`
+  "a tag part of the set carries wears its count", "and the letter adds it to the
+  rows that lack it", "so the second press on a levelled set takes the tag off".
+  **test**
+- **The list refreshes from the ANSWER, never from a re-read.** `POST /command`
+  does not write the store — the watch does, a debounce later — so asking
+  `/tags` again after a commit would answer with what the files said BEFORE it.
+  Normalize-up makes the new state a function of what landed, so `landedTags`
+  folds the per-id results into the per-row sets the palette is holding and
+  redraws off those; a row the server refused keeps the tags it had, and a tag
+  written for the first time joins the local vocabulary so `/` offers it before
+  the watch has said anything. The suite asserts the count is level immediately
+  after the write while the fake store still says otherwise. Evidence:
+  `TestServe` "the list is refreshed from what landed, and the palette stays up".
+  **test**
+- **The union is FIRST-SEEN, and that is what keeps the letters still.** The
+  entries are the union over the target rows, in the order the ROWS introduce
+  them and, within a row, the order its FILE spells them. Alphabetical would be
+  no harder to compute and strictly worse: `whichKeys` is order-dependent, so an
+  insert in the middle can take a letter out from under the reader's fingers,
+  where an append cannot move one already claimed. Adding a tag is therefore the
+  only mutation that grows the list, and it grows it at the end. Evidence:
+  `TestServe` "Shell glue", "the tag union is first-seen, and the refresh is the
+  answer". **test**
+- **Two fields, and both only ADD.** `/` FINDS a tag the tree already holds and
+  `+` CREATES one it does not; a letter is the only toggle, so neither field can
+  take a tag off. `/` swaps the offered list for `prompting.wider` — a THUNK, not
+  a list, so it is current after a commit moved what the set holds — which is the
+  set's tags first and then the rest of `GET /tags`' `vocabulary`, the whole
+  store's rather than the rows on screen. `RET` there takes the highlighted entry
+  or, failing that, the typed line (`freely`, guarded by `prompting.free`), so a
+  tag the tree has never held is committable — a first use has to start
+  somewhere. `+` is the property panel's convention and a field with NO list at
+  all: nothing narrows, nothing is picked, the line as typed is the tag, and its
+  `ESC` steps BACK to the letters where `/`'s closes the palette. `+` can never
+  collide with an entry, since `whichKeys` hands out `a`–`z` alone. Both fields
+  return to letter mode on commit, with the list restored WHOLE — a narrowing
+  left standing would put the reader back among the letters with most of them
+  missing. Evidence: `TestServe` "Shell tags". **test**
+- **A tag is FOLDED at commit, because presence is.** `/tags` reports what
+  `tagsOfCell` reads and `tagged` matches the same way, so a palette that wrote
+  `Work` would go on showing `work` and offering to add it again. Adding a tag
+  every target already has costs a line in the pill and no round trip.
 - **The overlay goes up on the keydown; the resolution fills it.** `ask` raises
   `#prompt` EMPTY and synchronously, drawing a `resolving…` line, and the
   `/keywords` answer arrives afterwards through `setChoices`. Everything that
@@ -2261,6 +2387,14 @@ on.
   `cmd` error line, since a palette with nothing in it is no offer at all.
   Evidence: `TestServe` "the palette is up before the resolution is",
   "a refused resolution closes the palette and says so". **test**
+- **An empty list is two things, and the palette says which.** Before the answer
+  it is `resolving…`; after one it can be a set that honestly holds nothing — an
+  untagged row — and the line then names `/` and `+` as the ways in.
+  `prompting.empty` is written by the fill and by nothing else, so a palette
+  waiting on a request cannot claim to have found nothing. A set the store knows
+  no row of closes the palette instead, since there is nothing to tag. Evidence:
+  `TestServe` "an untagged set opens on the line that says so", "and a set the
+  store knows no row of closes it too". **test**
 - **Two guards stand between `t` and a write it did not mean, and each has its
   own press.** `t` raises the palette AND is a letter inside it, and the
   palette's listener sits BEHIND the dispatch — so the very keydown that opened
@@ -2278,27 +2412,31 @@ on.
   stops there". **test**
 - **The letters are deterministic, and the rule is one pure function.**
   `whichKeys(labels)` walks the labels flattened in DRAW order — each source
-  row's active cell, then its inactive one, then `*clear*` — and gives each the
+  row's active cell, then its inactive one — and gives each the
   INDEX
   of the first letter of its OWN spelling, downcased, that no earlier entry
   claimed — one `a`–`z` namespace over the WHOLE table, `-1` for an entry with
   nothing left, so a letter is the reader's wherever in the table its keyword
   sits and the fallback narrows that same list. So
   `TODO` `DONE` `DELEGATED` is `t` `d` `e`, and a whole cycle
-  `TODO NEXT STARTED WAITING DELEGATED CANCELLED DONE *clear*` is
-  `t n s w d c o l`. Order-only and side-effect-free, so one tree's cycle always
+  `TODO NEXT STARTED WAITING DELEGATED CANCELLED DONE` is
+  `t n s w d c o`. Order-only and side-effect-free, so one tree's cycle always
   yields the same letters and the muscle memory holds — and since the chain
   draws `default` first, `TODO` takes `t` and `DONE` takes `d` in EVERY tree,
   whatever a narrower scope declares. `DELEGATED` sitting in a tag's or a file's
   cycle cannot claim `d` ahead of it, which the reordered chain buys for free
-  rather than by special-casing the pool. `*clear*` is in the pool
-  like any other entry and gets no privilege for being last: its stars are not
-  letters, so it is `c` where nothing took one and falls through `l`, `e`, `a`,
-  `r` where something did. An unbound entry draws a muted `·` and is reachable
-  through `/` alone — and the reorder made one reachable on ~/sync: a `book` row
-  spends `t d e p s c r a` on `default` and `system` before `READ`, whose four
-  letters are all gone by then, so it draws the `·`. That is the price of a
-  finite pool with the shared scopes drawn first, and `/` is what pays it. `setChoices` folds the letter into each entry once, so the drawing
+  rather than by special-casing the pool. `*clear*` is OUT of the pool: it
+  answers to `DEL`, which is no letter, so the namespace is spent on KEYWORDS
+  alone and a cycle wide enough to run it dry keeps the letter the meta used to
+  take — `CANCELLED` claims `c` outright where it once shared the pool with a
+  word spelled `*clear*`. `offer` decides membership by the entry carrying a key
+  of its OWN (`fixed`), never by its being the meta, so the rule reads as "an
+  entry with a key does not need a letter" rather than as an exception. An
+  unbound entry is drawn BARE — no slot, no dot — and is reachable through `/`
+  alone; the reorder made one reachable on ~/sync, where a `book` row spends
+  `t d e p s c r a` on `default` and `system` before `READ`, whose four letters
+  are all gone by then. That is the price of a finite pool with the shared
+  scopes drawn first, and `/` is what pays it. `setChoices` folds the letter into each entry once, so the drawing
   and the dispatch read ONE FIELD of one object and a letter drawn cannot drift
   from a letter honoured — a parallel array would have to stay indexed against
   `shown`, which narrows, rather than `choices`, which does not. Evidence:
@@ -2308,11 +2446,14 @@ on.
   TABLE — `Source | Active | Inactive`, one row per source in the precedence
   order `/keywords` sent, so the layer that answered for a keyword is the row it
   sits in and the classify chain is on screen rather than inferred. An entry is
-  an accent-boxed key token,
-  then the keyword in ITS OWN badge colour with the claimed letter BOLD where
-  it sits in the word (`DELEGATED` bolds its `E`, which is the whole of the
-  explanation; weight rather than an underline, which collides with the
-  descenders of this monospace and reads as chrome). The old active-vs-done
+  the keyword ALONE, in ITS OWN badge colour, with the claimed letter marked
+  where it sits in the word — BOLD and UNDERLINED, the rule taking that same
+  badge hue (written inline per entry, since only the entry knows it) at two
+  pixels and offset clear of the descenders. `DELEGATED` marks its `E`, which is
+  the whole of the explanation. There is no key-token column: an entry IS its
+  keyword, and a boxed letter beside it said the same thing twice while pushing
+  every word rightwards. ONE entry keeps a token, and it is the one whose key
+  names no position in a word — `*clear*` answers to `DEL`. The old active-vs-done
   hairline is the two COLUMNS now, and the hairline between two source rows is
   the row's own top border — the table's border language, where a flat list
   needed a divider element of its own. `*clear*` spans a row at the foot in the
@@ -2324,7 +2465,9 @@ on.
   names the keys the
   table cannot draw
   for itself — `a letter sets it · / to search · ESC leaves`, and the fallback's
-  own line in its own mode. Evidence: `TestServe` "Shell which-key". **test**
+  own line in its own mode. Evidence: `TestServe` "Shell which-key", and
+  "the letter is marked in the word, and only *clear* wears a token", which
+  reads the rule's colour back off the drawn element. **test**
 - **`o` follows the row, and the ANSWER decides the gesture.** `o` (and `!`,
   org-glance's other spelling) fetches `GET /links?id=` for the row at point and
   then does one of three things: no links echoes
@@ -2607,6 +2750,29 @@ on.
   crumb for `DEL` to walk back. Evidence: `TestServe` "@ applies a ref view over
   the row at point and leaves a crumb", "the pill names the command, the row and
   the count", "a held @ drills once". **test**
+- **`@` ASKS BEFORE IT APPLIES, and zero references is no jump.** The drill is
+  probed with the same query under `limit=1` — a count and one row, which is all
+  the number costs — and a total of zero applies NO view: the table, the filter
+  and the trail stay exactly where they were, with one `cmd` info line naming the
+  headline and an echo saying the same. An empty view is the one landing a reader
+  can read nothing off, and walking back out of it costs a keystroke to undo a
+  keystroke. What it costs is a second fetch on a key that was going to refetch
+  anyway, which is one keypress either way; what it changes is that the drill is
+  now ASYNC, so a key pressed in the same tick lands ahead of it — every suite
+  case that used to press `@ Backspace` together now presses the second as an
+  act. Evidence: `TestServe` "@ onto a row nothing refers to applies no view at
+  all", "Shell glue" / "the drill is probed before it is applied". **test**
+- **A drill out of the EMPTY query pushes no crumb, and that is the absence of a
+  special case.** "All rows" IS the empty filter, so `DEL`'s first rung already
+  lands there: strip the `ref:` token, the query goes empty, and with no trail
+  behind it the key clears the filter — the very view the crumb would have
+  restored. The crumb, its label and its remembered selection would be
+  bookkeeping for a step the ladder takes anyway. The accepted consequence is the
+  cursor: `DEL` back out of that one drill lands on the FIRST row, like every
+  applied view that is not a pop. `crumbLabels` is still written, since it also
+  names the live `ref:` chip. Evidence: `TestServe` "@ out of an empty query
+  leaves no crumb, and DEL is still the way back", "and that DEL lands on all
+  rows, first row selected". **test**
 - **A filtered answer of zero to a virtual key is checked against the rows the
   page holds.** The renderer suggests keys from the vocabulary it derives; the
   server parses with the vocabulary it derives; if the two are different

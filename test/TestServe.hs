@@ -316,12 +316,13 @@ spec = withResource (body <$> get assetsDir "/") (const (pure ())) $ \shell ->
   testGroup "Serve"
     [ headlineSpec, bannerSpec, statsSpec, cacheSpec, gzipSpec, querySpec
     , orderSpec, archiveViewSpec
-    , bootstrapSpec, materializeSpec, commitSpec, commandSpec, planningSpec, captureSpec
+    , bootstrapSpec, materializeSpec, commitSpec, commandSpec, planningSpec
+    , tagCommandSpec, tagsSpec, captureSpec
     , configSpec, keywordsSpec, linksSpec, indexingSpec
     , pageSpec shell, keymapSpec shell
     , glueSpec shell, bootSpec shell, liveSpec shell, paletteSpec shell
     , moveSpec shell, markSpec shell
-    , commandKeySpec shell, promptKeySpec shell, whichKeySpec shell
+    , commandKeySpec shell, promptKeySpec shell, whichKeySpec shell, tagKeySpec shell
     , openKeySpec shell, agendaSpec shell, drillSpec shell, logSpec shell
     , sheetSpec shell
     , settingsSpec shell
@@ -910,8 +911,10 @@ commandKeySpec shell = testGroup "Shell commands"
         assertEqual "and d set a state" [("set-state", ["r1"])] =<< postedOf answer
         assertEqual "the one it names" [Just "DONE"] =<< keywordsOf answer
 
+    -- `*clear*' answers to DEL, which already MEANS take-it-off wherever this
+    -- page binds one, and claims no letter — so the a-z pool is the keywords'.
   , testCase "the meta entry clears the keyword rather than setting one" $
-      bootOf shell "" 500 "C-c C-t" "press:c" $ \answer -> do
+      bootOf shell "" 500 "C-c C-t" "press:Backspace" $ \answer -> do
         assertEqual "a null keyword" [Nothing] =<< keywordsOf answer
         assertEqual "and the pill says so" "C-c C-t → org-glance-overview:todo (*clear* · 1)"
           =<< textAt "echo" answer
@@ -944,6 +947,229 @@ commandKeySpec shell = testGroup "Shell commands"
         assertEqual "and the title counts them" "set state · 2 rows"
           =<< textAt "phead" answer
   ]
+
+-- | @:@ — the manage-tags palette, which is the one that STAYS UP.
+--
+-- What is pinned here is the page's half: the union it lists, the partial count
+-- beside an entry only some of the set carries, the normalize-up toggle, the
+-- refresh that comes out of the command's own answer rather than a re-read, and
+-- the typing mode that reaches past the set into the tree's vocabulary.  The
+-- span math is @TestQuery@'s and the route is @tagCommandSpec@'s.
+tagKeySpec :: IO T.Text -> TestTree
+tagKeySpec shell = testGroup "Shell tags"
+  [ testCase ": lists the row's own tags, each under a letter" $
+      bootOf shell "" 500 ":" "" $ \answer -> do
+        assertEqual "the palette says what it is over and how many"
+                    "tags · 1 row" =<< textAt "phead" answer
+        assertEqual "one request, naming the row" ["/tags?ids=r1"]
+          =<< textsAt "tagged" answer
+        assertEqual "the row's run, under the letters it claimed"
+                    [("pe", "", ["[w]eb"], [])] =<< paletteOf answer
+        assertEqual "and the foot says what a letter does"
+                    "a letter toggles it · / finds · + adds · ESC leaves"
+          =<< textAt "pfoot" answer
+
+    -- The same rows every other keyed write runs over: the marked set where
+    -- there is one, the row at point otherwise.
+  , testCase "over a marked set it names the whole set, in one request" $
+      bootOf shell "" 500 "m m :" "" $ \answer -> do
+        assertEqual "the title counts them" "tags · 2 rows" =<< textAt "phead" answer
+        assertEqual "and the resolution is one request"
+                    ["/tags?ids=r1&ids=r2"] =<< textsAt "tagged" answer
+
+    -- NORMALIZE UP.  A tag only part of the set carries wears the count that
+    -- says so, and the letter LEVELS the set rather than taking anything away:
+    -- the write goes to the rows that LACK it, and only when every row carries
+    -- it does the same letter take it off.
+  , testCase "a tag part of the set carries wears its count" $
+      bootOf shell "" 500 "" "partly press:m press:m press:m press::" $
+        assertEqual "two of the three rows" [("[w]eb", "2/3")] <=< paletteHints
+
+  , testCase "and the letter adds it to the rows that lack it" $
+      bootOf shell "" 500 "" "partly press:m press:m press:m press:: press:w" $ \answer -> do
+        assertEqual "the row that had none, and only it"
+                    [("add-tag", ["r3"])] =<< postedOf answer
+        assertEqual "as the tag the entry names" ["web"] =<< tagsPosted answer
+        assertEqual "and the pill says what landed"
+                    ": → org-agenda-set-tags (tagged :web: · 1)" =<< textAt "echo" answer
+
+    -- The palette STAYS, and what it shows next comes out of the ANSWER: this
+    -- route never writes the store, so a re-read here would report what the
+    -- files said before the write.  The count is levelled the moment the write
+    -- lands, and the second press is the removal the first one could not be.
+  , testCase "the list is refreshed from what landed, and the palette stays up" $
+      bootOf shell "" 500 "" "partly press:m press:m press:m press:: press:w" $ \answer -> do
+        assertEqual "still up" "on" =<< textAt "prompt" answer
+        assertEqual "and the count is gone, the set being level"
+                    [("[w]eb", "")] =<< paletteHints answer
+        assertEqual "the store was not asked again" ["/tags?ids=r1&ids=r2&ids=r3"]
+          =<< textsAt "tagged" answer
+
+  , testCase "so the second press on a levelled set takes the tag off" $
+      bootOf shell "" 500 ""
+             "partly press:m press:m press:m press:: press:w press:w" $ \answer -> do
+        assertEqual "add first, then remove over every row"
+                    [("add-tag", ["r3"]), ("remove-tag", ["r1", "r2", "r3"])]
+          =<< postedOf answer
+        assertEqual "and the entry went with it" [("pnone", "", ["no tags on these rows — / finds one, + adds one"], [])]
+          =<< paletteOf answer
+
+  , testCase "a tag every row carries comes off on the first press" $
+      bootOf shell "" 500 "m m m :" "press:w" $ \answer -> do
+        assertEqual "over all three" [("remove-tag", ["r1", "r2", "r3"])]
+          =<< postedOf answer
+        assertEqual "named as the removal it is"
+                    ": → org-agenda-set-tags (untagged :web: · 3)" =<< textAt "echo" answer
+
+    -- The log names every row a bulk write landed on, one line each, the way it
+    -- does for every other command.
+  , testCase "the log names the rows, tagged or untagged" $
+      bootOf shell "" 500 "m m :" "press:w" $ \answer -> do
+        lines' <- map (message . cut) <$> logOf answer
+        assertEqual "one line per row"
+                    ["headline \"one\" untagged :web:", "headline \"two\" untagged :web:"]
+                    (drop (length lines' - 2) lines')
+
+    -- `/' reaches PAST the set: the letters are the union, the typing is the
+    -- tree's whole vocabulary, and RET on a tag none of the rows carries adds it
+    -- to all of them.  A tag the tree has never held is committable too, since a
+    -- first use has to start somewhere.
+  , testCase "/ narrows over the tree's vocabulary, not the set's tags" $
+      bootOf shell "" 500 ":" "press:/" $ \answer -> do
+        assertEqual "the box says which mode it is in" "narrow" =<< textAt "pmode" answer
+        assertEqual "the set's tag first, then the rest of the store"
+          [ ("pe pat", "", ["web"],     [])
+          , ("pe",     "", ["archive"], [])
+          , ("pe",     "", ["book"],    [])
+          , ("pe",     "", ["work"],    []) ] =<< paletteOf answer
+        assertEqual "and the foot names what RET does there"
+                    "RET adds it · C-n/C-p walks · ESC leaves" =<< textAt "pfoot" answer
+
+  , testCase "RET there adds the narrowed tag to every row lacking it" $
+      bootOf shell "" 500 "m m :" "press:/ type:work press:Enter" $ \answer -> do
+        assertEqual "both rows, since neither carries it"
+                    [("add-tag", ["r1", "r2"])] =<< postedOf answer
+        assertEqual "as the tag typing settled on" ["work"] =<< tagsPosted answer
+
+  , testCase "and a tag the tree has never held is committable all the same" $
+      bootOf shell "" 500 ":" "press:/ type:brandnew press:Enter" $ \answer -> do
+        assertEqual "the typed line, folded" ["brandnew"] =<< tagsPosted answer
+        assertEqual "over the row at point" [("add-tag", ["r1"])] =<< postedOf answer
+
+    -- `+' is the property panel's convention, and the other field: `/' FINDS a
+    -- tag the tree holds and `+' CREATES one it does not.  No list at all, so
+    -- nothing narrows and nothing is picked — the line as typed is the tag.
+  , testCase "+ opens a field of its own, with nothing in it to pick" $
+      bootOf shell "" 500 ":" "press:+" $ \answer -> do
+        assertEqual "the field is up" "narrow" =<< textAt "pmode" answer
+        assertEqual "and no list under it" [] =<< paletteOf answer
+        assertEqual "the foot says what it is for and how to leave"
+                    "RET adds a tag of your own · ESC goes back"
+          =<< textAt "pfoot" answer
+
+  , testCase "RET there adds the typed tag to every target and stays open" $
+      bootOf shell "" 500 "m m :" "press:+ type:brandnew press:Enter" $ \answer -> do
+        assertEqual "both rows, neither carrying it"
+                    [("add-tag", ["r1", "r2"])] =<< postedOf answer
+        assertEqual "as the line that was typed" ["brandnew"] =<< tagsPosted answer
+        assertEqual "the palette stands" "on" =<< textAt "prompt" answer
+        assertEqual "back among the letters" "" =<< textAt "pmode" answer
+        assertEqual "with the new tag beside the old one"
+          [ ("pe", "", ["[w]eb"],      [])
+          , ("pe", "", ["[b]randnew"], []) ] =<< paletteOf answer
+
+    -- ESC out of `+' is a step back rather than a door out: the field is a
+    -- detour off the letters, where `/' is a mode of the same question.
+  , testCase "ESC from the field goes back to the letters, palette standing" $
+      bootOf shell "" 500 ":" "press:+ type:brandnew press:Escape" $ \answer -> do
+        assertEqual "nothing was written" [] =<< postedOf answer
+        assertEqual "the palette is still up" "on" =<< textAt "prompt" answer
+        assertEqual "in letter mode" "" =<< textAt "pmode" answer
+        assertEqual "showing what it showed" [("pe", "", ["[w]eb"], [])]
+          =<< paletteOf answer
+
+    -- The charset is the SERVER's wall, so a name it will not write comes back
+    -- as the refusal it is rather than being second-guessed here.
+  , testCase "a tag the server refuses is one cmd error line" $
+      bootOf shell "" 500 ":" "refuse press:+ type:50% press:Enter" $ \answer -> do
+        assertEqual "the request still went" [("add-tag", ["r1"])] =<< postedOf answer
+        assertEqual "and the server's own words are in the log"
+                    (Just "r1: a.org changed on disk") =<< lastLog answer
+
+  , testCase "a commit out of typing mode comes back to the letters" $
+      bootOf shell "" 500 ":" "press:/ type:work press:Enter" $ \answer -> do
+        assertEqual "still up" "on" =<< textAt "prompt" answer
+        assertEqual "in letter mode" "" =<< textAt "pmode" answer
+        assertEqual "with the new tag in the list beside the old one"
+          [ ("pe", "", ["[w]eb"],  [])
+          , ("pe", "", ["w[o]rk"], []) ] =<< paletteOf answer
+
+    -- `/' onto a tag every target has already is a line and no round trip: the
+    -- typing mode only ever ADDS, and there is nothing left to add.
+  , testCase "typing a tag every row has writes nothing and says so" $
+      bootOf shell "" 500 "m m m :" "press:/ type:web press:Enter" $ \answer -> do
+        assertEqual "no command went" [] =<< postedOf answer
+        assertEqual "and the pill says why"
+                    ": → org-agenda-set-tags (:web: is on every row already)"
+          =<< textAt "echo" answer
+
+  , testCase "an untagged set opens on the line that says so" $ do
+      bootOf shell "" 500 "" "untagged press::" $ \answer -> do
+        assertEqual "the palette is up" "on" =<< textAt "prompt" answer
+        assertEqual "and empty for a reason"
+                    [("pnone", "", ["no tags on these rows — / finds one, + adds one"], [])]
+          =<< paletteOf answer
+      -- And `/' is the way in from there: the vocabulary is the tree's, so a
+      -- set with nothing on it still has everything to reach for.
+      bootOf shell "" 500 "" "untagged press:: press:/" $ \answer -> do
+        assertEqual "typing mode" "narrow" =<< textAt "pmode" answer
+        assertEqual "over the store's whole vocabulary"
+          [ ("pe pat", "", ["archive"], [])
+          , ("pe",     "", ["book"],    [])
+          , ("pe",     "", ["web"],     [])
+          , ("pe",     "", ["work"],    []) ] =<< paletteOf answer
+
+    -- The two guards every palette here owes, both of them one press: the key
+    -- that OPENED the overlay is not a key IN it, and a held letter commits once.
+  , testCase "the press that raises it is not a key in it" $
+      bootOf shell "" 500 "" "press::" $ \answer -> do
+        assertEqual "nothing was written" [] =<< postedOf answer
+        assertEqual "and it is up" "on" =<< textAt "prompt" answer
+
+  , testCase "a held letter commits once" $
+      bootOf shell "" 500 ":" "press:w repeat:w repeat:w" $
+        assertEqual "one write" [("remove-tag", ["r1"])] <=< postedOf
+
+  , testCase "ESC leaves it from either mode, having written nothing" $
+      mapM_ (\acts -> bootOf shell "" 500 ":" acts $ \answer -> do
+               assertEqual (T.unpack acts <> ": no command went") [] =<< postedOf answer
+               assertEqual "the overlay is down" "" =<< textAt "prompt" answer)
+            ["press:Escape", "press:/ press:Escape"]
+
+    -- While it is up every `table' row is dead, so the letters are the
+    -- palette's: `n' moves nothing and `d' flags nothing.
+  , testCase "the table's own letters are the palette's while it is up" $
+      bootOf shell "" 500 ":" "press:n press:d" $ \answer -> do
+        assertEqual "the cursor never moved" 0 =<< intAt "cursor" answer
+        assertEqual "nothing was flagged" [] =<< textsAt "flagged" answer
+        assertEqual "and neither letter is one this list claims" [] =<< postedOf answer
+
+  , testCase "a refused resolution closes the palette and says so" $
+      bootOf shell "" 500 "" "refuse press::" $ \answer -> do
+        assertEqual "the overlay is down" "" =<< textAt "prompt" answer
+        assertEqual "and the log named it" (Just "tags failed: GET /tags?ids=<row id>")
+          =<< lastLog answer
+
+  , testCase "and a set the store knows no row of closes it too" $
+      bootOf shell "" 500 "" "unknownrows press::" $ \answer -> do
+        assertEqual "the overlay is down" "" =<< textAt "prompt" answer
+        assertEqual "the pill says which" ": → org-agenda-set-tags (no such row)"
+          =<< textAt "echo" answer
+  ]
+
+-- | The tag each posted command carried.
+tagsPosted :: Value -> IO [T.Text]
+tagsPosted = traverse (textAt "tag") <=< argsOf
 
 -- | The two keys that collect a LINE rather than pick from a list: @+@ and the
 -- reschedule chords.  They raise the same overlay the value palette does, in
@@ -1105,9 +1331,9 @@ openKeySpec shell = testGroup "Shell open"
         assertEqual "raised" "on" =<< textAt "prompt" answer
         assertEqual "titled by the count" "open · 3 links" =<< textAt "phead" answer
         assertEqual "the entries, in the order the subtree writes them"
-          [ ("pe", "", ["f [F]irst reference"],  [])
-          , ("pe", "", ["s [S]econd reference"], [])
-          , ("pe", "", ["m [m]ailto:t@example.org"], []) ] =<< paletteOf answer
+          [ ("pe", "", ["[F]irst reference"],  [])
+          , ("pe", "", ["[S]econd reference"], [])
+          , ("pe", "", ["[m]ailto:t@example.org"], []) ] =<< paletteOf answer
         assertEqual "and the foot says a letter opens rather than sets"
                     "a letter opens it · / to search · ESC leaves"
           =<< textAt "pfoot" answer
@@ -1268,14 +1494,63 @@ drillSpec :: IO T.Text -> TestTree
 drillSpec shell = testGroup "Shell drill"
   [ testCase "@ applies a ref view over the row at point and leaves a crumb" $
       bootOf shell "" 500 "@" "" $ \answer -> do
-        assertEqual "the boot's two, then the drill's"
+        -- The boot's three, then the drill's PROBE, then the view it applied:
+        -- `@' asks whether there is anything to land on before it lands.
+        assertEqual "the boot's three, the probe, then the drill's"
           [ "/headlines?q=state%3A*active*&limit=100", "/headlines?q=state%3A*active*"
-          , "/headlines", "/headlines?q=ref%3Ar1&limit=100", "/headlines?q=ref%3Ar1" ]
+          , "/headlines", "/headlines?q=ref%3Ar1&limit=1"
+          , "/headlines?q=ref%3Ar1&limit=100", "/headlines?q=ref%3Ar1" ]
           =<< textsAt "asked" answer
         -- The crumb records where the reader was STANDING, so the label is the
         -- query being left rather than the one being applied.
         assertEqual "one crumb, naming the view it came from"
                     ["state:*active*"] =<< textsAt "crumbs" answer
+
+    -- A drill out of the EMPTY query pushes NOTHING, because "all rows" IS the
+    -- empty filter: the ladder's first rung already lands there — strip the
+    -- `ref:' token, the query goes empty, and with no trail behind it the key
+    -- clears the filter — so a crumb would restore the view DEL reaches anyway.
+    -- What goes with it is the remembered row: the walk back lands on the first
+    -- row, like every applied view that is not a pop.
+  , testCase "@ out of an empty query leaves no crumb, and DEL is still the way back" $
+      bootOf shell "?q=" 500 "@" "" $ \answer -> do
+        assertEqual "the view is applied all the same"
+          [ "/headlines?limit=100", "/headlines", "/headlines?q=ref%3Ar1&limit=1"
+          , "/headlines?q=ref%3Ar1&limit=100", "/headlines?q=ref%3Ar1" ]
+          =<< textsAt "asked" answer
+        assertEqual "and the strip carries no chip" [] =<< textsAt "crumbs" answer
+
+    -- Pressed as an ACT, so the drill's remount has landed before the key that
+    -- walks back out of it: with no crumb to pop, DEL has only the mounted
+    -- query to strip and the old mount's was empty.
+  , testCase "and that DEL lands on all rows, first row selected" $
+      bootOf shell "?q=" 500 "@" "press:Backspace" $ \answer -> do
+        url <- textAt "url" answer
+        assertBool ("the filter is cleared rather than popped: " <> T.unpack url)
+                   ("?q=&" `T.isPrefixOf` url || url == "?q=")
+        assertEqual "named as the clearing it is"
+                    "DEL → filter-drop-token (filter cleared)" =<< textAt "echo" answer
+        assertEqual "on the first row" (Just "r1") =<< maybeTextAt "selected" answer
+
+    -- ZERO REFERENCES IS NO JUMP.  The drill is PROBED — the same query under
+    -- `limit=1', which is a count — and nothing pointing at the row leaves the
+    -- table, the filter and the trail exactly where they were: an empty view is
+    -- the one landing a reader can read nothing off, and walking back out of it
+    -- costs a keystroke to undo a keystroke.
+  , testCase "@ onto a row nothing refers to applies no view at all" $
+      bootOf shell "" 500 "" "noreferences press:@" $ \answer -> do
+        assertEqual "the probe, and nothing behind it"
+          [ "/headlines?q=state%3A*active*&limit=100", "/headlines?q=state%3A*active*"
+          , "/headlines", "/headlines?q=ref%3Ar1&limit=1" ]
+          =<< textsAt "asked" answer
+        assertEqual "the view standing is the one the reader was on"
+                    "?q=state%3A*active*" =<< textAt "url" answer
+        assertEqual "no crumb was pushed" [] =<< textsAt "crumbs" answer
+        assertEqual "the pill says why nothing moved"
+                    "@ → org-glance-overview:relations (no references to \"one\")"
+          =<< textAt "echo" answer
+        assertEqual "and the log names the headline"
+                    (Just "no references to headline \"one\"") =<< lastLog answer
 
   , testCase "the pill names the command, the row and the count" $
       bootOf shell "" 3 "@" "" $
@@ -1295,7 +1570,7 @@ drillSpec shell = testGroup "Shell drill"
     -- ONE DEL empties it and walks back out — a step out and a step back rather
     -- than a step and a half.
   , testCase "DEL on an emptied query pops the crumb and applies it" $
-      bootOf shell "" 500 "@ Backspace" "" $ \answer -> do
+      bootOf shell "" 500 "@" "press:Backspace" $ \answer -> do
         assertEqual "back on the view the drill left"
                     "?q=state%3A*active*" =<< textAt "url" answer
         assertEqual "and the trail is spent" [] =<< textsAt "crumbs" answer
@@ -1326,7 +1601,7 @@ drillSpec shell = testGroup "Shell drill"
                     "DEL → filter-drop-token (filter cleared)" =<< textAt "echo" answer
 
   , testCase "g is home and throws the trail away" $
-      bootOf shell "" 500 "@ g" "" $ \answer -> do
+      bootOf shell "" 500 "@" "press:g" $ \answer -> do
         assertEqual "no crumbs left" [] =<< textsAt "crumbs" answer
         assertEqual "and the URL is the default view, with no trail on it"
                     "?q=state%3A*active*" =<< textAt "url" answer
@@ -1367,12 +1642,12 @@ drillSpec shell = testGroup "Shell drill"
     -- keeps a crumb's label and query and drops everything else, so a selection
     -- put inside one would never come back out of `getCrumbs()'.
   , testCase "a pop puts the cursor back on the row the drill was launched from" $
-      bootOf shell "" 500 "n n @ Backspace" "" $ \answer -> do
+      bootOf shell "" 500 "n n @" "press:Backspace" $ \answer -> do
         assertEqual "back on the third row" "r3" =<< textAt "selected" answer
         assertEqual "and the trail is spent" [] =<< textsAt "crumbs" answer
 
   , testCase "and the column it was in, when one was set" $
-      bootOf shell "" 500 "n f @ Backspace" "" $ \answer -> do
+      bootOf shell "" 500 "n f @" "press:Backspace" $ \answer -> do
         assertEqual "the row" "r2" =<< textAt "selected" answer
         assertEqual "and the cell it was on" 0 =<< intAt "col" answer
 
@@ -1457,19 +1732,20 @@ whichKeySpec shell = testGroup "Shell which-key"
       -- not have to change for this to stop happening — the chain did.
       , ( "DELEGATED,TODO,DONE", ["d@0", "t@0", "o@1"] )
       -- A whole tree's, in the order the producer sends it — actives as
-      -- declared, then the done-like ones, then the meta.  Nothing is
-      -- special-cased: DONE is `o' for the reason DELEGATED is `e'.
-      , ( "TODO,NEXT,STARTED,WAITING,DELEGATED,CANCELLED,DONE,*clear*"
-        , ["t@0", "n@0", "s@0", "w@0", "d@0", "c@0", "o@1", "l@2"] )
+      -- declared, then the done-like ones.  Nothing is special-cased: DONE is
+      -- `o' for the reason DELEGATED is `e'.  `*clear*' is not in it: the meta
+      -- answers to DEL and is kept out of the pool by `offer', so this is what a
+      -- palette actually hands the rule.
+      , ( "TODO,NEXT,STARTED,WAITING,DELEGATED,CANCELLED,DONE"
+        , ["t@0", "n@0", "s@0", "w@0", "d@0", "c@0", "o@1"] )
       -- Synthetic, since no real cycle exhausts a letter pool: an entry with
       -- nothing left is UNBOUND rather than stealing one, which is what keeps
       -- the letters above it where they were.
       , ( "ON,NO,NOON", ["o@0", "n@0", "-"] )
-      -- The meta is in the pool like any other, and last buys it no privilege:
-      -- its stars are not letters, so `c' where nothing took one, and its own
-      -- spelling is what it falls through when something did.
-      , ( "TODO,DONE,*clear*",    ["t@0", "d@0", "c@1"] )
-      , ( "CANCELLED,*clear*",    ["c@0", "l@2"] ) ]
+      -- The letter `*clear*' used to take is the one a cycle keeps now that the
+      -- meta answers to DEL: `CANCELLED' claims `c' outright where it once had
+      -- to share the pool with a word spelled `*clear*'.
+      , ( "CANCELLED,CLOSED",     ["c@0", "l@1"] ) ]
 
     -- What the reader sees, and why: one row per SOURCE in precedence order,
     -- widest first, its keywords in the Active and Inactive cells, each an
@@ -1483,10 +1759,10 @@ whichKeySpec shell = testGroup "Shell which-key"
       bootOf shell "" 500 "C-c C-t" "" $ \answer -> do
         assertEqual "the header, the sources in order, and the meta last"
           [ ("pr ph", "source",   ["active"],      ["inactive"])
-          , ("pr",    "default",  ["t [T]ODO"],    ["d [D]ONE"])
-          , ("pr",    "book",     ["r [R]EADING"], ["e R[E]AD"])
-          , ("pr",    "file",     ["l [L]ATER"],   [])
-          , ("pr pm", "",         ["c *[c]lear*"], []) ] =<< paletteOf answer
+          , ("pr",    "default",  ["[T]ODO"],    ["[D]ONE"])
+          , ("pr",    "book",     ["[R]EADING"], ["R[E]AD"])
+          , ("pr",    "file",     ["[L]ATER"],   [])
+          , ("pr pm", "",         ["DEL *clear*"], []) ] =<< paletteOf answer
         assertEqual "and the foot names the keys the list cannot draw"
                     "a letter sets it · / to search · ESC leaves"
           =<< textAt "pfoot" answer
@@ -1511,14 +1787,40 @@ whichKeySpec shell = testGroup "Shell which-key"
       bootOf shell "" 500 "" "twotags press:t" $
         assertEqual "the default pair, then book, then film"
           [ ("pr ph", "source",   ["active"],       ["inactive"])
-          , ("pr",    "default",  ["t [T]ODO"],     ["d [D]ONE"])
-          , ("pr",    "book",     ["r [R]EADING"],  ["e R[E]AD"])
-          , ("pr",    "film",     ["w [W]ATCHING"], ["a W[A]TCHED"])
-          , ("pr pm", "",         ["c *[c]lear*"],  []) ] <=< paletteOf
+          , ("pr",    "default",  ["[T]ODO"],     ["[D]ONE"])
+          , ("pr",    "book",     ["[R]EADING"],  ["R[E]AD"])
+          , ("pr",    "film",     ["[W]ATCHING"], ["W[A]TCHED"])
+          , ("pr pm", "",         ["DEL *clear*"],  []) ] <=< paletteOf
 
     -- The hues are the producer's and travel on the state column; the
     -- resolution names keywords alone, so the palette goes and looks each one
     -- up.  A keyword no badge names carries none, and is drawn all the same.
+    -- The claimed letter is marked INSIDE the keyword — there is no token
+    -- column — and the rule under it takes that state's own badge hue, so the
+    -- one thing telling a reader which key commits is drawn in the colour the
+    -- word is already wearing.  `*clear*' is the exception and says why: DEL
+    -- names no position in a word to be marked at, so that row alone keeps a
+    -- token.
+  , testCase "the letter is marked in the word, and only *clear* wears a token" $
+      bootOf shell "" 500 "C-c C-t" "" $ \answer -> do
+        assertEqual "one token in the whole table, on the meta row"
+                    ["DEL"] . filter (not . T.null) . map snd
+          =<< paletteField "key" answer
+        -- The rule takes the badge hue by value, so a keyword the palette
+        -- names without one is marked by weight alone.
+        assertEqual "and the rule under each letter is that keyword's own hue"
+          [ ("[T]ODO", "#e0af68"), ("[D]ONE", "#73daca"), ("[R]EADING", "#bb9af7") ]
+                    . filter (not . T.null . snd)
+          =<< paletteField "mark" answer
+
+    -- DEL is `*clear*'\''s, so a palette with no such entry leaves the press to
+    -- nobody: there is nothing to clear about a tag, and the map's own DEL is
+    -- already dead under `typing()'.
+  , testCase "DEL fires nothing in a palette that has no clear" $
+      bootOf shell "" 500 ":" "press:Backspace" $ \answer -> do
+        assertEqual "no command went" [] =<< postedOf answer
+        assertEqual "and the palette is still up" "on" =<< textAt "prompt" answer
+
   , testCase "each keyword wears its own badge colour, where there is one" $
       bootOf shell "" 500 "C-c C-t" "" $
         assertEqual "TODO, DONE and READING have badges; LATER and READ do not"
@@ -2050,7 +2352,7 @@ logSpec shell = testGroup "Shell log"
         strip <- map message . drop 1 . map cut <$> logOf answer
         assertEqual "both marked rows" [ "headline \"one\" → TODO"
                                        , "headline \"two\" → TODO" ] strip
-      bootOf shell "" 500 "C-c C-t" "press:c" $ \answer -> do
+      bootOf shell "" 500 "C-c C-t" "press:Backspace" $ \answer -> do
         strip <- map message . drop 1 . map cut <$> logOf answer
         assertEqual "the clear is not a keyword"
                     ["headline \"one\" state cleared"] strip
@@ -2121,11 +2423,21 @@ paletteOf answer = traverse one =<< listAt "plist" answer
 -- this pins is that the palette goes and finds them for keywords the resolution
 -- names without them.
 paletteHues :: Value -> IO [(T.Text, T.Text)]
-paletteHues answer = do
+paletteHues = fmap (filter (not . T.null . snd)) . paletteField "color"
+
+-- | Every entry the palette drew, as its word and the muted aside beside it —
+-- the tag palette's partial count, the link palette's target.  Empty where the
+-- entry has none, which is what a tag every target already carries looks like.
+paletteHints :: Value -> IO [(T.Text, T.Text)]
+paletteHints = paletteField "hint"
+
+-- | Every entry the palette drew, as its word and KEY, flattened out of the
+-- table in draw order — each row's active cell, then its inactive one.
+paletteField :: T.Text -> Value -> IO [(T.Text, T.Text)]
+paletteField key answer = do
   rows <- listAt "plist" answer
   entries <- concat <$> traverse halves rows
-  filter (not . T.null . snd)
-    <$> traverse (\e -> (,) <$> textAt "word" e <*> textAt "color" e) entries
+  traverse (\e -> (,) <$> textAt "word" e <*> textAt key e) entries
   where halves v = (<>) <$> listAt "active" v <*> listAt "inactive" v
 
 -- | WHAT: the which-key assignment over a comma-separated CYCLE is EXPECTED —
@@ -2316,22 +2628,35 @@ shellGlue =
       -- Folded into each entry once and IN PLACE, so the table's cells and the
       -- flat list hold the same objects and the drawing and the dispatch read
       -- one field rather than agreeing on a parallel array's indices.
-      , "        list[i].key = letterAt(list[i].label, cut);"
+      , "        pool[i].key = letterAt(pool[i].label, cut);"
+      -- The pool is the entries with no key of their own, so `*clear*' — which
+      -- answers to DEL — spends none of it and a wide cycle keeps the letter
+      -- the meta used to take.
+      , "      const pool = list.filter((c) => !c.fixed);"
       -- A badge hue is written inline, so it has to be told to give way under
       -- the fallback's cursor row — `--g-sel' is a bright yellow in the light
       -- theme, and this is the one declaration on the page that outranks one.
       , "#plist .pat .pw{color:var(--g-fg)!important}"
-      -- The claimed letter is drawn by WEIGHT, so it keeps the badge hue the
-      -- rest of the word wears and puts no rule through the descenders.
-      , "part(word, \"b\", \"\", c.label[c.cut]);"
-      , ".pw b{font-weight:700}"
+      -- The claimed letter is marked INSIDE the keyword and nowhere else: bold,
+      -- underlined, and the rule in that state's own badge hue — written inline
+      -- per entry, since only the entry knows the hue.  The key-token column
+      -- that used to carry the letter is gone with it.
+      , "const hot = part(word, \"b\", \"\", c.label[c.cut]);"
+      , "if (c.color) hot.style.textDecorationColor = c.color;"
+      , ".pw b{font-weight:700;text-decoration:underline;"
+      , "text-decoration-thickness:2px;text-underline-offset:2px}"
+      -- One entry keeps a token, and it is the one whose key names no position
+      -- in a word.
+      , "if (!prompting.narrow && c.fixed) part(row, \"span\", \"pk\", c.key);"
       -- And second, that both modes commit through one call, so the letter and
       -- the fallback's RET are the same delivery.
       , "else if (!e.repeat) takeChoice(hit);"
-      , "else if (k === \"RET\") takeChoice(prompting.shown[prompting.at]);" ]
+      , "else if (k === \"RET\") takeChoice(prompting.shown[prompting.at] || freely());" ]
       -- No second copy of the assignment, no confirmation step behind a letter
-      -- (the palette IS the confirmation), and no underline left behind.
-      ["const LETTERS", "confirm(", ".pw u{", "part(word, \"u\""]
+      -- (the palette IS the confirmation), no underline as an element of its
+      -- own, and no token slot for an entry that claimed nothing.
+      ["const LETTERS", "confirm(", ".pw u{", "part(word, \"u\"", ".pk.off{"
+      , "\"pk off\""]
 
   -- The resolution table's chrome, which behaviour cannot show: the hairline
   -- between two source rows is that row's own top border rather than a divider
@@ -2347,6 +2672,30 @@ shellGlue =
       -- own idea of what the states are: the keywords are the server's answer.
       -- No cell coordinate on an entry either — a cell HOLDS its entries.
       [".psep", "stateChoices", "x.cell ===", "c.at ==="]
+
+  -- The tag palette's two rules behaviour cannot show.  First, the union is
+  -- FIRST-SEEN rather than sorted: an added tag joins at the END, so a commit
+  -- moves no letter that was already claimed, where an alphabetical insert in
+  -- the middle would take one out from under the reader's fingers.
+  , Glue "the tag union is first-seen, and the refresh is the answer"
+      [ "for (const r of rows) for (const t of r.tags)"
+      , "if (seen.indexOf(t) === -1) seen.push(t);"
+      -- And second, that what the list shows next comes out of the command's
+      -- own per-id answer.  It has to: `/command' never writes the store — the
+      -- watch does, a debounce later — so a re-read here would answer with what
+      -- the files said BEFORE the write.
+      , "if (results && prompting === mine) landedTags(mine, off, tag, results);"
+      , "const landed = new Set(results.filter((x) => x.ok).map((x) => x.id));" ]
+      -- No sort over the union, and no second resolution behind a commit.
+      ["seen.sort(", "tagsOf(over", "tagsOf(prompting"]
+
+  -- `@' asks before it applies: a row nothing points at leaves the table, the
+  -- filter and the trail where they were.  The probe is a COUNT — one row —
+  -- since the number is the whole of what it reads.
+  , glue "the drill is probed before it is applied"
+      [ "load(`${asking(token)}&limit=1`).then((a) => {"
+      , "if (!a.total) {"
+      , "drill(b, token, name);" ]
 
   -- The overlay is raised and dissolved by the renderer, whose own input stops
   -- ESC and DEL before this page's document handler sees them.  What keeps the
@@ -2650,7 +2999,10 @@ shellGlue =
       , "prompting.raising = false;"
       , "a letter opens it · / to search · ESC leaves"
       -- `/' narrows over the description AND the target.
-      , "`${c.label} ${c.hint || \"\"}`.toLowerCase().includes(want)" ]
+      -- The aside is DRAWN and the link's TARGET is what narrows: the tag
+      -- palette writes a partial count into the aside, and a digit must not cut
+      -- the list down to the entries that happen to be 2-of-3.
+      , "`${c.label} ${c.target || \"\"}`.toLowerCase().includes(want)" ]
       -- No bracket grammar here: `[[T][D]]' is read where `displayText' is.
       [ "\\\\[\\\\[", "showLinks", "linkAt" ]
 
@@ -2848,6 +3200,12 @@ indexingSpec = testGroup "Indexing (bind before load)"
   , testCase "/keywords waits for the store the rows come out of" $ do
       application' <- indexingApp
       r <- getFrom application' "/keywords?ids=sample.org%230"
+      assertEqual "status" 503 (status r)
+      assertEqual "retry" (Just "1") (header "Retry-After" r)
+
+  , testCase "and /tags waits for the same store" $ do
+      application' <- indexingApp
+      r <- getFrom application' "/tags?ids=sample.org%230"
       assertEqual "status" 503 (status r)
       assertEqual "retry" (Just "1") (header "Retry-After" r)
 
@@ -3691,6 +4049,11 @@ command name ids args = encode (object ["name" .= name, "ids" .= ids, "args" .= 
 keywordArg :: Maybe T.Text -> Value
 keywordArg keyword = object ["keyword" .= keyword]
 
+-- | @add-tag@ and @remove-tag@'s argument.  Flat rather than nullable: a tag
+-- comes off through the other command rather than through a null.
+tagArg :: T.Text -> Value
+tagArg tag = object ["tag" .= tag]
+
 -- | Run K over a server holding both files: the app, the hub whose store it
 -- answers from — the write cases look at that store afterwards, and the
 -- idempotence case steps it the way the watch would — and the two paths.
@@ -4042,6 +4405,230 @@ planningSpec = testGroup "POST /command set-planning"
         assertEqual "status" 400 (status r)
         assertContains "asks for one" "keyword" (body r)
   ]
+
+-- | @add-tag@ and @remove-tag@: the pair the manage-tags palette commits.
+--
+-- The span math is @TestQuery@'s ("Commands"), which drives the two pure
+-- functions; what belongs here is the route — the batching, the per-id answer,
+-- and the refusals that are the request's shape rather than a row's state.
+tagCommandSpec :: TestTree
+tagCommandSpec = testGroup "POST /command add-tag and remove-tag"
+  [ testCase "add-tag joins the run and moves no other byte" $
+      withCommandable $ \a _hub path _other -> do
+        before <- document path
+        r <- postTo a "/command" (command "add-tag" ["first"] (tagArg "work"))
+        assertEqual "status" 200 (status r)
+        assertEqual "the row landed" [("first", True)] =<< outcomesOf r
+        assertEqual "the file is the old one with one tag more"
+                    (T.replace "* NEXT First :one:" "* NEXT First :one:work:" before)
+          =<< document path
+        onDisk <- digestOnDisk path
+        assertEqual "the digest it reports is the file's" [onDisk] =<< digestsOf r
+
+  , testCase "and opens a run on a row that had none" $
+      withCommandable $ \a _hub path _other -> do
+        before <- document path
+        r <- postTo a "/command" (command "add-tag" ["second"] (tagArg "work"))
+        assertEqual "status" 200 (status r)
+        assertEqual "the run is the whole edit"
+                    (T.replace "* Second" "* Second :work:" before) =<< document path
+
+  , testCase "remove-tag cuts it, and the last one takes the run away" $
+      withCommandable $ \a hub path _other -> do
+        before <- document path
+        _ <- postTo a "/command" (command "remove-tag" ["first"] (tagArg "one"))
+        assertEqual "the run went with its last entry"
+                    (T.replace "* NEXT First :one:" "* NEXT First" before)
+          =<< document path
+        -- The store has to catch up before a second command can measure a span
+        -- in this file, exactly as it does for a live daemon.
+        watchStep hub path
+        _ <- postTo a "/command" (command "add-tag" ["first"] (tagArg "work"))
+        watchStep hub path
+        r <- postTo a "/command" (command "add-tag" ["first"] (tagArg "home"))
+        assertEqual "status" 200 (status r)
+        watchStep hub path
+        assertContains "two entries now" "* NEXT First :work:home:" =<< document path
+        _ <- postTo a "/command" (command "remove-tag" ["first"] (tagArg "work"))
+        assertContains "and one after the cut" "* NEXT First :home:" =<< document path
+
+    -- Both directions are idempotent, so a palette may commit the same letter
+    -- twice without the second press meaning anything.
+  , testCase "adding what is there and removing what is not both land, changing nothing" $
+      withCommandable $ \a _hub path _other -> do
+        before <- document path
+        added <- postTo a "/command" (command "add-tag" ["first"] (tagArg "one"))
+        assertEqual "the row landed" [("first", True)] =<< outcomesOf added
+        gone <- postTo a "/command" (command "remove-tag" ["second"] (tagArg "work"))
+        assertEqual "and so did the other" [("second", True)] =<< outcomesOf gone
+        assertEqual "and the file says what it always said" before =<< document path
+
+    -- Two rows of one file are ONE editFile, and the proof is that the second
+    -- landed: a write per row would pin the second to the digest the first
+    -- invalidated.
+  , testCase "two rows of one file are one write, and both land" $
+      withCommandable $ \a _hub path _other -> do
+        before <- document path
+        r <- postTo a "/command" (command "add-tag" ["first", "second"] (tagArg "work"))
+        assertEqual "both rows" [("first", True), ("second", True)] =<< outcomesOf r
+        assertEqual "both edits, in one file"
+                    (T.replace "* Second" "* Second :work:"
+                       (T.replace "* NEXT First :one:" "* NEXT First :one:work:" before))
+          =<< document path
+        onDisk <- digestOnDisk path
+        assertEqual "one write, so one digest, and it is the file's" [onDisk]
+                    . nub =<< digestsOf r
+
+  , testCase "rows in two files are two writes, and each is its own" $
+      withCommandable $ \a _hub path other -> do
+        r <- postTo a "/command" (command "add-tag" ["first", "third"] (tagArg "work"))
+        assertEqual "both rows" [("first", True), ("third", True)] =<< outcomesOf r
+        assertEqual "two files, two digests" 2 . length . nub =<< digestsOf r
+        assertContains "the tag joined the run" "* NEXT First :one:work:" =<< document path
+        assertContains "and opened one" "* TODO Third :work:" =<< document other
+
+    -- The normalize-up half the PALETTE decides: it sends an add to the rows
+    -- LACKING the tag, so the route sees a set that is uniform in what it needs.
+    -- Sending it the whole set is safe all the same, since the row that has it
+    -- costs no edit.
+  , testCase "a mixed set is levelled up whichever rows are named" $
+      withCommandable $ \a _hub path other -> do
+        r <- postTo a "/command" (command "add-tag" ["first", "second", "third"]
+                                          (tagArg "one"))
+        assertEqual "every row landed"
+                    [("first", True), ("second", True), ("third", True)] =<< outcomesOf r
+        here <- document path
+        assertContains "the row that had it is untouched" "* NEXT First :one:" here
+        assertContains "and the one that lacked it has it" "* Second :one:" here
+        assertContains "across the file boundary too" "* TODO Third :one:" =<< document other
+
+  , testCase "a tag no parser reads refuses the request, naming it" $
+      withCommandable $ \a _hub path _other -> do
+        before <- document path
+        r <- postTo a "/command" (command "add-tag" ["first"] (tagArg "50%"))
+        assertEqual "status" 400 (status r)
+        assertContains "names what it turned down" "50%" (body r)
+        assertEqual "and nothing was written" before =<< document path
+
+  , testCase "an empty tag is refused the same way" $
+      withCommandable $ \a _hub _path _other -> do
+        r <- postTo a "/command" (command "remove-tag" ["first"] (tagArg ""))
+        assertEqual "status" 400 (status r)
+
+  , testCase "and a request with no tag at all says what one wants" $
+      withCommandable $ \a _hub _path _other -> do
+        r <- postTo a "/command" (command "add-tag" ["first"] (object []))
+        assertEqual "status" 400 (status r)
+        assertContains "asks for one" "tag" (body r)
+
+  , testCase "an id no row carries is refused on its own" $
+      withCommandable $ \a _hub path _other -> do
+        r <- postTo a "/command" (command "add-tag" ["first", "nosuch"] (tagArg "work"))
+        assertEqual "status" 200 (status r)
+        assertEqual "one landed, one did not"
+                    [("first", True), ("nosuch", False)] =<< outcomesOf r
+        assertContains "and the row that is there moved" "* NEXT First :one:work:"
+          =<< document path
+
+    -- The route writes the FILE; the watch is what updates rows, so a tag is
+    -- reachable through neither the cell nor the vocabulary until the file has
+    -- been read again.  Then all three move together: the cell, the row's own
+    -- search text, and the virtual filter key the store keeps beside its rows.
+  , testCase "the row arrives over the watch, and the vocabulary with it" $
+      withCommandable $ \a hub path _other -> do
+        _ <- postTo a "/command" (command "add-tag" ["second"] (tagArg "work"))
+        assertEqual "the store has not read the file yet" []
+          . map rowId =<< rowsOf =<< getFrom a "/headlines?q=work%3A"
+        watchStep hub path
+        r <- getFrom a "/headlines?q=work%3A"
+        assertEqual "the tag is a filter key now, and it reaches the row"
+                    ["second"] . map rowId =<< rowsOf r
+        assertEqual "the cell carries the run the file grew" [":work:"]
+          =<< traverse (cellAt "tag") =<< rowsOf r
+        assertEqual "and the row's search text moved with it" ["second"]
+          . map rowId =<< rowsOf =<< getFrom a "/headlines?q=work"
+  ]
+
+-- | ROW's cell under KEY, empty where it has none.
+cellAt :: T.Text -> Value -> IO T.Text
+cellAt key row = do
+  cells <- field "cells" row
+  fromMaybe "" <$> maybeTextAt key cells
+
+-- | @GET \/tags@: what the rows a tag command names are tagged with.
+--
+-- The reading rule is @TestQuery@'s; what belongs here is the route — the
+-- shape, the order, the vocabulary beside it, and the two refusals it shares
+-- with @\/keywords@.
+tagsSpec :: TestTree
+tagsSpec = testGroup "GET /tags"
+  [ testCase "is a row's own tags, folded, in the order the file spells them" $
+      withTaggedTree $ \a -> do
+        r <- getFrom a "/tags?ids=both"
+        assertEqual "status" 200 (status r)
+        assertEqual "the run as it stands, lowercased" [("both", ["web", "work"])]
+          =<< tagRowsOf r
+        assertEqual "and nothing was asked for that is not there" []
+          =<< textsAt "unknown" =<< decoded r
+
+  , testCase "several rows answer in the order they were named" $
+      withTaggedTree $ \a -> do
+        assertEqual "as asked" [("bare", []), ("both", ["web", "work"])]
+          =<< tagRowsOf =<< getFrom a "/tags?ids=bare,both"
+        assertEqual "and the other way round"
+                    [("both", ["web", "work"]), ("bare", [])]
+          =<< tagRowsOf =<< getFrom a "/tags?ids=both,bare"
+
+    -- The whole store's, not the named rows': a completing read has to reach a
+    -- tag none of the targets carries, and the rows a page holds are a fraction
+    -- of the tree.
+  , testCase "the vocabulary is the tree's, whichever row was asked about" $
+      withTaggedTree $ \a ->
+        assertEqual "every tag in the store, sorted" ["archive", "shelf", "web", "work"]
+          =<< textsAt "vocabulary" =<< decoded =<< getFrom a "/tags?ids=bare"
+
+  , testCase "an id the store does not hold is named and left out" $
+      withTaggedTree $ \a -> do
+        r <- getFrom a "/tags?ids=nosuch,both"
+        assertEqual "status" 200 (status r)
+        assertEqual "the ones that are gone" ["nosuch"] =<< textsAt "unknown" =<< decoded r
+        assertEqual "resolved for the one that is not" [("both", ["web", "work"])]
+          =<< tagRowsOf r
+
+  , testCase "ids repeat, ids comma-separate, id is one, and none is a 400" $
+      withTaggedTree $ \a -> do
+        let both = [("bare", []), ("both", ["web", "work"])]
+        assertEqual "repeated" both =<< tagRowsOf =<< getFrom a "/tags?ids=bare&ids=both"
+        assertEqual "and mixed with the singular" both
+          =<< tagRowsOf =<< getFrom a "/tags?ids=bare&id=both"
+        r <- getFrom a "/tags"
+        assertEqual "status" 400 (status r)
+        assertEqual "naming the parameter" "GET /tags?ids=<row id>,<row id>"
+          =<< textAt "error" =<< decoded r
+
+  , testCase "and it is a read: POST is a 405" $ do
+      r <- withTaggedTree (\a -> postTo a "/tags" "{}")
+      assertEqual "status" 405 (status r)
+  ]
+
+-- | Each row the answer names, with the tags it carries.
+tagRowsOf :: SResponse -> IO [(T.Text, [T.Text])]
+tagRowsOf = traverse one <=< rowsOf
+  where one v = (,) <$> textAt "id" v <*> textsAt "tags" v
+
+-- | A tree whose rows disagree about their tags, and which holds one tag no row
+-- the palette would resolve for carries — so the vocabulary being the STORE's
+-- rather than the answer's is observable.
+withTaggedTree :: (Application -> IO a) -> IO a
+withTaggedTree k = withTempDir $ \dir -> do
+  _ <- orgFile dir "a.org" (T.unlines
+         [ "* one :Web:work:", ":PROPERTIES:", ":ORG_GLANCE_ID: both", ":END:"
+         , "* two :web:", ":PROPERTIES:", ":ORG_GLANCE_ID: one", ":END:"
+         , "* three", ":PROPERTIES:", ":ORG_GLANCE_ID: bare", ":END:" ])
+  _ <- orgFile dir "b.org" (T.unlines
+         [ "* four :shelf:ARCHIVE:", ":PROPERTIES:", ":ORG_GLANCE_ID: shelved", ":END:" ])
+  (a, _hub) <- serverOver dir
+  k a
 
 -- | @capture@: the one command that names no row, and the one write whose
 -- target comes out of the config rather than out of the request.
@@ -4942,6 +5529,7 @@ pageSpec shell = testGroup "GET /"
         -- The structured commands, beside the keys that choose what they run
         -- over.
         , (["org-glance-overview:todo"], "state")
+        , (["org-agenda-set-tags"], "tags")
         , (["org-glance-overview:schedule", "org-glance-overview:deadline"]
           , "schedule/deadline")
         -- The one that names no row, so it is beside the others rather than
@@ -5069,6 +5657,10 @@ expectedRows =
        Just "set the state of the marked rows, or the row at point")
   , (["C-c", "C-t"], "C-c C-t", "org-glance-overview:todo",        Just "setState",       "table",
        Just "the org spelling, where the browser lets it through")
+  -- The agenda's own key for the same question over there, and the one palette
+  -- that stays up: managing tags is several ops where setting a state is one.
+  , ([":"],          ":",       "org-agenda-set-tags",             Just "manageTags",     "table",
+       Just "add or drop tags over the marked rows, or the row at point")
   -- Both of these survive the browser where @C-c C-t@ does not: @Ctrl+S@ and
   -- @Ctrl+D@ are page default actions rather than chrome shortcuts.
   , (["C-c", "C-s"], "C-c C-s", "org-glance-overview:schedule",    Just "schedulePlan",   "table",

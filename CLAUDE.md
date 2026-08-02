@@ -328,9 +328,10 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `glance-internal` sublibrary; cells are sliced from spans and the view
   `Value` is hand-built — no `ToJSON` on an internal type
   (table-view/SCHEMA.md is the contract).
-- Commands: one route, `POST /command {name, id | ids, args, digests?}`, four
+- Commands: one route, `POST /command {name, id | ids, args, digests?}`, six
   names — `set-state {keyword: KW | null}`, `set-planning {keyword:
-  SCHEDULED|DEADLINE, date: TEXT | null}`, `archive {}` and `capture {text}`.
+  SCHEDULED|DEADLINE, date: TEXT | null}`, `archive {}`, `capture {text}`,
+  `add-tag {tag}` and `remove-tag {tag}`.
   Ids group by FILE and each file is one drift-locked `replaceSpans` call, so a
   marked set over three files is three atomic writes; there is no cross-file
   rollback and the answer is per id (`{results: [{id, ok, digest | error}]}`, in
@@ -338,10 +339,13 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   written — a bad body, an unimplemented name, no ids, a keyword ANY named row's
   CHAIN does not declare (named with the row), and a `set-planning` date no
   parser reads, both of which
-  refuse the whole request rather than moving the rows they could. Per id: an
+  refuse the whole request rather than moving the rows they could — as does a
+  `tag` that is not one, since a word that is not a tag is not a tag for any
+  row (`Glance.Query.tagText`, the PARSER's charset). Per id: an
   unknown id, and a client digest the store no longer holds (per file, since a
   digest is). 413 outranks everything. `args` is read once into `Args`, and
-  `.:!` rather than `.:?` is what tells an ABSENT field from a NULL one. The
+  `.:!` rather than `.:?` is what tells an ABSENT field from a NULL one; `text`
+  and `tag` are flat, neither having a value to clear. The
   route never writes the store — the watch is still the sole updater.
 - `capture` is the ONE id-less command: it makes a row rather than editing one,
   so `{"ids": …}` is not owed and the rows-are-named rule does not reach it. The
@@ -384,12 +388,20 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `glance-internal`'s: `setStateEdits` replaces the keyword span, inserts
   `" KW"` at `spanEnd hsStars` when there is none, or deletes the keyword plus
   the HORIZONTAL run behind it (so a keyword ending its line keeps the newline);
-  `archiveEdits` inserts `ARCHIVE:` at `spanEnd hsTags`, else `" :ARCHIVE:"` at
+  `addTagEdits` inserts `TAG:` at `spanEnd hsTags`, else `" :TAG:"` at
   the end of the TITLE LINE — the max end of stars/todo/priority/title, since
-  `hsFull` ends at a planning timestamp or a drawer on a later line. Keyword
+  `hsFull` ends at a planning timestamp or a drawer on a later line;
+  `removeTagEdits` cuts `TAG:` out of the run, and the LAST entry takes the whole
+  run plus the horizontal run in front of it (the parser's own `hspace1`
+  separator, so there is always one). `archiveEdits` IS `addTagEdits archiveTag`
+  — one insertion rule, not two that have to agree — and its idempotence is that
+  function's. Both tag commands are idempotent, from opposite sides: adding what
+  `tagged` finds and removing what it does not each cost no edit. Presence is
+  FOLDED, through the same `tagsOfCell` the filter vocabulary is built with, and
+  a removal takes EVERY entry spelling the tag, so "removed" means the row stops
+  answering to `tagged`. Keyword
   legality is per file (`hrKeywords`); `*active*`/`*inactive*` are in no keyword
-  set and are refused like any other word. An already-archived row costs no
-  edit, which is what makes `archive` idempotent.
+  set and are refused like any other word.
 - `/headlines` hides archived rows unless the query names the `archive` key
   (`Glance.Web.Filter.namesArchive`, any spelling — negated, valued, whatever),
   and `X-Glance-Archived` counts what it took. The predicate is exactly
@@ -480,6 +492,13 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `?ids=a&ids=b` = `?ids=a,b`; the repeated form is what an id CONTAINING a
   comma owes (the fallback row id is `path#ordinal`, and the split runs after
   percent-decoding), and it is what the shell writes.
+- `GET /tags?ids=A,B` is the tag palette's source of truth:
+  `{rows: [{id, tags}], vocabulary: […], unknown: […]}` — `rows` in the order
+  the ids were named, each row's tags folded through `tagsOfCell`, and
+  `vocabulary` the whole store's (`storeTags`). PER ROW rather than as one
+  union, because the client needs WHICH rows lack a tag: an add writes the rows
+  that do not carry it and no others. The union, its partial counts and their
+  order are the palette's, computed off this. Refusals follow `/keywords`'.
 - `GET /links?id=ROW` is where a row points: `{links: [{target, desc}]}`, out of
   the row's SUBTREE, in order of appearance and one entry per target (first desc
   kept). The rule is the DISPLAY rule — `Glance.Query.linkAt` is the parser
@@ -792,7 +811,8 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   stored choice, a URL parameter and a key line that had to be rewritten. Ends
   are `<` and `>`, plus vi's `G` beside `>`. `g` is `apply-default-filter`, `a`
   is `org-glance-agenda`, `,`
-  is `customize`, `o` and `!` are `org-glance-overview:open`, `@` is
+  is `customize`, `:` is `org-agenda-set-tags` — the AGENDA's own key for the
+  same question over there — `o` and `!` are `org-glance-overview:open`, `@` is
   `org-glance-overview:relations`, `M` is `mark-all`, `d` is
   `archive-flag` and `D` is `org-glance-overview:delete` (both over FLAGS, never
   marks). No sequence is bound
@@ -819,8 +839,9 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   repeat, a remount per repeat. `archive-flag` needs it most: a repeat
   that survived would flag a row and archive it from ONE press, which is the
   confirmation the two-press shape exists to be.
-- Six keys write without a sheet, all `POST /command`, and WHICH ROWS is per
-  command rather than one rule. `t`/`C-c C-t` (`set-state`) and `C-c C-s`/`C-c
+- Seven keys write without a sheet, all `POST /command`, and WHICH ROWS is per
+  command rather than one rule. `t`/`C-c C-t` (`set-state`), `:`
+  (`org-agenda-set-tags`) and `C-c C-s`/`C-c
   C-d` (`set-planning`) take the MARKED set when there is one and the row at
   point otherwise — dired's rule, and the generic bulk selection. `D` and `d`
   take the FLAGGED set instead and never read marks: a mark is what a reader lays
@@ -891,6 +912,40 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   dispatch, and `t` is both the opener and a letter), and `e.repeat` stops a HELD
   `t` committing through what it opened — `ONCE` cannot reach it, since it
   governs dispatch rows and the repeat lands while every row is dead.
+- `:` (`org-agenda-set-tags`) raises the tag palette, and it is the ONE palette
+  that STAYS UP: managing tags is several ops over one set where setting a state
+  is one, so a letter commits and the list comes back rather than the overlay
+  closing under the reader (`prompting.sticky`, the only thing `takeChoice`
+  branches on). What it lists is the SET's tags — the union over the target rows,
+  FIRST-SEEN across the rows as named, each row's in the order its file spells
+  them. First-seen rather than alphabetical because an added tag then joins at
+  the END and no letter already claimed moves; an alphabetical insert in the
+  middle would take one out from under the reader's fingers.
+  A letter TOGGLES, under dired's NORMALIZE-UP rule: a tag EVERY target carries
+  comes off all of them, and one only SOME of them carry — or none — goes on to
+  the rows that LACK it. So over a mixed set the first press levels it and only
+  the second takes anything away. A partial entry says so: `3/5` in the muted
+  `.pt` aside the link palette puts a target in, absent where the set is level.
+  The write goes to the rows it is FOR, so the answer's landed count is a count
+  of rows that MOVED.
+  The refresh is the ANSWER, never a re-read: `/command` does not write the store
+  — the watch does, a debounce later — so re-asking `/tags` would report what the
+  files said BEFORE the write. Normalize-up makes the new state a function of
+  what landed, so the palette folds the per-id results into the sets it holds and
+  redraws off those; a refused row keeps the tags it had.
+  TWO FIELDS, and both only ADD — a letter is the only toggle. `/` FINDS
+  (`prompting.wider`, a thunk so it is current after a commit): the letter list
+  narrows to the set's tags first and then the rest of `vocabulary`, and RET
+  takes the entry or the typed line (`freely`, `prompting.free`). `+` CREATES —
+  the property panel's convention — a field with NO list at all, so nothing
+  narrows and nothing is picked, and its ESC steps BACK to the letters where
+  `/`'s closes. `+` claims no which-key letter because `whichKeys` hands out
+  `a`–`z` alone. A tag is FOLDED at commit, since presence is. Adding one every
+  target already has costs a line and no request.
+  Guards are the state palette's, one press each: `prompting.raising` declines
+  the keydown that opened it and `e.repeat` stops a held letter committing
+  through it. `:` stays OUT of `ONCE` for `t`'s reason — raising sets
+  `prompting`, `typing()` kills every `table` row, and a held key cannot re-raise.
 - `o`/`!` (`org-glance-overview:open`) FOLLOW the row, and the ANSWER decides the
   gesture: `GET /links?id=` for the row at point, then no links is an echo
   refusal, ONE is `window.open(target, "_blank", "noopener")`, and SEVERAL raise
@@ -934,18 +989,29 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   same letters, and `default` leading the draw is what gives `TODO` `t` and
   `DONE` `d` in every tree. One pool over the WHOLE table, so a letter is the reader's
   wherever in it the keyword sits, and the fallback narrows that same list.
-  `*clear*` is in the pool with no privilege for being last (stars
-  are not letters, so `c`, else `l`, `e`…). `setChoices` folds the letter into
+  `*clear*` is OUT of the pool: it answers to `DEL` — a key that already means
+  take-it-off wherever this page binds one — so the `a`–`z` namespace is spent on
+  KEYWORDS alone and a cycle wide enough to run it dry keeps the letter the meta
+  used to take. `offer` decides that by the entry carrying a key of its OWN
+  (`fixed`) rather than by its being the meta. In the typing mode `DEL` is the
+  field's and `*clear*` is reached by narrowing to it, like every other entry;
+  in the tag palette, which has no clear, `DEL` reaches nobody.
+  `setChoices` folds the letter into
   each
   entry once, so the drawing and the dispatch read ONE FIELD of one object
   instead of agreeing on a parallel array's indices — `shown` narrows and
-  `choices` does not. Display teaches why: an accent-boxed key token, the
-  keyword in its OWN badge colour with the claimed letter BOLD AT ITS
-  POSITION, the source named down the muted first column, a hairline between
-  source rows (each row's own top border, the table's border language),
-  `*clear*`
-  last in the starred-meta italic, a muted `·` for an unbound entry (reachable
-  through `/` alone).
+  `choices` does not. Display teaches why, and there is NO key-token column:
+  the claimed letter is marked INSIDE the keyword, BOLD and UNDERLINED at its
+  position with the rule taking that state's own badge hue (inline per entry,
+  since only the entry knows it) under a word already wearing that colour; the
+  source is named down the muted first column, a hairline sits between
+  source rows (each row's own top border, the table's border language), and
+  `*clear*` comes
+  last in the starred-meta italic. An entry that claimed nothing is drawn BARE
+  — no slot, no dot — and is reachable through `/` alone. ONE entry keeps a
+  token, and it is `*clear*`: `DEL` names no position in a word to mark. The
+  tag palette wears the same language, its `/` and `+` being mode keys rather
+  than entries.
 - Row marks are the RENDERER's, behind `marks: true`: it draws the checkbox
   column, keys the marks by id and counts them, so a mark survives a `setRows`,
   a filter that hides its row and a page it is not on, and this page keeps no
@@ -962,7 +1028,8 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - STARRED METAS. The `*word*` form marks a RESERVED META with semantics of its
   own — never a literal keyword and never a cell value. The family:
   `*active*`/`*inactive*` (filter group metas, producer-evaluated) and `*clear*`
-  (the state palette's take-the-keyword-off entry, committed as a null keyword).
+  (the state palette's take-the-keyword-off entry, committed as a null keyword
+  and answering to `DEL` rather than to a pool letter).
   `*active*` is the file's active keywords PLUS the EMPTY state cell — a
   stateless entry is live work, and the default view is what would otherwise
   hide it — while `*inactive*` is stated keywords alone, so the two do not
@@ -1100,6 +1167,23 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   whole rather than pairing a crumb with another crumb's row. It rides in
   `?crumbs=` as `sels` beside `trail` and `labels`. Marks and flags need none of
   this — they are id-keyed renderer state and already survive.
+- `@` ASKS BEFORE IT APPLIES. The drill is probed with the same query under
+  `limit=1` — a count and one row — and a total of zero applies NO view: the
+  table, the filter and the trail stay exactly where they were, with one `cmd`
+  info line and an echo naming the headline. An empty view is the one landing a
+  reader can read nothing off, and walking back out of it costs a keystroke to
+  undo a keystroke. The cost is a second fetch on a key that was going to refetch
+  anyway, which is one keypress either way — and the drill is now ASYNC, so a key
+  pressed in the same tick lands before it.
+- A drill out of the EMPTY query pushes NO crumb, and that is the absence of a
+  special case rather than one: "all rows" IS the empty filter, and `DEL`'s first
+  rung already lands there — strip the `ref:` token, the query goes empty, and
+  with no trail behind it the key clears the filter, which is the very view the
+  crumb would have restored. The crumb, its label and its remembered row would be
+  bookkeeping for a step the ladder takes anyway. What goes with it is the
+  cursor: `DEL` back out of that one drill lands on the FIRST row, like every
+  applied view that is not a pop. `crumbLabels` is still written, since it names
+  the live `ref:` chip.
 - `@` (`org-glance-overview:relations`) takes the row AT POINT and never the
   marked set — a drill is a look, and letting it inherit a mark
   would make every mark change what the key means. It is on the ONCE list: a
@@ -1256,3 +1340,9 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   cabal's package hash counts resolved pkg-config VERSIONS, so a distribution
   upgrade re-keys every gi package generated from the typelibs that moved and
   `make native` regenerates them — no cache to clear by hand.
+- Every implemented feature earns a `CHANGELOG.md` entry under `Unreleased`,
+  written as user-visible behaviour (Added/Changed/Fixed, one line per feature);
+  a coherent feature set cutting promotes `Unreleased` to a dated version and
+  bumps `glance.cabal`'s `version` and README.org's to match. Commit message
+  discipline is unchanged — the changelog is the reader's view, the log the
+  builder's.
