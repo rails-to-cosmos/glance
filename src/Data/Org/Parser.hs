@@ -242,13 +242,22 @@ priorityP = lexemeP (Priority <$> (MPC.char '[' *> MPC.char '#' *> MPC.letterCha
 
 instance Parse Property where
   parse = do
-    keyword <- MPC.char ':' *> (parse :: StatefulParser Keyword) <* MPC.char ':' <* MPC.space
+    keyword <- MPC.char ':' *> propertyKeyP <* MPC.char ':' <* MPC.space
     guard $ not (reserved keyword)
     value <- parse :: StatefulParser OrgLine
     when (keyword == Keyword "CATEGORY") $ State.modify $ setCategory $ TS.showt value
     return $ Property keyword value
     where reserved :: Keyword -> Bool
           reserved (Keyword k) = k `elem` ["PROPERTIES", "END"]
+
+-- | A property KEY is org's own rule — any run without whitespace or a
+-- colon (`:TELE2:`, `:ЖКХ:`, `:FOO-BAR:`) — uppercased like every pragma
+-- key.  Deliberately WIDER than 'keywordTextP': the TODO-keyword charset
+-- (letters and underscores) is the wall that keeps a starred meta
+-- undeclarable, and it must not widen with this one.
+propertyKeyP :: StatefulParser Keyword
+propertyKeyP = Keyword . T.toUpper . T.pack
+           <$> some (MP.satisfy (\c -> not (isSpace c) && c /= ':'))
 
 -- | Parse a property drawer; the span starts at the drawer line, past the
 -- leading eol, and ends right after ":END:".

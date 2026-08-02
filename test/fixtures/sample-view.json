@@ -19,11 +19,17 @@
   "actions": [
     { "key": "RET", "command": "materialize", "label": "Materialize" }
   ],
-  "sort": { "column": "scheduled", "ascending": true },
+  "sort": [
+    { "column": "title", "ascending": true },
+    { "column": "state", "ascending": true },
+    { "column": "deadline", "ascending": true },
+    { "column": "scheduled", "ascending": true },
+    { "column": "priority", "ascending": true }
+  ],
   "rows": [
     { "id": "ship-table-view", "cells": {
         "state": "NEXT", "priority": "A", "title": "Ship the table view",
-        "tag": ":web:glance:", "scheduled": "2026-08-01 09:30",
+        "tag": ":glance:web:", "scheduled": "2026-08-01 09:30",
         "deadline": "2026-08-05" } },
     { "id": "test/fixtures/view/sample.org#1", "cells": {
         "state": "TODO", "priority": "B", "title": "Привет мир",

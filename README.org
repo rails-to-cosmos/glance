@@ -573,10 +573,24 @@ headline and leaves its colour alone, so which rows =o= has something for is on
 screen before you press it. =o= (or =!=, org-glance's other spelling) asks the
 server what this row points at and then does the obvious thing: nothing to
 follow is a refusal that says so, *one* link opens in a new tab, and *several*
-raise the same palette =t= uses, one letter each, over the descriptions the
-entry itself wrote. =/= there narrows over the descriptions *and* the targets,
-since you may remember the host and not the wording. Every open writes a line
-into the log naming what was followed.
+raise a popup listing them. Every open writes a line into the log naming what
+was followed.
+
+*The popup is a table you browse.* Three columns — what the link *is* (=https=,
+=mailto=, =glance= for org-glance's own protocols, and so on), what the entry
+calls it, and where it points — and you move through it with =n=/=p= (or
+=j=/=k=, or the arrows), press =o= to open the one at point, =ESC= to leave.
+Nothing in it writes: the marking keys, the archive keys and every other command
+are dead while it is up. It is the same table widget the main view is drawn with,
+which is why it reads like the rest of the page.
+
+Two shapes for a choice, and the page picks by whether the list has to be
+*read*. =t= and =:= raise a *which-key palette*: a keyword or a tag is one word
+you already know, so every entry wears a letter and the letter commits on its
+own. A list of links is a list of *records* — a kind, a name, a destination —
+and letters there would be noise laid over the columns carrying the answer, so
+it gets a table you browse. Two entries still want columns if they are records;
+forty keywords still want letters.
 
 The underline is what the *link* is, never what it *leads to*: a row whose only
 link is a =mailto:= is underlined like any other, and pressing =o= there still
@@ -592,16 +606,23 @@ why it does not need one.
 
 *A tab only goes to =http= and =https=.* org writes plenty of other link types
 — =mailto:=, =file:=, =id:=, org-glance's own protocols, the bare =[[Title]]=
-internal link — and none of them names something a browser tab is. The palette
+internal link — and none of them names something a browser tab is. The popup
 still lists every link, since what an entry holds is what tells you what the
 entry is; the refusal comes at the *commit*, as a warning in the log and in the
 pill (=link type not implemented: mailto:…=, cut at 80 characters) and no tab.
-So a lone =mailto:= warns without a palette ever going up, and a
+So a lone =mailto:= warns without a popup ever going up, and a
 =mailto:= sitting beside an =http= link warns while its neighbour opens.
+
+The =type= is the server's, and it is one rule: the target's scheme, lowercased,
+with every =org-glance-*= protocol folded into one word. So =https=, =http=,
+=mailto=, =id= and =file= are not a list anyone maintains — they fall out of it —
+and a scheme nobody here has seen before shows up under its own name instead of
+being swept into a catch-all. A target with no scheme at all, which is org's
+=[[Title]]= and a relative path written without =file:=, reads =other=.
 
 #+begin_src sh
 curl -s 'localhost:7777/links?id=ship-table-view'
-# → {"links": [{"target": "https://…", "desc": "the table view"}]}
+# → {"links": [{"target": "https://…", "desc": "the table view", "type": "https"}]}
 #+end_src
 
 *=a= is the agenda, and it is a view rather than a mode.* It applies

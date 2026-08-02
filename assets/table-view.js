@@ -21,6 +21,10 @@
  *   tv.getSelection();    // { id, col } — col is null for a whole-row selection
  *   tv.getVisible();      // the filtered + sorted rows, in display order
  *
+ *   tv.sortBy(col, asc);  // state an order, replacing the chain -> bool
+ *   tv.sortPromote(col);  // `^': COL to the head of the chain, or flip it -> bool
+ *   tv.getSort(); tv.setSort(chain);     // read and replace the whole chain
+ *
  *   tv.getQuery();        // the query as last delivered
  *   tv.stripLastToken();  // drop the typed text, else the last chip -> bool
  *   tv.pushCrumb({label, query});   // drilling in: leave a crumb behind
@@ -69,6 +73,13 @@
  *   is built once at mount. Updates touch only the row window, the hint line,
  *   the sort arrows and the chips, so the filter input keeps focus and caret
  *   while typing.
+ * - The sort chain is drawn three ways from one walk of it (`sortChain'): the
+ *   header arrow marks the PRIMARY column, the chip strip lists every key in
+ *   precedence order as `Header ▲', and the hint line spells the whole chain
+ *   in words. A chain is composed by promotion — `^' or a header click puts a
+ *   column at the head and shifts the rest down — so the strip is the reader's
+ *   record of what they built. The chips are chrome: inert, and no consumer
+ *   contract turns on them.
  * - There are no toolbar buttons. Actions render on the hint line as `KEY
  *   label' pairs, the way table-view.el prints its legend: the keys are the
  *   interface, a consumer binds them and dispatches the command, and a button
@@ -356,7 +367,10 @@
  *             multi?: boolean,
  *             compare?: string }} Column
  * @typedef {{ key?: string, command: string, label?: string }} Action
- * @typedef {{ column: string, ascending?: boolean, direction?: string }} Sort
+ * @typedef {{ column: string, ascending?: boolean, direction?: string,
+ *             nullsFirst?: boolean }} Sort
+ *          `nullsFirst' is read only where `direction' is absent; it is what
+ *          `getSort' answers with, so a chain survives a read and a put back.
  * @typedef {{ column: string, ascending: boolean, nullsFirst: boolean }} SortKey
  *          A normalized sort key (internal).
  * @typedef {{ id: string, cells?: Record<string, Cell>, linked?: boolean }} Row
@@ -410,6 +424,9 @@
  *             pageInfo: () => { page: number, pages: number,
  *                               from: number, to: number, total: number },
  *             sortBy: (column: string, ascending: boolean) => void,
+ *             sortPromote: (column: string) => boolean,
+ *             getSort: () => SortKey[],
+ *             setSort: (sort?: Sort|Sort[]|SortKey[]|null) => void,
  *             toggleMark: (id: string) => boolean,
  *             markAll: () => number,
  *             flagRow: (id: string) => boolean,
@@ -855,14 +872,32 @@
     // candidate darkened a marked or flagged row past 4.5:1 before it became
     // visible, the light mark and flag washes already sitting at the ink's cap.
     const COL = "#FFF3D0";
+    // The link identity, spelled here like the three above and, unlike them, in
+    // two weights: a wash can be one colour at two strengths, where INK cannot,
+    // the two themes having nothing in common to be read on. Both are the
+    // accent's own blue (hue 202, saturation held) moved in LIGHTNESS ALONE
+    // until it clears 4.5:1 on every ground a cell can wear rather than on the
+    // page alone — the four row washes, the column band over each of them, and
+    // the crosshair. Light is the accent one point darker, floor 4.69 on a
+    // flagged row; dark is ten points lighter, floor 4.63 on the crosshair,
+    // where the accent itself was at 3.70. Dark lands within a hundredth of
+    // --tv-muted on every ground, that ink being what the dark washes were cut
+    // to, so a link is exactly as legible as the table already guarantees. The
+    // accent stays where it is and keeps the chrome it inks — a hover, a
+    // sortable header, the pager — all of which sit on the page's own ground.
+    const LINK_LIGHT = "#30739B";
+    const LINK_DARK = "#7CC9F8";
     const css = `
 /* Both palettes are danneskjold-theme's, mapped role for role from
    /home/akatovda/sync/stuff/danneskjold-theme/danneskjold-theme.el — its
    default faces for dark, its light-* block for light. Three values are
    lightness-only adjustments where the theme's own colour missed a contrast
    floor in this context, the hue held: light muted #7F8C8D -> #667071 (3.5:1
-   -> 5.1:1 on white) and light accent #4CB5F5 -> #31769F (2.3:1 -> 5.0:1, it
-   is link text here). The selected row takes the theme's highlight face
+   -> 5.1:1 on white) and light accent #4CB5F5 -> #31769F (2.3:1 -> 5.0:1 on
+   white). --tv-link is that same operation on the accent itself, in both
+   themes and measured against the grounds a ROW can wear rather than against
+   the page (LINK_LIGHT and LINK_DARK above).
+   The selected row takes the theme's highlight face
    (#F0FFF0) rather than its golden: the cursor row is its own role and must
    not read as either the applied filter (frost, on the chips) or a state
    pill.
@@ -874,6 +909,7 @@
    against 1.80:1) — the quieter of the two. Every rule is 1px. */
 .tv-root{--tv-fg:#000000;--tv-muted:#667071;--tv-bg:#FFFFFF;--tv-alt:#F8F8FF;
   --tv-border:#E3E6EA;--tv-accent:#31769F;--tv-sel:#F0FFF0;--tv-hover:#FAFAFA;
+  --tv-link:${LINK_LIGHT};
   --tv-frost:${FROST};--tv-chip-wash:45%;--tv-chip-edge:95%;--tv-mark-wash:8%;
   --tv-flag:${FLAG};--tv-flag-wash:8%;
   --tv-col:${COL};--tv-col-wash:35%;--tv-cell-wash:60%;
@@ -881,14 +917,17 @@
   border:1px solid var(--tv-border);border-radius:8px;overflow:hidden;display:flex;flex-direction:column;max-height:100%}
 @media (prefers-color-scheme:dark){.tv-root{--tv-fg:#FFFFFF;--tv-muted:#A4C2EB;--tv-bg:#000000;
   --tv-alt:#21252B;--tv-border:#2a2d3d;--tv-accent:#4CB5F5;--tv-sel:#373D4F;
+  --tv-link:${LINK_DARK};
   --tv-hover:#1F1F1F;--tv-chip-wash:18%;--tv-chip-edge:34%;--tv-mark-wash:30%;--tv-flag-wash:30%;
   --tv-col-wash:8%;--tv-cell-wash:9%;}}
 :root[data-theme="dark"] .tv-root{--tv-fg:#FFFFFF;--tv-muted:#A4C2EB;--tv-bg:#000000;
   --tv-alt:#21252B;--tv-border:#2a2d3d;--tv-accent:#4CB5F5;--tv-sel:#373D4F;
+  --tv-link:${LINK_DARK};
   --tv-hover:#1F1F1F;--tv-chip-wash:18%;--tv-chip-edge:34%;--tv-mark-wash:30%;--tv-flag-wash:30%;
   --tv-col-wash:8%;--tv-cell-wash:9%;}
 :root[data-theme="light"] .tv-root{--tv-fg:#000000;--tv-muted:#667071;--tv-bg:#FFFFFF;--tv-alt:#F8F8FF;
   --tv-border:#E3E6EA;--tv-accent:#31769F;--tv-sel:#F0FFF0;--tv-hover:#FAFAFA;
+  --tv-link:${LINK_LIGHT};
   --tv-chip-wash:45%;--tv-chip-edge:95%;--tv-mark-wash:8%;--tv-flag-wash:8%;
   --tv-col-wash:35%;--tv-cell-wash:60%}
 .tv-bar{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--tv-border);flex-wrap:wrap}
@@ -927,7 +966,11 @@
   border-color:color-mix(in srgb,var(--tv-frost) var(--tv-chip-edge),transparent)}
 .tv-pal .tv-chip:not(.tv-chip-muted):hover{border-color:var(--tv-accent);color:var(--tv-accent)}
 .tv-chips{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
-.tv-chip{display:inline-flex;align-items:center;gap:5px;padding:1px 4px 1px 8px;
+/* One silhouette, spelled once, for every chip in the strip: a live filter
+   token, a crumb, and a sort key. What each of them then respells is ink,
+   ground and cursor. */
+.tv-chip,.tv-sort-chip{display:inline-flex;align-items:center;gap:5px;
+  padding:1px 4px 1px 8px;
   border-radius:999px;font-size:12px;cursor:pointer;color:var(--tv-fg);
   border:1px solid var(--tv-border);background:var(--tv-alt)}
 .tv-chip:not(.tv-chip-muted):hover{border-color:var(--tv-accent);color:var(--tv-accent)}
@@ -947,9 +990,21 @@
    mode, so it clears 4.5:1 in both themes (light 5.1, dark 11.5) while sitting
    quieter than a live chip's ink does on its own ground (19.9 and 15.4).
    Spelled with the row it lives in so it outranks the palette's own chip rule,
-   the one other place a chip's ground is set. */
-.tv-chips .tv-chip-muted{color:var(--tv-muted);background:transparent;
-  cursor:default;padding-right:8px}
+   the one other place a chip's ground is set.
+
+   A SORT CHIP takes that identity whole, and for the same reason: it is a fact
+   about the table rather than a token to act on. The strip reads left to right
+   as where the reader came FROM, what is on show, and what ORDER it is in,
+   leftmost key first; a chain is composed by promotion, from the key or a
+   header click, and a third way to change it would be a third spelling of one
+   command. It is deliberately NOT a .tv-chip: a consumer counting chips, and
+   this renderer's own click delegation, mean the filter's tokens by that name.
+   The arrow alone respells the foreground — direction is the one thing a muted
+   row still has to carry at a glance, and an arrow carries it at a smaller
+   size than a word would. */
+.tv-chips .tv-chip-muted,.tv-chips .tv-sort-chip{color:var(--tv-muted);
+  background:transparent;cursor:default;padding-right:8px}
+.tv-sort-chip .tv-sort-dir{font-style:normal;color:var(--tv-fg);font-size:11px}
 .tv-chip-x{font-style:normal;opacity:.55;padding:0 3px}
 .tv-chip:hover .tv-chip-x{opacity:1}
 /* The suggestion list hangs under the box, over the table. .tv-root clips with
@@ -1057,14 +1112,19 @@
 .tv-table th.tv-colsel{background:color-mix(in srgb,var(--tv-col) var(--tv-col-wash),var(--tv-bg))}
 .tv-table tbody td.tv-colsel{background:color-mix(in srgb,var(--tv-col) var(--tv-col-wash),transparent)}
 .tv-table tbody td.tv-cell-sel{background:color-mix(in srgb,var(--tv-col) var(--tv-cell-wash),transparent)}
-/* A row that leads somewhere, said on the one cell a reader reads the row by.
+/* WHAT A LINK LOOKS LIKE, spelled once for the two places one is drawn: the
+   anchor a cell's own Org markup produces, and the whole title cell of a row a
+   producer marked linked. One declaration, so a title that is half markup and
+   half plain words comes out ONE colour — it used to come out two, the markup
+   in the accent and the words in body ink under a cell-wide underline.
    The only state on this table written in TEXT rather than in a ground: the
-   four row washes and the two selection bands all write backgrounds, so an
-   underline contests none of them and reads through every combination — a
-   linked row under the cursor is still underlined. The ink does not move,
-   because the mark says there is somewhere to go rather than what state the
-   row is in, and a colour here would read as a second badge. */
-.tv-table tbody td.tv-linked{text-decoration:underline;text-underline-offset:2px}
+   four row washes and the two selection bands all write backgrounds, so this
+   contests none of them and reads through every combination — a linked row
+   under the cursor, with the column band across that very cell, is still a
+   link. Which is what --tv-link is measured on: every one of those grounds,
+   4.5:1 on all of them, rather than the page alone. */
+.tv-link,.tv-table tbody td.tv-linked{color:var(--tv-link);
+  text-decoration:underline;text-underline-offset:2px}
 .tv-table tbody tr{cursor:default}
 .tv-table tbody tr.tv-pad td{padding:0;border:0}
 /* The third role, and the quietest: no box at all. A filled pill is a state, a
@@ -1083,7 +1143,6 @@
 .tv-pill{display:inline-block;padding:0 8px;border-radius:999px;
   font-weight:600;color:var(--tv-ink,var(--tv-badge));
   background:color-mix(in srgb,var(--tv-badge) 15%,transparent)}
-.tv-link{color:var(--tv-accent);text-decoration:underline}
 .tv-arrow{margin-left:4px;opacity:.7}
 .tv-empty{padding:16px 12px;color:var(--tv-muted)}
 .tv-hint{padding:6px 12px;border-top:1px solid var(--tv-border);color:var(--tv-muted);font-size:12px}
@@ -1097,8 +1156,8 @@
   .tv-table th,.tv-table td{padding:12px}
   .tv-table td.tv-box{min-width:44px}
   .tv-ac-item{padding:12px 12px}
-  .tv-chip{padding:13px 8px 13px 12px}
-  .tv-chips .tv-chip-muted{padding-right:12px}
+  .tv-chip,.tv-sort-chip{padding:13px 8px 13px 12px}
+  .tv-chips .tv-chip-muted,.tv-chips .tv-sort-chip{padding-right:12px}
   .tv-chip-x{opacity:1;padding:0 8px}
   .tv-filter,.tv-omni .tv-filter,.tv-panel .tv-filter{font-size:16px}
 }
@@ -1517,8 +1576,11 @@
      */
     /**
      * Read SCHEMA's sort list into sort keys.  A `direction' string wins over
-     * `ascending' and is the only way to ask for nulls first: bare "asc" and
-     * "desc" put empty cells last whatever the column type.
+     * `ascending' and is SCHEMA's way to ask for nulls first: bare "asc" and
+     * "desc" put empty cells last whatever the column type.  With no
+     * `direction' a boolean `nullsFirst' is read instead, which is the shape
+     * `getSort' answers in — so a chain read out of the table and handed back
+     * to `setSort' is the chain that was read.
      */
     function normalizeSort(sort) {
       if (!sort) return [];
@@ -1531,7 +1593,7 @@
           return {
             column: s.column,
             ascending: !desc,
-            nullsFirst: dir.indexOf("nulls-first") !== -1,
+            nullsFirst: dir ? dir.indexOf("nulls-first") !== -1 : !!s.nullsFirst,
           };
         });
     }
@@ -1583,6 +1645,36 @@
         }
         return 0;
       };
+    }
+
+    /**
+     * The sort chain as something to read, highest priority first. Every
+     * description of the order is derived from this one walk — the chip strip
+     * and the hint line — so nothing can name a key the rows are not actually
+     * ordered by. A key naming no column is dropped, the way `chainComparator'
+     * drops it.
+     * @returns {{key: SortKey, header: string}[]}
+     */
+    function sortChain() {
+      const out = [];
+      for (const k of state.sortKeys) {
+        const col = colByKey(k.column);
+        if (col) out.push({ key: k, header: String(col.header || col.key) });
+      }
+      return out;
+    }
+
+    /**
+     * The chain as the hint line spells it: `dept asc → score desc'. Column
+     * KEYS rather than headers, and the same words `table-view.el' prints, so
+     * the two renderers describe one order alike. Empty cells sort last by
+     * default and that is left implicit; nulls-first is spelled out.
+     */
+    function sortText() {
+      return sortChain()
+        .map(({ key }) => `${key.column} ${key.ascending ? "asc" : "desc"}`
+                        + (key.nullsFirst ? " nulls-first" : ""))
+        .join(" → ");
     }
 
     /** The column keys `parseQuery' resolves predicates against. */
@@ -2150,8 +2242,8 @@
     function hintHTML(shown) {
       const total = state.rows.length;
       const count = shown === total ? `${total} rows` : `${shown}/${total} rows`;
-      const s = state.sortKeys[0];
-      const sort = s ? `sort ${s.column} ${s.ascending ? "asc" : "desc"}` : "unsorted";
+      const chain = sortText();
+      const sort = chain ? `sort ${chain}` : "unsorted";
       // With one page there is nothing to page through, and the line is the
       // line it has always been. With more, the range says what the count
       // said and where in the set it is, so it stands in that place rather
@@ -2653,6 +2745,24 @@
     }
 
     /**
+     * Put CHAIN in force and redraw. The one place an order is installed —
+     * every gesture that changes it lands here, so a new order always resets
+     * the page and the scroll the same way and always redraws the three things
+     * that describe it: the header arrow, the chip strip and the hint line.
+     * @param {SortKey[]} chain
+     */
+    function applyChain(chain) {
+      state.sortKeys = chain;
+      page = 0;                          // a different order, read from the top
+      continuous = false;
+      dropSorted();
+      scroll.scrollTop = 0;
+      renderArrows();
+      renderChips();
+      renderRows(true);
+    }
+
+    /**
      * Sort on KEY in ASCENDING, replacing whatever sort was in force. False
      * when no column carries that key, so a caller can tell a sort that did not
      * happen from one that did.
@@ -2660,23 +2770,40 @@
      */
     function sortTo(key, ascending) {
       if (!colByKey(key)) return false;
-      state.sortKeys = [{ column: key, ascending, nullsFirst: false }];
-      page = 0;                          // a different order, read from the top
-      continuous = false;
-      dropSorted();
-      scroll.scrollTop = 0;
-      renderArrows();
-      renderRows(true);
+      applyChain([{ column: key, ascending, nullsFirst: false }]);
       return true;
     }
 
-    /** A header click: this column ascending, or the other way if it is already
-     *  the primary one. `sortable' gates what a READER may reach. */
-    function toggleSort(key) {
+    /**
+     * PROMOTE KEY to the head of the sort chain, ascending, with the chain it
+     * had shifting down behind it and KEY dropped from wherever it sat below —
+     * a chain never names a column twice. KEY already leading instead FLIPS its
+     * direction and leaves the keys behind it where they are.
+     *
+     * This is how a chain is COMPOSED in a browser. Pressing this over columns
+     * in reverse priority order builds one: promote `deadline', then `state',
+     * then `title', and the chain is title > state > deadline, with the chip
+     * strip showing it grow at each press. `table-view.el' composes the same
+     * chain with a prefix argument — `C-u ^' appends a tie-breaker at the
+     * bottom — which a page has no spelling for; ordered presses and a visible
+     * strip are the web's answer to it.
+     *
+     * `sortable' gates this, the way it gates a header click: promotion is a
+     * READER's gesture. A producer stating an order calls `sortBy', which is
+     * ungated and replaces the chain outright.
+     * @param {string} key @returns {boolean} whether the chain moved
+     */
+    function sortPromote(key) {
       const col = colByKey(key);
-      if (!col || col.sortable !== true) return;
-      const primary = state.sortKeys[0];
-      sortTo(key, !(primary && primary.column === key && primary.ascending));
+      if (!col || col.sortable !== true) return false;
+      const chain = state.sortKeys, lead = chain[0];
+      applyChain(
+        lead && lead.column === key
+          ? [{ column: key, ascending: !lead.ascending, nullsFirst: lead.nullsFirst }]
+              .concat(chain.slice(1))
+          : [{ column: key, ascending: true, nullsFirst: false }]
+              .concat(chain.filter((k) => k.column !== key)));
+      return true;
     }
 
     function dispatch(command, row) {
@@ -2731,8 +2858,11 @@
         followLink(a.dataset.target, (tr && rowOf(state.rows, tr)) || null);
         return;
       }
+      // A header click is the pointer's spelling of `^': one command, so the
+      // two gestures compose a chain the same way rather than a click quietly
+      // throwing away what the keyboard just built.
       const th = /** @type {HTMLElement|null} */ (t.closest("th[data-key]"));
-      if (th) { toggleSort(th.dataset.key); return; }
+      if (th) { sortPromote(String(th.dataset.key)); return; }
       const tr = /** @type {HTMLElement|null} */ (t.closest("tr[data-id]"));
       if (!tr) return;
       // The box is the one cell that is not a selection: a mark is a standing
@@ -2877,19 +3007,24 @@
       return ["… +" + (crumbs.length - kept.length)].concat(kept.map((c) => c.label));
     }
 
-    // Crumbs lead, live chips follow: the trail is what was left behind and the
-    // chips are what is in force, so the row reads left to right as the reader
-    // walked it. A crumb carries no `data-i' — history is not a token that can
-    // be taken off — which is what the click delegation reads it by.
+    // Crumbs lead, live chips follow, the sort chain brings up the rear: the
+    // strip reads left to right as where the reader came FROM, what is on show,
+    // and what ORDER it is in. Only a live chip carries `data-i', which is what
+    // the click delegation reads the removable one by; neither history nor a
+    // sort key is a token that can be taken off here.
     function renderChips() {
+      const chain = sortChain();
       let html = "";
       for (const text of crumbStrip())
         html += `<span class="tv-chip tv-chip-muted">${esc(text)}</span>`;
       for (let i = 0; i < chips.length; i++)
         html += `<span class="tv-chip" data-i="${i}" title="remove">${esc(chipText(chips[i]))}`
               + `<i class="tv-chip-x">×</i></span>`;
+      for (const { key, header } of chain)
+        html += `<span class="tv-sort-chip">${esc(header)}`
+              + `<i class="tv-sort-dir">${key.ascending ? "▲" : "▼"}</i></span>`;
       chipsEl.innerHTML = html;
-      chipsEl.style.display = (crumbs.length || chips.length) ? "" : "none";
+      chipsEl.style.display = (crumbs.length || chips.length || chain.length) ? "" : "none";
     }
 
     /**
@@ -3757,6 +3892,29 @@
        * @returns {boolean} false when no column carries that key
        */
       sortBy(column, ascending) { return sortTo(column, ascending !== false); },
+      /**
+       * `^': promote COLUMN to the head of the chain ascending, flipping it
+       * where it already leads and dropping it from wherever it sat below.
+       * Composing a chain is pressing this over columns in reverse priority
+       * order; the chip strip shows the chain as it grows. Gated by
+       * `sortable' — a reader's gesture, where `sortBy' is a producer's.
+       * @param {string} column @returns {boolean} whether the chain moved
+       */
+      sortPromote,
+      /**
+       * The chain in force, highest priority first, as copies. What a consumer
+       * persists (a URL, a saved layout); `setSort' takes it back.
+       * @returns {SortKey[]}
+       */
+      getSort() { return state.sortKeys.map((k) => Object.assign({}, k)); },
+      /**
+       * Replace the whole chain — SCHEMA's `sort' shape or `getSort''s. An
+       * empty one leaves the rows unsorted, in the order they arrived, which
+       * is the CLEAR a consumer binds when a reader wants the composition
+       * undone.
+       * @param {Sort|Sort[]|SortKey[]|null} [sort]
+       */
+      setSort(sort) { applyChain(normalizeSort(sort)); },
       openFilter,
       closeFilter,
       selectStep,

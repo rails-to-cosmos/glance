@@ -4,6 +4,7 @@ import Test.Tasty (TestTree, defaultMain, testGroup)
 import qualified TestConfig as Config
 import qualified TestEdit as Edit
 import qualified TestFilter as Filter
+import qualified TestIndex as Index
 import qualified TestParser as Parser
 import qualified TestRoundtrip as Roundtrip
 import qualified TestTimestamp as Timestamp
@@ -29,6 +30,7 @@ tests = testGroup "Tests"
   , Spans.spec
   , Edit.spec
   , Query.spec
+  , Index.spec
   , Filter.spec
   , Subtree.spec
   , Serve.spec

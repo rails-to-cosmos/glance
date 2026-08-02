@@ -1,13 +1,19 @@
 -- | Corpus scan: parse every .org file under a set of roots and report parse
--- coverage together with span-invariant violations.
+-- coverage together with span-invariant violations, plus — where a root holds
+-- an org-glance store — how far that store's index has drifted from the blobs
+-- it indexes.
 module Scan (runScan) where
 
 import Control.Exception (IOException, SomeException, evaluate, try)
-import Data.List (foldl', sort)
+import Control.Monad (filterM)
+import Data.List (foldl', isPrefixOf, nub, sort)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Time (diffUTCTime, getCurrentTime)
 import Data.Void (Void)
 import Numeric (showFFloat)
+import System.Directory (doesDirectoryExist, doesFileExist)
+import System.FilePath (takeDirectory, takeFileName, (</>))
 import Text.Megaparsec (ParseErrorBundle, errorBundlePretty)
 
 import qualified Data.ByteString as BS
@@ -19,8 +25,11 @@ import qualified TextShow as TS
 import Data.Org
 import Data.Org.Config ( ConfigLayers (clSeed), TodoKeywords (..), loadConfigDirs
                        , seedContext )
+import Data.Org.Index ( BlobEntry (..), IndexDrift, blobEntryOf, driftOf
+                      , foldSegments, indexReportLines, manifestFile, openSegment
+                      , segmentNames )
 import Data.Org.Walk ( Found (..), WalkOptions (..), beatsForId, errText
-                     , findOrgFilesWith, mapFilesConcurrently )
+                     , findOrgFilesWith, isBlob, mapFilesConcurrently )
 
 import qualified Data.Map.Strict as Map
 
@@ -58,9 +67,10 @@ runScan opts roots = do
   results <- mapFilesConcurrently (scanFile (seedContext config)) paths
   let totals = foldl' visitFile emptyTotals (zip paths results)
   finished <- totals `seq` getCurrentTime
+  drifts <- indexDrifts roots derived (blobsOf totals)
   let elapsed from to = realToFrac (diffUTCTime to from) :: Double
   report roots (length paths) totals dirErrs derived configDirs seed
-         (elapsed started walked) (elapsed started finished)
+         (elapsed started walked) (elapsed started finished) drifts
   where visitFile t (path, result) = merge t path result
 
 -- Per-file scan
@@ -75,7 +85,8 @@ data FileResult = FileResult
   , frHeadlines  :: !Int
   , frViolations :: !Int
   , frSample     :: ![Text]
-  , frIds        :: ![Text]     -- ^ the ORG_GLANCE_IDs the file claims, copied.
+  , frIds        :: ![Text]              -- ^ the ORG_GLANCE_IDs the file claims, copied.
+  , frBlob       :: !(Maybe BlobEntry)   -- ^ set only for a blob; see 'blobEntryOf'.
   }
 
 -- | Read, decode and parse PATH from SEED, forcing the result before returning
@@ -92,16 +103,27 @@ scanFile seed path = do
         pure $ case outcome of
           Left e  -> bare (BParse ("exception: " <> errText (e :: SomeException)))
           Right r -> r
-  where bare b = FileResult b 0 0 0 [] []
+  where bare b = FileResult b 0 0 0 [] [] Nothing
 
 -- | Parse DOC from SEED and tally its elements, headlines and span violations.
 analyse :: Context -> FilePath -> Text -> FileResult
 analyse seed path doc = case orgParse seed doc of
-  (_elems, _ctx, Just err) -> FileResult (BParse (errorReason err)) 0 0 0 [] []
+  (_elems, _ctx, Just err) -> FileResult (BParse (errorReason err)) 0 0 0 [] [] Nothing
   (elems, _ctx, Nothing)   ->
     let acc = foldl' (step path doc (T.length doc)) (Acc 0 0 0 [] (Cursor 0 doc)) elems
+        heads = [ h | EHeadline h <- map valueOf elems ]
     in FileResult BOk (accElements acc) (accHeadlines acc) (accViolations acc) (accSample acc)
-                  [ T.copy i | EHeadline h <- map valueOf elems, Just i <- [identity h] ]
+                  [ T.copy i | h <- heads, Just i <- [identity h] ]
+                  (if isBlob path then blobEntryOf path (map indexTerms heads) else Nothing)
+
+-- | H as the index comparison reads it: its id, its TODO keyword and whether it
+-- is archived, each copied out of the document so no blob entry pins the text
+-- it was sliced from.
+indexTerms :: Headline -> (Maybe Text, Text, Bool)
+indexTerms h = ( T.copy <$> identity h
+               , maybe "" (T.copy . name) (todo h)
+               , archiveTag `elem` tagList (tags h) )
+  where tagList (Tags ts) = ts
 
 -- | Running tally over one file's elements.
 data Acc = Acc
@@ -129,7 +151,10 @@ step path doc len acc el = Acc
 forceResult :: FileResult -> FileResult
 forceResult r =
   frBucket r `seq` frElements r `seq` frHeadlines r `seq` frViolations r
-              `seq` foldr seq (foldr seq r (frIds r)) (frSample r)
+              `seq` foldr seq (foldr seq (blob `seq` r) (frIds r)) (frSample r)
+  -- To WHNF and no further: 'BlobEntry' has strict fields, so applying the
+  -- constructor is what forces the cells out of the document.
+  where blob = maybe () (`seq` ()) (frBlob r)
 
 -- Span checks
 
@@ -210,10 +235,14 @@ data Totals = Totals
   , tIds        :: !(Map.Map Text FilePath)  -- ^ every id seen, and the file that keeps it.
   , tCollisions :: !Int
   , tCollSample :: ![Text]
+    -- Every blob the walk parsed and what was read out of it, in REVERSE walk
+    -- order; 'blobsOf' turns it back.  Undeduplicated on purpose — 'driftOf'
+    -- keys these by id and that is where the tie rule belongs.
+  , tBlobs      :: ![(FilePath, Maybe BlobEntry)]
   }
 
 emptyTotals :: Totals
-emptyTotals = Totals 0 0 0 0 0 0 0 [] [] [] [] Map.empty 0 []
+emptyTotals = Totals 0 0 0 0 0 0 0 [] [] [] [] Map.empty 0 [] []
 
 merge :: Totals -> FilePath -> FileResult -> Totals
 merge t path r = case frBucket r of
@@ -223,12 +252,14 @@ merge t path r = case frBucket r of
                    , tDecodeErrs = capped (tDecodeErrs t) [(path, why)] }
   BParse why  -> t { tParse  = tParse t + 1
                    , tParseErrs = capped (tParseErrs t) [(path, why)] }
-  BOk         -> ids (t { tOk         = tOk t + 1
-                        , tElements   = tElements t + frElements r
-                        , tHeadlines  = tHeadlines t + frHeadlines r
-                        , tViolations = tViolations t + frViolations r
-                        , tViolSample = capped (tViolSample t) (frSample r) })
+  BOk         -> ids (blob (t { tOk         = tOk t + 1
+                              , tElements   = tElements t + frElements r
+                              , tHeadlines  = tHeadlines t + frHeadlines r
+                              , tViolations = tViolations t + frViolations r
+                              , tViolSample = capped (tViolSample t) (frSample r) }))
   where ids acc = foldl' (claim path) acc (frIds r)
+        blob acc | isBlob path = acc { tBlobs = (path, frBlob r) : tBlobs acc }
+                 | otherwise   = acc
 
 -- | ID from PATH folded into ACC's index.  The same rule the rows are resolved
 -- by ('Glance.Query.resolveIds'): a canonical path takes the id, otherwise the
@@ -242,6 +273,54 @@ claim path t i = case Map.lookup i (tIds t) of
             , tCollisions = tCollisions t + 1
             , tCollSample = capped (tCollSample t)
                               [i <> ": kept " <> T.pack kept <> ", dropped " <> T.pack dropped] }
+
+-- The org-glance index
+
+-- | Compare every org-glance index this run can see against BLOBS, one
+-- 'IndexDrift' per store in the order the stores were found.
+--
+-- WHICH STORES.  Each root's own @.org-glance\/meta@, plus every @meta@
+-- directory the WALK declined — 'foundDerived' holds them already, so a store
+-- nested anywhere under a root is compared without a second traversal.  The
+-- roots are asked separately because @--include-derived@ walks the mirrors
+-- instead of declining them, and a run pointed straight at a tree must still
+-- answer for that tree's own store.  A nested store under that flag is the one
+-- shape this misses.
+--
+-- A store with no meta directory is silently no store, which is what makes the
+-- instrument free for a tree org-glance never touched.
+indexDrifts :: [FilePath] -> [FilePath] -> [(FilePath, Maybe BlobEntry)] -> IO [IndexDrift]
+indexDrifts roots derived blobs = do
+  metas <- filterM doesDirectoryExist (storeMetaDirs roots derived)
+  mapM compare' metas
+  where
+    compare' meta = do
+      manifest <- bytesOf (meta </> manifestFile)
+      names <- filterM (doesFileExist . (meta </>)) (segmentNames manifest)
+      segments <- mapM (\n -> (,) (n == openSegment) . orEmpty <$> bytesOf (meta </> n)) names
+      pure (driftOf store (foldSegments segments) (under (store </> "data")))
+      where store = takeDirectory meta
+    under dataDir = [ b | b@(path, _) <- blobs, (dataDir <> "/") `isPrefixOf` path ]
+    orEmpty = fromMaybe BS.empty
+
+-- | T's blobs in walk order, which is the order 'driftOf' resolves a shared id
+-- in.  The fold prepends, so this is the one place that reverses.
+blobsOf :: Totals -> [(FilePath, Maybe BlobEntry)]
+blobsOf = reverse . tBlobs
+
+-- | The meta directories to compare, deduplicated and in the order they were
+-- named.  Textual, like every other rule the walk reads off a path: nothing
+-- canonicalizes a root, so a store reached two ways is compared twice.
+storeMetaDirs :: [FilePath] -> [FilePath] -> [FilePath]
+storeMetaDirs roots derived =
+  nub ([ root </> ".org-glance" </> "meta" | root <- roots ]
+        ++ [ d | d <- derived, takeFileName d == "meta" ])
+
+-- | PATH's bytes, or 'Nothing' when it cannot be read.  The instrument never
+-- fails a scan: an index it cannot open is an index it says nothing about.
+bytesOf :: FilePath -> IO (Maybe BS.ByteString)
+bytesOf path = either (const Nothing) Just
+           <$> (try (BS.readFile path) :: IO (Either IOException BS.ByteString))
 
 -- | OLD extended by NEW, truncated to 'sampleLimit' and forced.
 capped :: [a] -> [a] -> [a]
@@ -257,8 +336,8 @@ capped old new
 -- the config's recognition union, reported because it is the one input to these
 -- counts that is not a file under a root.
 report :: [FilePath] -> Int -> Totals -> [(FilePath, Text)] -> [FilePath] -> [FilePath]
-       -> TodoKeywords -> Double -> Double -> IO ()
-report roots files t dirErrs derived configDirs seed walkSecs secs = do
+       -> TodoKeywords -> Double -> Double -> [IndexDrift] -> IO ()
+report roots files t dirErrs derived configDirs seed walkSecs secs drifts = do
   TIO.putStrLn ("scan " <> T.intercalate " " (map T.pack roots))
   mapM_ TIO.putStrLn
     [ row "dirs scanned"    (num (length roots))
@@ -290,6 +369,8 @@ report roots files t dirErrs derived configDirs seed walkSecs secs = do
   section "derived skipped" (length derived) (map T.pack (take sampleLimit derived))
   section "config skipped" (length configDirs) (map T.pack (take sampleLimit configDirs))
   section "config keywords" (length keywords) [T.unwords keywords]
+  -- No store, no line: a tree org-glance never indexed says nothing about one.
+  mapM_ (\d -> TIO.putStrLn "" >> mapM_ TIO.putStrLn (indexReportLines d)) drifts
   where rate | secs > 0  = fromIntegral files / secs
              | otherwise = 0
         keywords = tkActive seed <> tkInactive seed

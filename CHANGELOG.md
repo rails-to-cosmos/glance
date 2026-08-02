@@ -36,7 +36,114 @@ section groups a feature arc, and its date is that arc's last commit.
   domain, the tag palette's vocabulary and `namesArchive`'s "is anything
   archived" guard.
 
+### Changed
+- A blob's occurrence history is no longer walked. org-glance snapshots a
+  completed repetition as `.org-glance/data/<id>/occurrences/<STAMP>.org`, an
+  immutable copy carrying the LIVE entry's `ORG_GLANCE_ID`; it sits inside
+  `data`, so keeping `data` kept it, and `isCanonical` ranked it canonical for
+  the same reason the live blob is — `beatsForId` called the pair a tie, walk
+  order decided which one the table showed, and `POST /headline` would have
+  written to whichever won. `Data.Org.Walk.isOccurrence` is the rule and
+  `isDerived` covers it, so the watch declines it through the same predicate a
+  file the walk never collected is declined by, and `isCanonical` excludes it so
+  that under `--include-derived` — which walks it — it loses the id rather than
+  tying for it. The name is asked for anywhere under `data`: a two-character id
+  is unsharded, so no position test covers both layouts, and the cost is that a
+  blob whose sharded remainder spells exactly `occurrences` would be declined
+  too. Zero on disk under `~/sync`, so the corpus counts do not move and the
+  hazard is closed before it is reachable.
+- The link list `o` raises is a READ-ONLY TABLE-VIEW MOUNT, the page's third,
+  where it was a which-key palette. Three columns — `type` as a badge, `title`
+  as the entry's own description, `url` as the target — and the whole surface is
+  `n`/`p` (`j`/`k`, the arrows) to move, `o` to open the link at point, `ESC` to
+  leave. The mount is stated read-only: no marks, no flags, no page, no hint
+  line. The doctrine it lands is a division of labour between the two shapes: a
+  WHICH-KEY palette is for a fixed vocabulary a reader commits from memory (a
+  keyword, a tag), where the letter IS the confirmation; a READ-ONLY MOUNT is for
+  a list that has to be READ before it can be picked from, where letters are
+  noise over the columns carrying the answer. So `t` and `:` keep their letters
+  and the links lose theirs, `/` narrowing with them.
+- `GET /links` gains a `type` per link: the target's SCHEME, lowercased, with
+  the whole `org-glance-*` family folded into `glance`
+  (`Glance.Query.linkType`). `https`, `http`, `mailto`, `id`, `file` and
+  `glance` are the six the corpus spells and the six the popup declares badge
+  hues for — the two a tab can follow warm, the four it cannot cool — and a
+  scheme those six do not name travels under its own name rather than being
+  flattened away — a 300-row sample of ~/sync answers `glance` 427, `https` 286,
+  `file` 68, `http` 18, `elisp` 6, `attachment` 2 and `other` 1, so two types
+  nothing declares came back named. A target with no scheme-shaped word before a `:` is `other`,
+  which is org's internal `[[Title]]` and `[[*Title]]` and a relative path
+  written without `file:`. The honest cost of reading the prefix alone: `[[Meeting:
+  notes]]` reads `meeting`, because the alternative is a registry and then an
+  unlisted scheme would read as prose. `followable` is now that word rather than
+  a regex the page ran over the target a second time.
+- The `tag` COLUMN sorts, case-folded (`Glance.Query.sortedTagsCell`):
+  `:task:nl:finance:` reads `:finance:nl:task:`, so a tags cell is scanned in
+  one order rather than in the author's typing order. Display only. The FILE
+  keeps its spelling — the span is untouched, so materialize and the tag edits
+  splice into the run as written — and so does `hrTags`, which is what
+  `classify` reads and where the order DECIDES which tag's config governs the
+  row. `hrSearch` inherits the sort by construction, `GET /tags` and the tag
+  palette's first-seen union do not, and no predicate changes answer: `tag:x` is
+  a substring of one tag and `tag:*archive*` is membership of the list.
+- The materialize sheet's two panes wear one radius. `#mtext` was 4px against
+  the panel's `.tv-root` 8px; 8px is the page's shared value, which the log strip
+  and the sheet's logbook already wear.
+
 ### Added
+- The view declares a SORT CHAIN rather than one key: title, then state,
+  deadline, scheduled and priority, every key ascending
+  (`Glance.Query.defaultSortChain`). SCHEMA.md's `sort` takes an array for
+  exactly this and both renderers run every key of it, so the table opens
+  alphabetically and the four keys behind the title fire only where two rows
+  are named alike. The browser draws the chain as a chip per key beside the
+  filter's chips; `table-view.el` prints it on its hint line.
+  ONE list, read twice — `declaredSort` spells it onto the wire and
+  `sortedForViewWith` arranges the rows by it — which is the whole reason a
+  producer sorts at all: a page cut out of a different order than the one
+  declared is a different set of rows than the table would have put there.
+  The arrangement is the renderers' rules, term for term: empty cells last on
+  each key and OUTSIDE that key's direction (a blank is a fact about a cell,
+  never about a row), the state column by its badge PALETTE position with
+  everything unlisted tying at the back, a stable sort so rows equal on all
+  five keep walk order. Text compares case-FOLDED, the way the tags cell
+  already folds: the browser collates with `localeCompare`, which is
+  case-insensitive at its primary strength, and raw code-point order would put
+  every capitalised title ahead of every lowercase one where the table shows
+  them interleaved. Titles differing only by punctuation or script can still
+  land elsewhere than `localeCompare` would put them — the residue of having no
+  collation library on this side.
+  `sortedForViewWith`/`orderedForViewWith` take the state palette; the
+  palette-free `sortedForView` derives one from the records it is given, which
+  orders those records correctly and can differ from the store's in one case
+  (two files declaring the same keywords in opposite orders, and a filter that
+  hides every row of the first). A caller holding the store's palette should
+  pass it.
+- `glance scan` folds org-glance's write-ahead index and says where it and this
+  parser disagree: `org-glance index: 21 rows disagree (20 state, 1 archived)`,
+  with the store, the fold's counts, the blob counts, and up to ten disagreeing
+  ids carrying both values. Read only — the one thing here that opens
+  `.org-glance/meta/` at all, and it never writes, creates or seals anything.
+  The fold is `org-glance-graph--latest-records` term for term: the MANIFEST's
+  sealed segments oldest-first, the open `headlines.jsonl` last, the latest
+  record per `ORG_GLANCE_ID` superseding every earlier one, tombstoned ids out,
+  only the open segment's final line forgiven for being torn. It compares the
+  TODO keyword always and the archive flag only where the record carries the
+  key — `archived` joined the record schema late, so absent is a third answer
+  rather than false. Stores are each root's own `.org-glance/meta` plus every
+  `meta` the walk declined, so a nested store is compared without a second
+  traversal; a tree org-glance never indexed prints no line.
+  ~/sync/views at 2026-08-02: 6502 records read, 6071 live, 0 tombstones, 0
+  malformed; 6063 blobs parsed; 21 rows disagreeing; 0 unindexed blobs.
+- The same report counts what the instrument cannot compare: `blobs 6063
+  parsed, 51 carrying no id` is blobs this parser read and found no
+  `ORG_GLANCE_ID` in, which with the 8 parse failures accounts for all 59
+  `records without blobs` — so none of that number is org-glance indexing
+  something that is not there. 28 of the 51 are one parser gap: a non-English
+  weekday in the planning line (`CLOSED: [2025-12-04 do 22:34]`) fails the
+  planning parse, the property drawer is then no longer the next thing, and the
+  headline loses its properties whole. Reported rather than fixed; without the
+  count it read as index lag.
 - A row whose subtree holds a link wears an UNDERLINED title, so which rows `o`
   has something to follow is on screen before the press. `/headlines` and every
   streamed row carry `"linked": true` where there is a link and carry nothing

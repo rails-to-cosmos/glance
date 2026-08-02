@@ -5,7 +5,7 @@
 -- are TestStore's subject.
 module TestServe (spec) where
 
-import Control.Monad (filterM, (<=<))
+import Control.Monad (filterM, forM_, (<=<))
 import Data.Aeson ( FromJSON, Value (Bool, Null, Number, Object, String)
                   , eitherDecode, encode, object, parseJSON, (.=) )
 import Data.Aeson.Types (parseEither)
@@ -283,14 +283,18 @@ rowId row = case row of
     _noId           -> T.pack (show row)
   _notARow -> T.pack (show row)
 
--- | ROW's @scheduled@ cell, empty when it has none.  The key the view declares
--- its sort on, so a page has to come out of this order.
-scheduledOf :: Value -> T.Text
-scheduledOf row = case row of
+-- | ROW's @title@ cell, folded, empty when it has none.  The LEADING key of the
+-- chain the view declares ('Glance.Query.defaultSortChain'), and this fixture's
+-- titles are distinct, so it settles the order on its own and the four
+-- tie-breakers behind it never fire.  A page has to come out of that order —
+-- @\/headlines@ with no @limit@ answers in walk order for the client to sort,
+-- so this is what a paged answer is measured against.
+sortKeyOf :: Value -> T.Text
+sortKeyOf row = case row of
   Object o -> case KM.lookup "cells" o of
-    Just (Object cells) -> case KM.lookup "scheduled" cells of
-      Just (String s) -> s
-      _unscheduled    -> ""
+    Just (Object cells) -> case KM.lookup "title" cells of
+      Just (String s) -> T.toCaseFold s
+      _untitled       -> ""
     _noCells -> ""
   _notARow -> ""
 
@@ -763,31 +767,25 @@ moveScript script = "rows:9 paged:3 " <> script
 -- Three rules, and the renderer decides all three.  WHICH column is the cell
 -- selection's, so a whole-row selection is a refusal rather than a guess.
 -- WHETHER it sorts is the column's own @sortable@ — the renderer's opt-in,
--- which @sortBy@ ignores, so honouring it is this page's job.  And how far the
--- cycle goes is the handle's ceiling: @sortBy@ states an order and no call
--- takes one off, so @^@ REVERSES and a third press is the first again.
---
--- The record of which order is in force is the one thing about the table this
--- page keeps, because the handle publishes no accessor for it.  Two cases pin
--- where it comes from and how long it lasts: a mount seeds it off the view's
--- declared @sort@, and a refetch leaves both it and the renderer's own sort
--- keys alone.
+-- which @sortPromote@ gates but this page still names, so the refusal can
+-- speak.  @^@ PROMOTES: the column at point heads the chain ascending (the
+-- rest shift down, deduped), and on the column already leading it flips that
+-- key alone — composing a chain is pressing over columns in reverse priority
+-- order, the web's spelling of table-view.el's @C-u ^@.  The record of what
+-- is in force is the handle's own (@getSort@); this page keeps none.
 sortKeySpec :: IO T.Text -> TestTree
 sortKeySpec shell = testGroup "Shell sort"
-  [ testCase "sorts by the column at point, reversing the order the view declared" $
+  [ testCase "sorts by the column at point: the leader flips in place" $
       bootOf shell "" 500 "f ^" "" $ \answer -> do
-        assertEqual "the view opened on this column ascending, so the key turns it"
+        assertEqual "the view's chain opens on state, so the press flips it"
                     (Just ("state", False)) =<< sortOf answer
         assertEqual "and the echo speaks the direction it landed in"
                     "^ → toggle-sort (state ▼)" =<< textAt "echo" answer
 
-  , testCase "a second press turns it back, and a third is the first again" $ do
+  , testCase "a second press flips the leader back, and a third again" $ do
       bootOf shell "" 500 "f ^ ^" "" $ \answer -> do
-        assertEqual "back up" (Just ("state", True)) =<< sortOf answer
+        assertEqual "the leader flips alone" (Just ("state", True)) =<< sortOf answer
         assertEqual "the echo" "^ → toggle-sort (state ▲)" =<< textAt "echo" answer
-      -- Two states, because the handle has no third: `sortBy' states an order
-      -- and nothing takes one off, where table-view.el's `^' cycles on through
-      -- its nulls-first variants.
       bootOf shell "" 500 "f ^ ^ ^" "" $
         assertEqual "and round again" (Just ("state", False)) <=< sortOf
 
@@ -827,16 +825,16 @@ sortKeySpec shell = testGroup "Shell sort"
         assertEqual "and it is still the one that was asked for"
                     (Just ("state", False)) =<< sortOf answer
       bootOf shell "" 500 "f ^" "moved close:resync press:^" $ \answer -> do
-        assertEqual "the press after it continues the cycle"
+        assertEqual "the press after it flips the leader it left in force"
                     (Just ("state", True)) =<< sortOf answer
         assertEqual "the echo" "^ → toggle-sort (state ▲)" =<< textAt "echo" answer
 
-    -- A REMOUNT is where the renderer re-reads the view's own sort, so it is
-    -- where the record goes back to what the view declares: the press after one
-    -- reverses the declared order again rather than the one that was in force.
-  , testCase "a remount re-seeds the record off the view it mounts" $
+    -- A REMOUNT re-reads the view's own sort chain, so state is back to a
+    -- non-leader and the press after one PROMOTES again rather than flipping
+    -- what was in force before the remount.
+  , testCase "a remount re-seeds the chain off the view it mounts" $
       bootOf shell "" 500 "f ^" "close:view-changed press:f press:^" $ \answer ->
-        assertEqual "the declared order, reversed again"
+        assertEqual "the declared leader, flipped again"
                     "^ → toggle-sort (state ▼)" =<< textAt "echo" answer
   ]
 
@@ -1523,7 +1521,7 @@ lastLog answer = fmap (message . cut) . listToMaybe . reverse <$> logOf answer
 -- | @o@: what the row points at, followed.
 --
 -- The gesture is decided by the ANSWER — none refuses, one opens without
--- asking, several raise the palette — so every case here runs the fetch and
+-- asking, several raise the POPUP — so every case here runs the fetch and
 -- reads what came of it.  Which links a subtree holds is @TestQuery@'s
 -- ("Links") and the route's shape is @linksSpec@'s; this is the keystroke.
 openKeySpec :: IO T.Text -> TestTree
@@ -1539,7 +1537,7 @@ openKeySpec shell = testGroup "Shell open"
         -- `run\' says of the row — the command and its help — the way it does
         -- while the state palette is up.  The landing is the letter.
         assertEqual "under the same name"
-                    "! → org-glance-overview:open · follow this row\'s link; several raise the palette"
+                    "! → org-glance-overview:open · follow this row\'s link; several list them"
           =<< textAt "echo" answer
 
   , testCase "one link opens without asking" $
@@ -1560,30 +1558,74 @@ openKeySpec shell = testGroup "Shell open"
         assertEqual "and the pill says why"
                     "o → org-glance-overview:open (no links)" =<< textAt "echo" answer
 
-    -- Several is the palette: a FLAT list under which-key letters, each entry
-    -- described the way the row's own text describes it, with the target beside
-    -- it.  No source table — one row points where it points and no scope
-    -- classified it — so the layout is the fallback's shape with the letters on.
-  , testCase "several raise the palette, one letter each" $
+    -- Several is the POPUP, and the popup is the page's THIRD table-view mount.
+    -- A list of links is a list of RECORDS — a kind, a name, a destination —
+    -- and reading it is how a reader picks one, which is the browse gesture a
+    -- which-key letter is the wrong shape for.
+  , testCase "several raise the popup, which is a table-view mount" $
       bootOf shell "" 500 "o" "" $ \answer -> do
-        assertEqual "raised" "on" =<< textAt "prompt" answer
-        assertEqual "titled by the count" "open · 3 links" =<< textAt "phead" answer
-        assertEqual "the entries, in the order the subtree writes them"
-          [ ("pe", "", ["[F]irst reference"],  [])
-          , ("pe", "", ["[S]econd reference"], [])
-          , ("pe", "", ["[m]ailto:t@example.org"], []) ] =<< paletteOf answer
-        assertEqual "and the foot says a letter opens rather than sets"
-                    "a letter opens it · / to search · ESC leaves"
-          =<< textAt "pfoot" answer
+        assertEqual "raised" "on" =<< textAt "popup" answer
+        assertEqual "no value palette went up" "" =<< textAt "prompt" answer
+        assertEqual "titled by the count" "open · 3 links" =<< textAt "lhead" answer
+        assertEqual "one mount, built on the first raise" 1
+          =<< intAt "lmounts" answer
+        assertEqual "the columns the shell declared" ["type", "title", "url"]
+          =<< traverse (textAt "key") =<< listAt "lcols" answer
 
-    -- The press that raised THIS palette has been dispatched and gone by the
-    -- time the answer lands, where `t' is still travelling when its palette
-    -- goes up.  So nothing is declined here, and the first letter commits.
-  , testCase "a letter opens its link and closes the palette" $
-      bootOf shell "" 500 "o" "press:s" $ \answer -> do
+    -- The rows carry the server's own three answers, in the order the subtree
+    -- writes them: the type it derived, the description the entry itself wrote,
+    -- and where it points.
+  , testCase "the rows are the answer, type and all" $
+      bootOf shell "" 500 "o" "" $ \answer -> do
+        assertEqual "one row per link"
+          [ ["https", "First reference", "https://one.example/a"]
+          , ["https", "Second reference", "https://two.example/b"]
+          , ["mailto", "mailto:t@example.org", "mailto:t@example.org"] ]
+          =<< pairsAt "llinks" answer
+        assertEqual "the cursor lands on the first" 0 =<< intAt "lat" answer
+        assertEqual "and the foot names the two keys that work"
+                    "o opens it · ESC leaves" =<< textAt "lfoot" answer
+
+    -- READ-ONLY, and stated in the mount rather than inherited: nothing here
+    -- writes, so a mark column, a flag wash and a per-row hint would each be
+    -- chrome about a gesture the popup does not have.
+  , testCase "the mount is read-only: no marks, no flags, no hints, no page" $
+      bootOf shell "" 500 "o" "" $ \answer -> do
+        assertEqual "marks off" False =<< boolAt "lmarks" answer
+        assertEqual "flags off" False =<< boolAt "lflags" answer
+        assertEqual "hints off" False =<< boolAt "lhints" answer
+        assertEqual "and no page size, so the whole list is on show" 0
+          =<< intAt "lpage" answer
+
+    -- The whole point of `typing()' counting the popup: every `table' row is
+    -- dead under it, so the keys that WRITE do nothing at all while a reader is
+    -- browsing links.  Asserted over the four that would otherwise cost a file.
+  , testCase "the write keys are inert while the popup is up" $
+      bootOf shell "" 500 "o" "press:d press:D press:m press:M press:u press:U" $
+        \answer -> do
+          assertEqual "nothing was flagged, here or in the table" []
+            =<< textsAt "lflagged" answer
+          assertEqual "nor in the table under it" [] =<< textsAt "flagged" answer
+          assertEqual "nothing was marked" [] =<< textsAt "lmarked" answer
+          assertEqual "nor there" [] =<< textsAt "marked" answer
+          assertEqual "and no command was posted" [] =<< namesOf answer
+          assertEqual "the popup is still up" "on" =<< textAt "popup" answer
+
+  , testCase "n and p walk the popup, in both spellings" $ do
+      bootOf shell "" 500 "o" "press:n press:n" $
+        assertEqual "down twice" 2 <=< intAt "lat"
+      bootOf shell "" 500 "o" "press:j press:k" $
+        assertEqual "and back" 0 <=< intAt "lat"
+      bootOf shell "" 500 "o" "press:ArrowDown" $
+        assertEqual "the arrows too" 1 <=< intAt "lat"
+
+    -- `o' is the key that raised this, carried inside: it opens the link the
+    -- cursor is on rather than the row's first, and closes.
+  , testCase "o opens the link at point and closes the popup" $
+      bootOf shell "" 500 "o" "press:n press:o" $ \answer -> do
         assertEqual "the second one" [("https://two.example/b", "_blank", "noopener")]
           =<< openedOf answer
-        assertEqual "the overlay is down" "" =<< textAt "prompt" answer
+        assertEqual "the popup is down" "" =<< textAt "popup" answer
         assertEqual "the pill names it by its description"
                     "o → org-glance-overview:open (Second reference)"
           =<< textAt "echo" answer
@@ -1591,21 +1633,21 @@ openKeySpec shell = testGroup "Shell open"
   , testCase "ESC leaves it having opened nothing" $
       bootOf shell "" 500 "o" "press:Escape" $ \answer -> do
         assertEqual "nothing opened" [] =<< openedOf answer
-        assertEqual "the overlay is down" "" =<< textAt "prompt" answer
+        assertEqual "the popup is down" "" =<< textAt "popup" answer
 
-    -- `/' is the established completing-read, and it narrows over the target as
-    -- well as the description: a reader who remembers the host and not the
-    -- wording has only the one.
-  , testCase "/ narrows over the descriptions and the targets alike" $ do
-      bootOf shell "" 500 "o" "press:/ type:second" $
-        assertEqual "by description"
-          [("pe pat", "", ["Second reference"], [])] <=< paletteOf
-      bootOf shell "" 500 "o" "press:/ type:one.example" $
-        assertEqual "by target, which no description spells"
-          [("pe pat", "", ["First reference"], [])] <=< paletteOf
-      bootOf shell "" 500 "o" "press:/ type:second press:Enter" $
-        assertEqual "and RET opens what is left"
-          [("https://two.example/b", "_blank", "noopener")] <=< openedOf
+    -- Editing a link IN PLACE is the gesture `RET' is reserved for — the row's
+    -- own title and url cells becoming fields over themselves, the property
+    -- panel's edit model exactly.  It needs a per-link span out of `/links' and
+    -- an `edit-link' command to splice it, and this build has neither, so the
+    -- key says what it is waiting for and changes nothing.
+  , testCase "RET names the edit that is not here yet, and writes nothing" $
+      bootOf shell "" 500 "o" "press:Enter" $ \answer -> do
+        assertEqual "nothing opened" [] =<< openedOf answer
+        assertEqual "nothing posted" [] =<< namesOf answer
+        assertEqual "the popup stands" "on" =<< textAt "popup" answer
+        assertEqual "and the log says what it is waiting for"
+          (Just "RET (edit-link) — arrives with the link span and the edit-link command")
+          =<< lastLog answer
 
     -- A held key must not be a browser tab per repeat, which is why the command
     -- is on the ONCE list beside the writes.
@@ -1613,22 +1655,24 @@ openKeySpec shell = testGroup "Shell open"
       bootOf shell "" 500 "o" "repeat:o repeat:o repeat:o" $
         assertEqual "one request" ["/links?id=r1"] <=< textsAt "linked"
 
-  , testCase "a refused answer is one cmd error line and no palette" $
+  , testCase "a refused answer is one cmd error line and no popup" $
       bootOf shell "" 500 "" "refuse press:o" $ \answer -> do
         assertEqual "nothing opened" [] =<< openedOf answer
-        assertEqual "no palette" "" =<< textAt "prompt" answer
+        assertEqual "no popup" "" =<< textAt "popup" answer
         assertEqual "and the log carries the server's own words"
                     (Just "open failed: no headline with id r1") =<< lastLog answer
 
-    -- A tab can be pointed at http(s) and at nothing else.  Org writes plenty
-    -- of other link types and `/links' reports them all, so the COMMIT is where
-    -- the judgement lands — which is one function for both paths, the lone link
-    -- that opens without asking and the palette entry a letter picks.
+    -- A tab can be pointed at http(s) and at nothing else, and the TYPE is what
+    -- says so — the server's own word rather than a regex this page runs over
+    -- the target a second time.  Org writes plenty of other link types and
+    -- `/links' reports them all, so the COMMIT is where the judgement lands,
+    -- which is one function for both paths: the lone link that opens without
+    -- asking and the popup row `o' picks.
   , testCase "a single link that is not http(s) opens nothing and says so" $
       bootOf shell "" 500 "" "onemailto press:o" $ \answer -> do
         assertEqual "no tab" [] =<< openedOf answer
-        assertEqual "and no palette, since one link never raises one" ""
-          =<< textAt "prompt" answer
+        assertEqual "and no popup, since one link never raises one" ""
+          =<< textAt "popup" answer
         assertEqual "the pill names the command and the refusal"
                     "o → org-glance-overview:open (link type not implemented)"
           =<< textAt "echo" answer
@@ -1636,20 +1680,52 @@ openKeySpec shell = testGroup "Shell open"
                     (Just "link type not implemented: mailto:t@example.org")
           =<< lastLog answer
 
-    -- The palette still LISTS every link the row holds — that is what teaches a
-    -- reader what is in the entry — and the letter is where the answer is given.
-  , testCase "a palette commit on a non-http entry refuses the same way" $
-      bootOf shell "" 500 "o" "press:m" $ \answer -> do
+    -- The popup still LISTS every link the row holds — that is what teaches a
+    -- reader what is in the entry — and `o' is where the answer is given.
+  , testCase "an o on a non-http row refuses the same way" $
+      bootOf shell "" 500 "o" "press:n press:n press:o" $ \answer -> do
         assertEqual "nothing opened" [] =<< openedOf answer
-        assertEqual "the overlay is down all the same" "" =<< textAt "prompt" answer
+        assertEqual "the popup is down all the same" "" =<< textAt "popup" answer
         assertEqual "the pill says why"
                     "o → org-glance-overview:open (link type not implemented)"
           =<< textAt "echo" answer
 
-  , testCase "and an http entry beside it still opens" $
-      bootOf shell "" 500 "o" "press:f" $
+  , testCase "and an http row beside it still opens" $
+      bootOf shell "" 500 "o" "press:o" $
         assertEqual "the first one" [("https://one.example/a", "_blank", "noopener")]
           <=< openedOf
+
+    -- Every type the server derives, drawn.  The badge column carries whatever
+    -- word came back — the six the palette declares hues for and the catch-all
+    -- alike — because a type this page has never seen is still a fact about the
+    -- link and hiding it would teach less than showing it uncoloured.
+  , testCase "every type the server derives reaches the badge cell" $
+      bootOf shell "" 500 "" "everytype press:o" $ \answer ->
+        assertEqual "one word per row"
+          ["https", "http", "glance", "mailto", "id", "file", "other"]
+          . map head =<< pairsAt "llinks" answer
+
+    -- One walk down the same popup, `o' on every row: the two followable rows
+    -- open the tab that row points at and the five others open none, each
+    -- saying so by name.  The steps are the table's own, so what this asserts
+    -- is `followable' reading the type — one rule over seven values rather than
+    -- two cases and a list of exceptions.
+  , testCase "and only the followable ones open a tab" $
+      forM_ [ (0 :: Int, "https://a.example", True)
+            , (1, "http://b.example",         True)
+            , (2, "org-glance-visit:XYZ",     False)
+            , (3, "mailto:t@example.org",     False)
+            , (4, "id:99",                    False)
+            , (5, "file:notes.org",           False)
+            , (6, "Some Headline",            False) ] $
+        \(at, target, opens) ->
+          bootOf shell "" 500 ""
+            ("everytype press:o " <> T.replicate at "press:n " <> "press:o") $ \answer -> do
+              assertEqual (T.unpack target)
+                [(target, "_blank", "noopener") | opens] =<< openedOf answer
+              if opens then pure () else
+                assertEqual "and the refusal names the target"
+                  (Just ("link type not implemented: " <> target)) =<< lastLog answer
   ]
 
 -- | Every tab the page opened: the URL, the target name and the window features
@@ -2889,8 +2965,8 @@ paletteHues :: Value -> IO [(T.Text, T.Text)]
 paletteHues = fmap (filter (not . T.null . snd)) . paletteField "color"
 
 -- | Every entry the palette drew, as its word and the muted aside beside it —
--- the tag palette's partial count, the link palette's target.  Empty where the
--- entry has none, which is what a tag every target already carries looks like.
+-- the tag palette's partial count.  Empty where the entry has none, which is
+-- what a tag every target already carries looks like.
 paletteHints :: Value -> IO [(T.Text, T.Text)]
 paletteHints = paletteField "hint"
 
@@ -3018,9 +3094,9 @@ shellGlue =
   -- would make `#app' the containing block for the renderer's own fixed palette
   -- backdrop and clip it inside the table's box.
   , Glue "the wash dims the table and the overlays, and exempts what explains"
-      [ "  html.stale #app,html.stale #modal,html.stale #prompt,html.stale #config{"
-      , "    opacity:.55}"
-      , "  #app,#modal,#prompt,#config{transition:opacity .18s ease}" ]
+      [ "  html.stale #app,html.stale #modal,html.stale #prompt,html.stale #config,"
+      , "  html.stale #links{opacity:.55}"
+      , "  #app,#modal,#prompt,#config,#links{transition:opacity .18s ease}" ]
       [ "html.stale #log", "html.stale #corner", "html.stale #kbd"
       , "html.stale #echo", "html.stale body", "stale #app{filter", "filter:blur"
       , "filter:saturate", "filter:grayscale" ]
@@ -3332,8 +3408,9 @@ shellGlue =
       -- arrows, and RET opens a row and commits it.  Movement is the MOUNT's
       -- step, so the cursor a reader moves is the renderer's.
       , "const k = keyName(e), crossing = k === \"TAB\" || k === \"S-TAB\";"
-      , "const moveCur = (step) => can(pmount, \"selectStep\") && pmount.selectStep(step);"
-      , "else if (k === \"<down>\" || k === \"n\" || k === \"j\") moveCur(1);"
+      , "const moveCur = (step) => stepIn(pmount, step);"
+      , "const rowStep = (k) => (k === \"<down>\" || k === \"n\" || k === \"j\" ? 1"
+      , "else if (step) moveCur(step);"
       , "} else if (crossing) leavePanel();"
       , "const pnav = () => el(\"mprops\").className === \"on\";"
       , "el(\"mprops\").className = \"on\"; el(\"mtext\").blur();"
@@ -3347,7 +3424,7 @@ shellGlue =
       -- The pane hosts the mount and positions the overlay, and that is the
       -- whole of what it styles: `.tv-root' brings the frame and draws the rows.
       , "#mprops{flex:1 1 240px;min-width:0;min-height:0;position:relative;"
-      , "#mptable .tv-root{flex:1;min-width:0;font-family:var(--dk-mono)}"
+      , "#mptable .tv-root,#ltable .tv-root{flex:1;min-width:0;font-family:var(--dk-mono)}"
       -- The open row's fields sit OVER the row, since the mount rewrites its own
       -- rows as it scrolls, and they land on the text they replace.
       , "#pedit{display:none;position:absolute;left:0;right:0;"
@@ -3517,19 +3594,20 @@ shellGlue =
       [ "const linksOf = (id) => getJSON(`/links?id=${encodeURIComponent(id)}`);"
       , "if (!links.length) { said(b, \"no links\"); return; }"
       , "if (links.length === 1) { openLink(b, links[0]); return; }"
-      , "ask(`open · ${links.length} links`, (c) => openLink(b, c),"
+      , "showLinks(b, links);"
       , "window.open(link.target, \"_blank\", \"noopener\");"
       , "append(\"cmd\", \"info\", `link ${JSON.stringify(link.target)} opened`);"
-      -- The palette is raised behind the answer, so nothing is travelling.
-      , "prompting.raising = false;"
-      , "a letter opens it · / to search · ESC leaves"
-      -- `/' narrows over the description AND the target.
-      -- The aside is DRAWN and the link's TARGET is what narrows: the tag
-      -- palette writes a partial count into the aside, and a digit must not cut
-      -- the list down to the entries that happen to be 2-of-3.
-      , "`${c.label} ${c.target || \"\"}`.toLowerCase().includes(want)" ]
-      -- No bracket grammar here: `[[T][D]]' is read where `displayText' is.
-      [ "\\\\[\\\\[", "showLinks", "linkAt" ]
+      -- SEVERAL is a table-view MOUNT, and the followable set is the SERVER's
+      -- list spliced in rather than a regex this page runs over the target a
+      -- second time.  What the mount was given and what the foot says are the
+      -- popup cases' business, which read them off behaviour.
+      , "lmount = TableView.mount(el(\"ltable\"), { columns: LCOLS, rows: [] },"
+      , "const followable = (l) => FOLLOWABLE.indexOf(l.type) !== -1;" ]
+      -- No bracket grammar here: `[[T][D]]' is read where `displayText' is.  No
+      -- which-key letters either: the popup replaced them, so nothing assigns
+      -- one over a link and nothing narrows a link list.
+      [ "\\\\[\\\\[", "linkAt("
+      , "linkChoices", "a letter opens it", "c.target" ]
 
   , glue "a binding with no handler names what it is waiting for"
       [ "arrives with daemon commands (M4)" ]
@@ -3609,29 +3687,23 @@ shellGlue =
   -- which order is in force is the one thing about the table this page keeps,
   -- and it keeps it because the handle publishes no accessor: `sortBy' STATES
   -- an order and nothing reads one back.  It is seeded where the renderer seeds
-  -- its own (a mount, off the view's `sort') and written where a sort is asked
-  -- for, and those are the only two places.
-  , Glue "`^' reverses the sort on the column at point, and honours the opt-in"
+  -- record of its own — `getSort' is the handle's accessor and this page
+  -- keeps none.
+  , Glue "`^' promotes the column at point to the chain's head"
       [ "toggleSort: (b) => {"
-      , "let sortAt = null;"
-      , "function sortRows(key, asc) { table.sortBy(key, asc); sortAt = { key, asc }; }"
-      , "sortAt = view.sort"
-      , "? { key: view.sort.column, asc: view.sort.ascending !== false } : null;"
       -- The column comes out of the renderer's selection like every other key's.
       , "const at = column(), c = at === null ? null : cols[at];"
       , "if (!c) { said(b, \"no column selected — f/l to pick one\"); return; }"
-      -- `sortBy' ignores `sortable', so the page driving a reader's key is what
-      -- has to honour it.
+      -- `sortPromote' gates on `sortable' too, but the refusal must SPEAK, so
+      -- the page still names it.
       , "if (c.sortable !== true) { said(b, `${named} does not sort`); return; }"
-      , "const asc = !(sortAt && sortAt.key === c.key && sortAt.asc);"
-      , "sortRows(c.key, asc);"
-      , "said(b, `${named} ${asc ? \"▲\" : \"▼\"}`);"
+      , "table.sortPromote(c.key);"
+      , "const head = (table.getSort() || [])[0];"
       -- An asset with no programmatic sort says so rather than throwing.
       , "if (!sorts()) { said(b, \"this table-view.js has no sort\"); return; }" ]
-      -- One call site: a second direct `sortBy' with a column spelled into it
-      -- would be an order asked for and never recorded.  And the arrow the
-      -- header wears is the renderer's own drawing, never this page's read.
-      [ "table.sortBy(\"", "tv-arrow" ]
+      -- No local sort record survives: `sortAt' was the page's copy of what the
+      -- handle now publishes.  The header arrow stays the renderer's drawing.
+      [ "sortAt", "tv-arrow" ]
 
   -- `f → next-column (Headline)', and `f → next-column (row mode)' where the
   -- walk left the cells.  Walking off an end is a LANDING rather than a wall:
@@ -4128,7 +4200,7 @@ querySpec = testGroup "GET /headlines filter and paging"
       assertEqual "the union" 4 (length whole)
       assertEqual "the total is the match count, not the page" (Just "4")
                   (header "X-Glance-Total" one)
-      let sorted = map rowId (sortOn scheduledOf whole)
+      let sorted = map rowId (sortOn sortKeyOf whole)
       assertEqual "page one" (take 2 sorted) . map rowId =<< rowsOf one
       assertEqual "page two" (drop 2 sorted) . map rowId =<< rowsOf two
       assertEqual "more follows page one" (Just "true") (header "X-Glance-Has-Next" one)
@@ -4139,15 +4211,15 @@ querySpec = testGroup "GET /headlines filter and paging"
       whole <- rowsOf =<< getFrom a "/headlines"
       page <- rowsOf =<< getFrom a "/headlines?limit=3"
       assertEqual "page size" 3 (length page)
-      -- The page is the first three by scheduled ascending, which is what the
-      -- view declares — not the first three the walk found.
+      -- The page is the first three of the chain the view declares, not the
+      -- first three the walk found.
       assertEqual "the sort the view declares"
-                  (take 3 (map rowId (sortOn scheduledOf whole)))
+                  (take 3 (map rowId (sortOn sortKeyOf whole)))
                   (map rowId page)
 
   , testCase "offset walks the pages, and has-next says when to stop" $ do
       a <- app assetsDir
-      whole <- map rowId . sortOn scheduledOf <$> (rowsOf =<< getFrom a "/headlines")
+      whole <- map rowId . sortOn sortKeyOf <$> (rowsOf =<< getFrom a "/headlines")
       one <- getFrom a "/headlines?limit=4&offset=0"
       two <- getFrom a "/headlines?limit=4&offset=4"
       past <- getFrom a "/headlines?limit=4&offset=6"
@@ -5745,11 +5817,24 @@ linksSpec = testGroup "GET /links"
       withLinkTree $ \a -> do
         r <- getFrom a "/links?id=linked"
         assertEqual "status" 200 (status r)
-        assertEqual "target and description"
-          [ ["https://x.example/a", "the first"]
-          , ["https://y.example/b", "https://y.example/b"]
-          , ["https://z.example/c", "https://z.example/c"] ]
+        assertEqual "target, description and type"
+          [ ["https://x.example/a", "the first", "https"]
+          , ["https://y.example/b", "https://y.example/b", "https"]
+          , ["https://z.example/c", "https://z.example/c", "https"] ]
           =<< linksOf r
+
+    -- The type is the SERVER's word for the target, which is what the popup's
+    -- badge column draws and what `o' reads to decide whether a tab can be
+    -- pointed anywhere.  The derivation is `TestQuery''s ("Links"); what belongs
+    -- here is that the route carries it, over targets no tab can follow.
+  , testCase "every link carries its type, followable or not" $
+      withLinkTree $ \a ->
+        assertEqual "one word per link"
+          [ ["mailto:t@example.org", "write", "mailto"]
+          , ["org-glance-visit:E1B2", "the other row", "glance"]
+          , ["file:notes.org", "notes", "file"]
+          , ["Some Headline", "Some Headline", "other"] ]
+          =<< linksOf =<< getFrom a "/links?id=typed"
 
   , testCase "an id the store has no row for is a 404, like materialize" $
       withLinkTree $ \a -> do
@@ -5776,11 +5861,12 @@ linksSpec = testGroup "GET /links"
 -- | The answer's links as @[target, desc]@ pairs.
 linksOf :: SResponse -> IO [[T.Text]]
 linksOf r = traverse one =<< listAt "links" =<< decoded r
-  where one v = sequence [textAt "target" v, textAt "desc" v]
+  where one v = sequence [textAt "target" v, textAt "desc" v, textAt "type" v]
 
--- | A tree with one row worth following and one with nothing in it: a bracket
--- link on the title, a bare URL in the body, and one more under a child, so
--- the route's answer shows it read the SUBTREE.
+-- | A tree with one row worth following, one holding a link of every type the
+-- popup draws a badge for, and one with nothing in it.  The first has a bracket
+-- link on the title, a bare URL in the body and one more under a child, so the
+-- route's answer shows it read the SUBTREE.
 withLinkTree :: (Application -> IO a) -> IO a
 withLinkTree k = withTempDir $ \dir -> do
   _ <- orgFile dir "a.org" (T.unlines
@@ -5794,7 +5880,13 @@ withLinkTree k = withTempDir $ \dir -> do
          , ":PROPERTIES:"
          , ":ORG_GLANCE_ID: bare"
          , ":END:"
-         , "nothing to follow here" ])
+         , "nothing to follow here"
+         , "* three"
+         , ":PROPERTIES:"
+         , ":ORG_GLANCE_ID: typed"
+         , ":END:"
+         , "[[mailto:t@example.org][write]] [[org-glance-visit:E1B2][the other row]]"
+         , "[[file:notes.org][notes]] [[Some Headline]]" ])
   (a, _hub) <- serverOver dir
   k a
 
@@ -6290,7 +6382,7 @@ expectedRows =
         topHelp   = Just "first row, again = page up"
         endHelp   = Just "last row, again = page down"
         planHelp  = Just "a date over the marked rows, or the row at point; empty clears it"
-        openHelp  = Just "follow this row's link; several raise the palette"
+        openHelp  = Just "follow this row's link; several list them"
 
 -- | The keymap blob out of SHELL, parsed.  Everything the dispatch reads is in
 -- here, so the assertions below are over data rather than over the spelling of

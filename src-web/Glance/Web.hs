@@ -127,7 +127,9 @@ import Glance.Query ( ConfigLayerFile (..), ConfigLayers (clDirs)
                     , captureEdits, captureStamp, captureTargetIn, captureTargetOf
                     , configDirIn, configEdits, currentDocument, defaultCaptureFile
                     , defaultFilter, defaultFilterOf
-                    , headlineParts, keywordSources, orderedForView, planningKeywords
+                    , followableTypes
+                    , headlineParts, keywordSources, linkColumns, linkType
+                    , orderedForView, planningKeywords
                     , planningTimestamp, readConfigLayers, readsAsTimestamp
                     , recomposedSubtree, removeTagEdits
                     , replaceSpans, setPlanningEdits, setStateEdits, subtreeLinks
@@ -840,11 +842,17 @@ tagsView hub request = do
 
 -- | @GET \/links?id=ROW@: where that row points.
 --
--- @{"links": [{"target": …, "desc": …}]}@, in order of appearance and one entry
--- per target ('Glance.Query.subtreeLinks').  The rule is the DISPLAY rule the
--- table already answers to: a bracket link is described by its @DESC@, or by
--- its target where it has none, and a bare @http(s)@ or @mailto:@ URL describes
--- itself.
+-- @{"links": [{"target": …, "desc": …, "type": …}]}@, in order of appearance and
+-- one entry per target ('Glance.Query.subtreeLinks').  The rule is the DISPLAY
+-- rule the table already answers to: a bracket link is described by its @DESC@,
+-- or by its target where it has none, and a bare @http(s)@ or @mailto:@ URL
+-- describes itself.
+--
+-- @type@ is the target's SCHEME, folded ('Glance.Query.linkType'): the popup
+-- draws it as a badge column and @o@ reads it to decide whether a browser tab
+-- can be pointed at the target.  Derived here rather than in the page for the
+-- reason the rest of this answer is — it is org text work, and a JS copy would
+-- be a second rule to keep in step.
 --
 -- Extracted here rather than in the page because it is org text work.  The
 -- shell holds no org parser and must not grow one, and the bracket grammar this
@@ -862,7 +870,8 @@ linksView hub (Just rid) = do
   pure $ case found of
     Nothing -> jsonError status404 ("no headline with id " <> rid)
     Just r  -> jsonResponse status200
-      [ "links" .= [ object [ "target" .= target, "desc" .= desc ]
+      [ "links" .= [ object [ "target" .= target, "desc" .= desc
+                            , "type" .= linkType target ]
                    | (target, desc) <- subtreeLinks r ] ]
 
 -- | The rows REQUEST names, deduplicated: every @ids@ parameter, each a comma
@@ -1735,7 +1744,7 @@ keyBindings =
   , bind ["q"]          "quit-window"                     (Just "quitWindow")     "table"
   , bind ["TAB"]        "org-cycle"                       Nothing                 "table"
     -- Where the row points, out of its own subtree: one link opens, several
-    -- raise the palette over their descriptions, none says so.  Two spellings,
+    -- raise the popup that lists them, none says so.  Two spellings,
     -- org-glance's own.
   , bind ["o"]          "org-glance-overview:open"        (Just "openLinks")      "table"
       `helps` openHelp
@@ -1813,7 +1822,7 @@ planningHelp = "a date over the marked rows, or the row at point; empty clears i
 
 -- | The open help line, shared by the two spellings of the one command.
 openHelp :: Text
-openHelp = "follow this row's link; several raise the palette"
+openHelp = "follow this row's link; several list them"
 
 -- | Chords the browser needs more than this page does: never claimed as the key
 -- that abandons a prefix this map had entered, which is what leaves @C-x C-l@
@@ -2180,6 +2189,19 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      <div id=\"pfoot\"></div>"
   , "    </div>"
   , "  </div>"
+  -- The link popup, and it hosts the page's THIRD table-view mount.  A list of
+  -- links is a TABLE — what each one is, what the entry calls it, where it
+  -- points — and this page has one list widget, so it draws that table rather
+  -- than a hand-made list under hand-assigned letters.  A sibling of `#app'
+  -- sharing the two z levels with the sheets and the value palette, so the four
+  -- values still stand.
+  , "  <div id=\"links\">"
+  , "    <div id=\"lbox\">"
+  , "      <div id=\"lhead\"></div>"
+  , "      <div id=\"ltable\"></div>"
+  , "      <div id=\"lfoot\"></div>"
+  , "    </div>"
+  , "  </div>"
   -- The settings sheet: the page's ONE place for a preference, in PANELS.
   -- General, theme, keywords — a header over the rows that belong to it, drawn
   -- from the `SECTIONS' list below, so a fourth panel is one entry there and
@@ -2343,6 +2365,17 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- the table and the sheet's property panel — so the question is asked of a
     -- handle rather than of the one this page used to have.
   , "    const can = (mount, name) => !!mount && typeof mount[name] === \"function\";"
+    -- ROW MOVEMENT, ONCE.  Both spellings and the arrows, as a direction or
+    -- zero for a key that is not one — read by the two MODAL mounts, the
+    -- property panel and the link popup, whose keys live in listeners of their
+    -- own behind the dispatch.  Written here rather than twice, so a third
+    -- spelling is one edit and the map's own `n'/`p'/`j'/`k' rows cannot drift
+    -- from what a modal surface answers to.  The table's own movement stays the
+    -- map's, since it walks two axes and pages.
+  , "    const rowStep = (k) => (k === \"<down>\" || k === \"n\" || k === \"j\" ? 1"
+  , "                          : k === \"<up>\" || k === \"p\" || k === \"k\" ? -1 : 0);"
+  , "    const stepIn = (mount, step) =>"
+  , "      can(mount, \"selectStep\") && mount.selectStep(step);"
     -- The archive/delete flags, which are the one capability both mounts want:
     -- the table flags a row for archiving and the panel flags one for deleting,
     -- and an asset predating either says so once.
@@ -2427,12 +2460,6 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      // by the header sitting over it."
   , "      cols = view.columns || [];"
       -- A mount takes its sort keys from the view, so the record of them starts
-      -- there too: the served view declares scheduled ascending, which is what
-      -- the first `^' on that column reverses.  A view declaring none mounts
-      -- unsorted and the first press asks for ascending, which is the
-      -- renderer's own rule for a column that is not the primary one.
-  , "      sortAt = view.sort"
-  , "        ? { key: view.sort.column, asc: view.sort.ascending !== false } : null;"
   , "      // Whatever the remount that led here took down goes back up over the"
   , "      // new table; on a first boot there is nothing stashed and nothing to do."
   , "      restore();"
@@ -2877,7 +2904,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- Movement is the mount's `selectStep', the same call the table's own `n'
     -- and `p' make, so the cursor a reader moves here is the renderer's cursor
     -- and there is nothing to keep in step with it.
-  , "    const moveCur = (step) => can(pmount, \"selectStep\") && pmount.selectStep(step);"
+  , "    const moveCur = (step) => stepIn(pmount, step);"
     -- THE EDIT OVERLAY.  The renderer owns its rows and rewrites them as it
     -- scrolls, so an edit cannot live inside one: the two fields sit OVER the
     -- panel, anchored to the row the cursor is on.  The value takes the focus,
@@ -2990,6 +3017,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    document.addEventListener(\"keydown\", (e) => {"
   , "      if (!editing) return;"
   , "      const k = keyName(e), crossing = k === \"TAB\" || k === \"S-TAB\";"
+  , "      const step = rowStep(k);"
   , "      if (pediting()) {"
   , "        if (crossing)"
   , "          (document.activeElement === el(\"pkey\") ? el(\"pval\") : el(\"pkey\")).focus();"
@@ -3001,8 +3029,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      } else if (crossing) leavePanel();"
   , "      else if (k === \"RET\") openRow();"
   , "      else if (k === \"+\") addProperty();"
-  , "      else if (k === \"<down>\" || k === \"n\" || k === \"j\") moveCur(1);"
-  , "      else if (k === \"<up>\" || k === \"p\" || k === \"k\") moveCur(-1);"
+  , "      else if (step) moveCur(step);"
     -- The panel's arrows are VERTICAL ONLY, where the table's walk both axes.
     -- The mount has two columns here, but a column selection would say nothing
     -- about the edit: `RET' opens the WHOLE row — both fields, whichever cell a
@@ -3227,10 +3254,10 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- one call.  A `setRows' does not enter into it: the renderer keeps its
     -- sort keys across one (it drops the derived orders and nothing else), so
     -- a filter refetch and a socket splice both land in the order the reader
-    -- put the table in, and nothing here re-asserts it.
-  , "    const sorts = () => !!table && typeof table.sortBy === \"function\";"
-  , "    let sortAt = null;"
-  , "    function sortRows(key, asc) { table.sortBy(key, asc); sortAt = { key, asc }; }"
+    -- put the table in, and nothing here re-asserts it.  The handle publishes
+    -- the chain in force (getSort), so this page keeps no record of its own.
+  , "    const sorts = () => !!table && typeof table.sortPromote === \"function\";"
+  , "    function sortRows(key, asc) { table.sortBy(key, asc); }"
   , "    function turnPage(b, step) {"
   , "      if (!pager()) { said(b, \"this table-view.js has no pager\"); return; }"
   , "      if (step > 0) table.nextPage(); else table.previousPage();"
@@ -3494,8 +3521,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- goes ON to the rows that lack it.  So over a mixed set the first press
     -- levels it up and only the second takes anything away, which is what makes
     -- a bulk tag safe to press at.  The partial ones SAY so, `3/5' beside the
-    -- word in the muted aside the link palette puts a target in, so the rule
-    -- reads off the list.
+    -- word in the muted aside, so the rule reads off the list.
   , "    function tagChoices() {"
   , "      const rows = prompting.rows, n = rows.length;"
   , "      const seen = [];"
@@ -3617,23 +3643,20 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    function letterAt(label, at) {"
   , "      return at === -1 ? null : label[at].toLowerCase();"
   , "    }"
-    -- The list palette, raised EMPTY: `t' fills it from `/keywords' — which is
-    -- what makes the table the resolver's answer rather than this page's guess
-    -- — and `o' fills it in the same tick, having already been answered.  Every
-    -- rung that hangs off the overlay being up (`typing()', ESC, the raising
-    -- guard below) is the same either way; what a reader sees until a fill
+    -- The list palette, raised EMPTY on the keydown: `t' and `:' fill it from
+    -- `/keywords' and `/tags', which is what makes the table the resolver's
+    -- answer rather than this page's guess.  What a reader sees until the fill
     -- lands is the line saying so.
     --
-    -- TRAVELLING is the keydown that opened this, still in flight: this
-    -- listener sits behind the dispatch, so a palette raised ON the press sees
-    -- that press next, and `t' is both the opener and a letter in what it
-    -- opens. `o' raises its palette behind a fetch, by which time the press is
-    -- long gone and declining one would eat the reader's first real key. The
-    -- prompt itself is handed back, so a fill landing after an ESC can tell
-    -- that the overlay it was asked for is gone.
-  , "    function ask(title, commit, foot, travelling) {"
+    -- `raising' is that keydown, still in flight: this listener sits behind the
+    -- dispatch, so the press that opened the palette is the next one it sees,
+    -- and `t' is both the opener and a letter in what it opens.  Every palette
+    -- here is raised that way, so it is set rather than passed.  The prompt
+    -- itself is handed back, so a fill landing after an ESC can tell that the
+    -- overlay it was asked for is gone.
+  , "    function ask(title, commit, foot) {"
   , "      prompting = { choices: [], shown: [], at: 0, commit, foot,"
-  , "                    narrow: false, raising: !!travelling };"
+  , "                    narrow: false, raising: true };"
   , "      el(\"phead\").textContent = title;"
   , "      el(\"pinput\").value = \"\";"
   , "      el(\"prompt\").className = \"on\";"
@@ -3799,8 +3822,8 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        return;"
   , "      }"
     -- A palette with no source table behind it is a flat list of entries under
-    -- their letters: the links.  There is nothing to lay out in columns — one
-    -- row points where it points, and no scope classified it.
+    -- their letters: the tags.  A tag is not classified by a scope, so there is
+    -- nothing to lay out in columns.
   , "      if (!prompting.table) {"
   , "        prompting.shown.forEach((c) => entry(list, \"pe\", c));"
   , "        return;"
@@ -3842,18 +3865,18 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        if (c.color) hot.style.textDecorationColor = c.color;"
   , "        part(word, \"span\", \"\", c.label.slice(c.cut + 1));"
   , "      }"
-    -- Where the entry points, for a label that is a description of it.  Only
-    -- the link palette sets one; a keyword IS its own destination.
+    -- The muted aside beside an entry: the tag palette's partial count (`2/3'),
+    -- which is what says a tag only some of the set carries.  A keyword has
+    -- none, and neither has a levelled tag.
   , "      if (c.hint) part(row, \"span\", \"pt\", c.hint);"
   , "    }"
   , "    function narrowTo(text) {"
   , "      const want = text.trim().toLowerCase();"
-    -- Over the label and, for a link, its DESTINATION: a reader who remembers
-    -- the host and not the wording has only that to type.  The muted aside is
-    -- DRAWN rather than searched, since the tag palette writes a partial count
-    -- into it (`2/3') and a digit must not narrow the list by one.
+    -- Over the LABEL alone.  The aside is drawn rather than searched: the tag
+    -- palette writes a partial count into it and a digit must not narrow the
+    -- list to the entries that happen to be 2-of-3.
   , "      prompting.shown = prompting.choices.filter((c) =>"
-  , "        `${c.label} ${c.target || \"\"}`.toLowerCase().includes(want));"
+  , "        c.label.toLowerCase().includes(want));"
   , "      prompting.at = 0;"
   , "      drawChoices();"
   , "    }"
@@ -3937,20 +3960,23 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    const tagsOf = (ids) =>"
   , "      getJSON(\"/tags?\""
   , "        + ids.map((i) => \"ids=\" + encodeURIComponent(i)).join(\"&\"));"
-    -- The answer as palette entries, built once whether or not a palette is
-    -- raised: the DESCRIPTION is the label, since that is what the row's own
-    -- text calls the place, and the target rides beside it muted and joins the
-    -- text `/' narrows over — a reader who remembers the host and not the
-    -- wording has only the one.
-  , "    const linkChoices = (links) => links.map((l) =>"
-  , "      ({ label: l.desc || l.target, target: l.target, hint: l.target }));"
     -- What a browser tab can be pointed at, which is http(s) and nothing else.
     -- Org writes plenty of other link types and `/links' reports them all —
     -- `mailto:', `file:', org's `id:', org-glance's own protocols, a bare
     -- `[[Title]]' naming a headline — and each names something a tab is not.
     -- Following one needs a handler this page does not have yet, so it says so
     -- instead of opening a tab on a string a browser will make nothing of.
-  , "    const followable = (t) => /^https?:\\/\\//i.test(String(t || \"\"));"
+    --
+    -- The TYPE decides, which is the server's own word for the target
+    -- (`Glance.Query.linkType'): the scheme, folded.  A regex over the target
+    -- here would be this page deriving a second time what the answer already
+    -- carries, and the popup's badge column and this test would then be two
+    -- readings of one string.  The LIST is the server's too
+    -- (`Glance.Query.followableTypes'), spliced the way `PLANNING' is: it is the
+    -- same list the badge palette gives the warm hues to, so what reads as
+    -- followable and what opens cannot come apart.
+  , "    const FOLLOWABLE = " <> jsonList followableTypes <> ";"
+  , "    const followable = (l) => FOLLOWABLE.indexOf(l.type) !== -1;"
     -- A target in a log line, kept to a width the strip can show: an org link
     -- target runs to a hash and a path, and the line has other words in it.
   , "    const shortly = (t) => {"
@@ -3962,20 +3988,87 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- `noopener' because the opened page must not reach back into this one.
     --
     -- The COMMIT is where a link type is judged, which is why this is one
-    -- function and not a filter over the choices: the palette lists everything
-    -- the row points at, since that is what teaches a reader what is in the
-    -- entry, and a single link takes this same door without a palette at all.
-    -- So `o' on a row holding one `mailto:' warns and opens nothing.
+    -- function and not a filter over the rows: the popup lists everything the
+    -- row points at, since that is what teaches a reader what is in the entry,
+    -- and a single link takes this same door without a popup at all.  So `o' on
+    -- a row holding one `mailto:' warns and opens nothing.
   , "    function openLink(b, link) {"
-  , "      if (!followable(link.target)) {"
+  , "      if (!followable(link)) {"
   , "        said(b, \"link type not implemented\");"
   , "        append(\"cmd\", \"warn\","
       <> " `link type not implemented: ${shortly(link.target)}`);"
   , "        return;"
   , "      }"
   , "      window.open(link.target, \"_blank\", \"noopener\");"
-  , "      said(b, link.label);"
+    -- The description, and never a fallback to the target: `/links' has already
+    -- applied the display rule, so a bare URL arrives described by itself and an
+    -- empty `desc' is a shape the route cannot produce.
+  , "      said(b, link.desc);"
   , "      append(\"cmd\", \"info\", `link ${JSON.stringify(link.target)} opened`);"
+  , "    }"
+    -- THE LINK POPUP, and it is a table-view MOUNT — the page's third, after the
+    -- table and the sheet's property panel.  What a row points at is a LIST OF
+    -- RECORDS rather than a set of commands: each link has a kind, a name and a
+    -- destination, and reading them is how a reader decides which one they
+    -- meant.  A which-key letter is the right shape for a fixed vocabulary you
+    -- commit from memory (a keyword, a tag); it is the wrong one for a list you
+    -- have to READ, where the letters are noise over the columns that carry the
+    -- answer.  So this one browses: move, look, RET.
+    --
+    -- READ-ONLY, and stated rather than inherited: no marks, no flags, no
+    -- pageSize and no hint line.  Nothing here writes, so a gutter, a wash and a
+    -- per-row hint would each be chrome about a gesture the popup does not have.
+    -- `palette: true' for the property panel's reason — a handful of links is
+    -- not something a reader narrows, and the filter overlay it leaves behind is
+    -- never raised.
+    --
+    -- Mounted once and kept, like the panel: a mount per press would leave a
+    -- theme listener behind every time the reader followed a row.
+  , "    const LCOLS = " <> jsonLiteral (toJSON linkColumns) <> ";"
+    -- `opening' is the BINDING that raised this — `o' or `!' — and it is also
+    -- WHETHER the popup is up: a raise sets it, `shutLinks' clears it, and one
+    -- value answers both questions rather than two that have to move in step.
+    -- It is what lets the pill name the command that ran when the commit finally
+    -- lands, the way it does for a link the row held only one of.
+  , "    let lmount = null, lrows = [], opening = null;"
+  , "    const linking = () => !!opening;"
+  , "    function linksMounted() {"
+  , "      if (lmount) return lmount;"
+  , "      lmount = TableView.mount(el(\"ltable\"), { columns: LCOLS, rows: [] },"
+  , "        { palette: true, marks: false, flags: false, actionHints: false });"
+  , "      return lmount;"
+  , "    }"
+    -- The answer as rows, under B — the binding that asked.  The id is the
+    -- link's PLACE in the answer, which is the only identity a link has here:
+    -- two entries may share a description, and the targets are deduplicated
+    -- upstream.  The model keeps it beside the link, so finding the link the
+    -- cursor is on is a lookup by id like the property panel's rather than this
+    -- page taking an id apart.
+  , "    function showLinks(b, links) {"
+  , "      lrows = links.map((l, i) => ({ id: `L${i}`, link: l }));"
+  , "      const m = linksMounted();"
+  , "      m.setRows(lrows.map((r) => ({ id: r.id,"
+  , "        cells: { type: r.link.type, title: r.link.desc, url: r.link.target } })));"
+  , "      el(\"lhead\").textContent = `open · ${links.length} links`;"
+  , "      el(\"lfoot\").textContent = \"o opens it · ESC leaves\";"
+  , "      el(\"links\").className = \"on\";"
+  , "      opening = b;"
+  , "      if (lrows.length) m.select(lrows[0].id);"
+  , "    }"
+    -- Nothing to blur: the popup holds the keys with no field in it, the way
+    -- the property panel's nav does, so closing is the class coming off and the
+    -- value `linking()' reads going null.
+  , "    function shutLinks() {"
+  , "      opening = null;"
+  , "      el(\"links\").className = \"\";"
+  , "    }"
+    -- The link the cursor is on, out of the renderer's own selection — this
+    -- page keeps no copy of where the popup is standing, the same rule the
+    -- table and the panel follow.
+  , "    function pointedLink() {"
+  , "      if (!can(lmount, \"getSelection\")) return null;"
+  , "      const at = (lmount.getSelection() || {}).id;"
+  , "      return (lrows.find((r) => r.id === at) || {}).link || null;"
   , "    }"
     -- Settings, in PANELS.  The general preferences, the theme, then one box
     -- per keyword layer — a layer being one config file and its `#+TODO:' lines
@@ -4427,14 +4520,16 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    }"
   , "    // A focus that keeps its own keys: the filter box, the sheet, and the"
   , "    // keys select, which navigates on the arrows this map would otherwise"
-  , "    // take for row movement — and the two modal things that hold the keys"
-  , "    // with nothing focused at all: the property panel in nav, and the value"
+  , "    // take for row movement — and the three modal things that hold the keys"
+  , "    // with nothing focused at all: the property panel in nav, the value"
   , "    // palette in letter mode, whose whole offer is single letters the table"
-  , "    // also binds. Either would otherwise leave the table's own keys live"
-  , "    // underneath it."
+  , "    // also binds, and the link popup, which browses on the table's own"
+  , "    // movement keys. Any of them would otherwise leave the table's own keys"
+  , "    // live underneath it — and for the popup that is the whole of what makes"
+  , "    // it read-only: `d', `D', `u' and `m' are `table' rows and are dead."
   , "    const typing = () => {"
   , "      const a = document.activeElement;"
-  , "      return pnav() || !!prompting"
+  , "      return pnav() || !!prompting || linking()"
   , "        || (!!a && (a.tagName === \"INPUT\" || a.tagName === \"TEXTAREA\""
   , "                     || a.tagName === \"SELECT\" || a.isContentEditable));"
   , "    };"
@@ -4476,18 +4571,19 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- here or it would sort a column the header click will not.
     --
     -- Two states, and the ceiling is the handle's: `sortBy' states an order and
-    -- there is no call that takes one off, so `^' reverses where table-view.el's
-    -- cycles through its nulls-first variants.  A third press is the first one
-    -- again.
+    -- `^' PROMOTES: the column at point becomes the chain's head ascending
+    -- (the rest shift down, deduped); on the column already leading it flips
+    -- that key alone.  Composing a chain = pressing over columns in reverse
+    -- priority order — the web's spelling of table-view.el's C-u ^.
   , "      toggleSort: (b) => {"
   , "        if (!sorts()) { said(b, \"this table-view.js has no sort\"); return; }"
   , "        const at = column(), c = at === null ? null : cols[at];"
   , "        if (!c) { said(b, \"no column selected — f/l to pick one\"); return; }"
   , "        const named = c.header || c.key;"
   , "        if (c.sortable !== true) { said(b, `${named} does not sort`); return; }"
-  , "        const asc = !(sortAt && sortAt.key === c.key && sortAt.asc);"
-  , "        sortRows(c.key, asc);"
-  , "        said(b, `${named} ${asc ? \"▲\" : \"▼\"}`);"
+  , "        table.sortPromote(c.key);"
+  , "        const head = (table.getSort() || [])[0];"
+  , "        said(b, head ? `${named} ${head.ascending !== false ? \"▲\" : \"▼\"}` : named);"
   , "      },"
   , "      materializeRow: () => {"
   , "        const id = focusedId();"
@@ -4541,7 +4637,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        const mine = ask(title,"
   , "          (c) => fire(b, \"set-state\", ids, { keyword: c.keyword },"
   , "                      c.keyword === null ? EMPTY : c.keyword),"
-  , "          \"a letter sets it · / to search · ESC leaves\", true);"
+  , "          \"a letter sets it · / to search · ESC leaves\");"
   , "        keywordSources(ids).then((answer) => {"
   , "          if (prompting === mine) setChoices(answer.sources);"
   , "        }).catch(askFailed(mine, \"keywords\"));"
@@ -4554,7 +4650,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- `t'.
   , "      manageTags: (b) => overTargets(b, \"tags\", (ids, title) => {"
   , "        const mine = ask(title, (c) => tagCommit(b, c),"
-  , "          \"a letter toggles it · / finds · + adds · ESC leaves\", true);"
+  , "          \"a letter toggles it · / finds · + adds · ESC leaves\");"
   , "        mine.sticky = true;"
   , "        mine.rows = [];"
   , "        mine.vocab = [];"
@@ -4580,22 +4676,18 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "                \"RET captures it · ESC leaves\", \"\", (c) => captureRow(b, c.text)),"
     -- `o' follows the row rather than editing it, and how many links the row
     -- holds decides the whole gesture: none is a refusal, one opens, several
-    -- ask which.  The count is the server's answer, so the palette can only go
-    -- up behind the request — which is why this one is raised late where the
-    -- state palette is raised on the press.
+    -- raise the popup.  The count is the server's answer, so the popup can only
+    -- go up behind the request — which is why this one is raised late where the
+    -- state palette is raised on the press.  By then the `o' that asked has been
+    -- dispatched and gone, so nothing is travelling and no press is declined.
   , "      openLinks: (b) => {"
   , "        const id = focusedId();"
   , "        if (!id) { said(b, \"no row\"); return; }"
   , "        linksOf(id).then((a) => {"
-  , "          const links = linkChoices(a.links || []);"
+  , "          const links = a.links || [];"
   , "          if (!links.length) { said(b, \"no links\"); return; }"
   , "          if (links.length === 1) { openLink(b, links[0]); return; }"
-    -- The answer is what decides there is a palette at all, so this one goes up
-    -- behind the fetch — and by then the `o' that asked has been dispatched and
-    -- gone, which is why nothing is travelling and nothing is declined.
-  , "          ask(`open · ${links.length} links`, (c) => openLink(b, c),"
-  , "              \"a letter opens it · / to search · ESC leaves\", false);"
-  , "          offer(links);"
+  , "          showLinks(b, links);"
   , "        }).catch(failed(b, \"open\"));"
   , "      },"
   , "      applyAgenda: (b) => applyView(b, AGENDA_QUERY, (total) => landedAgenda(b, total)),"
@@ -4614,6 +4706,10 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- included: that one has no letters behind it, which is what `sticky' says.
   , "        if (prompting && prompting.narrow && prompting.sticky) letterMode();"
   , "        else if (prompting) unask();"
+    -- The link popup is a rung of its own beside the palette's: it is raised
+    -- over the table alone, never over a sheet, so its place in the ladder is
+    -- decided by nothing but reading order.
+  , "        else if (linking()) shutLinks();"
     -- The panel's open row is a rung of its own, under the sheet's: while one
     -- is open ESC puts it back, and only from nav does the key reach the sheet
     -- — whichever of the two is up, which is `leaveSheet''s own question.
@@ -4738,6 +4834,49 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "                 : k === \"<up>\" || k === \"C-p\" ? -1 : 0;"
   , "      if (step) walkChoices(step);"
   , "      else if (k === \"RET\") takeChoice(prompting.shown[prompting.at] || freely());"
+  , "      else return;"
+  , "      e.preventDefault();"
+  , "    });"
+    -- The link popup's keys, the THIRD listener behind the dispatch and safe for
+    -- the reason the other two are: while it is up `typing()' has already made
+    -- every `table' row dead, so the only row that can have fired ahead of this
+    -- is `ESC' — which is the one that should, `cancel' closing whichever
+    -- overlay is up.
+    --
+    -- MOVE, LOOK, OPEN, and that is the whole surface today.  Row movement is
+    -- `rowStep', the property panel's own — both spellings and the arrows, bound
+    -- unconditionally the way the panel's are, since the popup holds no field
+    -- and every printable key is free.
+    --
+    -- `o' is the OPEN key, which is the key that raised this — the table's own
+    -- `o' carried inside, over the link the cursor is on rather than over the
+    -- row.  It opens and CLOSES, both outcomes alike (the tab and the refusal),
+    -- since picking one link is what the popup was raised to do and a popup that
+    -- stayed up on the refusal would be a second rule for the same key.
+    --
+    -- `RET' is reserved for editing the link at point IN PLACE — the row's own
+    -- title and url cells becoming fields over themselves, `TAB' between them,
+    -- `RET' committing and `ESC' restoring, which is the property panel's edit
+    -- model exactly.  ONE edit vocabulary across the page: a panel row and a
+    -- link row are edited alike, and the type cell is derived and never opens.
+    -- It is not here yet — the write needs a per-link SPAN out of `GET /links'
+    -- and an `edit-link' command to splice it, neither of which this build has —
+    -- so it says what it is waiting for, the way a bound key with no handler
+    -- does, and leaves the popup standing.
+  , "    document.addEventListener(\"keydown\", (e) => {"
+  , "      if (!linking()) return;"
+  , "      const k = keyName(e);"
+  , "      if (!k) return;"
+  , "      const step = rowStep(k);"
+  , "      if (step) stepIn(lmount, step);"
+  , "      else if (k === \"o\") {"
+  , "        const link = pointedLink();"
+  , "        const b = opening;"
+  , "        shutLinks();"
+  , "        if (link) openLink(b, link);"
+  , "      }"
+  , "      else if (k === \"RET\") append(\"cmd\", \"info\","
+      <> " \"RET (edit-link) — arrives with the link span and the edit-link command\");"
   , "      else return;"
   , "      e.preventDefault();"
   , "    });"
@@ -5011,10 +5150,10 @@ page head' title body = T.unlines
   -- subtree's and the prompt is a command's, and a reader has one of them open
   -- at a time.  The prompt sits high rather than centred — a list that grows
   -- downward should not move the line above it.
-  , "  #modal,#prompt,#config{--dk-mono:\"Hack\", var(--glance-mono);"
+  , "  #modal,#prompt,#config,#links{--dk-mono:\"Hack\", var(--glance-mono);"
   , "    display:none;position:fixed;inset:0;z-index:100;padding:24px;background:#0009;"
   , "    align-items:center;justify-content:center}"
-  , "  #modal.on,#prompt.on,#config.on{display:flex}"
+  , "  #modal.on,#prompt.on,#config.on,#links.on{display:flex}"
   , "  #prompt{align-items:flex-start;padding-top:15vh}"
   -- Four fifths of the window, in both directions: two panes of monospace want
   -- the room, and the fifth left over is what says there is a table under this
@@ -5034,8 +5173,12 @@ page head' title body = T.unlines
   -- width breakpoint would give and costs no second place to keep it.  C-c '
   -- takes the panel off the sheet outright, and then the text has the width.
   , "  #mpanes{flex:1;min-height:0;display:flex;flex-wrap:wrap;gap:10px}"
+      -- The panes are one frame language, so they wear ONE radius: the panel's
+      -- comes from `.tv-root' and is 8px, which is the page's own — the log
+      -- strip and the sheet's logbook already wear it — so the textarea takes
+      -- it too rather than being the one corner cut tighter than its neighbour.
   , "  #mtext{flex:2 1 320px;min-width:0;font:12px/1.5 var(--dk-mono);padding:8px;"
-  , "    border-radius:4px;"
+  , "    border-radius:8px;"
   , "    border:1px solid var(--g-border);background:transparent;color:inherit;resize:none}"
   , "  #mtext::selection{background:var(--g-sel);color:var(--g-fg)}"
   -- ONE FOCUS LANGUAGE ACROSS THE SHEET: whichever pane holds the keys says so
@@ -5062,7 +5205,7 @@ page head' title body = T.unlines
   -- The sheet's own face, the way `#app .tv-root' is the page's: one selector
   -- step past the renderer's injected rule, and the sheet's monospace rather
   -- than the page's, since both panes of a sheet read as one.
-  , "  #mptable .tv-root{flex:1;min-width:0;font-family:var(--dk-mono)}"
+  , "  #mptable .tv-root,#ltable .tv-root{flex:1;min-width:0;font-family:var(--dk-mono)}"
   -- The panel's half of that language.  The frame is `.tv-root'\''s — the mount
   -- brings it — and `#mprops.on' is the panel holding the keys, which is the
   -- same state `pnav' reads.
@@ -5108,17 +5251,22 @@ page head' title body = T.unlines
   , "    border:1px solid var(--g-border);border-radius:8px}"
   , "  #mlog.on{display:block}"
   , "  #sheet.raw #mlog{display:none}"
-  -- The value palette.  Wide enough for the resolution table's three columns
-  -- and no wider: the title says what is being set and over how many rows, and
-  -- the foot names the two keys the list cannot draw for itself.  The field is
-  -- the fallback mode's and is hidden until `/' asks for it — in letter mode
-  -- there is nothing to type.
-  , "  #pbox{display:flex;flex-direction:column;gap:6px;padding:10px;border-radius:6px;"
-  , "    position:relative;z-index:101;"
-  , "    width:min(560px,100%);font-family:var(--dk-mono);"
+  -- The value palette and the link popup are ONE BOX: a heading naming what is
+  -- being decided, a body, and a foot naming the keys the body cannot draw for
+  -- itself.  Declared once so a restyle is one edit and a fifth overlay joins by
+  -- adding a selector, which is what `#modal,#prompt,#config,#links' above does
+  -- for the band.  They differ in WIDTH alone — the palette holds a resolution
+  -- table three columns wide and no wider, the popup holds three real columns
+  -- and a URL in one of them.  The palette's field is its fallback mode's and is
+  -- hidden until `/' asks for it; in letter mode there is nothing to type.
+  , "  #pbox,#lbox{display:flex;flex-direction:column;gap:6px;padding:10px;"
+  , "    border-radius:6px;position:relative;z-index:101;"
+  , "    font-family:var(--dk-mono);"
   , "    background:var(--g-bg);color:var(--g-fg);border:1px solid var(--g-border)}"
-  , "  #phead{font-size:12px;color:var(--g-mute)}"
-  , "  #pfoot{font-size:11px;color:var(--g-mute)}"
+  , "  #pbox{width:min(560px,100%)}"
+  , "  #lbox{width:min(760px,100%)}"
+  , "  #phead,#lhead{font-size:12px;color:var(--g-mute)}"
+  , "  #pfoot,#lfoot,#cfoot{font-size:11px;color:var(--g-mute)}"
   , "  #pinput{font:12px/1.5 var(--dk-mono);padding:5px 7px;border-radius:4px;"
   , "    border:1px solid var(--g-border);background:transparent;color:inherit}"
   , "  #pbox:not(.narrow) #pinput{display:none}"
@@ -5163,10 +5311,9 @@ page head' title body = T.unlines
   , "  .pw b{font-weight:700;text-decoration:underline;"
   , "    text-decoration-thickness:2px;text-underline-offset:2px}"
   , "  .pm .pw{font-style:italic;color:var(--g-mute)}"
-  -- What an entry points AT, where its word is a description rather than the
-  -- destination: the link palette's second column, muted and truncated, since
-  -- a reader picking between two links reads the wording first and the host
-  -- only when the wording does not decide it.
+  -- The muted aside beside an entry, truncated: the tag palette's partial
+  -- count, and the only thing that goes in it.  It is a note ABOUT the entry
+  -- rather than part of it, so it recedes and gives the word the left edge.
   , "  .pt{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;"
   , "    white-space:nowrap;text-align:right;font-size:11px;color:var(--g-mute)}"
   -- The fallback's cursor row wears the page's selection, which in the light
@@ -5218,7 +5365,16 @@ page head' title body = T.unlines
   , "  .cerr{font-size:11px;color:var(--g-bad)}"
   , "  .cerr:empty{display:none}"
   , "  #ceff{font-size:12px;padding-top:8px;border-top:1px solid var(--g-border)}"
-  , "  #cfoot{font-size:11px;color:var(--g-mute)}"
+  -- The link popup, fourth in the same two bands and sharing the palette's box
+  -- above.  High rather than centred, for the palette's reason — a list that
+  -- grows downward should not move the line above it — and the table is capped
+  -- and scrolls inside itself, since a row can point at a great many places.
+  --
+  -- The mount brings its own frame (`.tv-root''s hairline and radius), so the
+  -- box declares none of the table's look past the sheet's monospace, which is
+  -- the one rule `#mptable' takes too and the one rule they share.
+  , "  #links{align-items:flex-start;padding-top:12vh}"
+  , "  #ltable{max-height:52vh;min-height:0;display:flex;overflow:hidden}"
   -- The gear is the coarse pointer's only way in, so a fine pointer never sees
   -- it: the rule that shows it is in the one media block below.
   , "  #gear{display:none}"
@@ -5244,9 +5400,9 @@ page head' title body = T.unlines
   -- The corner, the event strip and the key line are EXEMPT by omission: they
   -- are where a reader finds out what the page is waiting on, and dimming the
   -- explanation with the thing it explains leaves the page saying nothing.
-  , "  #app,#modal,#prompt,#config{transition:opacity .18s ease}"
-  , "  html.stale #app,html.stale #modal,html.stale #prompt,html.stale #config{"
-  , "    opacity:.55}"
+  , "  #app,#modal,#prompt,#config,#links{transition:opacity .18s ease}"
+  , "  html.stale #app,html.stale #modal,html.stale #prompt,html.stale #config,"
+  , "  html.stale #links{opacity:.55}"
   -- The echo area and the status corner are the page's, and the backdrop dims
   -- the page: both sit under it (2 and 3 against the modal's 100) and grey out
   -- with everything else while the sheet is open.  They stay above the table.

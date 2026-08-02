@@ -8,7 +8,7 @@
 module TestFilter (spec) where
 
 import Control.Monad (unless)
-import Data.List (nub, sort)
+import Data.List (nub, sort, sortOn)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
@@ -19,7 +19,7 @@ import qualified Data.Text as T
 
 import Glance.Query ( HeadlineRecord (..), QueryResult (qrRecords), displayText
                     , loadDir, matchesSearch, refTargetOf, refTargets, rowJSON
-                    , tagsOfCell, viewJSON )
+                    , sortedTagsCell, tagsOfCell, viewJSON )
 import Glance.Web.Filter ( Term (..), Token (..), alternatives, archiveKey
                          , archiveMeta, cellAt, emptyEnv, emptyMeta, filterKeys
                          , matchesFilter, metaOf, namesArchive, parseFilter
@@ -467,10 +467,27 @@ tagsSpec = testGroup "Tags are not keys"
 
   , testCase "which costs the whole-tag reading, the column being a substring" $ do
       -- `glan:' was no tag and matched nothing; `tag:glan' is a substring of
-      -- `:web:glance:' and matches.  The wider reading is the tag column's own,
-      -- and it is the reading the renderer has for that column too.
+      -- the cell and matches.  The wider reading is the tag column's own, and it
+      -- is the reading the renderer has for that column too.
       matches "glan:" []
       matches "tag:glan" [Ship]
+
+    -- The CELL sorts and the FILE does not, so the one row carrying two tags
+    -- spells them `:web:glance:' and reads `:glance:web:'.  Nothing a query can
+    -- ask depends on which: a predicate is a substring of ONE tag or membership
+    -- of the whole list, and the row is reached under either name and under both
+    -- at once.
+  , testCase "a predicate is order-independent, whichever way the row spells it" $ do
+      matches "tag:web" [Ship, Schema]
+      matches "tag:glance" [Ship]
+      matches "tag:web tag:glance" [Ship]
+      matches "tag:glance tag:web" [Ship]
+      -- The whole-tag meta reads the cell as a LIST, which has no order in it.
+      matches "tag:*empty*" [Reply, Plain]
+      -- And the free-text half sees the cell as the table draws it: sorted, so
+      -- the two tags read across the join in that order and no other.
+      matches "glance:web" [Ship]
+      matches "web:glance" []
 
   , testCase "the tags a tree carries change no answer at all" $ do
       -- The one divergence this removal was for: the keys a query could name
@@ -846,8 +863,18 @@ layoutSpec = testGroup "Search text layout"
       sequence_ [ reachable records r key | r <- records, key <- filterKeys ]
   ]
   where
+    -- The tags entry is the CELL rather than the field: `hrTags' is the file's
+    -- order and the column sorts it, which is the one place the two differ and
+    -- the one place this oracle has to say so out loud.  Sorted HERE rather than
+    -- through `sortedTagsCell', so the list stays an independent oracle: calling
+    -- the producer's own function would make this a mirror of the code it is
+    -- meant to check.
     cellsOf r = [ unset (hrState r), unset (hrPriority r), hrTitle r
-                , hrTags r, unset (hrScheduled r), unset (hrDeadline r) ]
+                , sortedTags (hrTags r)
+                , unset (hrScheduled r), unset (hrDeadline r) ]
+    sortedTags cell = case sortOn T.toCaseFold (filter (not . T.null) (T.splitOn ":" cell)) of
+      []   -> cell
+      tags -> ":" <> T.intercalate ":" tags <> ":"
     unset = fromMaybe ""
     check r (i, cell) =
       assertEqual (T.unpack (hrTitle r) <> " field " <> show (i :: Int))

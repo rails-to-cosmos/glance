@@ -45,7 +45,9 @@
 //   untagged      no row carries a tag at all
 //   unknownrows   the store knows none of the rows the palette named
 //   onelink       the row `o' names points at exactly one place
-//   nolinks       and at none at all — three is the default, which is a palette
+//   nolinks       and at none at all — three is the default, which is the popup
+//   everytype     one link of every type the server derives, so the popup's
+//                 badge column and the commit's judgement span the vocabulary
 //   noreferences  nothing points at the row `@' names
 //   rows:N        the store holds N rows rather than the three at the top
 //   paged:N       the renderer shows N of them a page, so there are pages to
@@ -147,10 +149,13 @@ let stalling = false;
 // resolution above: the extraction is the server's and TestQuery is where the
 // rule is tested — what the page owes is the gesture over whatever comes back,
 // which is why `onelink' and `nolinks' are acts.
+// The TYPE is the server's own word for the target (`Glance.Query.linkType'):
+// canned here like the rest of the answer, since the derivation is TestQuery's
+// and what the page owes is the badge cell and the commit it decides.
 let links = [
-  { target: "https://one.example/a", desc: "First reference" },
-  { target: "https://two.example/b", desc: "Second reference" },
-  { target: "mailto:t@example.org", desc: "mailto:t@example.org" },
+  { target: "https://one.example/a", desc: "First reference", type: "https" },
+  { target: "https://two.example/b", desc: "Second reference", type: "https" },
+  { target: "mailto:t@example.org", desc: "mailto:t@example.org", type: "mailto" },
 ];
 // Every /links URL asked for, and every tab the page opened.
 const linked = [];
@@ -313,19 +318,19 @@ globalThis.WebSocket = function () {
   // reconnect that never finished.
   setTimeout(() => { if (socket === this && this.onopen) this.onopen(); }, 0);
 };
-// TWO MOUNTS.  The page builds the table in `#app' and the property panel in
-// the sheet, so everything a renderer holds PER MOUNT is held per instance here
-// rather than once for the page: the cursor and its column, the page, the marks,
-// the flags, the applied query and the crumb trail.  A remount replaces the
-// table's instance and leaves the panel's standing, which is what the shell
-// relies on when it puts a sheet back up.
+// THREE MOUNTS.  The page builds the table in `#app', the property panel in the
+// sheet and the link popup in its own overlay, so everything a renderer holds
+// PER MOUNT is held per instance here rather than once for the page: the cursor
+// and its column, the page, the marks, the flags, the applied query and the
+// crumb trail.  A remount replaces the table's instance and leaves the other two
+// standing, which is what the shell relies on when it puts a sheet back up.
 //
-// The two differ in ONE thing, and it is the rows.  The table's are the STORE's
-// — its `setRows' is a count and the rows it shows are `rows' above, which is
-// what lets an act move the store and the table follow.  The panel's are the
-// shell's own model and arrive through `setRows', so that instance keeps what it
-// is handed.
-let mounts = 0, sets = 0, raises = 0, pmounts = 0, psets = 0;
+// They differ in ONE thing, and it is the rows.  The table's are the STORE's —
+// its `setRows' is a count and the rows it shows are `rows' above, which is what
+// lets an act move the store and the table follow.  The panel's and the popup's
+// are the shell's own models and arrive through `setRows', so those instances
+// keep what they are handed.
+let mounts = 0, sets = 0, raises = 0, pmounts = 0, psets = 0, lmounts = 0;
 // Every row count the shell has ever handed the TABLE, in order: one entry per
 // mount and one per `setRows'.  A view swapping on its answer is one entry and
 // a view painted before its answer is two, so what a reader would have seen
@@ -336,11 +341,12 @@ const paints = [];
 // asked for, which is what says a sort was left alone: the renderer keeps its
 // order across a `setRows', so a refetch that re-asserted one would show up
 // here as a second call.
-let sorted = null, sortCalls = 0;
-/** The live table instance and the live panel instance.  The table starts as a
- * standing empty one so a boot that never got to mount — the indexing poll, an
- * offline daemon — still answers about a table rather than throwing. */
-let main = null, pan = null;
+let sorted = null, sortCalls = 0, sortChain = [];
+/** The live table instance, the live panel instance and the live link popup.
+ * The table starts as a standing empty one so a boot that never got to mount —
+ * the indexing poll, an offline daemon — still answers about a table rather
+ * than throwing. */
+let main = null, pan = null, lnk = null;
 /** COL as a real column index, or null for the whole-row look — which is what a
  * column outside the table IS.  The real one's `cellCol', mirrored here because
  * the shell's cell movement hands the index one past an end straight back. */
@@ -365,6 +371,12 @@ const makeMount = (host, view, options, own) => {
     // where a hardcoded pair would silently go on agreeing.  The table's mount
     // is handed the store's view, so `recolumn' reaches it through a remount.
     cols: (view || {}).columns || [],
+    _seedSort: (() => {
+      const d = (view || {}).sort;
+      sortChain = (Array.isArray(d) ? d : d ? [d] : [])
+        .map((k) => ({ column: k.column, ascending: k.ascending !== false }));
+      return null;
+    })(),
     held: o.initialQuery || "",
     marksOn: o.marks === true,
     flagsOn: o.flags === undefined ? o.marks === true : o.flags === true,
@@ -479,7 +491,23 @@ const makeMount = (host, view, options, own) => {
     // what the agenda insists on once its rows are up.  Recorded rather than
     // performed: the ORDER is the renderer's and TableView's own suite is where
     // it is tested.
-    sortBy: (column, ascending) => { sorted = { column, ascending }; sortCalls += 1; },
+    sortBy: (column, ascending) => { sorted = { column, ascending }; sortCalls += 1;
+      sortChain = [{ column, ascending }]; },
+    // The promotion rule verbatim: head ascending, dedup below; the leader
+    // flips alone.  getSort answers copies, the way the renderer documents.
+    sortPromote: (column) => {
+      const head = sortChain[0];
+      if (head && head.column === column) {
+        head.ascending = head.ascending === false;
+      } else {
+        sortChain = [{ column, ascending: true }]
+          .concat(sortChain.filter((k) => k.column !== column));
+      }
+      sorted = { column: sortChain[0].column, ascending: sortChain[0].ascending };
+      sortCalls += 1;
+    },
+    getSort: () => sortChain.map((k) => ({ column: k.column, ascending: k.ascending })),
+    setSort: (chain) => { sortChain = (chain || []).map((k) => ({ column: k.column, ascending: k.ascending !== false })); },
     // The drill-down trail.  `popCrumb' pops and RETURNS — it never applies —
     // because whoever owns the fetching owns what a query means, which is the
     // whole reason the shell has a ladder to walk rather than the renderer.
@@ -498,13 +526,14 @@ const makeMount = (host, view, options, own) => {
 main = makeMount(null, null, {}, null);
 globalThis.TableView = {
   // WHICH mount this is, by the element it was given: the sheet's panel hosts
-  // itself in `#mptable' and the table in `#app'.  Told apart by the host
-  // rather than by call order, since a remount builds a second table long after
-  // the panel went up.
+  // itself in `#mptable', the link popup in `#ltable' and the table in `#app'.
+  // Told apart by the host rather than by call order, since a remount builds a
+  // second table long after either of the others went up.
   mount: (host, view, options) => {
-    const panel = host === field("mptable");
-    const inst = makeMount(host, view, options, panel ? [] : null);
+    const panel = host === field("mptable"), popup = host === field("ltable");
+    const inst = makeMount(host, view, options, panel || popup ? [] : null);
     if (panel) { pmounts += 1; pan = inst; }
+    else if (popup) { lmounts += 1; lnk = inst; }
     else { mounts += 1; main = inst; paints.push(((view || {}).rows || []).length); }
     if (markless) strip(inst.handle, MARK_CALLS);
     if (pagerless) strip(inst.handle, PAGE_CALLS);
@@ -521,13 +550,13 @@ const MARK_CALLS = [ "toggleMark", "getMarked", "clearMarks", "markedCount"
 /** And the pager's, which an asset that old has none of either. */
 const PAGE_CALLS = ["nextPage", "previousPage", "pageInfo"];
 /** And the programmatic sort, which the agenda asks for. */
-const SORT_CALLS = ["sortBy"];
+const SORT_CALLS = ["sortBy", "sortPromote", "getSort", "setSort"];
 /** And the crumb trail, which `@' needs before it will drill at all. */
 const CRUMB_CALLS = ["setCrumbs", "getCrumbs", "pushCrumb", "popCrumb"];
 const strip = (h, names) => { for (const name of names) delete h[name]; };
-/** An older asset is one asset: both mounts lose the calls it never had. */
+/** An older asset is one asset: every mount loses the calls it never had. */
 const stripLive = (names) => {
-  for (const inst of [main, pan]) if (inst) strip(inst.handle, names);
+  for (const inst of [main, pan, lnk]) if (inst) strip(inst.handle, names);
 };
 // The one thing a key here does that leaves nothing on the page: the tab `o'
 // opens.  Recorded whole — the target, the tab name and the features — since
@@ -619,6 +648,10 @@ const STATEFUL = [ "mtext", "mnote", "mfile", "modal", "mprops", "mlog", "sheet"
                  // The value palette: its list is a tree of key tokens and
                  // underlined words, so it has to hold one.
                  , "echo", "prompt", "phead", "pinput", "pbox", "plist", "pfoot"
+                 // The link popup, which is a MOUNT like the panel: `ltable' is
+                 // the element it is given, and the two lines around it are the
+                 // only chrome it draws for itself.
+                 , "links", "lhead", "ltable", "lfoot"
                  // The settings sheet: its state, its panel frames, and the
                  // fields of the general panel — the two tree-wide lines, which
                  // are `system.org''s and ride in that layer's write.
@@ -740,16 +773,19 @@ const typeOver = (which, arg) => {
   typed(field(which), arg.slice(at + 1));
 };
 /**
- * The property panel as it stands: a [key, value] pair per row it is showing.
- * Read off the MOUNT rather than off any DOM, because the panel is one — the
- * shell hands it a row list and that list is the whole of what the panel shows.
+ * What INST is showing: KEYS' cells, one array per row.  Read off the MOUNT
+ * rather than off any DOM, because the two model-owning mounts ARE their models
+ * — the shell hands each a row list and that list is the whole of what it shows.
  * An open row is not in it: the overlay holds the edit and the model holds the
  * committed text, which is what makes a commit the only thing that means yes.
  */
-const panel = () =>
-  (pan ? pan.own.map((r) => [r.cells.key, r.cells.value]) : []);
-/** Which row wears the panel's cursor, and -1 when there is no panel yet. */
-const patAt = () => (pan && pan.own.length ? pan.cursor : -1);
+const cellsOf = (inst, keys) =>
+  (inst ? inst.own.map((r) => keys.map((k) => r.cells[k])) : []);
+/** Which row wears INST's cursor, and -1 when there is no such mount yet. */
+const curOf = (inst) => (inst && inst.own.length ? inst.cursor : -1);
+/** The property panel: a [key, value] pair per row. */
+const panel = () => cellsOf(pan, ["key", "value"]);
+const patAt = () => curOf(pan);
 /**
  * Which field of the sheet has the focus, named the way an act names one:
  * `mtext' for the body pane, and which of the overlay's two fields it is over
@@ -793,9 +829,8 @@ const paletteEntry = (e) => {
     // the only place a reader is told which key commits now that the token
     // column is gone.
     mark: hot ? hot.style.textDecorationColor || "" : "",
-    // The muted aside: the tag palette's partial count, the link palette's
-    // target.  Empty where the entry has none, which is what a tag every
-    // target already carries looks like.
+    // The muted aside: the tag palette's partial count.  Empty where the entry
+    // has none, which is what a tag every target already carries looks like.
     hint: aside ? aside.textContent : "",
   };
 };
@@ -951,12 +986,23 @@ const ACTIONS = {
   crumbless: () => { crumbless = true; stripLive(CRUMB_CALLS); },
   // What the row `o' names points at: one link, or none at all.  The gesture
   // is different for each — one opens without asking, none refuses — and the
-  // three-link default is what raises the palette.
+  // three-link default is what raises the popup.
   onelink: () => { links = links.slice(0, 1); },
   nolinks: () => { links = []; },
-  // One link that is not http(s): `o' takes the no-palette path straight to the
+  // One link that is not http(s): `o' takes the no-popup path straight to the
   // commit, which is where a link type this page cannot follow is refused.
   onemailto: () => { links = links.slice(2, 3); },
+  // Every type the server derives, one link each, so the popup's badge column
+  // and the commit's judgement can both be read over the whole vocabulary.
+  everytype: () => {
+    links = [ { target: "https://a.example", desc: "secure", type: "https" },
+              { target: "http://b.example", desc: "plain", type: "http" },
+              { target: "org-glance-visit:XYZ", desc: "the other row", type: "glance" },
+              { target: "mailto:t@example.org", desc: "write", type: "mailto" },
+              { target: "id:99", desc: "org's own", type: "id" },
+              { target: "file:notes.org", desc: "a file", type: "file" },
+              { target: "Some Headline", desc: "Some Headline", type: "other" } ];
+  },
   // A store with pages in it: N rows in place of the three at the top, and the
   // renderer showing SIZE of them at a time.  Acts rather than argv, so every
   // script that wants neither reads exactly as it did.
@@ -1067,6 +1113,17 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     // Following a link: which rows were asked about, which tabs were opened,
     // and the sort `^' or the agenda asked for, with how many were asked for.
     linked, opened, sorted, sortCalls, tagged,
+    // The link popup, which is the page's THIRD mount: whether it is up, the two
+    // lines of chrome it draws, how many times it was built and re-set, the rows
+    // it is showing, where its cursor is, and the read-only options it was
+    // mounted with — no marks, no flags, no hint line, no page.
+    popup: field("links").className, lhead: field("lhead").textContent,
+    lfoot: field("lfoot").textContent, lmounts,
+    llinks: cellsOf(lnk, ["type", "title", "url"]), lat: curOf(lnk),
+    lcols: lnk ? lnk.cols : [],
+    lmarks: lnk ? lnk.marksOn : null, lflags: lnk ? lnk.flagsOn : null,
+    lhints: lnk ? lnk.hintsOn : null, lpage: lnk ? lnk.pageSize : null,
+    lmarked: lnk ? [...lnk.marks] : [], lflagged: lnk ? [...lnk.flags] : [],
     // The drill-down trail as the strip would draw it, labels alone — the
     // queries behind them are the shell's business and the URL already carries
     // them.

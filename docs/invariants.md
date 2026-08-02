@@ -374,6 +374,57 @@ on.
   longer read as a pass. Making the pass itself a failure would need a second
   test-suite stanza, which is out of proportion to the problem. **none** (the
   gate still passes; what changed is that it is audible)
+- **The scan folds org-glance's index and says where it disagrees with the
+  blobs.** `Data.Org.Index` reads `.org-glance/meta/` — read only, and the only
+  thing in this repo that reads that directory at all. WHICH STORES: each root's
+  own `<root>/.org-glance/meta`, plus every `meta` directory the walk DECLINED
+  (`foundDerived` already holds them, so a store nested anywhere under a root is
+  found without a second traversal). The roots are asked separately because
+  `--include-derived` walks the mirrors instead of declining them; a nested store
+  under that flag is the one shape this misses. No meta directory, no line at
+  all.
+
+  THE FOLD, which is `org-glance-graph--latest-records` and `--ensure-cache`
+  (`src/data/org-glance-graph.el`) read forwards: the MANIFEST's sealed segments
+  oldest-first, then the open `headlines.jsonl` LAST; every non-empty line one
+  JSON record; the LATEST record per `id` supersedes every earlier one; an id
+  whose latest record carries `tombstone` leaves the live set, and a later
+  ordinary record brings it back. A name the MANIFEST lists is opened only when
+  it spells `seg-<digits>.jsonl` — org-glance's own segment pattern, which
+  doubles as the traversal guard — and a segment on disk the MANIFEST does not
+  name is invisible, the MANIFEST rename being the format's sole commit point.
+  Only the OPEN segment's final line may be torn (a crash tears the last append
+  and nothing else); the elisp re-signals on any other parse failure and a
+  read-only instrument counts it (`ifMalformed`) and carries on instead.
+
+  THE COMPARISON is by `ORG_GLANCE_ID` against the blob at
+  `.org-glance/data/<2>/<rest>/data.org`, in two terms: the TODO keyword always,
+  and the archive flag only where the record CARRIES the key — `archived` joined
+  the record schema late and 6024 of ~/sync/views' 6071 live records have no such
+  key, so absent is a third answer rather than false. Elisp writes `nil` as `{}`
+  and the decode is `(eq t VALUE)`, so only JSON `true` is a set flag. A blob's
+  entry is its file's FIRST headline: first rather than level-one (six of the
+  corpus's blobs open at level two) and first rather than first-with-an-id — a
+  CHILD's id is not the blob's, and reaching past a headline whose drawer this
+  parser lost would compare that child's keyword against the parent's record.
+
+  Report: `org-glance index: N rows disagree (M state, K archived)`, the store,
+  the fold's counts, the blob counts, the unmatched pair, then up to ten
+  disagreeing ids with both values. Measured on ~/sync/views at 2026-08-02: 6502
+  records read, 6071 live, 0 tombstones, 0 malformed; 6063 blobs parsed of 6071
+  files; **21 rows disagree, 20 state and 1 archived**; 0 unindexed blobs and 59
+  records without blobs.
+
+  THE INSTRUMENT REPORTS ITSELF: `dfIdless` counts blobs this parser read and
+  found no `ORG_GLANCE_ID` in — 51 on that corpus, which with the 8 parse
+  failures is 59 of 59 records-without-blobs, so none of that number is
+  org-glance indexing something that is not there. Their causes are this
+  parser's: 28 carry a non-English weekday in the planning line
+  (`CLOSED: [2025-12-04 do 22:34]`), which fails `planningP`, so the drawer is no
+  longer next and the headline loses its properties whole. Without the count a
+  parser gap would have read as index lag. Evidence: `TestIndex` — the fold over
+  a real MANIFEST + sealed + open store in a temp directory, the comparison's
+  five outcomes, and the report's shape. **test + corpus**
 
 ## Keyword configuration (layered)
 
@@ -644,6 +695,37 @@ on.
   Corpus, 2026-07-31: 6313 → 6290 files, 13384 → 12870 headlines, 14 → 11 parse
   failures (`overviews/agenda.org` was one of them). Evidence: `TestStore`
   "Derived mirrors" over a fixture tree of the same shape. **test + corpus**
+- **A blob's occurrence history is derived too, and it hides one level deeper.**
+  org-glance snapshots a completed repetition as
+  `.org-glance/data/<id>/occurrences/<STAMP>.org` — an immutable copy of what the
+  entry said then, carrying the LIVE entry's `ORG_GLANCE_ID`. It is INSIDE
+  `data`, so keeping `data` kept it, and `isCanonical` ranked it canonical for
+  the same reason the live blob is: `beatsForId` called the pair a tie, walk
+  order decided which one the table showed, and `POST /headline` would have
+  written to whichever won. Serving history as the entry and letting an edit land
+  in it are the same bug the overview mirrors were, one directory further in.
+
+  `Data.Org.Walk.isOccurrence` is the rule and `isDerived` covers it, which is
+  what makes the WATCH agree — `Glance.Query.derivedPath` is `isDerived`, so a
+  snapshot the walk never collected cannot arrive by inotify. `isCanonical`
+  excludes it too, so under `--include-derived`, which walks it, it loses the id
+  to the live blob instead of tying. The flag reaching it is the flag meaning
+  what it says.
+
+  DEPTH IS LEFT OPEN: the name is asked for anywhere under `data`, because
+  org-glance shards a blob directory by the id's first two characters
+  (`data/<2>/<rest>`) and falls back to `data/<id>` for an id of two characters
+  or fewer, so the history sits one component deeper in the usual case than in
+  the degenerate one and no position test covers both. The cost is that a blob
+  whose sharded remainder spells exactly `occurrences` would be declined as
+  history — and that path is indistinguishable from a two-character id's history
+  by the path alone, so no rule can separate them.
+
+  Zero on disk under `~/sync` at 2026-08-02, so this closes the hazard before it
+  is reachable and the corpus counts do not move. Evidence: `TestQuery` "Walk" —
+  a fixture store where the blob, its occurrence and an overview all carry ONE
+  id, asserting the walked file list and that the watch declines the snapshot
+  through the same predicate. **test**
 - **The exclusion is textual, and a root inside the tree defeats it.**
   `isDerived` splits the path the walk built — `dir </> name`, rooted at the
   string the caller typed — and looks for a `.org-glance` component. Nothing
@@ -1561,7 +1643,17 @@ on.
   rather than taken from the renderer. Filtering runs before paging, so
   `X-Glance-Total` is the match count; and a page is `take limit . drop offset`
   over `sortedForView` rather than over walk order, because page two has to be
-  the rows the table would show after page one. With no `limit` the walk order
+  the rows the table would show after page one. That order is a CHAIN —
+  `defaultSortChain`: title, state, deadline, scheduled, priority, all
+  ascending — and the same list is what `declaredSort` puts on the wire, so the
+  order a client is told about and the order it is served are one fact. The
+  arrangement copies the renderers' rules term for term: empty cells last on
+  each key and outside that key's direction, the state column by badge palette
+  position (unlisted keywords tying at the back), a stable sort so rows equal on
+  all five keep walk order, and text compared case-folded — the nearest this
+  side gets to the browser's `localeCompare`, and the reason a title differing
+  only by punctuation or script can still land elsewhere than the renderer would
+  put it. With no `limit` the walk order
   stands and the client sorts the whole set — the full-fidelity mode, and the
   one the shell settles into. The shell mirrors the same rule live: with a
   filter on, a row frame off the socket is answered by re-asking the server
@@ -1571,6 +1663,36 @@ on.
   the badge list a client watches for a column change every time the page moved.
   Evidence: `TestServe` "GET /headlines filter and paging", `TestQuery` "Search
   text". **test**
+- **The `tag` COLUMN sorts, case-folded; the file and `hrTags` do not.**
+  `Glance.Query.sortedTagsCell` is applied in exactly one place — the `tag` entry
+  of `viewColumns` — so `:task:nl:finance:` draws and searches as
+  `:finance:nl:task:` and a reader scans a tags column in one order rather than
+  in the author's typing order. Everything else is the file's own order, and each
+  for a reason it would be a bug to lose:
+  - The FILE, because the span is never touched: materialize hands back the
+    author's bytes and `addTagEdits`/`removeTagEdits` splice into the run as it
+    is spelled, measured in offsets the cell knows nothing about.
+  - `hrTags` itself, because `classify` reads it and `keywordScopes` is
+    FIRST-WINS over the tags: sorting the field would move which tag's config
+    governs the row, which is a resolution rather than a rendering. A row tagged
+    `:pile:book:` is `pile`'s and one tagged `:book:pile:` is `book`'s, whatever
+    order either cell draws in.
+  - `GET /tags` and the manage-tags palette behind it, whose union stays
+    first-seen in the order the rows and their files introduce the tags —
+    `whichKeys` is order-dependent, so an insert in the middle would take a
+    letter out from under the reader's fingers.
+  `hrSearch` inherits the sort by construction, `searchTextOf` joining
+  `viewCells` and `viewCells` reading the column accessors, so there is no third
+  answer to keep in step. No predicate changes: `tag:x` is a substring of one
+  tag, `tag:*archive*` is membership of the list, and both are order-independent
+  — what DOES follow the cell is free text read across the join, so `glance:web`
+  finds the row `:web:glance:` spells and `web:glance` no longer does. Folded so
+  a capital does not sort ahead of every lowercase tag, and STABLE so two
+  spellings folding alike keep the file's order between them. Evidence:
+  `TestQuery` "the tags CELL sorts, case-folded, where the field keeps the file",
+  "the column is what carries the sort", "and a removal cuts the file's entry,
+  not the cell's"; `TestFilter` "a predicate is order-independent"; `TestConfig`
+  "the first tag with anything to say about the keyword wins". **test**
 - **`?q=` is SCHEMA.md's filter query, and parity with the renderer is the
   contract.** `Glance.Web.Filter` is a port of `table-view.js`'s `scanQuery`,
   `parseQuery` and `tokenTest`, term for term, because the renderer filters
@@ -1874,7 +1996,7 @@ on.
   gets the shape the route always uses. An upgrade aimed at any path but `/ws` is rejected rather
   than routed. **test** (`TestServe`)
 - **`GET /links?id=ROW` is where a row points, and the rule is the DISPLAY
-  rule.** `{links: [{target, desc}]}`, extracted from the row's SUBTREE in order
+  rule.** `{links: [{target, desc, type}]}`, extracted from the row's SUBTREE in order
   of appearance and one entry per target. Two forms, which is what org writes:
   the bracket link, described by its `DESC` and by its target where it has none
   — `Glance.Query.linkAt`, the very parser `displayText` reads a cell with, so
@@ -1893,6 +2015,34 @@ on.
   store has no row for and 400 with no id, exactly as materialize, 503 while
   indexing, 405 on POST. Evidence: `TestQuery` "Links" (the rule),
   `TestServe` "GET /links" (the route). **test**
+- **A link's TYPE is its scheme, folded, and the rule is one pass over the
+  PREFIX.** `Glance.Query.linkType` takes what sits before the first `:`,
+  lowercases it, and answers with it — after refusing anything not shaped like
+  RFC 3986's scheme (a letter, then letters, digits, `+`, `-`, `.`) and folding
+  every `org-glance-*` protocol into the one word `glance`. So `https`, `http`,
+  `mailto`, `id` and `file` fall out of the rule rather than being named
+  anywhere, and `linkTypes` is a vocabulary the badge palette draws hues for
+  rather than a classifier. The `org-glance-*` fold is deliberate and is a DIFFERENT question
+  from `refPrefixes`: `org-glance-visit:` and `org-glance-overview:` name a row
+  and a tag respectively, which is what decides `hrLinks`, but they are the same
+  KIND of destination, which is what this answers. A scheme the six do not name
+  travels under its own name — the popup exists to say what a link IS, and a
+  catch-all would teach less. That last clause earns itself on the corpus: a
+  300-row sample of ~/sync at 2026-08-02 answered `glance` 427, `https` 286,
+  `file` 68, `http` 18, **`elisp` 6, `attachment` 2** and `other` 1, so two org
+  link types nothing here declares came back named rather than swept away.
+  Three honest costs, all from reading the
+  prefix alone: org's internal `[[Title]]` and `[[*Title]]` are `other` (they
+  name a place inside the tree, not a protocol); a relative path written without
+  `file:` is `other` where `file:./x` is `file` (the type reports what the target
+  SAYS); and a scheme-SHAPED word before a colon is taken at its word, so
+  `[[Meeting: notes]]` reads `meeting`. The alternative to that last one is a
+  registry of known schemes, and then an unlisted scheme reads as prose — the
+  worse failure. The shell's `followable` reads this word rather than running its
+  own regex over the target, so the badge a reader sees and the judgement `o`
+  makes are one answer. Evidence: `TestQuery` "a link's type is its scheme,
+  folded" and the four cases beside it, `TestServe` "every link carries its type,
+  followable or not". **test**
 - **`POST /headline` caps the body at 1 MiB, and the cap outranks the lookup.**
   The body is counted chunk-wise and a larger one is 413. Because the cap is
   checked before the id is resolved, an oversized POST to an unknown id is a 413
@@ -2229,8 +2379,9 @@ on.
   parts. **test**
 - **The shell's z-index bands must clear the renderer's.** Four values, all of
   them here: echo `2`, corner `3`, modal backdrop `100`, sheet `101`.  The value
-  palette shares that pair rather than adding to it (`#modal,#prompt` and
-  `#pbox`), so a second overlay costs no band. The
+  palette, the settings sheet and the link popup share that pair rather than
+  adding to it (`#modal,#prompt,#config,#links` and their boxes), so a fourth
+  overlay costs no band — which is the rule a new one joins under. The
   cross-repo constraint is the backdrop pair clearing the renderer's sticky
   header (`1`) and its completion list (`5`) — an unnumbered backdrop painted
   under both. The corner and the echo sit BELOW the backdrop deliberately, so
@@ -2483,8 +2634,8 @@ on.
   on to the rows that LACK it. So over a mixed set the first press LEVELS it and
   only the second takes anything away, which is what makes a bulk tag safe to
   press at: the destructive reading of a letter is never the first one. The
-  partial entries say so — `3/5` in the muted `.pt` aside the link palette puts a
-  target in, absent where the set is level — so the rule reads off the list
+  partial entries say so — `3/5` in the muted `.pt` aside, absent where the set
+  is level — so the rule reads off the list
   rather than only out of this file. The write goes to the rows it is FOR (the
   ones lacking the tag when adding, the ones carrying it when taking it off), so
   the answer's landed count is a count of rows that MOVED. Evidence: `TestServe`
@@ -2642,7 +2793,7 @@ on.
   org-glance's other spelling) fetches `GET /links?id=` for the row at point and
   then does one of three things: no links echoes
   `o → org-glance-overview:open (no links)` and stops, ONE opens with
-  `window.open(target, "_blank", "noopener")`, and SEVERAL raise the palette. So
+  `window.open(target, "_blank", "noopener")`, and SEVERAL raise the POPUP. So
   a reader never confirms a choice there was only one of, and never guesses which
   of five references a key would take. Every open writes a `cmd` line naming the
   target, which is the only trace a followed link leaves on the page it was
@@ -2650,34 +2801,105 @@ on.
   into this one. The command is on `ONCE`, since a leaned-on `o` is a tab per
   repeat. Evidence: `TestServe` "Shell open". **test**
 - **A tab can be pointed at `http`/`https` and NOTHING ELSE.** `followable` is
-  that one test. Everything else org writes — `mailto:`, `file:`, `id:`,
-  org-glance's own protocols, the bare `[[Title]]` internal link — names
-  something a tab is not, and `/links` reports them all, so the judgement is the
-  COMMIT's. A non-followable target is one `cmd` WARN line —
+  that one test, and it reads the server's `type` — `l.type === "https" ||
+  l.type === "http"` — rather than running a regex over the target a second
+  time, so the badge a reader sees and the judgement a key makes are one answer.
+  Everything else org writes — `mailto:`, `file:`, `id:`, org-glance's own
+  protocols, the bare `[[Title]]` internal link — names something a tab is not,
+  and `/links` reports them all, so the judgement is the COMMIT's. A
+  non-followable target is one `cmd` WARN line —
   `link type not implemented: TARGET`, truncated at 80 characters (`shortly`) —
   plus the same words in the echo, and no tab opens. It lives in `openLink`
-  rather than in a filter over the choices, which is what keeps the palette
-  LISTING every link: what an entry holds is what teaches a reader what the
-  entry is. So a lone `mailto:` warns without a palette, and a `mailto:` entry
-  beside an `http` one warns while its neighbour still opens. Evidence:
+  rather than in a filter over the rows, which is what keeps the popup LISTING
+  every link: what an entry holds is what teaches a reader what the entry is. So
+  a lone `mailto:` warns without a popup, and a `mailto:` row beside an `http`
+  one warns while its neighbour still opens. Evidence:
   `TestServe` "a single link that is not http(s) opens nothing and says so",
-  "a palette commit on a non-http entry refuses the same way", "and an http
-  entry beside it still opens". **test**
-- **The link palette is the value palette's third shape, and it is raised LATE.**
-  Same overlay, same band, same `whichKeys` pool, same `/` fallback, same `ESC`
-  through `cancel` — what differs is two things, and both follow from WHEN it
-  goes up. The state palette is raised synchronously on the keydown because the
-  answer cannot change whether there is a palette; the link palette cannot be,
-  because none and one are answered without one at all. So `askLinks` raises it
-  behind the fetch and clears `prompting.raising`: the `o` that asked has been
-  dispatched and gone, nothing is travelling, and declining a press would eat the
-  reader's first real key. And it draws FLAT rather than as a table — one row
-  points where it points and no scope classified it — which is `drawChoices`
-  branching on `prompting.table` rather than a fourth renderer. An entry's label
-  is the link's DESCRIPTION, since that is what the row's own text calls the
-  place, with the target beside it muted (`.pt`); `/` narrows over BOTH, through
-  the entry's `hay`, because a reader who remembers the host and not the wording
-  has only the one. Evidence: `TestServe` "Shell open". **test**
+  "an o on a non-http row refuses the same way", "and an http row beside it
+  still opens", "and only the two followable ones open a tab". **test**
+- **TWO SHAPES FOR A CHOICE, and which one a list gets is decided by whether it
+  has to be READ.** The page offers a set of options in one of two ways and
+  there is no third.
+  - A **which-key palette** (`#prompt`) is for a FIXED VOCABULARY a reader
+    commits from memory: the state palette's keywords, the tag palette's tags.
+    Every entry wears a letter, the letter commits on its own, and the palette IS
+    the confirmation. It works because the entries are single words a reader
+    already knows the shape of — `t d e` for `TODO DONE DELEGATED` is muscle
+    memory after the second use — so nothing has to be read before a key is
+    pressed. `/` is its completing-read fallback for a set too wide to have
+    claimed a letter each.
+  - A **read-only table-view mount** is for a list of RECORDS that has to be
+    read before it can be picked from: the link popup, where each entry has a
+    kind, a name and a destination and the reader is deciding WHICH. Letters are
+    the wrong instrument there — they are noise laid over the columns that carry
+    the answer, and a letter assigned to `First reference` teaches nothing about
+    where it points. So the surface is move, look, act: `n`/`p` (and `j`/`k`, and
+    the arrows), one key to commit, `ESC` to leave. The renderer draws it,
+    because this page has ONE list widget and a table of records is what it is
+    for — which is the same argument the property panel landed under (#50).
+  What decides is the ENTRY rather than the length: a two-entry table still wants
+  columns and a forty-keyword cycle still wants letters. A list whose entries are
+  single known words takes letters; a list whose entries are records takes a
+  mount.
+  Evidence: `TestServe` "Shell which-key" and "Shell open". **test**
+- **The link popup is a MOUNT, it is READ-ONLY, and it is raised LATE.** `o` on a
+  row with several links raises `#links`, a sibling of `#app` sharing the two z
+  levels with the sheets and the value palette, hosting the page's THIRD
+  table-view mount (`#ltable`). Three columns, declared server-side in
+  `Glance.Query.linkColumns` so the type vocabulary and its hues have one home
+  next to the function deriving them: `type` as a badge, `title` as the
+  description the entry itself wrote, `url` as the target. The `url` column is
+  plain text — a muted aside is what the palette drew by hand and no column KIND
+  offers one, so the target reads in the page's ordinary ink and the column it
+  sits in is what tells it from the title; inventing a kind would be a renderer
+  feature and styling one from the shell would be this page reaching into the
+  table's cells. Read-only is STATED rather than inherited (`marks: false, flags:
+  false, actionHints: false`, no `pageSize`), and it is `typing()` that enforces
+  it: the popup turns `typing()` on with NO field focused, the way the property
+  panel's nav does, so every `table` row is dead under it and `d`, `D`, `m`, `M`,
+  `u` and `U` do nothing at all. Its keys are a THIRD document listener behind
+  the dispatch, safe for the reason the other two are — the only row that can
+  fire ahead of it is `ESC`, which is the one that should. Raised LATE, behind
+  the fetch, because none and one are answered without a popup at all; by then
+  the `o` that asked has been dispatched and gone, so nothing is travelling and
+  no press is declined. Mounted once and kept, like the panel: a mount per press
+  would leave a theme listener behind every time a reader followed a row. Row
+  movement is `rowStep`/`stepIn`, shared with the property panel — both spellings
+  and the arrows in one place, so the two modal surfaces cannot drift from each
+  other or from the map's own `n`/`p`/`j`/`k` rows.
+  Evidence: `TestServe` "Shell open". **test**
+- **KNOWN SHAPE, not yet a rule: three modal surfaces, three private listeners,
+  and one predicate each of them has to remember to join.** The value palette,
+  the property panel and the link popup each carry a document keydown listener
+  behind the dispatch, and each had to add itself to `typing()` (`pnav() ||
+  !!prompting || linking()`). A fourth joins by editing that predicate, and
+  forgetting is silent and destructive — the table's `d` and `D` stay live
+  underneath it. The keymap already holds the machinery this wants: `keyBindings`
+  rows carry a `scope` and `live` routes `any`/`modal`/`table` off page state, so
+  the deeper answer is a scope per surface plus one "which list holds the keys"
+  indirection, which would also put the popup's `o` and `RET` in the blob where
+  the key line and the echo can see them. It is not taken here because it is a
+  redesign of two LANDED listeners rather than an addition, and because the
+  palette's letters are dynamic (`whichKeys`) and stay a listener whatever
+  happens to the other two. The count is three; the fourth is what should force
+  the question. **none**
+- **`o` is the key inside the popup too, and `RET` is reserved for the edit.**
+  The key that raised the list is the key that commits from it, over the link the
+  cursor is on rather than the row's first — one gesture with one name. It opens
+  and CLOSES, both outcomes alike, the tab and the type refusal: picking one link
+  is what the popup was raised to do, and staying up on the refusal would be a
+  second rule for the same key. `RET` is held for editing the link IN PLACE — the
+  row's own title and url cells becoming fields over themselves, `TAB` between
+  them, `RET` committing and `ESC` restoring, which is the property panel's edit
+  model exactly, so a panel row and a link row are edited alike and the derived
+  type cell never opens. **NOT LANDED**: the write needs a per-link `span` out of
+  `GET /links` and an `edit-link` command to splice it under the file's digest,
+  preserving the link's FORM (`[[T][D]]` stays bracketed, a bare URL losing its
+  description stays bare, a bare one gaining one becomes bracketed). Until then
+  the key says what it is waiting for and leaves the popup standing, the way a
+  bound key with no handler does. Evidence: `TestServe` "o opens the link at
+  point and closes the popup", "RET names the edit that is not here yet, and
+  writes nothing". **test** (what is here) / **none** (the write)
 - **`a` is a canned VIEW, not a mode.** `org-glance-agenda` applies
   `state:*active* -planned:*empty*` through the door `g` uses — `applyView` writes
   it into the URL, drops the socket, and remounts, so the query is the renderer's

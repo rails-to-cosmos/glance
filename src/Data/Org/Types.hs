@@ -27,6 +27,7 @@ module Data.Org.Types ( Context (..)
                       , Todo (..)
                       , Token (..)
                       , TsMoment (..)
+                      , archiveTag
                       , defaultContext
                       , defaultHeadline
                       , headlineSpanParts
@@ -62,6 +63,14 @@ import qualified TextShow as TS
 
 headlineIdProperty :: Text
 headlineIdProperty = "ORG_GLANCE_ID"
+
+-- | The tag org gives an archived headline, as org spells it.  Here rather than
+-- beside its readers because it is ORG's name and three layers ask for it: the
+-- @archive@ command writes it ('Glance.Query.archiveEdits'), the filter hides
+-- what wears it, and the scan's index comparison reads a blob's archive flag
+-- off it ('Data.Org.Index').
+archiveTag :: Text
+archiveTag = "ARCHIVE"
 
 -- Typeclasses
 

@@ -13,6 +13,15 @@
 -- mirror directories are skipped and @data@ is kept, and @--include-derived@
 -- turns that exclusion off for someone who wants to look at them.
 --
+-- A blob's own HISTORY is the third of them, and it hides one level deeper.
+-- org-glance snapshots a completed repetition as
+-- @.org-glance\/data\/\<id\>\/occurrences\/\<STAMP\>.org@ — an immutable copy of
+-- what the entry said then, carrying the LIVE entry's @ORG_GLANCE_ID@.  It is
+-- inside @data@, so keeping @data@ kept it too, and it is canonical by the same
+-- rule the live blob is, so 'beatsForId' called the pair a tie and walk order
+-- decided which one a table showed and a command wrote to.  'isOccurrence'
+-- names it and 'isDerived' covers it, which is why the watch agrees.
+--
 -- And @.org-glance\/config\/@, always.  Those files are INPUT to a parse rather
 -- than content in a table: @Data.Org.Config@ reads their @#+TODO:@ lines by
 -- path and every file under the root is parsed knowing them.  A capture
@@ -26,11 +35,13 @@ module Data.Org.Walk ( Found (..)
                      , errText
                      , findOrgFiles
                      , findOrgFilesWith
+                     , isBlob
                      , isCanonical
                      , isConfig
                      , isDerived
                      , isDocument
                      , isWalked
+                     , isOccurrence
                      , isOrg
                      , isSidecar
                      , mapFilesConcurrently
@@ -75,12 +86,22 @@ defaultWalk = WalkOptions False
 derivedDirs :: [FilePath]
 derivedDirs = ["overviews", "meta"]
 
+-- | org-glance's store layout, as the three names the rules below ask for: the
+-- canonical store directory, the one directory inside a blob that is history
+-- rather than the blob, and the file a blob keeps its entry in.
+storeDir, occurrenceDir, blobFile :: FilePath
+storeDir = "data"
+occurrenceDir = "occurrences"
+blobFile = "data.org"
+
 -- | What sits under each @.org-glance@ directory PATH passes through: one entry
--- per such directory, already past it.  The three rules below differ only in
--- the arity of the pattern they ask of a tail.
+-- per such directory, already past it.  Three of the four rules below differ
+-- only in the arity of the pattern they ask of a tail; 'isOccurrence' asks for
+-- a name anywhere along one, for the reason its own note gives.
 --
--- The guard is what makes this affordable in the walk, which asks it twice per
--- entry over ~703k of them: splitting a path allocates a list of strings and
+-- The guard is what makes this affordable in the walk, which asks it three
+-- times per entry over ~703k of them — 'isConfig', then 'isDerived' and the
+-- 'isOccurrence' inside it: splitting a path allocates a list of strings and
 -- 'tails' allocates a list of those, and a tree with no @.org-glance@ component
 -- anywhere pays that for an answer that is always @[]@.  'namesOrgGlance' is a
 -- character scan with no allocation at all, and a path it rejects cannot
@@ -110,11 +131,40 @@ namesOrgGlance (_c : rest) = namesOrgGlance rest
 namesOrgGlance [] = False
 
 -- | Is PATH inside an org-glance mirror — one of 'derivedDirs' sitting directly
--- under a @.org-glance@ directory?  Takes the whole path, so it answers for a
--- directory the walk is about to enter and for a file the watch was told about
--- alike.
+-- under a @.org-glance@ directory, or a blob's 'isOccurrence' history?  Takes
+-- the whole path, so it answers for a directory the walk is about to enter and
+-- for a file the watch was told about alike.
+--
+-- The occurrences half rides here rather than in a rule of its own so that ONE
+-- predicate answers for the walk and for the watch — @Glance.Query.derivedPath@
+-- is this function, and a file the walk never collected must never arrive by
+-- inotify.  It follows @--include-derived@ with the mirrors, which is the flag
+-- meaning what it says: on, the walk reads everything org-glance wrote, history
+-- included, and an occurrence ties with its live blob again.
 isDerived :: FilePath -> Bool
-isDerived path = or [ d `elem` derivedDirs | d : _rest <- orgGlanceTails path ]
+isDerived path = isOccurrence path
+              || or [ d `elem` derivedDirs | d : _rest <- orgGlanceTails path ]
+
+-- | Is PATH one of a blob's occurrence snapshots — anything under an
+-- @occurrences@ directory inside the canonical store?
+--
+-- Depth is left open on purpose.  org-glance shards a blob directory by the
+-- id's first two characters (@data\/\<2\>\/\<rest\>@) and falls back to
+-- @data\/\<id\>@ for an id of two characters or fewer, so the history sits one
+-- component deeper in the usual case than in the degenerate one, and no
+-- position test covers both.  The cost of asking for the NAME anywhere under
+-- @data@ is that a blob whose sharded remainder spells exactly @occurrences@
+-- would be declined as history; that path is indistinguishable from a
+-- two-character id's history by the path alone, so no rule can tell them apart.
+isOccurrence :: FilePath -> Bool
+isOccurrence path =
+  or [ occurrenceDir `elem` rest | d : rest <- orgGlanceTails path, d == storeDir ]
+
+-- | Is PATH a blob's stored document — @data.org@ inside 'isCanonical'?  The
+-- one file per entry org-glance writes its contents to, and what the scan's
+-- index comparison reads a blob's state off.
+isBlob :: FilePath -> Bool
+isBlob path = takeFileName path == blobFile && isCanonical path
 
 -- | Is PATH inside org-glance's config area — a @config@ directory sitting
 -- directly under a @.org-glance@ one?  The same shape as 'isDerived' and a
@@ -129,8 +179,14 @@ isConfig path = or [ d == "config" | d : _rest <- orgGlanceTails path ]
 -- from it outranks one from anywhere else claiming its @ORG_GLANCE_ID@
 -- ('beatsForId').  One component deeper than 'isDerived' asks for: the store
 -- directory is not itself a document in it.
+--
+-- A blob's history is inside the store and is not it: an occurrence carries the
+-- LIVE entry's id, so ranking it canonical made the pair a tie and handed the
+-- id to whichever the walk saw first.  The walk no longer offers one, and this
+-- says what the answer would be under @--include-derived@, which does.
 isCanonical :: FilePath -> Bool
-isCanonical path = or [ d == "data" | d : _ : _rest <- orgGlanceTails path ]
+isCanonical path = not (isOccurrence path)
+                && or [ d == storeDir | d : _ : _rest <- orgGlanceTails path ]
 
 -- | Does A outrank B as the file that keeps an @ORG_GLANCE_ID@ both claim?
 -- Only a canonical path beats a non-canonical one; every other pairing leaves

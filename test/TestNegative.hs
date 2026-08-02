@@ -159,4 +159,25 @@ spec = testGroup "Negative / Edge cases"
     , testCase "Hash without plus is a token" $
         assertBool "Should be token" (parsesAs "#notapragma" isToken)
     ]
+
+    -- A property KEY is org's own charset — any run without whitespace or a
+    -- colon — which is wider than the TODO-keyword wall on purpose: a digit
+    -- (:TELE2:) and a non-Latin key (:ЖКХ:) both live in the corpus, and
+    -- either one used to fail the drawer mid-parse, taking every later
+    -- property with it.
+  , testGroup "Property key charset"
+    [ testCase "Digits and non-Latin keys keep the drawer whole" $
+        case orgParse defaultContext
+               "* Tanik\n:PROPERTIES:\n:TELE2: +7 999\n:ЖКХ: +7 495\n:ORG_GLANCE_ID: x1\n:END:\n" of
+          (elems, _ctx, err) | [EHeadline h] <- bare elems -> do
+            assertEqual "no parse error" Nothing err
+            let Properties ps = properties h
+                keysOf = [ k | Property (Keyword k) _ <- ps ]
+            assertBool "digit key read" ("TELE2" `elem` keysOf)
+            assertBool "non-Latin key read, uppercased like every key"
+                       ("ЖКХ" `elem` keysOf)
+            assertBool "the id BEHIND them survives"
+                       ("ORG_GLANCE_ID" `elem` keysOf)
+          (other, _, _) -> assertBool ("one headline expected: " <> show (length (bare other))) False
+    ]
   ]

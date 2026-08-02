@@ -68,9 +68,12 @@ module Glance.Query ( ConfigLayerFile (..)
                     , displayText
                     , documentPath
                     , filterKeys
+                    , followableTypes
                     , headlineParts
                     , hiddenProperties
                     , keywordSources
+                    , linkColumns
+                    , linkType
                     , loadDir
                     , loadDirFilesSerially
                     , loadDirFilesWith
@@ -98,7 +101,11 @@ module Glance.Query ( ConfigLayerFile (..)
                     , setPlanningEdits
                     , setStateEdits
                     , settableStates
+                    , defaultSortChain
+                    , orderedForViewWith
                     , sortedForView
+                    , sortedForViewWith
+                    , sortedTagsCell
                     , subtreeLinks
                     , subtreeText
                     , tagText
@@ -115,9 +122,9 @@ import Control.Exception (IOException, evaluate, try)
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Aeson.Text (encodeToLazyText)
 import Data.Aeson.Types (Pair)
-import Data.Char (isAlphaNum)
+import Data.Char (isAlphaNum, isAsciiLower, isDigit)
 import Data.Either (fromRight)
-import Data.List (foldl', nub, partition, sort, sortOn)
+import Data.List (foldl', nub, partition, sort, sortBy, sortOn)
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
 import Data.Text (Text)
 import TextShow (showt)
@@ -138,7 +145,7 @@ import Data.Org ( Context, Element (EHeadline), Headline
                 , Indent (Indent)
                 , Priority (Priority), Span (..), Spanned (valueOf)
                 , Timestamp (tsStart), Todo (name)
-                , TsMoment (tsmHasTime, tsmTime), deadline, defaultContext
+                , TsMoment (tsmHasTime, tsmTime), archiveTag, deadline, defaultContext
                 , hsFull, identity, indent, isTagChar, metaCategory, orgParse, priority
                 , schedule, sliceSpan, spans, tags, title, todo, todoActive
                 , todoInactive )
@@ -178,7 +185,7 @@ data HeadlineRecord = HeadlineRecord
   , hrState     :: !(Maybe Text)    -- ^ TODO keyword verbatim.
   , hrPriority  :: !(Maybe Text)    -- ^ priority letter, brackets dropped.
   , hrTitle     :: !Text            -- ^ title text as the file spells it.
-  , hrTags      :: !Text            -- ^ @":a:b:"@, empty when untagged.
+  , hrTags      :: !Text            -- ^ @":a:b:"@ in FILE order, empty when untagged; the COLUMN sorts ('sortedTagsCell').
   , hrScheduled :: !(Maybe Text)    -- ^ ISO date, see 'isoStamp'.
   , hrDeadline  :: !(Maybe Text)    -- ^ ISO date, see 'isoStamp'.
   , hrSearch    :: !Text            -- ^ the cells as they display, lowercased; see 'searchTextOf'.
@@ -603,6 +610,96 @@ urlIn word
       where (before, after) = T.breakOn scheme word
     trailing c = c `elem` (".,;:!?'\"()[]{}<>" :: String)
 
+-- | What KIND of place a link target names, as one word: its SCHEME, lowercased,
+-- with the whole @org-glance-@ family folded into @glance@ and everything with
+-- no scheme at all reading @other@.
+--
+-- One rule and one pass.  A scheme is what sits before the first @:@ and is
+-- shaped like one — RFC 3986's letter followed by letters, digits, @+@, @-@ and
+-- @.@ — so @https@, @http@, @mailto@, @id@, @file@ and org-glance's own
+-- protocols all fall out of it rather than being named here.  The six words
+-- 'linkTypes' declares are the ones ~\/sync spells; a scheme this has never seen
+-- travels under its own name rather than being flattened into @other@, since the
+-- word IS the answer and a popup listing it teaches more than a catch-all would.
+--
+-- Three honest consequences, all from deriving the type off the PREFIX alone.
+-- Org's internal links — @[[Title]]@ and @[[*Title]]@ — carry no scheme and read
+-- @other@, which is right: they name a place inside the tree rather than a
+-- protocol.  A relative file link written without its prefix
+-- (@[[.\/notes.org]]@) reads @other@ too, where @[[file:.\/notes.org]]@ reads
+-- @file@ — the type reports what the target SAYS, and nothing here guesses at a
+-- path.  And a scheme-SHAPED word before a colon is taken at its word, so
+-- @[[Meeting: notes]]@ reads @meeting@.  The alternative is a registry of known
+-- schemes, and then a scheme this list had never heard of would read as prose —
+-- which is the worse failure, since the popup exists to say what a link IS.
+--
+-- Read by @GET \/links@, which is where the shell's popup gets its type column
+-- and where @o@ decides whether a browser tab can be pointed at the target at
+-- all.
+linkType :: Text -> Text
+linkType target
+  | T.null rest                           = "other"
+  | not (schemeShaped word)               = "other"
+  | "org-glance-" `T.isPrefixOf` word     = "glance"
+  | otherwise                             = word
+  where
+    (before, rest) = T.breakOn ":" target
+    word           = T.toLower before
+    schemeShaped t = case T.uncons t of
+      Nothing      -> False
+      Just (c, cs) -> isAsciiLower c && T.all part cs
+    part c = isAsciiLower c || isDigit c || c == '+' || c == '-' || c == '.'
+
+-- | The link types a browser tab CAN be pointed at.  Spelled once and read
+-- three ways: the badge palette gives them the warm hues, the rest of
+-- 'linkTypes' takes the cool ones, and the shell's @followable@ is this list
+-- spliced into the page — so adding one is one edit rather than three that no
+-- test ties together.
+followableTypes :: [Text]
+followableTypes = ["https", "http"]
+
+-- | The link types the walked corpus spells, in the order the popup's badge
+-- palette declares them: 'followableTypes' first, then the four a tab cannot
+-- reach.  'linkType' does not consult this list — every one of these words falls
+-- out of the scheme rule — so it is a VOCABULARY rather than a classifier, and a
+-- type outside it is drawn with no badge hue rather than refused.
+linkTypes :: [Text]
+linkTypes = followableTypes <> ["glance", "mailto", "id", "file"]
+
+-- | 'linkTypes' as SCHEMA.md badges, and the hue carries the one fact that
+-- matters at the moment of pressing a key: the FOLLOWABLE types take the warm
+-- keyword hues and the ones a tab cannot reach take the cool ones.  The page's
+-- existing two lists, so the popup reads in the palette the table already uses
+-- and this module grows no second colour language.
+--
+-- No @group@ field.  That one is the state column's own, saying which side of a
+-- @#+TODO:@ bar a keyword fell on, and spending it here on a different question
+-- would be two meanings for one name.
+linkTypeBadges :: [Value]
+linkTypeBadges =
+  zipWith badge (take n activeColors <> cycle inactiveColors) linkTypes
+  where badge color value = object ["value" .= value, "color" .= color]
+        n = length followableTypes
+
+-- | The link popup's columns: what a link IS, what the entry calls it, and where
+-- it points.  SCHEMA.md Column objects through the same 'column' builder the
+-- table's own use, so they sort like every other column of this page — the rows
+-- arrive in the order the SUBTREE writes them, which is the order that means
+-- something, and a reader who wants another may take one.
+--
+-- The @url@ column is plain text.  A muted aside is what the which-key palette
+-- drew by hand, and no column KIND offers one — @text@, @number@ and @badge@ are
+-- the whole of SCHEMA.md's set — so the target reads in the page's ordinary ink
+-- and the column it sits in is what tells it from the title.  Inventing a kind
+-- would be a renderer feature, and styling one from the shell would be this page
+-- reaching into the table's cells.
+linkColumns :: [Value]
+linkColumns =
+  [ column "type"  "Type"     "badge" ["badges" .= linkTypeBadges]
+  , column "title" "Headline" "text"  []
+  , column "url"   "Target"   "text"  []
+  ]
+
 -- References
 --
 -- A REFERENCE is a link that points at another ROW, which is a narrower thing
@@ -688,17 +785,67 @@ squashControls = T.concat . go
       where (keep, rest) = T.break control s
     control c = c < ' ' || c == '\DEL'
 
--- | The tags CELL names, one per tag: org writes them @:a:b:@, so splitting on
--- the colon and dropping the empties is the whole of it.  Lowercased through
--- 'displayText' like the search text, so a tag read off a row here is the same
--- string a filter compares against.
+-- | CELL re-spelled with its tags in case-folded alphabetical order —
+-- @\":task:nl:finance:\"@ reads @\":finance:nl:task:\"@.
+--
+-- DISPLAY ONLY, and the one place it is applied is the @tag@ entry of
+-- 'viewColumns' — the COLUMN, which is what the table draws and what
+-- 'searchTextOf' joins into 'hrSearch'.  Everything else about a row's tags is
+-- the file's own order:
+--
+--   * the FILE, because the span is never touched — materialize hands back the
+--     author's bytes and 'addTagEdits' \/ 'removeTagEdits' splice into the run
+--     as it is spelled.
+--   * 'hrTags' itself, so 'classify' still reads the tags in the order the
+--     headline writes them.  That order DECIDES which tag's config governs the
+--     row ('keywordScopes' is first-wins), so sorting the field would move a
+--     resolution rather than a rendering.
+--   * @GET \/tags@ and the manage-tags palette behind it, whose union is
+--     first-seen in the order the rows and their files introduce the tags.
+--
+-- Readers that ask about MEMBERSHIP are unaffected either way: 'tagged' and
+-- @tag:*archive*@ split the cell, and a bare @tag:x@ is a substring of one tag
+-- rather than of the run.
+--
+-- Folded rather than raw, so @:Work:admin:@ does not sort its capital ahead of
+-- every lowercase tag; the sort is STABLE, so two spellings folding alike keep
+-- the file's order between them.
+--
+-- A cell ALREADY IN ORDER is handed straight back, the very 'Text' that came in,
+-- and that is the row this runs over: the accessor is read per row per
+-- @\/headlines@ ('rowJSON') as well as once at load ('viewCells'), and ~/sync at
+-- 2026-08-02 serves 10112 rows of which 4514 carry no tag, 5491 carry exactly
+-- one, and 107 carry more.  So 99% of rows rebuild nothing.  A colon-count guard
+-- ahead of the split would save more still and is deliberately not taken: it
+-- would assume a well-formed @:a:b:@ run, which is a shape this function is
+-- otherwise free of, for a fraction of a millisecond per render.
+sortedTagsCell :: Text -> Text
+sortedTagsCell cell
+  | sorted == entries = cell
+  | otherwise         = ":" <> T.intercalate ":" sorted <> ":"
+  where entries = tagRunEntries cell
+        sorted  = sortOn T.toCaseFold entries
+
+-- | The entries of a tag RUN, org spelling it @:a:b:@: split on the colon and
+-- drop the empties its two ends leave.  One spelling of that rule, since
+-- 'tagsOfCell' and 'sortedTagsCell' ask the same question of the same string and
+-- a second copy would be a second reading of org's own syntax.
+--
+-- 'tagEntries' is the near miss and is deliberately not this: it keeps the
+-- INTERIOR positions, being what an edit measures a splice in.
+tagRunEntries :: Text -> [Text]
+tagRunEntries = filter (not . T.null) . T.splitOn ":"
+
+-- | The tags CELL names, one per tag, lowercased through 'displayText' like the
+-- search text — so a tag read off a row here is the same string a filter
+-- compares against.
 --
 -- This is the vocabulary a producer's virtual filter keys come from
 -- (@table-view\/SCHEMA.md@, Filter query): every distinct tag in the column is
 -- a key, and a renderer deriving them from the rows it holds has to get the
 -- same list out of the same cells.
 tagsOfCell :: Text -> [Text]
-tagsOfCell = filter (not . T.null) . T.splitOn ":" . T.toLower . displayText
+tagsOfCell = tagRunEntries . T.toLower . displayText
 
 -- | Does a row's display text contain Q?  Q is trimmed and lowercased the way
 -- the renderer trims and lowercases its filter box, and an empty query matches
@@ -764,17 +911,99 @@ documentPath = isDocument
 configPath :: FilePath -> Bool
 configPath = isConfig
 
--- | RECORDS in the order 'viewJSON' declares them sorted: scheduled ascending,
--- an unscheduled row first, ties left in walk order.  A page has to be cut out
--- of this order rather than out of the walk, or page two is a different set of
--- rows than the table's own sort would put there.
+-- | The view's default sort CHAIN, highest priority first: the column key and
+-- whether it ascends.
+--
+-- ONE list, read twice — 'declaredSort' spells it onto the wire and
+-- 'sortedForView' arranges the rows by it — so the order a client is told about
+-- and the order it is served can never disagree.  That pairing is the whole
+-- reason a producer sorts at all: a renderer re-sorts what it is given, and a
+-- page cut out of a different order than the one declared is a different set of
+-- rows than the table would have put there.
+--
+-- Title leads, so the table opens alphabetically and the four keys behind it
+-- are tie-breakers that fire only where two rows are named alike.  Every key
+-- ascends; SCHEMA.md makes direction per key, and nothing here wants the other
+-- one yet.
+defaultSortChain :: [(Text, Bool)]
+defaultSortChain =
+  [ ("title", True), ("state", True), ("deadline", True)
+  , ("scheduled", True), ("priority", True) ]
+
+-- | R's comparison value for the column KEY under PALETTE, or 'Nothing' for an
+-- empty cell.
+--
+-- A 'Nothing' is SCHEMA.md's NULL: it sorts to one end of its own key, outside
+-- that key's direction, and says nothing about the row's other cells.  A cell
+-- that is absent and one that is @\"\"@ are the same null, which is the rule
+-- @key:*empty*@ already reads.
+--
+-- The pair is (palette POSITION, folded TEXT), which is the two ways SCHEMA.md
+-- orders a column with one type: a badge column compares by where its value
+-- sits in the palette and nothing else, every other column by its text.  So the
+-- state column fills the first half and leaves the second empty, and the rest
+-- do the reverse.
+--
+-- Text is compared CASE-FOLDED, the way 'sortedTagsCell' folds: the browser
+-- renderer collates with @localeCompare@, which is case-insensitive at its
+-- primary strength, and raw code-point order would put every capitalised title
+-- ahead of every lowercase one where the table shows them interleaved.  Folding
+-- is the closest this side gets; a title differing from another only by
+-- punctuation or by script can still land elsewhere than @localeCompare@ would
+-- put it, and the next key settles it here where the renderer would not have
+-- asked one.
+sortCell :: TodoKeywords -> Text -> HeadlineRecord -> Maybe (Int, Text)
+sortCell palette key r = case lookup key [(k, cell) | (k, _, _, cell) <- viewColumns] of
+  Nothing   -> Nothing
+  Just cell -> case cell r of
+    Just value | not (T.null value) ->
+      Just (if key == "state" then paletteRank palette value else 0
+           , if key == "state" then "" else T.toCaseFold value)
+    _ -> Nothing
+
+-- | Where VALUE sits in PALETTE, or one past its end for a keyword it does not
+-- name.  The renderers' rule for a badge column: palette order is sort order,
+-- and everything unlisted ties at the back.
+paletteRank :: TodoKeywords -> Text -> Int
+paletteRank (TodoKeywords actives inactives) value =
+  let ordered = actives <> filter (`notElem` actives) inactives
+  in fromMaybe (length ordered) (lookup value (zip ordered [0 ..]))
+
+-- | RECORDS in the order 'declaredSort' says they are in, with the state
+-- column's PALETTE given.
+--
+-- Each key compares by 'sortCell', empty cells last whatever the direction, and
+-- 'Data.List.sortBy' is stable — so rows equal on every key keep walk order,
+-- which is what both renderers do with the same chain.
+sortedForViewWith :: TodoKeywords -> [HeadlineRecord] -> [HeadlineRecord]
+sortedForViewWith palette = sortBy (mconcat (map key defaultSortChain))
+  where
+    key (k, asc) a b = case (sortCell palette k a, sortCell palette k b) of
+      (Nothing, Nothing) -> EQ
+      (Nothing, Just _)  -> GT          -- nulls last, outside the direction
+      (Just _,  Nothing) -> LT
+      (Just x,  Just y)  -> if asc then compare x y else compare y x
+
+-- | 'sortedForViewWith' over the palette RECORDS themselves imply.
+--
+-- Sound for ordering RECORDS, since every state they hold is declared by one of
+-- their own files and 'mergeKeywords' keeps a keyword where it was first seen.
+-- It is not the STORE's palette, though, and a caller that has one should pass
+-- it: two files declaring the same pair of keywords in opposite orders, and a
+-- filter that hides every row of the first, leaves this reading the second's
+-- order where the columns a client was served still carry the first's.
 sortedForView :: [HeadlineRecord] -> [HeadlineRecord]
-sortedForView = sortOn (fromMaybe "" . hrScheduled)
+sortedForView records =
+  sortedForViewWith (mergeKeywords (map hrKeywords records)) records
 
 -- | Which order a view's rows are in, and what it declares about them.
 --
 -- 'ScheduledOrder' is the view every client has had: the rows sorted by
--- 'sortedForView' and a @sort@ field saying so.  'DocumentOrder' leaves them in
+-- 'sortedForView' and a @sort@ field saying so.  The name is older than the
+-- order — it was a single @scheduled@ key before 'defaultSortChain', and the
+-- wire spelling @?order=scheduled@ is the same fossil.
+--
+-- 'DocumentOrder' leaves them in
 -- walk order — which for this producer is document order, headline by headline
 -- down each file — and emits NO @sort@ field at all, since SCHEMA.md reads an
 -- absent one as "the order they arrived in".  The pair travels together on
@@ -794,6 +1023,14 @@ data ViewOrder = ScheduledOrder | DocumentOrder
 orderedForView :: ViewOrder -> [HeadlineRecord] -> [HeadlineRecord]
 orderedForView ScheduledOrder = sortedForView
 orderedForView DocumentOrder  = id
+
+-- | 'orderedForView' with the state column's PALETTE given rather than derived,
+-- which is what a caller holding the store's should use — see 'sortedForView'
+-- for the one case the two answers differ in.
+orderedForViewWith :: TodoKeywords -> ViewOrder -> [HeadlineRecord]
+                   -> [HeadlineRecord]
+orderedForViewWith palette ScheduledOrder = sortedForViewWith palette
+orderedForViewWith _       DocumentOrder  = id
 
 -- Subtrees
 
@@ -1436,11 +1673,11 @@ replaceSpans path digest edits =
 -- sublibrary's.  It is also the only place that can be right about it: the
 -- insertion points below are not derivable from the cells the wire carries.
 
--- | The org tag a headline wears once it is archived, as org spells it.  The
--- filter key that hides it is this folded ('Glance.Web.Filter'), so one literal
--- serves the write and the predicate over what it wrote.
-archiveTag :: Text
-archiveTag = "ARCHIVE"
+-- 'archiveTag' — the tag a headline wears once it is archived — is org's own
+-- name for it and lives in 'Data.Org', re-exported here: the filter key that
+-- hides an archived row is that literal folded ('Glance.Web.Filter'), and the
+-- scan's index comparison reads a blob's archive flag off the same one, so the
+-- write, the predicate over what it wrote and the oracle all spell it once.
 
 -- | Does R carry TAG?  Read off the tags cell through the same 'tagsOfCell' the
 -- filter vocabulary is built with, so presence here means exactly what a
@@ -1952,10 +2189,17 @@ viewJSONWith order viewTitle palette records = object
   <> [ "rows" .= map rowJSON records ])
 
 -- | The @sort@ field ORDER declares, or nothing at all for 'DocumentOrder'.
+--
+-- SCHEMA.md's @sort@ takes an array for a CHAIN, highest priority first, and
+-- this is 'defaultSortChain' spelled onto the wire — the one place it becomes
+-- JSON, where 'sortedForViewWith' is the one place it becomes an ordering.
+-- Both renderers run every key of it and both draw it: the browser as a chip
+-- per key beside the filter's, @table-view.el@ as words on its hint line.
 declaredSort :: ViewOrder -> [Pair]
 declaredSort DocumentOrder  = []
 declaredSort ScheduledOrder =
-  [ "sort" .= object [ "column" .= ("scheduled" :: Text), "ascending" .= True ] ]
+  [ "sort" .= [ object [ "column" .= key, "ascending" .= asc ]
+              | (key, asc) <- defaultSortChain ] ]
 
 -- | The commands the view dispatches.  One so far: @materialize@ on the row at
 -- point, which asks the server for that headline's raw subtree and posts an
@@ -1989,7 +2233,7 @@ viewColumns =
   [ ("state",     "State",     "badge", hrState)
   , ("priority",  "Pri",       "text",  hrPriority)
   , ("title",     "Headline",  "text",  Just . hrTitle)
-  , ("tag",       "Tags",      "text",  Just . hrTags)
+  , ("tag",       "Tags",      "text",  Just . sortedTagsCell . hrTags)
   , ("scheduled", "Scheduled", "text",  hrScheduled)
   , ("deadline",  "Deadline",  "text",  hrDeadline)
   ]

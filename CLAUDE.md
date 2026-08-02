@@ -106,9 +106,25 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   array, so cells are `T.copy`'d out of it (`Glance.Query.detach`). `hrHeadline`
   and `hrDoc` deliberately keep the document, which is why a loaded store still
   retains what it parsed.
+- Where a root holds an org-glance store, `scan` also folds its WAL and reports
+  `org-glance index: N rows disagree (M state, K archived)`. Stores are each
+  root's own `.org-glance/meta` plus every `meta` the walk DECLINED, so a nested
+  one is found for free — and missed under `--include-derived`, which walks it
+  instead. The fold is `Data.Org.Index`, read-only and faithful to
+  `org-glance-graph--latest-records`: MANIFEST's sealed segments oldest-first,
+  the open `headlines.jsonl` LAST, latest record per id wins, tombstoned ids
+  leave; only the open segment's final line may be torn, and a name is opened
+  only when it spells `seg-<digits>.jsonl`. Compared by `ORG_GLANCE_ID` against
+  the blob's FIRST headline (never a child's id): the keyword always, the archive
+  flag only where the record CARRIES the key, `(eq t VALUE)` so `{}` is false.
+  `blobs … carrying no id` is the instrument on itself — a blob glance parsed and
+  read no id out of, which is what keeps `records without blobs` from reading as
+  index lag. ~/sync/views at 2026-08-02: 6502 read, 6071 live, 6063 blobs, 51
+  idless, 21 rows disagree (20 state, 1 archived), 0 unindexed, 59 recordless.
 - Corpus check: `cabal run -v0 glance -- scan ~/sync` — expect 0 span
   violations, ~12.6k headlines, and a `walk seconds` row of ~10–11 (2026-08-02:
-  6287 files, 12594 headlines, 0 violations, 11.3 s). The headline figure was
+  6287 files, 12594 headlines, 0 violations, 11.3 s; re-measured the same day at
+  6289 files, 12596 headlines, 0 violations, 9.9 s). The headline figure was
   carried at ~12.9k after the derived mirrors left the walk (2026-07-31,
   13.4k → 12.9k, a semantic correction rather than a loss) and was not lowered
   when the star-run rule took it to 12.6k; walk seconds went ~13 → ~10.4 on the
@@ -124,7 +140,13 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - Org files are the source of truth, so org-glance's derived mirrors are not
   walked. The rule is a DENYLIST of names sitting directly under a
   `.org-glance` component — `overviews` and `meta`, with the whole subtree of
-  either excluded. `data` is not privileged in the walk; it survives by not
+  either excluded — plus `isOccurrence`, a blob's history one level further in
+  (`data/<id>/occurrences/<STAMP>.org`), which carries the LIVE entry's
+  `ORG_GLANCE_ID` and used to tie with it in `beatsForId`. The name is asked for
+  ANYWHERE under `data`, since a two-character id is unsharded and no position
+  test covers both layouts. `isCanonical` excludes it too, so under
+  `--include-derived` it loses the id rather than tying. 0 on disk at 2026-08-02.
+  `data` is not privileged in the walk; it survives by not
   being on the list, and is privileged only in `beatsForId`
   (`Data.Org.Walk`), which is a different rule for a different question.
   One `Data.Org.Walk.isDerived` serves the walk and the watch — the watch
@@ -549,6 +571,18 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   whole set in walk order for the client to sort. The palette stays the store's
   whatever the page holds, and the shell re-asks the server for a row frame that
   lands while a filter is on.
+- The view declares a SORT CHAIN and is served in it: `defaultSortChain` is
+  title, state, deadline, scheduled, priority, every key ascending, and it is
+  ONE list read twice — `declaredSort` spells it onto the wire (SCHEMA.md's
+  `sort` array), `sortedForViewWith` arranges the rows by it. A declaration
+  disagreeing with the rows is one a renderer re-sorts out from under the
+  reader. The arrangement is the renderers' rules: empty cells last per key and
+  OUTSIDE its direction, the state column by badge PALETTE position with
+  unlisted keywords tying at the back, `sortBy` stable so a full tie keeps walk
+  order, text compared case-FOLDED as the nearest thing to `localeCompare`.
+  `sortedForView` derives the palette from the records it is handed, which is
+  right for ordering them and can differ from the store's where two files
+  declare the same keywords in opposite orders; `sortedForViewWith` takes one.
 - `?q=` is SCHEMA.md's filter query, parsed in `Glance.Web.Filter` as a port of
   `table-view.js`'s `scanQuery`/`parseQuery`/`tokenTest` — parity is the
   contract. Tokens split on whitespace and `&`; `key:value` (`=` alias) is a

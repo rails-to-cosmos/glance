@@ -5,7 +5,7 @@ module TestQuery (spec) where
 
 import Control.Concurrent (getNumCapabilities, rtsSupportsBoundThreads)
 import Control.Monad (forM_, replicateM, (<=<))
-import Data.Aeson (Value (Bool, Object, String), eitherDecodeFileStrict')
+import Data.Aeson (Value (Bool, Object, String), eitherDecodeFileStrict', object, (.=))
 import Data.Either (fromRight, isRight)
 import Data.List (foldl', nub, sort, sortOn)
 import Data.Maybe (fromMaybe)
@@ -28,12 +28,14 @@ import Glance.Query ( ConfigLayers (..), HeadlineParts (..), HeadlineRecord (..)
                     , LoadFailure (..)
                     , QueryResult (..), Span (..), TodoKeywords (..), addTagEdits
                     , archiveEdits, archived
-                    , captureEdits, captureStamp, defaultWalk
+                    , captureEdits, captureStamp, defaultWalk, derivedPath, documentPath
                     , displayText, headlineParts, hiddenProperties, keywordSources, loadDir
                     , loadDirFilesSerially, loadDirFilesWith, loadFile, matchesSearch
                     , noConfig, orgLinks
                     , planningTimestamp, readsAsTimestamp, recomposedSubtree
-                    , removeTagEdits, setPlanningEdits, setStateEdits, settableStates
+                    , linkColumns, linkType, removeTagEdits, rowJSON
+                    , setPlanningEdits, setStateEdits
+                    , settableStates, sortedForView, sortedTagsCell
                     , subtreeLinks, subtreeText, tagText, tagged, viewJSON )
 
 -- Fixtures
@@ -84,6 +86,10 @@ text v = assertFailure ("expected a string, got " <> show v)
 keysOf :: Value -> IO [Text]
 keysOf (Object o) = pure (map Key.toText (KM.keys o))
 keysOf v = assertFailure ("expected an object, got " <> show v)
+
+boolOf :: Value -> IO Bool
+boolOf (Bool b) = pure b
+boolOf v = assertFailure ("expected a boolean, got " <> show v)
 
 -- | The value at KEY of every element of the array at ARR of V.
 each :: Text -> Text -> Value -> IO [Value]
@@ -216,6 +222,67 @@ linkSpec = testGroup "Links"
   , testCase "and a row with nothing to follow is not linked" $
       withRecordsOf "* plain\njust prose, no link in it\n" $ \recs ->
         assertEqual "nowhere to go" [False] (map hrLinked recs)
+
+    -- THE TYPE, which is one rule read off the target's PREFIX: the scheme,
+    -- lowercased, with the whole `org-glance-' family folded into one word.  The
+    -- six the popup declares badges for are the ones the corpus spells; none of
+    -- them is named in the function, and that is the point — they fall out of
+    -- the scheme.
+  , testCase "a link's type is its scheme, folded" $ do
+      let types = map linkType
+      assertEqual "the six the corpus spells"
+        ["https", "http", "mailto", "id", "file"]
+        (types [ "https://x.example/a", "http://x.example", "mailto:t@x.org"
+               , "id:E1B2", "file:notes.org" ])
+      -- Every org-glance protocol is ONE type.  The four that name a row and the
+      -- two that name a tag or a keyword are the same KIND of destination, and
+      -- which of them points at a row is `refPrefixes'' different question.
+      assertEqual "and every org-glance protocol is one word"
+        ["glance", "glance", "glance", "glance"]
+        (types [ "org-glance-visit:E1", "org-glance-open:E1"
+               , "org-glance-material:E1", "org-glance-overview:book" ])
+
+  , testCase "a scheme this has never seen travels under its own name" $
+      assertEqual "the word itself" ["ftp", "doi", "gopher", "denote"]
+        (map linkType ["ftp://x.example", "doi:10.1/2", "gopher://x", "denote:2026"])
+
+    -- The case of a scheme is not part of it, and org files spell one either
+    -- way.  Folded here so the popup's badge and `followable' both answer about
+    -- the same word.
+  , testCase "the scheme is folded, so a shouted URL is still followable" $
+      assertEqual "lowercased" ["https", "mailto"]
+                  (map linkType ["HTTPS://X.EXAMPLE", "MailTo:t@x.org"])
+
+    -- ONE catch-all, reached two ways: no colon at all, and a word before the
+    -- colon that is not scheme-SHAPED — a leading digit, an empty word, a space
+    -- in it — RFC 3986 opening a scheme with a letter.
+  , testCase "a target with no scheme is other, internal links included" $
+      assertEqual "nothing to read"
+        (replicate 8 "other")
+        (map linkType [ "Some Headline", "*Some Headline", "./notes.org", "/etc/hosts"
+                      , "2026:review", ":leading", "a b:c", "" ])
+
+    -- The honest cost of reading the PREFIX and nothing else.  Org's internal
+    -- links name a place inside the tree rather than a protocol and a relative
+    -- path says nothing about being a file, so both are `other' above — and a
+    -- scheme-SHAPED word before a colon IS the type here, whether or not the
+    -- author meant a protocol.  A registry of known schemes is the rule this
+    -- deliberately is not: an unlisted scheme would then read as prose.
+  , testCase "and a scheme-shaped word in prose is taken at its word" $
+      assertEqual "the word before the colon" ["meeting", "todo"]
+                  (map linkType ["Meeting: notes", "TODO:tomorrow"])
+
+    -- The VOCABULARY and the DERIVER agree: every value the popup's badge column
+    -- declares a hue for is a word `linkType' can actually answer with.  A badge
+    -- naming a type nothing produces would be a colour no cell ever wears.
+  , testCase "every declared badge value is a type linkType can produce" $ do
+      declared <- traverse (textAt "value")
+              =<< listAt "badges" =<< columnOf "type" (object ["columns" .= linkColumns])
+      assertEqual "the six the corpus spells"
+        ["https", "http", "glance", "mailto", "id", "file"] declared
+      assertEqual "and each is what its own scheme derives to" declared
+        (map (\t -> linkType (if t == "glance" then "org-glance-visit:x" else t <> ":x"))
+             declared)
   ]
 
 -- | The subtree lens: a subtree split into the parts a client edits and the
@@ -831,7 +898,44 @@ walkSpec = testGroup "Walk"
         assertEqual "files walked" (map fst outcomes) (map fst files)
         assertEqual "and what each loaded to" outcomes
                     [ (path, map hrTitle <$> outcome) | (path, outcome) <- files ]
+
+  , testCase "a blob is walked and its occurrence history is not" $
+      withStoreTree $ \store files ->
+        assertEqual "files walked" [store </> "data" </> "ab" </> "cd" </> "data.org"]
+                    (map fst files)
+
+    -- The walk and the watch read ONE predicate, so a file no walk collected
+    -- can never arrive by inotify and splice a row of history into the table.
+  , testCase "and the watch declines it through the same predicate" $
+      withStoreTree $ \store _files -> do
+        let occurrence = store </> "data" </> "ab" </> "cd" </> "occurrences"
+                               </> "2026-08-02.org"
+        assertBool "the snapshot is a document by name" (documentPath occurrence)
+        assertBool "and derived, so the watch drops it" (derivedPath occurrence)
+        assertBool "while the blob beside it is neither"
+                   (not (derivedPath (store </> "data" </> "ab" </> "cd" </> "data.org")))
   ]
+
+-- | Run ACT over an org-glance store and the files a load of its tree turned
+-- up.  The blob and its history carry the SAME @ORG_GLANCE_ID@, which is the
+-- hazard: both sit inside the canonical store, so before the rule the pair tied
+-- and walk order decided which one a table showed and a command wrote to.
+--
+-- The overview mirror is written beside them so the case covers the whole
+-- denylist rather than its new clause alone.
+withStoreTree :: (FilePath -> [(FilePath, Either LoadFailure [HeadlineRecord])] -> Assertion)
+              -> Assertion
+withStoreTree act = withTempDirNamed "store" $ \root -> do
+  let store = root </> ".org-glance"
+      entry = store </> "data" </> "ab" </> "cd"
+  mapM_ (createDirectoryIfMissing True)
+        [entry </> "occurrences", store </> "overviews"]
+  _ <- orgFile entry "data.org" (withProperty "* DONE live entry\n")
+  _ <- orgFile (entry </> "occurrences") "2026-08-02.org" (withProperty "* DONE a repetition\n")
+  _ <- orgFile (store </> "overviews") "task.org" (withProperty "* DONE the mirror\n")
+  act store . fst =<< loadDirFilesWith defaultWalk root
+  where withProperty headline =
+          headline <> ":PROPERTIES:\n:ORG_GLANCE_ID: abcd\n:END:\n"
 
 -- | Run ACT over a walked root and the files a load of it turned up.  Every
 -- link points into a sibling directory the walk is never given, so a followed
@@ -1011,10 +1115,13 @@ searchSpec = testGroup "Search text"
       -- the string rather than separating two words, and it still leaves a space.
       assertEqual "trailing" "a " (displayText "a\n")
 
+    -- The tags field is the CELL's, so the haystack carries the sorted spelling
+    -- and not the file's `:web:glance:'.  There is no third answer to keep in
+    -- step: `searchTextOf' joins `viewCells', which reads the column accessors.
   , testCase "the row's search text is its cells, lowercased" $ withRecords $ \recs -> do
       let first' = head recs
       assertEqual "the whole row, cell by cell"
-                  "next\SUBa\SUBship the table view\SUB:web:glance:\SUB2026-08-01 09:30\SUB2026-08-05"
+                  "next\SUBa\SUBship the table view\SUB:glance:web:\SUB2026-08-01 09:30\SUB2026-08-05"
                   (T.replace "\US" "\SUB" (hrSearch first'))
 
   , testCase "a query matches case-insensitively, trimmed, and never across cells" $
@@ -1053,9 +1160,35 @@ cellSpec = testGroup "Cells"
                   , "Plain headline without a state", "Drop the old renderer"
                   , "Read the schema" ]
                   (map hrTitle recs)
+      -- The FIELD is the file's own order.  It is what `classify' reads, and
+      -- there the order decides which tag's config governs the row.
       assertEqual "tags"
                   [":web:glance:", ":unicode:", "", "", ":cleanup:", ":web:"]
                   (map hrTags recs)
+
+    -- A reader scanning a column reads it as a list, and a list whose order is
+    -- the author's typing order is a list they have to scan whole.  So the CELL
+    -- sorts, case-folded, and the field it is cut from does not.
+  , testCase "the tags CELL sorts, case-folded, where the field keeps the file" $ do
+      assertEqual "the sample row's own cell"
+                  ":glance:web:" (sortedTagsCell ":web:glance:")
+      assertEqual "folded, so a capital does not sort ahead of every lowercase"
+                  ":admin:Work:" (sortedTagsCell ":Work:admin:")
+      -- Stable, so two spellings folding alike keep the order the file put them
+      -- in and the cell is a function of the file rather than of a tie-break.
+      assertEqual "and stable under a fold tie"
+                  ":a:Work:work:" (sortedTagsCell ":Work:work:a:")
+      assertEqual "an untagged cell is handed straight back" "" (sortedTagsCell "")
+      assertEqual "one tag is already sorted" ":web:" (sortedTagsCell ":web:")
+
+  , testCase "the column is what carries the sort, and the row's JSON with it" $
+      withRecords $ \recs -> do
+        cells <- traverse (field "cells" . rowJSON) recs
+        assertEqual "the cell the table draws"
+                    [":glance:web:", ":unicode:", "", "", ":cleanup:", ":web:"]
+          =<< traverse (textAt "tag") cells
+        assertEqual "and the field it was cut from, untouched"
+                    ":web:glance:" (hrTags (head recs))
 
   , testCase "states are the keywords verbatim, custom ones too" $ withRecords $ \recs ->
       assertEqual "states"
@@ -1202,10 +1335,37 @@ schemaSpec = testGroup "Schema conformance"
       assertEqual "the columns declaring multi" ["tag"]
                   [ k | (k, Just True) <- zip keys multi ]
 
-  , testCase "the sort column is one of the columns" $ withView $ \v -> do
-      cols <- columnKeysOf v
-      key <- field "sort" v >>= field "column" >>= text
-      assertBool (show key <> " outside " <> show cols) (key `elem` cols)
+  , testCase "the declared sort is a chain of the view's own columns" $
+      withView $ \v -> do
+        cols <- columnKeysOf v
+        keys <- each "sort" "column" v >>= mapM text
+        assertEqual "the default chain"
+                    ["title", "state", "deadline", "scheduled", "priority"] keys
+        assertBool (show keys <> " outside " <> show cols) (all (`elem` cols) keys)
+        assertEqual "no column is named twice" (length keys) (length (nub keys))
+        ascs <- each "sort" "ascending" v >>= mapM boolOf
+        assertEqual "every key ascends" (map (const True) keys) ascs
+
+  , testCase "the rows are served in the order the chain declares" $ do
+      -- The declaration and the arrangement are one list read twice; a page cut
+      -- out of a different order than the one declared is a different set of
+      -- rows than the table would have put there.
+      let doc = T.unlines [ "* TODO beta", "* echo", "* DONE alpha"
+                          , "* TODO Alpha", "* delta" ]
+      withRecordsOf doc $ \records ->
+        assertEqual "title folded, then state by palette order"
+                    ["TODO Alpha", "DONE alpha", "TODO beta", "delta", "echo"]
+                    [ maybe "" (<> " ") (hrState r) <> hrTitle r
+                    | r <- sortedForView records ]
+
+  , testCase "an empty cell sorts to the end of its own key" $
+      -- Nulls are settled per key and outside the direction, so a row with no
+      -- state is behind every row that has one where the titles tie.
+      withRecordsOf (T.unlines ["* same", "* TODO same", "* DONE same"]) $
+        \records ->
+          assertEqual "the stateless row last"
+                      [Just "TODO", Just "DONE", Nothing]
+                      (map hrState (sortedForView records))
 
   , testCase "the actions are SCHEMA.md's key/command/label objects" $ withView $ \v -> do
       keys <- each "actions" "key" v >>= mapM text
@@ -1472,9 +1632,22 @@ commandSpec = testGroup "Commands"
     -- sides — adding what is there and removing what is not each cost no edit —
     -- which is what lets a bulk toggle be pressed at.
   , testGroup "add-tag"
-    [ testCase "joins the run, ahead of its closing colon" $
+    [ -- The written run is the FILE's, in the file's own order: this row's CELL
+      -- reads `:glance:web:' and the splice still lands after `glance:', because
+      -- the edit is measured in the span and the sort is the column's alone.
+      testCase "joins the run, ahead of its closing colon" $
         addTagIs "into the run" "* TODO Ship it :web:glance:\n" "work"
                                 "* TODO Ship it :web:glance:work:\n"
+
+      -- The other side of the same rule, and the one an alphabetical write would
+      -- get wrong in a way no cell could show: `glance' is the FIRST entry of
+      -- the sorted cell and the SECOND of the file, and it is the file's offsets
+      -- that decide which bytes come out.
+    , testCase "and a removal cuts the file's entry, not the cell's" $ do
+        removeTagIs "the middle of the file's run" "* TODO Ship it :web:glance:work:\n"
+                    "glance" "* TODO Ship it :web:work:\n"
+        removeTagIs "the first of the file's run" "* TODO Ship it :web:glance:\n"
+                    "web" "* TODO Ship it :glance:\n"
 
     , testCase "with no run, opens one at the end of the title line" $
         addTagIs "creating" "* TODO Ship it\n" "work" "* TODO Ship it :work:\n"
