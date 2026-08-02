@@ -4,9 +4,11 @@ import Data.Maybe (isJust, isNothing)
 import Data.Org
 import qualified Data.Set as Set
 import Data.Text (Text)
+import qualified Data.Text as T
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, testCase)
 import TestDefaults
+import qualified TextShow as TS
 
 parsesAs :: Text -> (Element -> Bool) -> Bool
 parsesAs input predicate = case bareParse defaultContext input of
@@ -179,5 +181,50 @@ spec = testGroup "Negative / Edge cases"
             assertBool "the id BEHIND them survives"
                        ("ORG_GLANCE_ID" `elem` keysOf)
           (other, _, _) -> assertBool ("one headline expected: " <> show (length (bare other))) False
+    ]
+
+    -- The weekday slot is display-only — every render recomputes the word from
+    -- the date — so the parser reads any run of letters there and drops it.
+    -- Exactly three letters made the slot English-only, and ~/sync writes Dutch:
+    -- a two-letter abbreviation failed the timestamp, which failed the planning
+    -- line, which left the drawer no longer next and took the headline's
+    -- properties whole.  28 of the corpus's blobs lost their id that way.
+  , testGroup "Timestamp weekday charset"
+    [ testCase "A foreign weekday keeps the planning line and the drawer whole" $
+        case orgParse defaultContext
+               "* Task\nCLOSED: [2025-12-04 do 22:34]\n:PROPERTIES:\n:ORG_GLANCE_ID: x1\n:END:\n" of
+          (elems, _ctx, err) | [EHeadline h] <- bare elems -> do
+            assertEqual "no parse error" Nothing err
+            assertBool "the CLOSED entry attached" (isJust (closed h))
+            let Properties ps = properties h
+            assertBool "the id BEHIND the stamp survives"
+                       ("ORG_GLANCE_ID" `elem` [k | Property (Keyword k) _ <- ps])
+          (other, _, _) -> assertBool ("one headline expected: " <> show (length (bare other))) False
+
+      -- Every spelling ~/sync writes, plus the two the locale has that it does
+      -- not: the census found ma, do, zo, vr and za, and di and wo belong to
+      -- the same seven.
+    , testCase "Every weekday spelling the corpus writes" $
+        sequence_ [ withHeadline ("* Task\nCLOSED: [2025-12-04 " <> wd <> " 22:34]") $ \h ->
+                      assertBool (T.unpack wd <> " read") (isJust (closed h))
+                  | wd <- ["ma", "di", "wo", "do", "vr", "za", "zo"] ]
+
+    , testCase "A weekday is letters of any length in any script" $
+        sequence_ [ withHeadline ("* Task\nSCHEDULED: <2024-01-15 " <> wd <> ">") $ \h ->
+                      assertBool (T.unpack wd <> " read") (isJust (schedule h))
+                  | wd <- ["M", "Mon", "Monday", "понедельник", "月曜日"] ]
+
+      -- Dropping the word is what keeps the recompute rule true: a Dutch stamp
+      -- comes back out in org's own English, so only a span splice carries the
+      -- source spelling anywhere.  The compact range spelling is untouched by
+      -- the slot ahead of it.
+    , testCase "A foreign weekday re-renders recomputed, compact range and all" $
+        sequence_
+          [ case bareParse defaultContext input of
+              [ETimestamp ts] -> assertEqual (T.unpack input) expected (TS.showt ts)
+              other -> assertBool (T.unpack input <> ": one timestamp expected, got "
+                                   <> show (length other)) False
+          | (input, expected) <- [ ("[2025-12-04 do 22:34]",       "[2025-12-04 Thu 22:34]")
+                                 , ("[2025-11-02 zo 21:59-22:00]", "[2025-11-02 Sun 21:59-22:00]") ] ]
     ]
   ]

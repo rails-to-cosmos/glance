@@ -351,7 +351,7 @@ tsStatusParser = (TimestampActive <$ MPC.char '<')
 tsBodyParser :: TimestampStatus -> StatelessParser (TsMoment, Maybe TsMoment, Maybe TimestampRepeaterInterval)
 tsBodyParser status = do
   day <- tsDayParser <* MPC.space
-  _weekday <- MP.optional (MP.try tsWeekdayParser) <* MPC.space
+  void $ MP.optional (MP.try tsWeekdayParser) <* MPC.space
   time <- MP.optional (MP.try tsTimeParser)
   -- A range end and a repeater both open with '-', so the end time is tried
   -- first and only its colon tells them apart: "-1d" gets through 'MPL.decimal'
@@ -391,11 +391,17 @@ tsTimeParser = do
   guard (tsHour <= 23 && tsMinute <= 59 && tsSecond < 60) <|> fail "Time out of range"
   return (Time.TimeOfDay tsHour tsMinute (fromInteger tsSecond))
 
-tsWeekdayParser :: StatelessParser Text
-tsWeekdayParser = do
-  weekday <- MP.count 3 MPC.letterChar
-  MPC.space
-  return (T.pack weekday)
+-- | Skip the weekday: a run of letters in any script, of any length.  The slot
+-- is display-only — every render recomputes the weekday from the date — so its
+-- spelling is read and dropped, and a locale's word is as good as org's own.
+-- ~/sync writes Dutch @do@, @ma@, @zo@, @vr@ and @za@ beside English @Mon@, and
+-- exactly three letters lost the whole planning line to them.  Letters alone:
+-- a repeater opens with @.@, @+@, @-@ or a digit and a time with a digit, so
+-- one letter is what holds @.+3d@ out of this slot.  The trailing dot French
+-- and Catalan abbreviate with (@lun.@) is outside the rule and outside the
+-- corpus; admitting it needs a guard against @.+3d@ that nothing here yet owes.
+tsWeekdayParser :: StatelessParser ()
+tsWeekdayParser = void (takeWhile1P (Just "weekday") isAlpha) <* MPC.space
 
 -- | Parse a repeater such as ".+3d", spelled with the characters
 -- 'typeChar', 'signChar' and 'unitChar' name.
