@@ -631,8 +631,20 @@ stage 2 will be made with.
 
 ## S6 — M2: graph + mindmap (parallel with S5, after S2)
 
-Wire `RefKind` in parsing, assemble `fgl` graph, `GET /graph` → graph JSON,
-cytoscape page. Graph contract documented beside the table contract.
+Assemble the `fgl` graph, `GET /graph` → graph JSON, cytoscape page. Graph
+contract documented beside the table contract.
+
+**The edge data is already here.** `hrLinks` is the rows a subtree points AT,
+normalized by `Glance.Query.refTargetOf` and carried on every record, so the
+edges exist per row and one of them is already a view: `ref:ROWID` is the
+in-edges of a row, and `@` drills through them (the drill section below). What
+S6 adds is the WHOLE-STORE shape — a graph object rather than a predicate. That
+is the node set, the edges resolved and deduplicated across it, the answer as
+one document rather than one query per row, and a renderer for it. The
+normalization rule is settled and does not want revisiting; `RefKind` — telling
+a visit from an overview from a material — is where the wiring is still open,
+since `refTargetOf` currently answers Maybe-a-row-id and drops which protocol
+said so.
 
 Exit:
 - [ ] Golden test: fixture corpus with known refs → exact expected node and
@@ -786,8 +798,9 @@ list over the descriptions, `/` narrowing over description and target alike. It
 is raised LATE, behind the fetch, with `prompting.raising` cleared: the `o` that
 asked has been dispatched and gone, where `t` is still travelling when its
 palette goes up. This did not want the graph milestone after all — the links are
-in the entry, and S6 is about the edges BETWEEN entries, which is what `@`
-(`relations`) is still waiting for.
+in the entry, and S6 is about the edges BETWEEN entries. `@` (`relations`) was
+read as wanting that milestone too; it wanted a filter, and landed as one the
+same day — see the drill section below.
 
 `a` (`org-glance-agenda`) is a canned VIEW rather than a mode: `state:*active*
 -planned:none` applied through the door `g` uses, so the query is in the URL and
@@ -808,12 +821,12 @@ window.
 
 Suite: 954 → **1018 tests**.
 
-**What is still staged**: `TAB` (`org-cycle`) and `@`
-(`org-glance-overview:relations`). Each is recognized in full and says what will
-back it. `org-cycle` is deferred pending a FOLD MODEL: rows are top entries and
-the table has no outline to cycle, so what the key would mean has to be decided
-before it is written. `relations` is deferred to S6, the graph milestone — it is
-about the edges between entries, which nothing here holds yet.
+**What is still staged**: `TAB` (`org-cycle`), and it alone. It is recognized in
+full and says what will back it. `org-cycle` is deferred pending a FOLD MODEL:
+rows are top entries and the table has no outline to cycle, so what the key
+would mean has to be decided before it is written. `@`
+(`org-glance-overview:relations`) was on this list beside it and came off the
+same day — the section below is how.
 
 **Engine landed early (S8 core).** `Data.Org.Edit`, exposed by
 `glance-internal`: `applyEdits :: Text -> [Edit] -> Either EditError Text` over
@@ -1194,6 +1207,90 @@ both in one write because they are lines of one file.
 **Still open.** The renderer flag API above; and `table-view.js`'s `markAll()`
 and `actionHints` are already in at HEAD 732ac69, so `M` and the hint suppression
 work against a current asset and degrade honestly against an older one.
+
+## References, and the drill that closes the key map (2026-08-02)
+
+`@` (`org-glance-overview:relations`) was the last staged key but one, and it was
+staged against S6 on a reading that turned out to be wrong: the graph milestone
+is about the whole store's edges, and this key needs one row's IN-edges, which is
+a filter. So it landed as a filter, and the graph work is unmoved.
+
+**`hrLinks` is the edge data, and the rule is a census.** Every record carries
+the rows its SUBTREE points at, cut through the `/links` scanner (`orgLinks` —
+the bracket grammar the table already reads a cell with, reused so there is no
+second grammar to keep in step with SCHEMA.md), normalized by
+`Glance.Query.refTargetOf`, `T.copy`-detached and spine-forced in `forceRecord`.
+What counts as a reference was decided by COUNTING ~/sync's 6291 walked files
+rather than by reading org's link spec. In: `org-glance-visit:` (3867),
+`org-glance-open:` (568), `org-glance-material:` (28), `id:` (0, and in because
+it is org's own), the star of `[[*Title]]` (4), and the bare `[[Title]]` (18).
+Out, and they are the commoner half: `org-glance-overview:` (2726) names a TAG
+and `org-glance-state:` (880) names a keyword — of their 52 and 6 distinct
+targets not one is a row id — plus `file:`, `http` and `mailto:`. Store residency
+over ~/sync did not move outside GC sampling noise: 348.0 MB before, 330.8 and
+322.5 MB after, both after-samples BELOW the single before. `scan` is untouched
+and its budget is not the number to quote here — it is a parser oracle and builds
+no records.
+
+**`ref:ROWID` is the in-edges as a query.** A producer-only virtual key: every
+row whose subtree points at the row named, resolved through the store's own
+id-resolved rows (`FilterEnv`/`storeEnv`, exact-string like `resolveIds`) and
+matched over `refSpellings` of the target — its `ORG_GLANCE_ID` and its title,
+which is what the two bracket-title forms resolve against. A row is not its own
+reference; an unknown id matches nothing and does NOT 400, since this is a filter
+rather than a command; multi-valued, so `ref:a ref:b` ANDs; and its value is the
+one predicate value that is not case-folded, a row id being exact-string. The
+renderer has no branch for the key and reads it as free text, which is NARROWER —
+the tripwire's blessed skew direction — and no locally-filtered path applies a
+`ref:` anyway, the shell mounting with `onFilter`.
+
+**The drill is one semantic at two grains.** `@` takes the row at point (never
+the marked set — a drill is a look), pushes a crumb, and applies `ref:<rowid>`
+through `applyView`, the door `g` and the agenda already use. `DEL` is the single
+undo for both grains, as a ladder: `stripLastToken` while the query has tokens,
+then `popCrumb` plus the popped query INSTEAD of the empty one when the strip
+empties it and a trail stands. With no trail the second rung is not there. `g` is
+HOME and throws the trail away. The crumb STACK is the RENDERER's
+(`setCrumbs`/`getCrumbs`/`pushCrumb`/`popCrumb`, muted chips, `CRUMB_MAX` 4 then
+a `… +N` fold) and the shell keeps no copy — what it does keep is `crumbLabels`,
+token → label, because no lookup recovers the title of the row referred TO. The
+trail crosses a remount through the URL alone (`?crumbs=` = `{trail, labels,
+sels}`); `stash`/`restore` say nothing about it, since what they carry is
+uncommitted work and there is no half-applied crumb.
+
+**Landing is one rule at one door.** `land`: a POP restores the row and column
+its drill was pushed from (`crumbSels`, a side table beside the trail, because
+the renderer's `crumbOf` drops extra fields), and every other application — a
+palette commit, `g`, `a`, `@` — lands on the FIRST row. An empty answer selects
+nothing, and a remembered row the answer no longer holds falls back to the first
+row rather than being forced.
+
+**Two smaller things went with it.** Cell movement now EXITS instead of clamping:
+`f`/`b` past an end hands the out-of-range index to `select`, the renderer nulls
+it (`cellCol`), and the echo is `row mode` — the old `at first`/`at last` clamp
+swallowed the key at a wall the renderer does not have, and the glue guard now
+forbids those strings. And `o`/`!` learned to refuse: `window.open` fires for
+`http(s)` alone, and any other link type is one `cmd` WARN line
+(`link type not implemented: TARGET`, truncated at 80) plus the same in the echo,
+with no tab. The palette still LISTS every link; the COMMIT is where the answer
+is given.
+
+**Known limit, measured rather than assumed.** A link nested inside another
+link's DESCRIPTION yields no reference at either end: the outer fails to close,
+and the inner is picked up one bracket late and refused for its leading `[`.
+org-glance's own "Referred from" footer writes exactly that shape. For the
+most-referenced contact in ~/sync, 126 of the 128 files holding the link
+answered (2 of those archived and hidden by the default view) and the 2 misses
+are both this. Inherited from the `/links` grammar rather than introduced here,
+and left standing on purpose: a second scanner is a second grammar.
+
+Suite: 1026 → **1066 tests**, all green. Corpus scan unmoved: 6287 files, 12594
+headlines, 0 span violations, 9.55 walk seconds.
+
+**Still open.** `TAB` (`org-cycle`) is now the only staged key, and it wants a
+fold model rather than a milestone. S6 is the whole-store graph over the same
+edges, and `RefKind` — which protocol said so — is the piece `refTargetOf`
+deliberately drops.
 
 ## Dependency order
 

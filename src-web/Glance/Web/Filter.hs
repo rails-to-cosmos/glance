@@ -16,6 +16,12 @@
 -- Everything else is free text: a case-insensitive substring of the row as it
 -- displays.
 --
+-- Two virtual keys are the producer's alone and have no renderer branch:
+-- @planned@, which the renderer can still answer from the row it holds, and
+-- @ref:ROWID@ ('refKey'), which it cannot — resolving a reference needs the
+-- store, so the renderer reads the token as free text and narrows further than
+-- this does.
+--
 -- The virtual keys are this producer's org tags — every distinct tag in the
 -- @tag@ column is a key of its own, so @contact:tanik@ is "tagged @contact@
 -- and matching @tanik@", the facet-then-search shape a tag tree gives an org
@@ -40,7 +46,8 @@
 -- the whole string and a predicate searches one field of it ('cellAt'), which
 -- is the renderer's own @search@ and @cells@ — so the two agree by construction
 -- rather than by two implementations of @displayText@ staying in step.
-module Glance.Web.Filter ( Term (..)
+module Glance.Web.Filter ( FilterEnv (..)
+                         , Term (..)
                          , Token (..)
                          , archiveKey
                          , cellAt
@@ -49,17 +56,20 @@ module Glance.Web.Filter ( Term (..)
                          , namesArchive
                          , parseFilter
                          , plannedKey
+                         , refKey
                          , scanQuery
+                         , storeEnv
+                         , tagsEnv
                          ) where
 
-import Data.List (elemIndex, nub)
+import Data.List (elemIndex, find, nub)
 import Data.Maybe (fromMaybe, isNothing, mapMaybe)
 import Data.Text (Text)
 
 import qualified Data.Text as T
 
-import Glance.Query ( HeadlineRecord (hrActive, hrSearch), archiveTag, cellSep
-                    , filterKeys, tagsOfCell )
+import Glance.Query ( HeadlineRecord (hrActive, hrId, hrLinks, hrSearch)
+                    , archiveTag, cellSep, filterKeys, refSpellings, tagsOfCell )
 
 -- Grammar
 --
@@ -74,6 +84,22 @@ import Glance.Query ( HeadlineRecord (hrActive, hrSearch), archiveTag, cellSep
 -- sampling its cells; here the two date columns are known by name.
 dateKeys :: [Text]
 dateKeys = ["scheduled", "deadline"]
+
+-- | The virtual key that reads the link graph: @ref:ROWID@ is every row whose
+-- subtree POINTS AT the row named, which is the drill-down @\@@ applies.
+--
+-- Producer-only, and in that respect the starred metas' relative rather than
+-- @planned@'s: a row cannot answer it alone, since deciding it needs the target
+-- row's @ORG_GLANCE_ID@ and title and only the store holds those.  The renderer
+-- has no branch for it and reads @ref:x@ as free text, which is narrower —
+-- SCHEMA.md's blessed direction for a divergence.
+--
+-- Values are NOT folded here, alone among the predicates: the value is a row
+-- id, and a row id is exact-string everywhere else in this library
+-- ('Glance.Query.resolveIds').  The corpus settles it — ~\/sync carries ids
+-- spelled @Password-…@ and @Pets-…@, which a fold would put beyond reach.
+refKey :: Text
+refKey = "ref"
 
 -- | The virtual key over the two date columns together: a row is @planned@ when
 -- either of them holds anything, so @planned:none@ is an entry nobody has put a
@@ -158,7 +184,8 @@ parseFilter vocabulary = map resolve . scanQuery
       | otherwise  = case splitKey (tkBody t) of
           Just (key, value) | known key -> Term (tkNegated t) (Just key) value
           _notAPredicate                -> free t
-    known key = key `elem` filterKeys || key == plannedKey || key `elem` vocabulary
+    known key = key `elem` filterKeys || key == plannedKey || key == refKey
+                || key `elem` vocabulary
     free t = Term (tkNegated t) Nothing (tkBody t)
 
 -- | The virtual key an archived row answers to: 'Glance.Query.archiveTag'
@@ -196,12 +223,45 @@ splitKey text'
 
 -- Matching
 
--- | Does a row match Q, given the producer's VOCABULARY?  Q is parsed and
--- compiled once, so @filter (matchesFilter tags q)@ pays for the query per
--- request rather than per row — the same reason
--- 'Glance.Query.matchesSearch' takes its needle first.
-matchesFilter :: [Text] -> Text -> HeadlineRecord -> Bool
-matchesFilter vocabulary q = case compile (parseFilter vocabulary q) of
+-- | A row a @ref:@ term names, reduced to what the rest of the store can say
+-- about it: its id, and every spelling a link to it may carry.
+data RefRow = RefRow
+  { rrId      :: !Text    -- ^ the row's own id, so a row is not its own reference.
+  , rrTargets :: ![Text]  -- ^ 'Glance.Query.refSpellings' of it.
+  }
+
+-- | What a query needs beyond the row in hand.  Two keys reach past the row:
+-- every virtual tag key needs the store's vocabulary, and @ref:@ needs the
+-- store itself.
+data FilterEnv = FilterEnv
+  { feTags :: ![Text]                  -- ^ the virtual keys: every org tag the store carries.
+  , feRef  :: Text -> Maybe RefRow     -- ^ a row id resolved, or 'Nothing' where no row claims it.
+  }
+
+-- | An environment with no store behind it: the tags alone, and @ref:@
+-- resolving nothing, so a @ref:@ term parses as a predicate and matches no row.
+-- What a caller holding rows but no index answers with.
+tagsEnv :: [Text] -> FilterEnv
+tagsEnv tags = FilterEnv tags (const Nothing)
+
+-- | The environment ROWS answer as: their TAGS as the virtual keys, and @ref:@
+-- resolved by exact row id over the rows themselves.
+--
+-- The rows are the store's, which is to say already id-resolved
+-- ('Glance.Query.resolveIds'), so the first match IS the resolution and a
+-- loser's row can never be what a @ref:@ points at.  The scan is linear and
+-- runs once per @ref:@ term per request rather than once per row, since
+-- 'compile' builds each term's test before the rows are walked.
+storeEnv :: [Text] -> [HeadlineRecord] -> FilterEnv
+storeEnv tags rows = FilterEnv tags resolve
+  where resolve rid = (\r -> RefRow (hrId r) (refSpellings r))
+                        <$> find ((== rid) . hrId) rows
+
+-- | Does a row match Q in ENV?  Q is parsed and compiled once, so
+-- @filter (matchesFilter env q)@ pays for the query per request rather than per
+-- row — the same reason 'Glance.Query.matchesSearch' takes its needle first.
+matchesFilter :: FilterEnv -> Text -> HeadlineRecord -> Bool
+matchesFilter env q = case compile env (parseFilter (feTags env) q) of
   []      -> const True
   [test]  -> test
   tests   -> \r -> all ($ r) tests
@@ -211,13 +271,14 @@ matchesFilter vocabulary q = case compile (parseFilter vocabulary q) of
 -- producer's virtual keys, which is a tag.  Resolved once per term, so the
 -- arity and the test read one answer rather than looking the key up again for
 -- each.
-data Field = Col !Int | Planned | Tag
+data Field = Col !Int | Planned | Ref | Tag
   deriving (Eq)
 
--- | KEY as a field.  A key that is neither a column nor 'plannedKey' reached
--- 'Term' by being in the vocabulary, which is to say by being a tag.
+-- | KEY as a field.  A key that is none of the three named ones reached 'Term'
+-- by being in the vocabulary, which is to say by being a tag.
 fieldOf :: Text -> Field
 fieldOf key | key == plannedKey = Planned
+            | key == refKey     = Ref
             | otherwise         = maybe Tag Col (elemIndex key filterKeys)
 
 -- | Does FIELD hold a list of values rather than one?  The @tag@ column does,
@@ -227,9 +288,12 @@ fieldOf key | key == plannedKey = Planned
 -- row carrying both, the way a label filter reads.
 --
 -- @planned@ reads one of two dates, so it ORs like the date columns it stands
--- over: @planned:2026-08 planned:2026-09@ is either month.
+-- over: @planned:2026-08 planned:2026-09@ is either month.  @ref@ reads a LIST
+-- — the targets a subtree points at — so it ANDs like the tags do, and
+-- @ref:a ref:b@ is a row referring to both.
 multiValued :: Field -> Bool
 multiValued Tag     = True
+multiValued Ref     = True
 multiValued Planned = False
 multiValued (Col i) = i == tagsColumn
 
@@ -239,13 +303,13 @@ multiValued (Col i) = i == tagsColumn
 -- OR, while a cell holding a list can hold all of them, so they AND.  A
 -- negation and a free-text token each stand on their own, so
 -- @-state:TODO -state:DONE@ is neither rather than either.
-compile :: [Term] -> [HeadlineRecord -> Bool]
-compile terms = singles <> groups
+compile :: FilterEnv -> [Term] -> [HeadlineRecord -> Bool]
+compile env terms = singles <> groups
   where
     singles = [ inverted t | t <- terms, tmNegated t || isNothing (tmKey t) ]
-    inverted t | tmNegated t = not . termTest t
-               | otherwise   = termTest t
-    keyed   = [ (key, field, keyTest key field (folded t))
+    inverted t | tmNegated t = not . termTest env t
+               | otherwise   = termTest env t
+    keyed   = [ (key, field, keyTest env key field (valueFor field t))
               | t <- terms, not (tmNegated t), Just key <- [tmKey t]
               , let field = fieldOf key ]
     groups  = [ joining field [ test | (k, _field, test) <- keyed, k == key ]
@@ -253,17 +317,27 @@ compile terms = singles <> groups
     joining field | multiValued field = \tests r -> all ($ r) tests
                   | otherwise         = \tests r -> any ($ r) tests
 
--- | T's value folded the way the haystack was folded at load, so only the value
--- ever needs folding.
+-- | T's value as FIELD reads it.  Every field but 'Ref' folds it the way the
+-- haystack was folded at load, so only the value ever needs folding; 'Ref'
+-- takes a row id and keeps its case ('refKey').
+valueFor :: Field -> Term -> Text
+valueFor Ref = tmValue
+valueFor _   = T.toLower . tmValue
+
+-- | T's value as FREE text, which is always folded — a token that resolved to
+-- no key is searched against the haystack whatever it spells.
 folded :: Term -> Text
 folded = T.toLower . tmValue
 
 -- | T as a row test, its negation aside — 'compile' applies that, since where a
 -- term lands in the AND\/OR shape depends on it.  Kept for the one list that
 -- mixes the two kinds: the negations and the free text, which stand alone.
-termTest :: Term -> HeadlineRecord -> Bool
-termTest t = maybe (freeTest value) (\key -> keyTest key (fieldOf key) value) (tmKey t)
-  where value = folded t
+termTest :: FilterEnv -> Term -> HeadlineRecord -> Bool
+termTest env t =
+  maybe (freeTest (folded t))
+        (\key -> let field = fieldOf key
+                 in keyTest env key field (valueFor field t))
+        (tmKey t)
 
 -- | VALUE as free text: a substring of the row as it displays, an empty value
 -- matching every row.
@@ -275,18 +349,36 @@ freeTest value | T.null value = const True
 -- is a facet: the tag has to be on the row, and the value then searches the row
 -- the way a bare token would.  With no value it is the facet alone, which is
 -- the one place an empty value narrows anything.
-keyTest :: Text -> Field -> Text -> HeadlineRecord -> Bool
-keyTest key Tag value =
+keyTest :: FilterEnv -> Text -> Field -> Text -> HeadlineRecord -> Bool
+keyTest _env key Tag value =
   \r -> key `elem` tagsOfCell (cellOf tagsColumn r) && freeTest value r
+-- @ref@ over the link targets a subtree carries ('Glance.Query.hrLinks'),
+-- matched against how a link may spell the row named ('refSpellings').
+--
+-- An id NO row claims matches nothing, and that is the whole of the refusal:
+-- this is a filter rather than a command, so an unresolvable id narrows to the
+-- empty table the way @tag:nosuchtag@ does, and nothing 400s.  A stale @ref:@
+-- in a bookmarked URL therefore opens an empty view rather than an error page.
+--
+-- A row is not its own reference: an entry whose body links to itself — which
+-- org-glance's own materialize footer writes — would otherwise be the one row
+-- every drill-down was guaranteed to find, and a list of references that always
+-- holds the row you came from is a list with one useless entry in it.
+keyTest env _key Ref value
+  | T.null value = const True                             -- half-typed: narrows nothing
+  | otherwise    = case feRef env value of
+      Nothing  -> const False
+      Just row -> \r -> hrId r /= rrId row
+                        && any (`elem` hrLinks r) (rrTargets row)
 -- @planned@ over its two cells: unplanned is neither of them holding anything,
 -- and a value is the date prefix @scheduled:@ and @deadline:@ each take, asked
 -- of both at once.  A cell that prefix-matches is a cell with something in it,
 -- so a value never needs the presence test spelled beside it.
-keyTest _key Planned value
+keyTest _env _key Planned value
   | T.null value    = const True                        -- half-typed: narrows nothing
   | value == "none" = \r -> all (T.null . ($ r)) dateCells
   | otherwise       = \r -> any (T.isPrefixOf value . ($ r)) dateCells
-keyTest key (Col i) value
+keyTest _env key (Col i) value
   | T.null value        = const True                    -- half-typed: narrows nothing
   | value == "none"     = T.null . cell
   | key == "state"      = state

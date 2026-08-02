@@ -322,7 +322,7 @@ spec = withResource (body <$> get assetsDir "/") (const (pure ())) $ \shell ->
     , glueSpec shell, bootSpec shell, liveSpec shell, paletteSpec shell
     , moveSpec shell, markSpec shell
     , commandKeySpec shell, promptKeySpec shell, whichKeySpec shell
-    , openKeySpec shell, agendaSpec shell, logSpec shell
+    , openKeySpec shell, agendaSpec shell, drillSpec shell, logSpec shell
     , sheetSpec shell
     , settingsSpec shell
     , touchSpec shell
@@ -1155,6 +1155,37 @@ openKeySpec shell = testGroup "Shell open"
         assertEqual "no palette" "" =<< textAt "prompt" answer
         assertEqual "and the log carries the server's own words"
                     (Just "open failed: no headline with id r1") =<< lastLog answer
+
+    -- A tab can be pointed at http(s) and at nothing else.  Org writes plenty
+    -- of other link types and `/links' reports them all, so the COMMIT is where
+    -- the judgement lands — which is one function for both paths, the lone link
+    -- that opens without asking and the palette entry a letter picks.
+  , testCase "a single link that is not http(s) opens nothing and says so" $
+      bootOf shell "" 500 "" "onemailto press:o" $ \answer -> do
+        assertEqual "no tab" [] =<< openedOf answer
+        assertEqual "and no palette, since one link never raises one" ""
+          =<< textAt "prompt" answer
+        assertEqual "the pill names the command and the refusal"
+                    "o → org-glance-overview:open (link type not implemented)"
+          =<< textAt "echo" answer
+        assertEqual "and the log warns, naming the target"
+                    (Just "link type not implemented: mailto:t@example.org")
+          =<< lastLog answer
+
+    -- The palette still LISTS every link the row holds — that is what teaches a
+    -- reader what is in the entry — and the letter is where the answer is given.
+  , testCase "a palette commit on a non-http entry refuses the same way" $
+      bootOf shell "" 500 "o" "press:m" $ \answer -> do
+        assertEqual "nothing opened" [] =<< openedOf answer
+        assertEqual "the overlay is down all the same" "" =<< textAt "prompt" answer
+        assertEqual "the pill says why"
+                    "o → org-glance-overview:open (link type not implemented)"
+          =<< textAt "echo" answer
+
+  , testCase "and an http entry beside it still opens" $
+      bootOf shell "" 500 "o" "press:f" $
+        assertEqual "the first one" [("https://one.example/a", "_blank", "noopener")]
+          <=< openedOf
   ]
 
 -- | Every tab the page opened: the URL, the target name and the window features
@@ -1223,6 +1254,180 @@ agendaSpec shell = testGroup "Shell agenda"
           , "/headlines?q=state%3A*active*%20-planned%3Anone&limit=100"
           , "/headlines?q=state%3A*active*%20-planned%3Anone" ] <=< textsAt "asked"
   ]
+
+-- | @\@@: the drill, and the ladder DEL walks back down it.
+--
+-- One semantic at two grains.  A JUMP pushes a crumb and applies a whole new
+-- query; a REFINEMENT edits the query in place and pushes nothing.  DEL undoes
+-- whichever is nearest: tokens while the query has any, then one crumb.
+--
+-- The stack is the RENDERER's — this page keeps no copy — and it crosses a
+-- remount through the URL, which is the only channel it has and the reason
+-- @stash@\/@restore@ say nothing about it.
+drillSpec :: IO T.Text -> TestTree
+drillSpec shell = testGroup "Shell drill"
+  [ testCase "@ applies a ref view over the row at point and leaves a crumb" $
+      bootOf shell "" 500 "@" "" $ \answer -> do
+        assertEqual "the boot's two, then the drill's"
+          [ "/headlines?q=state%3A*active*&limit=100", "/headlines?q=state%3A*active*"
+          , "/headlines", "/headlines?q=ref%3Ar1&limit=100", "/headlines?q=ref%3Ar1" ]
+          =<< textsAt "asked" answer
+        -- The crumb records where the reader was STANDING, so the label is the
+        -- query being left rather than the one being applied.
+        assertEqual "one crumb, naming the view it came from"
+                    ["state:*active*"] =<< textsAt "crumbs" answer
+
+  , testCase "the pill names the command, the row and the count" $
+      bootOf shell "" 3 "@" "" $
+        assertEqual "counted by the server"
+                    "@ → org-glance-overview:relations (references of \"one\" · 3)"
+          <=< textAt "echo"
+
+  , testCase "the trail and its labels ride in the URL beside the query" $
+      bootOf shell "" 500 "@" "" $ \answer -> do
+        url <- textAt "url" answer
+        assertBool ("the ref query is applied: " <> T.unpack url)
+                   ("q=ref%3Ar1" `T.isInfixOf` url)
+        assertBool ("the trail rides with it: " <> T.unpack url)
+                   ("crumbs=" `T.isInfixOf` url)
+
+    -- The ladder's second rung.  The drill left `ref:r1' as the whole query, so
+    -- ONE DEL empties it and walks back out — a step out and a step back rather
+    -- than a step and a half.
+  , testCase "DEL on an emptied query pops the crumb and applies it" $
+      bootOf shell "" 500 "@ Backspace" "" $ \answer -> do
+        assertEqual "back on the view the drill left"
+                    "?q=state%3A*active*" =<< textAt "url" answer
+        assertEqual "and the trail is spent" [] =<< textsAt "crumbs" answer
+        assertEqual "the pill names where it landed"
+                    "DEL → filter-drop-token (back to state:*active*)"
+          =<< textAt "echo" answer
+
+    -- The first rung is unchanged: while the query still has tokens, DEL takes
+    -- one off and the trail is not touched.  A REFINEMENT edits the query in
+    -- place, so undoing one is a token rather than a crumb — which is the whole
+    -- of what makes the two grains one key.
+  , testCase "DEL over a refined drill strips a token before it pops" $
+      bootOf shell ("?q=ref%3Ar1%20tanik&crumbs=" <> bootedTrail) 500 "Backspace" ""
+        $ \answer -> do
+        assertEqual "the crumb is still standing" ["everything"]
+          =<< textsAt "crumbs" answer
+        url <- textAt "url" answer
+        assertBool ("the ref token survived the strip: " <> T.unpack url)
+                   ("q=ref%3Ar1" `T.isInfixOf` url)
+
+    -- With no trail behind it the key does what it always did, which is the
+    -- rung that was there before the ladder had a second one.
+  , testCase "DEL with an empty stack clears the filter as it always has" $
+      bootOf shell "" 500 "Backspace" "" $ \answer -> do
+        assertEqual "the cleared query, present and empty" "?q="
+          =<< textAt "url" answer
+        assertEqual "the pill says so"
+                    "DEL → filter-drop-token (filter cleared)" =<< textAt "echo" answer
+
+  , testCase "g is home and throws the trail away" $
+      bootOf shell "" 500 "@ g" "" $ \answer -> do
+        assertEqual "no crumbs left" [] =<< textsAt "crumbs" answer
+        assertEqual "and the URL is the default view, with no trail on it"
+                    "?q=state%3A*active*" =<< textAt "url" answer
+
+    -- A `view-changed' close rebuilds the mount, and `setView' drops the crumbs
+    -- with the world they described.  The URL is what puts them back.
+  , testCase "a remount restores the trail and the labels" $
+      bootOf shell "" 500 "@" "close:view-changed" $ \answer -> do
+        -- The boot, the drill's own remount, and the one the close caused.
+        assertEqual "mounted three times" 3 =<< intAt "mounts" answer
+        assertEqual "the crumb survived the remount" ["state:*active*"]
+          =<< textsAt "crumbs" answer
+        assertEqual "and the ref view is still what is applied"
+                    "?q=ref%3Ar1" . T.takeWhile (/= '&') =<< textAt "url" answer
+
+    -- And the restored trail is LIVE rather than decorative: DEL walks back
+    -- down it after the remount the same way it would have before one.
+  , testCase "and the trail a remount put back can still be walked" $
+      bootOf shell "" 500 "@" "close:view-changed press:Backspace" $ \answer -> do
+        assertEqual "back on the view the drill left"
+                    "?q=state%3A*active*" =<< textAt "url" answer
+        assertEqual "the trail is spent" [] =<< textsAt "crumbs" answer
+
+  , testCase "a booted trail is restored from the URL and can be walked back" $
+      bootOf shell ("?q=ref%3Ar1&crumbs=" <> bootedTrail) 500 "" "" $ \answer ->
+        assertEqual "the trail the address bar carried" ["everything"]
+          =<< textsAt "crumbs" answer
+
+  , testCase "and DEL walks that booted trail back out" $
+      bootOf shell ("?q=ref%3Ar1&crumbs=" <> bootedTrail) 500 "Backspace" "" $ \answer -> do
+        assertEqual "landed on the crumb's own query" "?q=" =<< textAt "url" answer
+        assertEqual "naming it by its label"
+                    "DEL → filter-drop-token (back to everything)" =<< textAt "echo" answer
+
+    -- A crumb remembers the SELECTION it was pushed from, so walking back puts
+    -- the cursor where the reader left it rather than at the top of a view they
+    -- had moved down into.  It rides BESIDE the trail: the renderer's `crumbOf'
+    -- keeps a crumb's label and query and drops everything else, so a selection
+    -- put inside one would never come back out of `getCrumbs()'.
+  , testCase "a pop puts the cursor back on the row the drill was launched from" $
+      bootOf shell "" 500 "n n @ Backspace" "" $ \answer -> do
+        assertEqual "back on the third row" "r3" =<< textAt "selected" answer
+        assertEqual "and the trail is spent" [] =<< textsAt "crumbs" answer
+
+  , testCase "and the column it was in, when one was set" $
+      bootOf shell "" 500 "n f @ Backspace" "" $ \answer -> do
+        assertEqual "the row" "r2" =<< textAt "selected" answer
+        assertEqual "and the cell it was on" 0 =<< intAt "col" answer
+
+    -- Never force a missing id: a row the popped answer no longer holds falls
+    -- through to the ordinary landing rather than being selected in absentia.
+  , testCase "a remembered row the answer lost falls back to the first row" $
+      bootOf shell "" 500 "n n @" "rows:2 press:Backspace" $ \answer -> do
+        assertEqual "the store lost r3, so the landing is row one" "r1"
+          =<< textAt "selected" answer
+
+  , testCase "the remembered selection rides in the URL with the trail" $
+      bootOf shell "" 500 "n @" "" $ \answer -> do
+        url <- textAt "url" answer
+        assertBool ("the pair is carried: " <> T.unpack url)
+                   ("sels" `T.isInfixOf` url)
+
+    -- Every application that is NOT a pop lands on the first row of the answer:
+    -- `g' here, and a commit below, which repaints rather than remounting and
+    -- would otherwise leave the cursor on a row the answer may not hold.
+  , testCase "g lands on the first row rather than where the reader was" $
+      bootOf shell "" 500 "n n g" "" $
+        assertEqual "row one" "r1" <=< textAt "selected"
+
+    -- A commit REPAINTS rather than remounting, so without the rule the cursor
+    -- would sit wherever it was over a set that may not hold that row at all.
+    -- `DEL' is the commit this suite can drive: it strips a token and commits
+    -- what is left, which is the same door a palette commit goes through.
+  , testCase "a commit that repaints lands on the first row too" $
+      bootOf shell "?q=tanik%20web" 500 "n n Backspace" "" $ \answer -> do
+        assertEqual "row one" "r1" =<< textAt "selected" answer
+        assertEqual "and it was a strip rather than a pop" "?q=tanik"
+          =<< textAt "url" answer
+
+    -- A held `@' is a remount per repeat, each leaving a crumb behind, which is
+    -- why the command is on the ONCE list beside the other view keys.
+  , testCase "a held @ drills once" $
+      bootOf shell "" 500 "@" "repeat:@ repeat:@" $
+        assertEqual "one crumb, not three" ["state:*active*"] <=< textsAt "crumbs"
+
+    -- An asset predating the trail is told so rather than being made to apply a
+    -- view the reader would have no way back out of.
+  , testCase "an asset with no crumbs refuses the drill and stays put" $
+      bootOf shell "" 500 "" "crumbless press:@" $ \answer -> do
+        assertEqual "the boot's fetches and no more"
+          [ "/headlines?q=state%3A*active*&limit=100", "/headlines?q=state%3A*active*"
+          , "/headlines" ] =<< textsAt "asked" answer
+        assertEqual "and the pill says which call is missing"
+                    "@ → org-glance-overview:relations (this table-view.js has no crumbs)"
+          =<< textAt "echo" answer
+  ]
+
+-- | A trail as an address bar carries it: one crumb standing for the unfiltered
+-- view, and the label the live @ref:@ chip wears.
+bootedTrail :: T.Text
+bootedTrail = "%7B%22trail%22%3A%5B%7B%22label%22%3A%22everything%22%2C%22query%22%3A%22%22%7D%5D%2C%22labels%22%3A%7B%7D%7D"
 
 -- | The sort the agenda asked the renderer for, if any.  Through `field', so a
 -- harness that stopped reporting the call at all fails loudly rather than
@@ -1955,7 +2160,10 @@ bootOf shell search total keys acts check = do
 onceNames :: [T.Text]
 onceNames = [ "filter-drop-token", "unmark-all", "mark-all"
             , "archive-flag", "org-glance-overview:delete"
-            , "org-glance-overview:open", "org-glance-agenda" ]
+            , "org-glance-overview:open", "org-glance-agenda"
+              -- A held `@' is a remount per repeat, each leaving a crumb behind
+              -- for DEL to walk back one at a time.
+            , "org-glance-overview:relations" ]
 
 -- | The browser the boot runs in, stubbed down to what it touches.
 harness :: FilePath
@@ -2393,7 +2601,11 @@ shellGlue =
   , Glue "the default view is the tree's, and `g' applies it"
       [ "const DEFAULT_QUERY = "
       , "const bootQuery = () => (params().has(\"q\") ? urlQuery() : DEFAULT_QUERY);"
-      , "function applyDefault(b) { applyView(b, DEFAULT_QUERY); }"
+      , "applyView(b, DEFAULT_QUERY);"
+      -- `g' is HOME, so it is not a step on the trail: the crumbs and the
+      -- labels naming them go with it, where DEL walks back one rung at a time.
+      , "if (crumbing()) table.setCrumbs([]);"
+      , "crumbLabels = {};"
       , "remember(q);"
       , "remount();" ]
       -- `g' replaced the refresh key outright: one door through the mount.
@@ -2506,16 +2718,23 @@ shellGlue =
       , "if (handler) handler(b);" ]
       ["let col = ", "selCol", "lastColumn"]
 
-  -- `f → next-column (Headline)', and `f → next-column (at last)' where the walk
-  -- ran out of columns.
-  , glue "the landing column is echoed by its header, or the edge it stopped at"
-      [ "said(b, cols[want].header || cols[want].key);"
-      , "said(b, want < 0 ? \"at first\" : \"at last\")"
+  -- `f → next-column (Headline)', and `f → next-column (row mode)' where the
+  -- walk left the cells.  Walking off an end is a LANDING rather than a wall:
+  -- the renderer reads a column index outside the table as no column at all, so
+  -- the step is handed over out of range and comes back as the whole-row look.
+  -- The column is read back out of `column()' — the renderer's answer decides,
+  -- and `want' is only what was asked for.
+  , Glue "the landing column is echoed by its header, or the row mode it left for"
+      [ "const now = column();"
+      , "said(b, now === null ? \"row mode\" : (cols[now].header || cols[now].key));"
       , "said(b, \"no row\")"
       -- The headers are the mounted view's, and parity cuts the keys out of the
       -- same list where it needs them.
       , "cols = view.columns || [];"
       , "const keys = cols.map((c) => c.key);" ]
+      -- The clamp this page used to keep, and must not grow back: an edge test
+      -- here would swallow the key at a wall the renderer does not have.
+      [ "at first", "at last", "want >= cols.length" ]
 
   -- The rules: a finger's 44px, and a word saying what the row is while no chip
   -- has filled it.  The renderer hides an empty row with an inline
@@ -4717,7 +4936,10 @@ pageSpec shell = testGroup "GET /"
         -- The second canned view, next to the one `g' applies: both are a
         -- query, and the line says so by putting them together.
         , (["org-glance-agenda"], "agenda")
-        , (["filter-drop-token"], "drop token")
+        -- The drill, named beside the key that walks back out of it: a reader
+        -- shown only the way in has no way home.
+        , (["org-glance-overview:relations"], "references")
+        , (["filter-drop-token"], "drop token/back")
         , (["customize"], "settings")
         , (["quit-window"], "quit")
         ] hints
@@ -4807,7 +5029,10 @@ expectedRows =
   -- the tree's default.
   , (["a"],          "a",       "org-glance-agenda",               Just "applyAgenda",    "table",
        Just "the active rows carrying a date, earliest first")
-  , (["@"],          "@",       "org-glance-overview:relations",   Nothing,               "table", Nothing)
+  -- The drill: the rows pointing AT the one at point, applied as a `ref:' view
+  -- with a crumb left behind for DEL to walk back along.
+  , (["@"],          "@",       "org-glance-overview:relations",   Just "relations",      "table",
+       Just "the rows referring to this one; DEL walks back")
   -- The one write that names no row: it makes one, in the file the tree's own
   -- @#+GLANCE_CAPTURE_TARGET:@ names.
   , (["+"],          "+",       "org-glance-overview:capture",     Just "capture",        "table",

@@ -120,6 +120,19 @@ with no predicate in it is the substring search it always was. The applied query
 rides in the URL, so a filtered view is a link; =DEL= over the table takes the
 last token back off.
 
+*=ref:= asks who points here.* =ref:ID= is every row whose subtree links to the
+row that id names — the referrers, which is a question no single row can answer
+and the server answers off the whole store. A link counts when it names a row:
+org-glance's =org-glance-visit:=, =org-glance-open:= and =org-glance-material:=
+protocols, org's own =id:=, and the bracketed =[[Title]]= and =[[*Title]]=
+forms, which resolve against the target's title. =org-glance-overview:= and
+=org-glance-state:= do not — they name a tag and a keyword, and over =~/sync=
+not one of their targets is a row id. A row is never its own reference; an id
+nothing claims matches nothing rather than failing, so a stale link opens an
+empty table; and =ref:a ref:b= is a row pointing at both. It is the one value
+the filter does not case-fold, a row id being an exact string. =@= over the
+table is this key with a breadcrumb attached — see the keys below.
+
 *The default view is your active work.* Open the page with nothing in the
 address bar and it applies =state:*active*= for you — every keyword your
 =#+TODO:= lines declare before the bar, which is the work still to do. It is a
@@ -469,6 +482,15 @@ themselves and stop before the punctuation a sentence leaves behind. Order of
 appearance, one entry per target. The browser holds no org parser and this is
 why it does not need one.
 
+*A tab only goes to =http= and =https=.* org writes plenty of other link types
+— =mailto:=, =file:=, =id:=, org-glance's own protocols, the bare =[[Title]]=
+internal link — and none of them names something a browser tab is. The palette
+still lists every link, since what an entry holds is what tells you what the
+entry is; the refusal comes at the *commit*, as a warning in the log and in the
+pill (=link type not implemented: mailto:…=, cut at 80 characters) and no tab.
+So a lone =mailto:= warns without a palette ever going up, and a
+=mailto:= sitting beside an =http= link warns while its neighbour opens.
+
 #+begin_src sh
 curl -s 'localhost:7777/links?id=ship-table-view'
 # → {"links": [{"target": "https://…", "desc": "the table view"}]}
@@ -483,6 +505,23 @@ key of its own, so the halves are yours to recombine: =planned:none= is
 everything nobody has put a day on, =planned:2026-08= is a month's worth of
 schedules and deadlines together, and =-planned:none deadline:2026-08= narrows
 to the ones with a due date in it.
+
+*=@= walks the references in.* =@= applies =ref:= over the row at point — never
+the marked set; a drill is a look rather than a bulk act — and what comes back
+is every row pointing at it, with =@ → org-glance-overview:relations (references
+of "Tanik" · 12)= in the pill and the query in the chips and in the URL like any
+other. It leaves a *breadcrumb* behind: a muted chip naming the view you came
+from, up to four of them before the rest fold into =… +N=.
+
+=DEL= is the way back, and it is one ladder rather than two keys. While the
+query still has tokens in it =DEL= takes the last one off, as it always has;
+once the strip empties the query and a trail is standing, the same key pops the
+crumb instead and puts the previous view back — cursor on the row you drilled
+from, in the column you left it in. So refine a drill, walk the refinements off
+one at a time, and the next =DEL= steps out of the drill itself; drill again
+from there and the trail grows a step. =g= is home and throws the whole trail
+away. The trail rides in the URL beside the query, so a drilled view is a link
+and survives a reload, and nothing else carries it.
 
 *Keys.* The page carries org-glance's =overview-mode= map, under org-glance's
 own command names, and echoes what it did in a pill in the bottom corner — the
@@ -508,7 +547,7 @@ parameter and a key line that had to be rewritten whenever it moved.
 | =[=         | =previous-page=                   | turns one back                                |
 | =RET=       | =org-glance-overview:materialize= | opens the sheet                               |
 | =/=         | =filter-rows=                     | summons the filter palette                    |
-| =DEL=       | =filter-drop-token=               | drops the filter's last token                 |
+| =DEL=       | =filter-drop-token=               | drops a token; then walks a drill back        |
 | =g=         | =apply-default-filter=            | the view this tree opens on                   |
 | =a=         | =org-glance-agenda=               | the active rows carrying a date               |
 | =o= =!=     | =org-glance-overview:open=        | follows this row's link                       |
@@ -526,7 +565,7 @@ parameter and a key line that had to be rewritten whenever it moved.
 | =C-c '=     | =org-edit-special=                | sheet as raw org, or as body + properties     |
 | =ESC=       | =keyboard-quit=                   | closes the sheet, syncing it first            |
 | =TAB=       | =org-cycle=                       | staged — wants a fold model                   |
-| =@=         | =org-glance-overview:relations=   | staged — wants the graph (S6)                 |
+| =@=         | =org-glance-overview:relations=   | the rows referring to this one                |
 | =C-c C-t=   | =org-glance-overview:todo=        | the org spelling of =t=                       |
 | =C-c C-s=   | =org-glance-overview:schedule=    | a date over the marked rows                   |
 | =C-c C-d=   | =org-glance-overview:deadline=    | the same, as a deadline                       |
@@ -555,9 +594,11 @@ table walks the cells of a row — and =l= and =h= are the same two commands und
 vi's spelling. A row selection starts with no column and looks exactly as it always did;
 the first horizontal key lands on the first column whichever direction asked
 for it, and from there =n=/=p= (=j=/=k=) carry that column down the table.
-Walking off either edge stays on it. The echo names where it landed by the
-column's own header — =f → next-column (Headline)=, or =f → next-column (at
-last)= at the edge. The column lives in the renderer's selection rather than in
+Walking off either edge *leaves* the cells: the row goes back to the whole-row
+look it started in, and the next horizontal key steps in again from that side.
+The echo names where it landed by the column's own header — =f → next-column
+(Headline)=, or =f → next-column (row mode)= where it walked off the end. The
+column lives in the renderer's selection rather than in
 the page, so it rides along with row movement and clearing the selection takes
 it with it.
 
@@ -616,9 +657,11 @@ flashes light on the way in. The whole page wears danneskjold through one set of
 =--g-*= variables — surface, text, muted text, border, selection — and the
 materialize sheet keeps a single =--dk-mono= of its own, the Hack font stack.
 
-The page's last line is that map, resident: =n/p rows · f/b cells · [/] pages ·
-RET materialize · m/u/U/M mark · t state · d flag for archive · d/D archive
-flagged · / filter · g default view · DEL drop token · , settings · q quit=. It is named by
+The page's last line is that map, resident: ~n/p rows · f/b cells · [/] pages ·
+</> first/last row, again = page up/down · RET materialize · o open link ·
+m/u/U/M mark · t state · C-c C-s/C-c C-d schedule/deadline · + capture · d flag
+for archive · d/D archive flagged · / filter · g default view · a agenda ·
+@ references · DEL drop token/back · , settings · q quit~. It is named by
 command and spelled from the same blob the dispatch reads, so it can never offer
 a key nothing is bound to. The pill says what just ran; the line says what can.
 

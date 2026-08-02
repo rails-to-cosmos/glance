@@ -538,9 +538,57 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   the vendored `assets/table-view.js` predates it and `make sync-renderer`
   closes the gap, which costs nothing meanwhile — `onFilter` means the renderer
   narrows nothing.
+  `ref:ROWID` is the second producer-only virtual key and the one a row cannot
+  answer alone: it is every row whose subtree POINTS AT the row named, resolved
+  through the store's own id-resolved rows (`storeEnv`, exact-string like
+  `resolveIds`). Matched against `hrLinks`, over `refSpellings` of the target —
+  its `ORG_GLANCE_ID` where it has one, plus its title, which is what the
+  `[[Title]]`/`[[*Title]]` forms resolve against. A row is NOT its own reference
+  (org-glance's materialize footer writes a self-link, and a referrer list
+  holding the row you came from holds one useless entry). An id no row claims
+  matches nothing and does not 400 — it is a filter, so a stale `ref:` in a
+  bookmarked URL opens an empty view. Multi-valued, so `ref:a ref:b` ANDs. Its
+  value is the ONE predicate value not folded: a row id is exact-string, and
+  ~/sync carries ids spelled `Password-…`/`Pets-…` that a fold would put beyond
+  reach. `FilterEnv` is what carries the store to the matcher — `tagsEnv` for a
+  caller with no rows behind it, where `ref:` still parses and matches nothing.
   The tags column's key is `tag`, singular (header stays `Tags`). A predicate
   reads one `\x1f` field of `hrSearch`, so per-cell matching and free text agree
   by construction.
+- `hrLinks` is the per-row reference list, cut from the SUBTREE at load through
+  the `/links` scanner (`orgLinks`, so the bracket grammar stays the one
+  `displayText` holds) and `T.copy`-detached like `hrSearch`; `forceRecord`
+  forces its SPINE beside its elements, since a strict field forces the
+  outermost cons alone and a lazy tail would retain the document. What counts as
+  a reference is `refTargetOf`, and the rule is the CENSUS of ~/sync's walked
+  6291 files (2026-08-02) rather than what org permits: the id-bearing protocols
+  `org-glance-visit:` (3867), `org-glance-open:` (568), `org-glance-material:`
+  (28) and `id:` (0 — org's own, in the list because it is org's own), stripped
+  to a case-preserved target; a leading `*` stripped (`[[*Title]]`, 4); and a
+  bare target carrying neither `:` nor `/` (`[[Title]]`, 18 and nearly all of
+  them bracketed prose). Deliberately NOT references, though both are common:
+  `org-glance-overview:` (2726) names a TAG and `org-glance-state:` (880) names
+  a keyword — of their 52 and 6 distinct targets, not one is an
+  `ORG_GLANCE_ID`. `file:`/`http`/`mailto` are dropped, which is what keeps the
+  field small. Store residency over ~/sync did not move outside GC sampling
+  noise: 348.0 MB before, 330.8 and 322.5 MB after (`serve` + `+RTS -s` at
+  `-N8`, max residency being sampled at major GCs). Both after-samples sit BELOW
+  the single before-sample, so the honest reading is no measurable cost — the
+  field holds ~4.5k short targets over 10433 rows, under a megabyte by
+  construction. `scan` is unaffected either way: it is a parser oracle off
+  `orgParse` and builds no records, so the scan budget (~37.8 MB at `-N8`) does
+  not move and this is NOT the number to quote for `hrLinks`.
+- KNOWN LIMIT of `ref:`, inherited from the `/links` grammar rather than
+  introduced: a link nested inside another link's DESCRIPTION yields no
+  reference at either end. The outer link fails to close (its description breaks
+  at the inner link's first `]`, leaving `][` where `linkAt` wants `]]`), and
+  the rescan picks the inner one up one bracket late, so its target arrives
+  spelled `[org-…` and is refused for the leading bracket. org-glance's own
+  "Referred from" footer writes exactly this shape. Measured cost on the corpus:
+  for the most-referenced contact in ~/sync, 126 of 128 files holding the link
+  answered (2 of those archived and hidden by default), and the 2 misses are
+  both this. Reused on purpose — a second scanner would be a second grammar to
+  keep in step with SCHEMA.md's link rule.
 - Parity discipline: there is NO schema revision mechanism between this producer
   and `table-view.js`. Agreement rests on the port being kept term for term,
   plus one loose runtime tripwire. Known divergences, all live:
@@ -563,6 +611,17 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
     the renderer's side over no columns at all, so `planned:none` is every row
     there and `-planned:none` is none of them. The predicate itself is
     term-for-term; the column set under it is not.
+  - `ref:ROWID` is producer-only WHOLE, unlike the starred metas, which the
+    renderer at least matches as literal text. It is undecidable from the rows a
+    renderer holds — resolving a reference needs the target row's
+    `ORG_GLANCE_ID` and title, which the store has and a page does not — so
+    `table-view.js` has no branch and reads the token as FREE TEXT: a substring
+    hunt for `ref:rowid` over the row's display text, which almost nothing
+    matches. The renderer is therefore NARROWER, which is the tripwire's blessed
+    direction (it fires only on a server zero) and leaves that direction
+    unmoved. What keeps this workable is that no locally-filtered path applies
+    `ref:` — the shell mounts with `onFilter`, so the server narrows, and a
+    socket frame arriving under a filter refetches rather than splicing.
   - `state:*active*`/`state:*inactive*` are producer-only in their KEYWORD half
     alone, blessed by SCHEMA.md, and are the canonical spelling (org-glance's
     own, and what the default view boots on). The renderer has no group logic
@@ -633,7 +692,15 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   makes unreachable. The column is the renderer's selection, never a second
   copy here: `selectStep` carries it, and what the shell passes back is
   whatever `getSelection()` reports, so it survives a profile switch and clears
-  when the selection does. The applied `?q=` is restored the
+  when the selection does. Cell movement (`f`/`b`, `l`/`h`) walks OFF the cells
+  rather than bumping: the renderer reads a column index outside the table as no
+  column at all (`cellCol`), so `moveCol` hands the out-of-range step straight
+  to `select(id, want)` and the answer is the whole-row look, echoed `row mode`.
+  The clamp this page used to keep — `at first`/`at last`, returning before the
+  select — swallowed the key at a wall the renderer does not have, and the glue
+  guard now forbids those strings. Re-entry is unchanged (`at === null ? 0 : at
+  + step`), and the landing column is read back out of `column()` rather than
+  off `want`, since the renderer's answer decides. The applied `?q=` is restored the
   same way — handed to `mount` as `initialQuery`, with the box-stuffing path
   kept only as the fallback for an asset that drops the option.
 - One fetch is in flight at a time: a single `AbortController`, aborted and
@@ -723,7 +790,8 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   stored choice, a URL parameter and a key line that had to be rewritten. Ends
   are `<` and `>`, plus vi's `G` beside `>`. `g` is `apply-default-filter`, `a`
   is `org-glance-agenda`, `,`
-  is `customize`, `o` and `!` are `org-glance-overview:open`, `M` is `mark-all`, `d` is
+  is `customize`, `o` and `!` are `org-glance-overview:open`, `@` is
+  `org-glance-overview:relations`, `M` is `mark-all`, `d` is
   `archive-flag` and `D` is `org-glance-overview:delete` (both over FLAGS, never
   marks). No sequence is bound
   twice or opens a longer one. Sequences and command names are org-glance's where
@@ -822,7 +890,18 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - `o`/`!` (`org-glance-overview:open`) FOLLOW the row, and the ANSWER decides the
   gesture: `GET /links?id=` for the row at point, then no links is an echo
   refusal, ONE is `window.open(target, "_blank", "noopener")`, and SEVERAL raise
-  the palette. Every open writes a `cmd` line naming the target. The link palette
+  the palette. Every open writes a `cmd` line naming the target.
+  A tab can be pointed at `http`/`https` and NOTHING ELSE (`followable`): org
+  writes `mailto:`, `file:`, `id:`, its own org-glance protocols and bare
+  `[[Title]]` internal links, `/links` reports them all, and each names
+  something a tab is not. A non-followable target is one `cmd` WARN line —
+  `link type not implemented: TARGET`, truncated at 80 characters
+  (`shortly`) — plus the same words in the echo, and no tab. The judgement lives
+  in `openLink`, which is why it is ONE function rather than a filter over the
+  choices: the palette still LISTS every link, since that is what teaches a
+  reader what the entry holds, and the COMMIT is where the answer is given — so
+  a lone `mailto:` warns without a palette, and a `mailto:` entry beside an
+  `http` one warns while its neighbour still opens. The link palette
   is the value palette's third shape and is raised LATE — the answer decides
   whether there IS a palette, so `askLinks` puts it up behind the fetch and
   clears `prompting.raising`: the `o` that asked has been dispatched and gone,
@@ -969,6 +1048,59 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   as intent and leaves alone, where an ABSENT `q` gets the default injected.
   Deleting the parameter instead made a cleared filter come back filtered on the
   next remount.
+- DRILL-DOWN is ONE semantic at TWO GRAINS, and `DEL` is the single undo for
+  both. A JUMP (`@`) pushes a crumb and applies a whole new query; a REFINEMENT
+  edits the query in place and pushes nothing. `DEL` undoes whichever is
+  nearest — a ladder: `stripLastToken` while the query has tokens, and when the
+  strip leaves it EMPTY and a trail stands, `popCrumb` plus the popped query
+  INSTEAD of the empty one, so `@` then `DEL` is one step out and one back
+  rather than a step and a half. With no trail the second rung is not there and
+  the key clears the filter as it always did. `g` is HOME rather than a rung: it
+  throws the crumbs and their labels away.
+- The crumb STACK is the renderer's (`setCrumbs`/`getCrumbs`/`pushCrumb`/
+  `popCrumb`, muted chips left of the live ones, `CRUMB_MAX` 4 then a `… +N`
+  fold) and this page keeps NO copy, the way it keeps none of the marks or the
+  selected column. `popCrumb` pops and returns without applying — whoever owns
+  the fetching owns what a query means — so the shell applies it through
+  `applyView`, the same door `g` and the agenda use. What the page DOES keep is
+  `crumbLabels`, token → label, because no lookup recovers it: the title belongs
+  to the row referred TO, which is very rarely among its own referrers. One map
+  serves both readers — the mount's `chipLabel` aliasing the live `ref:` chip,
+  and `hereLabel` naming the crumb a further drill leaves behind, which is what
+  makes a drill out of a drill chain honestly.
+- The trail crosses a remount through the URL and NOTHING ELSE: `?crumbs=` holds
+  `{trail, labels}` beside `q`, written by `remember` and read back by `mount`
+  (before `TableView.mount`, since `chipLabel` can be called during the first
+  paint). Every mutation of the stack — a drill, a pop, `g` — is followed by a
+  `remember`, so the address bar is current whenever a `view-changed` remount
+  re-reads it. `stash`/`restore` deliberately say nothing about crumbs: what
+  they carry is work the reader has NOT committed, and there is no such thing as
+  a half-applied crumb. A parameter that does not parse is one boot without a
+  trail, and `setCrumbs` drops whatever is not a crumb.
+- WHERE AN APPLIED VIEW LANDS THE CURSOR is one rule at one door (`land`), and
+  it has two answers. A POP puts back the row its drill was pushed from; every
+  other application — a palette commit, `g`, `a`, `@` — lands on the FIRST row
+  of the answer. An empty answer selects nothing. `select` answers false for a
+  row the view no longer holds, so a remembered row an edit or a narrower filter
+  took away falls through to the same first-row landing and is never forced
+  back. `applyView` takes the remembered selection as a fourth argument so the
+  rule runs once rather than in each caller; `fetchRows` calls it too, since a
+  commit REPAINTS rather than remounting and would otherwise leave the cursor on
+  a row the new answer may not hold.
+- The remembered selection rides BESIDE the trail (`crumbSels`, one entry per
+  crumb) rather than inside it, because the renderer's `crumbOf` keeps a crumb's
+  `label` and `query` and drops everything else — a selection put in a crumb
+  would never come back out of `getCrumbs()`. The renderer's DEPTH stays the
+  truth: `selsFit` compares lengths and a side table out of step is dropped
+  whole rather than pairing a crumb with another crumb's row. It rides in
+  `?crumbs=` as `sels` beside `trail` and `labels`. Marks and flags need none of
+  this — they are id-keyed renderer state and already survive.
+- `@` (`org-glance-overview:relations`) takes the row AT POINT and never the
+  marked set — a drill is a look, and letting it inherit a mark
+  would make every mark change what the key means. It is on the ONCE list: a
+  held `@` is a remount per repeat, each leaving a crumb. Feature-detected on
+  the four crumb calls; an asset without them is told so and nothing is applied,
+  since a view with no way back out of it is worse than no drill.
 - One status corner, top right, in this order: the connection dot (`live` /
   `wait` / `down`) then `themesel`, a native `<select>` over
   `auto`/`light`/`dark`. A focused `SELECT` counts as typing, so its own arrows

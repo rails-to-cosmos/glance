@@ -180,6 +180,23 @@ linkSpec = testGroup "Links"
           [[ ("https://a.example", "A"), ("https://b.example", "B")
            , ("https://c.example", "https://c.example") ]]
           (map subtreeLinks recs)
+
+    -- `hrLinks' is the same subtree read for a narrower question: which ROWS it
+    -- points at.  A URL is not one of them, which is what keeps the field small
+    -- enough to carry on every record — the corpus writes 4.5k row references
+    -- against 4.1k `file:'/`http' links, and only the first kind is kept.
+  , testCase "a row's links are the references its subtree carries" $
+      withRecordsOf (T.unlines
+        [ "* parent [[org-glance-visit:alpha][A]]"
+        , "body https://b.example and [[org-glance-overview:tag][a tag]]"
+        , "** child [[org-glance-open:beta][B]]" ]) $ \recs ->
+        -- The child's reference is the parent's, the URL and the overview link
+        -- are nobody's, and the two id protocols answer alike.
+        assertEqual "the references alone" [["alpha", "beta"]] (map hrLinks recs)
+
+  , testCase "a row pointing nowhere carries an empty list rather than a slice" $
+      withRecordsOf "* plain\njust prose about https://x.example\n" $ \recs ->
+        assertEqual "nothing to keep" [[]] (map hrLinks recs)
   ]
 
 -- | The subtree lens: a subtree split into the parts a client edits and the
@@ -725,7 +742,7 @@ shapeOf r = map T.pack
   [ hrFile r, show (hrId r), show (hrCategory r), show (hrDigest r)
   , show (hrSubtree r), show (hrKeywords r), show (hrState r), show (hrPriority r)
   , show (hrTitle r), show (hrTags r), show (hrScheduled r), show (hrDeadline r)
-  , show (hrSearch r), show (T.length (hrDoc r)) ]
+  , show (hrSearch r), show (hrLinks r), show (T.length (hrDoc r)) ]
 
 outcomeShape :: Either LoadFailure [HeadlineRecord] -> Either LoadFailure [[Text]]
 outcomeShape = fmap (map shapeOf)

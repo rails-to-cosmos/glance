@@ -38,6 +38,8 @@
 //                 table-view.js never had them
 //   pageless      and its pager calls, the way one older still never had those
 //   sortless      and its programmatic sort, which the agenda asks for
+//   crumbless     and its crumb trail, which `@' needs before it will drill
+//   onemailto     the row points at one link that is not http(s)
 //   onelink       the row `o' names points at exactly one place
 //   nolinks       and at none at all — three is the default, which is a palette
 //   rows:N        the store holds N rows rather than the three at the top
@@ -271,9 +273,20 @@ const pageTo = (to, first) => {
 let flagHelp = "";
 /** The live handle, so `bare' can take calls off the one the shell is holding. */
 let handle = null;
-/** Set by `bare', `pageless' and `sortless': this asset never had those calls,
- * remounts included. */
-let markless = false, pagerless = false, sortnone = false;
+/** The crumb trail, which is renderer state like the marks: it survives a
+ * `setRows' and goes with the mount that drew it. */
+let crumbs = [];
+/** COL as a real column index, or null for the whole-row look — which is what a
+ * column outside the table IS.  The real one's `cellCol', mirrored here because
+ * the shell's cell movement hands the index one past an end straight back. */
+const cellCol = (col) => {
+  if (col === null || col === undefined) return null;
+  const at = Math.trunc(col);
+  return at >= 0 && at < columns.length ? at : null;
+};
+/** Set by `bare', `pageless', `sortless' and `crumbless': this asset never had
+ * those calls, remounts included. */
+let markless = false, pagerless = false, sortnone = false, crumbless = false;
 globalThis.TableView = {
   mount: (_el, _view, options) => {
     mounts += 1;
@@ -309,14 +322,15 @@ globalThis.TableView = {
         return true;
       },
       // A row of the page in hand, and the column to land in.  Null is a
-      // WHOLE-ROW selection, the way the real one's `clampCol' reads it, so a
-      // caller meaning to keep the column has to hand it back.  False for a row
-      // this page is not showing.
+      // WHOLE-ROW selection, and so is a column index OUTSIDE the table — the
+      // real one's `cellCol' reads both the same way, which is what makes
+      // walking off the last cell a landing rather than a wall.  False for a row
+      // this page is not showing; the row is what the bool answers about.
       select: (id, col) => {
         const at = onPage().findIndex((r) => r.id === id);
         if (at === -1) return false;
         cursor = at;
-        selCol = col === null || col === undefined ? null : col;
+        selCol = cellCol(col);
         return true;
       },
       // The pager, landing the cursor on the end it arrives at — the new page's
@@ -352,10 +366,23 @@ globalThis.TableView = {
       // are up.  Recorded rather than performed: the ORDER is the renderer's
       // and TableView's own suite is where it is tested.
       sortBy: (column, ascending) => { sorted = { column, ascending }; },
+      // The drill-down trail.  `popCrumb' pops and RETURNS — it never applies —
+      // because whoever owns the fetching owns what a query means, which is the
+      // whole reason the shell has a ladder to walk rather than the renderer.
+      // `getCrumbs' answers with copies, so a reader cannot move the strip.
+      setCrumbs: (list) => {
+        crumbs = (Array.isArray(list) ? list : [])
+          .filter((c) => c && typeof c === "object")
+          .map((c) => ({ label: String(c.label || ""), query: String(c.query || "") }));
+      },
+      getCrumbs: () => crumbs.map((c) => ({ label: c.label, query: c.query })),
+      pushCrumb: (c) => { handle.setCrumbs(crumbs.concat([c])); return crumbs.length; },
+      popCrumb: () => (crumbs.length ? crumbs.pop() : null),
     };
     if (markless) strip(MARK_CALLS);
     if (pagerless) strip(PAGE_CALLS);
     if (sortnone) strip(SORT_CALLS);
+    if (crumbless) strip(CRUMB_CALLS);
     return handle;
   },
   parseQuery: () => [],
@@ -368,6 +395,8 @@ const MARK_CALLS = [ "toggleMark", "getMarked", "clearMarks", "markedCount"
 const PAGE_CALLS = ["nextPage", "previousPage", "pageInfo"];
 /** And the programmatic sort, which the agenda asks for. */
 const SORT_CALLS = ["sortBy"];
+/** And the crumb trail, which `@' needs before it will drill at all. */
+const CRUMB_CALLS = ["setCrumbs", "getCrumbs", "pushCrumb", "popCrumb"];
 const strip = (names) => { for (const name of names) delete handle[name]; };
 // The one thing a key here does that leaves nothing on the page: the tab `o'
 // opens.  Recorded whole — the target, the tab name and the features — since
@@ -691,11 +720,18 @@ const ACTIONS = {
   // And one with no programmatic sort, which is what leaves the agenda with
   // the order the view declares and nothing to insist on it.
   sortless: () => { sortnone = true; strip(SORT_CALLS); },
+  // And one with no crumb trail, which is what leaves `@' nowhere to leave a
+  // step behind: the drill is refused outright rather than applying a view a
+  // reader would have no way back out of.
+  crumbless: () => { crumbless = true; strip(CRUMB_CALLS); },
   // What the row `o' names points at: one link, or none at all.  The gesture
   // is different for each — one opens without asking, none refuses — and the
   // three-link default is what raises the palette.
   onelink: () => { links = links.slice(0, 1); },
   nolinks: () => { links = []; },
+  // One link that is not http(s): `o' takes the no-palette path straight to the
+  // commit, which is where a link type this page cannot follow is refused.
+  onemailto: () => { links = links.slice(2, 3); },
   // A store with pages in it: N rows in place of the three at the top, and the
   // renderer showing SIZE of them at a time.  Acts rather than argv, so every
   // script that wants neither reads exactly as it did.
@@ -773,6 +809,10 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     // Following a link: which rows were asked about, which tabs were opened,
     // and the sort the agenda insisted on.
     linked, opened, sorted,
+    // The drill-down trail as the strip would draw it, labels alone — the
+    // queries behind them are the shell's business and the URL already carries
+    // them.
+    crumbs: crumbs.map((c) => c.label),
     // Which keys the dispatch took off the browser, in press order.
     prevented,
     // The settings sheet: whether it is up, the one word it wears, the lines

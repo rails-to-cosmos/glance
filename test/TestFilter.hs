@@ -12,15 +12,16 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
-import TestDefaults (columnKeysOf, viewDir)
+import TestDefaults (columnKeysOf, orgFile, viewDir, withTempDir)
 
 import qualified Data.Text as T
 
 import Glance.Query ( HeadlineRecord (..), QueryResult (qrRecords), displayText
-                    , loadDir, matchesSearch, tagsOfCell, viewJSON )
-import Glance.Web.Filter ( Term (..), Token (..), archiveKey, cellAt, filterKeys
-                         , matchesFilter, namesArchive, parseFilter, plannedKey
-                         , scanQuery )
+                    , loadDir, matchesSearch, refTargetOf, refTargets, tagsOfCell
+                    , viewJSON )
+import Glance.Web.Filter ( FilterEnv, Term (..), Token (..), archiveKey, cellAt
+                         , filterKeys, matchesFilter, namesArchive, parseFilter
+                         , plannedKey, refKey, scanQuery, storeEnv, tagsEnv )
 
 -- Fixtures
 --
@@ -46,11 +47,17 @@ titleOf Schema = "Read the schema"
 vocabularyOf :: [HeadlineRecord] -> [Text]
 vocabularyOf = sort . nub . concatMap (tagsOfCell . hrTags)
 
+-- | The environment RECORDS answer as, which is what a store hands the filter:
+-- their tags as the virtual keys, and themselves as what a @ref:@ resolves
+-- against.
+envOf :: [HeadlineRecord] -> FilterEnv
+envOf records = storeEnv (vocabularyOf records) records
+
 -- | The rows Q matches, in walk order.
 matching :: Text -> IO [Row]
 matching q = do
   records <- qrRecords <$> loadDir viewDir
-  let hit = [ hrTitle r | r <- records, matchesFilter (vocabularyOf records) q r ]
+  let hit = [ hrTitle r | r <- records, matchesFilter (envOf records) q r ]
   mapM (named records) hit
   where
     named records t = case [ row | row <- [minBound ..], titleOf row == t ] of
@@ -66,7 +73,186 @@ spec :: TestTree
 spec = testGroup "Filter"
   [ tokenSpec, predicateSpec, virtualSpec, plannedSpec, archiveSpec, shapeSpec
   , degenerateSpec
+  , targetSpec, refSpec
   , layoutSpec ]
+
+-- References: extraction
+--
+-- The forms are the ones ~/sync spells, counted over the walked corpus at
+-- 2026-08-02 and written down in 'Glance.Query.refPrefixes'.  These cases are
+-- that census in miniature: what the corpus HAS is matched, and the two
+-- org-glance protocols that name something other than a row are turned away.
+
+-- | One link target normalized, or refused.
+targetSpec :: TestTree
+targetSpec = testGroup "Reference targets"
+  [ testCase "the id-bearing protocols are stripped, case preserved" $
+      mapM_ (\(raw, want) -> assertEqual (T.unpack raw) (Just want) (refTargetOf raw))
+        [ ("org-glance-visit:task-spbm-1-2-3-0",    "task-spbm-1-2-3-0")
+        , ("org-glance-open:Pets-20210816-eee5a4",  "Pets-20210816-eee5a4")
+        , ("org-glance-material:contact-25053-3",   "contact-25053-3")
+        -- Org's own, which the corpus does not use at all: in the list because
+        -- it is org's own, and this is the case that says so.
+        , ("id:9f8e7d6c",                           "9f8e7d6c")
+        -- The case is the id's: a fold here would put `Password-…' out of reach.
+        , ("org-glance-visit:Password-20210516-d9", "Password-20210516-d9") ]
+
+  , testCase "the two title forms lose their star and keep their text" $ do
+      assertEqual "starred" (Just "Hacking the renderer")
+                  (refTargetOf "*Hacking the renderer")
+      assertEqual "bare" (Just "Highlights") (refTargetOf "Highlights")
+
+  , testCase "a protocol that names something other than a row is refused" $
+      mapM_ (\raw -> assertEqual (T.unpack raw) Nothing (refTargetOf raw))
+        -- `org-glance-overview:' names a TAG and `org-glance-state:' a keyword:
+        -- 2726 and 880 links in the walked corpus, and between them not one
+        -- target that is an ORG_GLANCE_ID.
+        [ "org-glance-overview:bookmark", "org-glance-state:STARTED"
+        , "file:notes.org", "https://x.example/a", "mailto:a@b.example"
+        -- A bare target holding a slash is a path, which is org's implicit file
+        -- link rather than a headline.
+        , "docs/plan.org", "" ]
+
+  , testCase "a subtree's targets are deduplicated and keep their order" $ do
+      let text' = T.unlines
+            [ "* one [[org-glance-visit:alpha][A]]"
+            , "body [[org-glance-overview:tag][skipped]] and [[*Beta]]"
+            , "** child [[org-glance-open:alpha][A again]]"
+            , "trailing https://x.example/z" ]
+      -- `alpha' arrives twice under two protocols and is kept once; the
+      -- overview link and the bare URL are not references at all.
+      assertEqual "targets" ["alpha", "Beta"] (refTargets text')
+
+  , testCase "a subtree with nothing to point at yields no targets" $
+      assertEqual "none" [] (refTargets "* plain\njust prose, and https://x.example\n")
+
+    -- KNOWN LIMIT, inherited rather than introduced.  A link written INSIDE
+    -- another link's description defeats the scanner twice over: the OUTER link
+    -- fails to close (its description breaks at the inner link's first `]', and
+    -- what follows is `][' rather than `]]'), and the rescan that follows picks
+    -- the inner one up one bracket late, so its target arrives spelled `[org-…'
+    -- and is refused for the leading bracket.  Neither end is a reference.
+    --
+    -- org-glance's own "Referred from" footer writes exactly this shape, and it
+    -- is the whole of what `ref:' misses on the corpus: for the most-referenced
+    -- contact in ~/sync it costs 2 files of 128 (2026-08-02, the other 126
+    -- answered, 2 of them archived).  It is the `/links' grammar's own rule —
+    -- `orgLinks' reports the same bracketed target — and it is reused rather
+    -- than worked around, since a second scanner here would be a second grammar
+    -- to keep in step with SCHEMA.md's link rule.
+  , testCase "a reference nested in another link's description is not found" $
+      assertEqual "neither the outer nor the inner" []
+        (refTargets "- Referred from [[org-glance-visit:Meeting-1][\
+                    \[[org-glance-visit:Contact-2][Wrike]] Goals]] on [2021-10-08 Fri]")
+  ]
+
+-- References: resolution
+--
+-- `ref:ROWID' is the one predicate a row cannot answer alone — it needs the
+-- store, to learn how a link may SPELL the row named.  The fixture is three
+-- rows: a target carrying an id, a referrer reaching it by that id, a referrer
+-- reaching a second target by its title, and the target's own self-link.
+
+-- | K over the fixture's records: a target carrying an id, a referrer reaching
+-- it by that id, a referrer reaching a second target by its title, the target's
+-- own self-link, and a row pointing nowhere.
+withRefTree :: ([HeadlineRecord] -> IO a) -> IO a
+withRefTree k = withTempDir $ \dir -> do
+  _ <- orgFile dir "a.org" (T.unlines
+         [ "* Target"
+         , ":PROPERTIES:"
+         , ":ORG_GLANCE_ID: alpha"
+         , ":END:"
+         -- The target links to ITSELF, which org-glance's own materialize
+         -- footer writes: the rule says this must not make it its own referrer.
+         , "see [[org-glance-visit:alpha][myself]]"
+         , "* By id"
+         , "points at [[org-glance-visit:alpha][the target]]"
+         , "* By title"
+         , "points at [[*Second]] instead"
+         , "* Second"
+         , "* Neither"
+         , "no links here" ])
+  k . qrRecords =<< loadDir dir
+
+-- | The rows of the fixture that Q matches, by title, in walk order.
+refMatching :: Text -> IO [Text]
+refMatching q = withRefTree $ \records ->
+  pure [ hrTitle r | r <- records, matchesFilter (envOf records) q r ]
+
+-- | The id of the row titled NAME.  Looked up rather than spelled: a row with
+-- no @ORG_GLANCE_ID@ falls back to @PATH#K@, and the path is a temp directory's.
+idOf :: Text -> [HeadlineRecord] -> IO Text
+idOf name records = case [ hrId r | r <- records, hrTitle r == name ] of
+  [one]  -> pure one
+  _other -> assertFailure ("the fixture moved: no row titled " <> show name)
+
+refSpec :: TestTree
+refSpec = testGroup "References"
+  [ testCase "the key is spelled once, and it is not a column" $ do
+      assertEqual "the key" "ref" refKey
+      assertBool "and no column carries it" (refKey `notElem` filterKeys)
+      -- Known with no vocabulary behind it, the way `planned' is: the store
+      -- decides what it RESOLVES to, never whether it parses.
+      assertEqual "a predicate without a vocabulary"
+                  [Term False (Just "ref") "alpha"] (parseFilter [] "ref:alpha")
+
+  , testCase "an id link makes the row that carries it a reference" $
+      assertEqual "by id" ["By id"] =<< refMatching "ref:alpha"
+
+  , testCase "a row is not its own reference" $ do
+      -- `Target' links to itself and is the row being asked about, so the one
+      -- answer is the OTHER row — a list of referrers that always holds the row
+      -- you came from holds one useless entry.
+      hit <- refMatching "ref:alpha"
+      assertBool "the target is not in its own answer" ("Target" `notElem` hit)
+
+  , testCase "a title link resolves against the target's title" $
+      -- `Second' carries no ORG_GLANCE_ID, so its row id is the @PATH#K@
+      -- fallback — which no file can hold a link to — and the only spelling
+      -- that reaches it is its title.
+      withRefTree $ \records -> do
+        rid <- idOf "Second" records
+        assertEqual "by title" ["By title"]
+          [ hrTitle r | r <- records, matchesFilter (envOf records) ("ref:" <> rid) r ]
+
+  , testCase "an id no row claims matches nothing, and does not fail" $
+      -- A filter rather than a command: an unresolvable id narrows to the empty
+      -- table the way `tag:nosuchtag' does, and nothing 400s.  This is what a
+      -- stale `ref:' in a bookmarked URL lands on.
+      assertEqual "unknown" [] =<< refMatching "ref:no-such-row"
+
+  , testCase "the value keeps its case, alone among the predicates" $ do
+      -- Every other predicate folds; a row id is exact-string, and the corpus
+      -- carries ids spelled with capitals.
+      assertEqual "as written" ["By id"] =<< refMatching "ref:alpha"
+      assertEqual "folded differently" [] =<< refMatching "ref:ALPHA"
+
+  , testCase "a half-typed ref narrows nothing" $ do
+      all' <- refMatching ""
+      assertEqual "ref: with no value" all' =<< refMatching "ref:"
+
+  , testCase "a negated ref is every row that does not point there" $ do
+      hit <- refMatching "-ref:alpha"
+      assertBool "the referrer is gone" ("By id" `notElem` hit)
+      assertBool "and the target is still here" ("Target" `elem` hit)
+
+  , testCase "two refs AND, the way a list-valued key does" $
+      -- `ref' reads a LIST — the targets a subtree points at — so naming two is
+      -- a row pointing at both, and no row here points at both targets.
+      withRefTree $ \records -> do
+        rid <- idOf "Second" records
+        assertEqual "both" []
+          [ hrTitle r | r <- records
+          , matchesFilter (envOf records) ("ref:alpha ref:" <> rid) r ]
+
+  , testCase "without a store behind it a ref resolves to nothing" $ do
+      -- `tagsEnv' is what a caller holding no rows answers with: the term still
+      -- parses as a predicate, and matches no row.
+      records <- qrRecords <$> loadDir viewDir
+      assertEqual "no rows" []
+        [ hrTitle r | r <- records, matchesFilter (tagsEnv []) "ref:alpha" r ]
+  ]
 
 -- | @planned@: the virtual key over the two date columns together.
 --
@@ -450,8 +636,7 @@ degenerateSpec :: TestTree
 degenerateSpec = testGroup "Plain text"
   [ testCase "one word answers exactly what matchesSearch answers" $ do
       records <- qrRecords <$> loadDir viewDir
-      let vocabulary = vocabularyOf records
-          same q = [ (hrTitle r, matchesSearch q r, matchesFilter vocabulary q r)
+      let same q = [ (hrTitle r, matchesSearch q r, matchesFilter (envOf records) q r)
                    | r <- records ]
           wrong q = [ row | row@(_t, a, b) <- same q, a /= b ]
       mapM_ (\q -> assertEqual (T.unpack q) [] (wrong q))
@@ -462,7 +647,7 @@ degenerateSpec = testGroup "Plain text"
       records <- qrRecords <$> loadDir viewDir
       let q = "note:later"
       assertEqual "no row carries it" []
-        [ hrTitle r | r <- records, matchesFilter (vocabularyOf records) q r ]
+        [ hrTitle r | r <- records, matchesFilter (envOf records) q r ]
       assertBool "and it is not read as a predicate"
                  (all ((== Nothing) . tmKey) (parseFilter (vocabularyOf records) q))
   ]

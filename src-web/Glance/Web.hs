@@ -132,7 +132,7 @@ import Glance.Query ( ConfigLayerFile (..), ConfigLayers (clDirs)
                     , replaceSpans, setPlanningEdits, setStateEdits, subtreeLinks
                     , subtreeText
                     , todoLines, viewJSONTextWith )
-import Glance.Web.Filter (archiveKey, matchesFilter, namesArchive)
+import Glance.Web.Filter (archiveKey, matchesFilter, namesArchive, storeEnv)
 import Glance.Web.Store ( Client, Frame (ViewChanged), Hub, LoadState (..)
                         , Store (stConfig, stGen, stPrint), finishLoading, frameText
                         , hubLoad, hubStore, loadStoreWith, newLoadingHub, nextFrame
@@ -460,7 +460,12 @@ headlines opts hub request = case pageParams request of
             -- keys a query may name, or the only way back to what it hides
             -- would be gone with it.
             vocab   = storeTags st
-            asked   = filter (matchesFilter vocab q) (qrRecords qr)
+            -- `ref:' reads the link graph, so the query is matched against an
+            -- environment carrying the store's rows and not the tags alone.
+            -- The rows are the id-resolved ones the answer is drawn from, which
+            -- is what makes a reference point where the table points.
+            env     = storeEnv vocab (qrRecords qr)
+            asked   = filter (matchesFilter env q) (qrRecords qr)
             matched = if hiding then filter (not . archived) asked else asked
             -- A tree with nothing archived in it pays no pass over the answer:
             -- the vocabulary already knows whether the tag is anywhere, and
@@ -1615,7 +1620,11 @@ keyBindings =
     -- earliest first.  `g' is the way back.
   , bind ["a"]          "org-glance-agenda"               (Just "applyAgenda")    "table"
       `helps` "the active rows carrying a date, earliest first"
-  , bind ["@"]          "org-glance-overview:relations"   Nothing                 "table"
+    -- The drill: the rows pointing AT the one at point, applied as a `ref:'
+    -- view with a crumb left behind.  A look rather than a bulk act, so it
+    -- takes the row at point and never the marked set.
+  , bind ["@"]          "org-glance-overview:relations"   (Just "relations")      "table"
+      `helps` "the rows referring to this one; DEL walks back"
   -- The one command that names no row: it writes a new entry into the tree's
   -- capture target, which is a line of the system config.
   , bind ["+"]          "org-glance-overview:capture"     (Just "capture")        "table"
@@ -1701,8 +1710,11 @@ onceCommands = [ "filter-drop-token", "unmark-all", "mark-all"
                , "archive-flag", "org-glance-overview:delete"
                  -- Neither writes a file, and both are ruinous held down: a
                  -- leaned-on `o' is a browser tab per repeat, and a leaned-on
-                 -- `a' is a remount per repeat.
-               , "org-glance-overview:open", "org-glance-agenda" ]
+                 -- `a' is a remount per repeat.  `@' is a remount per repeat
+                 -- too, and each one leaves a crumb: a held key would build a
+                 -- trail of identical steps for DEL to walk back one at a time.
+               , "org-glance-overview:open", "org-glance-agenda"
+               , "org-glance-overview:relations" ]
 
 -- | The resident key line, in the order it reads: the commands worth naming
 -- ahead of the echo pill, each with the word the line shows for it.  Commands
@@ -1736,7 +1748,10 @@ keyHints =
   , (["filter-rows"],                      "filter")
   , (["apply-default-filter"],             "default view")
   , (["org-glance-agenda"],                "agenda")
-  , (["filter-drop-token"],                "drop token")
+  -- Named beside the key that walks back out of it: the drill and its undo are
+  -- one gesture, and a reader who sees only the way in has no way home.
+  , (["org-glance-overview:relations"],    "references")
+  , (["filter-drop-token"],                "drop token/back")
   , (["customize"],                        "settings")
   , (["quit-window"],                      "quit")
   ]
@@ -2091,6 +2106,12 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- the set arriving behind it only adds pages to turn to.
   , "    const PAGE = 100;   // rows in the first paint, and rows to a page"
   , "    function mount(view) {"
+      -- The trail comes off the URL before the mount, because `chipLabel' can
+      -- be asked for a label during the first paint: the map has to be standing
+      -- when the renderer draws the chip it aliases.
+  , "      const was = bootTrail();"
+  , "      crumbLabels = was.labels;"
+  , "      crumbSels = was.sels;"
   , "      table = TableView.mount(document.getElementById(\"app\"), view, {"
   , "        palette: true,     // the filter is summoned, never resident"
         -- The set is shown a page at a time: the renderer keeps the window,
@@ -2115,6 +2136,10 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        // hand are already the server's answer to this query, and a"
   , "        // delivery here would ask for them a second time."
   , "        initialQuery: query,"
+  , "        // A `ref:' chip shows what the drill was FOR, never the row id it"
+  , "        // is spelled with. The query is untouched — the renderer aliases"
+  , "        // the display alone — so DEL still strips the token as written."
+  , "        chipLabel: (tok) => crumbLabels[tok] || null,"
   , "        onAction: (command, id) =>"
   , "          command === \"materialize\" ? materialize(id)"
   , "                                     : append(\"cmd\", \"info\","
@@ -2127,6 +2152,11 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      // `getQuery()' says whether it took: when it did not, put the query"
   , "      // back in the box the way this did before chips could carry it."
   , "      if (query && !holds(query)) showQuery();"
+      -- The strip goes back up the way the query did.  `setCrumbs' keeps only
+      -- what parses as a crumb, so a hand-edited parameter costs the trail and
+      -- nothing else.  An asset with no crumbs draws none and the labels sit
+      -- unread until one arrives — a drill is refused before it starts.
+  , "      if (crumbing() && was.trail.length) table.setCrumbs(was.trail);"
   , "      // The columns are the view's: both halves of a filter read the keys"
   , "      // out of them (`parity'), and cell movement names its landing column"
   , "      // by the header sitting over it."
@@ -2221,16 +2251,95 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    // the URL, shown as the renderer's chip and asked of the server."
   , "    const DEFAULT_QUERY = " <> jsonText wanted <> ";"
   , "    const bootQuery = () => (params().has(\"q\") ? urlQuery() : DEFAULT_QUERY);"
+    -- The drill-down trail.  The STACK is the renderer's — it draws the crumbs,
+    -- and `setView' drops them with the world they described — so this page
+    -- keeps no copy of it and reads it back whenever it needs one, the way it
+    -- keeps no copy of the marks or of the selected column.
+    --
+    -- What this page does keep is the LABEL a `ref:' token wears, because no
+    -- lookup can recover it: the title belongs to the row referred TO, and that
+    -- row is very rarely among its own referrers, so by the time the drill has
+    -- landed the title is nowhere in the rows on screen.  Keyed by the token, so
+    -- one map answers both readers — `chipLabel' aliasing the live chip, and the
+    -- crumb a further drill leaves behind.
+  , "    let crumbLabels = {};"
+  , "    const crumbing = () => !!table && typeof table.pushCrumb === \"function\""
+  , "      && typeof table.popCrumb === \"function\""
+  , "      && typeof table.getCrumbs === \"function\""
+  , "      && typeof table.setCrumbs === \"function\";"
+  , "    const trail = () => (crumbing() ? table.getCrumbs() : []);"
+    -- The selection each crumb was pushed FROM, one entry per crumb.  It rides
+    -- BESIDE the trail rather than inside it because the renderer's `crumbOf'
+    -- keeps a crumb's `label' and `query' and drops everything else — so a
+    -- selection put in a crumb would never come back out of `getCrumbs()'.
+    -- The renderer's DEPTH is still the truth: a side table that has fallen out
+    -- of step with it is dropped whole rather than pairing a crumb with another
+    -- crumb's row.
+  , "    let crumbSels = [];"
+  , "    const selsFit = () => crumbSels.length === trail().length;"
+    -- Where an applied view lands the cursor.  ONE rule, at one door: a POP puts
+    -- back the row its drill was launched from, and every other application —
+    -- a palette commit, `g', `a', `@' — lands on the FIRST row of the answer.
+    -- An empty answer selects nothing, which is what it did before.
+    --
+    -- `select' answers false for a row the view no longer holds, so a
+    -- remembered row that an edit or a narrower filter took away falls through
+    -- to the same first-row landing rather than being forced back.
+  , "    function land(sel) {"
+  , "      if (!table || typeof table.select !== \"function\") return;"
+  , "      const rows = visible();"
+  , "      if (!rows.length) return;"
+  , "      if (sel && sel.id"
+  , "          && table.select(sel.id, sel.col === null ? undefined : sel.col)) return;"
+  , "      table.select(rows[0].id);"
+  , "    }"
+    -- A row as the `ref:' token naming it.  The value is quoted where the id
+    -- carries a token separator: the fallback row id is `PATH#K' and a path may
+    -- hold a space, which the grammar would otherwise cut the token at.  An id
+    -- carrying a QUOTE is beyond this — the scanner drops quote characters
+    -- rather than unescaping them — and no id spelling seen in the corpus does.
+  , "    const refToken = (id) => `ref:${/[\\s&\"]/.test(id) ? `\"${id}\"` : id}`;"
+    -- What the view being LEFT is called, for the crumb that stands in for it.
+    -- A labelled jump chains honestly: drilling out of a drill leaves the first
+    -- drill's own name behind rather than its `ref:' spelling, and any other
+    -- query is its own best name.
+  , "    const hereLabel = () => crumbLabels[query] || query || \"all rows\";"
   , "    // Every applied query is written, the EMPTY one included: a `q' that is"
   , "    // present and empty is a reader who took the filter off, where an absent"
   , "    // one is a page nobody has filtered yet.  Only the second has the default"
   , "    // injected over it, so DEL'ing the last chip survives a reload and every"
   , "    // remount after it — deleting the parameter here is what made a cleared"
   , "    // view come back filtered."
+  , "    //"
+  , "    // The trail rides beside it, and the URL is the ONLY channel it crosses"
+  , "    // a remount by: every mutation of the stack — a drill, a pop, `g' — is"
+  , "    // followed by a `remember', so the address bar is current whenever"
+  , "    // `mount' reads it back.  That is why `stash'/`restore' say nothing"
+  , "    // about crumbs: what they carry is work the reader has NOT committed,"
+  , "    // and there is no such thing as a half-applied crumb."
   , "    function remember(q) {"
   , "      const p = params();"
   , "      p.set(\"q\", q);   // `keys' and anything else in the URL survives"
+  , "      const t = trail(), labels = Object.keys(crumbLabels).length ? crumbLabels : null;"
+  , "      if (!t.length && !labels) p.delete(\"crumbs\");"
+  , "      else p.set(\"crumbs\", JSON.stringify("
+      <> " { trail: t, labels: crumbLabels, sels: selsFit() ? crumbSels : [] }));"
   , "      history.replaceState(null, \"\", `?${p.toString()}`);"
+  , "    }"
+    -- The trail as the address bar carries it.  A parameter a hand has been in
+    -- is not worth a diagnostic: anything that does not parse into the two
+    -- fields is one boot without a trail, which is where a reader starts anyway.
+  , "    function bootTrail() {"
+  , "      try {"
+  , "        const was = JSON.parse(params().get(\"crumbs\") || \"null\");"
+  , "        if (!was || typeof was !== \"object\")"
+  , "          return { trail: [], labels: {}, sels: [] };"
+  , "        return {"
+  , "          trail: Array.isArray(was.trail) ? was.trail : [],"
+  , "          labels: was.labels && typeof was.labels === \"object\" ? was.labels : {},"
+  , "          sels: Array.isArray(was.sels) ? was.sels : [],"
+  , "        };"
+  , "      } catch (e) { return { trail: [], labels: {}, sels: [] }; }"
   , "    }"
   , "    // A query as the `/headlines' query string asking it, spelled once for"
   , "    // the four callers that want it — the boot, a commit, the arming fetch"
@@ -2238,8 +2347,13 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    // be answered 304 against rows answering some other question."
   , "    const asking = (q) => (q ? `?q=${encodeURIComponent(q)}` : \"\");"
   , "    // One place asks the server for rows: `query' is already what to ask."
+      -- A commit REPAINTS rather than remounting, so the cursor would otherwise
+      -- stay wherever it was — on a row the new answer may not hold.  The same
+      -- landing rule `applyView' uses closes that: the first row of what came
+      -- back, and nothing when nothing did.
   , "    const fetchRows = () =>"
-  , "      load(asking(query)).then((a) => table && paint(a)).catch(quiet);"
+  , "      load(asking(query)).then((a) => { if (table) { paint(a); land(null); } })"
+  , "        .catch(quiet);"
   , "    // A commit is the moment a NEW query goes to the server — a settled"
   , "    // debounce, a committed token, an accepted completion."
   , "    function commit(q) {"
@@ -2723,12 +2837,17 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    function moveCol(b, step) {"
   , "      if (!cells()) { said(b, \"this table-view.js has no cell selection\"); return; }"
   , "      const at = column(), want = at === null ? 0 : at + step;"
-  , "      // Clamped, never wrapped: walking off an edge stays on it and says so."
-  , "      if (want < 0 || want >= cols.length)"
-  , "        { said(b, want < 0 ? \"at first\" : \"at last\"); return; }"
+      -- Walking off the cells LANDS rather than bumping: a column index outside
+      -- the table is no column at all to the renderer, which nulls it and gives
+      -- back the whole-row look.  So the step is handed over out of range and
+      -- the exit is a real move — where a clamp here used to swallow the key
+      -- and say `at last' at a wall the renderer does not have.  The column
+      -- comes back out of `column()' rather than off `want', since the
+      -- renderer's answer is the one that decides.
   , "      const id = focusedId();"
   , "      if (!id || !table.select(id, want)) { said(b, \"no row\"); return; }"
-  , "      said(b, cols[want].header || cols[want].key);"
+  , "      const now = column();"
+  , "      said(b, now === null ? \"row mode\" : (cols[now].header || cols[now].key));"
   , "    }"
     -- Marks.  The renderer holds them, keyed by id, so nothing about them is
     -- kept here: which rows are marked, how many there are and what a mark
@@ -3202,10 +3321,35 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- wording has only the one.
   , "    const linkChoices = (links) => links.map((l) =>"
   , "      ({ label: l.desc || l.target, target: l.target, hint: l.target }));"
+    -- What a browser tab can be pointed at, which is http(s) and nothing else.
+    -- Org writes plenty of other link types and `/links' reports them all —
+    -- `mailto:', `file:', org's `id:', org-glance's own protocols, a bare
+    -- `[[Title]]' naming a headline — and each names something a tab is not.
+    -- Following one needs a handler this page does not have yet, so it says so
+    -- instead of opening a tab on a string a browser will make nothing of.
+  , "    const followable = (t) => /^https?:\\/\\//i.test(String(t || \"\"));"
+    -- A target in a log line, kept to a width the strip can show: an org link
+    -- target runs to a hash and a path, and the line has other words in it.
+  , "    const shortly = (t) => {"
+  , "      const s = String(t || \"\");"
+  , "      return s.length > 80 ? s.slice(0, 79) + \"…\" : s;"
+  , "    };"
     -- One tab, and the log keeps what was followed: a link opened is the one
     -- thing a key here does that leaves no trace on the page it was pressed on.
     -- `noopener' because the opened page must not reach back into this one.
+    --
+    -- The COMMIT is where a link type is judged, which is why this is one
+    -- function and not a filter over the choices: the palette lists everything
+    -- the row points at, since that is what teaches a reader what is in the
+    -- entry, and a single link takes this same door without a palette at all.
+    -- So `o' on a row holding one `mailto:' warns and opens nothing.
   , "    function openLink(b, link) {"
+  , "      if (!followable(link.target)) {"
+  , "        said(b, \"link type not implemented\");"
+  , "        append(\"cmd\", \"warn\","
+      <> " `link type not implemented: ${shortly(link.target)}`);"
+  , "        return;"
+  , "      }"
   , "      window.open(link.target, \"_blank\", \"noopener\");"
   , "      said(b, link.label);"
   , "      append(\"cmd\", \"info\", `link ${JSON.stringify(link.target)} opened`);"
@@ -3470,14 +3614,52 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- a query it did not commit itself; `start' then reads the URL this just
     -- wrote.  Dropping onclose first stops the reconnect timer opening a second
     -- socket behind this one.
-  , "    function applyView(b, q, landing) {"
+    -- SEL is where the cursor should end up, which only a POP has an opinion
+    -- about; every other caller leaves it out and takes the first row.  The
+    -- landing rule lives HERE rather than in each caller, so a view applied
+    -- through this door lands the same way whoever asked for it.
+  , "    function applyView(b, q, landing, sel) {"
   , "      said(b, q ? `filter: ${JSON.stringify(q)}` : \"filter cleared\");"
   , "      if (socket) { socket.onclose = null; socket.close(); socket = null; }"
   , "      backoff = 1000;"
   , "      remember(q);"
-  , "      remount(landing);"
+  , "      remount((total) => { land(sel || null); if (landing) landing(total); });"
   , "    }"
-  , "    function applyDefault(b) { applyView(b, DEFAULT_QUERY); }"
+    -- `g' is HOME, so it is not a step on the trail: it throws the crumbs away
+    -- with the labels that named them.  Walking back out of a drill is DEL's,
+    -- one rung at a time; `g' is the door, not the ladder.
+  , "    function applyDefault(b) {"
+  , "      if (crumbing()) table.setCrumbs([]);"
+  , "      crumbLabels = {};"
+  , "      crumbSels = [];"
+  , "      applyView(b, DEFAULT_QUERY);"
+  , "    }"
+    -- `@': the rows pointing AT the one at point.  A drill is a LOOK, so it
+    -- takes the row at point and never the marked set — a mark is what a reader
+    -- lays down to write over a run of rows, and inheriting it here would make
+    -- every mark change what `@' means.
+    --
+    -- The crumb goes down BEFORE the view changes, so what it records is where
+    -- the reader was standing rather than where they landed; `applyView' then
+    -- writes both into the URL in one `remember'.  `ref:' is the server's own
+    -- term (SCHEMA.md) — the renderer reads it as free text and would narrow
+    -- further, which is why the drill re-fetches like every other query.
+  , "    function relations(b) {"
+  , "      const id = focusedId();"
+  , "      if (!id) { said(b, \"no row\"); return; }"
+  , "      if (!crumbing()) { said(b, \"this table-view.js has no crumbs\"); return; }"
+  , "      const token = refToken(id), name = titleOf(id);"
+      -- The crumb records where the reader was STANDING: the query being left,
+      -- and the row and column they were on, so walking back puts the cursor
+      -- where it was rather than at the top of a view they had scrolled into.
+  , "      const at = cells() ? table.getSelection() : null;"
+  , "      const n = table.pushCrumb({ label: hereLabel(), query: query });"
+  , "      crumbSels[n - 1] = at && at.id ? { id: at.id, col: at.col } : null;"
+  , "      crumbSels.length = n;"
+  , "      crumbLabels[token] = `references of «${name}»`;"
+  , "      applyView(b, token, (total) =>"
+  , "        said(b, `references of ${JSON.stringify(name)} · ${total}`));"
+  , "    }"
     -- `a' is the second canned view and the only one this page spells itself:
     -- the active rows carrying a date, which is `planned' — the virtual key
     -- over the two date cells, decidable by either side of the wire.  It is a
@@ -3649,7 +3831,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        noted(id, \"marked for deletion\");"
   , "        said(b, \"flagged — d again archives\");"
   , "      },"
-  , "      applyDefault, focusFilter, toggleRaw, openSettings,"
+  , "      applyDefault, relations, focusFilter, toggleRaw, openSettings,"
     -- One `save-buffer' over two sheets: whichever is up is what it syncs.
   , "      save: () => (settings ? saveConfig() : saveSheet()),"
     -- D is dired's key and org-glance's `delete', and it is `archive' with no
@@ -3716,10 +3898,29 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      },"
   , "      // The filter's own backspace: the renderer drops the token and the"
   , "      // shell follows it — one commit, one URL, focus left on the table."
+  , "      //"
+  , "      // A LADDER, in two rungs.  While the query has tokens in it, DEL takes"
+  , "      // the last one off, as it always has.  When the strip EMPTIES the"
+  , "      // query and there is a trail behind it, the same key walks back out of"
+  , "      // the drill that built the view — and it applies the crumb's query"
+  , "      // INSTEAD of the empty one, so `@' and `DEL' are one step out and one"
+  , "      // step back rather than a step and a half.  With no trail the second"
+  , "      // rung is not there and the key does what it did before."
   , "      filterDrop: (b) => {"
   , "        if (!strips()) { said(b, \"this table-view.js has no filter tokens\"); return; }"
   , "        if (!table.stripLastToken()) { said(b, \"no filter\"); return; }"
   , "        const left = table.getQuery().trim();"
+  , "        if (!left && crumbing() && trail().length) {"
+  , "          // The row this crumb was pushed from, when the side table is"
+  , "          // still in step with the trail the renderer is holding."
+  , "          const sel = selsFit() ? crumbSels.pop() : null;"
+  , "          const back = table.popCrumb();"
+  , "          // The view being left takes its label with it; a crumb further"
+  , "          // down the trail keeps its own, since the map is keyed by token."
+  , "          delete crumbLabels[query];"
+  , "          applyView(b, back.query, () => said(b, `back to ${back.label}`), sel);"
+  , "          return;"
+  , "        }"
   , "        commit(left);"
   , "        said(b, left ? `filter: ${JSON.stringify(left)}` : \"filter cleared\");"
   , "      },"

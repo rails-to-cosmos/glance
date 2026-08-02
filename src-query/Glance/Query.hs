@@ -87,6 +87,9 @@ module Glance.Query ( ConfigLayerFile (..)
                     , readConfigLayers
                     , readsAsTimestamp
                     , recomposedSubtree
+                    , refSpellings
+                    , refTargetOf
+                    , refTargets
                     , replaceSpans
                     , resolveIds
                     , rowJSON
@@ -109,8 +112,8 @@ import Data.Aeson.Text (encodeToLazyText)
 import Data.Aeson.Types (Pair)
 import Data.Char (isAlphaNum)
 import Data.Either (fromRight)
-import Data.List (foldl', sort, sortOn)
-import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, mapMaybe)
+import Data.List (foldl', nub, sort, sortOn)
+import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
 import Data.Text (Text)
 import TextShow (showt)
 
@@ -174,6 +177,7 @@ data HeadlineRecord = HeadlineRecord
   , hrScheduled :: !(Maybe Text)    -- ^ ISO date, see 'isoStamp'.
   , hrDeadline  :: !(Maybe Text)    -- ^ ISO date, see 'isoStamp'.
   , hrSearch    :: !Text            -- ^ the cells as they display, lowercased; see 'searchTextOf'.
+  , hrLinks     :: ![Text]          -- ^ the rows this subtree points AT, normalized; see 'refTargets'.
   , hrActive    :: !(Maybe Bool)    -- ^ whether 'hrState' is an active state HERE; see 'Data.Org.Config.classify'.
   } deriving (Show)
 
@@ -437,6 +441,7 @@ recordOf cfg declared path ordinal doc digest category keywords h subtree = forc
   , hrDeadline  = due
   , hrSearch    = searchTextOf [ opt state, opt pri, titleCell, tagsCell
                                , opt scheduled, opt due ]
+  , hrLinks     = refTargets (sliceSpan doc subtree)
   , hrActive    = classify cfg declared (tagsOfCell tagsCell) <$> state
   }
   where sp = spans h
@@ -578,6 +583,74 @@ urlIn word
       | otherwise                  = Just (T.length before)
       where (before, after) = T.breakOn scheme word
     trailing c = c `elem` (".,;:!?'\"()[]{}<>" :: String)
+
+-- References
+--
+-- A REFERENCE is a link that points at another ROW, which is a narrower thing
+-- than a link: most of what a subtree holds points out of the tree entirely.
+-- The forms below are the ones ~\/sync actually spells, counted over the 6291
+-- files the walk collects (2026-08-02) — the matcher implements what exists
+-- rather than what org permits.
+
+-- | The link protocols that name a row by its @ORG_GLANCE_ID@.  Each is
+-- stripped and the rest is the id, case preserved, since a row id is
+-- exact-string everywhere else in this library ('resolveIds').
+--
+-- Counted in the walked corpus: @org-glance-visit:@ 3867, @org-glance-open:@
+-- 568, @org-glance-material:@ 28, and @id:@ zero — org's own earns its entry by
+-- being org's own, at a cost of one list element.
+--
+-- Two org-glance protocols are deliberately absent, and both are common:
+-- @org-glance-overview:@ (2726) names a TAG and @org-glance-state:@ (880) names
+-- a keyword, so neither points at a row.  The census settles it — of their 52
+-- and 6 distinct targets, exactly none is an @ORG_GLANCE_ID@.
+refPrefixes :: [Text]
+refPrefixes = ["org-glance-visit:", "org-glance-open:", "org-glance-material:", "id:"]
+
+-- | TEXT's row references, normalized and deduplicated, in order of appearance
+-- — a subtree's 'hrLinks'.  Read through 'orgLinks', so the bracket grammar
+-- stays the one 'displayText' already holds.
+--
+-- The whole subtree rather than the cells: a reference is nearly always written
+-- in the BODY of an entry, which is where a reader puts the sentence that
+-- explains it.
+refTargets :: Text -> [Text]
+refTargets = nub . map detach . mapMaybe (refTargetOf . fst) . orgLinks
+
+-- | TARGET as the row it names, or 'Nothing' where it names no row.  Three
+-- shapes, and everything else — a @file:@ path, an @http@ URL, a protocol this
+-- does not know — is a link that leaves the table and is dropped here rather
+-- than kept for a matcher to skip over.
+--
+--   * one of 'refPrefixes', stripped: an @ORG_GLANCE_ID@.
+--   * a leading @*@, stripped: org's @[[*Title]]@, 4 in the walked corpus.
+--   * no @:@ and no @\/@ at all: org's bare @[[Title]]@, which cannot be a path
+--     or a URL.  18 in the corpus and nearly all of them false — @[[key,asc]]@
+--     and other bracketed prose — which is the cost of covering the form at all.
+--
+-- The two title shapes are one answer: what a link spells is compared against
+-- 'hrTitle' as the file spells it ('refSpellings').  Org's own @[[Title]]@ is
+-- a fuzzy search and this is exact, so a reference that only org would resolve
+-- is one this does not.
+refTargetOf :: Text -> Maybe Text
+refTargetOf target
+  | Just rest <- firstJust (`T.stripPrefix` target) refPrefixes = nonEmpty rest
+  | Just rest <- T.stripPrefix "*" target                       = nonEmpty rest
+  | T.any (\c -> c == ':' || c == '/') target                   = Nothing
+  | otherwise                                                   = nonEmpty target
+  where
+    nonEmpty t = if T.null t then Nothing else Just t
+    firstJust f = listToMaybe . mapMaybe f
+
+-- | How a link may spell a reference to R: its @ORG_GLANCE_ID@ where it has
+-- one, and its title, which is what the two bracket-title forms resolve
+-- against.  The answer a @ref:@ predicate is matched over ('hrLinks').
+--
+-- The id comes off the headline rather than off 'hrId', which falls back to
+-- @FILE#K@ for a row carrying no property: an ordinal is this view's own
+-- invention and no file can hold a link to one.
+refSpellings :: HeadlineRecord -> [Text]
+refSpellings r = maybe id (:) (identity (hrHeadline r)) [hrTitle r]
 
 -- | S with every run of C0 control characters, and DEL, standing as one space
 -- — so a cell is one line and a multi-line one cannot be matched across the
@@ -1260,9 +1333,13 @@ forcing ts x = foldr seq x ts
 -- | R with every cell evaluated, so the record can outlive its document.  The
 -- digest is one of them: a thunk over it would retain the file's bytes, which
 -- are the one thing a loaded record has no other reason to keep.
+-- 'hrLinks' is a LIST, so its spine is forced beside its elements: a strict
+-- field forces the outermost cons alone, and a tail left as a thunk retains the
+-- document every target was cut from — the one thing 'detach' is there to stop.
 forceRecord :: HeadlineRecord -> HeadlineRecord
 forceRecord r =
-  forcing (hrId r : hrCategory r : hrTitle r : hrTags r : hrDigest r : hrSearch r : optional)
+  forcing (hrId r : hrCategory r : hrTitle r : hrTags r : hrDigest r : hrSearch r
+             : hrLinks r <> optional)
           (foldr seq r (hrActive r))
   where optional = catMaybes [hrState r, hrPriority r, hrScheduled r, hrDeadline r]
 
