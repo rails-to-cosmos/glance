@@ -417,11 +417,12 @@ safeName name = not (T.null name)
 -- rather than deletes ('runCommand'), so an org tree accumulates rows that are
 -- done with rather than gone, and a view that showed them by default would
 -- grow without bound.  The rule is one predicate, applied after @q@ and spelled
--- exactly as @-tag:archive@ would be: any query naming that tag through the
--- @tag@ column turns it off ('Glance.Web.Filter.namesArchive') — negated,
--- quoted, whatever — and @X-Glance-Archived@ reports how many rows the
--- exclusion took.  The value is matched WHOLE where the column itself matches
--- by substring, so @tag:arch@ leaves the exclusion on.
+-- exactly as @-tag:*archive*@ would be: any query naming the archive META
+-- through the @tag@ column turns it off ('Glance.Web.Filter.namesArchive') —
+-- negated, quoted, whatever — and @X-Glance-Archived@ reports how many rows the
+-- exclusion took.  The STARRED spelling alone: @tag:archive@ is the ordinary
+-- substring predicate any other tag gets, so a tree using the word for
+-- something of its own filters on it without lifting anything.
 --
 -- A page is cut out of the view's declared sort ('Glance.Query.sortedForView'),
 -- never out of walk order — page two has to be the rows the table would show
@@ -2018,7 +2019,7 @@ shellPage opts hub = do
 -- the watch has re-read the files.  There is no confirmation step; the drift
 -- lock is the safety, and @D@ archives rather than deletes, so the worst a
 -- mis-key costs is a tag and another keystroke.  @C-c C-t@ raises a value
--- palette of this page's own — the state column's badges plus @clear@, typed
+-- palette of this page's own — the state column's badges plus @*empty*@, typed
 -- to narrow, @C-n@\/@C-p@ or the arrows to walk, @RET@ to commit — because the
 -- renderer's overlay is the filter's and this page does not reach into it.  The
 -- pill counts what landed and the log carries a line per refusal.
@@ -3570,7 +3571,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- entries as they were before one was assigned.
     --
     -- An entry that came in with a key of its OWN (`fixed') is out of the pool
-    -- and out of the assignment: `*clear*' answers to DEL, which is no letter,
+    -- and out of the assignment: `*empty*' answers to DEL, which is no letter,
     -- so the a-z namespace is spent on KEYWORDS alone and the cycle that used
     -- to lose one to the meta keeps it.
   , "    function offer(list) {"
@@ -3590,7 +3591,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- SOURCES as the palette holds them: the labels down the table's first
     -- column, and the flat ordered list everything else reads.  The flattening
     -- is the draw order — each source row's active cell and then its inactive
-    -- one, `*clear*' last — so the letters are assigned ONCE over the whole
+    -- one, `*empty*' last — so the letters are assigned ONCE over the whole
     -- table and a letter is the reader's wherever in it the keyword sits.  It is
     -- also the list `/' narrows, so both modes offer the same entries under the
     -- same names.
@@ -3616,7 +3617,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        source: s.source,"
   , "        cells: [s.active || [], s.inactive || []].map((ws) => ws.map(held)),"
   , "      }));"
-  , "      prompting.meta = { label: CLEAR, keyword: null, meta: true,"
+  , "      prompting.meta = { label: EMPTY, keyword: null, meta: true,"
   , "                         fixed: true, key: \"DEL\", cut: -1 };"
   , "      flat.push(prompting.meta);"
   , "      offer(flat);"
@@ -3697,7 +3698,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- reader learns from it is why — `TODO' under `default' and `READING' under
     -- `book' is the classify chain saying which scope answered.  The hairlines
     -- are the rows'
-    -- own borders and the old active/done split is the two COLUMNS; `*clear*'
+    -- own borders and the old active/done split is the two COLUMNS; `*empty*'
     -- keeps a spanning row of its own at the foot, in the muted italic every
     -- starred meta wears, since no scope declares taking a keyword off.
     --
@@ -3748,7 +3749,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    function entry(into, cls, c) {"
   , "      const row = part(into, \"div\", cls);"
     -- The letter is marked IN the word, so there is no token beside it — and
-    -- one exception: a FIXED key names no position in a word (`*clear*' answers
+    -- one exception: a FIXED key names no position in a word (`*empty*' answers
     -- to DEL), so that entry alone keeps a token to be told by.  In the
     -- fallback mode nothing commits by key at all, so nothing is marked.
   , "      const marked = !prompting.narrow && c.cut >= 0;"
@@ -3822,16 +3823,18 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- (`*active*') and are absent from both — no file declares one, so the
     -- server refuses every one of them, and offering a value that cannot be set
     -- is worse than not offering it.
-    -- `*clear*' wears the stars every reserved meta wears (docs/invariants.md):
-    -- the starred form is the page's mark for a value with semantics rather than
+    -- `*empty*' wears the stars every reserved meta wears (docs/invariants.md),
+    -- and it is the filter's own word for a cell holding nothing — the entry
+    -- takes the state column's cell to exactly what `state:*empty*' then finds.
+    -- The starred form is the page's mark for a value with semantics rather than
     -- a word a file could hold, and the server refuses a starred string as a
     -- keyword from the other side.  What it commits is a null keyword, and the
     -- key it answers to is DEL — a key that already MEANS take-it-off wherever
     -- this page binds one, and no letter, so the a-z pool is spent on KEYWORDS
     -- alone.  A cycle wide enough to run the pool dry keeps the letter the meta
-    -- used to take.  In the typing mode DEL is the field's own and `*clear*' is
+    -- used to take.  In the typing mode DEL is the field's own and `*empty*' is
     -- reached the way every other entry is, by narrowing to it.
-  , "    const CLEAR = \"*clear*\";"
+  , "    const EMPTY = \"*empty*\";"
     -- The colour is the badge's own, so a keyword reads in the palette as it
     -- reads in the table.  Looked up rather than carried: the resolution names
     -- keywords, and the hues are the producer's and ride on the state column
@@ -4264,7 +4267,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- over the two date cells, decidable by either side of the wire.  It is a
     -- VIEW rather than a mode, so `g' is the way home and every other key means
     -- what it always meant while it is applied.
-  , "    const AGENDA_QUERY = \"state:*active* -planned:none\";"
+  , "    const AGENDA_QUERY = \"state:*active* -planned:*empty*\";"
     -- What `a' does once its rows are on screen.  The sort is the point of the
     -- view — earliest first — and the view JSON already declares it, which a
     -- remount re-reads; the call is what makes the order the agenda's own
@@ -4472,7 +4475,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      setState: (b) => overTargets(b, \"set state\", (ids, title) => {"
   , "        const mine = ask(title,"
   , "          (c) => fire(b, \"set-state\", ids, { keyword: c.keyword },"
-  , "                      c.keyword === null ? CLEAR : c.keyword),"
+  , "                      c.keyword === null ? EMPTY : c.keyword),"
   , "          \"a letter sets it · / to search · ESC leaves\", true);"
   , "        keywordSources(ids).then((answer) => {"
   , "          if (prompting === mine) setChoices(answer.sources);"
@@ -4649,7 +4652,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- rather than by the map because the key that OPENS this palette is a
     -- letter too, and a held one would raise it and commit through it.  The
     -- repeat is claimed either way, the way the dispatch claims one it declines
-    -- to run.  DEL arrives here as an ordinary entry key, since `*clear*' holds
+    -- to run.  DEL arrives here as an ordinary entry key, since `*empty*' holds
     -- it as its own; a palette with no such entry — the tag one — leaves the
     -- press to nobody, `typing()' having already killed the map's own DEL.
   , "      if (!prompting.narrow) {"
@@ -5063,7 +5066,7 @@ page head' title body = T.unlines
   -- border language, where the old flat list needed a divider element of its
   -- own.  The source column is the muted small lowercase a tag wears
   -- everywhere else on this page, whether it holds a tag or one of the reserved
-  -- labels; a long tag breaks rather than widening the box.  `*clear*' spans.
+  -- labels; a long tag breaks rather than widening the box.  `*empty*' spans.
   , "  .pr{display:grid;grid-template-columns:6.5em 1fr 1fr;gap:4px 8px;padding:4px 7px}"
   , "  .pr+.pr{border-top:1px solid var(--g-border)}"
   , "  .ph,.ps{font-size:11px;color:var(--g-mute)}"
@@ -5084,7 +5087,7 @@ page head' title body = T.unlines
   -- row of its own; inside a cell the gaps do that work.
   , "  .pe{display:flex;align-items:center;gap:6px;border-radius:4px}"
   , "  #plist>.pe{padding:3px 7px}"
-      -- The one entry that keeps a token: `*clear*' answers to DEL, which has
+      -- The one entry that keeps a token: `*empty*' answers to DEL, which has
       -- no position inside a word to be marked at.
   , "  .pk{flex:none;min-width:1.6em;text-align:center;padding:1px 5px;border-radius:3px;"
   , "    font:11px/1.4 var(--dk-mono);"

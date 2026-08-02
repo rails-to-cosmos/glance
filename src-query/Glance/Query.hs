@@ -1992,7 +1992,7 @@ columns palette =
       -- column's arity from up to 40 non-empty cells, so a page with fewer
       -- than two tagged rows finds no multi-valued column at all and ORs
       -- @tag:a tag:b@ where this producer ANDs it.  The declaration wins there.
-      "tag"      -> [ "multi" .= True ]
+      "tag"      -> [ "multi" .= True, "values" .= tagValues ]
       _          -> []
 
 -- | The state column's meta values: filter vocabulary rather than cell text.
@@ -2005,6 +2005,15 @@ columns palette =
 -- says that a group is not a badge.
 stateValues :: [Text]
 stateValues = ["*active*", "*inactive*"]
+
+-- | The tags column's meta value: @tag:*archive*@, the whole tag rather than
+-- the substring @tag:archive@ matches, and the one query that reaches the rows
+-- @\/headlines@ leaves out ('Glance.Web.Filter.archiveMeta').  Declared for the
+-- same reason 'stateValues' is — it is how a renderer offers a value no cell
+-- holds — and the tags column needs it more, its domain being derived from the
+-- cells rather than declared.
+tagValues :: [Text]
+tagValues = ["*archive*"]
 
 -- | A column object: KEY, HEADER and TYPE, then whatever EXTRA the kind needs.
 --

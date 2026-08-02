@@ -402,13 +402,16 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   answering to `tagged`. Keyword
   legality is per file (`hrKeywords`); `*active*`/`*inactive*` are in no keyword
   set and are refused like any other word.
-- `/headlines` hides archived rows unless the query names the archive TAG
-  through the `tag` column (`Glance.Web.Filter.namesArchive`, any spelling —
-  negated, quoted, beside other tokens), and `X-Glance-Archived` counts what it
-  took. The predicate is exactly `-tag:archive`; the value is matched WHOLE
-  where the column itself is a substring, so `tag:arch` finds an archived row
-  and leaves the exclusion on. The word counts only where the tree carries the
-  tag (`storeTags`), which is sound: with nothing archived there is nothing to
+- `/headlines` hides archived rows unless the query names the archive META
+  `tag:*archive*` (`Glance.Web.Filter.namesArchive`, any spelling — negated,
+  quoted, beside other tokens), and `X-Glance-Archived` counts what it took. The
+  predicate is exactly `-tag:*archive*`. THE STARRED SPELLING ALONE: `tag:archive`
+  is the ordinary substring predicate every other tag gets, so a tree using the
+  word for something of its own filters on it and lifts nothing — over ~/sync at
+  2026-08-02, `tag:*archive*` serves the 322 archived rows and `tag:archive`
+  serves 0 while reporting all 322 withheld, which is what the two spellings
+  differing looks like. The meta counts only where the tree carries the tag
+  (`storeTags`), which is sound: with nothing archived there is nothing to
   hide. The socket is NOT filtered: it carries row ops whatever the client's
   query, so an unfiltered client splices in an archived row `/headlines` would
   not have served — the shell's default query makes it refetch instead.
@@ -540,14 +543,14 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   combine by field arity — single-valued OR (`state:`), multi-valued AND (the
   `tag` column and `ref`) — and everything else ANDs. `Glance.Web.Filter` dispatches on the KEY NAME, never on
   the column's declared `kind` — it does not import it: `state` is whole-value
-  case-insensitive plus the `*active*`/`*inactive*` meta values (`starless`
-  strips one matched asterisk pair before those two comparisons and nowhere
-  else, so `state:active` is an alias and `state:*TODO*` is a literal that
-  matches nothing; and `*active*` ORs in the EMPTY cell, where `*inactive*`
-  does not), `priority` is exact
+  case-insensitive plus the `*active*`/`*inactive*` meta values (matched in
+  their STARRED spelling alone, so `state:active` is the literal keyword
+  `ACTIVE` and `state:*TODO*` is a literal that matches nothing; and `*active*`
+  ORs in the EMPTY cell, where `*inactive*` does not), `priority` is exact
   equality, `scheduled`/`deadline` are prefix, everything else is substring.
-  `key:none` is the empty cell — `tag:none` is untagged — and `key:` narrows
-  nothing. AN ORG TAG NAMES NO KEY: `course:text` is free text, colon and all,
+  `key:*empty*` is the empty cell on EVERY key — `tag:*empty*` is untagged — a
+  starred word on the `tag` column is that WHOLE tag (`tag:*archive*` where
+  `tag:archive` is a substring), and `key:` narrows nothing. AN ORG TAG NAMES NO KEY: `course:text` is free text, colon and all,
   and `tag:course text` is the one spelling, the predicate reading the tags cell
   and the free text reading the row. Two consequences are the price: `tag:` is a
   SUBSTRING of the cell where a tag key was whole-tag (`tag:glan` finds
@@ -556,13 +559,13 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   divergence: the keys were the whole store's tags here and the loaded rows'
   tags in `table-view.js`, so one token meant two things across the wire.
   `planned` is one of the two keys that are not columns: a row is planned when
-  its `scheduled` OR `deadline` cell holds anything, so `planned:none` is
-  neither and `-planned:none` is the agenda's half. It takes a date PREFIX asked
+  its `scheduled` OR `deadline` cell holds anything, so `planned:*empty*` is
+  neither and `-planned:*empty*` is the agenda's half. It takes a date PREFIX asked
   of both cells at once, and is single-valued like the columns it stands over. Renderer-decidable off the same two cells — no keyword set, no
-  vocabulary, no clock. The renderer's half landed in table-view alongside;
-  the vendored `assets/table-view.js` predates it and `make sync-renderer`
-  closes the gap, which costs nothing meanwhile — `onFilter` means the renderer
-  narrows nothing.
+  vocabulary, no clock. The renderer's half is in the vendored
+  `assets/table-view.js` (synced 2026-08-02, at table-view's starred-meta cut),
+  and a skew there costs nothing anyway — `onFilter` means the renderer narrows
+  nothing.
   `ref:ROWID` is the other key that is not a column, and the one a row cannot
   answer alone: it is every row whose subtree POINTS AT the row named, resolved
   through the store's own id-resolved rows (`storeEnv`, exact-string like
@@ -634,8 +637,8 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
     date-shape there. A page with under two dated rows makes the renderer
     substring-match `scheduled:` where the server prefix-matches it — and, since
     `planned` reads WHICH columns are dates, the same page answers `planned:` on
-    the renderer's side over no columns at all, so `planned:none` is every row
-    there and `-planned:none` is none of them. The predicate itself is
+    the renderer's side over no columns at all, so `planned:*empty*` is every row
+    there and `-planned:*empty*` is none of them. The predicate itself is
     term-for-term; the column set under it is not.
   - `ref:ROWID` is producer-only WHOLE, unlike the starred metas, which the
     renderer at least matches as literal text. It is undecidable from the rows a
@@ -656,8 +659,9 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
     the active group and `tokenTest` answers that half, so a locally-filtered
     `state:*active*` finds the stateless rows where it used to find nothing —
     still a subset of what the server answers, so the skew's direction is
-    unmoved. `*inactive*` has no such term and stays a literal, and so does the
-    bare `state:active`, since `starless` is this producer's alone.
+    unmoved. `*inactive*` has no such term and stays a literal. The bare
+    `state:active` is a literal on BOTH sides — matching reads the stars
+    everywhere, and the star-blind reading is the renderer's COMPLETION alone.
     The `state` column ships the two as `values` beside
     its `badges`, so its autocomplete can at least offer them — dimmed and
     uncounted, since those counts are per cell value and a fraction of the
@@ -920,7 +924,7 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   the RESOLVER'S TRUTH: `GET /keywords?ids=…` answers with the classification
   chain behind those rows, and the palette draws it as a table — Source |
   Active | Inactive, one row per source in precedence order (widest first, so
-  `default` leads), `*clear*` spanning
+  `default` leads), `*empty*` spanning
   a row of its own at the foot — FOUR sources at most (`default`, `system`,
   tags, `file`), no `union` row, each drawn under the NAME it arrived under.
   The keywords are the server's, never the state
@@ -1013,7 +1017,7 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   link's DESCRIPTION with the target beside it muted (`.pt`), and `/` narrows
   over both through the entry's `hay`.
 - `a` (`org-glance-agenda`) is a canned VIEW, not a mode: `state:*active*
-  -planned:none` through `applyView`, the door `g` uses — URL, socket dropped,
+  -planned:*empty*` through `applyView`, the door `g` uses — URL, socket dropped,
   remount — so the query is the renderer's chips and `DEL` strips it like any
   other. No agenda state anywhere; `g` is the way home. The sort arrives through
   `landed`, a one-shot thunk `start` TAKES before it fetches (so a boot that
@@ -1021,11 +1025,10 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   is the one number the first page cannot give. It insists on
   `sortBy("scheduled", true)`, feature-detected — the view already declares that
   sort and a remount re-reads it, so the call makes the order the agenda's own
-  rather than a coincidence of the default. `sortBy` landed in table-view
-  alongside; the vendored asset predates it and the detection is what carries
-  that.
+  rather than a coincidence of the default. `sortBy` is in the vendored asset as
+  of the 2026-08-02 sync, and the detection is what carries an older one.
 - Letters are `whichKeys(labels)`: over the labels flattened in DRAW order —
-  each source row's active cell then its inactive one, `*clear*` last — each
+  each source row's active cell then its inactive one, `*empty*` last — each
   entry
   takes the INDEX of the first letter of its OWN spelling, downcased, that no
   earlier entry claimed — one `a`–`z` pool, `-1` for none left, so `TODO DONE
@@ -1033,12 +1036,12 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   same letters, and `default` leading the draw is what gives `TODO` `t` and
   `DONE` `d` in every tree. One pool over the WHOLE table, so a letter is the reader's
   wherever in it the keyword sits, and the fallback narrows that same list.
-  `*clear*` is OUT of the pool: it answers to `DEL` — a key that already means
+  `*empty*` is OUT of the pool: it answers to `DEL` — a key that already means
   take-it-off wherever this page binds one — so the `a`–`z` namespace is spent on
   KEYWORDS alone and a cycle wide enough to run it dry keeps the letter the meta
   used to take. `offer` decides that by the entry carrying a key of its OWN
   (`fixed`) rather than by its being the meta. In the typing mode `DEL` is the
-  field's and `*clear*` is reached by narrowing to it, like every other entry;
+  field's and `*empty*` is reached by narrowing to it, like every other entry;
   in the tag palette, which has no clear, `DEL` reaches nobody.
   `setChoices` folds the letter into
   each
@@ -1050,10 +1053,10 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   since only the entry knows it) under a word already wearing that colour; the
   source is named down the muted first column, a hairline sits between
   source rows (each row's own top border, the table's border language), and
-  `*clear*` comes
+  `*empty*` comes
   last in the starred-meta italic. An entry that claimed nothing is drawn BARE
   — no slot, no dot — and is reachable through `/` alone. ONE entry keeps a
-  token, and it is `*clear*`: `DEL` names no position in a word to mark. The
+  token, and it is `*empty*`: `DEL` names no position in a word to mark. The
   tag palette wears the same language, its `/` and `+` being mode keys rather
   than entries.
 - Row marks are the RENDERER's, behind `marks: true`: it draws the checkbox
@@ -1069,22 +1072,29 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - The mount passes `actionHints: false`: the renderer's per-row hint said RET
   materializes, which the resident key line already says and says for every
   command. One place.
-- STARRED METAS. The `*word*` form marks a RESERVED META with semantics of its
-  own — never a literal keyword and never a cell value. The family:
-  `*active*`/`*inactive*` (filter group metas, producer-evaluated) and `*clear*`
-  (the state palette's take-the-keyword-off entry, committed as a null keyword
-  and answering to `DEL` rather than to a pool letter).
+- STARRED METAS, and the family is TOTAL: `*word*` marks a value with semantics
+  of its own — never a literal keyword, never a cell value — and NO BARE WORD IS
+  RESERVED anywhere, so every spelling a cell can hold is reachable as itself
+  (`state:none` finds a keyword `NONE`, `tag:archive` a tag holding the letters).
+  The family: `*empty*` (the empty cell, EVERY column key and `planned`,
+  decided off the cell so both sides answer it alike), `*archive*` (the whole
+  ARCHIVE tag on the `tag` column, and the one query that lifts `/headlines`'s
+  exclusion), and `*active*`/`*inactive*` (the filter's group metas,
+  producer-evaluated). The state palette's take-the-keyword-off entry is
+  `*empty*` too — it takes the cell to what `state:*empty*` then finds — and it
+  commits a null keyword, answering to `DEL` rather than to a pool letter.
   `*active*` is the file's active keywords PLUS the EMPTY state cell — a
   stateless entry is live work, and the default view is what would otherwise
   hide it — while `*inactive*` is stated keywords alone, so the two do not
-  partition the column, `-state:*active*` drops the empty cell, and `state:none`
-  stays the explicit spelling and is now a subset of `*active*`. The empty half
-  is read off the CELL, which is what `none` reads and the one term the renderer
-  can answer for itself.
+  partition the column, `-state:*active*` drops the empty cell, and
+  `state:*empty*` stays the explicit spelling and is a subset of `*active*`. The
+  empty half is read off the CELL, which is the one term the renderer can answer
+  for itself.
   A future meta joins by wearing the stars. The enforcing edge is
   `setStateEdits`, which refuses any word a file's `#+TODO:` does not declare, and
   `keywordTextP` (letters and underscores) makes a starred word undeclarable, so
-  the two walls meet.
+  the two walls meet. On the tag side it is `isTagChar`, which has no `*`: no
+  file can spell a tag `*archive*` and `add-tag` refuses one.
 - Browser writes are commands over the bridge: structured ones (toggle, retag,
   reschedule) and drift-locked raw replacement (materialize a subtree, later a
   file). Semantic org editing — refile, agenda logic — stays out of the browser.

@@ -11,7 +11,8 @@
     { "key": "priority", "header": "Pri", "type": "text", "sortable": true,
       "values": ["A", "B", "C"] },
     { "key": "title", "header": "Headline", "type": "text", "sortable": true },
-    { "key": "tag", "header": "Tags", "type": "text", "sortable": true, "multi": true },
+    { "key": "tag", "header": "Tags", "type": "text", "sortable": true, "multi": true,
+      "values": ["*archive*"] },
     { "key": "scheduled", "header": "Scheduled", "type": "text", "sortable": true },
     { "key": "deadline", "header": "Deadline", "type": "text", "sortable": true }
   ],

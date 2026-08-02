@@ -35,10 +35,15 @@
 -- row carrying both).  Distinct keys and free text AND; negations AND
 -- regardless.
 --
--- Three rules are uniform across the column types: @key:none@ matches the empty
--- cell (so a literal cell reading @none@ is unreachable by predicate — the
--- accepted cost of one spelling for "unset"), @key:@ with nothing after it
+-- Two rules are uniform across the column types: @key:@ with nothing after it
 -- narrows nothing, and a predicate's value may be quoted (@tag:"two words"@).
+--
+-- A value between asterisks is a META — a value with semantics of its own,
+-- never cell text — and a bare word is never one, so every word a cell can hold
+-- stays reachable as itself.  @key:*empty*@ is the empty cell on every key,
+-- @tag:*archive*@ is the whole tag where @tag:archive@ is a substring of the
+-- cell, and @state:*active*@\/@state:*inactive*@ are the keyword groups only
+-- this producer can resolve ('metaOf').
 --
 -- The haystack is 'Glance.Query.hrSearch', built at load: the cells as they
 -- display, lowercased and @\\x1f@-joined in column order.  Free text searches
@@ -49,10 +54,13 @@ module Glance.Web.Filter ( FilterEnv (..)
                          , Term (..)
                          , Token (..)
                          , archiveKey
+                         , archiveMeta
                          , cellAt
                          , emptyEnv
+                         , emptyMeta
                          , filterKeys
                          , matchesFilter
+                         , metaOf
                          , namesArchive
                          , parseFilter
                          , plannedKey
@@ -102,8 +110,8 @@ refKey :: Text
 refKey = "ref"
 
 -- | The virtual key over the two date columns together: a row is @planned@ when
--- either of them holds anything, so @planned:none@ is an entry nobody has put a
--- day on and @-planned:none@ is the agenda's half of its query.
+-- either of them holds anything, so @planned:*empty*@ is an entry nobody has
+-- put a day on and @-planned:*empty*@ is the agenda's half of its query.
 --
 -- Decidable from the row alone, which is what makes it a key both sides can
 -- carry: the renderer has the same two cells and needs no keyword set, no
@@ -194,30 +202,56 @@ tagsKey = "tag"
 
 -- | The archive tag as a query spells it: 'Glance.Query.archiveTag' folded, the
 -- way every cell was folded into the haystack at load.  It is an ordinary value
--- of the @tag@ column in every respect — @tag:archive@ and @-tag:archive@ match
--- as they would for @:work:@ — and the one thing that is not ordinary about it
--- is who names it: @\/headlines@ hides archived rows unless the query does
--- ('namesArchive'), so this is the value that turns the default view off.
+-- of the @tag@ column — @tag:archive@ is the substring the column matches by,
+-- and it says nothing about which rows are served.
 archiveKey :: Text
 archiveKey = T.toLower archiveTag
 
--- | Does Q name 'archiveKey' through the @tag@ column, given VOCABULARY?  Any
--- spelling counts — @tag:archive@, a negated one, a quoted one — because all of
--- them are a reader who has said something about archived rows, and a default
--- exclusion layered under any of them would answer a different question than
--- the one asked.
+-- | The archive tag as the META that names it: @tag:*archive*@, which matches
+-- the WHOLE tag ('metaOf') and, alone among the tag values, decides what
+-- @\/headlines@ serves ('namesArchive').
 --
--- The value is matched WHOLE, where the predicate itself reads the cell by
--- substring: @tag:arch@ finds an archived row and does not turn the exclusion
--- off, so it answers empty.  The alternative is a prefix of a prefix deciding
--- what the default view shows.
+-- Two readings of one word, told apart by the stars: a tree that genuinely
+-- carries a tag called @archive@ on rows it wants to see is filtered by
+-- @tag:archive@ like any other tag, and only the starred spelling reaches past
+-- the default view.
+archiveMeta :: Text
+archiveMeta = "*" <> archiveKey <> "*"
+
+-- | The meta every key answers: the empty cell.  Uniform across the columns and
+-- 'plannedKey', decided from the cell alone, and read before any column's own
+-- semantics — so @state:*empty*@ is the stateless row where @state:empty@ is a
+-- keyword spelled @EMPTY@.
+emptyMeta :: Text
+emptyMeta = "*empty*"
+
+-- | VALUE's word where VALUE is a starred meta: one matched pair of asterisks
+-- with something between them, which is @table-view.js@'s @META@ and
+-- @starless@ in one answer.  'Nothing' is an ordinary value, and that is the
+-- whole of the rule — a bare word is never a meta, so no spelling a cell can
+-- hold is reserved.
+metaOf :: Text -> Maybe Text
+metaOf value = do
+  inner <- T.stripSuffix "*" =<< T.stripPrefix "*" value
+  if T.null inner then Nothing else Just inner
+
+-- | Does Q name 'archiveMeta' through the @tag@ column, given VOCABULARY?  Any
+-- spelling counts — @tag:*archive*@, a negated one, a quoted one — because all
+-- of them are a reader who has said something about archived rows, and a
+-- default exclusion layered under any of them would answer a different question
+-- than the one asked.
+--
+-- The STARRED spelling alone.  The bare @tag:archive@ is an ordinary substring
+-- predicate over the tags cell and leaves the exclusion where it is, so a tree
+-- that uses the word for something of its own keeps it filterable; and there is
+-- no prefix question to answer, a meta being matched whole by construction.
 --
 -- VOCABULARY is the tree's tags, and the word only counts where the tree
 -- carries one — sound, since with nothing archived there is nothing to hide.
 namesArchive :: [Text] -> Text -> Bool
 namesArchive vocabulary q =
   archiveKey `elem` vocabulary && any names (parseFilter q)
-  where names t = tmKey t == Just tagsKey && T.toLower (tmValue t) == archiveKey
+  where names t = tmKey t == Just tagsKey && T.toLower (tmValue t) == archiveMeta
 
 -- | BODY at its first @:@ or @=@, when the separator has a key ahead of it and
 -- is there at all.  A body opening with the separator has none, which is what
@@ -379,48 +413,55 @@ keyTest env _key Ref value
 -- of both at once.  A cell that prefix-matches is a cell with something in it,
 -- so a value never needs the presence test spelled beside it.
 keyTest _env _key Planned value
-  | T.null value    = const True                        -- half-typed: narrows nothing
-  | value == "none" = \r -> all (T.null . ($ r)) dateCells
-  | otherwise       = \r -> any (T.isPrefixOf value . ($ r)) dateCells
+  | T.null value        = const True                    -- half-typed: narrows nothing
+  | value == emptyMeta  = \r -> all (T.null . ($ r)) dateCells
+  | otherwise           = \r -> any (T.isPrefixOf value . ($ r)) dateCells
 keyTest _env key (Col i) value
   | T.null value        = const True                    -- half-typed: narrows nothing
-  | value == "none"     = T.null . cell
+  | value == emptyMeta  = T.null . cell
+  | Just word <- tagMeta = \r -> word `elem` cellValues (cell r)
   | key == "state"      = state
   | key == "priority"   = (== value) . cell             -- one letter, so exact
   | key `elem` dateKeys = T.isPrefixOf value . cell
   | otherwise           = T.isInfixOf value . cell
   where
     cell = cellOf i
-    -- The two meta-values SCHEMA.md lets a producer add.  Group membership is
-    -- resolved at LOAD, per row, by the widest scope that classifies the
-    -- keyword — org's TODO/DONE, then the system layer, then the row's tags'
-    -- configs, then its file ('Data.Org.Config.classify') — and arrives here as
-    -- 'hrActive'.  Each answers to two spellings — org-glance writes the groups
-    -- `*active*' and `*inactive*', and the view offers those
-    -- ('Glance.Query.stateValues') — so the stars come off before the
-    -- comparison and `state:active' stays the alias it was.
+    -- A starred word on the MULTI-VALUED column is that whole entry, where the
+    -- bare word is a substring of the cell: `tag:*archive*' is the tag ARCHIVE
+    -- and `tag:arch' is any tag holding those letters.  It is the whole-tag
+    -- reading the tag keys took with them, back as a meta on the one spelling,
+    -- and the renderer decides it identically off the same delimited cell —
+    -- `*empty*' is read first, so a tree tagged `:empty:' reaches that tag by
+    -- its bare name alone.
+    tagMeta | i == tagsColumn = metaOf value
+            | otherwise       = Nothing
+    -- The two PRODUCER meta-values SCHEMA.md lets a producer add.  Group
+    -- membership is resolved at LOAD, per row, by the widest scope that
+    -- classifies the keyword — org's TODO/DONE, then the system layer, then the
+    -- row's tags' configs, then its file ('Data.Org.Config.classify') — and
+    -- arrives here as 'hrActive'.  The starred spelling is the whole of it, the
+    -- one org-glance writes and the one the view offers
+    -- ('Glance.Query.stateValues'): `state:active' is the literal keyword
+    -- `ACTIVE', which is what makes every word a file could declare reachable.
     --
     -- The groups are ASYMMETRIC over the row no scope classifies, whose
     -- 'hrActive' is 'Nothing': `*active*' takes it, a stateless entry being
     -- live work the default view would otherwise hide, and `*inactive*' does
     -- not, an entry nobody marked done not being done.  So the two do not
     -- partition the column, `-state:*active*' drops the empty cell, and
-    -- `state:none' — still the only way to ask for that cell alone — is a
+    -- `state:*empty*' — still the only way to ask for that cell alone — is a
     -- subset of `*active*'.  The empty half is spelled over the CELL rather
-    -- than over 'hrActive': it is the predicate `none' reads, and it is the one
-    -- half a renderer can answer without knowing a keyword set.
-    state r | meta == "active"   = hrActive r == Just True || T.null (cell r)
-            | meta == "inactive" = hrActive r == Just False
-            | otherwise          = cell r == value      -- badge: whole value
-    meta = starless value
+    -- than over 'hrActive': it is the predicate `*empty*' reads, and it is the
+    -- one half a renderer can answer without knowing a keyword set.
+    state r | value == "*active*"   = hrActive r == Just True || T.null (cell r)
+            | value == "*inactive*" = hrActive r == Just False
+            | otherwise             = cell r == value   -- badge: whole value
 
--- | VALUE with one matched pair of asterisks taken off it.  The alias reaches
--- the two state meta-values alone, where it is asked for the group names
--- org-glance itself writes: @state:*active*@ and @state:active@ are one query.
--- There is no glob here — @state:*TODO*@ comes out as the literal badge text
--- @*todo*@, which no cell holds, and matches nothing.
-starless :: Text -> Text
-starless value = fromMaybe value (T.stripSuffix "*" =<< T.stripPrefix "*" value)
+-- | CELL's values, for a cell that holds a list: org spells one @:a:b:@.  The
+-- renderer's own @tagsIn@ — split on the delimiter, drop the empties — so the
+-- whole-entry meta reads the same entries on both sides of the wire.
+cellValues :: Text -> [Text]
+cellValues = filter (not . T.null) . T.splitOn ":"
 
 -- | Field N of R's search text.
 cellOf :: Int -> HeadlineRecord -> Text

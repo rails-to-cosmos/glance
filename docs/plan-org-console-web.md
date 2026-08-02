@@ -803,7 +803,7 @@ read as wanting that milestone too; it wanted a filter, and landed as one the
 same day — see the drill section below.
 
 `a` (`org-glance-agenda`) is a canned VIEW rather than a mode: `state:*active*
--planned:none` applied through the door `g` uses, so the query is in the URL and
+-planned:*empty*` applied through the door `g` uses, so the query is in the URL and
 in the renderer's chips, `DEL` strips a token off it, and `g` is the way home.
 There is no agenda state anywhere and no key that leaves it. `planned` is a new
 virtual filter key over the two date columns together — a row is planned when

@@ -19,10 +19,10 @@ import qualified Data.Text as T
 import Glance.Query ( HeadlineRecord (..), QueryResult (qrRecords), displayText
                     , loadDir, matchesSearch, refTargetOf, refTargets, tagsOfCell
                     , viewJSON )
-import Glance.Web.Filter ( Term (..), Token (..), archiveKey, cellAt
-                         , emptyEnv, filterKeys, matchesFilter, namesArchive
-                         , parseFilter, plannedKey, refKey, scanQuery, storeEnv
-                         , tagsKey )
+import Glance.Web.Filter ( Term (..), Token (..), archiveKey, archiveMeta
+                         , cellAt, emptyEnv, emptyMeta, filterKeys
+                         , matchesFilter, metaOf, namesArchive, parseFilter
+                         , plannedKey, refKey, scanQuery, storeEnv, tagsKey )
 
 -- Fixtures
 --
@@ -67,7 +67,8 @@ matches q rows = assertEqual (T.unpack q) rows =<< matching q
 
 spec :: TestTree
 spec = testGroup "Filter"
-  [ tokenSpec, predicateSpec, tagsSpec, plannedSpec, archiveSpec, shapeSpec
+  [ tokenSpec, predicateSpec, tagsSpec, plannedSpec, archiveSpec, metaSpec
+  , shapeSpec
   , degenerateSpec
   , targetSpec, refSpec
   , layoutSpec ]
@@ -265,17 +266,17 @@ plannedSpec = testGroup "Planned"
       -- Named by the grammar rather than by the tree: it stands over the
       -- columns, and nothing a tree carries can add a key or take one away.
       assertEqual "a predicate with nothing loaded"
-                  [Term False (Just "planned") "none"] (parsed "planned:none")
+                  [Term False (Just "planned") "*empty*"] (parsed "planned:*empty*")
 
   , testCase "a row is planned when either date cell holds anything" $ do
-      matches "-planned:none" [Ship, Privet, Reply]
+      matches "-planned:*empty*" [Ship, Privet, Reply]
       -- Ship carries both, Privet a schedule, Reply a deadline.  Drop's
       -- `CLOSED:' is neither column, so it is not a plan.
-      matches "planned:none" [Plain, Drop, Schema]
+      matches "planned:*empty*" [Plain, Drop, Schema]
 
   , testCase "and neither date column alone answers the same question" $ do
-      matches "-scheduled:none" [Ship, Privet]
-      matches "-deadline:none" [Ship, Reply]
+      matches "-scheduled:*empty*" [Ship, Privet]
+      matches "-deadline:*empty*" [Ship, Reply]
 
   , testCase "a value is the date prefix, asked of both cells at once" $ do
       matches "planned:2026-08" [Ship, Privet, Reply]
@@ -294,15 +295,15 @@ plannedSpec = testGroup "Planned"
 
   , testCase "negation composes with everything else" $ do
       -- The agenda's own query: the active rows carrying a date.
-      matches "state:*active* -planned:none" [Ship, Privet, Reply]
-      matches "state:*inactive* -planned:none" []
+      matches "state:*active* -planned:*empty*" [Ship, Privet, Reply]
+      matches "state:*inactive* -planned:*empty*" []
       matches "-planned:2026-08" [Plain, Drop, Schema]
 
   , testCase "a tree tagged :planned: cannot take the key away" $
       -- There is nothing left to shadow: a tag is not a key, so the only
       -- reading of the token is the date one.
-      assertEqual "still the date key" [Term False (Just "planned") "none"]
-                  (parsed "planned:none")
+      assertEqual "still the date key" [Term False (Just "planned") "*empty*"]
+                  (parsed "planned:*empty*")
   ]
 
 -- | Which queries turn the served view's archive exclusion off
@@ -311,15 +312,16 @@ plannedSpec = testGroup "Planned"
 -- query, since it is the grammar answering.
 archiveSpec :: TestTree
 archiveSpec = testGroup "Archive key"
-  [ testCase "is an ordinary value of the tag column, folded like every cell" $ do
+  [ testCase "the tag, the meta that names it, and the column both sit under" $ do
       assertEqual "the value" "archive" archiveKey
+      assertEqual "the meta" "*archive*" archiveMeta
       assertEqual "and the key it is named under" "tag" tagsKey
 
-  , testCase "every spelling of the predicate counts as naming it" $
+  , testCase "every spelling of the META counts as naming it" $
       mapM_ (\q -> assertBool (show q <> " did not read as naming the tag")
                              (namesArchive [archiveKey] q))
-            [ "tag:archive", "-tag:archive", "state:DONE tag:archive"
-            , "tag=archive", "tag:\"archive\"", "tag:ARCHIVE" ]
+            [ "tag:*archive*", "-tag:*archive*", "state:DONE tag:*archive*"
+            , "tag=*archive*", "tag:\"*archive*\"", "tag:*ARCHIVE*" ]
 
   , testCase "and a query that says nothing about it does not" $
       mapM_ (\q -> assertBool (show q <> " read as naming the tag")
@@ -327,18 +329,95 @@ archiveSpec = testGroup "Archive key"
             -- Free text is not a predicate, quoted text never is, another
             -- column is another cell, and the bare tag key is gone: with tags
             -- out of the grammar, `archive:draft' is text like any other.
-            [ "", "archive", "\"tag:archive\"", "archive:", "archive:draft"
-            , "state:DONE", "title:archive"
-            -- WHOLE value, where the predicate itself is a substring of the
-            -- cell: `tag:arch' finds an archived row and leaves the exclusion
-            -- on, so it answers empty rather than half-answering.
-            , "tag:arch", "tag:archived" ]
+            [ "", "*archive*", "\"tag:*archive*\"", "archive:", "archive:draft"
+            , "state:DONE", "title:*archive*"
+            -- THE STARRED SPELLING ALONE.  `tag:archive' is the ordinary
+            -- substring predicate every other tag gets, so a tree using the
+            -- word for something of its own filters on it and the rows the
+            -- default view hides stay hidden.
+            , "tag:archive", "-tag:archive", "tag:arch", "tag:archived" ]
 
     -- With nothing archived in the tree the word names no tag of it, and this
     -- is False — sound, since there is nothing for the exclusion to hide.
   , testCase "with the tag nowhere in the tree, naming it counts for nothing" $
       assertBool "read as naming a tag against an empty vocabulary"
-                 (not (namesArchive [] "tag:archive"))
+                 (not (namesArchive [] "tag:*archive*"))
+  ]
+
+-- The starred family
+--
+-- `*word*' marks a value with semantics of its own, and a bare word marks
+-- nothing — which is the property this fixture is built to catch: it spells
+-- both reserved words as ordinary org, a state called @NONE@ and tags called
+-- @none@, @archive@ and @archived@, and every one of them has to be reachable
+-- as itself.
+
+-- | Run K over a tree that uses the reserved words as its own vocabulary.
+withMetaTree :: ([HeadlineRecord] -> IO a) -> IO a
+withMetaTree k = withTempDir $ \dir -> do
+  _ <- orgFile dir "a.org" (T.unlines
+         [ "#+TODO: NONE | ARCHIVE"
+         , "* NONE Filed away :web:archive:"
+         , "* NONE Not filed :archived:"
+         , "* ARCHIVE A state spelled like the tag :none:"
+         , "* Nothing stated" ])
+  k . qrRecords =<< loadDir dir
+
+-- | The rows of that tree Q matches, by title, in walk order.
+metaMatching :: Text -> IO [Text]
+metaMatching q = withMetaTree $ \records ->
+  pure [ hrTitle r | r <- records, matchesFilter (storeEnv records) q r ]
+
+metaSpec :: TestTree
+metaSpec = testGroup "Starred metas"
+  [ testCase "the empty meta is the empty cell, on every column key" $ do
+      assertEqual "the spelling" "*empty*" emptyMeta
+      assertEqual "state" ["Nothing stated"] =<< metaMatching "state:*empty*"
+      assertEqual "tag" ["Nothing stated"] =<< metaMatching "tag:*empty*"
+      assertEqual "priority" 4 . length =<< metaMatching "priority:*empty*"
+      assertEqual "scheduled" 4 . length =<< metaMatching "scheduled:*empty*"
+      assertEqual "deadline" 4 . length =<< metaMatching "deadline:*empty*"
+      assertEqual "title" [] =<< metaMatching "title:*empty*"
+      assertEqual "planned" 4 . length =<< metaMatching "planned:*empty*"
+
+  , testCase "and the bare word it replaced is a value like any other" $ do
+      -- The shadow this cost: `none' was every key's word for the empty cell,
+      -- so a cell reading `none' could not be asked for.  Both spellings are
+      -- reachable now, and they answer different rows.
+      assertEqual "a state spelled NONE"
+                  ["Filed away", "Not filed"] =<< metaMatching "state:none"
+      assertEqual "a tag spelled none"
+                  ["A state spelled like the tag"] =<< metaMatching "tag:none"
+
+  , testCase "a starred word on the tags column is the whole tag" $ do
+      assertEqual "the tag itself" ["Filed away"] =<< metaMatching "tag:*archive*"
+      -- Where the bare word is the substring the column matches by, which is
+      -- the reading a tag key used to have and the one `tag:' has now.
+      assertEqual "the substring beside it"
+                  ["Filed away", "Not filed"] =<< metaMatching "tag:archive"
+      assertEqual "negated, the near miss survives"
+                  ["Not filed", "A state spelled like the tag", "Nothing stated"]
+        =<< metaMatching "-tag:*archive*"
+
+  , testCase "and two of them AND, the column being multi-valued" $ do
+      assertEqual "both tags" ["Filed away"] =<< metaMatching "tag:*web* tag:*archive*"
+      assertEqual "one it lacks" [] =<< metaMatching "tag:*none* tag:*archive*"
+
+  , testCase "what a meta IS: one matched pair with a word inside it" $
+      -- The rule every branch above reads, spelled once ('metaOf'): the stars
+      -- have to match and there has to be something between them, which is
+      -- @table-view.js@'s @META@ regex and its @starless@ in one answer.
+      mapM_ (\(value, want) -> assertEqual (T.unpack value) want (metaOf value))
+            [ ("*empty*", Just "empty"), ("*archive*", Just "archive")
+            , ("empty", Nothing), ("*empty", Nothing), ("empty*", Nothing)
+            , ("**", Nothing), ("*", Nothing), ("", Nothing) ]
+
+  , testCase "a starred word anywhere else is the literal it spells" $ do
+      -- The tags column is the only multi-valued one, so nothing else reads a
+      -- starred value as an entry; and the state column's own metas are the
+      -- two groups and nothing more.
+      assertEqual "a keyword" [] =<< metaMatching "state:*NONE*"
+      assertEqual "a title word" [] =<< metaMatching "title:*filed*"
   ]
 
 -- Tags are not keys
@@ -369,7 +448,7 @@ tagsSpec = testGroup "Tags are not keys"
       matches "tag:web" [Ship, Schema]
       matches "tag:glance" [Ship]
       matches "tag:unicode" [Privet]
-      matches "tag:none" [Reply, Plain]
+      matches "tag:*empty*" [Reply, Plain]
 
   , testCase "the facet and the search are two tokens now" $ do
       -- `web:schema' was one; `tag:web schema' is what it meant, and reads the
@@ -455,7 +534,7 @@ tokenSpec = testGroup "Tokens"
                                   (parsed "http://example.org")
 
   , testCase "= is an alias for :" $
-      assertEqual "term" [Term False (Just "state") "active"] (parsed "state=active")
+      assertEqual "term" [Term False (Just "state") "*active*"] (parsed "state=*active*")
 
   , testCase "the first separator splits, so a value may carry more" $
       assertEqual "term" [Term False (Just "title") "a:b"] (parsed "title:a:b")
@@ -494,11 +573,15 @@ predicateSpec = testGroup "Predicates"
       -- Whole value, so a prefix of a keyword is not one of them.
       matches "state:TOD" []
 
-  , testCase "state:active and state:inactive are the file's keyword groups" $ do
+  , testCase "the two group metas are the file's keyword groups" $ do
       -- #+TODO: NEXT WAITING | CANCELLED, over the seeded TODO/DONE.  The
       -- stateless row rides with the active ones; see below.
-      matches "state:active" [Ship, Privet, Reply, Plain]
-      matches "state:inactive" [Drop, Schema]
+      matches "state:*active*" [Ship, Privet, Reply, Plain]
+      matches "state:*inactive*" [Drop, Schema]
+      -- The stars are the whole of what makes a meta, so the bare words are
+      -- keyword text: no file here declares one, and nothing matches.
+      matches "state:active" []
+      matches "state:inactive" []
 
   , testCase "the stateless row is active, and it is not inactive" $ do
       -- No scope classifies a headline that carries no keyword, so it is in
@@ -506,23 +589,18 @@ predicateSpec = testGroup "Predicates"
       -- has stated is live work and the default view is what would otherwise
       -- hide it.  `*inactive*' does not: an entry nobody marked done is not
       -- done, so the two groups do not partition the column.
-      matches "state:none" [Plain]
+      matches "state:*empty*" [Plain]
       matches "state:*active*" [Ship, Privet, Reply, Plain]
       matches "state:*inactive*" [Drop, Schema]
-      -- Which makes `none' a subset of `*active*' rather than a third group,
+      -- Which makes `*empty*' a subset of `*active*' rather than a third group,
       -- and makes the negation drop the empty cell along with the keywords.
       matches "-state:*active*" [Drop, Schema]
       matches "-state:*inactive*" [Ship, Privet, Reply, Plain]
 
-  , testCase "and answer to org-glance's starred spelling of the same groups" $ do
-      -- `*active*' is what org-glance calls the group and what the view offers
-      -- for completion, so it is the canonical spelling; the bare one above
-      -- stays an alias.
-      matches "state:*active*" [Ship, Privet, Reply, Plain]
-      matches "state:*inactive*" [Drop, Schema]
+  , testCase "a meta is folded like every value, and is no glob" $ do
       matches "state:*ACTIVE*" [Ship, Privet, Reply, Plain]
-      -- Stars are not a glob: they come off these two values and nothing else,
-      -- so a starred keyword is the literal badge text, which no cell holds.
+      -- The metas are a fixed vocabulary rather than a pattern: a starred
+      -- keyword is the literal badge text `*todo*', which no cell holds.
       matches "state:*TODO*" []
       matches "state:*none*" []
       -- One matched pair, so a half-starred value is literal too.
@@ -533,14 +611,14 @@ predicateSpec = testGroup "Predicates"
       matches "priority:A" [Ship]
       matches "priority:a" [Ship]
       matches "priority:c" [Drop]
-      matches "priority:none" [Reply, Plain, Schema]
+      matches "priority:*empty*" [Reply, Plain, Schema]
 
   , testCase "title and tag are substrings of the cell, case-insensitively" $ do
       matches "title:the" [Ship, Reply, Drop, Schema]
       matches "title:SHIP" [Ship]
       matches "title:привет" [Privet]
       matches "tag:web" [Ship, Schema]
-      matches "tag:none" [Reply, Plain]
+      matches "tag:*empty*" [Reply, Plain]
       -- A predicate reads one cell: the word is in another row's title.
       matches "tag:renderer" []
 
@@ -553,7 +631,7 @@ predicateSpec = testGroup "Predicates"
       matches "scheduled:2026-08" [Ship, Privet]
       matches "scheduled:2026-08-03" [Privet]
       matches "deadline:2026" [Ship, Reply]
-      matches "scheduled:none" [Reply, Plain, Drop, Schema]
+      matches "scheduled:*empty*" [Reply, Plain, Drop, Schema]
       -- Prefix, so the day is not matched out of the middle of the cell.
       matches "scheduled:03" []
 
@@ -566,8 +644,8 @@ predicateSpec = testGroup "Predicates"
 
   , testCase "a negated predicate fails the row it matches" $ do
       matches "-state:DONE" [Ship, Privet, Reply, Plain, Drop]
-      matches "-state:none" [Ship, Privet, Reply, Drop, Schema]
-      matches "-priority:none" [Ship, Privet, Drop]
+      matches "-state:*empty*" [Ship, Privet, Reply, Drop, Schema]
+      matches "-priority:*empty*" [Ship, Privet, Drop]
   ]
 
 -- AND/OR shape
@@ -604,13 +682,13 @@ shapeSpec = testGroup "Shape"
       matches "state:NEXT state:DONE tag:web tag:cleanup" []
 
   , testCase "distinct keys and free text and together" $ do
-      matches "state:active scheduled:2026-08" [Ship, Privet]
-      matches "state:active scheduled:2026-08 ship" [Ship]
+      matches "state:*active* scheduled:2026-08" [Ship, Privet]
+      matches "state:*active* scheduled:2026-08 ship" [Ship]
       matches "state:TODO state:DONE schema" [Schema]
 
   , testCase "negations and regardless, so two of them are neither" $ do
       matches "-state:TODO -state:DONE" [Ship, Reply, Plain, Drop]
-      matches "state:active -priority:none" [Ship, Privet]
+      matches "state:*active* -priority:*empty*" [Ship, Privet]
 
   , testCase "free text is the whole row, in any cell" $ do
       matches "2026-08-05" [Ship]        -- a deadline
@@ -627,7 +705,7 @@ shapeSpec = testGroup "Shape"
 
   , testCase "a negated free-text token drops the rows holding it" $ do
       matches "-the" [Privet, Plain]
-      matches "state:active -the" [Privet, Plain]
+      matches "state:*active* -the" [Privet, Plain]
 
   , testCase "an empty query is every row" $ do
       every <- matching ""

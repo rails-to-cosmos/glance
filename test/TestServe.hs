@@ -1129,12 +1129,12 @@ commandKeySpec shell = testGroup "Shell commands"
         assertEqual "and d set a state" [("set-state", ["r1"])] =<< postedOf answer
         assertEqual "the one it names" [Just "DONE"] =<< keywordsOf answer
 
-    -- `*clear*' answers to DEL, which already MEANS take-it-off wherever this
+    -- `*empty*' answers to DEL, which already MEANS take-it-off wherever this
     -- page binds one, and claims no letter — so the a-z pool is the keywords'.
   , testCase "the meta entry clears the keyword rather than setting one" $
       bootOf shell "" 500 "C-c C-t" "press:Backspace" $ \answer -> do
         assertEqual "a null keyword" [Nothing] =<< keywordsOf answer
-        assertEqual "and the pill says so" "C-c C-t → org-glance-overview:todo (*clear* · 1)"
+        assertEqual "and the pill says so" "C-c C-t → org-glance-overview:todo (*empty* · 1)"
           =<< textAt "echo" answer
 
   , testCase "/ falls back to typing, and RET takes what is left" $
@@ -1669,10 +1669,10 @@ agendaSpec shell = testGroup "Shell agenda"
       bootOf shell "?q=" 500 "a" "" $ \answer -> do
         assertEqual "the boot's two, then the remount's one"
           [ "/headlines?limit=100", "/headlines"
-          , "/headlines?q=state%3A*active*%20-planned%3Anone" ]
+          , "/headlines?q=state%3A*active*%20-planned%3A*empty*" ]
           =<< textsAt "asked" answer
         assertEqual "and the URL it settles on is that query"
-                    "?q=state%3A*active*+-planned%3Anone" =<< textAt "url" answer
+                    "?q=state%3A*active*+-planned%3A*empty*" =<< textAt "url" answer
 
   , testCase "the rows land in scheduled order, earliest first" $
       bootOf shell "?q=" 500 "a" "" $
@@ -1695,7 +1695,7 @@ agendaSpec shell = testGroup "Shell agenda"
       bootOf shell "?q=" 500 "" "sortless press:a" $ \answer -> do
         assertEqual "no sort was asked for" Nothing =<< sortOf answer
         assertEqual "the query still went"
-                    "?q=state%3A*active*+-planned%3Anone" =<< textAt "url" answer
+                    "?q=state%3A*active*+-planned%3A*empty*" =<< textAt "url" answer
 
     -- `g' is the way home, and it is the way home from here like anywhere else.
   , testCase "g returns to the tree's default view" $
@@ -1714,7 +1714,7 @@ agendaSpec shell = testGroup "Shell agenda"
       bootOf shell "?q=" 500 "a" "repeat:a repeat:a repeat:a" $
         assertEqual "one remount, so one fetch behind the boot's"
           [ "/headlines?limit=100", "/headlines"
-          , "/headlines?q=state%3A*active*%20-planned%3Anone" ] <=< textsAt "asked"
+          , "/headlines?q=state%3A*active*%20-planned%3A*empty*" ] <=< textsAt "asked"
   ]
 
 -- | @\@@: the drill, and the ladder DEL walks back down it.
@@ -1969,7 +1969,7 @@ whichKeySpec shell = testGroup "Shell which-key"
       , ( "DELEGATED,TODO,DONE", ["d@0", "t@0", "o@1"] )
       -- A whole tree's, in the order the producer sends it — actives as
       -- declared, then the done-like ones.  Nothing is special-cased: DONE is
-      -- `o' for the reason DELEGATED is `e'.  `*clear*' is not in it: the meta
+      -- `o' for the reason DELEGATED is `e'.  `*empty*' is not in it: the meta
       -- answers to DEL and is kept out of the pool by `offer', so this is what a
       -- palette actually hands the rule.
       , ( "TODO,NEXT,STARTED,WAITING,DELEGATED,CANCELLED,DONE"
@@ -1978,9 +1978,9 @@ whichKeySpec shell = testGroup "Shell which-key"
       -- nothing left is UNBOUND rather than stealing one, which is what keeps
       -- the letters above it where they were.
       , ( "ON,NO,NOON", ["o@0", "n@0", "-"] )
-      -- The letter `*clear*' used to take is the one a cycle keeps now that the
+      -- The letter `*empty*' used to take is the one a cycle keeps now that the
       -- meta answers to DEL: `CANCELLED' claims `c' outright where it once had
-      -- to share the pool with a word spelled `*clear*'.
+      -- to share the pool with a word spelled `*empty*'.
       , ( "CANCELLED,CLOSED",     ["c@0", "l@1"] ) ]
 
     -- What the reader sees, and why: one row per SOURCE in precedence order,
@@ -1998,7 +1998,7 @@ whichKeySpec shell = testGroup "Shell which-key"
           , ("pr",    "default",  ["[T]ODO"],    ["[D]ONE"])
           , ("pr",    "book",     ["[R]EADING"], ["R[E]AD"])
           , ("pr",    "file",     ["[L]ATER"],   [])
-          , ("pr pm", "",         ["DEL *clear*"], []) ] =<< paletteOf answer
+          , ("pr pm", "",         ["DEL *empty*"], []) ] =<< paletteOf answer
         assertEqual "and the foot names the keys the list cannot draw"
                     "a letter sets it · / to search · ESC leaves"
           =<< textAt "pfoot" answer
@@ -2026,7 +2026,7 @@ whichKeySpec shell = testGroup "Shell which-key"
           , ("pr",    "default",  ["[T]ODO"],     ["[D]ONE"])
           , ("pr",    "book",     ["[R]EADING"],  ["R[E]AD"])
           , ("pr",    "film",     ["[W]ATCHING"], ["W[A]TCHED"])
-          , ("pr pm", "",         ["DEL *clear*"],  []) ] <=< paletteOf
+          , ("pr pm", "",         ["DEL *empty*"],  []) ] <=< paletteOf
 
     -- The hues are the producer's and travel on the state column; the
     -- resolution names keywords alone, so the palette goes and looks each one
@@ -2034,10 +2034,10 @@ whichKeySpec shell = testGroup "Shell which-key"
     -- The claimed letter is marked INSIDE the keyword — there is no token
     -- column — and the rule under it takes that state's own badge hue, so the
     -- one thing telling a reader which key commits is drawn in the colour the
-    -- word is already wearing.  `*clear*' is the exception and says why: DEL
+    -- word is already wearing.  `*empty*' is the exception and says why: DEL
     -- names no position in a word to be marked at, so that row alone keeps a
     -- token.
-  , testCase "the letter is marked in the word, and only *clear* wears a token" $
+  , testCase "the letter is marked in the word, and only *empty* wears a token" $
       bootOf shell "" 500 "C-c C-t" "" $ \answer -> do
         assertEqual "one token in the whole table, on the meta row"
                     ["DEL"] . filter (not . T.null) . map snd
@@ -2049,7 +2049,7 @@ whichKeySpec shell = testGroup "Shell which-key"
                     . filter (not . T.null . snd)
           =<< paletteField "mark" answer
 
-    -- DEL is `*clear*'\''s, so a palette with no such entry leaves the press to
+    -- DEL is `*empty*'\''s, so a palette with no such entry leaves the press to
     -- nobody: there is nothing to clear about a tag, and the map's own DEL is
     -- already dead under `typing()'.
   , testCase "DEL fires nothing in a palette that has no clear" $
@@ -2086,7 +2086,7 @@ whichKeySpec shell = testGroup "Shell which-key"
           , ("pe",     "", ["READING"], [])
           , ("pe",     "", ["READ"],    [])
           , ("pe",     "", ["LATER"],   [])
-          , ("pe pm",  "", ["*clear*"], []) ] =<< paletteOf answer
+          , ("pe pm",  "", ["*empty*"], []) ] =<< paletteOf answer
         assertEqual "and the foot names the keys that are live there"
                     "RET sets it · C-n/C-p walks · ESC leaves"
           =<< textAt "pfoot" answer
@@ -3133,7 +3133,7 @@ shellGlue =
       -- flat list hold the same objects and the drawing and the dispatch read
       -- one field rather than agreeing on a parallel array's indices.
       , "        pool[i].key = letterAt(pool[i].label, cut);"
-      -- The pool is the entries with no key of their own, so `*clear*' — which
+      -- The pool is the entries with no key of their own, so `*empty*' — which
       -- answers to DEL — spends none of it and a wide cycle keeps the letter
       -- the meta used to take.
       , "      const pool = list.filter((c) => !c.fixed);"
@@ -3170,7 +3170,7 @@ shellGlue =
       [ ".pr{display:grid;grid-template-columns:6.5em 1fr 1fr"
       , ".pr+.pr{border-top:1px solid var(--g-border)}"
       , ".ph,.ps{font-size:11px;color:var(--g-mute)}"
-      -- `*clear*' spans, since no source declares taking a keyword off.
+      -- `*empty*' spans, since no source declares taking a keyword off.
       , ".pr.pm{grid-template-columns:1fr}" ]
       -- The flat list's divider went with the flat list, and so did the page's
       -- own idea of what the states are: the keywords are the server's answer.
@@ -3487,7 +3487,7 @@ shellGlue =
   -- The second canned view, applied through the same door and differing in one
   -- thing: it has something to do once its rows are up.
   , Glue "`a' is the agenda query through the same door, plus its own sort"
-      [ "const AGENDA_QUERY = \"state:*active* -planned:none\";"
+      [ "const AGENDA_QUERY = \"state:*active* -planned:*empty*\";"
       , "applyAgenda: (b) => applyView(b, AGENDA_QUERY, (total) => landedAgenda(b, total)),"
       -- Through the one helper that asks for a sort, so the agenda's order and
       -- `^''s record of it cannot be two different answers.
@@ -4101,16 +4101,19 @@ querySpec = testGroup "GET /headlines filter and paging"
           =<< titles "/headlines?q=state%3A*active*"
         assertEqual "the inactive group leaves it behind" ["Shipped"]
           =<< titles "/headlines?q=state%3A*inactive*"
-        assertEqual "none is that one entry, asked for by name"
-                    ["Jotted and never stated"] =<< titles "/headlines?q=state%3Anone"
+        assertEqual "the empty meta is that one entry, asked for by name"
+                    ["Jotted and never stated"] =<< titles "/headlines?q=state%3A*empty*"
+        -- And the bare word is a keyword nobody declared, so it finds nothing.
+        assertEqual "where the word it replaced is a value" []
+          =<< titles "/headlines?q=state%3Anone"
         assertEqual "so negating the default view drops it too" ["Shipped"]
           =<< titles "/headlines?q=-state%3A*active*"
 
   , testCase "a filtered OR query pages out of the view's own sort" $ do
       a <- app assetsDir
-      whole <- rowsOf =<< getFrom a "/headlines?q=state:active"
-      one <- getFrom a "/headlines?q=state:active&limit=2&offset=0"
-      two <- getFrom a "/headlines?q=state:active&limit=2&offset=2"
+      whole <- rowsOf =<< getFrom a "/headlines?q=state:*active*"
+      one <- getFrom a "/headlines?q=state:*active*&limit=2&offset=0"
+      two <- getFrom a "/headlines?q=state:*active*&limit=2&offset=2"
       -- Three keywords in the file's active set, plus the stateless row the
       -- group takes with them (TestFilter, "the stateless row is active").
       assertEqual "the union" 4 (length whole)
@@ -5864,22 +5867,22 @@ archiveViewSpec = testGroup "GET /headlines and the archive"
   [ testCase "an archived row is out of the default answer, and counted" $
       withArchived $ \a -> do
         r <- getFrom a "/headlines"
-        assertEqual "the rows that are left" ["plain", "shipped"] . sort . map rowId
+        assertEqual "the rows that are left" ["near", "plain", "shipped"] . sort . map rowId
           =<< rowsOf r
-        assertEqual "X-Glance-Total" (Just "2") (header "X-Glance-Total" r)
+        assertEqual "X-Glance-Total" (Just "3") (header "X-Glance-Total" r)
         assertEqual "X-Glance-Archived" (Just "1") (header "X-Glance-Archived" r)
 
-  , testCase "the exclusion is exactly what -tag:archive spells" $
+  , testCase "the exclusion is exactly what -tag:*archive* spells" $
       withArchived $ \a -> do
         implicit <- rowsOf =<< getFrom a "/headlines"
-        explicit <- getFrom a "/headlines?q=-tag%3Aarchive"
+        explicit <- getFrom a "/headlines?q=-tag%3A*archive*"
         assertEqual "the same rows" (map rowId implicit) . map rowId =<< rowsOf explicit
         -- A query that says it itself is not one this server also says: the
         -- count is zero because nothing was withheld from it.
         assertEqual "nothing hidden from it" (Just "0")
                     (header "X-Glance-Archived" explicit)
 
-  , testCase "naming the tag at all shows them" $
+  , testCase "naming the META at all shows them" $
       withArchived $ \a ->
         mapM_ (\(path, wanted) -> do
                  r <- getFrom a path
@@ -5887,18 +5890,33 @@ archiveViewSpec = testGroup "GET /headlines and the archive"
                    =<< rowsOf r
                  assertEqual (show path <> ": nothing hidden") (Just "0")
                              (header "X-Glance-Archived" r))
-              [ ("/headlines?q=tag%3Aarchive", ["filed"])
-              , ("/headlines?q=tag%3Aarchive%20filed", ["filed"])
-              , ("/headlines?q=state%3ADONE%20tag%3Aarchive", ["filed"]) ]
+              [ ("/headlines?q=tag%3A*archive*", ["filed"])
+              , ("/headlines?q=tag%3A*archive*%20filed", ["filed"])
+              , ("/headlines?q=state%3ADONE%20tag%3A*archive*", ["filed"]) ]
+
+    -- THE COUPLING IS THE META'S ALONE.  The bare word is an ordinary tag
+    -- predicate: it filters, it reveals nothing, and the count says a row was
+    -- withheld from it — which is what a tree using `archive' for something of
+    -- its own needs, and what makes the two spellings tell apart.  `near'
+    -- carries `:archived:', which the column matches by substring.
+  , testCase "the plain tag predicate filters without lifting the exclusion" $
+      withArchived $ \a -> do
+        plain <- getFrom a "/headlines?q=tag%3Aarchive"
+        assertEqual "the rows it reaches" ["near"] . map rowId =<< rowsOf plain
+        assertEqual "and the archived one it does not" (Just "1")
+                    (header "X-Glance-Archived" plain)
+        -- Which the meta reaches, over the same word, in the same column.
+        meta <- getFrom a "/headlines?q=tag%3A*archive*"
+        assertEqual "the meta is the whole tag" ["filed"] . map rowId =<< rowsOf meta
 
     -- The vocabulary is the WHOLE store's, which is what makes the predicate
     -- reach what the default hides.  A spelling no row carries as text is the
-    -- proof: as free text `tag:archive' matches nothing, so a match is the
+    -- proof: as free text `tag:*archive*' matches nothing, so a match is the
     -- predicate reading the tags cell.
   , testCase "the predicate survives the exclusion that hides its rows" $
       withArchived $ \a -> do
-        faceted <- getFrom a "/headlines?q=tag%3Aarchive"
-        text' <- getFrom a "/headlines?q=%22tag%3Aarchive%22"
+        faceted <- getFrom a "/headlines?q=tag%3A*archive*"
+        text' <- getFrom a "/headlines?q=%22tag%3A*archive*%22"
         assertEqual "as a predicate" (Just "1") (header "X-Glance-Total" faceted)
         assertEqual "as free text" (Just "0") (header "X-Glance-Total" text')
 
@@ -5910,13 +5928,15 @@ archiveViewSpec = testGroup "GET /headlines and the archive"
   , testCase "the exclusion runs before the page, like the filter" $
       withArchived $ \a -> do
         r <- getFrom a "/headlines?limit=1"
-        assertEqual "the total is what is left after it" (Just "2")
+        assertEqual "the total is what is left after it" (Just "3")
                     (header "X-Glance-Total" r)
         assertEqual "the page" 1 . length =<< rowsOf r
         assertEqual "and more follows" (Just "true") (header "X-Glance-Has-Next" r)
   ]
 
--- | Run K over a server holding three rows, one of them tagged @ARCHIVE@.
+-- | Run K over a server holding four rows: one tagged @ARCHIVE@, and one whose
+-- own tag merely HOLDS the word, which is what tells the meta from the plain
+-- predicate.
 withArchived :: (Application -> Assertion) -> Assertion
 withArchived k = withTempDir $ \dir -> do
   _ <- orgFile dir "notes.org" (T.unlines
@@ -5927,6 +5947,10 @@ withArchived k = withTempDir $ \dir -> do
          , "* DONE Shipped :web:"
          , ":PROPERTIES:"
          , ":ORG_GLANCE_ID: shipped"
+         , ":END:"
+         , "* TODO Near miss :archived:"
+         , ":PROPERTIES:"
+         , ":ORG_GLANCE_ID: near"
          , ":END:"
          , "* DONE Filed :web:ARCHIVE:"
          , ":PROPERTIES:"

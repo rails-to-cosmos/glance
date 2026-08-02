@@ -20,17 +20,15 @@ section groups a feature arc, and its date is that arc's last commit.
   LOADED ROWS' tags in `table-view.js`, so one token was a predicate on one side
   of the wire and free text on the other. It also takes `contact:none` with it,
   which meant "tagged contact and the row text holding none" and read like the
-  empty-cell rule it was not. Two differences are written down rather than
-  papered over: `tag:` matches its column by SUBSTRING where a tag key matched
+  empty-cell rule it was not — a rule now spelled `key:*empty*`, see Changed.
+  Two differences are written down rather than papered over: `tag:` matches its column by SUBSTRING where a tag key matched
   whole-tag (`tag:glan` finds `:glance:`), and org spells a tags cell `:web:`,
   so the free text `web:` is still inside every row carrying the tag.
-- The archive exclusion is named as `tag:archive` rather than `archive:`
-  (`Glance.Web.Filter.namesArchive`), the archive tag having been an ordinary
-  virtual key. Any spelling of that predicate still counts — negated, quoted,
-  beside other tokens — and the value is matched WHOLE, so `tag:arch` finds an
-  archived row and leaves the exclusion on rather than half-lifting it.
-  `-archive:` keeps working by coincidence: as free text it drops exactly the
-  rows whose tags cell spells `:archive:`.
+- The archive exclusion is named through the `tag` column rather than by
+  `archive:` (`Glance.Web.Filter.namesArchive`), the archive tag having been an
+  ordinary virtual key. Any spelling of that predicate counts — negated, quoted,
+  beside other tokens. (The spelling is `tag:*archive*` as of the meta entry
+  under Changed below; it was `tag:archive` when this landed.)
 - `Glance.Web.Filter` sheds the machinery the feature alone consumed: the `Tag`
   field constructor and its arity, `parseFilter`'s vocabulary parameter,
   `FilterEnv`'s tag list (`tagsEnv` is now the tag-free `emptyEnv`), and the
@@ -81,6 +79,51 @@ section groups a feature arc, and its date is that arc's last commit.
   bright, being where a reader finds out why.
 
 ### Changed
+- **BREAKING: the empty cell is `key:*empty*`, and `key:none` is a literal
+  value.** The bare word reserved a spelling a cell can hold, and that was
+  exactly its cost: a state keyword `NONE`, a tag `none`, a title reading `none`
+  were unreachable by predicate. The stars carry the meaning now and the word
+  carries none — `state:*empty*` is the stateless row, `state:none` is a keyword
+  spelled `NONE` — on every column key and on `planned`, so the agenda's query
+  is `state:*active* -planned:*empty*`. **A saved URL or bookmark holding
+  `key:none` now reads as an ordinary value and matches whatever holds that
+  text, which is usually nothing.** No alias, no migration: the point is that no
+  bare word is reserved.
+- **BREAKING: the archive exclusion is lifted by `tag:*archive*` alone.**
+  `tag:archive` is the ordinary substring predicate every other tag value gets:
+  it filters, it lifts nothing, and `X-Glance-Archived` still reports what the
+  default view withheld from it — so a tree that uses `archive` for something of
+  its own can filter on the word without being handed the rows it files away.
+  The meta matches the WHOLE tag, where the plain predicate is a substring of
+  the tags cell (`:archived:` answers one and not the other). **A saved
+  `?q=tag:archive` link stops showing archived rows**; add the stars. Over
+  ~/sync at 2026-08-02: `tag:*archive*` serves the 322 archived rows,
+  `tag:archive` serves 0 and reports all 322 withheld.
+- **BREAKING: `state:active` / `state:inactive` are literal keywords.** The bare
+  alias for the two group metas is gone with the rest of the bare words — and it
+  was a parity divergence in its own right, since `table-view.js` never had it
+  and matched those tokens as badge text. `state:*active*` and
+  `state:*inactive*` are unchanged, and they are what the default view, the
+  agenda and the state column's `values` have always spelled.
+- **A starred word on the `tag` column is that whole tag.** `tag:*book*` is the
+  tag `book` where `tag:boo` is any tag holding those letters — the whole-tag
+  reading that left with the virtual tag keys, back as a meta on the one
+  spelling, decided off the cell so the renderer answers it identically.
+  `tag:*archive*` is one instance of it rather than a rule of its own.
+- The state palette's take-the-keyword-off entry is `*empty*` rather than
+  `*clear*`: it takes the state cell to exactly what `state:*empty*` then finds,
+  which is one word for one thing. `DEL` is still its key, the commit is still a
+  null keyword, and the log line is still `state cleared`; the pill now says
+  `C-c C-t → org-glance-overview:todo (*empty* · 1)`.
+- `assets/table-view.js` is resynced from the sibling checkout (`make
+  sync-renderer`), which carries the renderer's half of all of the above —
+  `*empty*` on every key, the whole-entry meta, `*empty*` at the foot of every
+  value domain, a meta taking no sort position — and closes a skew that predated
+  this work: the vendored copy still had the virtual tag keys the server dropped,
+  and lacked `sortBy` and the title-offer tiers.
+- The `tag` column declares `values: ["*archive*"]`, SCHEMA's route for a
+  producer meta, so a renderer can offer it: typing `arch` in the filter box
+  reaches `tag:*archive*` the way `act` reaches `state:*active*`.
 - The settings sheet `,` raises is the page's one place for a preference, in
   three panels: **general** (the default view and the capture target),
   **theme**, and **keywords** (the per-layer `#+TODO:` boxes, which were the

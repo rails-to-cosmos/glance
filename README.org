@@ -110,15 +110,20 @@ matching =tanik=", two tokens because the predicate reads the tags cell and the
 free text reads the row. Two predicates on one key combine by what the field holds: one
 value means either of them (=state:TODO state:DONE=, since no row is both),
 a list means all of them (=tag:web tag:glance= carries both, the way a label
-filter reads). =-token= negates, ="two words"= quotes, =key:none= asks for an
+filter reads). =-token= negates, ="two words"= quotes, =key:*empty*= asks for an
 empty cell, =scheduled:2026-08= is the month, =planned:= asks about both date
-columns at once (=planned:none= is neither, =planned:2026-08= is either falling
-in that month), and =state:*active*= /
-=state:*inactive*= are the keyword groups your =#+TODO:= lines declare (=active=
-and =inactive= without the stars mean the same thing). A query
+columns at once (=planned:*empty*= is neither, =planned:2026-08= is either
+falling in that month), and =state:*active*= /
+=state:*inactive*= are the keyword groups your =#+TODO:= lines declare. A query
 with no predicate in it is the substring search it always was. The applied query
 rides in the URL, so a filtered view is a link; =DEL= over the table takes the
 last token back off.
+
+*A value between asterisks is a meta*, and a bare word never is — so every word
+your files can hold stays reachable as itself: =state:none= finds a keyword
+=NONE=, =tag:archive= finds a tag holding those letters. The family is
+=*empty*= (the empty cell, on every key), =*archive*= (the whole =ARCHIVE= tag,
+and the one query that shows you archived rows), and the two group metas above.
 
 *=ref:= asks who points here.* =ref:ID= is every row whose subtree links to the
 row that id names — the referrers, which is a question no single row can answer
@@ -363,7 +368,7 @@ makes that safe is the same optimistic lock the sheet uses — a file that moved
 under you refuses its rows and says so in the log, while the rest land.
 
 =t= raises a small palette of the states those rows may be set to, plus
-=*clear*= to take a keyword off. It is a *which-key* menu: every entry wears a
+=*empty*= to take a keyword off. It is a *which-key* menu: every entry wears a
 letter, that letter commits on its own, and the palette itself is the
 confirmation — you have just read the line saying =t= sets =TODO= when you press
 =t=. No =RET= behind it and no confirm step; the optimistic lock is what makes a
@@ -371,7 +376,7 @@ mis-press cheap.
 
 The letter is marked *inside the keyword* — bold and underlined at its position,
 the underline in that state's own badge colour — rather than boxed in a column
-beside it: an entry is its keyword and nothing else. =*clear*= is the one
+beside it: an entry is its keyword and nothing else. =*empty*= is the one
 exception, and it says why: it answers to =DEL=, which has no position in a word
 to mark, so that row alone carries a key token. Binding it there also hands the
 whole =a=–=z= pool back to the keywords, so a wide cycle keeps the letter the
@@ -412,10 +417,9 @@ to bottom, out of one =a=–=z= pool — so =TODO= is =t=, =DONE= is =d=, and
 =t= and =d= are those two words in every tree and no cycle can take them.
 The claimed letter is *bold where it sits
 in the word*, which is the whole of the explanation. Hairlines fall between the
-source rows, =*clear*= spans a row at the foot, and it takes its letter out of
-the same pool as everything else — =c= where nothing claimed one, =l= where
-something did. One tree's keyword cycle always yields the same letters, so the
-muscle memory holds.
+source rows and =*empty*= spans a row at the foot, out of the pool: it answers
+to =DEL=, so the whole =a=–=z= namespace is the keywords'. One tree's keyword
+cycle always yields the same letters, so the muscle memory holds.
 
 An entry with no letter left shows a muted =·=. Press =/= for the
 completing-read: the table flattens, the letters go, a field appears, type to
@@ -536,18 +540,22 @@ where it was. Pressing =D= twice costs nothing: a row already carrying the tag
 is left alone. What makes an archive worth having is the other half — the table
 leaves archived rows out unless you ask for them:
 
-| query                  | what you get                                  |
-|------------------------+-----------------------------------------------|
-| (nothing)              | everything except archived rows               |
-| =tag:archive=          | the archived rows                             |
-| =-tag:archive=         | everything except them — the default, spelled |
-| =tag:archive tanik=    | archived rows matching =tanik=                |
+| query                 | what you get                                   |
+|-----------------------+------------------------------------------------|
+| (nothing)             | everything except archived rows                |
+| =tag:*archive*=       | the archived rows                              |
+| =-tag:*archive*=      | everything except them — the default, spelled  |
+| =tag:*archive* tanik= | archived rows matching =tanik=                 |
+| =tag:archive=         | rows whose tags hold the word — nothing lifted |
 
-Any query that names the =archive= tag at all turns the default off, and the
-response's =X-Glance-Archived= header says how many rows were left out, so an
-empty table can be told from one whose matches are all filed away. Only the rows
-are narrowed, never the grammar: the predicate that reaches what the default
-hides is the same =tag:= it would be for any other tag.
+Any query that names the =*archive*= *meta* at all turns the default off, and
+the response's =X-Glance-Archived= header says how many rows were left out, so
+an empty table can be told from one whose matches are all filed away. The stars
+are what carry that: =tag:archive= is the ordinary tag predicate any other word
+gets, so a tree that uses =archive= for something of its own filters on it
+without ever being shown what the default is hiding. Only the rows are narrowed,
+never the grammar: the predicate that reaches what the default hides is the same
+=tag:= it would be for any other tag.
 
 *=o= follows the row.* An org entry that points somewhere — a bracket link on
 the title, a bare URL in the body, a reference under a child — is a row you can
@@ -581,13 +589,13 @@ curl -s 'localhost:7777/links?id=ship-table-view'
 #+end_src
 
 *=a= is the agenda, and it is a view rather than a mode.* It applies
-=state:*active* -planned:none= — your live work, narrowed to the entries
+=state:*active* -planned:*empty*= — your live work, narrowed to the entries
 carrying a date — and sorts it by schedule, earliest first. There is nothing to
 leave: the query is in the URL and in the filter chips like any other, =DEL=
 strips a token off it, and =g= puts the default view back. =planned= is a filter
-key of its own, so the halves are yours to recombine: =planned:none= is
+key of its own, so the halves are yours to recombine: =planned:*empty*= is
 everything nobody has put a day on, =planned:2026-08= is a month's worth of
-schedules and deadlines together, and =-planned:none deadline:2026-08= narrows
+schedules and deadlines together, and =-planned:*empty* deadline:2026-08= narrows
 to the ones with a due date in it.
 
 *=@= walks the references in.* =@= applies =ref:= over the row at point — never

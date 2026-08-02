@@ -1321,7 +1321,7 @@ on.
   second press meaning anything. `archive`'s idempotence is that first half,
   matched through `Glance.Query.archived`, which reads `tagsOfCell . hrTags` —
   the same folding the tag list is built with, so "archived" means exactly what
-  the query `tag:archive` means and a file spelling the tag `:archive:` counts.
+  the query `tag:*archive*` means and a file spelling the tag `:archive:` counts.
   The
   file is still rewritten (the engine has no equality short-circuit), so the
   cost of archiving a marked set twice is an inotify event and a re-parse per
@@ -1330,11 +1330,11 @@ on.
   between the two runs and compares the file byte for byte. **test**
 - **`D` archives and never deletes, and the default view is what makes that
   work.** `/headlines` drops rows carrying the archive tag unless the query
-  names that tag through the `tag` column — any spelling of it, `tag:archive`,
-  `-tag:archive`, `tag:"archive"`, since all of them are a reader who has said
+  names the META through the `tag` column — any spelling of it, `tag:*archive*`,
+  `-tag:*archive*`, `tag:"*archive*"`, since all of them are a reader who has said
   something about archived rows and layering a default exclusion under any of
   them would answer a different question than the one asked. The predicate is
-  exactly what `-tag:archive` spells, and `X-Glance-Archived` reports how many
+  exactly what `-tag:*archive*` spells, and `X-Glance-Archived` reports how many
   rows it took, so a client can tell "nothing matches" from "the matches are all
   archived". The header is zero whenever the query named the tag: a reader who
   asked is never told anything was withheld. Without the exclusion an org tree
@@ -1342,15 +1342,23 @@ on.
   grows without bound, which is the whole reason `D` can be an archive rather
   than a delete. Evidence: `TestServe` "GET /headlines and the archive",
   `TestFilter` "Archive key". **test**
-- **The archive value is matched WHOLE where the column is a substring.**
-  `namesArchive` compares a `tag` predicate's folded value against `archiveKey`
-  by equality, while the predicate it is reading matches the tags cell by
-  substring. So `tag:arch` finds every archived row and does not lift the
-  exclusion — the query answers empty rather than half-answering. The
-  alternative is a prefix of a prefix deciding what the default view shows.
-  `namesArchive` also takes the store's tag list and answers `False` when the
-  tree carries no archive tag at all, which is sound: with nothing archived
-  there is nothing for the exclusion to hide. **test**
+- **THE STARRED SPELLING IS THE COUPLING, and the plain tag is an ordinary
+  predicate.** `namesArchive` compares a `tag` predicate's folded value against
+  `archiveMeta` — `*archive*`, and nothing else. `tag:archive` is the substring
+  predicate every other tag value gets: it filters, it lifts nothing, and the
+  rows it would have matched stay behind the exclusion, which `X-Glance-Archived`
+  reports. That is what a tree using the word for something of its own needs, and
+  it is what makes the two spellings tell apart: over ~/sync at 2026-08-02
+  `tag:*archive*` serves 322 rows with nothing withheld, while `tag:archive`
+  serves 0 and reports 322 withheld (the corpus has no unarchived row whose tags
+  cell holds the letters, so the plain predicate reveals nothing there — the
+  header is what says so). There is also no prefix question left: a meta is
+  matched whole by construction, where the old bare `tag:arch` had to be ruled
+  out by hand. `namesArchive` still takes the store's tag list and answers
+  `False` when the tree carries no archive tag at all, which is sound: with
+  nothing archived there is nothing for the exclusion to hide. Evidence:
+  `TestFilter` "Archive key", `TestServe` "the plain tag predicate filters
+  without lifting the exclusion". **test**
 - **The socket is NOT filtered, and the exclusion is `/headlines`' alone.** Row
   frames carry whatever moved; the store has no client's query to apply and
   `resolvedRows` is the served view's own resolution rather than a per-client
@@ -1572,8 +1580,8 @@ on.
   `priority` column, declared `text`, is matched exactly. That last pair agrees
   with the renderer only because the cell is one character long, where a
   substring test and an equality test cannot differ. Then three uniform rules:
-  `key:` narrows nothing, a value may be quoted, and `key:none` is the empty
-  cell — `tag:none` is untagged. The tags column's key is
+  `key:` narrows nothing, a value may be quoted, and `key:*empty*` is the empty
+  cell — `tag:*empty*` is untagged. The tags column's key is
   `tag`, singular, so the key a filter names and the tags it names read alike
   (`tag:travel`); the header stays `Tags` and `hrSearch`'s field order is
   unchanged, since only the name moved. One consequence to keep: a predicate
@@ -1596,13 +1604,13 @@ on.
   inside every row carrying the tag and answers the same rows a facet did; and
   `contact:none` — which meant "tagged `contact` AND the row text holding
   `none`", the one place `key:none` was not the empty cell — is gone with the
-  branch that produced it. Evidence: `TestFilter` "Tags are not keys", which
+  branch that produced it, and the bare `none` is gone with it (`*empty*`). Evidence: `TestFilter` "Tags are not keys", which
   runs every fixture query against the store's real tag list and against an
   empty one and asserts the two answers are equal. **test**
 - **`planned` is a key over the two date columns, and both sides can
   decide it.** A row is planned when its `scheduled` OR its `deadline` cell
-  holds anything, so `planned:none` is an entry nobody has put a day on and
-  `-planned:none` is the agenda's half of its query. Nothing renders a `planned`
+  holds anything, so `planned:*empty*` is an entry nobody has put a day on and
+  `-planned:*empty*` is the agenda's half of its query. Nothing renders a `planned`
   cell, so it is a key with no column behind it; a tree tagged `:planned:`
   cannot take it, there being no tag keys to take it with. Its value is the date prefix `scheduled:` and `deadline:`
   each take, asked of both cells at once (`planned:2026-08` is either date in
@@ -1676,8 +1684,8 @@ on.
   nothing here; conversely any other column whose sample looks dated gets
   renderer-side prefix matching that the server never applies. `planned` inherits
   the whole of it, since what it reads IS the date-column set: on such a page the
-  renderer finds no date column, so `planned:none` is every row there and
-  `-planned:none` is none of them, while the server answers off `scheduled` and
+  renderer finds no date column, so `planned:*empty*` is every row there and
+  `-planned:*empty*` is none of them, while the server answers off `scheduled` and
   `deadline` as always. The predicate is term for term; the column set under it
   is what differs. **none**
 - **`ref:ROWID` is producer-only WHOLE.** The starred metas at least reach the
@@ -1699,16 +1707,16 @@ on.
   otherwise hide it, so the group has to take it; `*inactive*` does not, since
   an entry nobody marked done is not done. The two therefore do NOT partition
   the column: `-state:*active*` drops the empty cell along with the active
-  keywords, and `state:none` — unchanged, and still the only way to ask for the
-  empty cell alone — is now a subset of `*active*` rather than a third group.
+  keywords, and `state:*empty*` — still the only way to ask for the
+  empty cell alone — is a subset of `*active*` rather than a third group.
   The empty half is spelled over the CELL rather than over `hrActive`, which is
-  what makes it the same predicate `none` reads and the one term a renderer can
-  decide for itself. The starred form
-  is the canonical spelling — it is what org-glance calls the groups, and what
-  the default view boots on — and the bare `state:active` stays an alias: the
-  stars come off in `starless` before the two comparisons and NOWHERE else, so
-  `state:*TODO*` is the literal badge text `*todo*`, which no cell holds. It is
-  an alias on two values, not a glob; a half-starred value is literal too.
+  what makes it the same predicate `*empty*` reads and the one term a renderer
+  can decide for itself. The starred form is the ONLY spelling — it is what
+  org-glance calls the groups, and what the default view boots on — and the bare
+  `state:active` is the literal keyword `ACTIVE`, which is what keeps every word
+  a file could declare reachable. There is no glob and no alias: `state:*TODO*`
+  is the literal badge text `*todo*`, which no cell holds, and a half-starred
+  value is literal too.
   Discovery is the `values` array the state column now ships beside its
   `badges`, holding exactly `["*active*", "*inactive*"]` — SCHEMA's own route
   for meta-values, and the reason the starred spelling is the canonical one: it
@@ -1716,8 +1724,9 @@ on.
   own, so a locally-filtered table matches these as literal badge text and finds
   nothing — except for the starred `*active*`'s empty-cell term, which
   `tokenTest` answers, so a local `state:*active*` finds the stateless rows and
-  remains a subset of the server's answer. The bare `state:active` gets no such
-  half, `starless` being this producer's alone.
+  remains a subset of the server's answer. The bare `state:active` is a literal
+  on both sides, matching having read the stars everywhere since the family went
+  total.
   The rest of that asymmetry is intended, since the server
   knows the keyword sets and the renderer does not; the autocomplete still shows
   a meta dimmed and uncounted, its counts being per cell value and a fraction of
@@ -1992,26 +2001,42 @@ on.
   `TestServe` "Shell marks" — the two-press flow, the synthetic auto-repeat burst
   that archives nothing, both flag-clear paths, and the bare-asset case — and
   "Shell commands" for the flags-versus-marks split. **test**
-- **`*word*` is the reserved-meta form.** A starred word marks a value with
-  semantics of its own — never a literal keyword, never a cell value a file could
-  hold. The family today: `state:*active*` and `state:*inactive*`, the filter's
-  group metas, evaluated by the producer; and `*clear*`, the state palette's
-  entry that takes a keyword off, committed as a null keyword. The two group
+- **`*word*` is the reserved-meta form, and the family is TOTAL.** A starred
+  word marks a value with semantics of its own — never a literal keyword, never a
+  cell value a file could hold — and NO BARE WORD IS RESERVED ANYWHERE, which is
+  the property that makes the form worth having: every spelling a cell can hold
+  is reachable as itself. `state:none` finds a keyword `NONE`, `tag:archive`
+  finds a tag holding those letters, `state:active` finds a keyword `ACTIVE`.
+  The family: `*empty*`, the empty cell on EVERY column key and on `planned`;
+  `*archive*`, the whole ARCHIVE tag on the `tag` column and the one query that
+  lifts `/headlines`'s exclusion; `state:*active*`/`state:*inactive*`, the
+  filter's group metas, evaluated by the producer; and `*empty*` again as the
+  state palette's take-the-keyword-off entry, which is the same word for the
+  same cell — the entry takes the state to exactly what `state:*empty*` finds —
+  committed as a null keyword. The first two are decided off the CELL, so the
+  renderer answers them identically and the parity vectors bind both sides; the
+  group metas need the keyword sets and are the producer's alone. The two group
   metas are asymmetric over the row that carries no keyword: `*active*` takes it
   (a stateless entry is live work) and `*inactive*` does not, so they name two
   overlapping sets rather than a partition, `-state:*active*` drops the empty
-  cell, and `state:none` stays the explicit spelling for that cell alone. A future meta
-  joins the family by wearing the stars. The convention is ENFORCED from two
-  sides rather than by a rule of its own: `setStateEdits` refuses any word no
-  scope of the row's chain declares, and `Data.Org.Parser.keywordTextP`
+  cell, and `state:*empty*` is the explicit spelling for that cell alone. A
+  future meta joins the family by wearing the stars. The convention is ENFORCED
+  from two sides rather than by a rule of its own: `setStateEdits` refuses any
+  word no scope of the row's chain declares, and `Data.Org.Parser.keywordTextP`
   admits letters and underscores alone, so a starred word cannot be declared and
   therefore cannot be set — a guard against the group names inside `configEdits`
-  would be unreachable code. `Glance.Web.Filter.starless` strips ONE matched
-  asterisk pair before the two meta comparisons and nowhere else, so
-  `state:active` is an alias and `state:*TODO*` is a literal that matches
-  nothing. Evidence: `TestConfig` "what a layer may say, and what it may not",
-  `TestQuery` "Commands", `TestServe` "the last choice clears the keyword rather
-  than setting one". **test**
+  would be unreachable code. The same wall stands on the tag side without a rule
+  of its own: `Data.Org.Parser.isTagChar` has no `*`, so `add-tag` refuses
+  `*archive*` and no file can spell a tag the meta would collide with. Matching reads the stars everywhere
+  (`Glance.Web.Filter.metaOf` answers a starred value's word and `Nothing` for
+  any other), so there is no alias and no glob: `state:*TODO*` is the literal
+  badge text `*todo*`, which no cell holds. Star-blind matching survives in the
+  RENDERER's completion alone, where `arch` reaches `*archive*`. Evidence:
+  `TestFilter` "Starred metas" (per-key `*empty*`, the literal `none` and the
+  literal `archive`, the whole-tag meta), `TestConfig` "what a layer may say, and
+  what it may not", `TestQuery` "Commands", `TestServe` "the meta entry clears
+  the keyword rather than setting one", and
+  `table-view/fixtures/parity/filter-query.json`'s eight family cases. **test**
 - **KNOWN GAP (open): completion-beats-reserved is the PAGE's half, and `C-c
   C-t` is dead in the browser anyway.** The claim this entry used to carry — "a
   reserved key reaches the browser unless it completes a bound sequence, which
@@ -2345,7 +2370,7 @@ on.
   and name the keyword") / **none** (the browser's half, which no harness reaches)
 - **The value palette is the shell's own, and the filter's is still the
   renderer's.** `C-c C-t` (and `t`) raises `#prompt` over `GET /keywords`'
-  answer for the rows the command would run over, plus a `*clear*` entry. It is
+  answer for the rows the command would run over, plus a `*empty*` entry. It is
   a second overlay rather than a reuse of
   `openFilter` because that one belongs to the filter and this page may not
   reach into its chrome — the same must-not-appear list that forbids `tv-veil`
@@ -2380,12 +2405,12 @@ on.
   commits. The fallback is entered and never left — `ESC` is the one door out of
   either mode. Evidence: `TestServe` "Shell which-key" and "Shell commands".
   **test**
-- **`*clear*` answers to `DEL`, and spends no letter.** `DEL` already means
+- **`*empty*` answers to `DEL`, and spends no letter.** `DEL` already means
   take-it-off wherever this page binds one, and binding the meta to it hands the
   whole `a`–`z` pool back to the keywords — the entry a wide cycle used to lose
-  is the letter `*clear*` was holding. It is the ONE entry that keeps a key
+  is the letter `*empty*` was holding. It is the ONE entry that keeps a key
   token, since `DEL` names no position in a word to mark. In the fallback mode
-  `DEL` is the field's own text editing and `*clear*` is reached by narrowing to
+  `DEL` is the field's own text editing and `*empty*` is reached by narrowing to
   it, like every other entry. A palette with no clear in it — the tag one —
   leaves the press to nobody: the map's own `DEL` is already dead under
   `typing()`. Evidence: `TestServe` "the meta entry clears the keyword rather
@@ -2517,11 +2542,11 @@ on.
   draws `default` first, `TODO` takes `t` and `DONE` takes `d` in EVERY tree,
   whatever a narrower scope declares. `DELEGATED` sitting in a tag's or a file's
   cycle cannot claim `d` ahead of it, which the reordered chain buys for free
-  rather than by special-casing the pool. `*clear*` is OUT of the pool: it
+  rather than by special-casing the pool. `*empty*` is OUT of the pool: it
   answers to `DEL`, which is no letter, so the namespace is spent on KEYWORDS
   alone and a cycle wide enough to run it dry keeps the letter the meta used to
   take — `CANCELLED` claims `c` outright where it once shared the pool with a
-  word spelled `*clear*`. `offer` decides membership by the entry carrying a key
+  word spelled `*empty*`. `offer` decides membership by the entry carrying a key
   of its OWN (`fixed`), never by its being the meta, so the rule reads as "an
   entry with a key does not need a letter" rather than as an exception. An
   unbound entry is drawn BARE — no slot, no dot — and is reachable through `/`
@@ -2545,10 +2570,10 @@ on.
   the whole of the explanation. There is no key-token column: an entry IS its
   keyword, and a boxed letter beside it said the same thing twice while pushing
   every word rightwards. ONE entry keeps a token, and it is the one whose key
-  names no position in a word — `*clear*` answers to `DEL`. The old active-vs-done
+  names no position in a word — `*empty*` answers to `DEL`. The old active-vs-done
   hairline is the two COLUMNS now, and the hairline between two source rows is
   the row's own top border — the table's border language, where a flat list
-  needed a divider element of its own. `*clear*` spans a row at the foot in the
+  needed a divider element of its own. `*empty*` spans a row at the foot in the
   muted italic every starred meta wears, since no scope declares taking a
   keyword off. The source cell is the muted small lowercase a tag wears
   everywhere else on this page, whether it holds a tag or one of the reserved
@@ -2558,7 +2583,7 @@ on.
   table cannot draw
   for itself — `a letter sets it · / to search · ESC leaves`, and the fallback's
   own line in its own mode. Evidence: `TestServe` "Shell which-key", and
-  "the letter is marked in the word, and only *clear* wears a token", which
+  "the letter is marked in the word, and only *empty* wears a token", which
   reads the rule's colour back off the drawn element. **test**
 - **`o` follows the row, and the ANSWER decides the gesture.** `o` (and `!`,
   org-glance's other spelling) fetches `GET /links?id=` for the row at point and
@@ -2601,7 +2626,7 @@ on.
   the entry's `hay`, because a reader who remembers the host and not the wording
   has only the one. Evidence: `TestServe` "Shell open". **test**
 - **`a` is a canned VIEW, not a mode.** `org-glance-agenda` applies
-  `state:*active* -planned:none` through the door `g` uses — `applyView` writes
+  `state:*active* -planned:*empty*` through the door `g` uses — `applyView` writes
   it into the URL, drops the socket, and remounts, so the query is the renderer's
   chips and a reader can read it, edit it with `DEL`, or link it. There is no
   agenda state anywhere: no flag saying it is on, no key that leaves it, and
