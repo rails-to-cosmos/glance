@@ -2789,9 +2789,9 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
         -- No bar and no resident filter: five rows of a drawer are not something
         -- a reader narrows, and the overlay this leaves behind is never raised.
   , "        palette: true,"
-        -- The flag wash is gated on `marks' in the renderer, so the deletion
-        -- gesture costs the mark column.  Nothing here reads a mark.
-  , "        marks: true,"
+        -- Flags alone: the gutter carries the flag's edge, no checkbox is
+        -- drawn, and nothing here reads a mark.
+  , "        flags: true,"
         -- The key line under the table already names every key, once.
   , "        actionHints: false,"
   , "        flagHelp: \"d/D delete · u unflag\","
@@ -5071,11 +5071,6 @@ page head' title body = T.unlines
   -- gated on `marks' — and nothing in the panel reads a mark.  So the gutter is
   -- left standing, since it carries the flag's second channel (an inset edge
   -- the renderer draws on this cell, which is what keeps a flag readable under
-  -- the cursor), and its CHECKBOX comes off: no glyph, no pointer, and the
-  -- click falls through to the row.  Hiding the column outright would take that
-  -- edge with it at exactly the moment a reader lays a flag down.
-  , "  #mptable .tv-table td.tv-box::before{content:\"\"}"
-  , "  #mptable .tv-table td.tv-box{cursor:default;pointer-events:none}"
   , "  #sheet.raw #mprops{display:none}"
   -- The open row's two fields, laid over the row they belong to.  Absolute
   -- because the row underneath is virtualized: the mount rewrites its own rows

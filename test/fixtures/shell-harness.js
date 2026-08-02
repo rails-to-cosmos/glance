@@ -367,6 +367,7 @@ const makeMount = (host, view, options, own) => {
     cols: (view || {}).columns || [],
     held: o.initialQuery || "",
     marksOn: o.marks === true,
+    flagsOn: o.flags === undefined ? o.marks === true : o.flags === true,
     hintsOn: o.actionHints !== false,
     flagHelp: o.flagHelp || "",
     // The page size is the mount's, the way the real one takes it, so a script
@@ -1035,7 +1036,8 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     pmounts, psets, pflagged: pan ? [...pan.flags] : [],
     // And the options it was mounted with, which is where the deletion gesture
     // gets its wash and its hint from.
-    pmarks: pan ? pan.marksOn : null, phints: pan ? pan.hintsOn : null,
+    pmarks: pan ? pan.marksOn : null, pflags: pan ? pan.flagsOn : null,
+    phints: pan ? pan.hintsOn : null,
     pflagHelp: pan ? pan.flagHelp : "", ppage: pan ? pan.pageSize : null,
     // What holds the keyboard, as its tag — empty for nothing, which is the
     // state the table's own keys are live in.

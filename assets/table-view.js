@@ -160,17 +160,22 @@
  *   prints its own keymap and would otherwise print a second, disagreeing one.
  *   Presentation only: the actions still dispatch, and the default is to show
  *   them, so a consumer that says nothing sees the line it always saw.
- * - Flags ride `marks: true' — one chrome opt-in covers both state sets, since
- *   the leading box column is where either of them is read. A flag is a
- *   PENDING action (a consumer's two-press `d', say) where a mark is a
- *   standing selection, so they are separate id-keyed sets: a row can carry
- *   both, `clearMarks' leaves flags alone and `clearFlags' leaves marks alone,
- *   and a consumer that wants both gone asks for both. They survive and die
- *   together otherwise — a filter, a page, a sort or a `setRows' keeps them;
- *   the row going away, or the view, takes them.
- * - `marks: true' adds dired's row marking, and a fourth row ground with it.
- *   The chrome is a leading checkbox column — presentation like the pager, so
- *   the cells and columns a producer sends are untouched and SCHEMA.md keeps
+ * - Marks and flags are ONE mechanism instantiated twice. Both are id-keyed
+ *   sets of rows the table draws a ground for, and the mechanism answers every
+ *   question about one of them — does a row wear it, toggle it, take it off,
+ *   put it on a whole set, take it off every row, list the ids — so what is
+ *   true of one is true of the other by construction: the listing order, what
+ *   a clear leaves standing, what survives a re-derivation of the rows. They
+ *   stay two SETS because they are two QUESTIONS. A flag is a PENDING action
+ *   (a consumer's two-press `d', say) where a mark is a standing selection, so
+ *   a row can carry both, `clearMarks' leaves flags alone and `clearFlags'
+ *   leaves marks alone, and a consumer that wants both gone asks for both. The
+ *   asymmetry lives in the HANDLE, where `markAll' is offered on marks alone
+ *   and `unflagRow' on flags alone, being what only that state is used for;
+ *   the mechanism holds both.
+ * - `marks: true' adds dired's row marking, and a row ground with it. The
+ *   chrome is a leading gutter column — presentation like the pager, so the
+ *   cells and columns a producer sends are untouched and SCHEMA.md keeps
  *   calling marking renderer-local. Its header is blank, its box is org's own
  *   `[ ]'/`[X]' drawn from the row's class, and a click on it toggles that row
  *   without moving the selection. Marks are id-keyed, so they outlive
@@ -179,6 +184,13 @@
  *   with the view. One predicate gates the class, the box and the count, so
  *   without the option there is nothing to hide rather than something hidden.
  *   Why the ground is what it is: the CSS rule, `tr.tv-marked'.
+ * - `flags' is the same opt-in for the flag ground, and it DEFAULTS to `marks'
+ *   — flags shipped under that one option, so a consumer that never names this
+ *   gets the table it already had. Named, it is its own answer: `flags: true'
+ *   alone draws the gutter and the flag's inset edge in it with NO checkbox
+ *   (the box is scoped to `.tv-marking', which only `marks' puts on the root)
+ *   and the box click, being a mark toggle, does nothing there. The gutter
+ *   itself belongs to either state, so either one asks for it.
  * - Rows are virtualized. `tbody` holds the scrolled-to window plus ~15 rows of
  *   overscan, between two spacer rows standing in for the height of the rest.
  *   Rows outside the window have no DOM: drive selection with `select(id)`
@@ -368,6 +380,7 @@
  *             omnibox?: boolean,
  *             palette?: boolean,
  *             marks?: boolean,
+ *             flags?: boolean,
  *             actionHints?: boolean,
  *             flagHelp?: string,
  *             pageSize?: number,
@@ -408,6 +421,14 @@
  *             clearMarks: () => void,
  *             markedCount: () => number }} Handle
  *   What `mount' returns.
+ * @typedef {{ ids: Set<string>,
+ *             shows: (id: string) => boolean,
+ *             toggle: (id: string) => boolean,
+ *             drop: (id: string) => void,
+ *             addAll: (rows: Row[]) => number,
+ *             clear: () => void,
+ *             list: () => string[] }} RowState
+ *   One id-keyed row state — a mark or a flag — and everything done to it.
  * @typedef {{ search: string, len: number[], cells: string[] }} RowText
  *   A row's cached display data: every cell's text lowercased and joined with
  *   \x1f (free-text filtering searches it), each cell's length (column widths),
@@ -792,6 +813,8 @@
   // ---- component -----------------------------------------------------------
 
   const OVERSCAN = 15;         // rows rendered above and below the viewport
+  const SAMPLE = 40;           // non-empty cells a column's shape is read off
+  const SHAPED = 2;            // of them that have to carry the shape
   const ROW_H = 30;            // row height until a rendered row can be measured
   const CELL_PAD = 24;         // a cell's horizontal padding, both sides
   const PILL_CH = 2;           // a badge pill's ground, in characters
@@ -987,16 +1010,23 @@
    channel that no other state writes: it survives every combination, which is
    what keeps the state readable rather than merely painted. */
 .tv-table tbody tr.tv-flagged td.tv-box{box-shadow:inset 3px 0 0 var(--tv-flag)}
-/* The mark column is chrome, the way the pager is: a fixed leading box that no
-   producer sent and no width measurement sees. Blank header, org's own checkbox
-   for a cell, and the box brightens on the rows it is checked on. The glyph is
-   drawn from the row's class rather than written into the cell, so the state
-   has one home: the class the row already carries. */
+/* The gutter is chrome, the way the pager is: a fixed leading box that no
+   producer sent and no width measurement sees. It is ONE cell serving both row
+   states, so either of them asks for it — the flag's edge is drawn in it above,
+   and the checkbox below.
+
+   The checkbox is the MARKING table's alone, which is what .tv-marking on the
+   root says: a mount that flags rows without marking them gets the gutter and
+   the edge in it and no box to check, where an unconditional ::before would put
+   an inert [ ] on every row of it. Blank header, org's own checkbox for a
+   cell, and the box brightens on the rows it is checked on. The glyph is drawn
+   from the row's class rather than written into the cell, so the state has one
+   home: the class the row already carries. */
 .tv-table th.tv-box,.tv-table td.tv-box{width:3ch;color:var(--tv-muted);user-select:none}
-.tv-table td.tv-box{cursor:pointer}
-.tv-table td.tv-box::before{content:"[ ]"}
-.tv-table tbody tr.tv-marked td.tv-box{color:var(--tv-fg)}
-.tv-table tbody tr.tv-marked td.tv-box::before{content:"[X]"}
+.tv-marking .tv-table td.tv-box{cursor:pointer}
+.tv-marking .tv-table td.tv-box::before{content:"[ ]"}
+.tv-marking .tv-table tbody tr.tv-marked td.tv-box{color:var(--tv-fg)}
+.tv-marking .tv-table tbody tr.tv-marked td.tv-box::before{content:"[X]"}
 /* The selection is the row, and it crossfades in place — no overlay to keep in
    step with the rows underneath it. */
 .tv-table tbody tr,.tv-table tbody td{transition:background-color .08s ease-out,
@@ -1094,6 +1124,15 @@
     const omnibox = o.omnibox === true;
     const palette = o.palette === true;
     const marks = o.marks === true;
+    /**
+     * Whether the FLAG state is drawn. Absent it follows `marks', which is the
+     * one opt-in flags shipped under, so a consumer that never named it gets
+     * the table it already had. Named, it is its own answer: `flags: true'
+     * alone draws the gutter and the flag's edge in it with no checkbox — a
+     * consumer whose rows carry a pending action but no standing selection —
+     * and `flags: false' under `marks: true' takes the flag drawing back off.
+     */
+    const flags = o.flags === undefined ? marks : o.flags === true;
     const actionHints = o.actionHints !== false;   // absent means the legend shows
     /**
      * What to offer about a flagged row, in the consumer's own words — e.g.
@@ -1121,17 +1160,12 @@
      * @type {((token: string) => string|null)|null}
      */
     const chipLabel = typeof o.chipLabel === "function" ? o.chipLabel : null;
-    /** How many chrome cells lead a row; what a column index has to skip. */
-    const chrome = marks ? 1 : 0;
-    /** The marked ids. @type {Set<string>} */
-    const marked = new Set();
     /**
-     * The flagged ids — a pending action a consumer is about to confirm, which
-     * is a different question from a mark and so a different set. A row can
-     * carry both, and neither clears the other.
-     * @type {Set<string>}
+     * How many chrome cells lead a row; what a column index has to skip. The
+     * gutter is ONE cell serving both row states — the checkbox is drawn in it
+     * and so is the flag's edge — so either of them asks for it.
      */
-    const flagged = new Set();
+    const chrome = marks || flags ? 1 : 0;
     /** Rows per page, or 0 for the whole set at once — which is every consumer
      *  that has not asked otherwise. */
     const pageSize = Math.max(0, Math.trunc(Number(o.pageSize) || 0));
@@ -1284,6 +1318,37 @@
     let vocab = null;
 
     /**
+     * Does column I hold cells of a shape, read off up to `SAMPLE' non-empty
+     * ones? SHAPEDBY is the evidence FOR and CONTRARYTO the evidence AGAINST,
+     * asked only of the cells the first declined: `SHAPED' cells carrying the
+     * shape and none arguing against it settle it.
+     *
+     * The middle ground is the point of the pair. Asking every sampled cell to
+     * carry the shape lets one import, one hand-edited headline, one stray
+     * anywhere in the sample decide a whole column — for tags that is a corpus
+     * with no vocabulary at all, no keys, no values, no completions; for dates
+     * it is a column losing its prefix matching. So a cell that merely fails to
+     * be the shape ABSTAINS: a bare word holds no delimiter to show either way,
+     * and a stamp org spelled its own way is not prose. What argues against is a
+     * cell that could not be the shape at all — a colon arranged some other way,
+     * a sentence — which the column this is asking about would not be full of.
+     * @param {number} i
+     * @param {(s: string) => boolean} shapedBy
+     * @param {(s: string) => boolean} contraryTo
+     */
+    function sampledShape(i, shapedBy, contraryTo) {
+      let shaped = 0, contrary = 0, seen = 0;
+      for (const r of state.rows) {
+        const cell = rowText(r).cells[i];
+        if (!cell) continue;
+        if (shapedBy(cell)) shaped++;
+        else if (contraryTo(cell)) contrary++;
+        if (++seen >= SAMPLE) break;
+      }
+      return shaped >= SHAPED && !contrary;
+    }
+
+    /**
      * The multi-valued column's index, or -1. SCHEMA calls a column
      * multi-valued when its cells hold delimited value lists — org's `:a:b:'
      * being the canonical shape — so this is decided by looking at the cells
@@ -1294,32 +1359,12 @@
       if (multiAt !== undefined) return multiAt;
       const cols = columns();
       multiAt = -1;
-      // A column that says what it is settles the question; the shapes below
-      // are how the answer is guessed when nobody said.
+      // A column that says what it is settles the question; the shape below is
+      // how the answer is guessed when nobody said.
       const declared = cols.findIndex((c) => c.multi === true);
       if (declared !== -1) return (multiAt = declared);
-      for (let i = 0; i < cols.length && multiAt === -1; i++) {
-        let shaped = 0, contrary = 0, seen = 0;
-        for (const r of state.rows) {
-          const cell = rowText(r).cells[i];
-          if (!cell) continue;
-          if (ORG_TAGS.test(cell)) shaped++;
-          else if (cell.indexOf(":") !== -1) contrary++;
-          if (++seen >= 40) break;
-        }
-        // Evidence for, and evidence against — a bare word being neither.
-        // Asking every sampled cell to be a well-formed list lets one import,
-        // one hand-edited headline, one stray anywhere in the sample decide
-        // that a corpus has no tags at all, and the whole vocabulary goes with
-        // it: no tag keys, no values under them, no completions, and the raw
-        // `:a:b:' strings offered as values instead. But a cell holding a
-        // single value holds no delimiter to show, so it cannot argue either
-        // way; `tagsIn' reads it as the one value it plainly is. What does
-        // argue against is a colon arranged some other way — a time, a URL, a
-        // sentence — which no column of delimited lists would carry.
-        if (shaped >= 2 && !contrary) multiAt = i;
-      }
-      return multiAt;
+      return (multiAt = cols.findIndex((_, i) => sampledShape(
+        i, (s) => ORG_TAGS.test(s), (s) => s.indexOf(":") !== -1)));
     }
     /** @type {number|undefined} */
     let multiAt;
@@ -1356,8 +1401,19 @@
     // buttons' disabled state change afterwards, so the filter input — never
     // recreated — keeps focus and caret across every update.
 
+    // Read once. A page that asks for less motion gets neither the crossfade
+    // nor the scroll ease — the selection lands and the viewport jumps — while
+    // the coalescing, which is not motion, stays.
+    const calm = typeof matchMedia === "function"
+              && matchMedia("(prefers-reduced-motion: reduce)").matches;
+
     const root = document.createElement("div");
-    root.className = "tv-root";
+    // The whole root class in one derivation, the pairs `rowHTML' uses.
+    // `tv-marking' is what scopes the checkbox: the gutter belongs to either
+    // row state, the box in it only to a table that marks.
+    root.className = classAttr([["tv-root", true], ["tv-marking", marks],
+                                ["tv-calm", calm], ["tv-omni", omnibox && !palette],
+                                ["tv-pal", palette]]);
     container.innerHTML = "";
     container.appendChild(root);
 
@@ -1426,15 +1482,6 @@
     empty.textContent = "no rows";
     scroll.appendChild(table);
     scroll.appendChild(empty);
-    // Read once. A page that asks for less motion gets neither the crossfade
-    // nor the scroll ease — the selection lands and the viewport jumps — while
-    // the coalescing, which is not motion, stays.
-    const calm = typeof matchMedia === "function"
-              && matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (calm || omnibox || palette)
-      root.className = "tv-root" + (calm ? " tv-calm" : "")
-                     + (omnibox && !palette ? " tv-omni" : "") + (palette ? " tv-pal" : "");
-
     const hint = document.createElement("div");
     hint.className = "tv-hint";
 
@@ -1451,7 +1498,15 @@
 
     // Measured geometry and the window currently in the tbody.
     const geom = { row: ROW_H, head: ROW_H };
-    const win = { first: -1, last: -1 };
+    /**
+     * The window in the tbody: its half-open span, and the display order it was
+     * DRAWN from. `renderRows' is the only thing that writes the tbody, so the
+     * k-th data row in there is `rows[first + k]' by construction — which is
+     * how `stampSelection' gets back to the row (and the index) behind a `tr'
+     * without asking the state a second time and risking a different answer.
+     * @type {{ first: number, last: number, rows: Row[] }}
+     */
+    const win = { first: -1, last: -1, rows: [] };
     let remeasuring = false;
     /** The selected row's index in display order, or -1; what the bar reads. */
     let selAt = -1;
@@ -1559,27 +1614,15 @@
     const COULD_BE_DATE = /^[<[]?\d/;
 
     /**
-     * Does column I hold dates? Decided once per query off a sample rather than
-     * per cell, so a date column costs no regex in the filter loop. A column
-     * whose first 20 non-empty cells are ISO dates counts as one.
+     * Does column I hold dates? Weighed by `sampledShape', the way the
+     * multi-valued column is weighed: an ISO date is the evidence for, and a
+     * cell that could not be a date at all is the evidence against. Decided
+     * once per query off the sample rather than per cell, so a date column
+     * costs no regex in the filter loop.
      * @param {number} i
      */
     function dateColumn(i) {
-      let shaped = 0, contrary = 0, seen = 0;
-      for (const r of state.rows) {
-        const s = rowText(r).cells[i];
-        if (!s) continue;
-        if (DATEISH.test(s)) shaped++;
-        else if (!COULD_BE_DATE.test(s)) contrary++;
-        if (++seen >= 40) break;
-      }
-      // Weighed the way `multiColumn' weighs its own: evidence for, evidence
-      // against, and cells that are neither. A stamp org spelled its own way,
-      // or a date this parser does not quite recognise, is not a date column
-      // saying it holds prose — it abstains, and one of them must not cost the
-      // column its prefix matching. What argues against is a cell that could
-      // not be a date at all, which is what a column of sentences is full of.
-      return shaped >= 2 && !contrary;
+      return sampledShape(i, (s) => DATEISH.test(s), (s) => !COULD_BE_DATE.test(s));
     }
 
     /**
@@ -1633,39 +1676,64 @@
     }
 
     /**
-     * `KEY:V' as a row test for ONE alternative, by SCHEMA's semantics for that
-     * column's type: a field predicate reads one cell. V is lowercased and
-     * non-empty — `tokenTest' dropped the empty alternatives before this ran.
+     * The cells KEY names, by index — a column's own, or every date column for
+     * `planned', the one key `queryKeys' names that is not a column. Null is
+     * "no such key", which is a different answer from "no cells": `planned'
+     * over a page carrying no date column names NOTHING, and a predicate over
+     * nothing finds nothing, where an unknown key narrows nothing at all.
+     *
+     * A column of that name shadows the reserved key, so a producer shipping a
+     * `planned' column of its own reads it as the column it is.
+     * @param {string} key  @returns {number[]|null}
+     */
+    function fieldCells(key) {
+      const col = colByKey(key);
+      if (col) return [columns().indexOf(col)];
+      return key === PLANNED_KEY ? dateColumns() : null;
+    }
+
+    /**
+     * `KEY:V' as a row test for ONE alternative. V is lowercased and non-empty
+     * — `tokenTest' dropped the empty alternatives before this ran.
+     *
+     * ONE reading over the cells the key names: `*empty*' asks that they ALL be
+     * empty and any other value asks that ANY of them pass, each by its own
+     * column's semantics (`cellTest'). A key naming one cell is that rule with
+     * one cell in it, so `planned' is the same arm over two indices — which is
+     * why a cell that prefix-matches is a cell with something in it and the
+     * presence test is never spelled twice.
      * @param {string} key  @param {string} v  @returns {(r: Row) => boolean}
      */
     function valueTest(key, v) {
-      const col = colByKey(key);
-      // The date columns as one field. `*empty*' is the row nobody put a day
-      // on; a value is the same prefix a date column takes, asked of every one
-      // of them, and a cell that prefix-matches is a cell with something in it,
-      // so the presence test never has to be spelled twice.
-      //
-      // The only key `queryKeys' names that is not a column, so past this the
-      // token's key IS one — `parseQuery' resolves against that list, and
-      // anything else arrived as free text and left at the top.
-      if (key === PLANNED_KEY && !col) {
-        const dates = dateColumns();
-        if (v === EMPTY_META) return (r) => dates.every((i) => !rowText(r).cells[i]);
-        return (r) => dates.some((i) => rowText(r).cells[i].startsWith(v));
-      }
-      if (!col) return () => true;               // no such key: narrows nothing
-      const i = columns().indexOf(col);
+      const cells = fieldCells(key);
+      if (!cells) return () => true;             // no such key: narrows nothing
       // Asking for an empty cell is what `*empty*' is for, on every key: it is
       // the uniform meta, so it is answered before any column's own reading and
       // before a producer's. The bare word `none' this was once spelled as is
       // ordinary text now, and a cell reading `none' is found by `key:none'.
-      if (v === EMPTY_META) return (r) => rowText(r).cells[i] === "";
+      if (v === EMPTY_META) return (r) => cells.every((i) => rowText(r).cells[i] === "");
+      const tests = cells.map((i) => cellTest(i, v));
+      if (tests.length === 1) return tests[0];
+      return (r) => {
+        for (const t of tests) if (t(r)) return true;
+        return false;
+      };
+    }
+
+    /**
+     * V as a test of cell I alone, by SCHEMA's semantics for that column's
+     * type. @param {number} i  @param {string} v  @returns {(r: Row) => boolean}
+     */
+    function cellTest(i, v) {
+      const col = columns()[i];
       // A starred word on a MULTI-valued column is that WHOLE entry, where the
       // bare word is a substring of the delimited cell: `tag:*book*' is the tag
       // `book' and `tag:boo' is any tag holding those letters. Decidable here —
       // the delimiter is in the cell — so a producer and this renderer answer
       // it identically, which is what makes it a meta both sides carry rather
-      // than one the producer resolves alone.
+      // than one the producer resolves alone. A date column is never the
+      // multi-valued one, the two shapes excluding each other, so this cannot
+      // fire for a cell `planned' named.
       if (i === multiColumn() && META.test(v)) {
         const want = starless(v);
         return (r) => tagsIn(rowText(r).cells[i]).indexOf(want) !== -1;
@@ -1679,7 +1747,7 @@
       // answered here; the keyword half is what drops out, leaving an answer
       // the producer's own can only widen. `*inactive*' has no such term, an
       // empty cell not being done, and stays the literal it was.
-      if (col.type === "badge")
+      if (col && col.type === "badge")
         return v === ACTIVE_META
           ? (r) => rowText(r).cells[i] === ""
           : (r) => rowText(r).cells[i] === v;
@@ -1848,10 +1916,10 @@
       headRow.innerHTML = "";
       colEls = [];
       arrowEls = [];
-      // The mark column leads and is nobody's column: it is left out of
-      // `colEls' and `arrowEls', which stay one entry per column the view
-      // declared, so widths and sort arrows keep indexing what they always did.
-      if (marks) {
+      // The gutter leads and is nobody's column: it is left out of `colEls'
+      // and `arrowEls', which stay one entry per column the view declared, so
+      // widths and sort arrows keep indexing what they always did.
+      if (chrome) {
         colgroup.appendChild(document.createElement("col"));
         const box = document.createElement("th");
         box.className = "tv-box";      // blank: the count is the hint line's
@@ -1887,33 +1955,83 @@
     }
 
 
+    // Every class a row or a cell wears is DERIVED, in one place, as
+    // [name, on] pairs. Two things write them — `rowHTML' builds a window from
+    // scratch and `stampSelection' re-stamps the window already in the DOM —
+    // and they used to spell the derivation twice, so a state could be drawn
+    // one way when the row was built and another when it was re-stamped. The
+    // pairs feed both: the builder joins the names that are on, the stamper
+    // toggles each pair to its value, which is a no-op wherever the element
+    // already agrees.
+
     /**
-     * A row's <tr>. I is its index in the display order: zebra striping is
-     * stamped from it, since `:nth-child' sees only the window.
+     * Which cell a producer's `linked' marks: the `title' column's, that being
+     * the text a reader reads the row by. A view without that column carries no
+     * mark — the flag says the row leads somewhere and there is no other cell
+     * it would be true of. -1 for a row that leads nowhere.
+     * @param {Row} r
+     */
+    function linkedCell(r) { return r.linked ? titleColumn() : -1; }
+
+    /**
+     * The classes row R wears at display index I. Zebra striping is index-borne,
+     * since `:nth-child' sees only the window.
+     * @param {Row} r  @param {number} i  @returns {[string, boolean][]}
+     */
+    function rowClasses(r, i) {
+      return [["tv-alt", i % 2 === 1],
+              ["tv-marked", markSet.shows(r.id)],
+              ["tv-flagged", flagSet.shows(r.id)],
+              ["tv-sel", r.id === state.selected]];
+    }
+
+    /**
+     * The classes column C's cell of row R wears. LINKEDAT is `linkedCell(r)',
+     * passed in because both callers already have it for the whole row.
+     * @param {Row} r  @param {number} c  @param {number} linkedAt
+     * @returns {[string, boolean][]}
+     */
+    function cellClasses(r, c, linkedAt) {
+      const col = columns()[c], inCol = c === state.selCol;
+      return [["tv-right", !!col && col.align === "right"],
+              ["tv-colsel", inCol],
+              ["tv-cell-sel", inCol && r.id === state.selected],
+              ["tv-linked", c === linkedAt]];
+    }
+
+    /** The names that are on, as a class attribute. @param {[string, boolean][]} pairs */
+    function classAttr(pairs) {
+      let out = "";
+      for (let k = 0; k < pairs.length; k++)
+        if (pairs[k][1]) out += out ? " " + pairs[k][0] : pairs[k][0];
+      return out;
+    }
+
+    /**
+     * Put PAIRS on EL, writing only the ones that MOVED: the list is asked
+     * what it holds before it is asked to change it, so re-deriving every class
+     * of a window a held movement key never altered writes nothing at all.
+     * @param {Element} el  @param {[string, boolean][]} pairs
+     */
+    function stampClasses(el, pairs) {
+      const cl = el.classList;
+      for (let k = 0; k < pairs.length; k++)
+        if (cl.contains(pairs[k][0]) !== pairs[k][1]) cl.toggle(pairs[k][0], pairs[k][1]);
+    }
+
+    /**
+     * A row's <tr>. I is its index in the display order.
      * @param {Row} r  @param {number} i  @returns {string}
      */
     function rowHTML(r, i) {
       const cols = columns(), cs = r.cells || {};
-      const on = r.id === state.selected;
       const multi = multiColumn();
-      // A producer's `linked' marks ONE cell, the `title' column's, that being
-      // the text a reader reads the row by. A view without that column carries
-      // no mark: the flag says the row leads somewhere and there is no other
-      // cell it would be true of.
-      const linkedAt = r.linked ? titleColumn() : -1;
-      let tds = marks ? `<td class="tv-box"></td>` : "";
-      for (let c = 0; c < cols.length; c++) {
-        const inCol = c === state.selCol;
-        const cell = (cols[c].align === "right" ? "tv-right" : "")
-                   + (inCol ? " tv-colsel" : "") + (on && inCol ? " tv-cell-sel" : "")
-                   + (c === linkedAt ? " tv-linked" : "");
-        tds += `<td class="${cell}">`
+      const linkedAt = linkedCell(r);
+      let tds = chrome ? `<td class="tv-box"></td>` : "";
+      for (let c = 0; c < cols.length; c++)
+        tds += `<td class="${classAttr(cellClasses(r, c, linkedAt))}">`
              + `${cellHTML(cols[c], cs[cols[c].key], dark, c === multi)}</td>`;
-      }
-      const cls = (i % 2 ? " tv-alt" : "") + (isMarked(r.id) ? " tv-marked" : "")
-                + (isFlagged(r.id) ? " tv-flagged" : "")
-                + (on ? " tv-sel" : "");
-      return `<tr class="${cls}" data-id="${esc(r.id)}">${tds}</tr>`;
+      return `<tr class="${classAttr(rowClasses(r, i))}" data-id="${esc(r.id)}">${tds}</tr>`;
     }
 
     /** A spacer row H pixels tall, standing in for the rows outside the window. */
@@ -1942,6 +2060,7 @@
       if (!force && first === win.first && last === win.last) return;
       win.first = first;
       win.last = last;
+      win.rows = rows;
       let html = first > 0 ? padHTML(first * rowH) : "";
       for (let i = first; i < last; i++) html += rowHTML(rows[i], i);
       if (last < total) html += padHTML((total - last) * rowH);
@@ -2052,18 +2171,18 @@
       // count is of every mark, the ones a filter or a page is hiding included,
       // which is the number a bulk action would run over. Nothing marked and the
       // line is the line it has always been.
-      if (!marks) return out;
-      if (marked.size) out = `${esc(grouped(marked.size))} marked · ${out}`;
-      if (flagged.size) {
+      if (marks && markSet.ids.size)
+        out = `${esc(grouped(markSet.ids.size))} marked · ${out}`;
+      if (flags && flagSet.ids.size) {
         // With the cursor ON a flagged row the segment turns into a reminder
         // of what can be done about it. The text is the CONSUMER's whole
         // string — the keys are theirs to bind and theirs to name, and a
         // renderer inventing `d' or `u' here would be asserting a keymap it
         // does not own. Rendered in the legend's own shape: key tokens small
         // and the words between them plain.
-        const help = flagHelp && state.selected !== null && flagged.has(state.selected)
+        const help = flagHelp && state.selected !== null && flagSet.ids.has(state.selected)
           ? ` · ${flagHelpHTML}` : "";
-        out = `${esc(grouped(flagged.size))} flagged${help} · ${out}`;
+        out = `${esc(grouped(flagSet.ids.size))} flagged${help} · ${out}`;
       }
       return out;
     }
@@ -2125,134 +2244,138 @@
     }
 
     /**
-     * The row and column state the window wears — `tv-sel', `tv-marked',
-     * `tv-flagged', the selected column's `tv-colsel' and the one
-     * `tv-cell-sel' where they cross — re-derived from the state rather than
-     * rebuilt, which is what leaves the grounds something to crossfade
-     * between. One pass for all of them, since a toggle and a step arrive in
-     * the same frame, and `classList.toggle's rather than any DOM write: each
-     * is a no-op where the state already matches, so a held movement key
-     * rewrites nothing. Only the window is stamped, the header apart, which is
-     * all there is to stamp — the rows outside it have no elements.
+     * The row and column state the window wears, re-derived from the state
+     * rather than rebuilt — which is what leaves the grounds something to
+     * crossfade between. `rowClasses' and `cellClasses' answer WHAT the classes
+     * are, the same pairs `rowHTML' builds the window from, and this walks the
+     * window toggling each to its value: a no-op wherever the element already
+     * agrees, so a held movement key rewrites nothing and the stripe, the
+     * alignment and the link mark cost their comparison and no DOM write.
+     *
+     * One pass for all of them, since a toggle and a step arrive in the same
+     * frame. Only the window is stamped, the header apart, which is all there
+     * is to stamp — the rows outside it have no elements. The row and the index
+     * behind a `tr' come out of `win', which holds the order the tbody was
+     * DRAWN from: asking `paged()' again would be asking the state a second
+     * time and getting an answer the DOM had never been told about.
      */
     function stampSelection() {
-      const id = state.selected;
-      for (let i = 0; i < tbody.children.length; i++) {
-        const tr = /** @type {HTMLElement} */ (tbody.children[i]);
-        const rowId = tr.dataset.id;
-        if (rowId === undefined) continue;
-        const on = id !== null && rowId === id;
-        tr.classList.toggle("tv-sel", on);
-        tr.classList.toggle("tv-marked", isMarked(rowId));
-        tr.classList.toggle("tv-flagged", isFlagged(rowId));
+      const trs = tbody.children;
+      let k = 0;
+      for (let i = 0; i < trs.length; i++) {
+        const tr = /** @type {HTMLElement} */ (trs[i]);
+        if (tr.dataset.id === undefined) continue;      // a spacer, not a row
+        const at = win.first + k++, r = win.rows[at];
+        stampClasses(tr, rowClasses(r, at));
         // The chrome cell is nobody's column, so the column a cell selection
         // names is counted past it.
-        for (let c = chrome; c < tr.children.length; c++) {
-          const inCol = c - chrome === state.selCol;
-          tr.children[c].classList.toggle("tv-colsel", inCol);
-          tr.children[c].classList.toggle("tv-cell-sel", on && inCol);
-        }
+        const linkedAt = linkedCell(r), tds = tr.children;
+        for (let c = chrome; c < tds.length; c++)
+          stampClasses(tds[c], cellClasses(r, c - chrome, linkedAt));
       }
       // A column highlight that stopped at the header would read as broken, and
       // the header is not rebuilt per window, so it is stamped here rather than
       // in `rowHTML'. A whole-row selection has no column and clears both.
-      for (let c = chrome; c < headRow.children.length; c++)
-        headRow.children[c].classList.toggle("tv-colsel", c - chrome === state.selCol);
+      const ths = headRow.children;
+      for (let c = chrome; c < ths.length; c++)
+        ths[c].classList.toggle("tv-colsel", c - chrome === state.selCol);
     }
 
 
-    // ---- marks -------------------------------------------------------------
-    // Dired's, and kept the way dired keeps them: a set of ids that owes the
+    // ---- row states --------------------------------------------------------
+    // Dired's marks, and dired's flags beside them: a set of ids that owes the
     // rows nothing. A row can be re-sent, re-sorted, filtered away or paged past
     // and its mark is still the same entry in the same set — which is the whole
-    // reason marking is keyed by `id' and not by a row object or an index.
+    // reason either state is keyed by `id' and not by a row object or an index.
+    //
+    // The two are ONE mechanism instantiated twice, so a question answered for
+    // marks is answered the same way for flags: what a toggle returns, what
+    // `getMarked' and `getFlagged' order by, what a clear leaves standing, what
+    // survives a re-derivation of the rows. They stay two SETS because they are
+    // two questions — a flag is a PENDING action a consumer is about to confirm
+    // where a mark is a standing selection — so a row can carry both and
+    // neither clear touches the other.
 
     /**
-     * Does ID wear a mark the table is drawing? One predicate for the class,
-     * the box and the count, so the option gates all three together: without
-     * `marks' the chrome is not merely hidden, there is nothing to hide.
-     * @param {string} id
+     * A set of row ids the table draws a state for. DRAWN says whether this
+     * table draws it at all: it gates the class, the chrome and the count
+     * together, so without the option there is nothing to hide rather than
+     * something hidden. The set itself fills either way, which is what lets a
+     * consumer read the ids back off a table that paints none of them.
+     * @param {boolean} drawn  @returns {RowState}
      */
-    function isMarked(id) { return marks && marked.has(id); }
-
-    /** Whether ID is flagged, the chrome being opt-in the same way. */
-    function isFlagged(id) { return marks && flagged.has(id); }
-
-    /** Flag ID, or unflag it. @param {string} id  @returns {boolean} its new state */
-    function flagRow(id) {
-      const on = !flagged.has(id);
-      if (on) flagged.add(id); else flagged.delete(id);
-      paintMarks();
-      return on;
+    function rowState(drawn) {
+      /** @type {Set<string>} */
+      const ids = new Set();
+      return {
+        ids,
+        /** Does ID wear this state, as the table draws it? @param {string} id */
+        shows(id) { return drawn && ids.has(id); },
+        /** Put the state on ID or take it off.
+         *  @param {string} id  @returns {boolean} the state it landed in */
+        toggle(id) {
+          const on = !ids.has(id);
+          if (on) ids.add(id); else ids.delete(id);
+          paintMarks();
+          return on;
+        },
+        /** Take it off ID, whether or not it was there. @param {string} id */
+        drop(id) { if (ids.delete(id)) paintMarks(); },
+        /**
+         * Put it on every row of ROWS. Idempotent: a row already carrying it
+         * stays, so running this twice is running it once.
+         * @param {Row[]} rows  @returns {number} how many rows carry it after
+         */
+        addAll(rows) {
+          const before = ids.size;
+          for (const r of rows) ids.add(r.id);
+          if (ids.size !== before) paintMarks();
+          return ids.size;
+        },
+        /** Take it off every row. The other state is a different question and
+         *  is left standing. */
+        clear() {
+          if (!ids.size) return;
+          ids.clear();
+          paintMarks();
+        },
+        /**
+         * The ids, in the order a reader would read them off: the ones on show,
+         * in display order, then the ones a filter or another page is hiding,
+         * in the order they were laid down. Stable either way — a bulk action
+         * over this runs in the same order twice.
+         * @returns {string[]}
+         */
+        list() {
+          const out = shownRows().filter((r) => ids.has(r.id)).map((r) => r.id);
+          const shown = new Set(out);
+          for (const id of ids) if (!shown.has(id)) out.push(id);
+          return out;
+        },
+      };
     }
 
-    /** Take the flag off ID, whether or not it had one. @param {string} id */
-    function unflagRow(id) {
-      if (flagged.delete(id)) paintMarks();
-    }
-
-    /** Take every flag off. Marks are a different question and are left alone. */
-    function clearFlags() {
-      if (!flagged.size) return;
-      flagged.clear();
-      paintMarks();
-    }
-
-    /**
-     * The flagged ids, read the way `getMarked' reads its own: the ones on
-     * show in display order, then the ones a filter or another page is hiding,
-     * in the order they were flagged.
-     * @returns {string[]}
-     */
-    function getFlagged() {
-      const out = shownRows().filter((r) => flagged.has(r.id)).map((r) => r.id);
-      const shown = new Set(out);
-      for (const id of flagged) if (!shown.has(id)) out.push(id);
-      return out;
-    }
-
-    /** Mark ID, or unmark it. @param {string} id  @returns {boolean} its new state */
-    function toggleMark(id) {
-      const on = !marked.has(id);
-      if (on) marked.add(id); else marked.delete(id);
-      paintMarks();
-      return on;
-    }
+    const markSet = rowState(marks);
+    const flagSet = rowState(flags);
 
     /**
      * Mark every row of the CURRENT FILTERED SET — all of it, not the page on
      * show, since a filter is what a reader narrowed to and the page is only
      * how much of it fits. With no filter that is every row. Idempotent: a row
      * already marked stays marked, so running it twice is running it once.
+     *
+     * `addAll' is the MECHANISM's and both states hold it; this is where the
+     * HANDLE offers it, on marks alone. `unflagRow' is `drop', offered on flags
+     * alone for the same reason: taking a whole set down at once is what a
+     * STANDING selection is for, and a pending action is spent on the rows it
+     * was pending over one at a time. Completing either pair is one line —
+     * neither is asked for, so the handle offers what the two states are used
+     * for rather than a symmetric surface nobody calls.
      * @returns {number} how many rows carry a mark afterwards
      */
     function markAll() {
-      if (!marks) return 0;                     // no mark column, nothing to mark
-      const before = marked.size;
-      for (const r of ordered()) marked.add(r.id);
-      if (marked.size !== before) paintMarks();
-      return marked.size;
-    }
-
-    /** Take every mark off. */
-    function clearMarks() {
-      if (!marked.size) return;
-      marked.clear();
-      paintMarks();
-    }
-
-    /**
-     * The marked ids, in the order a reader would read them off: the ones on
-     * show, in display order, then the ones a filter or another page is hiding,
-     * in the order they were marked. Stable either way — a bulk action over this
-     * runs in the same order twice.
-     * @returns {string[]}
-     */
-    function getMarked() {
-      const out = shownRows().filter((r) => marked.has(r.id)).map((r) => r.id);
-      const shown = new Set(out);
-      for (const id of marked) if (!shown.has(id)) out.push(id);
-      return out;
+      // No mark column, nothing to mark.
+      return marks ? markSet.addAll(ordered()) : 0;
     }
 
     /**
@@ -2616,7 +2739,7 @@
       // choice about a row and says nothing about where the cursor is, so
       // checking one leaves the cursor where the reader put it.
       if (onBox(t)) {
-        if (tr.dataset.id !== undefined) toggleMark(tr.dataset.id);
+        if (tr.dataset.id !== undefined) markSet.toggle(tr.dataset.id);
         return;
       }
       setSelected(tr.dataset.id ?? null,
@@ -3466,8 +3589,8 @@
         state.selected = null;
         state.selCol = null;
         state.filter = "";
-        marked.clear();          // a different view; these were about the last one
-        flagged.clear();
+        markSet.ids.clear();     // a different view; these were about the last one
+        flagSet.ids.clear();
         crumbs = [];             // and the trail was a path through it
         chips = [];
         input.value = "";
@@ -3516,8 +3639,8 @@
       /** @param {string} id */
       deleteRow(id) {
         state.rows = state.rows.filter((r) => r.id !== id);
-        marked.delete(id);       // the row is gone; a mark on it would outlive it
-        flagged.delete(id);
+        markSet.ids.delete(id);  // the row is gone; a mark on it would outlive it
+        flagSet.ids.delete(id);
         texts.delete(id);
         dropDomains();
         if (sorted) unplace(sorted, id);
@@ -3548,8 +3671,8 @@
             const at = gone ? store(gone) : -1;
             if (at !== -1) {
               texts.delete(gone.id);
-              marked.delete(gone.id);      // as `deleteRow': the row is gone
-              flagged.delete(gone.id);
+              markSet.ids.delete(gone.id);  // as `deleteRow': the row is gone
+              flagSet.ids.delete(gone.id);
               state.rows.splice(at, 1);
             }
           }
@@ -3647,18 +3770,28 @@
        * @returns {{page: number, pages: number, from: number, to: number, total: number}}
        */
       pageInfo,
-      toggleMark,
+      // The two row states, over one mechanism: a toggle, a listing, a clear
+      // and a count each, plus the one operation apiece that only its own
+      // state is used for.
+      /** Mark ID, or unmark it. @param {string} id  @returns {boolean} its new state */
+      toggleMark(id) { return markSet.toggle(id); },
       markAll,
-      flagRow,
-      unflagRow,
-      getFlagged,
-      clearFlags,
-      /** How many rows are flagged, the hidden ones counted. @returns {number} */
-      flaggedCount() { return flagged.size; },
-      getMarked,
-      clearMarks,
+      /** Take every mark off. Flags are a different question and stay. */
+      clearMarks() { markSet.clear(); },
+      /** The marked ids: those on show first, then the rest. @returns {string[]} */
+      getMarked() { return markSet.list(); },
       /** How many rows are marked, the hidden ones counted. @returns {number} */
-      markedCount() { return marked.size; },
+      markedCount() { return markSet.ids.size; },
+      /** Flag ID, or unflag it. @param {string} id  @returns {boolean} its new state */
+      flagRow(id) { return flagSet.toggle(id); },
+      /** Take the flag off ID, whether or not it had one. @param {string} id */
+      unflagRow(id) { flagSet.drop(id); },
+      /** Take every flag off. Marks are a different question and stay. */
+      clearFlags() { flagSet.clear(); },
+      /** The flagged ids, ordered like `getMarked'. @returns {string[]} */
+      getFlagged() { return flagSet.list(); },
+      /** How many rows are flagged, the hidden ones counted. @returns {number} */
+      flaggedCount() { return flagSet.ids.size; },
     };
   }
 

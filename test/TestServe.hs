@@ -2391,14 +2391,17 @@ sheetSpec shell = testGroup "Shell sheet"
 
     -- THE PANEL IS A MOUNT, and this is what that buys: the rows the reader
     -- moves over are the renderer's rows, the cursor is the renderer's
-    -- selection, and this page keeps no copy of either.  The mark column is the
-    -- price — the flag wash is gated on it — and the hint line is off, since the
-    -- key line under the table names every key once.
+    -- selection, and this page keeps no copy of either.  The
+    -- flag ground is its own opt-in now (flags: true, no mark column drawn),
+    -- and the hint line is off, since the key line under the table names every
+    -- key once.
   , testCase "the panel is a table-view mount of its own" $
       bootOf shell "" 500 "Enter" "" $ \answer -> do
         assertEqual "one panel mount" 1 =<< intAt "pmounts" answer
-        assertEqual "asked for marks, which is what the flag wash rides on"
-                    True =<< boolAt "pmarks" answer
+        assertEqual "asked for flags alone — the gutter without the checkbox"
+                    True =<< boolAt "pflags" answer
+        assertEqual "and never for marks (nothing here reads one)"
+                    False =<< boolAt "pmarks" answer
         assertEqual "and not for the renderer's own legend" False
                     =<< boolAt "phints" answer
         assertEqual "naming the two keys a flagged row answers to"
