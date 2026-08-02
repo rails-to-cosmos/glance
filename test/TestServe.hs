@@ -3407,7 +3407,13 @@ shellGlue =
       [ "append(\"ws\", \"warn\", `disconnected · retrying in ${Math.round(backoff / 1000)}s`)"
       , "append(\"boot\", \"info\", `indexing … ${b.elapsed}s"
       , "append(\"ws\", \"error\", `load failed: ${e.message}`)"
-      , "append(\"sync\", \"info\", \"closed without writing — the file is as it was\")"
+      -- A sheet closing on trouble says so under its OWN scope, which is the
+      -- one thing the shared ladder takes from the sheet it is closing.
+      , "append(s.scope, \"info\", s.closed);"
+      , "scope: \"sync\", state: \"synced\","
+      , "closed: \"closed without writing — the file is as it was\","
+      , "scope: \"config\", state: \"synced\","
+      , "closed: \"settings closed — the files are as they were\","
       , "filter parity divergence — asset/daemon version skew"
       -- The boot line is a line like any other: the strip opens holding it and
       -- nothing takes it away, so the page's first second is still readable an
@@ -5925,6 +5931,16 @@ archiveViewSpec = testGroup "GET /headlines and the archive"
       assertEqual "X-Glance-Archived" (Just "0") (header "X-Glance-Archived" r)
       assertEqual "and every row is served" (Just "6") (header "X-Glance-Total" r)
 
+    -- And naming the meta there costs nothing: with the tag nowhere in the
+    -- tree there is no exclusion to lift, so the query is the ordinary tags
+    -- predicate it spells and answers with the rows carrying that whole tag,
+    -- which is none.  The vocabulary is the exclusion's own half of the
+    -- question ('Glance.Web.Filter.namesArchive' asks the query's).
+  , testCase "and naming the meta against it lifts nothing" $ do
+      r <- get assetsDir "/headlines?q=tag%3A*archive*"
+      assertEqual "no row carries the tag" (Just "0") (header "X-Glance-Total" r)
+      assertEqual "and none was withheld" (Just "0") (header "X-Glance-Archived" r)
+
   , testCase "the exclusion runs before the page, like the filter" $
       withArchived $ \a -> do
         r <- getFrom a "/headlines?limit=1"
@@ -6021,10 +6037,14 @@ pageSpec shell = testGroup "GET /"
             [ "const dirty = () => editing !== null"
             , "&& (el(\"mtext\").value !== base"
             , "|| (!raw && edited() !== baseProps));"
-            , "if (!dirty()) { shut(); return; }"
-            , "flush(editing.digest).then((ok) => ok && shut());"
+            -- The close ladder is the SHEET's rather than this sheet's: one
+            -- pristine/dirty/troubled rule over whichever of the two is up, and
+            -- the subtree sheet's entry is where its own flush is pinned.
+            , "if (!s.dirty()) { s.shut(); return; }"
+            , "if (s.state !== \"syncing\") s.flush().then((ok) => ok && s.shut());"
+            , "flush: () => flush(editing.digest),"
             -- The backdrop is the mouse's ESC.
-            , "if (e.target === el(\"modal\")) leave()"
+            , "if (e.target === el(id)) leaveSheet();"
             -- The receipt chains: the 200's digest is the next flush's lock, and
             -- both baselines move to what was actually sent.
             , "h.digest = a.body.digest;"
@@ -6033,21 +6053,27 @@ pageSpec shell = testGroup "GET /"
             -- A conflict keeps the sheet open and names the two keys.
             , "if (a.status === 409 && a.body.reason !== \"planning\") sync(\"conflict\");"
             , "conflict — C-x C-s overwrite · ESC discard"
-            , "if (troubled()) {"
-            , "append(\"sync\", \"info\", \"closed without writing — the file is as it was\");"
+            , "if (s.state === \"conflict\" || s.state === \"error\") {"
+            , "append(s.scope, \"info\", s.closed);"
+            , "closed: \"closed without writing — the file is as it was\","
             -- And a tab closing on an edited sheet still owes the file.
             , "addEventListener(\"beforeunload\""
             , "post(editing.id, editing.digest, asked(), { keepalive: true })" ] b
-      -- One word carries the sheet's state, `sync' is its only writer, and the
-      -- states that wait for a key say which key.  No buttons to reach them with.
+      -- One word carries a sheet's state, `note' is its only writer, and the
+      -- states that wait for a key say which key.  No buttons to reach them
+      -- with.  The retry line is one constant: three copies of it were three
+      -- chances for the header to say a key that is not bound.
       holdsAll "sync status"
             [ "synced: \"synced\"", "syncing: \"syncing…\"", "id=\"mnote\""
-            , "error: \"error — C-x C-s retry · ESC discard\" };"
-            , "const troubled = () => state === \"conflict\" || state === \"error\";"
-            , "const flushing = () => state === \"syncing\";"
-            , "function sync(next, message) {", "state = next;" ] b
-      -- Nothing else writes the word, so the header cannot disagree with it.
-      assertEqual "sync is the only writer" 1 (T.count "      state = next;" b)
+            , "const RETRY = \" — C-x C-s retry · ESC discard\";"
+            , "error: \"error\" + RETRY };"
+            , "function note(s, next, message) {", "s.state = next;"
+            , "const sync = (next, message) => note(subtreeSheet, next, message);" ] b
+      -- Nothing else writes the word, so no header can disagree with its own
+      -- sheet — one writer over BOTH of them now.
+      assertEqual "note is the only writer" 1 (T.count "      s.state = next;" b)
+      assertEqual "and the retry line is spelled once" 1
+                  (T.count " — C-x C-s retry · ESC discard" b)
       holdsNone "a sheet button"
         [ "id=\"msave\"", "id=\"mcancel\"", "id=\"mredo\"", "id=\"mfoot\"", "Re-materialize" ] b
 

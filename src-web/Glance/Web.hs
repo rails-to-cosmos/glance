@@ -319,56 +319,69 @@ compressed = gzip defaultGzipSettings { gzipFiles = GzipCompress }
 httpApp :: ServeOptions -> Hub -> Application
 httpApp opts hub request respond = route >>= respond
   where
-    method  = requestMethod request
-    reading = method `elem` [methodGet, methodHead]
+    -- HEAD is GET's, once and explicitly: warp drops the body, so every route
+    -- that answers a GET answers a HEAD with it and no entry says so twice.
+    wanted | requestMethod request == methodHead = methodGet
+           | otherwise                           = requestMethod request
     -- The named routes: the path, whether the answer comes out of the store —
     -- which is what makes it a 503 while the walk runs, whatever the method —
-    -- and the handler.  Everything else is an asset name or a miss.
+    -- the METHODS it takes with the handler for each, and how it spells a 405.
+    -- The methods are the table's, so a route that takes a write says so here
+    -- rather than in a guard of its own, and the refusal sentence is read off
+    -- the same list ('takes').  Everything else is an asset name or a miss.
     named =
-      [ ([],            False, readOnly (shellPage opts hub))
-      , (["headlines"], True,  readOnly (headlines opts hub request))
-      , (["headline"],  True,  headline)
-      , (["command"],   True,  commandRoute)
-      , (["config"],    True,  configRoute)
-      , (["keywords"],  True,  readOnly (keywordsView hub request))
-      , (["links"],     True,  readOnly (linksView hub (queryId request)))
-      , (["tags"],      True,  readOnly (tagsView hub request))
-      , (["ws"],        True,  readOnly (pure (plain status400 wsHint)))
+      [ ([],            False, textRefusal, [(methodGet, shellPage opts hub)])
+      , (["headlines"], True,  textRefusal, [(methodGet, headlines opts hub request)])
+      -- @/headline@ is the one read that also writes: materialize a subtree,
+      -- and commit it back.
+      , (["headline"],  True,  jsonRefusal,
+          [ (methodGet, materialize hub (queryId request))
+          , (methodPost, commit hub (queryId request) request) ])
+      -- @/command@ writes and only writes: there is nothing to read back, since
+      -- the rows a command moved arrive over the socket like any other edit.
+      , (["command"],   True,  jsonRefusal, [(methodPost, runCommand opts hub request)])
+      -- @/config@ is the settings sheet's pair, and reads and writes like
+      -- @/headline@: the layers with their digests, and one of them back.
+      , (["config"],    True,  jsonRefusal,
+          [ (methodGet, configView opts hub)
+          , (methodPost, configWrite opts hub request) ])
+      , (["keywords"],  True,  textRefusal, [(methodGet, keywordsView hub request)])
+      , (["links"],     True,  textRefusal, [(methodGet, linksView hub (queryId request))])
+      , (["tags"],      True,  textRefusal, [(methodGet, tagsView hub request)])
+      , (["ws"],        True,  textRefusal, [(methodGet, pure (plain status400 wsHint))])
       ]
-    route = case [ (needs, act) | (path, needs, act) <- named, path == pathInfo request ] of
-      ((needs, act) : _) -> do
+    route = case [ r | r@(path, _, _, _) <- named, path == pathInfo request ] of
+      ((path, needs, refuse, methods) : _) -> do
         load <- readTVarIO (hubLoad hub)
         case load of
           Loading since | needs -> indexing since
-          _ready                -> act
+          _ready                -> fromMaybe (pure (refuse (takes path methods)))
+                                             (lookup wanted methods)
       _noSuchRoute -> fallback
-    -- @/headline@ is the one route that writes; a write anywhere else is a 405
-    -- naming it.
-    headline | reading              = materialize hub (queryId request)
-             | method == methodPost = commit hub (queryId request) request
-             | otherwise            = pure (jsonError status405 "/headline takes GET and POST")
-    -- @/command@ writes and only writes: there is nothing to read back, since
-    -- the rows a command moved arrive over the socket like any other edit.
-    commandRoute | method == methodPost = runCommand opts hub request
-                 | otherwise            = pure (jsonError status405 "/command takes POST")
-    -- @/config@ is the settings sheet's pair, and reads and writes like
-    -- @/headline@: the layers with their digests, and one of them back.
-    configRoute | reading              = configView opts hub
-                | method == methodPost = configWrite opts hub request
-                | otherwise            = pure (jsonError status405 "/config takes GET and POST")
-    readOnly act | reading   = act
-                 | otherwise = pure (plain status405 writeHint)
+    -- What a route takes, out of the entry's own method names: a route that
+    -- grows one says so with no sentence to keep in step.  HEAD is not among
+    -- them — it is GET's answer rather than a method a handler declares.
+    takes path methods = "/" <> T.intercalate "/" path <> " takes "
+                           <> T.intercalate " and " [ TE.decodeUtf8 m | (m, _act) <- methods ]
+    -- Two ways to spell a refusal, and which one is the route's own business:
+    -- a route a client reads JSON off answers in JSON, naming its own methods,
+    -- and a route a browser lands on answers in text, pointing at where a write
+    -- goes instead of at what it does not take.
+    jsonRefusal = jsonError status405
+    textRefusal = const (plain status405 writeHint)
     -- Every one-segment path lands on the assets directory, so the miss below
     -- it doubles as the route list.
-    fallback = readOnly $ case pathInfo request of
-      [name] | safeName name -> asset opts (T.unpack name)
-      _other                 -> pure (plain status404 notFound)
+    fallback
+      | wanted /= methodGet = pure (plain status405 writeHint)
+      | otherwise = case pathInfo request of
+          [name] | safeName name -> asset opts (T.unpack name)
+          _other                 -> pure (plain status404 notFound)
     wsHint    = "/ws is a websocket endpoint; connect with Upgrade: websocket"
     writeHint = "method not allowed; POST /headline?id=… and POST /command write"
     -- Derived from the table above rather than spelled beside it, so a route
     -- added there cannot go missing here.
     notFound  = "not found: "
-                  <> T.intercalate ", " [ "/" <> T.intercalate "/" p | (p, _, _) <- named ]
+                  <> T.intercalate ", " [ "/" <> T.intercalate "/" p | (p, _, _, _) <- named ]
                   <> ", or an asset name"
 
 -- | The answer a store route gives while the startup walk is still running: a
@@ -457,11 +470,6 @@ headlines opts hub request = case pageParams request of
       then pure (responseLBS status304 (cacheHeaders tag) "")
       else do
         let qr      = storeResult st
-            -- The whole store's tags, filtered set or not: the exclusion below
-            -- reads them twice — for whether the tree has anything archived at
-            -- all, and for whether the query said so — and a vocabulary cut
-            -- down to the answer could not say either.
-            vocab   = storeTags st
             -- `ref:' reads the link graph, so the query is matched against an
             -- environment carrying the store's rows.  They are the id-resolved
             -- ones the answer is drawn from, which is what makes a reference
@@ -470,9 +478,10 @@ headlines opts hub request = case pageParams request of
             asked   = filter (matchesFilter env q) (qrRecords qr)
             matched = if hiding then filter (not . archived) asked else asked
             -- A tree with nothing archived in it pays no pass over the answer:
-            -- the vocabulary already knows whether the tag is anywhere, and
-            -- without it the query could not have named the key either.
-            hiding  = archiveKey `elem` vocab && not (namesArchive vocab q)
+            -- the WHOLE store's tags say whether the tag is anywhere, filtered
+            -- set or not.  The query's half is its own ('namesArchive'), and it
+            -- is asked second because the vocabulary is the cheaper refusal.
+            hiding  = archiveKey `elem` storeTags st && not (namesArchive q)
             hidden  = length asked - length matched
             total   = length matched
             shown   = maybe matched
@@ -1036,10 +1045,15 @@ parseConfigWrite raw = first (("body: " <>) . T.pack) $ do
 
 -- Commands
 
--- | What a command request asks for: a name, the rows it names, its arguments,
--- and any digests the client wants the write pinned to.
+-- | What a command request asks for: the command its name resolved to, the rows
+-- it names, its arguments, and any digests the client wants the write pinned to.
+--
+-- A 'Command' cannot be built without its 'CommandSpec' ('parseCommand'), which
+-- is what puts the unknown-name refusal ahead of everything else: what reaches
+-- the planner is a command this server implements, and the NAME has no reader
+-- left past the lookup that resolved it.
 data Command = Command
-  { cmdName    :: !Text
+  { cmdSpec    :: !CommandSpec      -- ^ its entry in 'commands'.
   , cmdIds     :: ![Text]           -- ^ in the order named, deduplicated; empty for @capture@.
   , cmdArgs    :: !Args             -- ^ whatever @args@ carried.
   , cmdDigests :: !(Map Text Text)  -- ^ id to the digest the client holds for its file.
@@ -1072,26 +1086,84 @@ data FilePlan = FilePlan
   , fpRows   :: ![(Text, [(Span, Text)])]  -- ^ row id, and the spans it moves.
   }
 
+-- | The span edits a command asks for on ONE row, under the store's config and
+-- the timestamp the request resolved to ('resolveDate').  A refusal here is the
+-- WHOLE request's, since half a write over a marked set is worse than none of
+-- one.
+type RowEdits = ConfigLayers -> Maybe Text -> Args -> HeadlineRecord
+              -> Either Text [(Span, Text)]
+
+-- | One command: what its @args@ owe, whether its date is resolved against the
+-- server's today, and what it does to a row.  'Nothing' for the edits is the
+-- command that names no rows — it MAKES one, so there is no row function to
+-- hold and no ids rule to apply.
+data CommandSpec = CommandSpec
+  { csArgs  :: Args -> Maybe Text  -- ^ why the request's shape is refused, where it is.
+  , csDated :: Bool                -- ^ its @date@ is read against today, once per request.
+  , csEdits :: Maybe RowEdits      -- ^ what it does to each named row.
+  }
+
 -- | The commands this route implements, which is also the whole of what @args@
 -- can mean: @set-state@ takes @{"keyword": "DONE"}@ or @{"keyword": null}@,
 -- @set-planning@ takes @{"keyword": "SCHEDULED", "date": "+3d"}@ or a null
 -- date, @capture@ takes @{"text": "TODO Buy milk :errands:"}@, @add-tag@ and
 -- @remove-tag@ take @{"tag": "work"}@, and @archive@ takes nothing.
+--
+-- ONE table, so a command is one entry rather than a name spelled into a list,
+-- two guards and a case arm: 'commandNames' is its keys, 'parseCommand' refuses
+-- a name it does not carry and asks the entry's own 'csArgs' for the rest, and
+-- 'runCommand' reads the edits off the entry the name resolved to.  A lookup
+-- past the parse cannot miss, which is what leaves no arm for a command that is
+-- not there.
+commands :: [(Text, CommandSpec)]
+commands =
+  [ ("add-tag", CommandSpec (wantsTag "add-tag") False
+      (Just (\_cfg _stamp args r -> Right (addTagEdits (tagOf args) r))))
+    -- @archive@ is 'addTagEdits' at a fixed name, and it takes no @tag@ of its
+    -- own: the name is org's and a client cannot aim it elsewhere.  Idempotent,
+    -- so a row already tagged costs no edit and still answers @ok@.
+  , ("archive", CommandSpec (const Nothing) False
+      (Just (\_cfg _stamp _args r -> Right (archiveEdits r))))
+  , ("capture", CommandSpec wantsText False Nothing)
+  , ("remove-tag", CommandSpec (wantsTag "remove-tag") False
+      (Just (\_cfg _stamp args r -> Right (removeTagEdits (tagOf args) r))))
+    -- The keyword is there and the date has been resolved: 'csArgs' refuses a
+    -- @set-planning@ without either, so neither can refuse per row.
+  , ("set-planning", CommandSpec wantsPlanning True
+      (Just (\_cfg stamp args r ->
+               setPlanningEdits (fromMaybe "" (join (agKeyword args))) stamp r)))
+  , ("set-state", CommandSpec wantsState False
+      (Just (\cfg _stamp args r -> setStateEdits cfg (join (agKeyword args)) r)))
+  ]
+  where
+    tagOf = fromMaybe "" . agTag
+    -- The one command whose keyword may be NULL: that is how a state comes off,
+    -- so what it owes is the FIELD rather than a value ('Args').
+    wantsState args
+      | Nothing <- agKeyword args =
+          Just "set-state wants args {\"keyword\": \"DONE\"}, or a null keyword to clear it"
+      | otherwise = Nothing
+    wantsPlanning args
+      | Nothing <- join (agKeyword args) =
+          Just "set-planning wants args {\"keyword\": \"SCHEDULED\", \"date\": \"+3d\"}"
+      | Nothing <- agDate args =
+          Just "set-planning wants a date, or a null one to take the entry off"
+      | otherwise = Nothing
+    wantsText args
+      | Nothing <- agText args =
+          Just "capture wants args {\"text\": \"TODO Buy milk :errands:\"}"
+      | otherwise = Nothing
+    -- The charset is a property of the STRING, so it is refused here with the
+    -- rest of the request's shape rather than once per row: a word that is not
+    -- a tag is not a tag for any of them.
+    wantsTag name args = case agTag args of
+      Nothing   -> Just (name <> " wants args {\"tag\": \"work\"}")
+      Just word -> either Just (const Nothing) (tagText word)
+
+-- | The names 'commands' carries, in the order it carries them — which is the
+-- order a refusal lists them in.
 commandNames :: [Text]
-commandNames = ["add-tag", "archive", "capture", "remove-tag", "set-planning", "set-state"]
-
--- | The two commands that move ONE tag, which is the whole of what they take.
--- Named because three refusals ask the same question of a request — is there a
--- @tag@, and is it one — and because @archive@ is 'addTagEdits' at a fixed name
--- and must not be reachable through this arg.
-tagCommands :: [Text]
-tagCommands = ["add-tag", "remove-tag"]
-
--- | The one command that names no rows: it MAKES one.  Everything else here is
--- an edit to headlines a client can point at, and this is the insertion the
--- other three do not need.
-rowlessCommand :: Text
-rowlessCommand = "capture"
+commandNames = map fst commands
 
 -- | @POST \/command@ with body @{"name": …, "ids": […], "args": {…}}@: a
 -- structured write over the rows the client names.  @"id"@ is accepted for an
@@ -1133,24 +1205,29 @@ runCommand opts hub request = do
     Nothing  -> pure (jsonError status413 tooBig)
     Just raw -> case parseCommand raw of
       Left why -> pure (jsonError status400 why)
-      Right cmd
-        | cmdName cmd == rowlessCommand -> captureInto opts st cmd
+      -- The one command with no row function makes a row rather than editing
+      -- one, and the 'Maybe' is destructured HERE, once: what goes down to the
+      -- planner is the edits themselves, so nothing below has an arm for a
+      -- command that edits nothing.
+      Right cmd -> case csEdits (cmdSpec cmd) of
+        Nothing -> captureInto opts st cmd
         -- The clock is read ONCE per request, ahead of any row, so a marked set
         -- crossing midnight cannot land on two days.  Everything that can refuse
         -- is then decided before a file is opened, so what is left is either the
         -- 400 or the IO that writes.
-        | otherwise -> do
-            stamp <- resolveDate cmd
-            either (pure . jsonError status400) id (stamp >>= \at -> overRows st at cmd)
+        Just edits -> do
+          stamp <- resolveDate cmd
+          either (pure . jsonError status400) id
+                 (stamp >>= \at -> overRows st at edits cmd)
   where
     tooBig = "body over " <> T.pack (show bodyLimit) <> " bytes"
 
 -- | CMD's rows written, as the IO that writes them or the 400 that stops it.
 -- STAMP is @set-planning@'s date already worked out, and is nothing to every
 -- other name.
-overRows :: Store -> Maybe Text -> Command -> Either Text (IO Response)
-overRows st stamp cmd = do
-  (plans, said) <- planCommand st stamp cmd
+overRows :: Store -> Maybe Text -> RowEdits -> Command -> Either Text (IO Response)
+overRows st stamp edits cmd = do
+  (plans, said) <- planCommand st stamp edits cmd
   pure $ do
     written <- mapM writeOne plans
     -- Answered in the order the client named the ids, so a caller can zip the
@@ -1172,7 +1249,7 @@ overRows st stamp cmd = do
 -- the client typed everywhere and at every point in the request.
 resolveDate :: Command -> IO (Either Text (Maybe Text))
 resolveDate cmd = case join (agDate (cmdArgs cmd)) of
-  Just text | cmdName cmd == "set-planning" -> do
+  Just text | csDated (cmdSpec cmd) -> do
     today <- Time.localDay . Time.zonedTimeToLocalTime <$> Time.getZonedTime
     pure (Just <$> planningTimestamp today text)
   _nothingToResolve -> pure (Right Nothing)
@@ -1220,8 +1297,9 @@ writeOne plan = report <$> replaceSpans (fpPath plan) (fpDigest plan) spliced
 -- rather than in the IO above: an id the store has no row for, and a digest the
 -- client pinned that the store no longer holds, which is the same @stale@ check
 -- @POST \/headline@ makes and is per file because a digest is per file.
-planCommand :: Store -> Maybe Text -> Command -> Either Text ([FilePlan], [(Text, Value)])
-planCommand st stamp cmd = do
+planCommand :: Store -> Maybe Text -> RowEdits -> Command
+            -> Either Text ([FilePlan], [(Text, Value)])
+planCommand st stamp rowEdits cmd = do
   rows <- mapM withEdits held
   let groups = groupOn (hrFile . fst) rows
   pure ( [ FilePlan path (hrDigest r0) [ (hrId r, edits) | (r, edits) <- rs ]
@@ -1232,34 +1310,12 @@ planCommand st stamp cmd = do
     -- One resolution for the whole set rather than one per id, which is what
     -- keeps a marked set of a hundred rows off a hundred passes of the store.
     (held, absent) = storeHeadlines (cmdIds cmd) st
-    withEdits r = (,) r <$> commandEdits (stConfig st) stamp cmd r
+    withEdits r = (,) r <$> rowEdits (stConfig st) stamp (cmdArgs cmd) r
     missing = [ (rid, refused rid ("no headline with id " <> rid)) | rid <- absent ]
     stale rs = or [ pinned /= hrDigest r
                   | (r, _edits) <- rs, Just pinned <- [Map.lookup (hrId r) (cmdDigests cmd)] ]
     staleWhy path = T.pack path
                       <> " has been re-read since these rows were fetched; ask for them again"
-
--- | The span edits CMD asks for on R, or why the request cannot be served at
--- all.  Two of the three refuse, and a refusal is the WHOLE request's: a keyword
--- one named row's own chain does not declare, or a planning keyword no key sets,
--- stops the command rather than moving the rows it could have moved.  CFG is the
--- store's config, which is half of that chain.
-commandEdits :: ConfigLayers -> Maybe Text -> Command -> HeadlineRecord
-             -> Either Text [(Span, Text)]
-commandEdits cfg stamp cmd r = case cmdName cmd of
-  "set-state"    -> setStateEdits cfg (join (agKeyword args)) r
-  -- The keyword is there: 'parseCommand' refuses a @set-planning@ without one,
-  -- so the empty string is a case this cannot reach.
-  "set-planning" -> setPlanningEdits (fromMaybe "" (join (agKeyword args))) stamp r
-  -- Likewise the tag: 'parseCommand' refuses either of these without one, and
-  -- refuses one that is not a tag, so neither can refuse per row.  Both are
-  -- idempotent, so a row already tagged and a row never tagged each cost no
-  -- edit and still answer @ok@ — the answer is "the row is as asked".
-  "add-tag"      -> Right (addTagEdits (tagOf args) r)
-  "remove-tag"   -> Right (removeTagEdits (tagOf args) r)
-  _archive       -> Right (archiveEdits r)
-  where args = cmdArgs cmd
-        tagOf = fromMaybe "" . agTag
 
 -- | One row's outcome: the file's new digest, so a caller can pin its next
 -- write without re-reading.
@@ -1279,6 +1335,11 @@ groupOn key xs = [ (k, [ x | x <- xs, key x == k ]) | k <- nub (map key xs) ]
 -- | RAW as a command, or what is wrong with it.  Every refusal that is the
 -- request's shape rather than the tree's state is decided here, so what reaches
 -- 'planCommand' is a name it implements with rows to run it over.
+--
+-- The name is resolved to its entry in 'commands' FIRST and the 'Command' is
+-- built out of that entry, so an unimplemented name never reaches a rule that
+-- would have to guess what it takes.  What is left is the entry's own two:
+-- whether it names rows, and what its @args@ owe ('csArgs').
 parseCommand :: BL.ByteString -> Either Text Command
 parseCommand raw =
   first (("body: " <>) . T.pack) (eitherDecode' raw >>= parseEither command) >>= checked
@@ -1295,30 +1356,16 @@ parseCommand raw =
       -- second shape to carry.
       a <- fromMaybe mempty <$> (o .:? "args" :: Parser (Maybe Object))
       parsed <- Args <$> a .:! "keyword" <*> a .:! "date" <*> a .:? "text" <*> a .:? "tag"
-      pure (Command name (nub (maybe [] pure one <> fromMaybe [] several))
-                    parsed (fromMaybe Map.empty digests))
-    checked cmd
-      | cmdName cmd `notElem` commandNames =
-          Left ("no such command: " <> cmdName cmd <> "; this server runs "
-                  <> T.intercalate " and " commandNames)
-      | cmdName cmd /= rowlessCommand, null (cmdIds cmd) =
-          Left "a command names rows: {\"ids\": [\"…\"]}, or {\"id\": \"…\"} for one"
-      | cmdName cmd == "set-state", Nothing <- agKeyword args =
-          Left "set-state wants args {\"keyword\": \"DONE\"}, or a null keyword to clear it"
-      | cmdName cmd == "set-planning", Nothing <- join (agKeyword args) =
-          Left "set-planning wants args {\"keyword\": \"SCHEDULED\", \"date\": \"+3d\"}"
-      | cmdName cmd == "set-planning", Nothing <- agDate args =
-          Left "set-planning wants a date, or a null one to take the entry off"
-      | cmdName cmd == rowlessCommand, Nothing <- agText args =
-          Left "capture wants args {\"text\": \"TODO Buy milk :errands:\"}"
-      -- The charset is a property of the STRING, so it is refused here with the
-      -- rest of the request's shape rather than once per row: a word that is not
-      -- a tag is not a tag for any of them.
-      | cmdName cmd `elem` tagCommands = case agTag args of
-          Nothing   -> Left (cmdName cmd <> " wants args {\"tag\": \"work\"}")
-          Just word -> () <$ tagText word >> Right cmd
-      | otherwise = Right cmd
-      where args = cmdArgs cmd
+      pure ( name :: Text, nub (maybe [] pure one <> fromMaybe [] several)
+           , parsed, fromMaybe Map.empty digests )
+    checked (name, ids, args, digests) = case lookup name commands of
+      Nothing -> Left ("no such command: " <> name <> "; this server runs "
+                         <> T.intercalate " and " commandNames)
+      Just spec
+        | isJust (csEdits spec), null ids ->
+            Left "a command names rows: {\"ids\": [\"…\"]}, or {\"id\": \"…\"} for one"
+        | Just why <- csArgs spec args -> Left why
+        | otherwise -> Right (Command spec ids args digests)
 
 -- | The @id@ parameter of REQUEST, when it carries one with a value.
 queryId :: Request -> Maybe Text
@@ -2307,10 +2354,10 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      (typeof requestAnimationFrame === \"function\" ? requestAnimationFrame(fn)"
   , "                                                    : setTimeout(fn, 0));"
   , "    let table = null, socket = null, backoff = 1000, editing = null;"
-  , "    // The sheet's own state: the two panes as the file holds them as far as"
-  , "    // this page knows, whether the drawer is a panel or spelled out in the"
-  , "    // text, and the one word saying where the sheet stands with the file."
-  , "    let base = \"\", baseProps = null, raw = false, state = \"synced\";"
+  , "    // The sheet's own baselines: the two panes as the file holds them as"
+  , "    // far as this page knows, and whether the drawer is a panel or spelled"
+  , "    // out in the text.  Where it STANDS is `subtreeSheet.state'."
+  , "    let base = \"\", baseProps = null, raw = false;"
   , "    // The server filters and pages; these hold the query it was last asked"
   , "    // with, the fetch still in flight for it, and the timer that re-asks"
   , "    // when a row frame lands while one is on."
@@ -2993,21 +3040,48 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    const asked = () => raw"
   , "      ? { org: el(\"mtext\").value }"
   , "      : { body: el(\"mtext\").value, properties: props(), planning: planning() };"
-  , "    // Where the sheet stands is one word, and `sync' is its only writer:"
-  , "    // the header wears it as text and as a class, and everything that asks"
-  , "    // reads it back.  With no buttons the keys are the whole of the offer,"
-  , "    // so the states that wait for one say which key."
+    -- ONE BUTTONLESS SHEET, twice over.  The subtree sheet and the settings
+    -- sheet are the same flow over different files — a state word, a flush, and
+    -- a close that syncs on the way out — so the ladder is written once and each
+    -- sheet supplies the verbs it differs in: `dirty', `flush', `refresh' (the
+    -- digests a conflict overwrites under), `shut', and the log `scope' its own
+    -- lines are filed under.  Never both up at once, since `openSettings'
+    -- refuses over an open sheet, which is what makes `activeSheet' total.
+    --
+    -- Where a sheet stands is ONE word, and `note' is its only writer: the
+    -- header wears it as text and as a class, and everything that asks reads it
+    -- back off the sheet.  With no buttons the keys are the whole of the offer,
+    -- so the states that wait for one say which key — and the retry line is
+    -- spelled once, three copies of it being three chances to drift.
+  , "    const RETRY = \" — C-x C-s retry · ESC discard\";"
   , "    const WORDS = { synced: \"synced\", syncing: \"syncing…\","
   , "      conflict: \"conflict — C-x C-s overwrite · ESC discard\","
-  , "      error: \"error — C-x C-s retry · ESC discard\" };"
-  , "    function sync(next, message) {"
-  , "      state = next;"
-  , "      el(\"mnote\").className = next;"
-  , "      el(\"mnote\").textContent = message || WORDS[next];"
+  , "      error: \"error\" + RETRY };"
+  , "    function note(s, next, message) {"
+  , "      s.state = next;"
+  , "      el(s.noteId).className = next;"
+  , "      el(s.noteId).textContent = message || WORDS[next];"
   , "    }"
-  , "    const troubled = () => state === \"conflict\" || state === \"error\";"
-  , "    const flushing = () => state === \"syncing\";"
-  , "    const stuck = (why) => sync(\"error\", why && `${why} — C-x C-s retry · ESC discard`);"
+  , "    const stuck = (s, why) => note(s, \"error\", why && `${why}${RETRY}`);"
+  , "    const subtreeSheet = {"
+  , "      noteId: \"mnote\", scope: \"sync\", state: \"synced\","
+  , "      closed: \"closed without writing — the file is as it was\","
+  , "      dirty: () => dirty(),"
+  , "      flush: () => flush(editing.digest),"
+    -- What a conflict overwrites under: the digest the file carries NOW, unless
+    -- the sheet moved on to another headline while the read was out.
+  , "      refresh: () => {"
+  , "        const h = editing;"
+  , "        return headline(h.id).then((b) => {"
+  , "          if (editing !== h) return false;"
+  , "          h.digest = b.digest;"
+  , "          return true;"
+  , "        });"
+  , "      },"
+  , "      shut: () => shut(),"
+  , "    };"
+  , "    const activeSheet = () => (editing ? subtreeSheet : settings ? configSheet : null);"
+  , "    const sync = (next, message) => note(subtreeSheet, next, message);"
   , "    function shut() {"
   , "      el(\"modal\").className = \"\"; editing = null; base = \"\"; baseProps = null;"
   , "      shutEdit();"
@@ -3033,36 +3107,40 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- keystroke the same way — but it names the field rather than the file, so
     -- it goes through `stuck' and says so.
   , "          if (a.status === 409 && a.body.reason !== \"planning\") sync(\"conflict\");"
-  , "          else stuck(a.body.error || `sync failed (${a.status})`);"
+  , "          else stuck(subtreeSheet, a.body.error || `sync failed (${a.status})`);"
   , "          return false;"
   , "        })"
-  , "        .catch((e) => { stuck(e.message); return false; });"
+  , "        .catch((e) => { stuck(subtreeSheet, e.message); return false; });"
   , "    }"
-  , "    // C-x C-s.  Mid-edit it is a manual flush; on a conflict it is the"
-  , "    // deliberate keystroke that overwrites — ask for the digest the file"
-  , "    // carries now and post the text the author is looking at over it."
+  , "    // C-x C-s, over whichever sheet is up.  Mid-edit it is a manual flush;"
+  , "    // on a conflict it is the deliberate keystroke that overwrites — ask for"
+  , "    // the digests the files carry now and post what the author is looking at"
+  , "    // over them."
   , "    function saveSheet() {"
-  , "      if (!editing || flushing()) return;"
-  , "      if (state !== \"conflict\") { flush(editing.digest); return; }"
-  , "      const h = editing;"
-  , "      headline(h.id)"
-  , "        .then((b) => editing === h && flush(b.digest))"
-  , "        .catch((e) => stuck(e.message));"
+  , "      const s = activeSheet();"
+  , "      if (!s || s.state === \"syncing\") return;"
+  , "      if (s.state !== \"conflict\") { s.flush(); return; }"
+  , "      s.refresh().then((ok) => ok && s.flush()).catch((e) => stuck(s, e.message));"
   , "    }"
   , "    // The way out — ESC, the backdrop, q.  Pristine costs no request and"
   , "    // touches no file; dirty flushes and closes on the 200; a sheet with"
   , "    // trouble in it discards, which is what a second ESC is."
-  , "    function leave() {"
-  , "      if (!editing) return;"
-  , "      if (troubled()) {"
-  , "        shut();"
-  , "        append(\"sync\", \"info\", \"closed without writing — the file is as it was\");"
+  , "    function leaveSheet() {"
+  , "      const s = activeSheet();"
+  , "      if (!s) return;"
+  , "      if (s.state === \"conflict\" || s.state === \"error\") {"
+  , "        s.shut();"
+  , "        append(s.scope, \"info\", s.closed);"
   , "        return;"
   , "      }"
-  , "      if (!dirty()) { shut(); return; }"
-  , "      if (!flushing()) flush(editing.digest).then((ok) => ok && shut());"
+  , "      if (!s.dirty()) { s.shut(); return; }"
+  , "      if (s.state !== \"syncing\") s.flush().then((ok) => ok && s.shut());"
   , "    }"
-  , "    el(\"modal\").addEventListener(\"click\", (e) => { if (e.target === el(\"modal\")) leave(); });"
+    -- The backdrop is the mouse's ESC, for both sheets: a click that lands on
+    -- the veil itself rather than on the box over it.
+  , "    for (const id of [\"modal\", \"config\"])"
+  , "      el(id).addEventListener(\"click\","
+  , "        (e) => { if (e.target === el(id)) leaveSheet(); });"
     -- C-c ' — org's `edit-special' rhyme, one subtree seen two ways: body and
     -- panel, or the raw org the panes were cut out of.  The cut is the server's,
     -- so the toggle RE-READS the headline rather than splitting or joining
@@ -3081,7 +3159,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        sync(\"synced\");"
   , "        el(\"mtext\").focus();"
   , "        said(b, raw ? \"raw org\" : \"properties panel\");"
-  , "      }).catch((e) => stuck(e.message));"
+  , "      }).catch((e) => stuck(subtreeSheet, e.message));"
   , "    }"
   , "    // A tab closing on an edited sheet still owes the file the text:"
   , "    // `keepalive' outlives the document, and a pristine sheet sends nothing."
@@ -3935,13 +4013,30 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      part(sec, \"div\", \"chdr\", s.title);"
   , "      for (const id of s.parts) sec.appendChild(el(id));"
   , "    }"
-  , "    let settings = false, cstate = \"synced\", crows = [];"
+  , "    let settings = false, crows = [];"
+    -- The settings sheet's half of the pair the ladder drives ('subtreeSheet'
+    -- is the other): the same four verbs, over the config layers and their own
+    -- digests, filed under its own log scope.
+  , "    const configSheet = {"
+  , "      noteId: \"cnote\", scope: \"config\", state: \"synced\","
+  , "      closed: \"settings closed — the files are as they were\","
+  , "      dirty: () => cdirty(),"
+  , "      flush: () => flushConfig(),"
+  , "      refresh: () => config().then((b) => {"
+  , "        for (const r of crows) {"
+  , "          const fresh = (b.layers || []).find((l) => l.path === r.path);"
+  , "          if (fresh) r.digest = fresh.digest;"
+  , "        }"
+  , "        return true;"
+  , "      }),"
+  , "      shut: () => shutSettings(),"
+  , "    };"
     -- Claimed before the fetch, and refused over the other sheet.  `typing()'
     -- is not enough to keep the two apart: clicking the materialize sheet's own
     -- header blurs its textarea, and a `table' row is live again the moment it
     -- does — so the rule is stated here rather than left to the focus.
   , "    function openSettings() {"
-  , "      if (settings || editing) return;"
+  , "      if (activeSheet()) return;"
   , "      settings = true;"
   , "      config().then((b) => {"
   , "        if (!settings) return;   // an ESC arrived while the layers were out"
@@ -4004,13 +4099,8 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      el(\"clayers\").appendChild(row);"
   , "      return r;"
   , "    }"
-    -- The same four words the other sheet wears, and the same two keys clear
-    -- the two that wait for one.
-  , "    const cnote = (next, message) => {"
-  , "      cstate = next;"
-  , "      el(\"cnote\").className = next;"
-  , "      el(\"cnote\").textContent = message || WORDS[next];"
-  , "    };"
+    -- The same four words the other sheet wears, through the same writer.
+  , "    const cnote = (next, message) => note(configSheet, next, message);"
   , "    const cdirty = () => crows.some(cmoved);"
   , "    const cmoved = (r) => r.box.value !== r.base"
   , "      || (r.view !== null && r.view.value !== r.viewBase)"
@@ -4051,35 +4141,12 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      cnote(ok ? \"synced\" : clashed ? \"conflict\" : \"error\");"
   , "      return ok;"
   , "    }"
-    -- C-x C-s.  Mid-edit a flush; on a conflict the deliberate keystroke that
-    -- overwrites — ask for the digests the files carry NOW and post the text
-    -- the author is looking at over them, which is the sheet's own rule.
-  , "    function saveConfig() {"
-  , "      if (cstate === \"syncing\") return;"
-  , "      if (cstate !== \"conflict\") { flushConfig(); return; }"
-  , "      config().then((b) => {"
-  , "        for (const r of crows) {"
-  , "          const fresh = (b.layers || []).find((l) => l.path === r.path);"
-  , "          if (fresh) r.digest = fresh.digest;"
-  , "        }"
-  , "        flushConfig();"
-  , "      }).catch((e) => cnote(\"error\", `${e.message} — C-x C-s retry · ESC discard`));"
-  , "    }"
-    -- The way out, and the sheet's own rule: pristine closes with no request,
-    -- dirty syncs and closes on success, and one with trouble in it discards —
-    -- which is what a second ESC is.
-  , "    function leaveSettings() {"
-  , "      if (!settings) return;"
-  , "      if (cstate === \"conflict\" || cstate === \"error\") {"
-  , "        shutSettings();"
-  , "        append(\"config\", \"info\", \"settings closed — the files are as they were\");"
-  , "        return;"
-  , "      }"
-  , "      if (!cdirty()) { shutSettings(); return; }"
-  , "      if (cstate !== \"syncing\") flushConfig().then((ok) => ok && shutSettings());"
-  , "    }"
+    -- C-x C-s and the way out are the ladder's, over `configSheet': the
+    -- refresh above is what a conflict overwrites under, and the close is
+    -- pristine-costs-nothing, dirty-syncs-and-closes, trouble-discards.
   , "    function shutSettings() {"
-  , "      el(\"config\").className = \"\"; settings = false; crows = []; cstate = \"synced\";"
+  , "      el(\"config\").className = \"\"; settings = false; crows = [];"
+  , "      configSheet.state = \"synced\";"
     -- And the keys go back to the table, in ONE place.  A control of the sheet
     -- holds the focus while it is up — which is what keeps the table's own keys
     -- dead under it — so the close is what has to give it up.  A browser drops
@@ -4088,8 +4155,6 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- the sheet will ever hold rather than costing one `blur()' per control.
   , "      if (typing()) document.activeElement.blur();"
   , "    }"
-  , "    el(\"config\").addEventListener(\"click\", (e) =>"
-  , "      { if (e.target === el(\"config\")) leaveSettings(); });"
     -- The gear is the coarse pointer's `C-c C-,'.  It needs no media query of
     -- its own: the rules hide it outside the one block, and an element that is
     -- not displayed is one nobody can tap.
@@ -4460,8 +4525,9 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        said(b, \"flagged — d again archives\");"
   , "      },"
   , "      applyDefault, relations, focusFilter, toggleRaw, openSettings,"
-    -- One `save-buffer' over two sheets: whichever is up is what it syncs.
-  , "      save: () => (settings ? saveConfig() : saveSheet()),"
+    -- One `save-buffer' over two sheets: `saveSheet' asks `activeSheet' which
+    -- is up, so there is nothing to choose between here.
+  , "      save: saveSheet,"
     -- D is dired's key and org-glance's `delete', and it is `archive' with no
     -- flagging step in front of it — the same function the second `d' reaches.
   , "      archiveRows: archive,"
@@ -4535,7 +4601,9 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      applyAgenda: (b) => applyView(b, AGENDA_QUERY, (total) => landedAgenda(b, total)),"
   , "      schedulePlan: (b) => planRows(b, \"SCHEDULED\"),"
   , "      deadlinePlan: (b) => planRows(b, \"DEADLINE\"),"
-  , "      quitWindow: () => (editing ? leave()"
+    -- `q' is the SUBTREE sheet's door alone, which is why it asks after
+    -- `editing' rather than after whichever sheet is up.
+  , "      quitWindow: () => (editing ? leaveSheet()"
   , "        : append(\"cmd\", \"info\", \"q closes the sheet; there is no window to quit\")),"
     -- One key out of whichever overlay is up: the prompt first, since it is the
     -- one that can be raised over an open sheet.
@@ -4547,10 +4615,10 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        if (prompting && prompting.narrow && prompting.sticky) letterMode();"
   , "        else if (prompting) unask();"
     -- The panel's open row is a rung of its own, under the sheet's: while one
-    -- is open ESC puts it back, and only from nav does the key reach the sheet.
+    -- is open ESC puts it back, and only from nav does the key reach the sheet
+    -- — whichever of the two is up, which is `leaveSheet''s own question.
   , "        else if (pediting()) cancelRow();"
-  , "        else if (editing) leave();"
-  , "        else if (settings) leaveSettings();"
+  , "        else if (activeSheet()) leaveSheet();"
   , "        else if (typing()) document.activeElement.blur();"
   , "      },"
   , "      // The filter's own backspace: the renderer drops the token and the"

@@ -130,10 +130,10 @@ refKey = "ref"
 plannedKey :: Text
 plannedKey = "planned"
 
--- | The date columns' cells, one reader each: where they sit in 'filterKeys' is
--- where their fields sit in the search text.
-dateCells :: [HeadlineRecord -> Text]
-dateCells = map cellOf (mapMaybe (`elemIndex` filterKeys) dateKeys)
+-- | The date columns, by where they sit in 'filterKeys' — which is where their
+-- fields sit in the search text.
+dateColumns :: [Int]
+dateColumns = mapMaybe (`elemIndex` filterKeys) dateKeys
 
 -- | One token of a query, as 'scanQuery' cuts it: the quotes and the leading
 -- @-@ are gone from 'tkBody', and what they meant is recorded beside it.  (The
@@ -245,11 +245,11 @@ metaOf value = do
   inner <- T.stripSuffix "*" =<< T.stripPrefix "*" value
   if T.null inner then Nothing else Just inner
 
--- | Does Q name 'archiveMeta' through the @tag@ column, given VOCABULARY?  Any
--- spelling counts — @tag:*archive*@, a negated one, a quoted one — because all
--- of them are a reader who has said something about archived rows, and a
--- default exclusion layered under any of them would answer a different question
--- than the one asked.
+-- | Does Q name 'archiveMeta' through the @tag@ column?  Any spelling counts —
+-- @tag:*archive*@, a negated one, a quoted one — because all of them are a
+-- reader who has said something about archived rows, and a default exclusion
+-- layered under any of them would answer a different question than the one
+-- asked.
 --
 -- The STARRED spelling alone.  The bare @tag:archive@ is an ordinary substring
 -- predicate over the tags cell and leaves the exclusion where it is, so a tree
@@ -260,11 +260,12 @@ metaOf value = do
 -- rows as much as @tag:*archive*@ does, so the value is read through
 -- 'alternatives' rather than whole.
 --
--- VOCABULARY is the tree's tags, and the word only counts where the tree
--- carries one — sound, since with nothing archived there is nothing to hide.
-namesArchive :: [Text] -> Text -> Bool
-namesArchive vocabulary q =
-  archiveKey `elem` vocabulary && any names (parseFilter q)
+-- The QUERY is the whole of the question.  Whether the tree carries the tag at
+-- all is the caller's half — @\/headlines@ asks its vocabulary first and only
+-- hides where there is something to hide — and asking it here too would be the
+-- same conjunct twice: @V && not (V && N)@ is @V && not N@.
+namesArchive :: Text -> Bool
+namesArchive = any names . parseFilter
   where names t = tmKey t == Just tagsKey
                     && archiveMeta `elem` alternatives (T.toLower (tmValue t))
 
@@ -350,6 +351,16 @@ fieldOf key | key == plannedKey = Just Planned
             | key == refKey     = Just Ref
             | otherwise         = Col <$> elemIndex key filterKeys
 
+-- | The cells FIELD reads, by their position in 'filterKeys'.  A column is its
+-- own one cell and @planned@ is the two date columns, which is the whole of
+-- what makes the virtual key a column predicate over a SET of cells rather than
+-- a matcher of its own: @*empty*@ is every named cell empty and a value is any
+-- of them passing.  'Ref' reads no cell — it reads the link graph.
+fieldCells :: Field -> [Int]
+fieldCells (Col i) = [i]
+fieldCells Planned = dateColumns
+fieldCells Ref     = []
+
 -- | TERMS as the tests a row must all pass.  One rule, so there is nothing to
 -- group: every token narrows, and two tokens naming one key are read as the AND
 -- they are written as — @tag:a tag:b@ carries both, @ref:a ref:b@ points at
@@ -419,31 +430,40 @@ keyTest :: FilterEnv -> Text -> Field -> Text -> HeadlineRecord -> Bool
 keyTest env _key Ref value = case feRef env value of
   Nothing  -> const False
   Just row -> \r -> hrId r /= rrId row && any (`elem` hrLinks r) (rrTargets row)
--- @planned@ over its two cells: unplanned is neither of them holding anything,
--- and a value is the date prefix @scheduled:@ and @deadline:@ each take, asked
--- of both at once.  A cell that prefix-matches is a cell with something in it,
--- so a value never needs the presence test spelled beside it.
-keyTest _env _key Planned value
-  | value == emptyMeta  = \r -> all (T.null . ($ r)) dateCells
-  | otherwise           = \r -> any (T.isPrefixOf value . ($ r)) dateCells
-keyTest _env key (Col i) value
-  | value == emptyMeta  = T.null . cell
-  | Just word <- tagMeta = \r -> word `elem` cellValues (cell r)
-  | key == "state"      = state
-  | key == "priority"   = (== value) . cell             -- one letter, so exact
-  | key `elem` dateKeys = T.isPrefixOf value . cell
-  | otherwise           = T.isInfixOf value . cell
+-- Every other key is a predicate over the CELLS it names ('fieldCells'), which
+-- is one for a column and the two dates for @planned@.  The two metas the set
+-- decides are @*empty*@ — every named cell empty, so an unplanned row is one
+-- with neither date — and a value, which ANY of them may pass.  A cell that
+-- matches is a cell with something in it, so a value never needs the presence
+-- test spelled beside it.
+keyTest _env key field value
+  | value == emptyMeta = \r -> all (T.null . (`cellOf` r)) cells
+  | otherwise          = \r -> any ($ r) tests
   where
-    cell = cellOf i
+    cells = fieldCells field
+    -- One test per cell, built here rather than per row: 'predTest' has already
+    -- paid for the alternative, and this pays for the column once beside it.
+    tests = map cellTest cells
+    cellTest i
+      | Just word <- tagMeta i = \r -> word `elem` cellValues (cell r)
+      | key == "state"         = state cell
+      | key == "priority"      = (== value) . cell        -- one letter, so exact
+      | prefixed               = T.isPrefixOf value . cell
+      | otherwise              = T.isInfixOf value . cell
+      where cell = cellOf i
+    -- An ISO date is matched by prefix wherever it is read, so @planned@ takes
+    -- the rule with the two cells it borrowed.
+    prefixed = key `elem` dateKeys || key == plannedKey
     -- A starred word on the MULTI-VALUED column is that whole entry, where the
     -- bare word is a substring of the cell: `tag:*archive*' is the tag ARCHIVE
     -- and `tag:arch' is any tag holding those letters.  It is the whole-tag
     -- reading the tag keys took with them, back as a meta on the one spelling,
     -- and the renderer decides it identically off the same delimited cell —
     -- `*empty*' is read first, so a tree tagged `:empty:' reaches that tag by
-    -- its bare name alone.
-    tagMeta | i == tagsColumn = metaOf value
-            | otherwise       = Nothing
+    -- its bare name alone.  Keyed by the CELL's index, so @planned@ — which
+    -- names the date cells — can never reach it.
+    tagMeta i | i == tagsColumn = metaOf value
+              | otherwise       = Nothing
     -- The two PRODUCER meta-values SCHEMA.md lets a producer add.  Group
     -- membership is resolved at LOAD, per row, by the widest scope that
     -- classifies the keyword — org's TODO/DONE, then the system layer, then the
@@ -462,9 +482,9 @@ keyTest _env key (Col i) value
     -- subset of `*active*'.  The empty half is spelled over the CELL rather
     -- than over 'hrActive': it is the predicate `*empty*' reads, and it is the
     -- one half a renderer can answer without knowing a keyword set.
-    state r | value == "*active*"   = hrActive r == Just True || T.null (cell r)
-            | value == "*inactive*" = hrActive r == Just False
-            | otherwise             = cell r == value   -- badge: whole value
+    state cell r | value == "*active*"   = hrActive r == Just True || T.null (cell r)
+                 | value == "*inactive*" = hrActive r == Just False
+                 | otherwise             = cell r == value   -- badge: whole value
 
 -- | CELL's values, for a cell that holds a list: org spells one @:a:b:@.  The
 -- renderer's own @tagsIn@ — split on the delimiter, drop the empties — so the

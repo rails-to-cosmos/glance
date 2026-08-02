@@ -429,29 +429,36 @@ blankEntry h = all isNothing [ hsTodo sp, hsPriority sp, hsTitle sp, hsTags sp
 
 recordOf :: ConfigLayers -> TodoKeywords -> FilePath -> Int -> Text -> Text -> Text
          -> TodoKeywords -> Headline -> Span -> HeadlineRecord
-recordOf cfg declared path ordinal doc digest category keywords h subtree = forceRecord HeadlineRecord
-  { hrFile      = path
-  , hrId        = rowId path ordinal h
-  , hrCategory  = category
-  , hrHeadline  = h
-  , hrKeywords  = keywords
-  , hrDeclared  = declared
-  , hrDoc       = doc
-  , hrDigest    = digest
-  , hrSubtree   = subtree
-  , hrState     = state
-  , hrPriority  = pri
-  , hrTitle     = titleCell
-  , hrTags      = tagsCell
-  , hrScheduled = scheduled
-  , hrDeadline  = due
-  , hrSearch    = searchTextOf [ opt state, opt pri, titleCell, tagsCell
-                               , opt scheduled, opt due ]
-  , hrLinks     = refTargetsOf links
-  , hrLinked    = not (null links)
-  , hrActive    = classify cfg declared (tagsOfCell tagsCell) <$> state
-  }
-  where sp = spans h
+recordOf cfg declared path ordinal doc digest category keywords h subtree =
+  forceRecord (row { hrSearch = searchTextOf (viewCells row) })
+  where
+        -- The record is tied through its own cells: 'viewCells' reads the six
+        -- column accessors off ROW, so the haystack is the view's columns in
+        -- the view's order by construction rather than by a second list here
+        -- staying in step with 'viewColumns'.  ROW's own 'hrSearch' is never
+        -- read on the way round.
+        row = HeadlineRecord
+          { hrFile      = path
+          , hrId        = rowId path ordinal h
+          , hrCategory  = category
+          , hrHeadline  = h
+          , hrKeywords  = keywords
+          , hrDeclared  = declared
+          , hrDoc       = doc
+          , hrDigest    = digest
+          , hrSubtree   = subtree
+          , hrState     = state
+          , hrPriority  = pri
+          , hrTitle     = titleCell
+          , hrTags      = tagsCell
+          , hrScheduled = scheduled
+          , hrDeadline  = due
+          , hrSearch    = ""
+          , hrLinks     = refTargetsOf links
+          , hrLinked    = not (null links)
+          , hrActive    = classify cfg declared (tagsOfCell tagsCell) <$> state
+          }
+        sp = spans h
         -- One scan of the subtree answers both questions: which ROWS it points
         -- at ('hrLinks') and whether it points ANYWHERE ('hrLinked').  The
         -- second is the wider set — every reference is a link and most links
@@ -462,7 +469,6 @@ recordOf cfg declared path ordinal doc digest category keywords h subtree = forc
         -- headline carries no span for a component, which is to say when the
         -- component is empty.
         cut mspan render = detach (maybe render (sliceSpan doc) mspan)
-        opt = fromMaybe ""
         state     = detach . name <$> todo h
         pri       = (\(Priority c) -> T.singleton c) <$> priority h
         titleCell = cut (hsTitle sp) (showt (title h))
@@ -1969,21 +1975,31 @@ viewJSONTextWith order viewTitle palette =
 
 -- | The view's columns, in the order the table draws them: the key a filter
 -- names, the header over the cells, the type @table-view\/SCHEMA.md@ declares,
--- and where the cell comes out of a row.
+-- and where the cell comes out of a row.  A cell is a 'Maybe': 'Nothing' is the
+-- @null@ a row's JSON carries for a column it has no value for, and the empty
+-- string a filter reads there ('viewCells').
 --
--- One table, so the three things that have to agree cannot drift: 'columns'
--- declares them, 'rowJSON' fills them, and 'filterKeys' names them.  It is also
--- the order 'searchTextOf' joins the cells in, which is what lets a predicate
--- read one field of 'hrSearch' by its key's position.
-viewColumns :: [(Text, Text, Text, HeadlineRecord -> Value)]
+-- One table, so the FOUR things that have to agree cannot drift: 'columns'
+-- declares them, 'rowJSON' fills them, 'filterKeys' names them, and 'viewCells'
+-- joins them into 'hrSearch' — which is what lets a predicate read one field of
+-- that text by its key's position.  A column appended here is therefore a
+-- column a filter can name the day it lands, with no second list to extend.
+viewColumns :: [(Text, Text, Text, HeadlineRecord -> Maybe Text)]
 viewColumns =
-  [ ("state",     "State",     "badge", toJSON . hrState)
-  , ("priority",  "Pri",       "text",  toJSON . hrPriority)
-  , ("title",     "Headline",  "text",  toJSON . hrTitle)
-  , ("tag",       "Tags",      "text",  toJSON . hrTags)
-  , ("scheduled", "Scheduled", "text",  toJSON . hrScheduled)
-  , ("deadline",  "Deadline",  "text",  toJSON . hrDeadline)
+  [ ("state",     "State",     "badge", hrState)
+  , ("priority",  "Pri",       "text",  hrPriority)
+  , ("title",     "Headline",  "text",  Just . hrTitle)
+  , ("tag",       "Tags",      "text",  Just . hrTags)
+  , ("scheduled", "Scheduled", "text",  hrScheduled)
+  , ("deadline",  "Deadline",  "text",  hrDeadline)
   ]
+
+-- | R's cells in column order, an absent one as the empty string: what
+-- 'searchTextOf' joins into the row's haystack.  A column whose cell is
+-- 'Nothing' and one whose cell is @\"\"@ are the same empty field to a filter,
+-- which is what @key:*empty*@ reads.
+viewCells :: HeadlineRecord -> [Text]
+viewCells r = [ fromMaybe "" (cell r) | (_key, _header, _kind, cell) <- viewColumns ]
 
 -- | The column keys a filter may name, in view order.  Matched
 -- case-sensitively, the way a renderer matches its own column keys.
@@ -2056,7 +2072,8 @@ column key header kind extra =
 rowJSON :: HeadlineRecord -> Value
 rowJSON r = object
   (  [ "id" .= hrId r
-     , "cells" .= object [ Key.fromText key .= cell r | (key, _header, _kind, cell) <- viewColumns ] ]
+     , "cells" .= object [ Key.fromText key .= toJSON (cell r)
+                         | (key, _header, _kind, cell) <- viewColumns ] ]
   <> [ "linked" .= True | hrLinked r ])
 
 -- | The state palette: every TODO keyword the loaded files declared, actives

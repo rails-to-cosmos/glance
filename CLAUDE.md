@@ -331,10 +331,16 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `glance-internal` sublibrary; cells are sliced from spans and the view
   `Value` is hand-built — no `ToJSON` on an internal type
   (table-view/SCHEMA.md is the contract).
-- Commands: one route, `POST /command {name, id | ids, args, digests?}`, six
-  names — `set-state {keyword: KW | null}`, `set-planning {keyword:
+- Commands: one route, `POST /command {name, id | ids, args, digests?}`, over ONE
+  table — `commands`, name to `{argument shape, dated, edits}`. Six entries:
+  `set-state {keyword: KW | null}`, `set-planning {keyword:
   SCHEDULED|DEADLINE, date: TEXT | null}`, `archive {}`, `capture {text}`,
-  `add-tag {tag}` and `remove-tag {tag}`.
+  `add-tag {tag}` and `remove-tag {tag}`. `commandNames` is its keys, the
+  per-name request-shape guards are each entry's own `csArgs`, and only
+  `set-planning` is `csDated` — the one command whose date is read against the
+  server's today. `parseCommand` resolves the name BEFORE anything else and a
+  `Command` cannot be built without the entry it resolved to, so nothing below
+  has an arm for a name this server does not implement.
   Ids group by FILE and each file is one drift-locked `replaceSpans` call, so a
   marked set over three files is three atomic writes; there is no cross-file
   rollback and the answer is per id (`{results: [{id, ok, digest | error}]}`, in
@@ -351,7 +357,9 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   and `tag` are flat, neither having a value to clear. The
   route never writes the store — the watch is still the sole updater.
 - `capture` is the ONE id-less command: it makes a row rather than editing one,
-  so `{"ids": …}` is not owed and the rows-are-named rule does not reach it. The
+  which in the table is the entry with no row function, so `{"ids": …}` is not
+  owed and the rows-are-named rule does not reach it — `runCommand` reads the
+  `Maybe` once and hands the edits themselves down. The
   answer is `{ok, file, digest}`. WHERE comes off the config
   (`Glance.Query.captureTargetIn`), never the request; the entry is `* <text>`
   plus a drawer holding `:ORG_GLANCE_CREATION_TIME:` — org's INACTIVE stamp,
@@ -413,11 +421,13 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   word for something of its own filters on it and lifts nothing — over ~/sync at
   2026-08-02, `tag:*archive*` serves the 322 archived rows and `tag:archive`
   serves 0 while reporting all 322 withheld, which is what the two spellings
-  differing looks like. The meta counts only where the tree carries the tag
-  (`storeTags`), which is sound: with nothing archived there is nothing to
-  hide. The socket is NOT filtered: it carries row ops whatever the client's
-  query, so an unfiltered client splices in an archived row `/headlines` would
-  not have served — the shell's default query makes it refetch instead.
+  differing looks like. The question is asked in two halves and each is asked
+  once: whether the tree carries the tag at all is `/headlines`' (`storeTags`,
+  and with nothing archived there is nothing to hide), whether the query named
+  it is `namesArchive`'s, which takes the query alone. The socket is NOT
+  filtered: it carries row ops whatever the client's query, so an unfiltered
+  client splices in an archived row `/headlines` would not have served — the
+  shell's default query makes it refetch instead.
 - Materialize: `GET`/`POST /headline?id=…` serves and replaces a headline's raw
   subtree. The digest is pinned at load, any divergence is a 409 with the file
   untouched, and the write path never WRITES the store — it reads it for the
@@ -472,10 +482,13 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   is a function of (tree, generation, URL) and no `Vary` is owed for them — gzip
   writes the `Accept-Encoding` one itself.
 - The HTTP surface is a fixed route table, each entry declaring whether it needs
-  a loaded store and whether it is read-only. GET/HEAD are the whole of it
-  except `POST /headline` and `POST /command`; anything else is 405 — JSON on
-  those two, plain text elsewhere. An upgrade aimed at any path but `/ws` is
-  rejected.
+  a loaded store, the METHODS it takes with the handler for each, and how it
+  spells a 405. `HEAD` aliases `GET` in one place, so no entry names it and no
+  refusal sentence mentions it. GET is the whole of the table except `POST
+  /headline`, `POST /command` and `POST /config`; anything else is 405 — JSON on
+  those three, naming the route's own methods (`/config takes GET and POST`,
+  derived from the entry), plain text elsewhere, where the sentence names the
+  routes that DO write. An upgrade aimed at any path but `/ws` is rejected.
 - `GET /keywords?ids=A,B` is the state palette's source of truth:
   `{sources: [{source, active, inactive}], unknown: […]}`, one entry per SOURCE
   in precedence order over the ROWS named — `default`, then `system`, then their
@@ -577,7 +590,12 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   its `scheduled` OR `deadline` cell holds anything, so `planned:*empty*` is
   neither and `-planned:*empty*` is the agenda's half. It takes a date PREFIX asked
   of both cells at once. Renderer-decidable off the same two cells — no keyword set, no
-  vocabulary, no clock. The renderer's half is in the vendored
+  vocabulary, no clock. It is no matcher of its own: a predicate reads the CELLS
+  its key names (`fieldCells` — one for a column, the two date columns for
+  `planned`), `*empty*` is every named cell empty and a value is any of them
+  passing, so the virtual key is the column rule over a SET. The whole-tag meta
+  stays keyed by the cell's INDEX, which is why `planned` can never reach it.
+  The renderer's half is in the vendored
   `assets/table-view.js` (synced 2026-08-02, at table-view's starred-meta cut),
   and a skew there costs nothing anyway — `onFilter` means the renderer narrows
   nothing.
@@ -644,12 +662,18 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - Parity discipline: there is NO schema revision mechanism between this producer
   and `table-view.js`. Agreement rests on the port being kept term for term,
   plus one loose runtime tripwire. Known divergences, all live:
-  - Column lockstep is three-way through `viewColumns` (`columns`, `rowJSON`
-    cells, `filterKeys`); `hrSearch`'s field order is a hand-written positional
-    list in `recordOf` and is NOT derived from it. `TestFilter`'s layout guard
-    compares `hrSearch` against its own hardcoded list, so it catches
-    `recordOf` drifting from the test, not from `viewColumns`. Reorder
-    `viewColumns` alone and every predicate reads the wrong field, green.
+  - Column lockstep is FOUR-way through `viewColumns` — `columns` declares them,
+    `rowJSON` fills them, `filterKeys` names them, and `viewCells` joins them
+    into `hrSearch`, `recordOf` tying the record through its own cells. A cell
+    is `HeadlineRecord -> Maybe Text`: `Nothing` is the row JSON's `null` and the
+    empty field a filter reads. `TestFilter`'s layout guard keeps its hardcoded
+    six-cell list, which is now the one copy of the layout NOT derived from the
+    table — an independent oracle rather than a mirror. What used to go green
+    was the APPEND: a seventh column left the hand-written search list six
+    fields long and every predicate past it read the wrong field. A REORDER was
+    already caught, by the predicate cases (`TestFilter` 622-645) reading actual
+    cells. The append is closed by construction now, plus a case quantified over
+    the columns there are ("every column is reachable by the key it declares").
   - Which column holds a LIST is chosen by NAME here (`tagsColumn` = the index
     of `tag`) and DECLARED to the renderer: the `tag` column emits
     `"multi": true`, which beats its sampling (`multiColumn` over ≤40 non-empty
@@ -1143,15 +1167,23 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `kbHelp` after a `·`. The resident key line is the exception on purpose: its
   labels are curated prose (`rows`, `pages`) naming a group, not a command that
   ran.
-- The materialize sheet is buttonless and syncs itself. Dirty = either pane vs
-  the materialized original, moved by each successful flush; ESC or the backdrop
-  flushes a dirty sheet and closes on the 200, a pristine one closes with no
-  request; `C-x C-s` flushes mid-edit and chains the receipt's digest; a 409
-  keeps it open at `conflict`, where `C-x C-s` re-reads the digest and
-  overwrites and ESC discards; `beforeunload` flushes with `keepalive` only when
-  dirty. Header states: `synced` / `syncing…` / `conflict` / `error` — the last
-  two are the ones that wait for a keystroke, so each spells the key that
-  clears it.
+- ONE BUTTONLESS SHEET, and there are two of them: the materialize sheet and the
+  settings sheet run the SAME ladder, written once (`saveSheet`, `leaveSheet`,
+  `note`) over a sheet object holding `{dirty, flush, refresh, shut, scope}`
+  and its own state word. `activeSheet()` is what either key asks, and it is
+  total because neither sheet opens over the other (`openSettings` refuses, and
+  it asks `activeSheet()` too). What differs stays in the verbs: the subtree's
+  flush is one `POST /headline`, the settings' is a POST per moved layer with a
+  note on each refused row; the log lines are filed under the sheet's own scope
+  (`sync` / `config`). Dirty = either pane vs the materialized original, moved by
+  each successful flush; ESC or the backdrop flushes a dirty sheet and closes on
+  the 200, a pristine one closes with no request; `C-x C-s` flushes mid-edit and
+  chains the receipt's digest; a 409 keeps it open at `conflict`, where `C-x C-s`
+  is `refresh()` then `flush()` — the digests the files carry NOW — and ESC
+  discards; `beforeunload` flushes with `keepalive` only when dirty. Header
+  states: `synced` / `syncing…` / `conflict` / `error` — the last two are the
+  ones that wait for a keystroke, so each spells the key that clears it, and the
+  retry line is one constant rather than three copies.
 - The sheet is two panes over one subtree and the cut is the SERVER's: textarea
   = `body`, panel = `properties`, a flush posts both back. The page holds no org
   parser and must not grow one. A panel row is key then value in file order (no
@@ -1437,9 +1469,10 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   races fsnotify's watch-arming, so that one write does not reseed until a
   restart or a later config edit. The watch's property, not the route's.
 - Settings sheet = `,` (`customize`), the page's ONE place for a preference and
-  the materialize sheet's pattern over `/config`: buttonless, ESC/backdrop syncs
-  the layers that moved and closes, pristine closes with no request, `C-x C-s`
-  syncs mid-edit, `conflict` waits for a keystroke. THREE PANELS, from ONE list
+  the materialize sheet's own ladder over `/config`, which is the same code
+  rather than a second copy of the shape: buttonless, ESC/backdrop syncs the
+  layers that moved and closes, pristine closes with no request, `C-x C-s` syncs
+  mid-edit, `conflict` waits for a keystroke. THREE PANELS, from ONE list
   (`SECTIONS`, header + part ids, the loop over it the only thing that draws a
   frame): GENERAL (the default view and the capture target), THEME (the
   `auto`/`light`/`dark` select, a `localStorage` preference that applies as it

@@ -7,18 +7,19 @@
 -- not derived from the code under test.
 module TestFilter (spec) where
 
+import Control.Monad (unless)
 import Data.List (nub, sort)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
-import TestDefaults (columnKeysOf, orgFile, viewDir, withTempDir)
+import TestDefaults (columnKeysOf, field, maybeTextAt, orgFile, viewDir, withTempDir)
 
 import qualified Data.Text as T
 
 import Glance.Query ( HeadlineRecord (..), QueryResult (qrRecords), displayText
-                    , loadDir, matchesSearch, refTargetOf, refTargets, tagsOfCell
-                    , viewJSON )
+                    , loadDir, matchesSearch, refTargetOf, refTargets, rowJSON
+                    , tagsOfCell, viewJSON )
 import Glance.Web.Filter ( Term (..), Token (..), alternatives, archiveKey
                          , archiveMeta, cellAt, emptyEnv, emptyMeta, filterKeys
                          , matchesFilter, metaOf, namesArchive, parseFilter
@@ -324,7 +325,7 @@ archiveSpec = testGroup "Archive key"
 
   , testCase "every spelling of the META counts as naming it" $
       mapM_ (\q -> assertBool (show q <> " did not read as naming the tag")
-                             (namesArchive [archiveKey] q))
+                             (namesArchive q))
             [ "tag:*archive*", "-tag:*archive*", "state:DONE tag:*archive*"
             , "tag=*archive*", "tag:\"*archive*\"", "tag:*ARCHIVE*"
             -- An ALTERNATIVE names it too: the reader has asked for archived
@@ -333,7 +334,7 @@ archiveSpec = testGroup "Archive key"
 
   , testCase "and a query that says nothing about it does not" $
       mapM_ (\q -> assertBool (show q <> " read as naming the tag")
-                             (not (namesArchive [archiveKey] q)))
+                             (not (namesArchive q)))
             -- Free text is not a predicate, quoted text never is, another
             -- column is another cell, and the bare tag key is gone: with tags
             -- out of the grammar, `archive:draft' is text like any other.
@@ -344,12 +345,6 @@ archiveSpec = testGroup "Archive key"
             -- word for something of its own filters on it and the rows the
             -- default view hides stay hidden.
             , "tag:archive", "-tag:archive", "tag:arch", "tag:archived" ]
-
-    -- With nothing archived in the tree the word names no tag of it, and this
-    -- is False — sound, since there is nothing for the exclusion to hide.
-  , testCase "with the tag nowhere in the tree, naming it counts for nothing" $
-      assertBool "read as naming a tag against an empty vocabulary"
-                 (not (namesArchive [] "tag:*archive*"))
   ]
 
 -- The starred family
@@ -820,13 +815,35 @@ degenerateSpec = testGroup "Plain text"
 -- cells the free-text search already agrees with.
 layoutSpec :: TestTree
 layoutSpec = testGroup "Search text layout"
-  [ testCase "field i of the search text is column i as it displays" $ do
+  [ -- The hand-written oracle: six cells named here, in the order this suite
+    -- says they go in.  It is a real oracle now that the search text is built
+    -- out of 'Glance.Query.viewColumns' — the list it is compared against is
+    -- the only copy of the layout that is not derived from that table.
+    testCase "field i of the search text is column i as it displays" $ do
       records <- qrRecords <$> loadDir viewDir
       mapM_ (\r -> mapM_ (check r) (zip [0 ..] (cellsOf r))) records
 
   , testCase "a cell past the last column is empty rather than the last one" $ do
       records <- qrRecords <$> loadDir viewDir
       mapM_ (assertEqual "field 6" "" . cellAt (length filterKeys) . hrSearch) records
+
+    -- THE APPEND.  The oracle above names its six cells by hand; this one is
+    -- quantified over 'filterKeys', cell text and all, so a SEVENTH column
+    -- appended to 'viewColumns' is covered the day it lands: whatever a row
+    -- shows under a key, the predicate spelling that key finds the row it was
+    -- read off, and finds no row whose own cell for that key is empty.  What
+    -- made the append the hole is that the search text used to be a positional
+    -- list written out beside the record, which a seventh column left six
+    -- fields long — every predicate past it then reading the wrong field.
+    --
+    -- The values come off the wire rather than out of the haystack, which is
+    -- what makes this an end-to-end claim rather than a restatement of how the
+    -- haystack was cut.  They are quoted, since a cell holds spaces; the
+    -- fixture's cells carry no quote and no bar, the scanner's other two
+    -- characters, and the scanner is 'tokenSpec''s subject anyway.
+  , testCase "every column is reachable by the key it declares" $ do
+      records <- qrRecords <$> loadDir viewDir
+      sequence_ [ reachable records r key | r <- records, key <- filterKeys ]
   ]
   where
     cellsOf r = [ unset (hrState r), unset (hrPriority r), hrTitle r
@@ -835,3 +852,16 @@ layoutSpec = testGroup "Search text layout"
     check r (i, cell) =
       assertEqual (T.unpack (hrTitle r) <> " field " <> show (i :: Int))
                   (T.toLower (displayText cell)) (cellAt i (hrSearch r))
+    -- The cell R shows under KEY, as the row's own JSON carries it.
+    cellUnder key r = fmap (fromMaybe "") . maybeTextAt key =<< field "cells" (rowJSON r)
+    reachable records r key = do
+      cell <- cellUnder key r
+      let value = T.toLower (displayText cell)
+          q     = key <> ":\"" <> value <> "\""
+          asked = T.unpack (hrTitle r <> " — " <> q)
+      unless (T.null value) $ do
+        assertBool (asked <> ": the row its own cell came from does not match")
+                   (matchesFilter emptyEnv q r)
+        answered <- traverse (cellUnder key) (filter (matchesFilter emptyEnv q) records)
+        assertBool (asked <> ": a row with an empty cell there answered it")
+                   (all (not . T.null) answered)

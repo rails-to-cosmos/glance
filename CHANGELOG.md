@@ -195,6 +195,46 @@ section groups a feature arc, and its date is that arc's last commit.
   marked inside the word, bold and underlined in that state's own badge colour.
 - `*clear*` commits on `DEL` instead of claiming a letter, so the whole `a`-`z`
   pool goes to keywords and a wide cycle keeps the letter the entry used to take.
+- The row's search text is DERIVED from `viewColumns`: a column's cell is now
+  `HeadlineRecord -> Maybe Text`, `rowJSON` encodes it (`Nothing` is the same
+  `null` it always sent, `Just ""` the same `""`), and `recordOf` ties the record
+  through `viewCells` instead of writing the six cells out a second time. What
+  went green before this is an APPEND — a seventh column left the haystack six
+  fields long and every predicate past it reading the wrong field — and it is
+  closed by construction plus a `TestFilter` case quantified over the columns
+  there are. A reorder was already caught, by the layout guard, whose hardcoded
+  list stays as the now-real oracle. Byte-identical over ~/sync: 12594 rows of
+  view JSON unchanged.
+- `Glance.Web.Filter` reads a predicate's CELLS as a set (`fieldCells`): a column
+  is its one cell and `planned` is the two date columns, so `*empty*` is every
+  named cell empty and a value is any of them passing — one arm where the virtual
+  key had a matcher of its own. The whole-tag meta stays keyed by cell index, so
+  `planned` can never reach it.
+- `namesArchive` drops its vocabulary parameter: `/headlines` already asks
+  whether the tree carries the tag, and asking twice was the same conjunct twice
+  (`V && not (V && N)` is `V && not N`). The claim it used to state moved to
+  `TestServe`, over a tree with nothing archived, where it is a fact about the
+  answer rather than about the parser.
+- `POST /command` is ONE table, name to `{argument shape, dated, edits}`:
+  `commandNames` is its keys, `parseCommand` resolves the name before anything
+  else and builds a `Command` out of the entry it found, and the per-name guards
+  are each command's own `csArgs`. The wildcard that made an unknown name
+  `archive` is gone with the case it lived in — the edits are read off the entry,
+  and the one command with no row function is the one that makes a row. Every
+  refusal message is unchanged, verbatim.
+- The HTTP route table declares its METHODS: each entry carries the handler per
+  method and how it spells a 405, `HEAD` aliases `GET` in one place, and the JSON
+  refusal sentence is derived from the entry's own method names. CLAUDE.md's
+  "fixed route table, each entry declaring whether it needs a loaded store and
+  whether it is read-only" is true as written now. The 405 surface is byte-
+  identical over ten method/path pairs.
+- ONE BUTTONLESS SHEET drives both the materialize sheet and the settings sheet:
+  one state word per sheet through one writer, one `C-x C-s` ladder, one
+  ESC/backdrop ladder, one backdrop registration, and the `C-x C-s retry · ESC
+  discard` line spelled once where it had three copies. Each sheet supplies
+  `{dirty, flush, refresh, shut, scope}` and nothing else; `activeSheet()` is
+  total, since neither sheet opens over the other. Behaviour is unchanged — the
+  harness drives both sheets through pristine, dirty, conflict and discard.
 
 ## 0.4.0.0 - 2026-08-02
 
