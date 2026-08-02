@@ -304,31 +304,52 @@ because the file watch is still the only thing that updates the table. What
 makes that safe is the same optimistic lock the sheet uses — a file that moved
 under you refuses its rows and says so in the log, while the rest land.
 
-=t= raises a small palette of the states your files declare, plus =*clear*= to
-take a keyword off. It is a *which-key* menu: every entry wears a letter, that
-letter commits on its own, and the palette itself is the confirmation — you have
-just read the line saying =t= sets =TODO= when you press =t=. No =RET= behind it
-and no confirm step; the optimistic lock is what makes a mis-press cheap.
+=t= raises a small palette of the states those rows may be set to, plus
+=*clear*= to take a keyword off. It is a *which-key* menu: every entry wears a
+letter, that letter commits on its own, and the palette itself is the
+confirmation — you have just read the line saying =t= sets =TODO= when you press
+=t=. No =RET= behind it and no confirm step; the optimistic lock is what makes a
+mis-press cheap.
+
+*The palette is the resolver's answer.* It is a table — =Source= | =Active= |
+=Inactive= — with one row per layer that has something to say about the rows you
+marked, in the order the resolver consults them: the file's own =#+TODO:= line,
+then each of its tags' configs, then =system.org=, then org's built-in
+=TODO=/=DONE=, then the union of everything configured anywhere. A keyword shows
+up under the *nearest* layer that declares it and nowhere below it, so the table
+is the classification rule made visible: if =READING= sits in the =book= row,
+=book.org= is what makes it active here, and a file that redeclares it takes it
+into the =file= row instead. Mark rows across two tags and both tags are rows of
+their own.
 
 The letters are deterministic. Each entry claims the first letter of *its own
-spelling* that no entry above it took, in palette order, out of one =a=–=z=
-pool — so =TODO= is =t=, =DONE= is =d=, and =DELEGATED=, finding =d= gone, is
-=e=. The claimed letter is *underlined where it sits in the word*, which is the
-whole of the explanation. A hairline separates the active keywords from the
-done-like ones, =*clear*= sits under both, and it takes its letter out of the
-same pool as everything else — =c= where nothing claimed one, =l= where
+spelling* that no entry above it took, reading the table left to right and top
+to bottom, out of one =a=–=z= pool — so =TODO= is =t=, =DONE= is =d=, and
+=DELEGATED=, finding =d= gone, is =e=. The claimed letter is *bold where it sits
+in the word*, which is the whole of the explanation. Hairlines fall between the
+source rows, =*clear*= spans a row at the foot, and it takes its letter out of
+the same pool as everything else — =c= where nothing claimed one, =l= where
 something did. One tree's keyword cycle always yields the same letters, so the
 muscle memory holds.
 
 An entry with no letter left shows a muted =·=. Press =/= for the
-completing-read: the letters go, a field appears, type to narrow, =C-n= / =C-p=
-or the arrows to walk, =RET= to commit. =ESC= leaves the palette from either
-mode.
+completing-read: the table flattens, the letters go, a field appears, type to
+narrow, =C-n= / =C-p= or the arrows to walk, =RET= to commit. =ESC= leaves the
+palette from either mode.
 
-A keyword is legal per *file*: the palette offers the union of every =#+TODO:=
-line loaded, and a command naming one that a row's own file does not declare is
-refused whole rather than applied to the rows whose files do. The same commands
-from a shell:
+A keyword is legal per *file*, and the palette and the refusal come from the
+same place: a command naming a keyword that a row's own file does not declare is
+refused whole rather than applied to the rows whose files do. The resolution is
+its own endpoint if you want it directly:
+
+#+begin_src sh
+curl -s 'localhost:7777/keywords?ids=ROW-ID,OTHER-ID'
+# {"sources":[{"source":"book","active":["READING"],"inactive":["READ"]},
+#             {"source":"builtin","active":["TODO"],"inactive":["DONE"]}],
+#  "unknown":[]}
+#+end_src
+
+The same commands from a shell:
 
 #+begin_src sh
 curl -s -X POST -H 'content-type: application/json' localhost:7777/command \
@@ -747,8 +768,8 @@ release that binds WebKit2 4.1 retires =vendored/=; a distribution that ships
 
 The daemon binds and answers immediately, and walks the tree behind that: over
 ~6.3k files that is ~16 s during which a browser would otherwise have got a
-refused connection. While the walk runs, =/headlines=, =/headline=, =/command=
-and =/ws= answer =503= with =Retry-After: 1= and
+refused connection. While the walk runs, =/headlines=, =/headline=, =/keywords=,
+=/command=, =/config= and =/ws= answer =503= with =Retry-After: 1= and
 ={"loading": true, "elapsed": 3.4}=,
 and =/= plus the assets are served as usual — so the shell paints, shows
 =indexing … 3.4s= against an amber dot, and polls once a second until the store

@@ -69,6 +69,7 @@ module Glance.Query ( ConfigLayerFile (..)
                     , filterKeys
                     , headlineParts
                     , hiddenProperties
+                    , keywordSources
                     , loadDir
                     , loadDirFilesSerially
                     , loadDirFilesWith
@@ -135,6 +136,7 @@ import Data.Org.Config ( ConfigLayerFile (..), ConfigLayers (..), TodoKeywords (
                        , captureTargetOf, classify, configDirIn, declaredKeywords
                        , defaultCaptureFile, defaultFilter
                        , defaultFilterEdits, defaultFilterOf, isTodoPragma
+                       , keywordScopes
                        , loadConfigDirs, mergeKeywords, noConfig, readConfigLayers
                        , seedContext, todoLineEdits, todoLines, todoPragmas )
 import Data.Org.Walk ( Found (..), WalkOptions (..), beatsForId, defaultWalk
@@ -158,6 +160,7 @@ data HeadlineRecord = HeadlineRecord
   , hrCategory  :: !Text            -- ^ the file's final @#+CATEGORY@, empty when unset.
   , hrHeadline  :: !Headline        -- ^ the parsed headline; its type stays private.
   , hrKeywords  :: !TodoKeywords    -- ^ every keyword the file's parse recognized — config seed included; one value shared per file.
+  , hrDeclared  :: !TodoKeywords    -- ^ what the file's OWN @#+TODO:@ lines declare; the nearest scope, see 'keywordSources'.
   , hrDoc       :: !Text            -- ^ the file's text as parsed; shared with 'hrHeadline', not copied.
   , hrDigest    :: !Text            -- ^ SHA-256 of that text's bytes, lowercase hex; one value shared per file.
   , hrSubtree   :: !Span            -- ^ the headline's outline extent in 'hrDoc'; see 'subtreeSpans'.
@@ -340,7 +343,10 @@ summarise dirErrs files =
 -- CTX's sets are what the parse RECOGNIZED, CFG's seed included, and they are
 -- the file's palette contribution and the vocabulary a command may write.  The
 -- file's own @#+TODO:@ declarations ('declaredKeywords' over the elements) are
--- the nearest scope a row's active-ness is CLASSIFIED by, and they are read
+-- the nearest scope a row's active-ness is CLASSIFIED by, are kept beside the
+-- recognized set ('hrDeclared') because the two are not recoverable from each
+-- other — a file redeclaring a seeded keyword the other way adds nothing to the
+-- union it disagrees with — and they are read
 -- over the whole file rather than positionally: a document declaring one
 -- keyword two ways at two depths is not something org writes, and recognition
 -- stays positional either way.
@@ -351,7 +357,9 @@ recordsOf cfg path doc digest ctx elems =
   | (ordinal, (h, subtree)) <- zip [0 ..] entries ]
   where category = detach (metaCategory ctx)
         keywords = keywordsOf ctx
-        declared = declaredKeywords elems
+        -- Forced here, once per file: it is STORED now ('hrDeclared'), and an
+        -- unforced set is a thunk over ELEMS.
+        declared = forcedKeywords (declaredKeywords elems)
         heads    = [ h | e <- elems, EHeadline h <- [valueOf e] ]
         -- The position in THIS list is the row's ordinal ('rowId'), so BOTH
         -- filters run before the numbering: a child or a blank entry between
@@ -414,6 +422,7 @@ recordOf cfg declared path ordinal doc digest category keywords h subtree = forc
   , hrCategory  = category
   , hrHeadline  = h
   , hrKeywords  = keywords
+  , hrDeclared  = declared
   , hrDoc       = doc
   , hrDigest    = digest
   , hrSubtree   = subtree
@@ -1107,10 +1116,17 @@ subtreeSpans len heads = snd (foldl' place ([], []) (reverse (map extent heads))
 -- TODO\/DONE, the config seed and the file's own @#+TODO:@ lines together —
 -- which is why a row's active-ness is 'hrActive' rather than a lookup in here.
 keywordsOf :: Context -> TodoKeywords
-keywordsOf ctx = forcing (actives <> inactives) (TodoKeywords actives inactives)
-  where actives   = kept todoActive
-        inactives = kept todoInactive
-        kept f = map detach (Set.toAscList (f ctx))
+keywordsOf ctx = forcedKeywords (TodoKeywords (kept todoActive) (kept todoInactive))
+  where kept f = map detach (Set.toAscList (f ctx))
+
+-- | KW with both lists' spines and elements forced, which is what makes a
+-- keyword set safe to STORE.  A strict field buys WHNF and no more — the first
+-- cons cell — so an unforced set is a thunk over the parse it was read from,
+-- and a record holding one would pin its file's whole element tree for the life
+-- of the process.  Both stored sets go through this: the recognized union and,
+-- because the same trap is one field away, the file's own declarations.
+forcedKeywords :: TodoKeywords -> TodoKeywords
+forcedKeywords kw = forcing (tkActive kw <> tkInactive kw) kw
 
 -- | H's row identity: its @ORG_GLANCE_ID@ property, else @"FILE#K"@ — the path
 -- and ORDINAL, which is H's 0-based position among the file's EMITTED ROWS
@@ -1257,6 +1273,58 @@ archiveTag = "ARCHIVE"
 -- unless asked.
 archived :: HeadlineRecord -> Bool
 archived r = T.toLower archiveTag `elem` tagsOfCell (hrTags r)
+
+-- | The classification chain behind ROWS, made visible: one entry per SOURCE in
+-- precedence order, each holding the keywords it is the NEAREST to declare.
+--
+-- This is 'Data.Org.Config.classify' turned inside out, over the very list that
+-- one folds ('Data.Org.Config.keywordScopes'): that function takes the first
+-- scope with an opinion about a keyword, and this one reports what each scope
+-- claims.  Deduplication IS the classification rule — a keyword the file and a
+-- tag both declare belongs to the file alone, so it appears in the file's entry
+-- and nowhere below it.  A source left with nothing after that is dropped
+-- rather than shown empty.
+--
+-- Each entry's own active\/inactive split is that source's, which is why the
+-- answer classifies as well as enumerates: @system.org@ writing @| READING@
+-- puts READING in the system entry's inactive half, and a @book@ config
+-- writing it before the bar puts it in the book entry's active half — and the
+-- dedup decides which of the two a given row is shown.
+--
+-- What this layer adds to the scopes is the ROWS.  A record supplies its file's
+-- own declarations and its tags, and SEVERAL of them — the marked set — merge
+-- by source NAME: the file entry is the union of those rows' files' own
+-- pragmas, and the tags are every tag any of them carries, in first-seen order
+-- across the rows as given.  Merging costs one property: a keyword one row
+-- reaches through its file and another through a tag lands in the NEARER of the
+-- two, so the table describes the set rather than any one member of it.  Rows
+-- whose tag ORDER disagrees are resolved the same way, by the merged order.
+--
+-- Everything reported is settable on every row named: the reserved scopes are
+-- all in the parse seed or in org's own cycle, and a file's own declarations
+-- are its own, so 'setStateEdits' accepts each of them for the rows it came
+-- from.
+keywordSources :: ConfigLayers -> [HeadlineRecord] -> [(Text, TodoKeywords)]
+keywordSources cfg rows = nearest Set.empty (sortOn fst chain)
+  where
+    -- The one scope whose value differs between rows, merged before the chain
+    -- is built.  Every other entry a row contributes is a function of the tag
+    -- or a constant, so a repeat carries the same set — and 'nearest' drops a
+    -- repeat by construction, everything it declares being seen already.
+    filed   = mergeKeywords (map hrDeclared rows)
+    chain   = [ (rank, (source, kw))
+              | r <- rows
+              , (rank, source, kw) <- keywordScopes cfg filed (tagsOfCell (hrTags r)) ]
+    -- 'sortOn' is stable, so the scopes keep their order and the tags keep the
+    -- order the rows named them in.
+    nearest _seen [] = []
+    nearest seen ((_rank, (source, kw)) : rest)
+      | null actives && null inactives = nearest seen rest
+      | otherwise = (source, TodoKeywords actives inactives) : nearest taken rest
+      where actives   = filter unseen (tkActive kw)
+            inactives = filter unseen (tkInactive kw)
+            unseen w  = not (Set.member w seen)
+            taken     = foldr Set.insert seen (actives <> inactives)
 
 -- | The span edits @set-state@ makes to R.
 --
@@ -1682,9 +1750,10 @@ rowJSON r = object
 -- Each badge names its @group@ — @active@ or @inactive@, the halves a
 -- @#+TODO:@ line's bar divides.  Order alone cannot say where the bar fell, and
 -- the producer is the only side that knows: the two @stateValues@ metas filter
--- on exactly this split, and the shell's value palette rules between the groups
--- rather than guessing from the hues.  A renderer with no use for it ignores an
--- extra field.
+-- on exactly this split.  It is DECLARED rather than consumed here — the shell
+-- reads the badges for their hues and takes its own active\/inactive split off
+-- @\/keywords@, which answers per row where this palette is the whole store's —
+-- and a renderer with no use for it ignores an extra field.
 badges :: TodoKeywords -> [Value]
 badges (TodoKeywords actives inactives) =
   group "active" activeColors actives <> group "inactive" inactiveColors inactives

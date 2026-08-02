@@ -58,10 +58,12 @@ const tags = [];
 // one-row store cannot tell marking from advancing.
 let rows = ["one", "two", "three"].map((title, i) =>
   ({ id: `r${i + 1}`, cells: { state: "TODO", title, tag: ":web:" } }));
-// The state column carries its badge palette, since that is where the value
-// palette C-c C-t raises gets its keywords, its colours and its groups from.
+// The state column carries its badge palette, which is where the value palette
+// C-c C-t raises reads its COLOURS — the keywords themselves are /keywords'
+// answer, and a keyword no badge names simply carries no hue.
 let columns = [
   { key: "state", badges: [ { value: "TODO", color: "#e0af68", group: "active" }
+                          , { value: "READING", color: "#bb9af7", group: "active" }
                           , { value: "DONE", color: "#73daca", group: "inactive" } ] },
   { key: "tag" },
 ];
@@ -99,6 +101,20 @@ let layers = [
 ];
 const configWrites = [];
 let configTick = 1;
+// What /keywords resolves for the rows a command names: the classification
+// chain, nearest source first, each source holding what it is the nearest to
+// declare.  Canned, the way the layers above are: the resolution is the
+// server's and TestConfig is where the rule itself is tested — what the page
+// owes is drawing whatever comes back, in the order it comes back.
+let sources = [
+  { source: "file",    active: ["LATER"],   inactive: [] },
+  { source: "book",    active: ["READING"], inactive: ["READ"] },
+  { source: "builtin", active: ["TODO"],    inactive: ["DONE"] },
+];
+// Every /keywords URL the page asked for, which is the whole of what says WHICH
+// rows it resolved the palette for.  `stalling' holds one out forever.
+const resolved = [];
+let stalling = false;
 // The default view `system.org' names, which `g' applies and the settings sheet
 // edits beside that layer's cycle.
 let viewQuery = "state:*active*";
@@ -150,6 +166,15 @@ globalThis.fetch = (url, init) => {
         refusing ? { id, ok: false, error: "a.org changed on disk" }
                  : { id, ok: true, digest: "d1" }),
     });
+  }
+  if (String(url).startsWith("/keywords?ids=")) {
+    resolved.push(url);
+    // Never settling, which is the only way to observe the moment the overlay
+    // is up and the resolution is not: everything else here answers as a
+    // microtask, and one turn of the loop is past it.
+    if (stalling) return new Promise(() => {});
+    return refusing ? answer(400, { error: "GET /keywords?ids=<row id>" })
+                    : answer(200, { sources, unknown: [] });
   }
   if (String(url) === "/config") {
     if ((init || {}).method !== "POST")
@@ -475,29 +500,56 @@ const focused = () => {
     .findIndex((row) => row.children.indexOf(active) !== -1);
   return at === -1 ? "" : `${active.className}:${at}`;
 };
+/** Everything under E with CLS, by class the way `patAt' reads the property
+ * panel: the producer labels each part, so one added later cannot be mistaken
+ * for another. */
+const parts = (e, cls) =>
+  e.children.filter((x) => x.className.split(" ").indexOf(cls) !== -1);
+/** A bare word where an entry is read: the header's column names, and the line
+ * the palette stands on while the resolution is out. */
+const asWord = (word) => ({ key: "", word, color: "" });
 /**
- * The value palette's list as it stands: one entry per row, with the key token
- * it claimed and its word spelled with the BOLD letter in brackets where it
- * sits (`DELEGAT[E]D').  A hairline is a row of its own, so the groups are
- * observable too.  The colour is read back off the inline style, which is where
- * the badge's own hue is written.
+ * One palette entry as it is drawn: the key token it claimed, its word spelled
+ * with the BOLD letter in brackets where it sits (`DELEGAT[E]D'), and the
+ * colour read back off the inline style, which is where the badge's own hue is
+ * written.
+ */
+const paletteEntry = (e) => {
+  const token = parts(e, "pk")[0], word = parts(e, "pw")[0];
+  return {
+    key: token ? token.textContent : "",
+    word: word.children.length
+      ? word.children.map((p) => (p.tagName === "B" ? `[${p.textContent}]`
+                                                    : p.textContent)).join("")
+      : word.textContent,
+    color: word.style.color || "",
+  };
+};
+/** One table cell's entries.  The header's cells hold a word rather than
+ * entries and read as one; an empty cell reads as nothing. */
+const paletteCell = (cell) =>
+  cell.children.length ? cell.children.map(paletteEntry)
+    : cell.textContent ? [asWord(cell.textContent)] : [];
+/**
+ * The value palette's list as it stands: per ROW of `#plist', its class, the
+ * source it names, and the entries in its Active and Inactive halves.  The
+ * hairlines between rows are the rows' own borders, so what is observable here
+ * is the table's shape rather than a divider.
+ *
+ * Three row shapes, told apart by what the producer put in them.  A table row
+ * carries its two cells.  A row holding ONE entry is the meta's, or the
+ * fallback mode's own body, and reads as that entry in the active half.  A row
+ * holding neither is the standing line, and reads as its text.
  */
 const paletteRows = () => field("plist").children.map((row) => {
-  // By CLASS, the way `patAt' reads the property panel: the producer labels the
-  // token and the word, so a third part added later cannot be mistaken for
-  // either.  A hairline has neither.
-  const kid = (cls) =>
-    row.children.find((e) => e.className.split(" ").indexOf(cls) !== -1);
-  const token = kid("pk"), word = kid("pw");
+  const cells = parts(row, "pc"), own = parts(row, "pe")[0] || row;
+  const [active, inactive] = cells.length ? cells.map(paletteCell)
+    : [[parts(own, "pw").length ? paletteEntry(own) : asWord(row.textContent)], []];
   return {
     cls: row.className,
-    key: token ? token.textContent : "",
-    word: !word ? ""
-      : word.children.length
-        ? word.children.map((p) => (p.tagName === "B" ? `[${p.textContent}]`
-                                                      : p.textContent)).join("")
-        : word.textContent,
-    color: word ? word.style.color || "" : "",
+    source: (parts(row, "ps")[0] || {}).textContent || "",
+    active,
+    inactive,
   };
 });
 
@@ -524,6 +576,18 @@ const ACTIONS = {
     const labels = arg.split(",");
     assigned = whichKeys(labels).map((at, i) =>
       (at === -1 ? "-" : `${letterAt(labels[i], at)}@${at}`));
+  },
+  // The resolution never arrives, which is what leaves the palette standing in
+  // the state between the press that raised it and the answer that fills it.
+  stall: () => { stalling = true; },
+  // The resolution a marked set spanning two tags comes back as: two tag
+  // sources, in the order the server put them, and no file layer at all.
+  twotags: () => {
+    sources = [
+      { source: "book", active: ["READING"], inactive: ["READ"] },
+      { source: "film", active: ["WATCHING"], inactive: ["WATCHED"] },
+      { source: "builtin", active: ["TODO"], inactive: ["DONE"] },
+    ];
   },
   sheet: (text) => { field("mtext").value = text; },
   filter: (text) => { field("filter").value = text; },
@@ -656,9 +720,10 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     // page has said since it booted, oldest first.
     log: logged(),
     // The value palette: whether it is up, which mode it is in, what it is
-    // setting, the entries it drew, the keys it names, and what a commit posted.
+    // setting, the resolution it drew, which rows it resolved for, the keys it
+    // names, and what a commit posted.
     prompt: field("prompt").className, phead: field("phead").textContent,
-    pmode: field("pbox").className, plist: paletteRows(),
+    pmode: field("pbox").className, plist: paletteRows(), resolved,
     pfoot: field("pfoot").textContent, assigned, commands,
     // Which keys the dispatch took off the browser, in press order.
     prevented,

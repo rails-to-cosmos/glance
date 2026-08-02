@@ -41,6 +41,7 @@ module Data.Org.Config ( ConfigLayerFile (..)
                        , isCaptureTargetPragma
                        , isDefaultFilterPragma
                        , isTodoPragma
+                       , keywordScopes
                        , loadConfigDirs
                        , mergeKeywords
                        , noConfig
@@ -67,7 +68,7 @@ import qualified Data.Text.Encoding as TE
 import Data.Org.Edit (digestOf, readDocument)
 import Data.Org.Parser (orgParse)
 import Data.Org.Types ( Context, Element (EPragma), Pragma (PTodo), Span (..), Spanned (valueOf)
-                      , defaultContext, setTodo )
+                      , defaultContext, setTodo, todoActive, todoInactive )
 import Data.Org.Walk (isDocument, isWalked)
 
 -- Keywords
@@ -522,26 +523,56 @@ seedContext cfg = setTodo (Set.fromList (tkActive seed)) (Set.fromList (tkInacti
                           defaultContext
   where seed = clSeed cfg
 
--- | Is KEYWORD an active state on a headline carrying TAGS, in a file whose own
--- @#+TODO:@ lines declare FILEKW?
+-- | The scopes that answer for a headline carrying TAGS in a file whose own
+-- @#+TODO:@ lines declare FILEKW, NEAREST FIRST: the file's own declarations,
+-- then the headline's tags IN ORDER, then @system.org@, then org's built-in
+-- TODO\/DONE, then the recognition union — which is what answers for a keyword
+-- no scope above it claims, @READING@ on an untagged headline being the
+-- ordinary case of that.  Each entry is its RANK, the name it answers under and
+-- what it declares.
 --
--- Nearest scope wins, and the chain is the whole of the rule: the file's own
--- declarations, then the headline's tags IN ORDER (the first tag with anything
--- to say about the keyword answers, and a later one disagreeing is ignored),
--- then @system.org@, then org's built-in TODO\/DONE, then the recognition union
--- — which is what answers for a keyword no scope here claims, @READING@ on an
--- untagged headline being the ordinary case of that.
+-- ONE list, read two ways.  'classify' takes the first scope with an opinion
+-- about a keyword; 'Glance.Query.keywordSources' reports what each scope
+-- claims, so the palette a reader picks a state out of and the active-ness the
+-- table shows it with describe one chain by construction.  The rank travels
+-- beside the name because a tree may configure a tag called @system@: the two
+-- entries stay apart and the tag keeps its own place in the order.
+keywordScopes :: ConfigLayers -> TodoKeywords -> [Text] -> [(Int, Text, TodoKeywords)]
+keywordScopes cfg fileKw tags =
+  (0, fileSource, fileKw)
+    : [ (1, tag, kw) | tag <- tags, Just kw <- [lookup tag (clTags cfg)] ]
+   <> [ (2, systemSource,  clSystem cfg)
+      , (3, builtinSource, builtinKeywords)
+      , (4, unionSource,   clSeed cfg) ]
+
+-- | The names 'keywordScopes' gives the four scopes that are not tags.
+-- Reserved by convention alone: a tag spelled like one of them is still a scope
+-- of its own, at its own rank.
+fileSource, systemSource, builtinSource, unionSource :: Text
+fileSource    = "file"
+systemSource  = "system"
+builtinSource = "builtin"
+unionSource   = "union"
+
+-- | Org's own two states, which every parse recognizes whatever a tree
+-- configures.  Read off 'defaultContext' rather than spelled again, since that
+-- is where org's built-in cycle is declared — and read HERE rather than at each
+-- of the two callers, so the scope 'classify' consults and the scope a palette
+-- shows cannot come to hold different words.
+builtinKeywords :: TodoKeywords
+builtinKeywords = TodoKeywords (Set.toAscList (todoActive defaultContext))
+                               (Set.toAscList (todoInactive defaultContext))
+
+-- | Is KEYWORD an active state on a headline carrying TAGS, in a file whose own
+-- @#+TODO:@ lines declare FILEKW?  The first scope of 'keywordScopes' with
+-- anything to say about it answers, and a farther one disagreeing is ignored.
 --
 -- Total by construction: a keyword that parsed at all came from the union, the
 -- file or the built-ins, so the final 'True' is unreachable and defensive.
 classify :: ConfigLayers -> TodoKeywords -> [Text] -> Text -> Bool
-classify cfg fileKw tags keyword = fromMaybe True (asum scopes)
+classify cfg fileKw tags keyword =
+  fromMaybe True (asum [ says kw | (_rank, _source, kw) <- keywordScopes cfg fileKw tags ])
   where
-    scopes  = [ says fileKw, byTag, says (clSystem cfg), builtin, says (clSeed cfg) ]
-    byTag   = asum [ says kw | t <- tags, Just kw <- [lookup t (clTags cfg)] ]
-    builtin | keyword == "TODO" = Just True
-            | keyword == "DONE" = Just False
-            | otherwise         = Nothing
     says (TodoKeywords active inactive)
       | keyword `elem` active   = Just True
       | keyword `elem` inactive = Just False

@@ -33,6 +33,7 @@ module Glance.Web.Store
   , loadStoreWith
   , storeDocument
   , storeHeadline
+  , storeHeadlines
   , storeRecords
   , storeResult
   , storeKeywords
@@ -63,6 +64,7 @@ import Control.Concurrent.STM (STM, TVar, atomically, modifyTVar', newTVar, newT
 import Control.Concurrent.STM.TBQueue (TBQueue, isFullTBQueue, newTBQueue, readTBQueue, writeTBQueue)
 import Control.Monad (filterM, (<=<))
 import Data.Aeson (Value, encode, object, (.=))
+import Data.Either (partitionEithers)
 import Data.List (find, foldl', nub)
 import Data.Map.Strict (Map)
 import Data.Maybe (listToMaybe, mapMaybe)
@@ -193,6 +195,22 @@ storeResult st = QueryResult
 -- so materializing an id two files claim opens the one the table is showing.
 storeHeadline :: Text -> Store -> Maybe HeadlineRecord
 storeHeadline rid = find ((== rid) . hrId) . storeRecords
+
+-- | IDS looked up in ONE resolution: the rows ST holds, in the order the ids
+-- were named, and the ids it holds none for.
+--
+-- What 'storeHeadline' is for a set, and the reason it exists rather than a
+-- fold over it: that call resolves the whole store per id (~2.4 ms over the
+-- ~13000-row @~\/sync@ store), so a marked set of a hundred rows would spend a
+-- quarter of a second on one answer.  This resolves once and indexes, which is
+-- flat in the number of ids.  Both routes that name rows go through it, so a
+-- refusal for an id nothing holds reads the same either way.
+storeHeadlines :: [Text] -> Store -> ([HeadlineRecord], [Text])
+storeHeadlines ids st = partitionEithers [ maybe (Right rid) Left (Map.lookup rid held)
+                                         | rid <- ids ]
+  where wanted = Set.fromList ids
+        held   = Map.fromList [ (hrId r, r) | r <- storeRecords st
+                                            , Set.member (hrId r) wanted ]
 
 -- | The text ST holds for PATH and the digest it was parsed from, or 'Nothing'
 -- where it holds no rows for it — a file the walk never met, one that failed to

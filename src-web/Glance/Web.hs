@@ -9,13 +9,15 @@
 -- reading the stanza sees it.  That is the facade invariant
 -- (docs/invariants.md, Architecture), kept where the solver can check it.
 --
--- Six routes: @GET \/headlines@ is the view JSON, @GET \/@ a demo shell that
+-- The routes: @GET \/headlines@ is the view JSON, @GET \/@ a demo shell that
 -- fetches it, @GET \/ws@ the live row stream, @GET \/NAME@ an asset (the
 -- renderer this binary carries, or a file under @--assets@), @\/headline@ the
 -- materialize round-trip — @GET@ for
--- one headline's raw subtree, @POST@ to write an edited one back — and
+-- one headline's raw subtree, @POST@ to write an edited one back —
 -- @POST \/command@ the structured writes, which name rows and let the server
--- compute the spans.  The view's field set is the contract
+-- compute the spans, @GET \/keywords@ the states those rows may be set to and
+-- which scope declares each, and @\/config@ the keyword layers themselves.
+-- The view's field set is the contract
 -- (@table-view\/SCHEMA.md@), so the load counts ride along as @X-Glance-*@
 -- response headers and leave the body's shape alone.
 --
@@ -123,7 +125,7 @@ import Glance.Query ( ConfigLayerFile (..), ConfigLayers (clDirs)
                     , captureEdits, captureStamp, captureTargetIn, captureTargetOf
                     , configDirIn, configEdits, currentDocument, defaultCaptureFile
                     , defaultFilter, defaultFilterOf
-                    , headlineParts, orderedForView, planningKeywords
+                    , headlineParts, keywordSources, orderedForView, planningKeywords
                     , planningTimestamp, readConfigLayers, readsAsTimestamp
                     , recomposedSubtree
                     , replaceSpans, setPlanningEdits, setStateEdits, subtreeText
@@ -132,7 +134,7 @@ import Glance.Web.Filter (archiveKey, matchesFilter, namesArchive)
 import Glance.Web.Store ( Client, Frame (ViewChanged), Hub, LoadState (..)
                         , Store (stConfig, stGen, stPrint), finishLoading, frameText
                         , hubLoad, hubStore, loadStoreWith, newLoadingHub, nextFrame
-                        , storeDocument, storeHeadline, storeKeywords, storeResult
+                        , storeDocument, storeHeadline, storeHeadlines, storeKeywords, storeResult
                         , storeTags, subscribe, unsubscribe )
 import Glance.Web.Watch (watchOrgTree)
 
@@ -325,6 +327,7 @@ httpApp opts hub request respond = route >>= respond
       , (["headline"],  True,  headline)
       , (["command"],   True,  commandRoute)
       , (["config"],    True,  configRoute)
+      , (["keywords"],  True,  readOnly (keywordsView hub request))
       , (["ws"],        True,  readOnly (pure (plain status400 wsHint)))
       ]
     route = case [ (needs, act) | (path, needs, act) <- named, path == pathInfo request ] of
@@ -357,7 +360,11 @@ httpApp opts hub request respond = route >>= respond
       _other                 -> pure (plain status404 notFound)
     wsHint    = "/ws is a websocket endpoint; connect with Upgrade: websocket"
     writeHint = "method not allowed; POST /headline?id=… and POST /command write"
-    notFound  = "not found: /, /headlines, /headline, /command, /config, /ws, or an asset name"
+    -- Derived from the table above rather than spelled beside it, so a route
+    -- added there cannot go missing here.
+    notFound  = "not found: "
+                  <> T.intercalate ", " [ "/" <> T.intercalate "/" p | (p, _, _) <- named ]
+                  <> ", or an asset name"
 
 -- | The answer a store route gives while the startup walk is still running: a
 -- 503 that says when to come back and how long it has been going.
@@ -730,6 +737,62 @@ answerWrite moved ok written = case written of
 again :: Text
 again = "; materialize it again and re-apply the edit"
 
+-- Keywords
+
+-- | @GET \/keywords?ids=A,B@: the states those rows may be set to, laid out as
+-- the chain that classifies them.
+--
+-- @{"sources": [{"source": …, "active": […], "inactive": […]}], "unknown": […]}@.
+-- One entry per SOURCE in precedence order — the rows' own files, then their
+-- tags, then @system.org@, then org's built-in cycle, then the recognition
+-- union — and a keyword appears under the NEAREST source that declares it and
+-- nowhere below it ('Glance.Query.keywordSources', which is the whole of the
+-- rule).  So the answer classifies as well as enumerates: it is
+-- 'Data.Org.Config.classify' read forwards, and a palette drawing it shows a
+-- reader why @READING@ is active here and done-with two directories over.
+--
+-- Resolved for the TARGET ROWS rather than for the tree, which is what makes it
+-- worth a request: the store's badge palette is the union of every file loaded,
+-- and this is the part of it that answers for the rows a command is about to
+-- run over.  Several ids — the marked set — merge by source name.
+--
+-- Refusals follow the command route's, since the caller is the same key: no ids
+-- at all is a 400, and an id the store has no row for is named in @unknown@ and
+-- left out of the resolution, so a stale marked set still answers for the rows
+-- that are there.  A read, so it writes nothing and pins nothing — the digest a
+-- write presents is the row's, and @\/headlines@ already carries it.
+keywordsView :: Hub -> Request -> IO Response
+keywordsView hub request = do
+  st <- readTVarIO (hubStore hub)
+  let (found, unknown) = storeHeadlines asked st
+  pure $ if null asked
+    then jsonError status400 "GET /keywords?ids=<row id>,<row id>"
+    else jsonResponse status200
+           [ "sources" .= map sourceJSON (keywordSources (stConfig st) found)
+           , "unknown" .= unknown
+           ]
+  where asked = queryIds request
+        sourceJSON (source, kw) = object ("source" .= source : keywordsPair kw)
+
+-- | The rows REQUEST names, deduplicated: every @ids@ parameter, each a comma
+-- separated list, and every @id@ parameter, each ONE id — the way
+-- @POST \/command@ takes either spelling.  An empty name is dropped rather than
+-- looked up, so a trailing comma costs nothing.
+--
+-- The two keys differ on the comma deliberately.  @id@ has to mean on this
+-- route what it means on @\/headline@ ('queryId'), and a row id that carries a
+-- comma is ordinary — the fallback is @path#ordinal@ and a path may hold one.
+-- Percent-encoding does not help, since the split happens after decoding and
+-- @%2C@ arrives as a separator; the spelling that always works is one parameter
+-- per id, which is what the shell writes.  @ids=a,b@ is for a caller typing one
+-- out.
+queryIds :: Request -> [Text]
+queryIds request =
+  nub [ rid
+      | (key, Just raw) <- queryString request, key `elem` ["ids", "id"]
+      , Right text <- [TE.decodeUtf8' raw]
+      , rid <- if key == "ids" then T.splitOn "," text else [text], not (T.null rid) ]
+
 -- Config
 
 -- | The config directories a settings client edits: the ones the walk met, and
@@ -809,7 +872,13 @@ layerJSON f = object
   ]
 
 keywordsJSON :: TodoKeywords -> Value
-keywordsJSON kw = object ["active" .= tkActive kw, "inactive" .= tkInactive kw]
+keywordsJSON = object . keywordsPair
+
+-- | One keyword set as the two fields every answer spells it with.  Shared, so
+-- the settings preview and one source of the resolution table cannot disagree
+-- about what a cycle looks like on the wire.
+keywordsPair :: TodoKeywords -> [Pair]
+keywordsPair kw = ["active" .= tkActive kw, "inactive" .= tkInactive kw]
 
 -- | @POST \/config@ with body @{"path": …, "lines": […], "digest": …}@: one
 -- layer's @#+TODO:@ block replaced, and nothing else in the file touched.
@@ -1060,16 +1129,18 @@ writeOne plan = report <$> replaceSpans (fpPath plan) (fpDigest plan) spliced
 -- @POST \/headline@ makes and is per file because a digest is per file.
 planCommand :: Store -> Maybe Text -> Command -> Either Text ([FilePlan], [(Text, Value)])
 planCommand st stamp cmd = do
-  rows <- mapM withEdits [ r | rid <- cmdIds cmd, Just r <- [storeHeadline rid st] ]
+  rows <- mapM withEdits held
   let groups = groupOn (hrFile . fst) rows
   pure ( [ FilePlan path (hrDigest r0) [ (hrId r, edits) | (r, edits) <- rs ]
          | (path, rs@((r0, _) : _)) <- groups, not (stale rs) ]
        , missing <> [ (hrId r, refused (hrId r) (staleWhy path))
                     | (path, rs) <- groups, stale rs, (r, _edits) <- rs ] )
   where
+    -- One resolution for the whole set rather than one per id, which is what
+    -- keeps a marked set of a hundred rows off a hundred passes of the store.
+    (held, absent) = storeHeadlines (cmdIds cmd) st
     withEdits r = (,) r <$> commandEdits stamp cmd r
-    missing = [ (rid, refused rid ("no headline with id " <> rid))
-              | rid <- cmdIds cmd, Nothing <- [storeHeadline rid st] ]
+    missing = [ (rid, refused rid ("no headline with id " <> rid)) | rid <- absent ]
     stale rs = or [ pinned /= hrDigest r
                   | (r, _edits) <- rs, Just pinned <- [Map.lookup (hrId r) (cmdDigests cmd)] ]
     staleWhy path = T.pack path
@@ -2143,16 +2214,20 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      if (box) box.value = query;"
   , "    }"
   , ""
-  , "    // The two shapes of /headline, each written once.  `headline' unwraps"
-  , "    // the JSON and turns the server's own error into a throw; `post' pins"
+  , "    // A GET that unwraps the JSON and turns the server's own error into a"
+  , "    // throw.  Three routes are read this way — the subtree, the resolution"
+  , "    // behind the state palette, and the config layers — and all three want"
+  , "    // one handling of a refusal, so the shape sits here once."
+  , "    const getJSON = (url) =>"
+  , "      fetch(url).then((r) => r.json().then((b) => {"
+  , "        if (!r.ok) throw new Error(b.error || r.status);"
+  , "        return b;"
+  , "      }));"
+  , ""
+  , "    // The two shapes of /headline, each written once.  `post' pins"
   , "    // the write to DIGEST, and EXTRA is what a page closing on an edited"
   , "    // sheet adds — `keepalive', being the one caller that cannot wait."
-  , "    const headline = (id) =>"
-  , "      fetch(`/headline?id=${encodeURIComponent(id)}`).then((r) =>"
-  , "        r.json().then((b) => {"
-  , "          if (!r.ok) throw new Error(b.error || r.status);"
-  , "          return b;"
-  , "        }));"
+  , "    const headline = (id) => getJSON(`/headline?id=${encodeURIComponent(id)}`);"
   , "    const post = (id, digest, asked, extra) =>"
   , "      fetch(`/headline?id=${encodeURIComponent(id)}`, {"
   , "        method: \"POST\","
@@ -2813,26 +2888,70 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    function letterAt(label, at) {"
   , "      return at === -1 ? null : label[at].toLowerCase();"
   , "    }"
-    -- The letter is folded into each entry HERE, once, so the drawing and the
-    -- dispatch read one field of one object rather than agreeing on a parallel
-    -- array's indices — `shown' is narrowed and `choices' is not.
+    -- Raised EMPTY and filled from `/keywords', which is what makes the table
+    -- the resolver's answer rather than this page's guess.  The overlay goes up
+    -- on the keydown, so everything that hangs off it being up — `typing()',
+    -- ESC, and the raising guard below — is unchanged by the request behind it;
+    -- what the reader sees for that moment is a line saying so.
     --
     -- `raising' is the keydown that opened this: it is still travelling, and
     -- this listener sits behind the dispatch, so the press that raised the
     -- overlay arrives here next.  `t' raises it AND is a letter in it, so
     -- without declining that one event the single press would open and commit
     -- at once.  Consumed by the first key the palette sees, which is always
-    -- that one — `ask' is reached from the dispatch and nowhere else.
-  , "    function ask(title, choices, commit) {"
-  , "      const cuts = whichKeys(choices.map((c) => c.label));"
-  , "      const list = choices.map((c, i) =>"
-  , "        ({ ...c, cut: cuts[i], key: letterAt(c.label, cuts[i]) }));"
-  , "      prompting ="
-  , "        { choices: list, shown: list, at: 0, commit, narrow: false, raising: true };"
+    -- that one — `ask' is reached from the dispatch and nowhere else.  The
+    -- prompt itself is handed back, so a fill landing after an ESC can tell
+    -- that the overlay it was asked for is gone.
+  , "    function ask(title, commit) {"
+  , "      prompting = { choices: [], shown: [], at: 0, commit,"
+  , "                    narrow: false, raising: true };"
   , "      el(\"phead\").textContent = title;"
   , "      el(\"pinput\").value = \"\";"
   , "      el(\"prompt\").className = \"on\";"
   , "      mode(\"\", \"a letter sets it · / to search · ESC leaves\");"
+  , "      return prompting;"
+  , "    }"
+    -- SOURCES as the palette holds them: the labels down the table's first
+    -- column, and the flat ordered list everything else reads.  The flattening
+    -- is the draw order — each source row's active cell and then its inactive
+    -- one, `*clear*' last — so the letters are assigned ONCE over the whole
+    -- table and a letter is the reader's wherever in it the keyword sits.  It is
+    -- also the list `/' narrows, so both modes offer the same entries under the
+    -- same names.
+    --
+    -- The letter is folded into each entry HERE, once, and the entry an
+    -- OBJECT both halves hold: `table' keeps the cells and `choices' the flat
+    -- list, and they are the same objects, so the drawing and the dispatch read
+    -- one field of one thing rather than agreeing on a parallel array's indices
+    -- — `shown' is narrowed and `choices' is not.  Which is also why the
+    -- letters are stamped in place: a copy would leave the cells holding the
+    -- entries as they were before one was assigned.
+  , "    function setChoices(sources) {"
+  , "      const flat = [];"
+  , "      const held = (word) => {"
+  , "        const c = { label: word, keyword: word, color: badgeColor(word) };"
+  , "        flat.push(c);"
+  , "        return c;"
+  , "      };"
+  , "      prompting.table = (sources || []).map((s) => ({"
+    -- `built-in' is the one scope whose label is not the name it arrives under;
+    -- a tag is its own label, and `file', `system' and `union' read as they are.
+  , "        source: s.source === \"builtin\" ? \"built-in\" : s.source,"
+  , "        cells: [s.active || [], s.inactive || []].map((ws) => ws.map(held)),"
+  , "      }));"
+  , "      prompting.meta = { label: CLEAR, keyword: null, meta: true };"
+  , "      flat.push(prompting.meta);"
+  , "      whichKeys(flat.map((c) => c.label)).forEach((cut, i) => {"
+  , "        flat[i].cut = cut;"
+  , "        flat[i].key = letterAt(flat[i].label, cut);"
+  , "      });"
+  , "      prompting.choices = flat;"
+  , "      prompting.shown = flat;"
+    -- A reader who pressed `/' and typed while the answer was out is narrowing
+    -- an empty list; the fill lands in the mode it finds rather than throwing
+    -- the typing away.
+  , "      if (prompting.narrow) narrowTo(el(\"pinput\").value);"
+  , "      else drawChoices();"
   , "    }"
     -- The same overlay with no list in it: one line of text, typed and
     -- committed with RET.  It is the minibuffer the filter palette set the
@@ -2840,11 +2959,10 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- everything a prompt owes — the band it paints in, the blur on the way
     -- out, ESC through the keymap's `cancel' — is already here.  `text' is what
     -- the key listener reads to know there is nothing to narrow and nothing a
-    -- letter would commit.
+    -- letter would commit; the drawing reads it too and leaves the list empty,
+    -- so this prompt carries no entries at all.
   , "    function askText(title, foot, initial, commit) {"
-    -- No list, so no `choices' and no cursor: `shown' is the one the drawing
-    -- reads, and it stays empty for the life of this prompt.
-  , "      prompting = { shown: [], commit, text: true, raising: true };"
+  , "      prompting = { commit, text: true, raising: true };"
   , "      el(\"phead\").textContent = title;"
   , "      el(\"pinput\").value = initial;"
   , "      el(\"prompt\").className = \"on\";"
@@ -2875,31 +2993,59 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      el(\"prompt\").className = \"\";"
   , "      el(\"pinput\").blur();"
   , "    }"
-    -- One row per entry: the key token, then the keyword in its badge colour
-    -- with the claimed letter BOLD where it sits.  A hairline falls
-    -- wherever the producer's group changes, so the actives stand above the
-    -- done-like ones and `*clear*' below both in the muted italic every starred
-    -- meta wears.  In narrow mode the token column goes: no letter commits
-    -- there, and drawing one would be a lie about what typing it does.
+    -- The palette is the RESOLUTION, drawn as the layered table it is: one row
+    -- per source in precedence order, the source named down the first column
+    -- and its keywords in the Active and Inactive cells.  What a reader learns
+    -- from it is why — `READING' under `book' and not under `system' is the
+    -- classify chain saying which scope answered.  The hairlines are the rows'
+    -- own borders and the old active/done split is the two COLUMNS; `*clear*'
+    -- keeps a spanning row of its own at the foot, in the muted italic every
+    -- starred meta wears, since no scope declares taking a keyword off.
+    --
+    -- Three shapes, and the mode picks: the text prompt has no list at all, the
+    -- fallback is the flat list under a cursor, and a table not back yet is the
+    -- line saying so.
   , "    function drawChoices() {"
   , "      const list = el(\"plist\");"
   , "      list.textContent = \"\";"
-  , "      let group = null;"
-  , "      prompting.shown.forEach((c, i) => {"
-  , "        if (group !== null && c.group !== group) part(list, \"div\", \"psep\");"
-  , "        group = c.group;"
-  , "        const row = part(list, \"div\", \"pe\" + (c.group === \"meta\" ? \" pm\" : \"\")"
-  , "          + (prompting.narrow && i === prompting.at ? \" pat\" : \"\"));"
-  , "        const key = prompting.narrow ? null : c.key;"
-  , "        if (!prompting.narrow)"
-  , "          part(row, \"span\", key ? \"pk\" : \"pk off\", key || \"·\");"
-  , "        const word = part(row, \"span\", \"pw\");"
-  , "        if (c.color) word.style.color = c.color;"
-  , "        if (!key) { word.textContent = c.label; return; }"
-  , "        part(word, \"span\", \"\", c.label.slice(0, c.cut));"
-  , "        part(word, \"b\", \"\", c.label[c.cut]);"
-  , "        part(word, \"span\", \"\", c.label.slice(c.cut + 1));"
+  , "      if (prompting.text) return;"
+  , "      if (prompting.narrow) {"
+  , "        prompting.shown.forEach((c, i) => entry(list, \"pe\""
+  , "          + (c.meta ? \" pm\" : \"\") + (i === prompting.at ? \" pat\" : \"\"), c));"
+  , "        return;"
+  , "      }"
+  , "      if (!prompting.choices.length) {"
+  , "        part(list, \"div\", \"pnone\", \"resolving…\");"
+  , "        return;"
+  , "      }"
+  , "      const head = part(list, \"div\", \"pr ph\");"
+  , "      part(head, \"div\", \"ps\", \"source\");"
+  , "      part(head, \"div\", \"pc\", \"active\");"
+  , "      part(head, \"div\", \"pc\", \"inactive\");"
+  , "      prompting.table.forEach((src) => {"
+  , "        const row = part(list, \"div\", \"pr\");"
+  , "        part(row, \"div\", \"ps\", src.source);"
+  , "        src.cells.forEach((cell) => {"
+  , "          const box = part(row, \"div\", \"pc\");"
+  , "          cell.forEach((c) => entry(box, \"pe\", c));"
+  , "        });"
   , "      });"
+  , "      entry(part(list, \"div\", \"pr pm\"), \"pe\", prompting.meta);"
+  , "    }"
+    -- One entry: the key token, then the keyword in its badge colour with the
+    -- claimed letter BOLD where it sits.  The token column goes in the fallback
+    -- mode, and the bolding with it: no letter commits there, and drawing one
+    -- would be a lie about what typing it does.
+  , "    function entry(into, cls, c) {"
+  , "      const row = part(into, \"div\", cls);"
+  , "      const key = prompting.narrow ? null : c.key;"
+  , "      if (!prompting.narrow) part(row, \"span\", key ? \"pk\" : \"pk off\", key || \"·\");"
+  , "      const word = part(row, \"span\", \"pw\");"
+  , "      if (c.color) word.style.color = c.color;"
+  , "      if (!key) { word.textContent = c.label; return; }"
+  , "      part(word, \"span\", \"\", c.label.slice(0, c.cut));"
+  , "      part(word, \"b\", \"\", c.label[c.cut]);"
+  , "      part(word, \"span\", \"\", c.label.slice(c.cut + 1));"
   , "    }"
   , "    function narrowTo(text) {"
   , "      const want = text.trim().toLowerCase();"
@@ -2922,12 +3068,16 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      prompting && !prompting.text && narrowTo(e.target.value));"
   , "    el(\"prompt\").addEventListener(\"click\", (e) =>"
   , "      { if (e.target === el(\"prompt\")) unask(); });"
-    -- What C-c C-t offers: the state column's badges, which are the keyword
-    -- union of every file loaded, plus the entry that takes a keyword off.  The
-    -- column's `values' are the filter's group meta-values (`*active*') and are
-    -- deliberately absent — no file declares one, so the server refuses every
-    -- one of them, and offering a value that cannot be set is worse than not
-    -- offering it.
+    -- What C-c C-t offers: the states the SERVER says those rows may be set to,
+    -- with the scope that declares each — the file's own `#+TODO:', its tags'
+    -- configs, `system.org', org's built-in cycle, the recognition union — plus
+    -- the entry that takes a keyword off.  Resolved per request because the
+    -- answer is per ROW: the state column's badges are the union of every file
+    -- loaded, which is a superset and says nothing about where a keyword came
+    -- from.  The column's `values' are the filter's group meta-values
+    -- (`*active*') and are absent from both — no file declares one, so the
+    -- server refuses every one of them, and offering a value that cannot be set
+    -- is worse than not offering it.
     -- `*clear*' wears the stars every reserved meta wears (docs/invariants.md):
     -- the starred form is the page's mark for a value with semantics rather than
     -- a word a file could hold, and the server refuses a starred string as a
@@ -2942,13 +3092,18 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- is what the settings field says an empty box means.
   , "    const CAPTURE_DEFAULT = " <> jsonText (T.pack defaultCaptureFile) <> ";"
     -- The colour is the badge's own, so a keyword reads in the palette as it
-    -- reads in the table; the group is the producer's, and it is what the
-    -- hairlines are drawn on.
-  , "    const stateChoices = () =>"
-  , "      ((cols.filter((c) => c.key === \"state\")[0] || {}).badges || [])"
-  , "        .map((x) => ({ label: x.value, keyword: x.value,"
-  , "                       color: x.color, group: x.group }))"
-  , "        .concat([{ label: CLEAR, keyword: null, group: \"meta\" }]);"
+    -- reads in the table.  Looked up rather than carried: the resolution names
+    -- keywords, and the hues are the producer's and ride on the state column
+    -- where every other reader of them finds them.
+  , "    const badgeColor = (keyword) =>"
+  , "      (((cols.find((c) => c.key === \"state\") || {}).badges || [])"
+  , "        .find((b) => b.value === keyword) || {}).color || \"\";"
+    -- ONE parameter per id rather than the comma list a caller types by hand:
+    -- the fallback row id is a path and a comma in one would split it, and
+    -- percent-encoding cannot help — the server splits after decoding.
+  , "    const keywordSources = (ids) =>"
+  , "      getJSON(\"/keywords?\""
+  , "        + ids.map((i) => \"ids=\" + encodeURIComponent(i)).join(\"&\"));"
     -- Settings.  One section per keyword layer, and a layer is one config file
     -- and one box holding its `#+TODO:' lines VERBATIM.  The line is the
     -- contract org itself reads, so it is what is edited: a chip UI here would
@@ -2980,11 +3135,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        append(\"config\", \"error\", `settings failed: ${e.message}`);"
   , "      });"
   , "    }"
-  , "    const config = () =>"
-  , "      fetch(\"/config\").then((r) => r.json().then((b) => {"
-  , "        if (!r.ok) throw new Error(b.error || r.status);"
-  , "        return b;"
-  , "      }));"
+  , "    const config = () => getJSON(\"/config\");"
   , "    function drawLayers(b) {"
   , "      el(\"clayers\").textContent = \"\";"
   , "      crows = (b.layers || []).map((l) => layerRow(l, b.filter || \"\", b.capture || \"\"));"
@@ -3381,12 +3532,23 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- D is dired's key and org-glance's `delete', and it is `archive' with no
     -- flagging step in front of it — the same function the second `d' reaches.
   , "      archiveRows: archive,"
-    -- C-c C-t asks which state, over whatever the command would run on, and
-    -- the server refuses a keyword the row's own file does not declare.
-  , "      setState: (b) => overTargets(b, \"set state\", (ids, title) =>"
-  , "        ask(title, stateChoices(),"
-  , "            (c) => fire(b, \"set-state\", ids, { keyword: c.keyword },"
-  , "                        c.keyword === null ? CLEAR : c.keyword))),"
+    -- C-c C-t asks which state, over whatever the command would run on.  The
+    -- overlay goes up on the press and the answer fills it: the same server
+    -- that refuses a keyword the row's own file does not declare is the one
+    -- that says which keywords those are, so the offer and the refusal cannot
+    -- disagree.  A fill that lands after the reader has left finds another
+    -- prompt or none, and drops.
+  , "      setState: (b) => overTargets(b, \"set state\", (ids, title) => {"
+  , "        const mine = ask(title,"
+  , "          (c) => fire(b, \"set-state\", ids, { keyword: c.keyword },"
+  , "                      c.keyword === null ? CLEAR : c.keyword));"
+  , "        keywordSources(ids).then((answer) => {"
+  , "          if (prompting === mine) setChoices(answer.sources);"
+  , "        }).catch((e) => {"
+  , "          if (prompting === mine) unask();"
+  , "          append(\"cmd\", \"error\", `keywords failed: ${e.message}`);"
+  , "        });"
+  , "      }),"
     -- `+' is the minibuffer and nothing else: what it collects goes straight to
     -- the server, which knows the file.
   , "      capture: (b) =>"
@@ -3841,13 +4003,14 @@ page head' title body = T.unlines
   , "    border:1px solid var(--g-border);border-radius:8px}"
   , "  #mlog.on{display:block}"
   , "  #sheet.raw #mlog{display:none}"
-  -- The value palette.  Narrow, since what it holds is a word: the title says
-  -- what is being set and over how many rows, and the foot names the two keys
-  -- the list cannot draw for itself.  The field is the fallback mode's and is
-  -- hidden until `/' asks for it — in letter mode there is nothing to type.
+  -- The value palette.  Wide enough for the resolution table's three columns
+  -- and no wider: the title says what is being set and over how many rows, and
+  -- the foot names the two keys the list cannot draw for itself.  The field is
+  -- the fallback mode's and is hidden until `/' asks for it — in letter mode
+  -- there is nothing to type.
   , "  #pbox{display:flex;flex-direction:column;gap:6px;padding:10px;border-radius:6px;"
   , "    position:relative;z-index:101;"
-  , "    width:min(420px,100%);font-family:var(--dk-mono);"
+  , "    width:min(560px,100%);font-family:var(--dk-mono);"
   , "    background:var(--g-bg);color:var(--g-fg);border:1px solid var(--g-border)}"
   , "  #phead{font-size:12px;color:var(--g-mute)}"
   , "  #pfoot{font-size:11px;color:var(--g-mute)}"
@@ -3855,13 +4018,28 @@ page head' title body = T.unlines
   , "    border:1px solid var(--g-border);background:transparent;color:inherit}"
   , "  #pbox:not(.narrow) #pinput{display:none}"
   , "  #plist{max-height:40vh;overflow-y:auto;font-size:12px}"
+  -- The resolution table: source, active, inactive.  A row is a source and the
+  -- hairline between two of them is that row's own top border — the table's
+  -- border language, where the old flat list needed a divider element of its
+  -- own.  The source column is the muted small lowercase a tag wears
+  -- everywhere else on this page, whether it holds a tag or one of the reserved
+  -- labels; a long tag breaks rather than widening the box.  `*clear*' spans.
+  , "  .pr{display:grid;grid-template-columns:6.5em 1fr 1fr;gap:4px 8px;padding:4px 7px}"
+  , "  .pr+.pr{border-top:1px solid var(--g-border)}"
+  , "  .ph,.ps{font-size:11px;color:var(--g-mute)}"
+  , "  .ps{overflow-wrap:anywhere}"
+  , "  .pc{display:flex;flex-wrap:wrap;gap:2px 10px}"
+  , "  .pr.pm{grid-template-columns:1fr}"
+  , "  .pnone{padding:4px 7px;color:var(--g-mute)}"
   -- An entry is its key token and its word.  The token is boxed in the accent
   -- so the letters read as a column of their own, and the word keeps its badge
   -- colour so a keyword looks the same here as it does in the table; the
   -- claimed letter is BOLD where it sits, which is what says why
   -- DELEGATED answers to `e'.  An entry that claimed nothing shows a muted dot
-  -- and is reachable through `/' alone.
-  , "  .pe{display:flex;align-items:center;gap:8px;padding:3px 7px;border-radius:4px}"
+  -- and is reachable through `/' alone.  The padding is the FLAT list's, where
+  -- an entry is a row of its own; inside a cell the gaps do that work.
+  , "  .pe{display:flex;align-items:center;gap:6px;border-radius:4px}"
+  , "  #plist>.pe{padding:3px 7px}"
   , "  .pk{flex:none;min-width:1.6em;text-align:center;padding:1px 5px;border-radius:3px;"
   , "    font:11px/1.4 var(--dk-mono);"
   , "    border:1px solid var(--g-accent);color:var(--g-accent)}"
@@ -3872,10 +4050,6 @@ page head' title body = T.unlines
       -- is.  The accent went with the underline it coloured — the letter keeps
       -- the badge hue the rest of the keyword wears.
   , "  .pw b{font-weight:700}"
-  -- The hairline between the producer's groups: the actives above it, the
-  -- done-like ones below, and `*clear*' under a second one in the muted italic
-  -- every starred meta wears.
-  , "  .psep{height:1px;margin:4px 7px;background:var(--g-border)}"
   , "  .pm .pw{font-style:italic;color:var(--g-mute)}"
   -- The fallback's cursor row wears the page's selection, which in the light
   -- theme is a bright yellow — a badge hue written inline reads badly on it,

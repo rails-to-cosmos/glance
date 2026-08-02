@@ -329,10 +329,60 @@ on.
   pragma > its tags' configs (first tag wins) > system > built-in
   TODO/DONE; the palette and the `state:*active*` metas consult the
   resolver, while parse-time `Todo.active` keeps its position-dependent
-  snapshot semantics. Evidence: `src/Data/Org/Config.hs`, `TestConfig`.
+  snapshot semantics. The chain is ONE list — `keywordScopes`, an entry per
+  scope carrying its rank, the name it answers under and what it declares —
+  read two ways: `classify` folds it for the first scope with an opinion,
+  `Glance.Query.keywordSources` reports what each one claims. Org's own cycle is
+  `builtinKeywords`, read off `defaultContext` rather than spelled at either
+  reader, so the scope that classifies and the scope a palette shows cannot come
+  to hold different words. Evidence: `src/Data/Org/Config.hs`, `TestConfig`.
   Breaks: dropping the union re-scatters foreign-keyword headlines into
   titles; flipping the precedence misclassifies file-local overrides.
   **test + corpus** (`scan` reports `config keywords`)
+- **`GET /keywords` is `keywordScopes` read forwards, and the dedup IS the
+  rule.**
+  `?ids=A,B` answers `{sources: [{source, active, inactive}], unknown}`: one
+  entry per SOURCE in precedence order over the rows named — `file`, then their
+  tags in row order, then `system`, then `builtin`, then `union` — with each
+  keyword under the NEAREST source that declares it and nowhere below it, and a
+  source left with nothing dropped rather than shown empty. Each entry's own
+  active/inactive split is that source's, so the answer classifies as well as
+  enumerates: `READING` under `book` and `READ` under `book` rather than
+  `system` is `classify` saying which scope answered. `union` is `clSeed`,
+  `classify`'s fifth scope, and it is why another tag's cycle is still settable
+  on an untagged row. Everything reported IS settable on every row named — the
+  reserved sources are all in the parse seed or in `defaultContext` — so the
+  offer and `setStateEdits`' per-file refusal cannot disagree. EVERY `ids`/`id`
+  occurrence is read, so `?ids=a&ids=b` says what `?ids=a,b` says — and the
+  repeated form is what an id CONTAINING a comma owes, since the fallback row id
+  is `path#ordinal` and the split runs after percent-decoding, which is why the
+  shell writes one parameter per id and the comma form is left to a caller
+  typing one out. Evidence:
+  `Glance.Query.keywordSources`, `TestServe` "GET /keywords". **test**
+- **Several rows merge by source NAME, and the merge costs one property.** The
+  marked set is one answer: the `file` entry is the union of those rows' files'
+  own pragmas, and the tags are every tag any of them carries in first-seen
+  order across the rows as given. So a keyword one row reaches through its file
+  and another through a tag lands in the NEARER of the two, and rows whose tag
+  ORDER disagrees are resolved by the merged order — the table describes the
+  SET rather than any one member of it. The four reserved names are not taken
+  out of the tag namespace: a tag called `system` keeps its TAG rank, so it
+  still sits above the system layer, and the table shows the name twice with
+  the precedence order to tell them apart. Evidence: `TestServe` "a keyword
+  nearer in one row than another lands in the nearer source", "a tag spelled
+  like a reserved source keeps its own rank". **test**
+- **`hrDeclared` is stored because it is not recoverable, and forced because it
+  is stored.** A record keeps the
+  file's OWN `#+TODO:` sets beside the recognized union (`hrKeywords`): a file
+  redeclaring a seeded keyword the other way adds nothing to the union it
+  disagrees with, so the difference of the two loses exactly the case the
+  nearest-scope rule exists for. One value shared per file, like the union
+  beside it — and through the same `forcedKeywords`, because a `TodoKeywords`
+  field is strict only to WHNF: the first cons cell. An unforced set is a thunk
+  over the file's `[Spanned Element]`, so storing one would pin the whole parse
+  for the life of the process, against the scan's residency budget. `classify`
+  did not expose that (it stops at the first `elem` and `forceRecord` collapses
+  `hrActive`); a stored field does. **test** (residency: **corpus**) 
 - **Config files are inputs, never rows.** `config/` under `.org-glance`
   is skipped by the walk (reported as `config skipped`); the config reader
   reaches it directly by path. A config-file change triggers a full reseed
@@ -1943,13 +1993,19 @@ on.
   chord claimed off the browser. **test** ("both reschedule chords are claimed,
   and name the keyword") / **none** (the browser's half, which no harness reaches)
 - **The value palette is the shell's own, and the filter's is still the
-  renderer's.** `C-c C-t` (and `t`) raises `#prompt` over the state column's
-  `badges` plus a `*clear*` entry. It is a second overlay rather than a reuse of
+  renderer's.** `C-c C-t` (and `t`) raises `#prompt` over `GET /keywords`'
+  answer for the rows the command would run over, plus a `*clear*` entry. It is
+  a second overlay rather than a reuse of
   `openFilter` because that one belongs to the filter and this page may not
   reach into its chrome — the same must-not-appear list that forbids `tv-veil`
-  forbids driving it. What it offers is `badges` and never `values`: the two
+  forbids driving it. What it offers is the RESOLUTION and never the state
+  column's `values`: the two
   group meta-values are filter vocabulary, no file declares one, and offering a
-  value the server will refuse is worse than not offering it. Its keys sit in a
+  value the server will refuse is worse than not offering it. Nor is it
+  `badges` any more — that is the union of every file loaded, a superset of what
+  these rows may be set to and silent about where any of it came from; the
+  badges are read for their HUES alone, by value, so a keyword the resolution
+  names without one is drawn with none. Its keys sit in a
   SECOND document listener registered behind the dispatch, which is safe rather
   than lucky: while the palette is up `typing()` has already made every `table`
   row dead, so the only row that can have fired ahead of it is `ESC`, which is
@@ -1967,15 +2023,30 @@ on.
   letters exclusive — the palette turns it on with NO field focused, the way the
   property panel's nav does, so `n` moves no row and `d` lays down no archive
   flag while the palette is up. `/` falls back to the completing-read this used
-  to be: the token column goes (no letter commits there, so drawing one would
+  to be: the table FLATTENS to the one ordered list the letters were assigned
+  over, the token column goes (no letter commits there, so drawing one would
   lie), the field appears, typing narrows, `C-n`/`C-p` and the arrows walk, `RET`
   commits. The fallback is entered and never left — `ESC` is the one door out of
   either mode. Evidence: `TestServe` "Shell which-key" and "Shell commands".
   **test**
+- **The overlay goes up on the keydown; the resolution fills it.** `ask` raises
+  `#prompt` EMPTY and synchronously, drawing a `resolving…` line, and the
+  `/keywords` answer arrives afterwards through `setChoices`. Everything that
+  hangs off the palette being up is therefore where it was — `prompting.raising`
+  still declines the press that opened it, `typing()` still kills every `table`
+  row, `ESC` still closes it — and none of that had to learn about a request.
+  `ask` hands the prompt back, so a fill landing after the reader left finds
+  another prompt or none and drops; a refusal closes the palette and writes one
+  `cmd` error line, since a palette with nothing in it is no offer at all.
+  Evidence: `TestServe` "the palette is up before the resolution is",
+  "a refused resolution closes the palette and says so". **test**
 - **Two guards stand between `t` and a write it did not mean, and each has its
   own press.** `t` raises the palette AND is a letter inside it, and the
   palette's listener sits BEHIND the dispatch — so the very keydown that opened
-  the overlay arrives in it next. `prompting.raising`, set by `ask` and consumed
+  the overlay arrives in it next. This is what makes `ask` synchronous: raising
+  the overlay off the `/keywords` answer instead would leave `raising` set with
+  the opening press long gone, and it would decline the next real one.
+  `prompting.raising`, set by `ask` and consumed
   by the first key the palette sees, declines exactly that event; without it one
   press would open and commit at once. The second guard is `e.repeat`, which
   keeps a HELD `t` from committing through what it just opened. The keymap's
@@ -1985,9 +2056,13 @@ on.
   that raises the palette is not a key in it" and "a held t opens the palette and
   stops there". **test**
 - **The letters are deterministic, and the rule is one pure function.**
-  `whichKeys(labels)` walks the palette-ordered labels and gives each the INDEX
+  `whichKeys(labels)` walks the labels flattened in DRAW order — each source
+  row's active cell, then its inactive one, then `*clear*` — and gives each the
+  INDEX
   of the first letter of its OWN spelling, downcased, that no earlier entry
-  claimed — one `a`–`z` namespace, `-1` for an entry with nothing left. So
+  claimed — one `a`–`z` namespace over the WHOLE table, `-1` for an entry with
+  nothing left, so a letter is the reader's wherever in the table its keyword
+  sits and the fallback narrows that same list. So
   `TODO` `DONE` `DELEGATED` is `t` `d` `e`, and a whole cycle
   `TODO NEXT STARTED WAITING DELEGATED CANCELLED DONE *clear*` is
   `t n s w d c o l`. Order-only and side-effect-free, so one tree's cycle always
@@ -1995,23 +2070,29 @@ on.
   like any other entry and gets no privilege for being last: its stars are not
   letters, so it is `c` where nothing took one and falls through `l`, `e`, `a`,
   `r` where something did. An unbound entry draws a muted `·` and is reachable
-  through `/` alone. `ask` folds the letter into each entry once, so the drawing
+  through `/` alone. `setChoices` folds the letter into each entry once, so the drawing
   and the dispatch read ONE FIELD of one object and a letter drawn cannot drift
   from a letter honoured — a parallel array would have to stay indexed against
   `shown`, which narrows, rather than `choices`, which does not. Evidence:
   `TestServe` "Shell which-key", which drives `whichKeys` under the node harness
   as the pure function it is. **test**
-- **The palette teaches why.** One row per entry: an accent-boxed key token,
+- **The palette teaches why, and what it teaches is the resolution.** It is a
+  TABLE — `Source | Active | Inactive`, one row per source in the precedence
+  order `/keywords` sent, so the layer that answered for a keyword is the row it
+  sits in and the classify chain is on screen rather than inferred. An entry is
+  an accent-boxed key token,
   then the keyword in ITS OWN badge colour with the claimed letter BOLD where
   it sits in the word (`DELEGATED` bolds its `E`, which is the whole of the
   explanation; weight rather than an underline, which collides with the
-  descenders of this monospace and reads as chrome). A hairline falls wherever the producer's group
-  changes, so actives stand above the done-like ones and `*clear*` below both in
-  the muted italic every starred meta wears. The groups are the PRODUCER's:
-  `Glance.Query.badges` names each badge `active` or `inactive`, since order
-  alone cannot say where a `#+TODO:` bar fell and the hues are not a contract. A
-  renderer with no use for the field ignores it, which is what makes it additive
-  rather than a schema revision. The foot names the keys the list cannot draw
+  descenders of this monospace and reads as chrome). The old active-vs-done
+  hairline is the two COLUMNS now, and the hairline between two source rows is
+  the row's own top border — the table's border language, where a flat list
+  needed a divider element of its own. `*clear*` spans a row at the foot in the
+  muted italic every starred meta wears, since no scope declares taking a
+  keyword off. The source cell is the muted small lowercase a tag wears
+  everywhere else on this page, whether it holds a tag or one of the reserved
+  labels (`file`, `system`, `built-in`, `union`). The foot names the keys the
+  table cannot draw
   for itself — `a letter sets it · / to search · ESC leaves`, and the fallback's
   own line in its own mode. Evidence: `TestServe` "Shell which-key". **test**
 - **The materialize sheet has no buttons, and closing it is the save.** Dirty is

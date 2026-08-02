@@ -316,7 +316,7 @@ spec = withResource (body <$> get assetsDir "/") (const (pure ())) $ \shell ->
     [ headlineSpec, bannerSpec, statsSpec, cacheSpec, gzipSpec, querySpec
     , orderSpec, archiveViewSpec
     , bootstrapSpec, materializeSpec, commitSpec, commandSpec, planningSpec, captureSpec
-    , configSpec, indexingSpec
+    , configSpec, keywordsSpec, indexingSpec
     , pageSpec shell, keymapSpec shell
     , glueSpec shell, bootSpec shell, liveSpec shell, paletteSpec shell
     , moveSpec shell, markSpec shell
@@ -923,8 +923,8 @@ commandKeySpec shell = testGroup "Shell commands"
     -- its own field has focus, the way a focused select keeps its arrows.
   , testCase "C-n walks the fallback list, and the arrows do the same" $
       mapM_ (\key -> bootOf shell "" 500 "C-c C-t" ("press:/ press:" <> key)
-               (assertEqual (T.unpack key <> ": stepped to the second badge")
-                            [Just "DONE"] <=< keywordsOf))
+               (assertEqual (T.unpack key <> ": stepped to the second entry")
+                            [Just "READING"] <=< keywordsOf))
             ["C-n press:Enter", "ArrowDown press:Enter"]
 
     -- One door out of either mode: `/' is entered and never left, so ESC is
@@ -1079,45 +1079,101 @@ whichKeySpec shell = testGroup "Shell which-key"
       , ( "TODO,DONE,*clear*",    ["t@0", "d@0", "c@1"] )
       , ( "CANCELLED,*clear*",    ["c@0", "l@2"] ) ]
 
-    -- What the reader sees, and why: a key token, then the word in its badge
-    -- colour with the claimed letter BOLD WHERE IT SITS — which is the
-    -- whole of the teaching.  The hairlines are the producer's groups, and the
-    -- meta wears the muted italic every starred value wears.
-  , testCase "the list draws a key token and bolds the letter it claimed" $
+    -- What the reader sees, and why: one row per SOURCE in precedence order,
+    -- its keywords in the Active and Inactive cells, each an accent-boxed key
+    -- token and the word with the claimed letter BOLD WHERE IT SITS — which is
+    -- the whole of the teaching.  The table IS the classify chain: `READING'
+    -- under `book' says which scope answered for it.  The meta spans a row of
+    -- its own at the foot, in the muted italic every starred value wears.
+  , testCase "the table draws one row per source, keywords in their cells" $
       bootOf shell "" 500 "C-c C-t" "" $ \answer -> do
-        assertEqual "the entries, the hairlines between the groups, and the colours"
-          [ ("pe",    "t", "[T]ODO",    "#e0af68")
-          , ("psep",  "",  "",          "")
-          , ("pe",    "d", "[D]ONE",    "#73daca")
-          , ("psep",  "",  "",          "")
-          , ("pe pm", "c", "*[c]lear*", "") ] =<< paletteOf answer
+        assertEqual "the header, the sources in order, and the meta last"
+          [ ("pr ph", "source",   ["active"],      ["inactive"])
+          , ("pr",    "file",     ["l [L]ATER"],   [])
+          , ("pr",    "book",     ["r [R]EADING"], ["e R[E]AD"])
+          , ("pr",    "built-in", ["t [T]ODO"],    ["d [D]ONE"])
+          , ("pr pm", "",         ["c *[c]lear*"], []) ] =<< paletteOf answer
         assertEqual "and the foot names the keys the list cannot draw"
                     "a letter sets it · / to search · ESC leaves"
           =<< textAt "pfoot" answer
 
-    -- The fallback drops the token column outright: no letter commits there, so
-    -- drawing one would be a lie about what typing it does.  The cursor is the
-    -- renderer of this list's own, and it opens on the first row.
-  , testCase "/ drops the letters and names its own keys" $
+    -- The palette resolves for the rows the command would run over, which is
+    -- the marked set where there is one — the same rows `overTargets' counts in
+    -- the title, asked of the server as one request.
+    -- One parameter per id rather than the comma list a caller types by hand:
+    -- the fallback row id is a path, and a comma in one would split it on the
+    -- other side.
+  , testCase "the resolution is asked for the rows the command names" $ do
+      bootOf shell "" 500 "C-c C-t" "" $
+        assertEqual "the row at point" ["/keywords?ids=r1"] <=< textsAt "resolved"
+      bootOf shell "" 500 "m m C-c C-t" "" $
+        assertEqual "the marked set, in one request"
+                    ["/keywords?ids=r1&ids=r2"] <=< textsAt "resolved"
+
+    -- Two tags, two rows: the order is the server's and this page draws it as
+    -- it arrives, which is what makes the table the resolution rather than a
+    -- rendering of it.
+  , testCase "a set spanning two tags shows both tag sources" $
+      bootOf shell "" 500 "" "twotags press:t" $ \answer ->
+        assertEqual "book then film, then the built-in cycle"
+          [ ("pr ph", "source",   ["active"],       ["inactive"])
+          , ("pr",    "book",     ["r [R]EADING"],  ["e R[E]AD"])
+          , ("pr",    "film",     ["w [W]ATCHING"], ["a W[A]TCHED"])
+          , ("pr",    "built-in", ["t [T]ODO"],     ["d [D]ONE"])
+          , ("pr pm", "",         ["c *[c]lear*"],  []) ] =<< paletteOf answer
+
+    -- The hues are the producer's and travel on the state column; the
+    -- resolution names keywords alone, so the palette goes and looks each one
+    -- up.  A keyword no badge names carries none, and is drawn all the same.
+  , testCase "each keyword wears its own badge colour, where there is one" $
+      bootOf shell "" 500 "C-c C-t" "" $ \answer ->
+        assertEqual "READING, TODO and DONE have badges; LATER and READ do not"
+          [ ("[R]EADING", "#bb9af7"), ("[T]ODO", "#e0af68"), ("[D]ONE", "#73daca") ]
+          =<< paletteHues answer
+
+    -- The overlay goes up on the keypress and the answer fills it, so the guard
+    -- that makes the raising press not a letter is unmoved and ESC works from
+    -- the moment the key lands.
+  , testCase "the palette is up before the resolution is" $
+      bootOf shell "" 500 "" "stall press:t" $ \answer -> do
+        assertEqual "raised" "on" =<< textAt "prompt" answer
+        assertEqual "with a line saying what it is waiting for"
+                    [("pnone", "", ["resolving…"], [])] =<< paletteOf answer
+
+    -- The fallback is FLAT — every entry, whichever source it came from, under
+    -- no table at all — and drops the token column outright: no letter commits
+    -- there, so drawing one would be a lie about what typing it does.  The
+    -- cursor is this list's own, and it opens on the first row.
+  , testCase "/ flattens the table, drops the letters and names its own keys" $
       bootOf shell "" 500 "C-c C-t" "press:/" $ \answer -> do
         assertEqual "the box says which mode it is in" "narrow"
           =<< textAt "pmode" answer
-        assertEqual "the same entries, with a cursor and no tokens"
-          [ ("pe pat", "", "TODO",    "#e0af68")
-          , ("psep",   "", "",        "")
-          , ("pe",     "", "DONE",    "#73daca")
-          , ("psep",   "", "",        "")
-          , ("pe pm",  "", "*clear*", "") ] =<< paletteOf answer
+        assertEqual "the same entries in the same order, with a cursor and no tokens"
+          [ ("pe pat", "", ["LATER"],   [])
+          , ("pe",     "", ["READING"], [])
+          , ("pe",     "", ["READ"],    [])
+          , ("pe",     "", ["TODO"],    [])
+          , ("pe",     "", ["DONE"],    [])
+          , ("pe pm",  "", ["*clear*"], []) ] =<< paletteOf answer
         assertEqual "and the foot names the keys that are live there"
                     "RET sets it · C-n/C-p walks · ESC leaves"
           =<< textAt "pfoot" answer
 
   , testCase "typing there narrows to what matches" $
-      bootOf shell "" 500 "C-c C-t" "press:/ type:e" $ \answer ->
-        assertEqual "DONE and *clear* both hold an e, TODO does not"
-          [ ("pe pat", "", "DONE",    "#73daca")
-          , ("psep",   "", "",        "")
-          , ("pe pm",  "", "*clear*", "") ] =<< paletteOf answer
+      bootOf shell "" 500 "C-c C-t" "press:/ type:ead" $ \answer ->
+        assertEqual "the two book keywords hold it, nothing else does"
+          [ ("pe pat", "", ["READING"], [])
+          , ("pe",     "", ["READ"],    []) ] =<< paletteOf answer
+
+    -- A resolution that does not arrive takes the overlay down rather than
+    -- leaving a palette with nothing in it: there is no state to pick, and the
+    -- log is where the reason goes.
+  , testCase "a refused resolution closes the palette and says so" $
+      bootOf shell "" 500 "" "refuse press:t" $ \answer -> do
+        assertEqual "the overlay is down" "" =<< textAt "prompt" answer
+        assertEqual "and the log named it"
+                    (Just "keywords failed: GET /keywords?ids=<row id>")
+          =<< lastLog answer
   ]
 
 -- | The sheet's two panes, driven through the keys a reader presses.  What is
@@ -1650,14 +1706,33 @@ postedOf answer = traverse one =<< listAt "commands" answer
 keywordsOf :: Value -> IO [Maybe T.Text]
 keywordsOf = traverse (maybeTextAt "keyword") <=< argsOf
 
--- | The value palette as it is drawn: per row, its classes, the key token it
--- claimed, its word with the bolded letter bracketed where it sits, and the
--- badge colour it wears.  A hairline is a row of its own, so the groups read
--- out of the same list.
-paletteOf :: Value -> IO [(T.Text, T.Text, T.Text, T.Text)]
+-- | The value palette as it is drawn: per ROW of the resolution table, its
+-- classes, the source it names, and the entries in its Active and Inactive
+-- cells.  An entry is spelled @KEY WORD@, the word carrying the bolded letter
+-- bracketed where it sits; a fallback-mode row is one entry with no token in
+-- the active cell.  The hairlines between rows are the rows' own borders, so
+-- what reads out of this is the table's shape.
+paletteOf :: Value -> IO [(T.Text, T.Text, [T.Text], [T.Text])]
 paletteOf answer = traverse one =<< listAt "plist" answer
-  where one v = (,,,) <$> textAt "cls" v <*> textAt "key" v
-                      <*> textAt "word" v <*> textAt "color" v
+  where one v = (,,,) <$> textAt "cls" v <*> textAt "source" v
+                      <*> spelledAt "active" v <*> spelledAt "inactive" v
+        spelledAt key = traverse spelled <=< listAt key
+        spelled e = do
+          key <- textAt "key" e
+          word <- textAt "word" e
+          pure (if T.null key then word else key <> " " <> word)
+
+-- | Every badge hue the palette wrote, as the word and the colour, in draw
+-- order.  The hues are the producer's and ride on the state column, so what
+-- this pins is that the palette goes and finds them for keywords the resolution
+-- names without them.
+paletteHues :: Value -> IO [(T.Text, T.Text)]
+paletteHues answer = do
+  rows <- listAt "plist" answer
+  entries <- concat <$> traverse halves rows
+  filter (not . T.null . snd)
+    <$> traverse (\e -> (,) <$> textAt "word" e <*> textAt "color" e) entries
+  where halves v = (<>) <$> listAt "active" v <*> listAt "inactive" v
 
 -- | WHAT: the which-key assignment over a comma-separated CYCLE is EXPECTED —
 -- one @LETTER\@INDEX@ per entry, and @-@ where an entry claimed nothing.  The
@@ -1829,9 +1904,10 @@ shellGlue =
   , Glue "the which-key letters are one pure function's answer"
       [ "function whichKeys(labels) {"
       , "function letterAt(label, at) {"
-      -- Folded into each entry once, so the drawing and the dispatch read one
-      -- field rather than agreeing on a parallel array's indices.
-      , "({ ...c, cut: cuts[i], key: letterAt(c.label, cuts[i]) })"
+      -- Folded into each entry once and IN PLACE, so the table's cells and the
+      -- flat list hold the same objects and the drawing and the dispatch read
+      -- one field rather than agreeing on a parallel array's indices.
+      , "        flat[i].key = letterAt(flat[i].label, cut);"
       -- A badge hue is written inline, so it has to be told to give way under
       -- the fallback's cursor row — `--g-sel' is a bright yellow in the light
       -- theme, and this is the one declaration on the page that outranks one.
@@ -1847,6 +1923,21 @@ shellGlue =
       -- No second copy of the assignment, no confirmation step behind a letter
       -- (the palette IS the confirmation), and no underline left behind.
       ["const LETTERS", "confirm(", ".pw u{", "part(word, \"u\""]
+
+  -- The resolution table's chrome, which behaviour cannot show: the hairline
+  -- between two source rows is that row's own top border rather than a divider
+  -- element of its own, and the source column wears the muted small lowercase
+  -- a tag wears everywhere else on this page.
+  , Glue "the palette's hairlines are the table's own borders"
+      [ ".pr{display:grid;grid-template-columns:6.5em 1fr 1fr"
+      , ".pr+.pr{border-top:1px solid var(--g-border)}"
+      , ".ph,.ps{font-size:11px;color:var(--g-mute)}"
+      -- `*clear*' spans, since no source declares taking a keyword off.
+      , ".pr.pm{grid-template-columns:1fr}" ]
+      -- The flat list's divider went with the flat list, and so did the page's
+      -- own idea of what the states are: the keywords are the server's answer.
+      -- No cell coordinate on an entry either — a cell HOLDS its entries.
+      [".psep", "stateChoices", "x.cell ===", "c.at ==="]
 
   -- The overlay is raised and dissolved by the renderer, whose own input stops
   -- ESC and DEL before this page's document handler sees them.  What keeps the
@@ -2297,6 +2388,15 @@ indexingSpec = testGroup "Indexing (bind before load)"
       application' <- indexingApp
       r <- getFrom application' "/ws"
       assertEqual "status" 503 (status r)
+
+    -- The resolution is the store's — the rows it names and the config they
+    -- were parsed under — so serving it early would answer for a row the walk
+    -- has not reached with a chain it has not read.
+  , testCase "/keywords waits for the store the rows come out of" $ do
+      application' <- indexingApp
+      r <- getFrom application' "/keywords?ids=sample.org%230"
+      assertEqual "status" 503 (status r)
+      assertEqual "retry" (Just "1") (header "Retry-After" r)
 
     -- The layer list comes off the store's own `clDirs' — the config
     -- directories the WALK met — so serving it early would answer with the
@@ -3824,6 +3924,193 @@ withConfigTree k = withTempDir $ \dir -> do
   _ <- orgFile dir "notes.org" "* READING War and Peace\n"
   (a, _hub) <- serverOver dir
   k a dir
+
+-- | @GET \/keywords@: the classification chain behind the rows a command names,
+-- which is what the state palette draws.
+--
+-- The chain itself is 'Data.Org.Config.classify' and @TestConfig@ is where the
+-- rule is tested; what is pinned here is the resolution READ FORWARDS — a
+-- keyword under the NEAREST source that declares it and nowhere below it — plus
+-- how several rows merge and what the route refuses.
+keywordsSpec :: TestTree
+keywordsSpec = testGroup "GET /keywords"
+  [ testCase "the file's own pragma takes a keyword off every source below it" $
+      withLayeredTree $ \a -> do
+        r <- getFrom a "/keywords?ids=filed"
+        assertEqual "status" 200 (status r)
+        -- READING is the file's, book's AND pile's; it belongs to the file
+        -- alone, which leaves pile with nothing and so no row.  READ is book's
+        -- and the system layer's, so it stays with the nearer of the two.
+        -- The union closes the chain: `film''s cycle is recognized here and no
+        -- scope this row reaches claims it, which is what makes it settable and
+        -- what makes the last row honest about where it came from.
+        assertEqual "file, then book, then the system layer, org's own, the union"
+          [ ("file",    ["READING"],   [])
+          , ("book",    [],            ["READ"])
+          , ("system",  ["STARTED"],   [])
+          , ("builtin", ["TODO"],      ["DONE"])
+          , ("union",   ["WATCHING"],  ["WATCHED"]) ] =<< sourcesOf r
+        assertEqual "and nothing was asked for that is not there" [] =<< textsAt "unknown"
+          =<< decoded r
+
+  , testCase "the first tag that declares a keyword is the one that keeps it" $
+      withLayeredTree $ \a -> do
+        -- The same two tags with no file pragma over them: book is named first
+        -- on the headline, so READING is book's and pile drops out entirely.
+        assertEqual "book, and no pile row at all"
+          [ ("book",    ["READING"],  ["READ"])
+          , ("system",  ["STARTED"],  [])
+          , ("builtin", ["TODO"],     ["DONE"])
+          , ("union",   ["WATCHING"], ["WATCHED"]) ]
+          =<< sourcesOf =<< getFrom a "/keywords?ids=tagged"
+
+  , testCase "a row no scope speaks for falls through to the recognition union" $
+      withLayeredTree $ \a ->
+        -- Untagged, in a file that declares nothing: every tag's cycle is still
+        -- settable here and the union is the only thing that ever classified
+        -- it, which is exactly what the last row of the chain says.
+        assertEqual "the system layer, org's own, then everything else"
+          [ ("system",  ["STARTED"],            ["READ"])
+          , ("builtin", ["TODO"],               ["DONE"])
+          , ("union",   ["READING", "WATCHING"], ["WATCHED"]) ]
+          =<< sourcesOf =<< getFrom a "/keywords?ids=bare"
+
+    -- The marked set: one answer over every row it holds, and a tag any of them
+    -- carries is a source of its own.
+  , testCase "two rows under different tags bring both tag sources" $
+      withLayeredTree $ \a ->
+        assertEqual "book from one, film from the other"
+          [ ("book",    ["READING"],  ["READ"])
+          , ("film",    ["WATCHING"], ["WATCHED"])
+          , ("system",  ["STARTED"],  [])
+          , ("builtin", ["TODO"],     ["DONE"]) ]
+          =<< sourcesOf =<< getFrom a "/keywords?ids=tagged,filmed"
+
+    -- The merge's one cost, stated: READING is under `book' for the tagged row
+    -- alone and under `file' for the one whose file declares it, and the set
+    -- answers with the NEARER of the two.  So the table describes the set
+    -- rather than any one member of it.
+  , testCase "a keyword nearer in one row than another lands in the nearer source" $
+      withLayeredTree $ \a ->
+        assertEqual "the file's, though one of the two rows reaches it by tag"
+          [ ("file",    ["READING"],  [])
+          , ("book",    [],           ["READ"])
+          , ("system",  ["STARTED"],  [])
+          , ("builtin", ["TODO"],     ["DONE"])
+          , ("union",   ["WATCHING"], ["WATCHED"]) ]
+          =<< sourcesOf =<< getFrom a "/keywords?ids=tagged,filed"
+
+    -- The command route's convention: an id the store has no row for is named
+    -- rather than refused, so a marked set that has gone stale still answers
+    -- for the rows that are there.
+  , testCase "an id the store does not hold is named and left out" $
+      withLayeredTree $ \a -> do
+        r <- getFrom a "/keywords?ids=nosuch,tagged"
+        assertEqual "status" 200 (status r)
+        assertEqual "the ones that are gone" ["nosuch"] =<< textsAt "unknown" =<< decoded r
+        assertEqual "resolved for the one that is not"
+          [ ("book",    ["READING"],  ["READ"])
+          , ("system",  ["STARTED"],  [])
+          , ("builtin", ["TODO"],     ["DONE"])
+          , ("union",   ["WATCHING"], ["WATCHED"]) ] =<< sourcesOf r
+
+  , testCase "every id unknown resolves nothing and still says which" $
+      withLayeredTree $ \a -> do
+        r <- getFrom a "/keywords?ids=nosuch"
+        assertEqual "status" 200 (status r)
+        assertEqual "no sources" [] =<< sourcesOf r
+        assertEqual "and both halves of why" ["nosuch"] =<< textsAt "unknown" =<< decoded r
+
+    -- Three spellings of one list: the comma form a caller types out, the
+    -- repeated parameter the shell writes (an id may hold a comma, and the
+    -- split happens after decoding, so percent-encoding cannot save it), and
+    -- the singular key `POST /command' also takes.
+  , testCase "ids repeat, ids comma-separate, id is one, and none is a 400" $
+      withLayeredTree $ \a -> do
+        let both = [ ("book",    ["READING"],  ["READ"])
+                   , ("film",    ["WATCHING"], ["WATCHED"])
+                   , ("system",  ["STARTED"],  [])
+                   , ("builtin", ["TODO"],     ["DONE"]) ]
+        assertEqual "repeated" both
+          =<< sourcesOf =<< getFrom a "/keywords?ids=tagged&ids=filmed"
+        assertEqual "and mixed with the comma form" both
+          =<< sourcesOf =<< getFrom a "/keywords?ids=tagged&id=filmed"
+        assertEqual "the singular spelling answers for one"
+          [ ("book",    ["READING"],  ["READ"])
+          , ("system",  ["STARTED"],  [])
+          , ("builtin", ["TODO"],     ["DONE"])
+          , ("union",   ["WATCHING"], ["WATCHED"]) ]
+          =<< sourcesOf =<< getFrom a "/keywords?id=tagged"
+        r <- getFrom a "/keywords"
+        assertEqual "status" 400 (status r)
+        assertEqual "naming the parameter" "GET /keywords?ids=<row id>,<row id>"
+          =<< textAt "error" =<< decoded r
+
+  , testCase "and it is a read: POST is a 405" $ do
+      r <- withLayeredTree (\a -> postTo a "/keywords" "{}")
+      assertEqual "status" 405 (status r)
+
+    -- A tree may configure a tag called `system', and the four reserved names
+    -- are not taken out of the tag namespace to stop it.  The entries stay
+    -- apart — a tag keeps its tag RANK, so it sits above the system layer the
+    -- way any other tag does — and the precedence order is what tells the two
+    -- rows named alike apart.
+  , testCase "a tag spelled like a reserved source keeps its own rank" $
+      withTempDir $ \dir -> do
+        writeLayers dir [ (Nothing,       "#+TODO: STARTED | SHELVED\n")
+                        , (Just "system", "#+TODO: PLANNED | SHELVED\n") ]
+        _ <- orgFile dir "a.org" (T.unlines
+               [ "* one :system:", ":PROPERTIES:", ":ORG_GLANCE_ID: only", ":END:" ])
+        (a, _hub) <- serverOver dir
+        assertEqual "the tag first, keeping SHELVED, then the layer it shadows"
+          [ ("system",  ["PLANNED"], ["SHELVED"])
+          , ("system",  ["STARTED"], [])
+          , ("builtin", ["TODO"],    ["DONE"]) ]
+          =<< sourcesOf =<< getFrom a "/keywords?ids=only"
+  ]
+
+-- | Each source the answer names, with the keywords it is the nearest to
+-- declare.
+sourcesOf :: SResponse -> IO [(T.Text, [T.Text], [T.Text])]
+sourcesOf r = traverse one =<< listAt "sources" =<< decoded r
+  where one v = (,,) <$> textAt "source" v <*> textsAt "active" v <*> textsAt "inactive" v
+
+-- | A tree whose every layer has something to say about the same few keywords,
+-- so which one ANSWERS is observable at each rung: a system layer, two tag
+-- configs that disagree about @READING@, a third for a tag nothing else names,
+-- and four rows reaching the chain at four different depths.
+--
+-- Polymorphic in what K yields, so the one case that wants the response rather
+-- than an assertion needs no second name for the same tree.
+withLayeredTree :: (Application -> IO a) -> IO a
+withLayeredTree k = withTempDir $ \dir -> do
+  writeLayers dir
+    [ (Nothing,       "#+TODO: STARTED | READ\n")
+    , (Just "book",   "#+TODO: READING | READ\n")
+    , (Just "pile",   "#+TODO: | READING\n")
+    , (Just "film",   "#+TODO: WATCHING | WATCHED\n") ]
+  -- The file declares READING itself, and its row wears both tags that also do.
+  _ <- orgFile dir "a.org" (T.unlines
+         [ "#+TODO: READING |", "* READING one :book:pile:"
+         , ":PROPERTIES:", ":ORG_GLANCE_ID: filed", ":END:" ])
+  -- The same two tags with nothing above them, a third tag on its own, and a
+  -- row that reaches no scope nearer than the system layer.
+  _ <- orgFile dir "b.org" (T.unlines
+         [ "* two :book:pile:", ":PROPERTIES:", ":ORG_GLANCE_ID: tagged", ":END:"
+         , "* three :film:", ":PROPERTIES:", ":ORG_GLANCE_ID: filmed", ":END:"
+         , "* four", ":PROPERTIES:", ":ORG_GLANCE_ID: bare", ":END:" ])
+  (a, _hub) <- serverOver dir
+  k a
+
+-- | LAYERS written under DIR's config directory: 'Nothing' is @system.org@ and
+-- a tag is its file beside it.  The layout is 'systemAt' and 'tagAt', so no
+-- case here spells it a second time.
+writeLayers :: FilePath -> [(Maybe FilePath, T.Text)] -> IO ()
+writeLayers dir layers = do
+  createDirectoryIfMissing True (takeDirectory (T.unpack (tagAt dir "any")))
+  mapM_ write layers
+  where write (tag, text) =
+          TIO.writeFile (T.unpack (maybe (systemAt dir) (tagAt dir) tag)) text
 
 systemAt :: FilePath -> T.Text
 systemAt dir = T.pack (dir </> ".org-glance" </> "config" </> "system.org")

@@ -448,6 +448,25 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   except `POST /headline` and `POST /command`; anything else is 405 — JSON on
   those two, plain text elsewhere. An upgrade aimed at any path but `/ws` is
   rejected.
+- `GET /keywords?ids=A,B` is the state palette's source of truth:
+  `{sources: [{source, active, inactive}], unknown: […]}`, one entry per SOURCE
+  in precedence order over the ROWS named — `file`, then their tags in row
+  order, then `system`, then `builtin`, then `union` — with each keyword under
+  the NEAREST source that declares it and nowhere below it
+  (`Glance.Query.keywordSources`, which is `classify` read forwards; the dedup
+  IS the classification rule). A source left empty is dropped. `union` is
+  `clSeed`, `classify`'s fifth scope, and it is what makes another tag's cycle
+  still settable on an untagged row. Several ids merge by source NAME, so a
+  keyword one row reaches by file and another by tag lands in the NEARER — the
+  table describes the SET rather than any one member of it. Four reserved names
+  are not taken
+  out of the tag namespace: a tag called `system` keeps its tag rank and the
+  table shows the name twice. Refusals follow `/command`'s: no ids is a 400, an
+  unknown id is named in `unknown` and left out. Needs a loaded store (503 while
+  indexing); read-only, so POST is 405. EVERY `ids`/`id` occurrence is read, so
+  `?ids=a&ids=b` = `?ids=a,b`; the repeated form is what an id CONTAINING a
+  comma owes (the fallback row id is `path#ordinal`, and the split runs after
+  percent-decoding), and it is what the shell writes.
 - `POST /headline` caps the body at 1 MiB and answers 413 past it. The cap is
   checked before the id lookup, so 413 outranks 404.
 - `?limit=` is capped at 20000 and a larger one is a 400; no `limit` serves the
@@ -514,8 +533,9 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
     literal badge text; the `state` column now ships them as `values` beside
     its `badges`, so its autocomplete can at least offer them. Each badge also
     names its `group` (`active`/`inactive`) — order cannot say where a `#+TODO:`
-    bar fell and the hues are not a contract — which is what the value palette
-    rules its hairlines on. Additive; a renderer ignores the field.
+    bar fell and the hues are not a contract. Additive; a renderer ignores the
+    field. The value palette reads the badges for their HUES alone; its own
+    active/inactive split is `/keywords`'.
   - Vocabulary scopes differ: the server's virtual keys are the whole store's
     tags, the renderer's are derived from the rows it currently holds. A tag
     outside the loaded page is a predicate on one side and free text on the
@@ -719,15 +739,26 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   landed in table-view at 079fa20. The pair is still feature-detected: an asset
   predating it echoes `this table-view.js has no archive flags` and writes
   nothing, and `D` there falls through to the row at point.
-- `t`/`C-c C-t` raise a value palette of the shell's OWN — the state column's
-  `badges` plus `*clear*`, never its `values` (`*active*` is not a keyword). It
+- `t`/`C-c C-t` raise a value palette of the shell's OWN, and what it shows is
+  the RESOLVER'S TRUTH: `GET /keywords?ids=…` answers with the classification
+  chain behind those rows, and the palette draws it as a table — Source |
+  Active | Inactive, one row per source in precedence order, `*clear*` spanning
+  a row of its own at the foot. The keywords are the server's, never the state
+  column's `badges` (a superset that says nothing about where a keyword came
+  from) and never its `values` (`*active*` is not a keyword); only the HUES are
+  read off the badges, by value. It
   is WHICH-KEY: every entry wears a letter and that letter commits on its own,
   since the palette IS the confirmation. No `RET` in letter mode, no confirm
   step; the drift lock is the safety. `/` falls back to the completing-read —
-  the token column goes, a field appears, typing narrows, `C-n`/`C-p` and the
+  the table FLATTENS, the token column goes, a field appears, typing narrows,
+  `C-n`/`C-p` and the
   arrows walk, `RET` commits — and is entered, never left; `ESC` (the keymap's
   `cancel`) is the one door out of either mode. Both modes commit through one
-  `takeChoice`. Its keys live in a SECOND document listener behind the dispatch,
+  `takeChoice`. The overlay goes up on the KEYDOWN and the answer fills it (a
+  `resolving…` line until then), so the raising guard, `typing()` and `ESC` are
+  where they were; a fill landing after the reader left finds another prompt or
+  none and drops, and a refusal closes the palette with a `cmd` error line.
+  Its keys live in a SECOND document listener behind the dispatch,
   safe because `typing()` — which the palette turns on with NO field focused,
   the way the property panel's nav does — has already killed every `table` row,
   so `n` moves nothing and `d` flags nothing while it is up. The pill counts what
@@ -737,17 +768,24 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   dispatch, and `t` is both the opener and a letter), and `e.repeat` stops a HELD
   `t` committing through what it opened — `ONCE` cannot reach it, since it
   governs dispatch rows and the repeat lands while every row is dead.
-- Letters are `whichKeys(labels)`: over the palette-ordered labels, each entry
+- Letters are `whichKeys(labels)`: over the labels flattened in DRAW order —
+  each source row's active cell then its inactive one, `*clear*` last — each
+  entry
   takes the INDEX of the first letter of its OWN spelling, downcased, that no
   earlier entry claimed — one `a`–`z` pool, `-1` for none left, so `TODO DONE
   DELEGATED` = `t d e`. Pure and order-only, so a tree's cycle always yields the
-  same letters. `*clear*` is in the pool with no privilege for being last (stars
-  are not letters, so `c`, else `l`, `e`…). `ask` folds the letter into each
+  same letters. One pool over the WHOLE table, so a letter is the reader's
+  wherever in it the keyword sits, and the fallback narrows that same list.
+  `*clear*` is in the pool with no privilege for being last (stars
+  are not letters, so `c`, else `l`, `e`…). `setChoices` folds the letter into
+  each
   entry once, so the drawing and the dispatch read ONE FIELD of one object
   instead of agreeing on a parallel array's indices — `shown` narrows and
   `choices` does not. Display teaches why: an accent-boxed key token, the
-  keyword in its OWN badge colour with the claimed letter UNDERLINED AT ITS
-  POSITION, a hairline wherever the producer's badge `group` changes, `*clear*`
+  keyword in its OWN badge colour with the claimed letter BOLD AT ITS
+  POSITION, the source named down the muted first column, a hairline between
+  source rows (each row's own top border, the table's border language),
+  `*clear*`
   last in the starred-meta italic, a muted `·` for an unbound entry (reachable
   through `/` alone).
 - Row marks are the RENDERER's, behind `marks: true`: it draws the checkbox
@@ -872,10 +910,20 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 
 - Recognition unions system + tag configs + file pragmas (superset — a
   keyword declared anywhere parses everywhere); classification is
-  nearest-scope: file > tags (first wins) > system > built-in.
+  nearest-scope: file > tags (first wins) > system > built-in > union.
   Config lives at `<root>/.org-glance/config/{system.org,tags/*.org}`,
   is never a row source, and a config change reseeds and reloads the
-  world (debounced, view-changed follows).
+  world (debounced, view-changed follows). The chain is ONE list,
+  `Config.keywordScopes` (rank, name, keywords per scope), read two ways:
+  `classify` takes the first scope with an opinion, `Query.keywordSources`
+  reports what each claims. Org's built-in cycle is `builtinKeywords`, off
+  `defaultContext`, so the scope `classify` consults and the one a palette shows
+  cannot hold different words. `GET /keywords` serves that chain per row, which
+  is what the state palette draws.
+- `hrDeclared` is the file's OWN `#+TODO:` and is stored beside `hrKeywords`
+  (the recognized union) because neither recovers the other: a file redeclaring
+  a seeded keyword the other way adds nothing to the union it disagrees with.
+  One value shared per file, like the rest.
 - `clSeed` is stored, not derived: `clTags` keeps the FIRST config of each tag
   across directories while the seed unions every entry read, shadowed ones
   included.
