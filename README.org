@@ -291,27 +291,30 @@ verbatim whatever you send, so a sync that never mentions them cannot move them.
 A planning value that no timestamp parser would read back is a 409 naming the
 field, with nothing written.
 
-*Settings: the keyword cycles and the default view, from the page.* =,= opens a
-second sheet over the table, one section per keyword layer: =system.org= for the
-whole tree, then a section per =tags/TAG.org=, then a read-only preview of the
-union they add up to. The system section carries one field more — the *default
-view*, the query =g= applies and the query a bare page opens on — and one more
-after it, the *capture target*, the file =+= writes into. They are the
-=#+GLANCE_DEFAULT_FILTER:= and =#+GLANCE_CAPTURE_TARGET:= lines of that same
-file, so both ride in that section's own write: one file, one digest, one
-splice. Empty the first and the tree goes back to the built-in
-=state:*active*=; empty the second and it goes back to =inbox.org= at the root.
-Each editable section is one box holding that file's =#+TODO:= lines
-*verbatim* — the config files are org and that line is the contract, so what you
-edit is the line rather than a chip UI over a guess at what it means. A tree
-that has never had a =system.org= still lists it, marked =not created yet=: type
-a cycle into it and the file, and the directories over it, are created on the
-way out.
+*Settings: one sheet, three panels.* =,= opens the page's one place for a
+preference, over the table, in sections you tab down:
+
+- *general* — the *default view*, the query =g= applies and the query a bare
+  page opens on, and the *capture target*, the file =+= writes into. They are
+  the =#+GLANCE_DEFAULT_FILTER:= and =#+GLANCE_CAPTURE_TARGET:= lines of
+  =system.org=, so both ride in that file's own write: one file, one digest, one
+  splice. Empty the first and the tree goes back to the built-in
+  =state:*active*=; empty the second and it goes back to =inbox.org= at the
+  root.
+- *theme* — =auto=, =light= or =dark=. It applies as you pick it, it is
+  remembered, and it asks no server, so the sheet stays where it is.
+- *keywords* — one box per keyword layer: =system.org= for the whole tree, then
+  one per =tags/TAG.org=, then a read-only preview of the union they add up to.
+  Each box holds that file's =#+TODO:= lines *verbatim* — the config files are
+  org and that line is the contract, so what you edit is the line rather than a
+  chip UI over a guess at what it means. A tree that has never had a
+  =system.org= still lists it, marked =not created yet=: type a cycle into it
+  and the file, and the directories over it, are created on the way out.
 
 It is the materialize sheet's own pattern, down to the words. No buttons: =ESC=
-or a click outside syncs the sections that moved and closes, a sheet you only
+or a click outside syncs the layers that moved and closes, a sheet you only
 read closes with no request, =C-x C-s= syncs mid-edit, and the header carries
-=synced= / =syncing…= / =conflict= / =error=. Each section is its own file, its
+=synced= / =syncing…= / =conflict= / =error=. Each layer is its own file, its
 own write and its own lock, so one that Emacs moved underneath you refuses on its
 own line while the rest land. What comes back is the *whole tree reparsed*: a
 keyword that has just started existing is recognized in files nobody touched, so
@@ -737,14 +740,15 @@ is a selection made for archiving and nothing else. =D= reads flags and never
 marks, which is what stops a mark you laid down for a state change from becoming
 a row you archive by reflex.
 
-Switch in the status corner, top right: the connection dot and a =theme:=
-selector, in that order. It is a native =select=, so Tab reaches it and the
-arrows walk it without a chord of its own.
+The status corner, top right, is the connection dot and nothing else you can
+focus — a readout. The theme lives with the rest of the preferences, in the
+=,= sheet.
 
-*Light or dark, and no flash either way.* =theme:= offers =auto=, =light= and
-=dark=. =auto= follows the system's =prefers-color-scheme= and is the default;
-the other two stamp =data-theme= on the document element and pin it, and
-choosing =auto= again takes the attribute back off. The choice is remembered in
+*Light or dark, and no flash either way.* The theme panel offers =auto=,
+=light= and =dark=. =auto= follows the system's =prefers-color-scheme= and is
+the default; the other two stamp =data-theme= on the document element and pin
+it, and choosing =auto= again takes the attribute back off. It applies as you
+pick it and the sheet stays where it is. The choice is remembered in
 =localStorage= under =glance-theme=, and a one-line script in the =<head>= reads
 it and stamps the attribute before the first paint, so a dark-themed page never
 flashes light on the way in. The whole page wears danneskjold through one set of

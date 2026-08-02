@@ -41,6 +41,19 @@ section groups a feature arc, and its date is that arc's last commit.
   bright, being where a reader finds out why.
 
 ### Changed
+- The settings sheet `,` raises is the page's one place for a preference, in
+  three panels: **general** (the default view and the capture target),
+  **theme**, and **keywords** (the per-layer `#+TODO:` boxes, which were the
+  whole sheet). One list names the headers and what sits under each, so a
+  fourth panel is an entry there; the list order is the tab order. Every sync
+  rule is unmoved — buttonless, `ESC` or the backdrop syncs the layers that
+  moved, `C-x C-s` syncs mid-edit, a conflict waits for a keystroke — and the
+  two general fields still ride the system layer's own write.
+- The theme selector moved out of the status corner and into that sheet's theme
+  panel. Same `auto`/`light`/`dark`, same `localStorage`, same pre-paint boot,
+  and it applies as it is picked without closing the sheet. The corner is now
+  the connection dot alone — a readout with nothing in it to focus, which
+  retires the hand-written `blur()` every control added there used to owe.
 - A view now swaps on its answer: `g`, `a`, `@` and a walk back out of a drill
   ask for the whole set once and put it up in one mount, so a complete table is
   no longer replaced by a page of rows and reflowed a moment later. The

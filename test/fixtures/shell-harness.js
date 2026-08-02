@@ -27,7 +27,7 @@
 //   rewritten     the file behind the open sheet moves: a new digest
 //   press:KEY     KEY pressed, so a key can follow an act rather than precede
 //                 it; `C-x' and `S-Tab' spell the modifiers
-//   theme:NAME    NAME picked in the corner's theme select, event and all
+//   theme:NAME    NAME picked in the settings sheet's theme select, event and all
 //   type:TEXT     TEXT typed into the value palette's field, which narrows it —
 //                 `/' has to have put the palette in that mode first
 //   assign:A,B,C  the which-key assignment run over that cycle, as the pure
@@ -521,7 +521,14 @@ globalThis.open = (url, target, features) => {
   opened.push({ url, target, features });
   return null;   // what a browser answers for a `noopener' window
 };
-globalThis.localStorage = { getItem: () => null, setItem: () => {} };
+// A real one, in memory: the theme is a stored preference and "it persisted" is
+// a question about what is in here after the pick, which a stub swallowing every
+// write cannot answer.
+const stored = {};
+globalThis.localStorage = {
+  getItem: (k) => (Object.prototype.hasOwnProperty.call(stored, k) ? stored[k] : null),
+  setItem: (k, v) => { stored[k] = String(v); },
+};
 globalThis.matchMedia = () => ({ matches: false, addEventListener: () => {} });
 
 // One element that answers to anything: the boot reads and writes chrome this
@@ -549,7 +556,8 @@ const fields = {};
 // The tag matters: `typing()' reads it off `document.activeElement' to decide
 // whether a key belongs to the table or to whatever has focus.
 const TAGS = { mtext: "textarea", filter: "input", pinput: "input",
-               pkey: "input", pval: "input", themesel: "select" };
+               pkey: "input", pval: "input", themesel: "select",
+               cfilter: "input", ctarget: "input" };
 /** A stand-in element, enough of one for the page to build its own chrome in. */
 const make = (tag) => {
   const e = {
@@ -596,12 +604,15 @@ const STATEFUL = [ "mtext", "mnote", "mfile", "modal", "mprops", "mlog", "sheet"
                  // The value palette: its list is a tree of key tokens and
                  // underlined words, so it has to hold one.
                  , "echo", "prompt", "phead", "pinput", "pbox", "plist", "pfoot"
-                 , "config", "cnote", "clayers", "ceff"
+                 // The settings sheet: its state, its panel frames, and the
+                 // fields of the general panel — the two tree-wide lines, which
+                 // are `system.org''s and ride in that layer's write.
+                 , "config", "cnote", "clayers", "ceff", "csecs", "cfilter", "ctarget"
                  // The event strip: a line per entry, each a row of spans, so it
                  // has to hold a tree rather than answer "" to everything.
                  , "log"
-                 // The corner's theme select, which has to be a real element
-                 // for the focus it takes and gives back to be observable.
+                 // The sheet's theme select, which has to be a real element for
+                 // the focus it holds to be observable.
                  , "themesel" ];
 // The document element, which is where the stale wash lands and where the theme
 // pins its attribute.  A real element rather than the catch-all proxy, because
@@ -683,6 +694,13 @@ const typeInto = (id, which, arg) => {
   if (box.tagName !== "INPUT" && box.tagName !== "TEXTAREA")
     throw new Error(`${id} row ${arg} is not open for editing`);
   typed(box, arg.slice(at + 1));
+};
+/** TEXT typed into the settings sheet's fixed field ID, the sheet being open —
+ * a closed one shows no field, so a script that types into one means nothing. */
+const typeSetting = (id, text) => {
+  if (field("config").className !== "on")
+    throw new Error(`the settings sheet is not open: ${id}`);
+  typed(field(id), text);
 };
 /** TEXT typed into BOX, event and all — which is what a reader does to a field
  * and what the widgets narrowing on one are listening for. */
@@ -849,9 +867,10 @@ const ACTIONS = {
   recolumn: () => { step(); columns = columns.concat([{ key: "deadline" }]); },
   rewritten: () => { digest = "d1"; },
   press: (key) => press(key),
-  // The corner's theme select, driven the way a reader drives it: focus it,
-  // pick a theme, and let the change event fire.  What it is here to show is
-  // what happens AFTER — whether the control keeps the keys or gives them back.
+  // The settings sheet's theme select, driven the way a reader drives it: focus
+  // it, pick a theme, and let the change event fire.  What it is here to show is
+  // what happens AFTER — the theme applied, the choice stored, and the sheet
+  // still standing over the table it was raised from.
   theme: (name) => {
     const box = field("themesel");
     box.focus();
@@ -881,10 +900,13 @@ const ACTIONS = {
   // And into the settings sheet: `ctext:0=#+TODO: A | B' is the box of layer 0,
   // which is the file's `#+TODO:' lines as the sheet edits them.
   ctext: (arg) => typeInto("clayers", 1, arg),
-  // And the default view, which is the system layer's third child, and the
-  // capture target, which is its fourth.
-  cview: (arg) => typeInto("clayers", 2, arg),
-  ccap: (arg) => typeInto("clayers", 3, arg),
+  // And the general panel's two fields, which are fixed rows rather than a
+  // layer's: the default view and the capture target, bound to the system
+  // layer and posted in its write.  They are markup rather than a drawn row, so
+  // typing into them with the sheet shut would write where no reader could
+  // have — the refusal `typeInto' makes for the layer boxes, spelled here.
+  cview: (text) => typeSetting("cfilter", text),
+  ccap: (text) => typeSetting("ctarget", text),
   // Every config layer moves out from under the sheet, which is the drift a
   // second writer causes.
   cmoved: () => { for (const l of layers) l.digest = "gone"; },
@@ -1039,11 +1061,16 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     // each layer is showing, the union it previews, and every write it sent.
     settings: field("config").className, cstate: field("cnote").className,
     cshown: field("clayers").children.map((row) => row.children[1].value),
+    // The panels, by the header each wears, in the order the sheet draws them.
+    csecs: field("csecs").children.map((s) => parts(s, "chdr")[0].textContent),
     // What the two tree-wide fields are showing, and what the server holds now.
-    cview: ((field("clayers").children[0] || { children: [] }).children[2] || {}).value,
-    ccap: ((field("clayers").children[0] || { children: [] }).children[3] || {}).value,
+    cview: field("cfilter").value, ccap: field("ctarget").value,
     served: viewQuery, servedCapture: captureLine,
     ceff: field("ceff").textContent, configWrites,
+    // The theme panel: what is stamped on the document element and what was
+    // stored under it — `auto' is the attribute coming OFF, so it reads as "".
+    theme: root.dataset.theme || "",
+    themeStored: localStorage.getItem("glance-theme"),
   });
   // Exit on the write's own callback: a keystroke leaves the echo pill's timer
   // pending, and node would otherwise sit out its second and a half.

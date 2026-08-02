@@ -2836,32 +2836,73 @@ on.
   palette when the page grew one. So "the sheet alone wears the author's theme"
   is the old arrangement, and a change to the page's colours is one block rather
   than two. **test** (`TestServe` pins the declarations)
-- **The theme is a `data-theme` handshake with a pre-paint boot.** `themesel`
-  offers `auto`, `light` and `dark`. `auto` follows `prefers-color-scheme` and
-  is the default, and choosing it REMOVES the attribute rather than writing a
-  value; the other two stamp `data-theme` on the document element, and the
-  attribute rules are written so they beat the media query in both directions.
+- **The theme is a `data-theme` handshake with a pre-paint boot.** `themesel`,
+  the settings sheet's theme panel, offers `auto`, `light` and `dark`. `auto`
+  follows `prefers-color-scheme` and is the default, and choosing it REMOVES the
+  attribute rather than writing a value; the other two stamp `data-theme` on the
+  document element, and the attribute rules are written so they beat the media
+  query in both directions.
   The choice lives in `localStorage` under `glance-theme` — distinct from the
   keymap's `glance-keys` — and `themeBoot` reads it and stamps the attribute in
   `<head>`, before the first paint, because a dark page that resolves its theme
   after paint flashes light. `themeBoot` is emitted on one unindented line so
   the suite's glue extractor, which finds the shell's inline block by a
   newline-plus-indent delimiter, cannot mistake it for that block. **test**
-- **The status corner holds two things, in order: the dot and `themesel`.** The
-  dot carries `live` / `wait` / `down`. The selector is a native `<select>`, so
-  Tab reaches it and its own arrows walk it without a chord — and a focused
-  `SELECT` counts as typing, which is what stops the keymap eating those arrows.
-  The order is asserted, since the corner is the one piece of chrome a reader
-  navigates by position. The keys picker went with the profiles. **test**
-- **With no popup open, the TABLE holds the keys.** The legitimate focus holders
-  are the popups — the materialize sheet, the settings sheet, the filter palette
-  and the value palette — and the text fields inside them. The corner's chrome is
-  none of those, so `themesel` blurs itself in its own `change` handler, once the
-  theme has been applied: a `SELECT` counts as typing, so a control that kept the
-  focus would go on eating `n` and `p` as its own type-ahead and the reader would
-  have to click the table back before movement worked. Every control added to the
-  corner owes the same line. **test** (a theme switch, then a movement key that
-  has to land)
+- **The settings sheet is PANELED, and one list is the panels.**
+  `,` (`customize`) raises the page's one place for a preference, in three
+  sections: **general** — the default view and the capture target, the two
+  tree-wide lines of `system.org`; **theme** — the `auto`/`light`/`dark`
+  selector; **keywords** — one box per config layer holding that file's
+  `#+TODO:` lines verbatim, the union they come to, and the note saying what
+  that union is. `SECTIONS` in the glue names the header and the parts of each,
+  and the loop over it is the only thing that draws a frame, so a fourth panel
+  is an entry there plus the markup it names — nothing else, because the panel
+  bodies are laid out by CLASS (`.csec,.cpart`) rather than by a roll of ids.
+  The bodies are declared in the markup and wrapped at boot rather than built
+  from the list, because they are heterogeneous — two labelled inputs, a select,
+  a list the server fills — and a builder for that shape would be a template
+  language this page has no use for. The join is by id, and a `parts` id the
+  markup does not carry throws at boot and takes the whole inline script with
+  it; the harness cannot see that (its stub answers every id), so the suite
+  reads the ids back out of the shipped list and checks them against the page.
+  The list order is also the TAB order — the sheet keeps native tabbing, so the
+  DOM says what Tab reaches next — and the sheet opens focused on the general
+  panel's first field. Where a field is DRAWN is a matter of reading and changes no
+  write: the two general fields stay bound to the system layer's row and go out
+  in its own `POST /config`, one file, one digest, one splice. The sync
+  semantics are unmoved — buttonless, ESC or the backdrop syncs the layers that
+  moved and closes, a pristine sheet costs no request, `C-x C-s` syncs mid-edit,
+  `conflict` and `error` wait for a keystroke. The theme panel asks nobody: it
+  is a `localStorage` preference, applies as it is picked, and closes nothing.
+  **test** (the three headers in order, every `parts` id present in the markup,
+  the theme applying and persisting with the sheet still up, both general fields
+  riding the system write, and every sync flow re-run over the new layout)
+- **The status corner is a READOUT: the connection dot, and nothing that keeps
+  the focus.** The dot carries `live` / `wait` / `down`. The only other thing in
+  it is the coarse-pointer gear, hidden outside the one `pointer:coarse` block,
+  and it hands the focus straight to the sheet it opens. `themesel` used to sit
+  beside the dot and moved into the settings sheet with every other preference.
+  **test** (the corner holds the dot and the gear, the theme select is not in
+  it, and the sheet's theme panel is)
+- **With no popup open, the TABLE holds the keys — and a control that keeps the
+  focus belongs inside a popup.** The legitimate focus holders are the popups —
+  the materialize sheet, the settings sheet, the filter palette and the value
+  palette — and the controls inside them. A focused `SELECT` counts as typing,
+  so a `select` in the CORNER that kept the focus after its change had committed
+  went on eating `n` and `p` as its own type-ahead, and the reader had to click
+  the table back before movement worked; the answer was a hand-written `blur()`
+  that every new corner control owed. Moving the one such control into the
+  settings sheet retires that per-control rule: inside a popup the focus is the
+  popup's, `typing()` is true while a control of it holds the focus, the table's
+  keys are dead under the sheet either way, and `ESC` (`any`) and `C-x C-s`
+  (`modal`) reach the sheet regardless. **The popup hands the keys back once,
+  when it closes** — `shutSettings` blurs whatever it held, which a browser
+  does anyway at `display:none` and which is stated so it is the sheet's rule
+  and covers every control the sheet will ever grow. So no control on this page
+  blurs on its own change, and the corner has nothing left to focus. **test**
+  (the theme picked from the sheet, then a movement key that must move nothing;
+  then `ESC` and the same key, which must move; and the absence of the
+  per-control blur line)
 - **The applied filter query is in the URL, and `DEL` is its backspace.** A
   commit writes `?q=` with `replaceState` and leaves `keys` where it is, so a
   filtered view is a link, a reload keeps it, and a remount comes back to it

@@ -751,14 +751,6 @@ moveSpec shell = testGroup "Shell movement"
           assertEqual "the page it could not leave" 2 =<< intAt "page" answer
           assertEqual "the echo" "< → first-row" =<< textAt "echo" answer
 
-    -- With no popup open the table holds the keys, and the corner's chrome is
-    -- not a popup.  A `select' that kept the focus would take `n' as its own
-    -- type-ahead, and the reader would have to click the table back — so the
-    -- press after the switch is the whole assertion.
-  , testCase "the corner's theme select gives the keys back to the table" $
-      bootOf shell "" 500 "" "theme:dark press:n" $ \answer -> do
-        assertEqual "nothing holds the keyboard" "" =<< textAt "holding" answer
-        assertEqual "and the key moved the cursor" "r2" =<< textAt "selected" answer
   ]
 
 -- | Nine rows over three pages, then SCRIPT.  Every case here needs a set with
@@ -2470,8 +2462,9 @@ sheetSpec shell = testGroup "Shell sheet"
   ]
 
 -- | The settings sheet, driven through the keys a reader presses.  What is
--- asserted is this page's half: that the chord raises it over the layers
--- @\/config@ served, that a box holds one file's @#+TODO:@ lines verbatim, that
+-- asserted is this page's half: that the chord raises it in PANELS over the
+-- layers @\/config@ served, that a box holds one file's @#+TODO:@ lines
+-- verbatim, that the theme panel applies without touching the server, that
 -- closing it is the save, and that a pristine one costs no request.  The splice
 -- itself is @configSpec@'s subject and the grammar is @TestConfig@'s; nothing
 -- here re-states either.
@@ -2485,6 +2478,47 @@ settingsSpec shell = testGroup "Shell settings"
         assertEqual "the union is previewed" "TODO | DONE" =<< textAt "ceff" answer
         assertEqual "and it opens synced" "synced" =<< textAt "cstate" answer
         assertEqual "with nothing written" ([] :: [Value]) =<< listAt "configWrites" answer
+
+    -- ONE list draws the headers and the order, so a fourth panel is an entry
+    -- there rather than a second place that has to hear about it.  The order is
+    -- the tab order too: the sheet keeps native tabbing, so the DOM says which
+    -- field Tab reaches next.
+  , testCase "it is three panels, each under its own header" $
+      bootOf shell "" 500 "," "" $
+        assertEqual "general, theme, keywords" ["general", "theme", "keywords"]
+          <=< textsAt "csecs"
+
+    -- The theme is a preference rather than a write: it applies as it is
+    -- picked, it is stored, and the sheet it was picked in stays where it is.
+  , testCase "the theme panel applies and persists without closing the sheet" $
+      bootOf shell "" 500 "," "theme:dark" $ \answer -> do
+        assertEqual "stamped on the document element" "dark" =<< textAt "theme" answer
+        assertEqual "and remembered" "dark" =<< textAt "themeStored" answer
+        assertEqual "the sheet is still up" "on" =<< textAt "settings" answer
+        assertEqual "and nothing was written" ([] :: [Value])
+          =<< listAt "configWrites" answer
+
+    -- `auto' is the attribute coming OFF rather than a third value written into
+    -- it, which is what lets the media query decide again.
+  , testCase "and auto takes the attribute back off" $
+      bootOf shell "" 500 "," "theme:dark theme:auto" $ \answer -> do
+        assertEqual "no attribute" "" =<< textAt "theme" answer
+        assertEqual "but the choice is remembered" "auto" =<< textAt "themeStored" answer
+
+    -- The focus rule, both halves, over the control that used to spell it by
+    -- hand.  A `SELECT' inside a popup KEEPS the focus — the popup is a
+    -- legitimate holder and the table's keys are dead under it — and the way
+    -- the keys come back is closing the popup, which is what the corner's own
+    -- `blur()' was standing in for.
+  , testCase "the sheet's theme select keeps the keys away from the table" $
+      bootOf shell "" 500 "," "theme:dark press:n" $ \answer -> do
+        assertEqual "the select holds the keyboard" "SELECT" =<< textAt "holding" answer
+        assertEqual "and the table did not move" "r1" =<< textAt "selected" answer
+  , testCase "and closing it is what gives them back" $
+      bootOf shell "" 500 "," "theme:dark press:Escape press:n" $ \answer -> do
+        assertEqual "the sheet is down" "" =<< textAt "settings" answer
+        assertEqual "nothing holds the keyboard" "" =<< textAt "holding" answer
+        assertEqual "and the key moved the cursor" "r2" =<< textAt "selected" answer
 
     -- The sheet's own rule, and the reason it has no buttons: the way out is
     -- the save.  Only the layer that moved is written.
@@ -2508,19 +2542,31 @@ settingsSpec shell = testGroup "Shell settings"
         assertEqual "no write" ([] :: [Value]) =<< listAt "configWrites" answer
         assertEqual "the sheet is down" "" =<< textAt "settings" answer
 
-    -- The system layer carries two tree-wide fields beside its cycle, and both
-    -- ride in that layer's own write: one file, one digest, one splice.
-  , testCase "the capture target is a field of the system layer, and rides its write" $
-      bootOf shell "" 500 "," "ccap:0=notes/in.org press:Escape" $ \answer -> do
+    -- The general panel's two fields are `system.org''s two tree-wide LINES,
+    -- drawn under their own header and posted in that layer's own write: one
+    -- file, one digest, one splice, wherever on the sheet they are shown.
+  , testCase "the capture target is a general field, and rides the system write" $
+      bootOf shell "" 500 "," "ccap:notes/in.org press:Escape" $ \answer -> do
         writes <- listAt "configWrites" answer
         assertEqual "one write, for the layer that moved" 1 (length writes)
+        assertEqual "the system layer" "/o/.org-glance/config/system.org"
+          =<< textAt "path" (head writes)
         assertEqual "carrying the target" "notes/in.org" =<< textAt "capture" (head writes)
         assertEqual "and the server holds it now" "notes/in.org"
           =<< textAt "servedCapture" answer
 
   , testCase "and it opens on what the server serves" $
-      bootOf shell "" 500 "," "ccap:0=notes/in.org press:C-x press:C-s" $
+      bootOf shell "" 500 "," "ccap:notes/in.org press:C-x press:C-s" $
         assertEqual "the field shows what was typed" "notes/in.org" <=< textAt "ccap"
+
+    -- The default view is the other one, and it takes the same road: a general
+    -- field, the system layer's write.
+  , testCase "the default view is the other general field, on the same write" $
+      bootOf shell "" 500 "," "cview:tag:work press:Escape" $ \answer -> do
+        writes <- listAt "configWrites" answer
+        assertEqual "one write" 1 (length writes)
+        assertEqual "carrying the view" "tag:work" =<< textAt "filter" (head writes)
+        assertEqual "and the server holds it now" "tag:work" =<< textAt "served" answer
 
     -- Two sheets over one page would leave `C-x C-s' and `ESC' guessing which
     -- one they meant.  `typing()' is not what keeps them apart, which is the
@@ -3313,8 +3359,9 @@ shellGlue =
       , "#echo{position:fixed;right:14px;bottom:12px;z-index:2;" ]
 
   , glue "the theme is a three-way switch the page honours"
-      -- The selector and its three options.
-      [ "<label for=\"themesel\">theme:</label>"
+      -- The selector and its three options, under the settings sheet's own
+      -- theme panel.
+      [ "id=\"themesel\""
       , "<option value=\"auto\">auto</option><option value=\"light\">light</option>"
       , "<option value=\"dark\">dark</option>"
       -- `auto' is the media query; the other two pin the attribute the
@@ -6054,7 +6101,7 @@ expectedRows =
   -- Emacs's own name, since org-glance has no settings command and inventing
   -- one would put a name in this table that no map anywhere carries.
   , ([","],          ",",       "customize",                       Just "openSettings",   "table",
-       Just "the keyword cycles and the default view, a config layer at a time")
+       Just "the settings sheet: general, theme, keyword cycles")
   , (["C-x", "C-s"], "C-x C-s", "save-buffer",                     Just "save",           "modal",
        Just "sync the sheet now; again to overwrite a conflict")
   , (["C-c", "'"],   "C-c '",   "org-edit-special",                Just "toggleRaw",      "modal",
@@ -6163,15 +6210,44 @@ keymapSpec shell = testGroup "Shell keymap"
         [["f"], ["l"], ["<right>"]]
         [ k | (k, _s, c, _h, _scope, _help) <- rows, c == "next-column" ]
 
-  , testCase "the status corner carries the dot and the theme, in that order" $ do
+    -- The corner is a READOUT: the connection dot, and the coarse-pointer gear
+    -- that hands the focus straight to the sheet it opens.  The theme selector
+    -- moved into that sheet, which is what takes the blur rule away — a control
+    -- that keeps the focus is a problem in the corner and ordinary inside a
+    -- popup.
+  , testCase "the status corner is the connection dot, and the theme is not in it" $ do
       b <- shell
       corner <- maybe (assertFailure "no status corner in the shell") pure
                       (between "<div id=\"corner\">" "</div>" b)
-      holdsAll "corner" ["id=\"dot\"", "id=\"themesel\""] corner
+      holdsAll "corner" ["id=\"dot\"", "id=\"gear\""] corner
+      -- The RULE rather than the one control that broke it: nothing in the
+      -- corner takes the focus, so the next thing added there cannot quietly
+      -- reintroduce the type-ahead bug by not being called `themesel'.
+      holdsNone "corner" ["<select", "<input", "<textarea", "<a "] corner
+      assertEqual "one button, the gear" 1 (T.count "<button" corner)
       assertContains "fixed in the corner" "#corner{position:fixed;top:12px;right:14px" b
-      let at needle = T.length (fst (T.breakOn needle corner))
-      assertBool ("dot then theme: " <> show corner)
-                 (at "id=\"dot\"" < at "id=\"themesel\"")
+      -- And it is the settings sheet that holds it now, under its own panel.
+      sheet <- maybe (assertFailure "no settings sheet in the shell") pure
+                     (between "<div id=\"config\">" "<div id=\"echo\"" b)
+      holdsAll "the theme panel" ["id=\"ctheme\"", "id=\"themesel\""] sheet
+      -- No control gives the keys back on its own change any more: the sheet
+      -- does it once when it closes, so the per-control `blur()' the corner
+      -- needed is gone with the corner control.
+      holdsNone "the shell" ["e.target.blur();"] b
+
+    -- The panels are a list of headers joined to the markup BY ID, and the join
+    -- is the one thing a string can get wrong: a `parts' id the markup does not
+    -- carry throws at boot and takes the whole inline script with it, and the
+    -- harness cannot see it (its stub answers every id).  So the ids are read
+    -- back out of the list the page ships and checked against the page.
+  , testCase "every panel body the sections list names is an id the markup carries" $ do
+      b <- shell
+      let named = concatMap quotedIn (drop 1 (T.splitOn "parts: [" b))
+          quotedIn seg = [ q | (i, q) <- zip [0 :: Int ..]
+                                             (T.splitOn "\"" (T.takeWhile (/= ']') seg))
+                             , odd i ]
+      assertBool "the sections list names no panel bodies" (not (null named))
+      holdsAll "panel bodies" [ "id=\"" <> i <> "\"" | i <- named ] b
 
   , testCase "the view title is the tab's alone, and nothing on the page repeats it" $ do
       b <- shell

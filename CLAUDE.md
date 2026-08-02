@@ -1285,16 +1285,22 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   held `@` is a remount per repeat, each leaving a crumb. Feature-detected on
   the four crumb calls; an asset without them is told so and nothing is applied,
   since a view with no way back out of it is worse than no drill.
-- One status corner, top right, in this order: the connection dot (`live` /
-  `wait` / `down`) then `themesel`, a native `<select>` over
-  `auto`/`light`/`dark`. A focused `SELECT` counts as typing, so its own arrows
-  reach it. The keys picker is gone with the profiles.
-- With no popup open the TABLE holds the keys. The popups — materialize sheet,
-  settings sheet, filter palette, value palette — and the text fields in them
-  are the only legitimate focus holders; corner chrome is not one, so `themesel`
-  blurs itself in its own `change` handler once the theme is applied, and any
-  control added there owes the same line. A `SELECT` counts as typing, so one
-  that keeps the focus eats `n`/`p` as type-ahead until the reader clicks back.
+- One status corner, top right, and it is a READOUT: the connection dot (`live`
+  / `wait` / `down`), plus the coarse-pointer gear that hands the focus to the
+  sheet it opens. Nothing in it keeps the focus. `themesel` sat beside the dot
+  and is now the settings sheet's theme panel; the keys picker is gone with the
+  profiles.
+- With no popup open the TABLE holds the keys, and a control that keeps the
+  focus belongs inside a popup. The popups — materialize sheet, settings sheet,
+  filter palette, value palette — and the controls in them are the only
+  legitimate focus holders. A focused `SELECT` counts as typing, so one in the
+  CORNER ate `n`/`p` as type-ahead until the reader clicked back, and the answer
+  was a `blur()` every new corner control owed; moving that one control into the
+  sheet retires the per-control rule. Inside a popup the focus is the popup's,
+  `typing()` is true while a control of it holds the focus, and `ESC` (`any`)
+  and `C-x C-s` (`modal`) reach the sheet regardless. The popup hands the keys
+  back ONCE, on close (`shutSettings` blurs) — so no control on this page blurs
+  on its own change.
 - Theme: `auto` follows `prefers-color-scheme` and is the default; `light` and
   `dark` stamp `data-theme` on the document element, and returning to `auto`
   removes the attribute. The choice lives in `localStorage` under
@@ -1385,15 +1391,31 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - KNOWN GAP: creating the FIRST `.org-glance/config` in a tree that had none
   races fsnotify's watch-arming, so that one write does not reseed until a
   restart or a later config edit. The watch's property, not the route's.
-- Settings sheet = `,` (`customize`), the materialize sheet's pattern over
-  `/config`: buttonless, ESC/backdrop syncs the layers that moved and closes,
-  pristine closes with no request, `C-x C-s` syncs mid-edit, `conflict` waits
-  for a keystroke. One box per layer holding its `#+TODO:` lines VERBATIM — the
-  page has no org parser and must not grow one. `#config`/`#cbox` share the
-  existing z band with `#modal`/`#sheet` and `#prompt`/`#pbox`, so the four
-  values still stand. A coarse pointer gets a gear in the corner, hidden by the
-  one `pointer:coarse` block. The sheet is a sibling of `#app`, so the
-  `view-changed` its own write causes leaves it standing.
+- Settings sheet = `,` (`customize`), the page's ONE place for a preference and
+  the materialize sheet's pattern over `/config`: buttonless, ESC/backdrop syncs
+  the layers that moved and closes, pristine closes with no request, `C-x C-s`
+  syncs mid-edit, `conflict` waits for a keystroke. THREE PANELS, from ONE list
+  (`SECTIONS`, header + part ids, the loop over it the only thing that draws a
+  frame): GENERAL (the default view and the capture target), THEME (the
+  `auto`/`light`/`dark` select, a `localStorage` preference that applies as it
+  is picked, asks no server and closes nothing), KEYWORDS (one box per layer
+  holding its `#+TODO:` lines VERBATIM — the page has no org parser and must not
+  grow one — then the union and its note). A fourth panel is an entry plus the
+  markup it names and nothing else: bodies are laid out by class
+  (`.csec,.cpart`), never by a roll of ids. They are markup wrapped at boot
+  rather than built from the list, being heterogeneous enough that a builder
+  would be a template language; the join is by id and a `parts` id the markup
+  lacks throws at boot, which the suite checks statically since the harness stub
+  answers every id. The list order is the TAB order (native tabbing) and the
+  sheet opens on the general panel's first field. `shutSettings` blurs on the
+  way out, so the popup hands the keys back once rather than per control. Where
+  a field is DRAWN moves no write: the two general fields stay bound to the
+  system layer and ride its own `POST /config`.
+  `#config`/`#cbox` share the existing z band with `#modal`/`#sheet` and
+  `#prompt`/`#pbox`, so the four values still stand. A coarse pointer gets a
+  gear in the corner, hidden by the one `pointer:coarse` block. The sheet is a
+  sibling of `#app`, so the `view-changed` its own write causes leaves it
+  standing.
 
 ## Build
 

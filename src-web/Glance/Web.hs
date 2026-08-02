@@ -1728,7 +1728,7 @@ keyBindings =
   , bind ["C-c", "C-d"] "org-glance-overview:deadline"    (Just "deadlinePlan")   "table"
       `helps` planningHelp
   , bind [","]          "customize"                       (Just "openSettings")   "table"
-      `helps` "the keyword cycles and the default view, a config layer at a time"
+      `helps` "the settings sheet: general, theme, keyword cycles"
   , bind ["C-x", "C-s"] "save-buffer"                     (Just "save")           "modal"
       `helps` "sync the sheet now; again to overwrite a conflict"
   , bind ["C-c", "'"]   "org-edit-special"                (Just "toggleRaw")      "modal"
@@ -2046,9 +2046,9 @@ shellPage opts hub = do
 -- at by the header over it, or says which edge it stopped at.  The pill in
 -- the bottom corner is the echo area — the pending prefix while one is open,
 -- the command and its help line on completion, @is undefined@ otherwise.  The
--- top corner holds the connection dot and the theme selector; a native control
--- because Tab, the arrows and Enter already navigate one and no new chord is
--- owed for it.  The page's last line is the same blob resident: the map's core
+-- top corner holds the connection dot alone — a readout, with nothing in it to
+-- focus; every preference, the theme included, is a panel of the settings sheet
+-- @,@ raises.  The page's last line is the same blob resident: the map's core
 -- rows as @keys label@ pairs, named by command, so the pill says what just ran
 -- and the line says what can.
 --
@@ -2067,15 +2067,20 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   -- No heading: the view title is already the tab's, and printing it a second
   -- time here put it on screen twice.  In palette mode the renderer carries no
   -- bar either, so the page opens on the table itself.
+  -- The corner is the CONNECTION DOT and nothing else a reader can focus: the
+  -- theme selector moved into the settings sheet, where every other preference
+  -- already lived.  What that buys is the blur rule going away — a control in
+  -- the corner that keeps the focus eats `n' and `p' as its own type-ahead,
+  -- and the answer used to be a hand-written `blur()' every new control owed.
+  -- Inside a popup that problem does not exist: the popup is a legitimate
+  -- focus holder, so its own focus rules apply and nothing has to be given
+  -- back.
   [ "  <div id=\"corner\"><span id=\"dot\" title=\"live connection\"></span>"
-      <> "<label for=\"themesel\">theme:</label>"
-      <> "<select id=\"themesel\" title=\"colour theme\">"
-      <> "<option value=\"auto\">auto</option><option value=\"light\">light</option>"
-      <> "<option value=\"dark\">dark</option></select>"
       -- The keyboard-first exception, and the same one the chip row is: a
       -- coarse pointer has no `,' to press.  Hidden outside the
       -- pointer:coarse block, so a mouse never sees it and the key is the
-      -- whole of the offer there.
+      -- whole of the offer there.  It hands the focus straight to the sheet it
+      -- opens, so it keeps none of its own.
       <> "<button id=\"gear\" title=\"settings\">\9881</button></div>"
   , "  <div id=\"app\"></div>"
   , "  <div id=\"log\"></div>"
@@ -2114,15 +2119,52 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      <div id=\"pfoot\"></div>"
   , "    </div>"
   , "  </div>"
-  -- The settings sheet: one section per keyword layer, then the union they
-  -- come to.  A sibling of `#app' like the other two overlays, so a remount
-  -- leaves it standing — which this one needs more than the others, since
-  -- writing a layer is itself what moves the columns.
+  -- The settings sheet: the page's ONE place for a preference, in PANELS.
+  -- General, theme, keywords — a header over the rows that belong to it, drawn
+  -- from the `SECTIONS' list below, so a fourth panel is one entry there and
+  -- the markup it wraps.  A sibling of `#app' like the other two overlays, so a
+  -- remount leaves it standing — which this one needs more than the others,
+  -- since writing a layer is itself what moves the columns.
+  --
+  -- The panel BODIES are declared here, each wearing `cpart', and `SECTIONS'
+  -- wraps them at boot: the list owns the headers and the order, the markup
+  -- owns what is under them, and the stylesheet reads the class rather than a
+  -- roll of ids.
   , "  <div id=\"config\">"
   , "    <div id=\"cbox\">"
-  , "      <div id=\"chead\"><span id=\"ctitle\">keyword cycles · default view</span>"
+  , "      <div id=\"chead\"><span id=\"ctitle\">settings</span>"
       <> "<span id=\"cnote\"></span></div>"
-  , "      <div id=\"clayers\"></div>"
+  , "      <div id=\"csecs\"></div>"
+  -- GENERAL: the two tree-wide lines of `system.org'.  They are that layer's
+  -- own bytes and ride in that layer's own write, so the panel they are shown
+  -- in is a matter of reading rather than of where the splice goes.  What each
+  -- field falls back to when it is emptied is written into its placeholder
+  -- here, off the same Haskell constants the server answers with — the value
+  -- cannot change while the page is up, so nothing has to carry it into the
+  -- glue and interpolate it back out per sheet-open.
+  , "      <div id=\"cgen\" class=\"cpart\">"
+  , "        <div class=\"crow\"><div class=\"clab\">default view</div>"
+      <> "<input id=\"cfilter\" class=\"cview\" spellcheck=\"false\" placeholder=\""
+      <> escape ("the view g applies; empty is " <> builtinFilter) <> "\"></div>"
+  , "        <div class=\"crow\"><div class=\"clab\">capture target</div>"
+      <> "<input id=\"ctarget\" class=\"cview\" spellcheck=\"false\" placeholder=\""
+      <> escape ("where + captures; empty is " <> T.pack defaultCaptureFile)
+      <> "\"></div>"
+  , "      </div>"
+  -- THEME: the selector that used to sit in the corner.  Same three values,
+  -- same `localStorage' key, same pre-paint boot — a different place to reach
+  -- it from.  It wears `cview' with the fields above it, so it takes their
+  -- border, radius and font, and the one coarse-pointer rule that stops iOS
+  -- zooming in on a focused control reaches it too.
+  , "      <div id=\"ctheme\" class=\"cpart\">"
+  , "        <div class=\"crow\"><div class=\"clab\">colour theme</div>"
+      <> "<select id=\"themesel\" class=\"cview\" title=\"colour theme\">"
+      <> "<option value=\"auto\">auto</option><option value=\"light\">light</option>"
+      <> "<option value=\"dark\">dark</option></select></div>"
+  , "      </div>"
+  -- KEYWORDS: one box per layer, then the union they come to and the note
+  -- saying what that union is.
+  , "      <div id=\"clayers\" class=\"cpart\"></div>"
   , "      <div id=\"ceff\"></div>"
   , "      <div id=\"cfoot\">read-only: the union every file is parsed with."
       <> " A file's own #+TODO: line adds to it and outranks these for that"
@@ -3758,12 +3800,6 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- used to take.  In the typing mode DEL is the field's own and `*clear*' is
     -- reached the way every other entry is, by narrowing to it.
   , "    const CLEAR = \"*clear*\";"
-    -- What the tree falls back to with no `#+GLANCE_DEFAULT_FILTER:' line, which
-    -- is what the settings field says an empty box means.
-  , "    const BUILTIN_QUERY = " <> jsonText builtinFilter <> ";"
-    -- And where a capture lands with no `#+GLANCE_CAPTURE_TARGET:' line, which
-    -- is what the settings field says an empty box means.
-  , "    const CAPTURE_DEFAULT = " <> jsonText (T.pack defaultCaptureFile) <> ";"
     -- The colour is the badge's own, so a keyword reads in the palette as it
     -- reads in the table.  Looked up rather than carried: the resolution names
     -- keywords, and the hues are the producer's and ride on the state column
@@ -3829,18 +3865,42 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      said(b, link.label);"
   , "      append(\"cmd\", \"info\", `link ${JSON.stringify(link.target)} opened`);"
   , "    }"
-    -- Settings.  One section per keyword layer, and a layer is one config file
-    -- and one box holding its `#+TODO:' lines VERBATIM.  The line is the
-    -- contract org itself reads, so it is what is edited: a chip UI here would
-    -- be this page guessing at a grammar it has no parser for, and the guess
-    -- would be what gets written.
+    -- Settings, in PANELS.  The general preferences, the theme, then one box
+    -- per keyword layer — a layer being one config file and its `#+TODO:' lines
+    -- VERBATIM.  The line is the contract org itself reads, so it is what is
+    -- edited: a chip UI here would be this page guessing at a grammar it has no
+    -- parser for, and the guess would be what gets written.
     --
     -- The sheet is the materialize sheet's pattern, down to the words: no
     -- buttons, ESC or the backdrop syncs and closes, `C-x C-s' syncs mid-edit,
     -- and the header carries one of the same four states.  What it does NOT
     -- share is a request: `/config' is its own pair of routes, and the rows
     -- arrive the way every other write's do — the file watch sees the config
-    -- change and reseeds the tree.
+    -- change and reseeds the tree.  The theme panel asks nobody: it is a
+    -- `localStorage' preference and applies as it is picked.
+    --
+    -- ONE STRUCTURE for the panels: a header and the elements under it, in
+    -- order.  A panel joins by adding an entry and the markup it names — the
+    -- bodies wear `cpart' so the stylesheet needs no entry of its own — and
+    -- native tabbing walks the sheet in exactly this order.
+    --
+    -- The list wraps markup rather than building it because the bodies are
+    -- heterogeneous — two labelled inputs, a select, a list the server fills —
+    -- and a builder for that shape would be a template language this page has
+    -- no use for.  So `SECTIONS' owns the headers and the order, and the markup
+    -- owns what is under them, joined by id.  A `parts' id the markup does not
+    -- carry throws here, at boot, which is where a join like that should fail.
+  , "    const SECTIONS = ["
+  , "      { title: \"general\", parts: [\"cgen\"] },"
+  , "      { title: \"theme\", parts: [\"ctheme\"] },"
+  , "      { title: \"keywords\", parts: [\"clayers\", \"ceff\", \"cfoot\"] },"
+  , "    ];"
+  , "    const csecs = el(\"csecs\");"
+  , "    for (const s of SECTIONS) {"
+  , "      const sec = part(csecs, \"div\", \"csec\");"
+  , "      part(sec, \"div\", \"chdr\", s.title);"
+  , "      for (const id of s.parts) sec.appendChild(el(id));"
+  , "    }"
   , "    let settings = false, cstate = \"synced\", crows = [];"
     -- Claimed before the fetch, and refused over the other sheet.  `typing()'
     -- is not enough to keep the two apart: clicking the materialize sheet's own
@@ -3854,7 +3914,9 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        drawLayers(b);"
   , "        cnote(\"synced\");"
   , "        el(\"config\").className = \"on\";"
-  , "        if (crows.length) crows[0].box.focus();"
+    -- The top of the sheet, which is the general panel's first field: the sheet
+    -- opens where a reader reads it from, and Tab walks down from there.
+  , "        el(\"cfilter\").focus();"
   , "      }).catch((e) => {"
   , "        settings = false;"
   , "        append(\"config\", \"error\", `settings failed: ${e.message}`);"
@@ -3863,7 +3925,19 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    const config = () => getJSON(\"/config\");"
   , "    function drawLayers(b) {"
   , "      el(\"clayers\").textContent = \"\";"
-  , "      crows = (b.layers || []).map((l) => layerRow(l, b.filter || \"\", b.capture || \"\"));"
+  , "      crows = (b.layers || []).map(layerRow);"
+    -- The general panel's two fields are `system.org''s two tree-wide LINES, so
+    -- they are bound to the system layer's row and go out in its write: one
+    -- file, one digest, one splice, wherever on the sheet they are drawn.  The
+    -- FIRST system layer, which `/config' always serves and always leads with —
+    -- a tree with none is a server that broke its own contract, and the throw
+    -- lands in `openSettings''s catch as a settings failure rather than as a
+    -- sheet that silently drops what a reader types into these two.
+  , "      const view = el(\"cfilter\"), cap = el(\"ctarget\");"
+  , "      view.value = b.filter || \"\"; cap.value = b.capture || \"\";"
+  , "      const sys = crows.find((r) => r.tag === null);"
+  , "      sys.view = view; sys.viewBase = view.value;"
+  , "      sys.cap = cap; sys.capBase = cap.value;"
   , "      const kw = b.keywords || {};"
   , "      el(\"ceff\").textContent ="
   , "        `${(kw.active || []).join(\" \")} | ${(kw.inactive || []).join(\" \")}`;"
@@ -3872,7 +3946,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- and a line for whatever the server said about the last write to it.  A
     -- layer with no digest is not a file yet — saying so is what makes creating
     -- the first one an edit rather than a mystery.
-  , "    function layerRow(layer, viewText, captureText) {"
+  , "    function layerRow(layer) {"
   , "      const row = document.createElement(\"div\");"
   , "      row.className = \"crow\";"
   , "      const lab = document.createElement(\"div\");"
@@ -3886,33 +3960,13 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      box.placeholder = \"#+TODO: TODO STARTED | DONE\";"
   , "      const note = document.createElement(\"div\");"
   , "      note.className = \"cerr\";"
-  , "      row.appendChild(lab); row.appendChild(box);"
-  , "      const r = { path: layer.path, digest: layer.digest, base: box.value,"
-  , "                  box, note, view: null, viewBase: null, cap: null, capBase: null };"
-    -- The default view is a LINE of `system.org' and of no other file, so its
-    -- field sits under that layer and rides in that layer's write: one file,
-    -- one digest, one splice.  Emptying it takes the line away, which is the
-    -- tree going back to the built-in default rather than to no filter at all.
-  , "      if (layer.tag === null) {"
-  , "        const view = document.createElement(\"input\");"
-  , "        view.className = \"cview\";"
-  , "        view.spellcheck = false;"
-  , "        view.placeholder = `the view g applies; empty is ${BUILTIN_QUERY}`;"
-  , "        view.value = r.viewBase = viewText;"
-  , "        row.appendChild(view);"
-  , "        r.view = view;"
-    -- And the capture target, the second tree-wide line of that file: where `+'
-    -- writes, relative to the served root.  Emptying it is the tree going back
-    -- to the default rather than to nowhere, which is what the placeholder says.
-  , "        const cap = document.createElement(\"input\");"
-  , "        cap.className = \"cview\";"
-  , "        cap.spellcheck = false;"
-  , "        cap.placeholder = `where + captures; empty is ${CAPTURE_DEFAULT}`;"
-  , "        cap.value = r.capBase = captureText;"
-  , "        row.appendChild(cap);"
-  , "        r.cap = cap;"
-  , "      }"
-  , "      row.appendChild(note);"
+  , "      row.appendChild(lab); row.appendChild(box); row.appendChild(note);"
+    -- The two tree-wide fields are the general panel's and are bound to the
+    -- system layer by `drawLayers'; every layer's row carries the slots so one
+    -- shape answers `cmoved' and one shape is posted.
+  , "      const r = { path: layer.path, tag: layer.tag, digest: layer.digest,"
+  , "                  base: box.value, box, note,"
+  , "                  view: null, viewBase: null, cap: null, capBase: null };"
   , "      el(\"clayers\").appendChild(row);"
   , "      return r;"
   , "    }"
@@ -3992,6 +4046,13 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    }"
   , "    function shutSettings() {"
   , "      el(\"config\").className = \"\"; settings = false; crows = []; cstate = \"synced\";"
+    -- And the keys go back to the table, in ONE place.  A control of the sheet
+    -- holds the focus while it is up — which is what keeps the table's own keys
+    -- dead under it — so the close is what has to give it up.  A browser drops
+    -- the focus anyway when the box goes to `display:none'; saying it makes it
+    -- the sheet's rule rather than a side effect, and it covers every control
+    -- the sheet will ever hold rather than costing one `blur()' per control.
+  , "      if (typing()) document.activeElement.blur();"
   , "    }"
   , "    el(\"config\").addEventListener(\"click\", (e) =>"
   , "      { if (e.target === el(\"config\")) leaveSettings(); });"
@@ -4204,16 +4265,16 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      el(\"themesel\").value = name;"
   , "    }"
   , "    setTheme(themed.get());"
-    -- With no popup open the TABLE holds the keys, and the corner's chrome is
-    -- not a popup.  A `select' that keeps the focus after its change has
-    -- committed goes on eating `n' and `p' as its own type-ahead, and the
-    -- reader has to click the table back before movement works again — the bug
-    -- this line closes.  The choice is made, so the keys go back.  Every
-    -- control added to the corner owes the same line.
+    -- The theme applies as it is picked and the sheet stays where it is: this
+    -- is a preference rather than a write, so there is nothing to sync and no
+    -- reason to close over it.  The select KEEPS the focus, which is the whole
+    -- of the rule now that it lives inside a popup — a popup is a legitimate
+    -- focus holder, `typing()' is true while one of its controls has the focus,
+    -- and the table's own keys are dead underneath either way.  The corner's
+    -- copy owed a `blur()' precisely because the corner is not one.
   , "    el(\"themesel\").addEventListener(\"change\", (e) => {"
   , "      setTheme(e.target.value);"
   , "      echo(`theme: ${e.target.value}`);"
-  , "      e.target.blur();"
   , "    });"
   , ""
   -- The resident key line, under the log: what can run, where the echo pill
@@ -4795,20 +4856,18 @@ page head' title body = T.unlines
   -- narrow window cannot grow it into the table's room.
   , "  #kbd{flex:none;font-size:11px;color:var(--g-mute);white-space:nowrap;"
   , "    overflow-x:auto;padding:0 2px}"
-  -- The status corner: the connection dot and the theme, together, clear of the
-  -- table and out of the heading.
+  -- The status corner: the connection dot, clear of the table and out of the
+  -- heading.  It is a READOUT and holds nothing focusable — the theme selector
+  -- that used to sit beside the dot is a preference and lives with the rest of
+  -- them, in the settings sheet.
   , "  #corner{position:fixed;top:12px;right:14px;z-index:3;display:flex;gap:6px;"
   , "    align-items:center;font-size:11px;color:var(--g-mute)}"
-  , "  #corner:hover,#corner:focus-within{color:var(--g-fg)}"
+  , "  #corner:hover{color:var(--g-fg)}"
   , "  #dot{display:inline-block;width:7px;height:7px;border-radius:50%;"
   , "    background:var(--g-mute);transition:background .3s}"
   , "  #dot.live{background:var(--g-ok)}"
   , "  #dot.wait{background:var(--g-warn)}"
   , "  #dot.down{background:var(--g-mute)}"
-  , "  #corner select{font:inherit;font-family:var(--glance-mono);padding:1px 4px;"
-  , "    border-radius:4px;border:1px solid var(--g-border);background:var(--g-bg);"
-  , "    color:inherit}"
-  , "  #corner option{background:var(--g-bg);color:var(--g-fg)}"
   -- The sheet is the one place the author's Emacs font is asked for by name:
   -- the subtree reads there as it reads in the buffer it came out of.  The
   -- colours are the page's, which are already danneskjold's.
@@ -4991,10 +5050,9 @@ page head' title body = T.unlines
   -- and this is the one place a declaration has to beat one.
   , "  #plist .pat{background:var(--g-sel);color:var(--g-fg)}"
   , "  #plist .pat .pw{color:var(--g-fg)!important}"
-  -- The settings sheet, third in the same two bands: one section per keyword
-  -- layer, each a label saying which file it is and a box holding that file's
-  -- `#+TODO:' lines.  High rather than centred, since the sections grow
-  -- downward and the header over them should not move when they do.
+  -- The settings sheet, third in the same two bands: panels down a column,
+  -- each a header over its rows.  High rather than centred, since the panels
+  -- grow downward and the header over them should not move when they do.
   , "  #config{align-items:flex-start;padding-top:8vh}"
   , "  #cbox{display:flex;flex-direction:column;gap:10px;padding:14px;border-radius:6px;"
   , "    position:relative;z-index:101;"
@@ -5005,16 +5063,32 @@ page head' title body = T.unlines
   , "  #cnote{text-align:right;color:var(--g-ok)}"
   , "  #cnote.syncing{color:var(--g-mute)}"
   , "  #cnote.conflict,#cnote.error{color:var(--g-bad)}"
-  , "  #clayers,.crow{display:flex;flex-direction:column;gap:4px}"
+  -- A panel: a header naming it, then a stack of rows.  The hairline is the
+  -- header's own top border, the same border language the value palette's
+  -- source rows use, and the first panel is under the sheet's own head so it
+  -- wears none.  Panel bodies are matched by CLASS — a panel added to
+  -- `SECTIONS' is laid out without an entry here.
+  , "  #csecs{display:flex;flex-direction:column;gap:14px}"
+  , "  .csec,.cpart{display:flex;flex-direction:column;gap:8px}"
+  , "  .chdr{font-size:11px;letter-spacing:.08em;text-transform:uppercase;"
+  , "    color:var(--g-mute);border-top:1px solid var(--g-border);padding-top:8px}"
+  , "  .csec:first-child .chdr{border-top:none;padding-top:0}"
+  , "  .crow{display:flex;flex-direction:column;gap:4px}"
   -- A path is long and has nowhere to wrap, so it is told it may break
   -- anywhere rather than widening the sheet past the viewport.
   , "  .clab{font-size:11px;color:var(--g-mute);overflow-wrap:anywhere}"
-  , "  .ctext{font:12px/1.5 var(--dk-mono);padding:6px;border-radius:4px;height:3.4em;"
-  , "    border:1px solid var(--g-border);background:transparent;color:inherit;resize:vertical}"
-  , "  .ctext::selection{background:var(--g-sel);color:var(--g-fg)}"
-  -- The default view, one line under the system layer's cycle.
-  , "  .cview{font:12px/1.5 var(--dk-mono);padding:6px;border-radius:4px;"
+  -- Every control the sheet edits with, in ONE rule: the layer boxes, the two
+  -- general fields and the theme select, which wears `cview' for exactly this.
+  -- The coarse-pointer block names the same two classes, so a control that
+  -- takes its look here takes its 16px there and iOS never zooms in on it.
+  , "  .ctext,.cview{font:12px/1.5 var(--dk-mono);padding:6px;border-radius:4px;"
   , "    border:1px solid var(--g-border);background:transparent;color:inherit}"
+  , "  .ctext{height:3.4em;resize:vertical}"
+  , "  .ctext::selection{background:var(--g-sel);color:var(--g-fg)}"
+  -- The select is the one control with a popup of its own, which has to paint
+  -- on something, and the one that would stretch to the sheet's width.
+  , "  #themesel{background:var(--g-bg);align-self:flex-start;min-width:10em}"
+  , "  #themesel option{background:var(--g-bg);color:var(--g-fg)}"
   -- What the server said about the last write to that layer, and nothing when
   -- it said nothing.
   , "  .cerr{font-size:11px;color:var(--g-bad)}"
