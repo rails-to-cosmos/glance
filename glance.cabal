@@ -118,6 +118,7 @@ library glance-web
       Glance.Desktop.Native
       Glance.Web
       Glance.Web.Filter
+      Glance.Web.Sort
       Glance.Web.Store
       Glance.Web.Watch
   hs-source-dirs:

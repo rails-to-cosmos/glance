@@ -583,22 +583,49 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   query alike. The link rule in full: `[[T][D]]` shows `D`, `[[T]]` and
   `[[T][]]` both show `T`, and text that never closes a link is left exactly as
   written. Runs of control characters collapse to one space. Filter runs before
-  page; a page slices `sortedForView`, never walk order; no `limit` means the
-  whole set in walk order for the client to sort. The palette stays the store's
-  whatever the page holds, and the shell re-asks the server for a row frame that
-  lands while a filter is on.
+  page; a page slices the EFFECTIVE chain's order, never walk order; no `limit`
+  means the whole set in walk order for the client to sort by the chain the view
+  declares. The palette stays the store's whatever the page holds, and the shell
+  re-asks the server for a row frame that lands while a filter is on.
+- THE ORDER IS THE GRAMMAR'S. `sort:COL` / `sort:COL:desc` are query tokens
+  (SCHEMA.md, Filter query): written order is precedence, repeats compose the
+  chain, and the token NARROWS NOTHING — the one key that is no predicate.
+  `Glance.Web.Sort.sortChainIn` reads them off `Glance.Web.Filter`'s own
+  `parseFilter`, so the two modules split ONE parse and no token can be a
+  predicate for one and an ordering for the other; `Filter` knows the key
+  (`sortKey`) precisely so a sort token is never read as free text, and
+  `compile` DROPS the term above the negation inverter — a match-all under it
+  would make `-sort:x` the query that empties the table. A query naming any sort key REPLACES
+  the chain it was asked under, one naming none leaves it standing, so the
+  DEFAULT CHAIN IS INVISIBLE — tokens appear only on divergence, the same
+  pattern as the default view's injection. `?order=` picks the base the query
+  overrides (`document` = the empty chain), so `order=document&q=sort:title` is
+  title's.
+- ONE COLUMN, ONE DIRECTION: a negation, an alternation, a column no view
+  carries, a direction that is neither `asc` nor `desc`, and a column named
+  twice are each the whole request's 400 naming the token. `sort:` half-typed
+  orders nothing and refuses nothing (the `key:` rule). The renderer cannot
+  refuse, so it DROPS the key and the token goes on narrowing nothing: a
+  divergence in the loud direction, blessed by SCHEMA.md, and the only one
+  where the producer is stricter rather than wider.
 - The view declares a SORT CHAIN and is served in it: `defaultSortChain` is
-  title, state, deadline, scheduled, priority, every key ascending, and it is
-  ONE list read twice — `declaredSort` spells it onto the wire (SCHEMA.md's
-  `sort` array), `sortedForViewWith` arranges the rows by it. A declaration
+  state, title, deadline, scheduled, every key ascending — state by the badge
+  PALETTE, which is the declared `#+TODO:` cycle, so the table opens in org's
+  own order rather than alphabetically. Priority left the chain: a fifth key
+  behind four that have already separated nearly every pair of rows, reachable
+  as `sort:priority`. The chain is ONE list read twice — `declaredSort` spells
+  the EFFECTIVE chain onto the wire (SCHEMA.md's `sort` array),
+  `sortedForViewWith` arranges the rows by that same chain — and a declaration
   disagreeing with the rows is one a renderer re-sorts out from under the
-  reader. The arrangement is the renderers' rules: empty cells last per key and
-  OUTSIDE its direction, the state column by badge PALETTE position with
-  unlisted keywords tying at the back, `sortBy` stable so a full tie keeps walk
-  order, text compared case-FOLDED as the nearest thing to `localeCompare`.
-  `sortedForView` derives the palette from the records it is handed, which is
-  right for ordering them and can differ from the store's where two files
-  declare the same keywords in opposite orders; `sortedForViewWith` takes one.
+  reader. The empty chain is walk order AND no `sort` field, one function for
+  both since a fold over no keys is the identity. The arrangement is the
+  renderers' rules: empty cells last per key and OUTSIDE its direction, the
+  state column by palette position with unlisted keywords tying at the back,
+  `sortBy` stable so a full tie keeps walk order, text compared case-FOLDED as
+  the nearest thing to `localeCompare`. `sortedForView` derives the palette from
+  the records it is handed, which is right for ordering them and can differ from
+  the store's where two files declare the same keywords in opposite orders;
+  `/headlines` passes the store's.
 - `?q=` is SCHEMA.md's filter query, parsed in `Glance.Web.Filter` as a port of
   `table-view.js`'s `scanQuery`/`parseQuery`/`tokenTest` — parity is the
   contract. Tokens split on whitespace and `&`; `key:value` (`=` alias) is a
@@ -712,6 +739,19 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - Parity discipline: there is NO schema revision mechanism between this producer
   and `table-view.js`. Agreement rests on the port being kept term for term,
   plus one loose runtime tripwire. Known divergences, all live:
+  - `sort:` REFUSALS are the producer's alone, and it is the one divergence
+    where this side is STRICTER: a negated, alternated, unknown-column,
+    bad-direction or twice-named sort token is a 400 here and a dropped key
+    there, so the renderer answers the rows in another order where this answers
+    nothing. Deliberate — an order nobody can give is worth saying, and the
+    query the shell writes never spells one, promotion composing the chain from
+    the columns the view carries. What is TERM FOR TERM is the reading: one
+    column, one direction, `:` splitting the value, written order the
+    precedence, `sort:` half-typed narrowing and ordering nothing, and the token
+    narrowing nothing in either polarity (`Glance.Web.Sort.sortChainIn` against
+    `sortsIn`/`sortKeyOf`). `fixtures/parity/sort-tokens.json` runs the shared
+    half over the browser renderer; `TestFilter`'s "Sort tokens" runs the same
+    table here.
   - Column lockstep is FOUR-way through `viewColumns` — `columns` declares them,
     `rowJSON` fills them, `filterKeys` names them, and `viewCells` joins them
     into `hrSearch`, `recordOf` tying the record through its own cells. A cell
@@ -885,9 +925,11 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   fallback read.
 - Every optional renderer capability is feature-detected before use —
   `parseQuery`, `stripLastToken` with `getQuery`, `selectStep`, `nextPage` with
-  `pageInfo`, `getSelection`, `openFilter`, plus `matchMedia`. `initialQuery` is
-  passed unguarded and detected afterwards by asking `getQuery()` whether it
-  took.
+  `pageInfo`, `getSelection`, `openFilter`, `sortPromote`, plus `matchMedia`.
+  `initialQuery` is passed unguarded and detected afterwards by asking
+  `getQuery()` whether it took. An asset with no `sortPromote` costs the ORDER
+  alone: the query still carries its `sort:` tokens and the server still answers
+  in them.
 - The page never scrolls: `body` is `100vh`, `overflow:hidden`, a flex column of
   table, log and key line. The table has a fixed share, the log takes what is
   left and scrolls inside itself, the key line is `flex:none` and scrolls
@@ -948,10 +990,15 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   handler, so an arrow walks off the last cell into the whole-row look the way
   `f` does. Ends
   are `<` and `>`, plus vi's `G` beside `>`. `^` is `toggle-sort` — the cell
-  selection's column, sortable-honoring, a TWO-state cycle (the handle has no
-  clear-sort call; off is unreachable without a remount) — and the sort
-  SURVIVES refetch/splice (setRows drops caches, not sortKeys); `sortAt` is the
-  shell's one record, written at mount seed and sortRows alone.
+  selection's column, sortable-honoring — and it is a QUERY EDIT: the renderer
+  composes the chain, writes it into the applied query as `sort:` tokens and
+  delivers it, so the press arrives as an ordinary commit (URL, refetch, the
+  server asked for the order it was just told about) and `DEL` walks the keys
+  back off one at a time. What it composes onto is the chain IN FORCE, so the
+  first press is where the declared chain becomes tokens and only the promoted
+  key moves. This page keeps no record of an order and asks for none: `sortBy`
+  is gone from the shell with the agenda's call, the canned view carrying
+  `sort:scheduled` in its query instead.
   `g` is `apply-default-filter`, `a`
   is `org-glance-agenda`, `,`
   is `customize`, `:` is `org-agenda-set-tags` — the AGENDA's own key for the
@@ -1122,16 +1169,16 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   link's DESCRIPTION with the target beside it muted (`.pt`), and `/` narrows
   over both through the entry's `hay`.
 - `a` (`org-glance-agenda`) is a canned VIEW, not a mode: `state:*active*
-  -planned:*empty*` through `applyView`, the door `g` uses — URL, socket dropped,
-  remount — so the query is the renderer's chips and `DEL` strips it like any
-  other. No agenda state anywhere; `g` is the way home. The sort arrives through
-  `landed`, a one-shot thunk `start` TAKES before it fetches (so a boot that
-  never lands cannot leave it armed), called with the SERVER's match count, which
-  is the one number the first page cannot give. It insists on
-  `sortBy("scheduled", true)`, feature-detected — the view already declares that
-  sort and a remount re-reads it, so the call makes the order the agenda's own
-  rather than a coincidence of the default. `sortBy` is in the vendored asset as
-  of the 2026-08-02 sync, and the detection is what carries an older one.
+  -planned:*empty* sort:scheduled` through `applyView`, the door `g` uses — URL,
+  socket dropped, remount — so the query is the renderer's chips and `DEL` strips
+  it like any other, the ORDER included. No agenda state anywhere; `g` is the way
+  home. The order is a token rather than a call behind the answer, so the whole
+  view is one string: the server answers page one in it and the renderer reads
+  the chain off the same query, where a call could have stated an order the
+  applied query did not. What still arrives through `landed` — a one-shot thunk
+  `start` TAKES before it fetches, so a boot that never lands cannot leave it
+  armed — is the ECHO, called with the SERVER's match count, which is the one
+  number the first page cannot give.
 - Letters are `whichKeys(labels)`: over the labels flattened in DRAW order —
   each source row's active cell then its inactive one, `*empty*` last — each
   entry
@@ -1561,9 +1608,9 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `glance-desktop-native` (`src-desktop-native/`) on `base` alone, one CLI
   dispatching to three sublibraries, one suite naming the three that carry
   testable code. A new web or daemon target depends on the public library alone.
-- `glance-web` exposes six modules and has no `other-modules`:
+- `glance-web` exposes seven modules and has no `other-modules`:
   `Glance.Desktop`, `Glance.Desktop.Native`, `Glance.Web`, `Glance.Web.Filter`,
-  `Glance.Web.Store`, `Glance.Web.Watch`.
+  `Glance.Web.Sort`, `Glance.Web.Store`, `Glance.Web.Watch`.
 - `glance-desktop-native` exposes `Glance.Desktop.WebKit` alone and is the ONLY
   stanza the `native-window` flag reaches: `if flag(native-window)` adds
   `-DNATIVE_WINDOW` and

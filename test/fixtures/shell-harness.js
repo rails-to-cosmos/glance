@@ -352,6 +352,23 @@ const paints = [];
 // order across a `setRows', so a refetch that re-asserted one would show up
 // here as a second call.
 let sorted = null, sortCalls = 0, sortChain = [];
+/** Q's tokens, on the separators the grammar names. */
+const tokensOf = (q) => String(q || "").split(/[\s&]+/).filter(Boolean);
+/**
+ * The chain Q names, [] when it names none — the renderer's `sortsIn' over the
+ * one token shape the shell can produce.  A `sort:' token names one column and
+ * an optional direction, written order is precedence, and everything else in
+ * the query is somebody else's business.
+ */
+const sortTokensIn = (q) => tokensOf(q)
+  .filter((t) => t.startsWith("sort:") && t.length > "sort:".length)
+  .map((t) => t.slice("sort:".length).split(":"))
+  .map(([column, dir]) => ({ column, ascending: dir !== "desc" }));
+/** Q with CHAIN's tokens in place of whatever sort tokens it carried. */
+const withSort = (q, chain) => tokensOf(q)
+  .filter((t) => !t.startsWith("sort:"))
+  .concat(chain.map((k) => `sort:${k.column}${k.ascending ? "" : ":desc"}`))
+  .join(" ");
 /** The live table instance, the live panel instance and the two live popups.
  * The table starts as a standing empty one so a boot that never got to mount —
  * the indexing poll, an offline daemon — still answers about a table rather
@@ -381,10 +398,15 @@ const makeMount = (host, view, options, own) => {
     // where a hardcoded pair would silently go on agreeing.  The table's mount
     // is handed the store's view, so `recolumn' reaches it through a remount.
     cols: (view || {}).columns || [],
+    // The chain in force is the QUERY's where it names any `sort:' token, and
+    // the view's declared `sort' where it names none — the renderer's own rule,
+    // mirrored because the shell's `^' and its canned views both rest on it.
     _seedSort: (() => {
+      const named = sortTokensIn(o.initialQuery || "");
       const d = (view || {}).sort;
-      sortChain = (Array.isArray(d) ? d : d ? [d] : [])
-        .map((k) => ({ column: k.column, ascending: k.ascending !== false }));
+      sortChain = named.length ? named
+        : (Array.isArray(d) ? d : d ? [d] : [])
+            .map((k) => ({ column: k.column, ascending: k.ascending !== false }));
       return null;
     })(),
     held: o.initialQuery || "",
@@ -439,7 +461,7 @@ const makeMount = (host, view, options, own) => {
     getQuery: () => m.held,
     stripLastToken: () => {
       if (!m.held) return false;
-      m.held = m.held.split(/\s+/).slice(0, -1).join(" ");
+      m.held = tokensOf(m.held).slice(0, -1).join(" ");
       return true;
     },
     // The selection is the renderer's, both halves of it, and the shell reads
@@ -497,15 +519,25 @@ const makeMount = (host, view, options, own) => {
     // What the renderer's palette does: the overlay goes up and its field
     // takes focus, which is the whole of what the shell can see of it.
     openFilter: () => { raises += 1; field("filter").focus(); },
-    // The programmatic sort: what `^' asks for over the column at point, and
-    // what the agenda insists on once its rows are up.  Recorded rather than
-    // performed: the ORDER is the renderer's and TableView's own suite is where
-    // it is tested.
+    // A PRODUCER's sort: it states an order and writes no query.  Recorded
+    // rather than performed — the ORDER is the renderer's and TableView's own
+    // suite is where it is tested — and nothing in the shell calls it any more,
+    // a canned view carrying its order as a `sort:' token instead.
     sortBy: (column, ascending) => { sorted = { column, ascending }; sortCalls += 1;
       sortChain = [{ column, ascending }]; },
     // The promotion rule verbatim: head ascending, dedup below; the leader
     // flips alone.  getSort answers copies, the way the renderer documents.
+    //
+    // And it WRITES THE QUERY, which is the half the shell can see: the new
+    // chain replaces whatever `sort:' tokens were applied and the query is
+    // delivered, so a press arrives at `onFilter' as an ordinary commit.
+    //
+    // `sortable' is enforced HERE, the way the renderer enforces it, and the
+    // answer is what the shell reads its refusal off: false when the column
+    // opts out, true when the chain moved.
     sortPromote: (column) => {
+      const col = (m.cols || []).find((c) => c.key === column);
+      if (!col || col.sortable !== true) return false;
       const head = sortChain[0];
       if (head && head.column === column) {
         head.ascending = head.ascending === false;
@@ -515,6 +547,9 @@ const makeMount = (host, view, options, own) => {
       }
       sorted = { column: sortChain[0].column, ascending: sortChain[0].ascending };
       sortCalls += 1;
+      m.held = withSort(m.held, sortChain);
+      if (o.onFilter) o.onFilter(m.held);
+      return true;
     },
     getSort: () => sortChain.map((k) => ({ column: k.column, ascending: k.ascending })),
     setSort: (chain) => { sortChain = (chain || []).map((k) => ({ column: k.column, ascending: k.ascending !== false })); },
@@ -1140,8 +1175,9 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     pmode: field("pbox").className, plist: paletteRows(), resolved,
     pfoot: field("pfoot").textContent, assigned, commands,
     // Following a link: which rows were asked about, which tabs were opened,
-    // and the sort `^' or the agenda asked for, with how many were asked for.
-    linked, opened, sorted, sortCalls, tagged,
+    // the last sort a call asked for and how many were asked for, and the CHAIN
+    // in force — which the query names and no call has to have made.
+    linked, opened, sorted, sortCalls, chain: sortChain, tagged,
     // The link popup, which is the page's THIRD mount: whether it is up, the two
     // lines of chrome it draws, how many times it was built and re-set, the rows
     // it is showing, where its cursor is, and the read-only options it was

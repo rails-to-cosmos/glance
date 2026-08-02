@@ -40,8 +40,8 @@ module Glance.Query ( ConfigLayerFile (..)
                     , LoadFailure (..)
                     , QueryResult (..)
                     , Span (..)
+                    , SortChain
                     , TodoKeywords (..)
-                    , ViewOrder (..)
                     , WalkOptions (..)
                     , WriteFailure (..)
                     , addTagEdits
@@ -84,7 +84,6 @@ module Glance.Query ( ConfigLayerFile (..)
                     , matchesSearch
                     , mergeKeywords
                     , noConfig
-                    , orderedForView
                     , orgLinks
                     , planningKeywords
                     , planningTimestamp
@@ -103,7 +102,6 @@ module Glance.Query ( ConfigLayerFile (..)
                     , setStateEdits
                     , settableStates
                     , defaultSortChain
-                    , orderedForViewWith
                     , sortedForView
                     , sortedForViewWith
                     , sortedTagsCell
@@ -934,24 +932,36 @@ documentPath = isDocument
 configPath :: FilePath -> Bool
 configPath = isConfig
 
--- | The view's default sort CHAIN, highest priority first: the column key and
--- whether it ascends.
+-- | A sort CHAIN, highest priority first: each key a column and whether it
+-- ascends.  SCHEMA.md's @sort@ array, and what @?q=@'s @sort:@ tokens name.
+--
+-- The EMPTY chain is no sort at all: the rows stay in the order they arrived
+-- and the view declares nothing, which is how SCHEMA.md reads an absent @sort@.
+type SortChain = [(Text, Bool)]
+
+-- | The view's default sort chain: what a query naming no @sort:@ token opens
+-- on and is served in.
 --
 -- ONE list, read twice — 'declaredSort' spells it onto the wire and
--- 'sortedForView' arranges the rows by it — so the order a client is told about
--- and the order it is served can never disagree.  That pairing is the whole
--- reason a producer sorts at all: a renderer re-sorts what it is given, and a
--- page cut out of a different order than the one declared is a different set of
--- rows than the table would have put there.
+-- 'sortedForViewWith' arranges the rows by it — so the order a client is told
+-- about and the order it is served can never disagree.  That pairing is the
+-- whole reason a producer sorts at all: a renderer re-sorts what it is given,
+-- and a page cut out of a different order than the one declared is a different
+-- set of rows than the table would have put there.
 --
--- Title leads, so the table opens alphabetically and the four keys behind it
--- are tie-breakers that fire only where two rows are named alike.  Every key
--- ascends; SCHEMA.md makes direction per key, and nothing here wants the other
--- one yet.
-defaultSortChain :: [(Text, Bool)]
+-- STATE leads, and by the badge PALETTE rather than alphabetically
+-- ('sortCell'), which is the declared @#+TODO:@ cycle: the table opens with the
+-- work in the order org itself names it, active states ahead of done-like ones.
+-- Title settles rows sharing a state and the two dates settle the rest.  Every
+-- key ascends; SCHEMA.md makes direction per key, and the default wants no
+-- other one.
+--
+-- Priority is deliberately out of it: it is a fifth key behind four that have
+-- already separated nearly every pair of rows, and a chain is read by whoever
+-- has to hold it in mind.  @sort:priority@ is how a reader asks for it.
+defaultSortChain :: SortChain
 defaultSortChain =
-  [ ("title", True), ("state", True), ("deadline", True)
-  , ("scheduled", True), ("priority", True) ]
+  [ ("state", True), ("title", True), ("deadline", True), ("scheduled", True) ]
 
 -- | R's comparison value for the column KEY under PALETTE, or 'Nothing' for an
 -- empty cell.
@@ -975,39 +985,56 @@ defaultSortChain =
 -- punctuation or by script can still land elsewhere than @localeCompare@ would
 -- put it, and the next key settles it here where the renderer would not have
 -- asked one.
-sortCell :: TodoKeywords -> Text -> HeadlineRecord -> Maybe (Int, Text)
-sortCell palette key r = case lookup key [(k, cell) | (k, _, _, cell) <- viewColumns] of
-  Nothing   -> Nothing
-  Just cell -> case cell r of
-    Just value | not (T.null value) ->
-      Just (if key == "state" then paletteRank palette value else 0
-           , if key == "state" then "" else T.toCaseFold value)
-    _ -> Nothing
+-- Built ONCE per sort rather than per comparison: the column is resolved out of
+-- 'viewColumns' and the palette flattened into a rank where the KEY is read,
+-- so a chain of four keys pays for four lookups instead of four per pair of
+-- rows.
+sortCell :: TodoKeywords -> Text -> Maybe (HeadlineRecord -> Maybe (Int, Text))
+sortCell palette key = read' <$> lookup key [(k, cell) | (k, _, _, cell) <- viewColumns]
+  where
+    ranked = paletteRank palette
+    read' cell r = case cell r of
+      Just value | not (T.null value) ->
+        Just (if key == "state" then ranked value else 0
+             , if key == "state" then "" else T.toCaseFold value)
+      _empty -> Nothing
 
--- | Where VALUE sits in PALETTE, or one past its end for a keyword it does not
--- name.  The renderers' rule for a badge column: palette order is sort order,
--- and everything unlisted ties at the back.
+-- | Where a value sits in PALETTE, or one past its end for a keyword it does
+-- not name.  The renderers' rule for a badge column: palette order is sort
+-- order, and everything unlisted ties at the back.
+--
+-- The order is worked out once per PALETTE and the value looked up in it, so a
+-- caller holding the function pays for the flattening once however many rows it
+-- ranks.
 paletteRank :: TodoKeywords -> Text -> Int
-paletteRank (TodoKeywords actives inactives) value =
+paletteRank (TodoKeywords actives inactives) =
   let ordered = actives <> filter (`notElem` actives) inactives
-  in fromMaybe (length ordered) (lookup value (zip ordered [0 ..]))
+      places  = zip ordered [0 ..]
+  in \value -> fromMaybe (length ordered) (lookup value places)
 
--- | RECORDS in the order 'declaredSort' says they are in, with the state
--- column's PALETTE given.
+-- | RECORDS in the order CHAIN states, with the state column's PALETTE given.
 --
 -- Each key compares by 'sortCell', empty cells last whatever the direction, and
 -- 'Data.List.sortBy' is stable — so rows equal on every key keep walk order,
--- which is what both renderers do with the same chain.
-sortedForViewWith :: TodoKeywords -> [HeadlineRecord] -> [HeadlineRecord]
-sortedForViewWith palette = sortBy (mconcat (map key defaultSortChain))
+-- which is what both renderers do with the same chain.  A key naming no column
+-- is dropped, the way both renderers drop one.  The EMPTY chain leaves the rows
+-- exactly as they arrived, which is the view that declares no @sort@ at all —
+-- spelled rather than left to a fold over no keys, so document order costs no
+-- walk at all.
+sortedForViewWith :: TodoKeywords -> SortChain -> [HeadlineRecord]
+                  -> [HeadlineRecord]
+sortedForViewWith _       []    = id
+sortedForViewWith palette chain = sortBy (mconcat (mapMaybe key chain))
   where
-    key (k, asc) a b = case (sortCell palette k a, sortCell palette k b) of
+    key (k, asc) = compareBy asc <$> sortCell palette k
+    compareBy asc value a b = case (value a, value b) of
       (Nothing, Nothing) -> EQ
       (Nothing, Just _)  -> GT          -- nulls last, outside the direction
       (Just _,  Nothing) -> LT
       (Just x,  Just y)  -> if asc then compare x y else compare y x
 
--- | 'sortedForViewWith' over the palette RECORDS themselves imply.
+-- | 'sortedForViewWith' in 'defaultSortChain', over the palette RECORDS
+-- themselves imply.
 --
 -- Sound for ordering RECORDS, since every state they hold is declared by one of
 -- their own files and 'mergeKeywords' keeps a keyword where it was first seen.
@@ -1017,43 +1044,7 @@ sortedForViewWith palette = sortBy (mconcat (map key defaultSortChain))
 -- order where the columns a client was served still carry the first's.
 sortedForView :: [HeadlineRecord] -> [HeadlineRecord]
 sortedForView records =
-  sortedForViewWith (mergeKeywords (map hrKeywords records)) records
-
--- | Which order a view's rows are in, and what it declares about them.
---
--- 'ScheduledOrder' is the view every client has had: the rows sorted by
--- 'sortedForView' and a @sort@ field saying so.  The name is older than the
--- order — it was a single @scheduled@ key before 'defaultSortChain', and the
--- wire spelling @?order=scheduled@ is the same fossil.
---
--- 'DocumentOrder' leaves them in
--- walk order — which for this producer is document order, headline by headline
--- down each file — and emits NO @sort@ field at all, since SCHEMA.md reads an
--- absent one as "the order they arrived in".  The pair travels together on
--- purpose: 'orderedForView' arranges the rows and 'viewJSONWith' declares what
--- was done, and a view whose declaration disagrees with its rows is one a
--- renderer will re-sort out from under the reader.
---
--- __Experimental__: reached by @\/headlines?order=document@ alone.  Nothing
--- else in the wire contract turns on it, and a renderer is free to ignore it.
--- Rows being top entries, document order is the order the files list them in
--- rather than an outline the reader can see the shape of.
-data ViewOrder = ScheduledOrder | DocumentOrder
-  deriving (Eq, Show)
-
--- | RECORDS in ORDER: 'sortedForView' for 'ScheduledOrder', untouched walk
--- order for 'DocumentOrder'.
-orderedForView :: ViewOrder -> [HeadlineRecord] -> [HeadlineRecord]
-orderedForView ScheduledOrder = sortedForView
-orderedForView DocumentOrder  = id
-
--- | 'orderedForView' with the state column's PALETTE given rather than derived,
--- which is what a caller holding the store's should use — see 'sortedForView'
--- for the one case the two answers differ in.
-orderedForViewWith :: TodoKeywords -> ViewOrder -> [HeadlineRecord]
-                   -> [HeadlineRecord]
-orderedForViewWith palette ScheduledOrder = sortedForViewWith palette
-orderedForViewWith _       DocumentOrder  = id
+  sortedForViewWith (mergeKeywords (map hrKeywords records)) defaultSortChain records
 
 -- Subtrees
 
@@ -2257,35 +2248,43 @@ insertAt at' = Span at' at'
 -- View JSON
 
 -- | The table-view document for RECORDS under TITLE, per
--- @table-view/SCHEMA.md@, with the state palette taken from RECORDS themselves.
+-- @table-view/SCHEMA.md@, in 'defaultSortChain' with the state palette taken
+-- from RECORDS themselves.
 viewJSON :: Text -> [HeadlineRecord] -> Value
 viewJSON viewTitle records =
-  viewJSONWith ScheduledOrder viewTitle (mergeKeywords (map hrKeywords records)) records
+  viewJSONWith defaultSortChain viewTitle
+               (mergeKeywords (map hrKeywords records)) records
 
--- | 'viewJSON' in ORDER and with the state column's PALETTE given rather than
--- derived.  A server answering a page has to pass the whole store's palette:
--- the badge list is what a client watches for a column change, and deriving it
--- from the rows that happen to be on this page would move it every time the
--- page did.  ORDER declares what 'orderedForView' did to RECORDS; see
--- 'ViewOrder' for why the two are one decision.
-viewJSONWith :: ViewOrder -> Text -> TodoKeywords -> [HeadlineRecord] -> Value
-viewJSONWith order viewTitle palette records = object
+-- | 'viewJSON' declaring CHAIN and with the state column's PALETTE given rather
+-- than derived.  A server answering a page has to pass the whole store's
+-- palette: the badge list is what a client watches for a column change, and
+-- deriving it from the rows that happen to be on this page would move it every
+-- time the page did.
+--
+-- CHAIN is the EFFECTIVE order — the query's @sort:@ tokens where it names any,
+-- else the default — and it is the chain 'sortedForViewWith' was given, since a
+-- view whose declaration disagrees with its rows is one a renderer re-sorts out
+-- from under the reader.
+viewJSONWith :: SortChain -> Text -> TodoKeywords -> [HeadlineRecord] -> Value
+viewJSONWith chain viewTitle palette records = object
   (  [ "title" .= viewTitle, "columns" .= columns palette, "actions" .= actions ]
-  <> declaredSort order
+  <> declaredSort chain
   <> [ "rows" .= map rowJSON records ])
 
--- | The @sort@ field ORDER declares, or nothing at all for 'DocumentOrder'.
+-- | The @sort@ field CHAIN declares, or nothing at all for the empty one —
+-- SCHEMA.md reads an absent @sort@ as the order the rows arrived in, which is
+-- what an unsorted view serves.
 --
 -- SCHEMA.md's @sort@ takes an array for a CHAIN, highest priority first, and
--- this is 'defaultSortChain' spelled onto the wire — the one place it becomes
--- JSON, where 'sortedForViewWith' is the one place it becomes an ordering.
--- Both renderers run every key of it and both draw it: the browser as a chip
--- per key beside the filter's, @table-view.el@ as words on its hint line.
-declaredSort :: ViewOrder -> [Pair]
-declaredSort DocumentOrder  = []
-declaredSort ScheduledOrder =
+-- this is the one place a chain becomes JSON, where 'sortedForViewWith' is the
+-- one place it becomes an ordering.  Both renderers run every key of it and
+-- both draw it: the browser over the headers of the columns it orders,
+-- @table-view.el@ as words on its hint line.
+declaredSort :: SortChain -> [Pair]
+declaredSort []    = []
+declaredSort chain =
   [ "sort" .= [ object [ "column" .= key, "ascending" .= asc ]
-              | (key, asc) <- defaultSortChain ] ]
+              | (key, asc) <- chain ] ]
 
 -- | The commands the view dispatches.  One so far: @materialize@ on the row at
 -- point, which asks the server for that headline's raw subtree and posts an
@@ -2299,9 +2298,9 @@ actions =
            , "label"   .= ("Materialize" :: Text) ] ]
 
 -- | 'viewJSONWith' encoded.
-viewJSONTextWith :: ViewOrder -> Text -> TodoKeywords -> [HeadlineRecord] -> TL.Text
-viewJSONTextWith order viewTitle palette =
-  encodeToLazyText . viewJSONWith order viewTitle palette
+viewJSONTextWith :: SortChain -> Text -> TodoKeywords -> [HeadlineRecord] -> TL.Text
+viewJSONTextWith chain viewTitle palette =
+  encodeToLazyText . viewJSONWith chain viewTitle palette
 
 -- | The view's columns, in the order the table draws them: the key a filter
 -- names, the header over the cells, the type @table-view\/SCHEMA.md@ declares,

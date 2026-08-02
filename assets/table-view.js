@@ -22,7 +22,8 @@
  *   tv.getVisible();      // the filtered + sorted rows, in display order
  *
  *   tv.sortBy(col, asc);  // state an order, replacing the chain -> bool
- *   tv.sortPromote(col);  // `^': COL to the head of the chain, or flip it -> bool
+ *   tv.sortPromote(col);  // `^': COL to the head of the chain, or flip it,
+ *                         // written into the query as `sort:' tokens -> bool
  *   tv.getSort(); tv.setSort(chain);     // read and replace the whole chain
  *
  *   tv.getQuery();        // the query as last delivered
@@ -73,13 +74,13 @@
  *   is built once at mount. Updates touch only the row window, the hint line,
  *   the sort arrows and the chips, so the filter input keeps focus and caret
  *   while typing.
- * - The sort chain is drawn three ways from one walk of it (`sortChain'): the
- *   header arrow marks the PRIMARY column, the chip strip lists every key in
- *   precedence order as `Header ▲', and the hint line spells the whole chain
- *   in words. A chain is composed by promotion — `^' or a header click puts a
- *   column at the head and shifts the rest down — so the strip is the reader's
- *   record of what they built. The chips are chrome: inert, and no consumer
- *   contract turns on them.
+ * - The sort chain is drawn over the columns it orders: every key of it marks
+ *   its own header with the direction and, past one key, its place in the chain
+ *   (`Headline ▲¹'), the leading key in full ink and the tie-breakers muted.
+ *   The hint line spells the whole chain in words. A chain is composed by
+ *   promotion — `^' or a header click puts a column at the head and shifts the
+ *   rest down — and promotion WRITES THE QUERY, so the order the reader built
+ *   is one of the query's own tokens rather than a second store beside it.
  * - There are no toolbar buttons. Actions render on the hint line as `KEY
  *   label' pairs, the way table-view.el prints its legend: the keys are the
  *   interface, a consumer binds them and dispatches the command, and a button
@@ -771,6 +772,72 @@
   const PLANNED_KEY = "planned";
 
   /**
+   * SCHEMA's ORDER key: `sort:COL', `sort:COL:desc'. It states the order the
+   * rows are read in and narrows nothing, so it is the one key in the grammar
+   * that is no predicate at all — written order is precedence, and a query
+   * naming any replaces the view's declared `sort'.
+   */
+  const SORT_KEY = "sort";
+
+  /** The directions a sort token may spell; the empty one ascends. */
+  const SORT_DIRS = { "": true, asc: true, desc: false };
+
+  /**
+   * TOKEN as a sort key, or null where nothing orderable is spelled. KNOWN is
+   * the columns a key may name.
+   *
+   * A sort token names ONE column in ONE direction: a negation, an alternation,
+   * a column the view does not carry and a direction that is neither `asc' nor
+   * `desc' each yield null. A producer refuses those (SCHEMA: the query is an
+   * error and is answered as one); a renderer, which has nobody to refuse to,
+   * drops the key and leaves the token narrowing nothing like every other sort
+   * token.
+   * @param {Token} tok  @param {(k: string) => boolean} known
+   * @returns {SortKey|null}
+   */
+  function sortKeyOf(tok, known) {
+    if (tok.negated || tok.value.indexOf(ALT) !== -1) return null;
+    const at = tok.value.indexOf(":");
+    const column = at === -1 ? tok.value : tok.value.slice(0, at);
+    const dir = at === -1 ? "" : tok.value.slice(at + 1).toLowerCase();
+    if (!column || !known(column) || !(dir in SORT_DIRS)) return null;
+    return { column, ascending: SORT_DIRS[dir], nullsFirst: false };
+  }
+
+  /**
+   * The chain Q names, highest priority first, or [] when it names none. KNOWN
+   * is the columns a key may name.
+   *
+   * Written order is precedence and repeats compose, so `sort:deadline
+   * sort:title' opens on deadline with title behind it. A column named twice is
+   * the producer error SCHEMA's chain rule already names: the later spelling is
+   * dropped here, so what this answers can always be handed to `applyChain'.
+   * @param {string} q  @param {string[]} keys  @param {(k: string) => boolean} known
+   * @returns {SortKey[]}
+   */
+  function sortsIn(q, keys, known) {
+    /** @type {SortKey[]} */
+    const chain = [];
+    for (const tok of parseQuery(q, keys)) {
+      if (tok.key !== SORT_KEY) continue;
+      const k = sortKeyOf(tok, known);
+      if (k && !chain.some((c) => c.column === k.column)) chain.push(k);
+    }
+    return chain;
+  }
+
+  /** KEY as the token that spells it. @param {SortKey} key  @returns {string} */
+  function sortToken(key) {
+    return `${SORT_KEY}:${key.column}${key.ascending ? "" : ":desc"}`;
+  }
+
+  /** The superscript digits, so a precedence mark is one character per digit. */
+  const SUPERS = "⁰¹²³⁴⁵⁶⁷⁸⁹";
+  /** N in superscript. @param {number} n  @returns {string} */
+  const superscript = (n) =>
+    String(n).split("").map((d) => SUPERS[Number(d)] || d).join("");
+
+  /**
    * The values a column offers for completion: its declared `values' in their
    * own order, then any badge value they did not already name.  Merged rather
    * than shadowed — a producer adding meta-values to a badge column would
@@ -967,9 +1034,9 @@
 .tv-pal .tv-chip:not(.tv-chip-muted):hover{border-color:var(--tv-accent);color:var(--tv-accent)}
 .tv-chips{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
 /* One silhouette, spelled once, for every chip in the strip: a live filter
-   token, a crumb, and a sort key. What each of them then respells is ink,
-   ground and cursor. */
-.tv-chip,.tv-sort-chip{display:inline-flex;align-items:center;gap:5px;
+   token and a crumb. What each of them then respells is ink, ground and
+   cursor. */
+.tv-chip{display:inline-flex;align-items:center;gap:5px;
   padding:1px 4px 1px 8px;
   border-radius:999px;font-size:12px;cursor:pointer;color:var(--tv-fg);
   border:1px solid var(--tv-border);background:var(--tv-alt)}
@@ -990,21 +1057,9 @@
    mode, so it clears 4.5:1 in both themes (light 5.1, dark 11.5) while sitting
    quieter than a live chip's ink does on its own ground (19.9 and 15.4).
    Spelled with the row it lives in so it outranks the palette's own chip rule,
-   the one other place a chip's ground is set.
-
-   A SORT CHIP takes that identity whole, and for the same reason: it is a fact
-   about the table rather than a token to act on. The strip reads left to right
-   as where the reader came FROM, what is on show, and what ORDER it is in,
-   leftmost key first; a chain is composed by promotion, from the key or a
-   header click, and a third way to change it would be a third spelling of one
-   command. It is deliberately NOT a .tv-chip: a consumer counting chips, and
-   this renderer's own click delegation, mean the filter's tokens by that name.
-   The arrow alone respells the foreground — direction is the one thing a muted
-   row still has to carry at a glance, and an arrow carries it at a smaller
-   size than a word would. */
-.tv-chips .tv-chip-muted,.tv-chips .tv-sort-chip{color:var(--tv-muted);
+   the one other place a chip's ground is set. */
+.tv-chips .tv-chip-muted{color:var(--tv-muted);
   background:transparent;cursor:default;padding-right:8px}
-.tv-sort-chip .tv-sort-dir{font-style:normal;color:var(--tv-fg);font-size:11px}
 .tv-chip-x{font-style:normal;opacity:.55;padding:0 3px}
 .tv-chip:hover .tv-chip-x{opacity:1}
 /* The suggestion list hangs under the box, over the table. .tv-root clips with
@@ -1143,7 +1198,13 @@
 .tv-pill{display:inline-block;padding:0 8px;border-radius:999px;
   font-weight:600;color:var(--tv-ink,var(--tv-badge));
   background:color-mix(in srgb,var(--tv-badge) 15%,transparent)}
-.tv-arrow{margin-left:4px;opacity:.7}
+/* The order, written over the columns it orders. Every key of the chain marks
+   its own header: the leading one in full ink because it is what the reader is
+   reading by, the tie-breakers behind it dimmed to the muted floor, each
+   wearing the place it holds in the chain. */
+.tv-arrow{margin-left:4px;opacity:.55}
+.tv-arrow.tv-lead{opacity:1}
+.tv-ord{font-style:normal;font-size:.75em;vertical-align:baseline}
 .tv-empty{padding:16px 12px;color:var(--tv-muted)}
 .tv-hint{padding:6px 12px;border-top:1px solid var(--tv-border);color:var(--tv-muted);font-size:12px}
 /* A finger is not a pointer. Targets grow to the ~44px everyone settled on, and
@@ -1156,8 +1217,8 @@
   .tv-table th,.tv-table td{padding:12px}
   .tv-table td.tv-box{min-width:44px}
   .tv-ac-item{padding:12px 12px}
-  .tv-chip,.tv-sort-chip{padding:13px 8px 13px 12px}
-  .tv-chips .tv-chip-muted,.tv-chips .tv-sort-chip{padding-right:12px}
+  .tv-chip{padding:13px 8px 13px 12px}
+  .tv-chips .tv-chip-muted{padding-right:12px}
   .tv-chip-x{opacity:1;padding:0 8px}
   .tv-filter,.tv-omni .tv-filter,.tv-panel .tv-filter{font-size:16px}
 }
@@ -1648,11 +1709,10 @@
     }
 
     /**
-     * The sort chain as something to read, highest priority first. Every
-     * description of the order is derived from this one walk — the chip strip
-     * and the hint line — so nothing can name a key the rows are not actually
-     * ordered by. A key naming no column is dropped, the way `chainComparator'
-     * drops it.
+     * The sort chain as something to read, highest priority first. The hint
+     * line's description is derived from this one walk, so nothing can name a
+     * key the rows are not actually ordered by. A key naming no column is
+     * dropped, the way `chainComparator' drops it.
      * @returns {{key: SortKey, header: string}[]}
      */
     function sortChain() {
@@ -1681,11 +1741,11 @@
     const columnKeys = () => columns().map((c) => c.key);
 
     /**
-     * Every key a predicate may name: the view's columns, then `planned' where
-     * no column already carries that name. One spelling for the two places that
-     * ask — the resolution list and the completion tier — so a view with a
-     * column of its own called `planned' cannot list it twice in one and once
-     * in the other.
+     * Every key a token may name: the view's columns, then `planned' and
+     * `sort' where no column already carries the name. One spelling for the two
+     * places that ask — the resolution list and the completion tier — so a view
+     * with a column of its own called `planned' cannot list it twice in one and
+     * once in the other.
      *
      * The view's own, and nothing the rows imply: an org tag names no key, so
      * `tag:course' is the one spelling and `course:text' is the two tokens
@@ -1696,8 +1756,28 @@
     function queryKeys() {
       const keys = columnKeys();
       if (keys.indexOf(PLANNED_KEY) === -1) keys.push(PLANNED_KEY);
+      if (keys.indexOf(SORT_KEY) === -1) keys.push(SORT_KEY);
       return keys;
     }
+
+    /**
+     * The order in force under query Q: the keys Q names, else the order the
+     * view was STATED in. So the declared sort is invisible until a reader
+     * diverges from it, and taking the last sort token off is the way home.
+     * @param {string} q  @returns {SortKey[]}
+     */
+    function chainFor(q) {
+      const named = sortsIn(q, queryKeys(), (k) => !!colByKey(k));
+      return named.length ? named : stated;
+    }
+
+    /**
+     * The order this view opens in: its declared `sort', or the last one a
+     * producer stated through `sortBy'/`setSort'. What `chainFor' falls back to,
+     * and the whole of what a query naming no sort key leaves standing.
+     * @type {SortKey[]}
+     */
+    let stated = state.sortKeys;
 
     /** An ISO-ish date cell, which SCHEMA gives prefix matching. */
     const DATEISH = /^\d{4}-\d{2}(-\d{2})?([ T]\d{2}:\d{2})?$/;
@@ -1857,12 +1937,18 @@
      * has to pass all of them. `state:TODO state:DONE' is therefore a row in
      * both states, which is none; a row in either is the one token
      * `state:TODO|DONE', and the OR lives inside `tokenTest'.
+     *
+     * A `sort' token is the exception, and it is one because it is no predicate:
+     * it states the ORDER (`chainFor') and contributes no test at all, in either
+     * polarity — negating an ordering names no rows, so `-sort:x' narrows
+     * nothing here rather than emptying the table.
      * @param {string} q  @returns {((r: Row) => boolean)|null}
      */
     function queryMatcher(q) {
       /** @type {((r: Row) => boolean)[]} */
       const musts = [];
       for (const tok of parseQuery(q, queryKeys())) {
+        if (tok.key === SORT_KEY) continue;
         const test = tokenTest(tok);
         musts.push(tok.negated ? (r) => !test(r) : test);
       }
@@ -1965,9 +2051,15 @@
      */
     function colWidths() {
       if (widths) return widths;
-      const cols = columns(), primary = state.sortKeys[0];
-      const w = cols.map((c) =>
-        String(c.header || c.key).length + (primary && primary.column === c.key ? 2 : 0));
+      const cols = columns(), chain = sortChain();
+      // Every mark a header wears is paid for here, or the column it widens
+      // clips the word underneath it — the mark itself plus the space in front
+      // of it, measured off the very text `renderArrows' draws.
+      const w = cols.map((c) => {
+        const at = chain.findIndex(({ key }) => key.column === c.key);
+        return String(c.header || c.key).length
+          + (at === -1 ? 0 : sortMark(chain, at).length + 1);
+      });
       for (const r of ordered()) {
         const len = rowText(r).len;
         for (let i = 0; i < w.length; i++) if (len[i] > w[i]) w[i] = len[i];
@@ -2036,13 +2128,33 @@
       renderArrows();
     }
 
-    /** Point the sort arrow at the primary sort column, and hide the rest. */
+    /**
+     * The mark CHAIN's key at AT wears: its direction, and its place in the
+     * chain where there is more than one key to order. Read twice — the header
+     * draws it and `colWidths' pays for it — so what is measured is the text
+     * that is drawn, however many digits the ordinal runs to.
+     * @param {{key: SortKey, header: string}[]} chain  @param {number} at
+     */
+    const sortMark = (chain, at) =>
+      (chain[at].key.ascending ? "▲" : "▼")
+        + (chain.length > 1 ? superscript(at + 1) : "");
+
+    /**
+     * Mark every sorted column's header with the direction it is sorted in and,
+     * where the chain has more than one key, its place in the chain. The whole
+     * order is therefore readable over the columns it is about — the leading key
+     * in full ink, the tie-breakers muted, and no ordinal at all where there is
+     * nothing to order.
+     */
     function renderArrows() {
-      const primary = state.sortKeys[0], cols = columns();
+      const chain = sortChain(), cols = columns();
       for (let i = 0; i < arrowEls.length; i++) {
-        const on = !!primary && primary.column === cols[i].key;
-        arrowEls[i].textContent = on ? (primary.ascending ? "▲" : "▼") : "";
-        arrowEls[i].style.display = on ? "" : "none";   // no empty arrow's margin
+        const at = chain.findIndex(({ key }) => key.column === cols[i].key);
+        const mark = at === -1 ? "" : sortMark(chain, at);
+        arrowEls[i].innerHTML = mark.length < 2 ? mark
+          : mark[0] + `<i class="tv-ord">${mark.slice(1)}</i>`;
+        arrowEls[i].className = "tv-arrow" + (at === 0 ? " tv-lead" : "");
+        arrowEls[i].style.display = at === -1 ? "none" : "";  // no empty arrow's margin
       }
     }
 
@@ -2187,11 +2299,28 @@
     }
 
     /**
-     * The furthest this scroller can travel with PORT pixels on show: the
-     * header plus every row of the page, less the viewport.
+     * The furthest this scroller can travel with PORT pixels on show.
+     *
+     * The scroller's OWN content is the answer wherever it is an answer about
+     * the rows on show, because a row's box is fractional and every rect is
+     * snapped: `geom.row' is a ROUNDING of the row height rather than the
+     * height, so `geom.head + rows * geom.row' runs a fraction of a pixel short
+     * PER ROW — over a page of a hundred, twenty, which is the tail parking
+     * under the hint bar with its last row two thirds covered. `scrollHeight'
+     * is that sum without the rounding, and it is the number the browser itself
+     * clamps `scrollTop' against.
+     *
+     * It answers for the rows in the TBODY, which at a page turn and at the
+     * continuous seam are not yet the rows on show — the set changes and the
+     * scroller is still holding the one before it. Every row being one row tall,
+     * the count is what tells the two apart, and where they differ the modelled
+     * sum is all there is until the render lands.
      */
     function maxScroll(port) {
-      return Math.max(0, geom.head + paged().length * geom.row - port);
+      const rows = paged();
+      const content = win.rows.length === rows.length
+        ? scroll.scrollHeight : geom.head + rows.length * geom.row;
+      return Math.max(0, content - port);
     }
 
     /**
@@ -2564,7 +2693,18 @@
         if (port) easeAt = aimed(port);
         const step = easeAt - scroll.scrollTop;
         if (Math.abs(step) < SNAP_PX) { scroll.scrollTop = easeAt; easing = false; }
-        else scroll.scrollTop = scroll.scrollTop + step * EASE;
+        else {
+          const was = scroll.scrollTop;
+          scroll.scrollTop = was + step * EASE;
+          // A scroller that took NOTHING is at its own end, or rounding the
+          // step away: `scrollHeight' is an integer over fractional content and
+          // `scrollTop' snaps to a device pixel, so a target can sit a pixel
+          // past anything this scroller will hold. Ending only on ARRIVAL then
+          // runs a frame loop against that clamp for as long as the page is
+          // open — which it did at both ends, before ever a target came off
+          // `scrollHeight'. A refused step is an arrival.
+          if (scroll.scrollTop === was) easing = false;
+        }
         wantWindow = true;
       }
       // Forced only when the rows themselves changed; a selection that has not
@@ -2747,8 +2887,8 @@
     /**
      * Put CHAIN in force and redraw. The one place an order is installed —
      * every gesture that changes it lands here, so a new order always resets
-     * the page and the scroll the same way and always redraws the three things
-     * that describe it: the header arrow, the chip strip and the hint line.
+     * the page and the scroll the same way and always redraws both things that
+     * describe it: the headers and the hint line.
      * @param {SortKey[]} chain
      */
     function applyChain(chain) {
@@ -2762,15 +2902,24 @@
       renderRows(true);
     }
 
+    /** Are A and B the same order? @param {SortKey[]} a @param {SortKey[]} b */
+    const sameChain = (a, b) => a.length === b.length
+      && a.every((k, i) => k.column === b[i].column && k.ascending === b[i].ascending
+                        && !!k.nullsFirst === !!b[i].nullsFirst);
+
     /**
      * Sort on KEY in ASCENDING, replacing whatever sort was in force. False
      * when no column carries that key, so a caller can tell a sort that did not
      * happen from one that did.
+     *
+     * A producer's call, so it RESTATES the view's order: it is what a query
+     * naming no sort key leaves standing, the way the declared `sort' is.
      * @param {string} key @param {boolean} ascending @returns {boolean}
      */
     function sortTo(key, ascending) {
       if (!colByKey(key)) return false;
-      applyChain([{ column: key, ascending, nullsFirst: false }]);
+      stated = [{ column: key, ascending, nullsFirst: false }];
+      applyChain(stated);            // a stated order is in force as it is stated
       return true;
     }
 
@@ -2782,28 +2931,56 @@
      *
      * This is how a chain is COMPOSED in a browser. Pressing this over columns
      * in reverse priority order builds one: promote `deadline', then `state',
-     * then `title', and the chain is title > state > deadline, with the chip
-     * strip showing it grow at each press. `table-view.el' composes the same
-     * chain with a prefix argument — `C-u ^' appends a tie-breaker at the
-     * bottom — which a page has no spelling for; ordered presses and a visible
-     * strip are the web's answer to it.
+     * then `title', and the chain is title > state > deadline, with the query
+     * showing it grow at each press. `table-view.el' composes the same chain
+     * with a prefix argument — `C-u ^' appends a tie-breaker at the bottom —
+     * which a page has no spelling for; ordered presses are the web's answer.
+     *
+     * The chain is WRITTEN INTO THE QUERY (`sort:COL', `sort:COL:desc') and
+     * delivered like any other filter change, so one representation carries the
+     * order everywhere: the chips show it, DEL takes a key off, the URL a
+     * consumer writes carries it, and a producer that filters server-side is
+     * told what order to answer in. `deliver' is what then puts it in force.
+     *
+     * What it composes onto is the order IN FORCE, declared chain and all, so
+     * only the promoted key ever moves: a view opening on `state → scheduled'
+     * that is asked for `deadline' opens on `deadline → state → scheduled' and
+     * the reader loses no tie-breaker they were reading by. The first press is
+     * therefore where the declared chain becomes tokens — which is the
+     * divergence, spelled in full so what is on the strip is what the rows are
+     * in.
      *
      * `sortable' gates this, the way it gates a header click: promotion is a
      * READER's gesture. A producer stating an order calls `sortBy', which is
-     * ungated and replaces the chain outright.
+     * ungated, replaces the chain outright and touches no query.
      * @param {string} key @returns {boolean} whether the chain moved
      */
     function sortPromote(key) {
       const col = colByKey(key);
       if (!col || col.sortable !== true) return false;
       const chain = state.sortKeys, lead = chain[0];
-      applyChain(
+      writeSort(
         lead && lead.column === key
           ? [{ column: key, ascending: !lead.ascending, nullsFirst: lead.nullsFirst }]
               .concat(chain.slice(1))
           : [{ column: key, ascending: true, nullsFirst: false }]
               .concat(chain.filter((k) => k.column !== key)));
       return true;
+    }
+
+    /**
+     * Put CHAIN into the applied query: the sort tokens it already carries come
+     * off, the chain goes on the end in precedence order, and the query is
+     * delivered. The tail is where they land because the strip reads left to
+     * right as what is on show and then what ORDER it is in.
+     * @param {SortKey[]} chain
+     */
+    function writeSort(chain) {
+      const keys = queryKeys();
+      chips = chips.filter((c) => !parseQuery(c, keys).some((t) => t.key === SORT_KEY));
+      for (const k of chain) pushChip(sortToken(k));
+      renderChips();
+      deliver();
     }
 
     function dispatch(command, row) {
@@ -3007,24 +3184,37 @@
       return ["… +" + (crumbs.length - kept.length)].concat(kept.map((c) => c.label));
     }
 
-    // Crumbs lead, live chips follow, the sort chain brings up the rear: the
-    // strip reads left to right as where the reader came FROM, what is on show,
-    // and what ORDER it is in. Only a live chip carries `data-i', which is what
-    // the click delegation reads the removable one by; neither history nor a
-    // sort key is a token that can be taken off here.
+    // Crumbs lead and live chips follow: the strip reads left to right as where
+    // the reader came FROM and what is on show. The ORDER is in the strip too,
+    // as the `sort:' tokens of the query itself, and the headers carry it over
+    // the columns it is about — a chip per key beside them said the same thing
+    // twice, out of a second store that could describe an order the rows were
+    // not in. Only a live chip carries `data-i', which is what the click
+    // delegation reads the removable one by; history is no token to take off.
     function renderChips() {
-      const chain = sortChain();
       let html = "";
       for (const text of crumbStrip())
         html += `<span class="tv-chip tv-chip-muted">${esc(text)}</span>`;
       for (let i = 0; i < chips.length; i++)
         html += `<span class="tv-chip" data-i="${i}" title="remove">${esc(chipText(chips[i]))}`
               + `<i class="tv-chip-x">×</i></span>`;
-      for (const { key, header } of chain)
-        html += `<span class="tv-sort-chip">${esc(header)}`
-              + `<i class="tv-sort-dir">${key.ascending ? "▲" : "▼"}</i></span>`;
       chipsEl.innerHTML = html;
-      chipsEl.style.display = (crumbs.length || chips.length || chain.length) ? "" : "none";
+      chipsEl.style.display = (crumbs.length || chips.length) ? "" : "none";
+    }
+
+    /**
+     * Put TOK on the strip, unless the strip already carries it as spelled.
+     * Every token is idempotent under the one combination rule — a repeated
+     * predicate narrows to what it narrowed, a repeated sort key is the position
+     * it already holds — so a second copy is chrome the reader has to read past,
+     * in the strip, in the URL and in what the producer is asked. The FIRST
+     * occurrence keeps its place, which is what makes precedence survive the
+     * collapse; a near-twin (`tag:game' beside `tag:games') is two tokens and
+     * stays two.
+     * @param {string} tok
+     */
+    function pushChip(tok) {
+      if (chips.indexOf(tok) === -1) chips.push(tok);
     }
 
     /**
@@ -3039,7 +3229,7 @@
       if (!toks.length) return false;
       const last = toks[toks.length - 1];
       const keep = !all && last.end === v.length ? last : null;
-      for (const t of toks) if (t !== keep) chips.push(v.slice(t.start, t.end));
+      for (const t of toks) if (t !== keep) pushChip(v.slice(t.start, t.end));
       if (keep && toks.length === 1) return false;      // nothing finished yet
       input.value = keep ? v.slice(keep.start) : "";
       if (input.setSelectionRange) input.setSelectionRange(input.value.length, input.value.length);
@@ -3077,6 +3267,12 @@
       lastQuery = q;
       page = 0;                          // a different question, read from the top
       continuous = false;
+      // The ORDER travels in the query too, so this is where a `sort' token
+      // takes effect — before the producer is asked, so the rows in hand
+      // re-order under the reader's hand and the answer lands in the order they
+      // asked for rather than moving again when it arrives.
+      const chain = chainFor(q);
+      if (!sameChain(chain, state.sortKeys)) applyChain(chain);
       if (o.onFilter) o.onFilter(q);
       else if (onFrame) frame(applyFilter);
       else applyFilter();
@@ -3205,6 +3401,10 @@
       const t = tokenAtCaret();
       if (!t || t.quoted) return null;
       if (t.key !== null) {
+        // `sort' has a domain of its own and it is no column's: the columns a
+        // reader may order by, and the direction behind whichever one is named.
+        if (t.key === SORT_KEY)
+          return { stage: "sort", tok: t, col: null, prefix: t.value.toLowerCase() };
         // `planned' takes no value list: what follows it is a date prefix over
         // several columns at once, which is no domain to enumerate. It is the
         // one key with no column behind it, so every other one has a domain.
@@ -3234,6 +3434,28 @@
     function suggestFor(st) {
       const p = st.prefix.toLowerCase();
       const out = [];
+      // `sort:' — the columns a reader may order by, `sortable' deciding which,
+      // and `asc'/`desc' once one is named in full. The offers finish the token,
+      // so each lands with the space that opens the next.
+      if (st.stage === "sort") {
+        const at = p.indexOf(":");
+        const wantCol = at === -1 ? p : p.slice(0, at);
+        const wantDir = at === -1 ? null : p.slice(at + 1);
+        const offer = (text) => out.push({ text, count: -1, full: true, dim: false });
+        for (const c of columns()) {
+          if (out.length >= AC_MAX) break;
+          if (c.sortable !== true) continue;
+          const key = String(c.key), lower = key.toLowerCase();
+          if (wantDir === null) {
+            if (!lower.startsWith(wantCol)) continue;
+            offer(key);
+            if (lower === wantCol) offer(key + ":desc");
+          } else if (lower === wantCol) {
+            for (const d of ["asc", "desc"]) if (d.startsWith(wantDir)) offer(key + ":" + d);
+          }
+        }
+        return out.slice(0, AC_MAX);
+      }
       if (!st.col) {
         // Values some column actually has, reached by prefix: `TOD' means
         // `state:TODO' and `alberbl' means `tags:alberblanc'. Facts about the
@@ -3678,10 +3900,13 @@
     // second time while the chips it already had go missing.
     if (typeof o.initialQuery === "string" && o.initialQuery.trim()) {
       for (const t of parseQuery(o.initialQuery, queryKeys()))
-        chips.push(o.initialQuery.slice(t.start, t.end));
+        pushChip(o.initialQuery.slice(t.start, t.end));
       lastQuery = effectiveQuery();
       // Local filtering has to catch up to it; a producer has already filtered.
       if (!o.onFilter) state.filter = lastQuery;
+      // The order it names, in force before the first paint: a `?q=' carrying
+      // `sort:' opens in that order rather than in the declared one.
+      state.sortKeys = chainFor(lastQuery);
     }
 
     // Whether or not anything was restored: one function decides what the chip
@@ -3720,7 +3945,8 @@
       setView(v) {
         state.view = v || { columns: [] };
         state.rows = (v && v.rows) ? v.rows.slice() : [];
-        state.sortKeys = normalizeSort(v && v.sort);
+        stated = normalizeSort(v && v.sort);
+        state.sortKeys = stated;
         state.selected = null;
         state.selCol = null;
         state.filter = "";
@@ -3896,8 +4122,10 @@
        * `^': promote COLUMN to the head of the chain ascending, flipping it
        * where it already leads and dropping it from wherever it sat below.
        * Composing a chain is pressing this over columns in reverse priority
-       * order; the chip strip shows the chain as it grows. Gated by
-       * `sortable' — a reader's gesture, where `sortBy' is a producer's.
+       * order. The new chain is written into the query as `sort:' tokens and
+       * delivered, so a consumer narrowing server-side is asked for the order
+       * it has just been told about. Gated by `sortable' — a reader's gesture,
+       * where `sortBy' is a producer's.
        * @param {string} column @returns {boolean} whether the chain moved
        */
       sortPromote,
@@ -3911,10 +4139,11 @@
        * Replace the whole chain — SCHEMA's `sort' shape or `getSort''s. An
        * empty one leaves the rows unsorted, in the order they arrived, which
        * is the CLEAR a consumer binds when a reader wants the composition
-       * undone.
+       * undone. A producer's call, like `sortBy': it restates the view's order
+       * and writes no query, so a query naming sort keys still outranks it.
        * @param {Sort|Sort[]|SortKey[]|null} [sort]
        */
-      setSort(sort) { applyChain(normalizeSort(sort)); },
+      setSort(sort) { stated = normalizeSort(sort); applyChain(stated); },
       openFilter,
       closeFilter,
       selectStep,

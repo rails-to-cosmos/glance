@@ -1340,7 +1340,7 @@ schemaSpec = testGroup "Schema conformance"
         cols <- columnKeysOf v
         keys <- each "sort" "column" v >>= mapM text
         assertEqual "the default chain"
-                    ["title", "state", "deadline", "scheduled", "priority"] keys
+                    ["state", "title", "deadline", "scheduled"] keys
         assertBool (show keys <> " outside " <> show cols) (all (`elem` cols) keys)
         assertEqual "no column is named twice" (length keys) (length (nub keys))
         ascs <- each "sort" "ascending" v >>= mapM boolOf
@@ -1353,8 +1353,10 @@ schemaSpec = testGroup "Schema conformance"
       let doc = T.unlines [ "* TODO beta", "* echo", "* DONE alpha"
                           , "* TODO Alpha", "* delta" ]
       withRecordsOf doc $ \records ->
-        assertEqual "title folded, then state by palette order"
-                    ["TODO Alpha", "DONE alpha", "TODO beta", "delta", "echo"]
+        -- State by palette order (org's cycle: TODO before DONE, the stateless
+        -- row behind both), then the title folded inside each state.
+        assertEqual "state by palette order, then title folded"
+                    ["TODO Alpha", "TODO beta", "DONE alpha", "delta", "echo"]
                     [ maybe "" (<> " ") (hrState r) <> hrTitle r
                     | r <- sortedForView records ]
 

@@ -11,7 +11,7 @@ import Data.Aeson ( FromJSON, Value (Bool, Null, Number, Object, String)
 import Data.Aeson.Types (parseEither)
 import Data.ByteString (ByteString)
 import Data.Char (isDigit)
-import Data.List (find, isInfixOf, nub, sort, sortOn)
+import Data.List (elemIndex, find, isInfixOf, nub, sort, sortOn)
 import Data.Maybe (fromMaybe, listToMaybe)
 import GHC.Clock (getMonotonicTime)
 import Network.HTTP.Types ( HeaderName, RequestHeaders, methodDelete, methodPost
@@ -283,20 +283,36 @@ rowId row = case row of
     _noId           -> T.pack (show row)
   _notARow -> T.pack (show row)
 
--- | ROW's @title@ cell, folded, empty when it has none.  The LEADING key of the
--- chain the view declares ('Glance.Query.defaultSortChain'), and this fixture's
--- titles are distinct, so it settles the order on its own and the four
--- tie-breakers behind it never fire.  A page has to come out of that order —
--- @\/headlines@ with no @limit@ answers in walk order for the client to sort,
--- so this is what a paged answer is measured against.
-sortKeyOf :: Value -> T.Text
-sortKeyOf row = case row of
-  Object o -> case KM.lookup "cells" o of
-    Just (Object cells) -> case KM.lookup "title" cells of
-      Just (String s) -> T.toCaseFold s
-      _untitled       -> ""
-    _noCells -> ""
-  _notARow -> ""
+-- | ROW under the first two keys of the chain the view declares
+-- ('Glance.Query.defaultSortChain'): its STATE by palette position, then its
+-- title folded.  Every row of this fixture carries a different state, so the
+-- leading key settles the order on its own and the tie-breakers behind it never
+-- fire; the title is here because the ONE stateless row would otherwise tie
+-- with itself.  An empty state sorts past every keyword, which is the nulls
+-- rule read for this one key.
+--
+-- A page has to come out of that order — @\/headlines@ with no @limit@ answers
+-- in walk order for the client to sort, so this is what a paged answer is
+-- measured against.  An independent oracle rather than a call: it spells the
+-- fixture's own palette out ('samplePalette') instead of asking the code under
+-- test which order it meant.
+sortKeyOf :: Value -> (Int, T.Text)
+sortKeyOf row = (statePos (cellOf "state"), T.toCaseFold (cellOf "title"))
+  where
+    statePos s = fromMaybe (length samplePalette) (elemIndex s samplePalette)
+    cellOf key = case row of
+      Object o -> case KM.lookup "cells" o of
+        Just (Object cells) -> case KM.lookup key cells of
+          Just (String s) -> s
+          _noCell         -> ""
+        _noCells -> ""
+      _notARow -> ""
+
+-- | The keywords @test\/fixtures\/view@ declares, in the order its @#+TODO:@
+-- line spells them — which is the badge palette, and so the order the state
+-- column sorts in.
+samplePalette :: [T.Text]
+samplePalette = ["NEXT", "TODO", "WAITING", "CANCELLED", "DONE"]
 
 -- | The state column's badge values, in palette order.
 badgeValues :: Value -> IO [T.Text]
@@ -335,7 +351,7 @@ spec :: TestTree
 spec = withResource (body <$> get assetsDir "/") (const (pure ())) $ \shell ->
   testGroup "Serve"
     [ headlineSpec, bannerSpec, statsSpec, cacheSpec, gzipSpec, querySpec
-    , orderSpec, archiveViewSpec
+    , orderSpec, sortQuerySpec, archiveViewSpec
     , bootstrapSpec, materializeSpec, commitSpec, commandSpec, planningSpec
     , tagCommandSpec, renameCommandSpec, tagsSpec, captureSpec
     , configSpec, keywordsSpec, linksSpec, indexingSpec
@@ -829,13 +845,44 @@ sortKeySpec shell = testGroup "Shell sort"
                     (Just ("state", True)) =<< sortOf answer
         assertEqual "the echo" "^ → toggle-sort (state ▲)" =<< textAt "echo" answer
 
-    -- A REMOUNT re-reads the view's own sort chain, so state is back to a
-    -- non-leader and the press after one PROMOTES again rather than flipping
-    -- what was in force before the remount.
-  , testCase "a remount re-seeds the chain off the view it mounts" $
+    -- A REMOUNT re-reads the chain off the query it mounts under, which now
+    -- carries the order: the press after one continues the chain the reader
+    -- built rather than starting the declared one over.
+  , testCase "a remount re-seeds the chain off the query it mounts under" $
       bootOf shell "" 500 "f ^" "close:view-changed press:f press:^" $ \answer ->
-        assertEqual "the declared leader, flipped again"
-                    "^ → toggle-sort (state ▼)" =<< textAt "echo" answer
+        assertEqual "the leader the query named, flipped back"
+                    "^ → toggle-sort (state ▲)" =<< textAt "echo" answer
+
+    -- THE PRESS IS A QUERY EDIT.  The renderer writes the chain into the applied
+    -- query and delivers it, so it arrives here as an ordinary commit: the URL
+    -- is rewritten and the server is asked for the order it was just told about,
+    -- which is what makes page one of a limited answer the right hundred rows.
+  , testCase "the press writes the order into the query and asks for it" $
+      -- A bare boot opens on the default view, so the press lands beside the
+      -- query that was already applied rather than over it.
+      bootOf shell "" 500 "f ^" "" $ \answer -> do
+        assertEqual "the URL carries the order"
+                    "?q=state%3A*active*+sort%3Astate%3Adesc" =<< textAt "url" answer
+        assertEqual "and the server was asked for it"
+                    (Just "/headlines?q=state%3A*active*%20sort%3Astate%3Adesc")
+          . lastOf =<< textsAt "asked" answer
+
+    -- And it composes with a filter rather than replacing it: the sort tokens
+    -- are the query's own, so a narrowed view stays narrowed.
+  , testCase "the order joins a filter already applied" $
+      bootOf shell "?q=state%3ATODO" 500 "f ^" "" $ \answer ->
+        assertEqual "the predicate, then the order"
+                    "?q=state%3ATODO+sort%3Astate%3Adesc" =<< textAt "url" answer
+
+    -- DEL takes it off like any other token, which is the whole of the way home:
+    -- with no sort token the answer comes back in the view's declared order.
+  , testCase "DEL takes the order back off" $
+      bootOf shell "?q=state%3ATODO" 500 "f ^" "press:Backspace" $ \answer -> do
+        assertEqual "the query the strip left" "?q=state%3ATODO"
+          =<< textAt "url" answer
+        assertEqual "and that is what was asked for"
+                    (Just "/headlines?q=state%3ATODO") . lastOf
+          =<< textsAt "asked" answer
   ]
 
 -- | Marking, driven through the keys a reader presses.  The renderer holds the
@@ -1850,23 +1897,41 @@ openedOf answer = traverse one =<< listAt "opened" answer
 -- | @a@: the agenda, which is a canned VIEW rather than a mode.
 --
 -- One query through the door @g@ uses — into the URL, asked of the server,
--- mounted as the renderer's chips — plus the one thing the default view does
--- not want, which is the scheduled sort insisted on once the rows are up.
+-- mounted as the renderer's chips — and its ORDER is a token of that query
+-- rather than a call behind the answer, so the whole view is one string.
 agendaSpec :: IO T.Text -> TestTree
 agendaSpec shell = testGroup "Shell agenda"
   [ testCase "applies its query the way g applies the tree's default" $
       bootOf shell "?q=" 500 "a" "" $ \answer -> do
         assertEqual "the boot's two, then the remount's one"
           [ "/headlines?limit=100", "/headlines"
-          , "/headlines?q=state%3A*active*%20-planned%3A*empty*" ]
+          , "/headlines?q=state%3A*active*%20-planned%3A*empty*%20sort%3Ascheduled" ]
           =<< textsAt "asked" answer
         assertEqual "and the URL it settles on is that query"
-                    "?q=state%3A*active*+-planned%3A*empty*" =<< textAt "url" answer
+                    "?q=state%3A*active*+-planned%3A*empty*+sort%3Ascheduled"
+          =<< textAt "url" answer
 
-  , testCase "the rows land in scheduled order, earliest first" $
-      bootOf shell "?q=" 500 "a" "" $
-        assertEqual "the sort the view is for"
-                    (Just ("scheduled", True)) <=< sortOf
+    -- The order is IN the query, so the server answers page one in it and the
+    -- renderer reads the chain off the same string.  Nothing is asked of the
+    -- handle: a canned view that had to call for its order could state one the
+    -- query it applied did not.
+  , testCase "the rows land in scheduled order, and the query is what says so" $
+      bootOf shell "?q=" 500 "a" "" $ \answer -> do
+        assertEqual "the chain the query named" [("scheduled", True)]
+          =<< chainOf answer
+        assertEqual "and no sort was asked of the renderer" 0
+          =<< intAt "sortCalls" answer
+
+    -- DEL walks out of the order the way it walks out of the filter: the sort
+    -- token is the query's last one, so one press takes it off and the answer
+    -- comes back in the view's own order.
+  , testCase "and DEL takes the order back off, one token like any other" $
+      bootOf shell "?q=" 500 "a" "press:Backspace" $ \answer -> do
+        assertEqual "the query the strip left"
+                    "?q=state%3A*active*+-planned%3A*empty*" =<< textAt "url" answer
+        assertEqual "asked for without the order"
+                    (Just "/headlines?q=state%3A*active*%20-planned%3A*empty*")
+          . lastOf =<< textsAt "asked" answer
 
   , testCase "and the pill names the command and the count the server answered" $
       bootOf shell "?q=" 3 "a" "" $
@@ -1877,14 +1942,16 @@ agendaSpec shell = testGroup "Shell agenda"
       bootOf shell "?q=" 1 "a" "" $
         assertEqual "singular" "a → org-glance-agenda (agenda · 1 row)" <=< textAt "echo"
 
-    -- An asset with no programmatic sort keeps the order the view declares,
-    -- which is already this one; the key says what it did either way rather
-    -- than throwing on a call that is not there.
+    -- An asset with no sort calls at all applies the same view: the order is a
+    -- token of the query, so there is nothing for this page to ask for and
+    -- nothing to feature-detect on the way in.  What an old asset loses is the
+    -- ORDER, which the server still answers in.
   , testCase "an asset without a programmatic sort still applies the view" $
       bootOf shell "?q=" 500 "" "sortless press:a" $ \answer -> do
         assertEqual "no sort was asked for" Nothing =<< sortOf answer
-        assertEqual "the query still went"
-                    "?q=state%3A*active*+-planned%3A*empty*" =<< textAt "url" answer
+        assertEqual "the query still went, order and all"
+                    "?q=state%3A*active*+-planned%3A*empty*+sort%3Ascheduled"
+          =<< textAt "url" answer
 
     -- `g' is the way home, and it is the way home from here like anywhere else.
   , testCase "g returns to the tree's default view" $
@@ -1903,7 +1970,8 @@ agendaSpec shell = testGroup "Shell agenda"
       bootOf shell "?q=" 500 "a" "repeat:a repeat:a repeat:a" $
         assertEqual "one remount, so one fetch behind the boot's"
           [ "/headlines?limit=100", "/headlines"
-          , "/headlines?q=state%3A*active*%20-planned%3A*empty*" ] <=< textsAt "asked"
+          , "/headlines?q=state%3A*active*%20-planned%3A*empty*%20sort%3Ascheduled" ]
+          <=< textsAt "asked"
   ]
 
 -- | @\@@: the drill, and the ladder DEL walks back down it.
@@ -2134,9 +2202,22 @@ bootedTrail = "%7B%22trail%22%3A%5B%7B%22label%22%3A%22everything%22%2C%22query%
 -- reading as a page that asked for none.
 sortOf :: Value -> IO (Maybe (T.Text, Bool))
 sortOf answer = field "sorted" answer >>= said
-  where said Null     = pure Nothing
-        said sorted   = Just <$> ((,) <$> textAt "column" sorted
-                                      <*> boolAt "ascending" sorted)
+  where said Null   = pure Nothing
+        said sorted = Just <$> orderKeyOf sorted
+
+-- | The CHAIN in force, highest priority first — which the applied query names
+-- and no call has to have made.
+chainOf :: Value -> IO [(T.Text, Bool)]
+chainOf answer = traverse orderKeyOf =<< listAt "chain" answer
+
+-- | One key of a sort chain, wherever it is read from: the wire's @sort@ array,
+-- the harness's chain, or the last sort a call asked for.
+orderKeyOf :: Value -> IO (T.Text, Bool)
+orderKeyOf key = (,) <$> textAt "column" key <*> boolAt "ascending" key
+
+-- | The last of XS, or 'Nothing' where there is none.
+lastOf :: [a] -> Maybe a
+lastOf = listToMaybe . reverse
 
 -- | The which-key letters: the assignment, driven as the pure function it is,
 -- and the list it draws.  The letters are what a reader learns by heart, so
@@ -3714,22 +3795,21 @@ shellGlue =
       [ "function refresh()", "refreshing …", "org-glance-overview:refresh" ]
 
   -- The second canned view, applied through the same door and differing in one
-  -- thing: it has something to do once its rows are up.
-  , Glue "`a' is the agenda query through the same door, plus its own sort"
-      [ "const AGENDA_QUERY = \"state:*active* -planned:*empty*\";"
+  -- thing: it carries its own ORDER, which is a token of the query like any
+  -- other rather than a call behind the answer.
+  , Glue "`a' is the agenda query through the same door, its own sort included"
+      [ "const AGENDA_QUERY = \"state:*active* -planned:*empty* sort:scheduled\";"
       , "applyAgenda: (b) => applyView(b, AGENDA_QUERY, (total) => landedAgenda(b, total)),"
-      -- Through the one helper that asks for a sort, so the agenda's order and
-      -- `^''s record of it cannot be two different answers.
-      , "if (sorts()) sortRows(\"scheduled\", true);"
       , "said(b, `agenda · ${rowsWord(total)}`);"
       -- The landing is an ARGUMENT of the boot it belongs to, so a boot that
       -- never lands cannot leave one behind for the next.
       , "function start(after) {"
       , "if (after) after(a.total);" ]
-      -- A view rather than a mode: no state saying the agenda is on, no second
-      -- sort order to keep in step with the view's own, and no variable this
+      -- A view rather than a mode: no state saying the agenda is on, no sort
+      -- asked for behind the query that already states it, and no variable this
       -- arms and disarms by hand.
-      [ "agendaMode", "let agenda =", "sortKeys", "let landed" ]
+      [ "agendaMode", "let agenda =", "sortKeys", "let landed"
+      , "sortRows", "table.sortBy(" ]
 
   -- `o' follows the row.  The extraction is the server's — the page holds no
   -- org parser — and how many links come back decides the whole gesture.
@@ -3826,27 +3906,27 @@ shellGlue =
       , "if (handler) handler(b);" ]
       ["let col = ", "selCol", "lastColumn"]
 
-  -- `^' sorts by the column the cell selection is standing in.  The record of
-  -- which order is in force is the one thing about the table this page keeps,
-  -- and it keeps it because the handle publishes no accessor: `sortBy' STATES
-  -- an order and nothing reads one back.  It is seeded where the renderer seeds
-  -- record of its own — `getSort' is the handle's accessor and this page
-  -- keeps none.
+  -- `^' sorts by the column the cell selection is standing in, and the press is
+  -- a QUERY EDIT: the renderer composes the chain, writes it into the applied
+  -- query as `sort:' tokens and delivers it, so the press comes back through
+  -- `onFilter' as an ordinary commit — URL, refetch and all.  This page names no
+  -- order and remembers none.
   , Glue "`^' promotes the column at point to the chain's head"
       [ "toggleSort: (b) => {"
       -- The column comes out of the renderer's selection like every other key's.
       , "const at = column(), c = at === null ? null : cols[at];"
       , "if (!c) { said(b, \"no column selected — f/l to pick one\"); return; }"
-      -- `sortPromote' gates on `sortable' too, but the refusal must SPEAK, so
-      -- the page still names it.
-      , "if (c.sortable !== true) { said(b, `${named} does not sort`); return; }"
-      , "table.sortPromote(c.key);"
-      , "const head = (table.getSort() || [])[0];"
-      -- An asset with no programmatic sort says so rather than throwing.
+      -- `sortPromote' is where `sortable' is enforced, so the refusal is read
+      -- off the call — one gate — and the key SPEAKS it.
+      , "if (!table.sortPromote(c.key)) { said(b, `${named} does not sort`); return; }"
+      , "const chain = table.getSort() || [], head = chain[0];"
+      -- An asset with no promotion says so rather than throwing.
       , "if (!sorts()) { said(b, \"this table-view.js has no sort\"); return; }" ]
-      -- No local sort record survives: `sortAt' was the page's copy of what the
-      -- handle now publishes.  The header arrow stays the renderer's drawing.
-      [ "sortAt", "tv-arrow" ]
+      -- No sort record and no sort CALL survive: `sortAt' was the page's copy of
+      -- what the handle publishes, and `sortBy' was how a canned view stated an
+      -- order the query now carries.  The header marks stay the renderer's
+      -- drawing.
+      [ "sortAt", "tv-arrow", "sortRows", "table.sortBy(" ]
 
   -- `f → next-column (Headline)', and `f → next-column (row mode)' where the
   -- walk left the cells.  Walking off an end is a LANDING rather than a wall:
@@ -4442,12 +4522,14 @@ orderSpec = testGroup "GET /headlines?order=document"
   , testCase "and the page it cuts is walk order, where the default's is sorted" $ do
       a <- app assetsDir
       walk <- map rowId <$> (rowsOf =<< getFrom a "/headlines")
-      byDate <- map rowId <$> (rowsOf =<< getFrom a "/headlines?limit=3")
-      doc <- map rowId <$> (rowsOf =<< getFrom a "/headlines?order=document&limit=3")
-      assertEqual "the walk's first three" (take 3 walk) doc
+      -- The whole fixture under a limit, since its first rows are in the same
+      -- order either way and a shorter page cannot tell the two apart.
+      byState <- map rowId <$> (rowsOf =<< getFrom a "/headlines?limit=6")
+      doc <- map rowId <$> (rowsOf =<< getFrom a "/headlines?order=document&limit=6")
+      assertEqual "the walk itself" walk doc
       -- Without this the case would pass over a fixture whose two orders agree.
-      assertBool ("the fixture cannot tell them apart: " <> show byDate)
-                 (byDate /= doc)
+      assertBool ("the fixture cannot tell them apart: " <> show byState)
+                 (byState /= doc)
 
   , testCase "anything else under order is a 400 naming it" $ do
       a <- app assetsDir
@@ -4457,6 +4539,101 @@ orderSpec = testGroup "GET /headlines?order=document"
                assertContains "names the parameter" "order" (body r))
             ["/headlines?order=walk", "/headlines?order=Document", "/headlines?order="]
   ]
+
+-- | The ORDER a query states: @?q=@'s @sort:@ tokens, served AND declared.
+--
+-- The server sorts, which is what makes a limited answer's page one the right
+-- rows: the client asks for a hundred and gets the first hundred of the order
+-- it asked for.  And what the view declares is the EFFECTIVE chain — the
+-- query's where it names one, the default where it does not — so the renderer
+-- and the header ordinals describe the order the rows are actually in.
+--
+-- The grammar itself is @TestFilter@'s; what is asserted here is the answer.
+sortQuerySpec :: TestTree
+sortQuerySpec = testGroup "GET /headlines?q=sort:"
+  [ testCase "no sort token leaves the default chain, and says nothing about it" $ do
+      v <- get assetsDir "/headlines?q=state:*active*" >>= decoded
+      assertEqual "the chain declared" [("state", True), ("title", True)
+                                       , ("deadline", True), ("scheduled", True)]
+        =<< chainDeclaredBy v
+
+  , testCase "a sort token replaces it, and the view declares what it did" $ do
+      v <- get assetsDir "/headlines?q=sort:deadline:desc" >>= decoded
+      assertEqual "the chain declared" [("deadline", False)] =<< chainDeclaredBy v
+
+  , testCase "and the rows come back in it" $ do
+      a <- app assetsDir
+      whole <- rowsOf =<< getFrom a "/headlines?q=sort:deadline&limit=6"
+      -- Three of the six carry a deadline; the empty cells settle behind them,
+      -- outside the direction, and keep walk order among themselves.
+      assertEqual "earliest deadline first, the undated behind them"
+        [ "ship-table-view", "test/fixtures/view/sample.org#2"
+        , "test/fixtures/view/sample.org#1", "test/fixtures/view/sample.org#3"
+        , "test/fixtures/view/sample.org#4", "test/fixtures/view/sample.org#5" ]
+        (map rowId whole)
+      down <- rowsOf =<< getFrom a "/headlines?q=sort:deadline:desc&limit=6"
+      assertEqual "reversing the key leaves the empty cells where they were"
+        [ "test/fixtures/view/sample.org#2", "ship-table-view"
+        , "test/fixtures/view/sample.org#1", "test/fixtures/view/sample.org#3"
+        , "test/fixtures/view/sample.org#4", "test/fixtures/view/sample.org#5" ]
+        (map rowId down)
+
+    -- The boot's own shape: a page-sized first answer has to be the first page
+    -- of the order asked for, or the reader reads the wrong hundred rows.
+  , testCase "page one of a limited answer is the first page of that order" $ do
+      a <- app assetsDir
+      whole <- map rowId <$> (rowsOf =<< getFrom a "/headlines?q=sort:title&limit=6")
+      page <- getFrom a "/headlines?q=sort:title&limit=2"
+      two <- getFrom a "/headlines?q=sort:title&limit=2&offset=2"
+      assertEqual "page one" (take 2 whole) . map rowId =<< rowsOf page
+      assertEqual "page two" (take 2 (drop 2 whole)) . map rowId =<< rowsOf two
+      assertEqual "the total is the store's, not the page's" (Just "6")
+                  (header "X-Glance-Total" page)
+
+  , testCase "the token narrows nothing" $ do
+      a <- app assetsDir
+      plain <- length <$> (rowsOf =<< getFrom a "/headlines")
+      sorted' <- length <$> (rowsOf =<< getFrom a "/headlines?q=sort:title")
+      beside <- length <$> (rowsOf =<< getFrom a "/headlines?q=state:*active*")
+      also <- length <$> (rowsOf =<< getFrom a "/headlines?q=state:*active* sort:title")
+      assertEqual "alone" plain sorted'
+      assertEqual "and beside a predicate" beside also
+
+    -- ONE COLUMN, ONE DIRECTION.  A token that is not a chain key is the whole
+    -- request's 400 naming it, where a renderer drops the key: the rows a
+    -- refused query would have served are the rows it asked for in an order
+    -- nobody can give.
+  , testCase "a token that is no chain key is a 400 naming it" $ do
+      a <- app assetsDir
+      mapM_ (\(q, named) -> do
+               r <- getFrom a ("/headlines?q=" <> q)
+               assertEqual (show q <> " status") 400 (status r)
+               assertContains "names the token" named (body r))
+        [ ("-sort:title",              "-sort:title")
+        , ("sort:title|state",         "sort:title|state")
+        , ("sort:nosuchcolumn",        "nosuchcolumn")
+        , ("sort:title:sideways",      "sort:title:sideways")
+        , ("sort:title sort:title",    "title") ]
+
+  , testCase "and a half-typed one is no refusal at all" $ do
+      r <- get assetsDir "/headlines?q=sort:"
+      assertEqual "status" 200 (status r)
+      assertEqual "rows" 6 . length =<< rowsOf r
+
+    -- @order=@ picks the BASE the query overrides, so the two compose rather
+    -- than fighting: document order with a sort token is that token's order.
+  , testCase "a sort token outranks order=document" $ do
+      v <- get assetsDir "/headlines?order=document&q=sort:title" >>= decoded
+      assertEqual "the chain declared" [("title", True)] =<< chainDeclaredBy v
+  ]
+
+-- | The chain VIEW declares, highest priority first — the @sort@ array, or none
+-- where the view has no such field.
+chainDeclaredBy :: Value -> IO [(T.Text, Bool)]
+chainDeclaredBy view = do
+  fields <- fieldsOf view
+  if "sort" `notElem` fields then pure []
+    else traverse orderKeyOf =<< listAt "sort" view
 
 -- | @\/ws?bootstrap=off@: the opening @set-rows@ dropped for a client that
 -- fetched the rows over HTTP.  Checked on the parser, since the suite binds no
@@ -6597,7 +6774,7 @@ expectedRows =
   -- table-view's own key for the same question, in both renderers: `^' sorts by
   -- the column point is in.
   , (["^"],          "^",       "toggle-sort",                     Just "toggleSort",     "table",
-       Just "sort by the column at point; again reverses it")
+       Just "put this column at the head of the order; again reverses it")
   , (["RET"],        "RET",     "org-glance-overview:materialize", Just "materializeRow", "table", Nothing)
   , (["/"],          "/",       "filter-rows",                     Just "focusFilter",    "table",
        Just "summon the filter palette")

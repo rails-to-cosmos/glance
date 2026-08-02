@@ -121,21 +121,24 @@ import qualified Network.WebSockets as WS
 import Glance.Query ( ConfigLayerFile (..), ConfigLayers (clDirs)
                     , HeadlineParts (..)
                     , HeadlineRecord (hrDigest, hrFile, hrId, hrSubtree, hrTags)
-                    , IdCollision (..), QueryResult (..), Span (spanEnd, spanStart)
-                    , TodoKeywords (..), ViewOrder (..), WalkOptions (..)
+                    , IdCollision (..), QueryResult (..), SortChain
+                    , Span (spanEnd, spanStart)
+                    , TodoKeywords (..), WalkOptions (..)
                     , WriteFailure (..), addTagEdits, archiveEdits, archived, builtinFilter
                     , captureEdits, captureStamp, captureTargetIn, captureTargetOf
                     , configDirIn, configEdits, currentDocument, defaultCaptureFile
-                    , defaultFilter, defaultFilterOf
+                    , defaultFilter, defaultFilterOf, defaultSortChain
                     , followableTypes
                     , headlineParts, keywordSources, linkColumns, linkType
-                    , orderedForView, planningKeywords
+                    , planningKeywords
                     , planningTimestamp, readConfigLayers, readsAsTimestamp
                     , recomposedSubtree, removeTagEdits, renameTagEdits
-                    , replaceSpans, setPlanningEdits, setStateEdits, subtreeLinks
+                    , replaceSpans, setPlanningEdits, setStateEdits, sortedForViewWith
+                    , subtreeLinks
                     , subtreeText, tagColumns, tagText, tagsOfCell
                     , todoLines, viewJSONTextWith )
 import Glance.Web.Filter (archiveKey, matchesFilter, namesArchive, storeEnv)
+import Glance.Web.Sort (sortChainIn)
 import Glance.Web.Store ( Client, Frame (ViewChanged), Hub, LoadState (..)
                         , Store (stConfig, stGen, stPrint), finishLoading, frameText
                         , hubLoad, hubStore, loadStoreWith, newLoadingHub, nextFrame
@@ -466,7 +469,7 @@ safeName name = not (T.null name)
 headlines :: ServeOptions -> Hub -> Request -> IO Response
 headlines opts hub request = case pageParams request of
   Left why -> pure (jsonError status400 why)
-  Right (q, limit, offset, order) -> do
+  Right (q, limit, offset, chain) -> do
     st <- readTVarIO (hubStore hub)
     let tag = etagOf st
     if tag `elem` ifNoneMatch request
@@ -487,11 +490,11 @@ headlines opts hub request = case pageParams request of
             hiding  = archiveKey `elem` storeTags st && not (namesArchive q)
             hidden  = length asked - length matched
             total   = length matched
-            shown   = maybe matched
-                            (\n -> take n (drop offset (orderedForView order matched))) limit
+            ordered = sortedForViewWith (storeKeywords st) chain matched
+            shown   = maybe matched (\n -> take n (drop offset ordered)) limit
             hasNext = maybe False (\n -> offset + n < total) limit
             body    = TLE.encodeUtf8
-                        (viewJSONTextWith order (viewTitleFor dir) (storeKeywords st) shown)
+                        (viewJSONTextWith chain (viewTitleFor dir) (storeKeywords st) shown)
         -- The encode is lazy, so it needs its own 'try': an exception raised
         -- inside warp's sender would truncate a 200 that has already gone out.
         forced <- try (evaluate (BL.length body))
@@ -551,31 +554,42 @@ pageHeaders total hasNext hidden =
   , ("X-Glance-Has-Next", if hasNext then "true" else "false")
   , ("X-Glance-Archived", BSC.pack (show hidden)) ]
 
--- | @q@, @limit@, @offset@ and @order@ out of REQUEST's query string, or what
--- is wrong with one of them.  An absent parameter is its default — no filter,
--- no limit, the top of the set, the view's declared sort — and a present one
--- that is not a number is a 400 rather than a silent fallback to it, since a
--- mistyped page size that quietly serves the whole store looks like a working
--- request.  @order@ is spelled out for the same reason: a misspelling that
--- silently served the sorted view would look exactly like a working one.
-pageParams :: Request -> Either Text (Text, Maybe Int, Int, ViewOrder)
+-- | @q@, @limit@, @offset@ and the CHAIN the rows are served in, out of
+-- REQUEST's query string, or what is wrong with one of them.  An absent
+-- parameter is its default — no filter, no limit, the top of the set,
+-- 'defaultSortChain' — and a present one that is not a number is a 400 rather
+-- than a silent fallback to it, since a mistyped page size that quietly serves
+-- the whole store looks like a working request.  @order@ is spelled out for the
+-- same reason: a misspelling that silently served the sorted view would look
+-- exactly like a working one.
+--
+-- The chain is read TWICE from two places, in one order: @order=@ picks the
+-- base — the default chain, or the empty one for document order — and the
+-- query's own @sort:@ tokens override it where it names any
+-- ('Glance.Web.Sort.sortChainIn'), so a reader who states an order states the
+-- whole of it.  A sort token this producer cannot read is this request's 400,
+-- naming the token.
+pageParams :: Request -> Either Text (Text, Maybe Int, Int, SortChain)
 pageParams request = do
   q      <- maybe (Right "") text (raw "q")
   limit  <- traverse count (raw "limit")
   offset <- maybe (Right 0) count (raw "offset")
-  order  <- maybe (Right ScheduledOrder) ordering (raw "order")
+  base   <- maybe (Right defaultSortChain) ordering (raw "order")
+  chain  <- sortChainIn base q
   case limit of
     Just n | n > limitCap -> Left ("limit is at most " <> T.pack (show limitCap)
                                      <> "; page with offset for more")
-    _within                -> Right (q, limit, offset, order)
+    _within                -> Right (q, limit, offset, chain)
   where
-    -- Experimental, and the only way to reach 'DocumentOrder'.  @scheduled@
-    -- names the default so a client can be explicit about the ordinary case.
+    -- Experimental, and the only way to reach the empty chain — walk order,
+    -- with no @sort@ declared.  @scheduled@ names the default so a client can be
+    -- explicit about the ordinary case; the name is a fossil of the days the
+    -- default was one @scheduled@ key.
     ordering named = do
       t <- text named
       case t of
-        "document"  -> Right DocumentOrder
-        "scheduled" -> Right ScheduledOrder
+        "document"  -> Right []
+        "scheduled" -> Right defaultSortChain
         _unknown    -> Left "order must be scheduled or document"
     -- A parameter with no @=@ reads as absent, so @?limit@ is not a zero page.
     raw name = case lookup (TE.encodeUtf8 name) (queryString request) of
@@ -1772,7 +1786,7 @@ keyBindings =
   -- order and offers no way back to none — and it refuses a whole-row selection
   -- rather than guessing which column was meant.
   , bind ["^"]          "toggle-sort"                     (Just "toggleSort")     "table"
-      `helps` "sort by the column at point; again reverses it"
+      `helps` "put this column at the head of the order; again reverses it"
   , bind ["RET"]        "org-glance-overview:materialize" (Just "materializeRow") "table"
   , bind ["/"]          "filter-rows"                     (Just "focusFilter")    "table"
       `helps` "summon the filter palette"
@@ -2661,13 +2675,20 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- `select' answers false for a row the view no longer holds, so a
     -- remembered row that an edit or a narrower filter took away falls through
     -- to the same first-row landing rather than being forced back.
+    -- The COLUMN rides across either landing: a commit repaints the same mount,
+    -- so the cell the reader was reading in is still there to land in — and `^',
+    -- which is a commit now, would otherwise take the selection it needs away
+    -- from the next press of itself.  After a REMOUNT there is no column to
+    -- keep and `column()' answers null, which is the whole-row look this landed
+    -- on before.
   , "    function land(sel) {"
   , "      if (!table || typeof table.select !== \"function\") return;"
   , "      const rows = visible();"
   , "      if (!rows.length) return;"
   , "      if (sel && sel.id"
   , "          && table.select(sel.id, sel.col === null ? undefined : sel.col)) return;"
-  , "      table.select(rows[0].id);"
+  , "      const at = column();"
+  , "      table.select(rows[0].id, at === null ? undefined : at);"
   , "    }"
     -- A row as the `ref:' token naming it.  The value is quoted where the id
     -- carries a token separator: the fallback row id is `PATH#K' and a path may
@@ -3307,21 +3328,17 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- same at a stop as at a turn.
   , "    const pager = () => !!table && typeof table.nextPage === \"function\""
   , "      && typeof table.pageInfo === \"function\";"
-    -- The programmatic sort: the agenda's, and `^''s.  Named here with the rest,
-    -- since this is where a reader greps for which renderer calls are optional.
+    -- The sort, which is `^''s alone now: an ORDER IS A QUERY, so the agenda
+    -- states its own by carrying a `sort:' token and no page here calls
+    -- `sortBy'.  Named with the rest of the optional calls, since this is where
+    -- a reader greps for which renderer calls are feature-detected.
     --
-    -- `sortBy' STATES an order and the handle publishes no accessor for the one
-    -- in force, so the direction the next `^' reverses is the one thing about
-    -- the table this page has to remember.  It is written where a sort is
-    -- ASKED FOR and re-seeded where the renderer re-seeds its own — a mount,
-    -- off the view's declared `sort' — so the two cannot drift for longer than
-    -- one call.  A `setRows' does not enter into it: the renderer keeps its
-    -- sort keys across one (it drops the derived orders and nothing else), so
-    -- a filter refetch and a socket splice both land in the order the reader
-    -- put the table in, and nothing here re-asserts it.  The handle publishes
-    -- the chain in force (getSort), so this page keeps no record of its own.
+    -- `sortPromote' composes the chain and WRITES IT INTO THE QUERY as `sort:'
+    -- tokens, which comes back through `onFilter' like any other query change —
+    -- so the URL carries the order, DEL takes a key off it, and the server is
+    -- asked for the order it is about to be sent.  This page keeps no record of
+    -- the chain: the handle publishes it (getSort) and the query spells it.
   , "    const sorts = () => !!table && typeof table.sortPromote === \"function\";"
-  , "    function sortRows(key, asc) { table.sortBy(key, asc); }"
   , "    function turnPage(b, step) {"
   , "      if (!pager()) { said(b, \"this table-view.js has no pager\"); return; }"
   , "      if (step > 0) table.nextPage(); else table.previousPage();"
@@ -4716,17 +4733,16 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- over the two date cells, decidable by either side of the wire.  It is a
     -- VIEW rather than a mode, so `g' is the way home and every other key means
     -- what it always meant while it is applied.
-  , "    const AGENDA_QUERY = \"state:*active* -planned:*empty*\";"
-    -- What `a' does once its rows are on screen.  The sort is the point of the
-    -- view — earliest first — and the view JSON already declares it, which a
-    -- remount re-reads; the call is what makes the order the agenda's own
-    -- rather than a coincidence of the default, and it is feature-detected
-    -- since an asset predating a programmatic sort has only its headers.  It
-    -- goes through the helper `^' writes, so there is one place a sort is asked
-    -- for and one record of which one is in force.  The count is the server's
+    -- The sort is part of the view — earliest first — so it is part of the
+    -- QUERY: `sort:scheduled' says it to the server, which answers page one in
+    -- that order, and to the renderer, which shows it on the header. A canned
+    -- view is one string again, where it used to be a query plus a call behind
+    -- the answer, and `DEL' walks out of the order the way it walks out of the
+    -- filter.
+  , "    const AGENDA_QUERY = \"state:*active* -planned:*empty* sort:scheduled\";"
+    -- What `a' says once its rows are on screen.  The count is the server's
     -- answer to the query, which is the one number a first page cannot give.
   , "    function landedAgenda(b, total) {"
-  , "      if (sorts()) sortRows(\"scheduled\", true);"
   , "      said(b, `agenda · ${rowsWord(total)}`);"
   , "    }"
   , ""
@@ -4863,20 +4879,29 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- producer's business — so a page driving a reader's key has to honour it
     -- here or it would sort a column the header click will not.
     --
-    -- Two states, and the ceiling is the handle's: `sortBy' states an order and
-    -- `^' PROMOTES: the column at point becomes the chain's head ascending
-    -- (the rest shift down, deduped); on the column already leading it flips
-    -- that key alone.  Composing a chain = pressing over columns in reverse
-    -- priority order — the web's spelling of table-view.el's C-u ^.
+    -- `^' PROMOTES: the column at point becomes the chain's head ascending (the
+    -- rest shift down, deduped); on the column already leading it flips that key
+    -- alone.  Composing a chain = pressing over columns in reverse priority
+    -- order — the web's spelling of table-view.el's C-u ^.
+    --
+    -- IT IS A QUERY EDIT.  The renderer writes the new chain into the applied
+    -- query as `sort:' tokens and delivers it, so the press lands here as an
+    -- ordinary filter commit: the rows in hand re-order at once, the URL is
+    -- rewritten, the server is asked for that order and answers page one in it,
+    -- and DEL walks the keys back off one at a time.  Nothing on this page
+    -- remembers a sort.
   , "      toggleSort: (b) => {"
   , "        if (!sorts()) { said(b, \"this table-view.js has no sort\"); return; }"
   , "        const at = column(), c = at === null ? null : cols[at];"
   , "        if (!c) { said(b, \"no column selected — f/l to pick one\"); return; }"
   , "        const named = c.header || c.key;"
-  , "        if (c.sortable !== true) { said(b, `${named} does not sort`); return; }"
-  , "        table.sortPromote(c.key);"
-  , "        const head = (table.getSort() || [])[0];"
-  , "        said(b, head ? `${named} ${head.ascending !== false ? \"▲\" : \"▼\"}` : named);"
+    -- `sortable' is the renderer's opt-in and `sortPromote' is where it is
+    -- enforced, so the refusal is READ OFF the call rather than derived a
+    -- second time here — the key still has to SPEAK it.
+  , "        if (!table.sortPromote(c.key)) { said(b, `${named} does not sort`); return; }"
+  , "        const chain = table.getSort() || [], head = chain[0];"
+  , "        said(b, head ? `${named} ${head.ascending !== false ? \"▲\" : \"▼\"}`"
+      <> " + (chain.length > 1 ? ` · ${chain.length} keys` : \"\") : named);"
   , "      },"
   , "      materializeRow: () => {"
   , "        const id = focusedId();"

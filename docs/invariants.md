@@ -1700,15 +1700,20 @@ on.
   on who ran it, which is why `TestQuery`'s expected strings are written down
   rather than taken from the renderer. Filtering runs before paging, so
   `X-Glance-Total` is the match count; and a page is `take limit . drop offset`
-  over `sortedForView` rather than over walk order, because page two has to be
-  the rows the table would show after page one. That order is a CHAIN —
-  `defaultSortChain`: title, state, deadline, scheduled, priority, all
-  ascending — and the same list is what `declaredSort` puts on the wire, so the
+  over the EFFECTIVE chain's order rather than over walk order, because page two
+  has to be the rows the table would show after page one. That order is a CHAIN
+  — `defaultSortChain`: state, title, deadline, scheduled, all ascending, with
+  state read by BADGE PALETTE position, which is the tree's own `#+TODO:` cycle,
+  so the table opens with the work in the order org names it rather than
+  alphabetically. Priority is deliberately out of the chain: a fifth key behind
+  four that have already separated nearly every pair of rows, and `sort:priority`
+  is how a reader asks for it. The chain a query names replaces it (below), and
+  whichever chain is in force is the one `declaredSort` puts on the wire, so the
   order a client is told about and the order it is served are one fact. The
   arrangement copies the renderers' rules term for term: empty cells last on
   each key and outside that key's direction, the state column by badge palette
   position (unlisted keywords tying at the back), a stable sort so rows equal on
-  all five keep walk order, and text compared case-folded — the nearest this
+  every key keep walk order, and text compared case-folded — the nearest this
   side gets to the browser's `localeCompare`, and the reason a title differing
   only by punctuation or script can still land elsewhere than the renderer would
   put it. With no `limit` the walk order
@@ -3020,58 +3025,75 @@ on.
   bound key with no handler does. Evidence: `TestServe` "o opens the link at
   point and closes the popup", "RET names the edit that is not here yet, and
   writes nothing". **test** (what is here) / **none** (the write)
-- **`a` is a canned VIEW, not a mode.** `org-glance-agenda` applies
-  `state:*active* -planned:*empty*` through the door `g` uses — `applyView` writes
-  it into the URL, drops the socket, and remounts, so the query is the renderer's
-  chips and a reader can read it, edit it with `DEL`, or link it. There is no
-  agenda state anywhere: no flag saying it is on, no key that leaves it, and
-  every other key means while it is applied exactly what it always meant. `g` is
-  the way home. The one thing the default view does not want is the sort, and
-  that arrives through `landed` — a one-shot thunk `start` TAKES before it
-  fetches, so a boot that never lands cannot leave it armed for the next one —
+- **`a` is a canned VIEW, not a mode — and the whole view is one string.**
+  `org-glance-agenda` applies `state:*active* -planned:*empty* sort:scheduled`
+  through the door `g` uses — `applyView` writes it into the URL, drops the
+  socket, and remounts, so the query is the renderer's chips and a reader can
+  read it, edit it with `DEL`, or link it. There is no agenda state anywhere: no
+  flag saying it is on, no key that leaves it, and every other key means while it
+  is applied exactly what it always meant. `g` is the way home. The ORDER the
+  default view does not want rides in that same string as a `sort:` token, so the
+  server answers page one in it and the renderer reads the chain off the query it
+  mounted under — where a call behind the answer could state an order the applied
+  query did not, and an asset without the call got no order at all. What still
+  arrives through `landed` — a one-shot thunk `start` TAKES before it fetches, so
+  a boot that never lands cannot leave it armed for the next one — is the ECHO,
   called with the server's own match count, which is the one number the first
-  page cannot give. It insists on `sortBy("scheduled", true)`, feature-detected:
-  the view already declares that sort and a remount re-reads it, so the call is
-  what makes the order the agenda's own rather than a coincidence of the default,
-  and an asset predating a programmatic sort still gets the view. The vendored
-  `assets/table-view.js` carries `sortBy` (and nothing else about sorting: no
-  `toggleSort` on the handle, no accessor for the order in force), so the call
-  lands. It goes through `sortRows`, the one place a sort is asked for.
-  Evidence: `TestServe` "Shell agenda". **test**
+  page cannot give. Evidence: `TestServe` "Shell agenda". **test**
 - **Every column of the view opts into sorting.** `sortable` is SCHEMA.md's
   opt-in — absent is `false`, both renderers read it that way — and
   `Glance.Query.column` declares it on all six, so it sits on the column helper
   rather than in a per-kind list that would name every column anyway. It gates
-  what a READER may reach: `^` and a header click consult it, a producer's own
-  `sortBy` ignores it. Evidence: `TestQuery` "every column opts into sorting",
-  and the golden `sample-view.json`. **test**
-- **`^` reverses the sort on the column at point, and the renderer decides all
-  three of its rules.** WHICH column is the cell selection's
-  (`getSelection().col`), so a whole-row selection is refused — `^ → toggle-sort
-  (no column selected — f/l to pick one)` — rather than guessed at, the
-  renderer's own `^` having point to read where this has none. WHETHER it sorts
-  is that column's `sortable`; `sortBy` ignores the flag, so honouring it is
-  this page's job or `^` would sort a column a header click will not. And the
-  CYCLE is two states, `▲` and `▼`, because the handle has no third: `sortBy`
-  states an order and no call takes one off, where `table-view.el`'s `^`
-  (`table-view-sort-cycle`) goes on through its nulls-first variants. The
-  command is in `ONCE` — a held reversing key lands on whichever direction the
-  parity of the repeat count leaves it. Evidence: `TestServe` "Shell sort".
-  **test**
-- **The sort in force is the one thing about the table this page remembers, and
-  the handle is why.** `mount` publishes `sortBy` and no accessor, so the
-  direction the next `^` reverses cannot be read back and `sortAt` keeps it.
-  Two places touch it: a MOUNT seeds it off the view's declared `sort` (which is
-  where the renderer seeds its own sort keys, so the first `^` on the scheduled
-  column reverses the order the view opened in), and `sortRows` writes it
-  wherever a sort is asked for — the one call site, the agenda's included. A
-  `setRows` is not one of them: the renderer keeps its sort keys across a
-  repaint, dropping the derived orders alone, so a filter refetch and a socket
-  splice land in the order the reader put the table in and nothing re-asserts
-  it. That is a fact about the vendored `assets/table-view.js` rather than a
-  contract — re-read it when `make sync-renderer` moves. Evidence: `TestServe`
-  "a refetch keeps the sort, and nothing re-asserts it" and "a remount re-seeds
-  the record off the view it mounts". **test**
+  what a READER's GESTURE may reach: `^` and a header click consult it, where a
+  declared chain and a query's `sort:` token open as written whatever it says.
+  Evidence: `TestQuery` "every column opts into sorting", and the golden
+  `sample-view.json`. **test**
+- **`^` promotes the column at point, and the renderer decides all three of its
+  rules.** WHICH column is the cell selection's (`getSelection().col`), so a
+  whole-row selection is refused — `^ → toggle-sort (no column selected — f/l to
+  pick one)` — rather than guessed at, the renderer's own `^` having point to
+  read where this has none. WHETHER it sorts is that column's `sortable`, and
+  `sortPromote` is where that is enforced: the refusal is READ OFF the call
+  (`false` means the chain did not move) rather than derived a second time here,
+  and the key still speaks it. And what the press DOES is composition: the column joins the head of the
+  chain ascending, or flips where it already leads — pressing over columns in
+  reverse priority order builds a chain, which is the web's spelling of
+  `table-view.el`'s `C-u ^`. The command is in `ONCE`. Evidence: `TestServe`
+  "Shell sort". **test**
+- **The press is a QUERY EDIT, and no order is remembered anywhere on the page.**
+  `sortPromote` writes the new chain into the applied query as `sort:` tokens and
+  delivers it, so the press arrives at `onFilter` as an ordinary commit: the URL
+  is rewritten, the server is asked for the order it was just told about — which
+  is what makes page one of a limited answer the right hundred rows — and the
+  rows in hand re-order before the answer lands. `DEL` walks the keys back off
+  one at a time, because a sort token is a token like any other; with none left,
+  the view's declared chain stands again. What the first press composes onto is
+  the chain IN FORCE, declared keys and all, so only the promoted key moves and
+  the reader loses no tie-breaker they were reading by. This page holds no
+  `sortAt`, calls no `sortBy` and asks the handle for nothing but the chain it
+  just wrote (`getSort`, for the echo). A REMOUNT re-seeds off the query it
+  mounts under, so the order survives one. Evidence: `TestServe` "the press
+  writes the order into the query and asks for it", "DEL takes the order back
+  off", "a remount re-seeds the chain off the query it mounts under". **test**
+- **The ORDER is a token of the query grammar, and refusing one is the
+  producer's alone.** `sort:COL` / `sort:COL:desc` name one column in one
+  direction; written order is precedence, repeats compose the chain, and the
+  token NARROWS NOTHING — `Glance.Web.Filter` knows the key so it is never read
+  as free text and `compile` drops the term ABOVE the negation inverter, so it
+  narrows nothing in either polarity where a match-all under that inverter would
+  make `-sort:x` empty the table. `Glance.Web.Sort.sortChainIn` reads the same
+  module's `parseFilter` output for what those tokens say about the order, so
+  one parse serves both questions. A query
+  naming any sort key replaces the chain it was asked under (`?order=` picks that
+  base), and one naming none leaves it standing — which is what keeps the default
+  chain invisible until a reader diverges from it. A negation, an alternation, a
+  column no view carries, a direction that is neither `asc` nor `desc` and a
+  column named twice are each this request's 400 naming the token; the renderer
+  has nobody to refuse to and drops the key instead, so the producer is STRICTER
+  there — the one divergence in that direction, and deliberate, an order nobody
+  can give being worth saying. Evidence: `TestFilter` "Sort tokens", `TestServe`
+  "GET /headlines?q=sort:", and `table-view`'s
+  `fixtures/parity/sort-tokens.json`. **test**
 - **The materialize sheet has no buttons, and closing it is the save.** Dirty is
   either pane against what the file holds as far as the page knows — the
   materialized original, then whatever the last 200 wrote — and it decides

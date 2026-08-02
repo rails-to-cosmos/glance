@@ -71,9 +71,24 @@ curl -sD - -o /dev/null 'localhost:7777/headlines?limit=1000&offset=2000'
 
 The filter runs before the page, so =X-Glance-Total= is the match count and
 =X-Glance-Has-Next= says whether another page follows. A page is cut out of the
-view's own declared sort (scheduled ascending), so page two is the rows the
-table would show after page one; sorting a /page/ in the browser reorders that
-page alone, while the no-limit mode keeps full-fidelity client-side sort.
+order the view declares, so page two is the rows the table would show after page
+one; sorting a /page/ in the browser reorders that page alone, while the
+no-limit mode keeps full-fidelity client-side sort.
+
+*The order is part of the query.* =sort:COL= orders by a column and
+=sort:COL:desc= reverses it; written order is precedence, so several tokens
+compose a chain. The token narrows nothing — it states an order and leaves the
+set to the predicates beside it — and a query naming any sort key replaces the
+view's default chain (state, title, deadline, scheduled, all ascending, state
+read in your =#+TODO:= order). Naming none leaves that default standing, which
+is why an unsorted-looking query is still sorted. A token naming more than one
+column, a negated one, a column that is not there or a direction other than
+=asc=/=desc= is a 400 saying which.
+
+#+begin_src sh
+curl -s 'localhost:7777/headlines?q=sort:deadline&limit=100' | jq '.sort'
+curl -s 'localhost:7777/headlines?q=state:*active*%20sort:scheduled:desc' | jq '.rows | length'
+#+end_src
 
 *Walk order (experimental).* =?order=document= leaves the rows in walk order
 whatever the limit — file by file, top entry by top entry down each — and the
@@ -626,10 +641,11 @@ curl -s 'localhost:7777/links?id=ship-table-view'
 #+end_src
 
 *=a= is the agenda, and it is a view rather than a mode.* It applies
-=state:*active* -planned:*empty*= — your live work, narrowed to the entries
-carrying a date — and sorts it by schedule, earliest first. There is nothing to
-leave: the query is in the URL and in the filter chips like any other, =DEL=
-strips a token off it, and =g= puts the default view back. =planned= is a filter
+=state:*active* -planned:*empty* sort:scheduled= — your live work, narrowed to
+the entries carrying a date, earliest first. There is nothing to leave: the
+whole view is one query, in the URL and in the filter chips like any other,
+=DEL= strips a token off it (the order included), and =g= puts the default view
+back. =planned= is a filter
 key of its own, so the halves are yours to recombine: =planned:*empty*= is
 everything nobody has put a day on, =planned:2026-08= is a month's worth of
 schedules and deadlines together, and =-planned:*empty* deadline:2026-08= narrows
@@ -683,7 +699,7 @@ parameter and a key line that had to be rewritten whenever it moved.
 | =>= =G=     | =last-row=                        | last row on the page                          |
 | =]=         | =next-page=                       | turns a page; echoes =page 3/129=             |
 | =[=         | =previous-page=                   | turns one back                                |
-| =^=         | =toggle-sort=                     | sorts by the column at point; again reverses  |
+| =^=         | =toggle-sort=                     | this column heads the order; again reverses   |
 | =RET=       | =org-glance-overview:materialize= | opens the sheet                               |
 | =/=         | =filter-rows=                     | summons the filter palette                    |
 | =DEL=       | =filter-drop-token=               | drops a token; then walks a drill back        |

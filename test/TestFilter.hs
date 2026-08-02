@@ -17,13 +17,16 @@ import TestDefaults (columnKeysOf, field, maybeTextAt, orgFile, viewDir, withTem
 
 import qualified Data.Text as T
 
-import Glance.Query ( HeadlineRecord (..), QueryResult (qrRecords), displayText
+import Glance.Query ( HeadlineRecord (..), QueryResult (qrRecords), defaultSortChain
+                    , displayText
                     , loadDir, matchesSearch, refTargetOf, refTargets, rowJSON
                     , sortedTagsCell, tagsOfCell, viewJSON )
 import Glance.Web.Filter ( Term (..), Token (..), alternatives, archiveKey
                          , archiveMeta, cellAt, emptyEnv, emptyMeta, filterKeys
                          , matchesFilter, metaOf, namesArchive, parseFilter
-                         , plannedKey, refKey, scanQuery, storeEnv, tagsKey )
+                         , plannedKey, refKey, scanQuery, sortKey, storeEnv
+                         , tagsKey )
+import Glance.Web.Sort (sortChainIn)
 
 -- Fixtures
 --
@@ -68,7 +71,7 @@ matches q rows = assertEqual (T.unpack q) rows =<< matching q
 
 spec :: TestTree
 spec = testGroup "Filter"
-  [ tokenSpec, predicateSpec, tagsSpec, plannedSpec, archiveSpec, metaSpec
+  [ tokenSpec, predicateSpec, tagsSpec, plannedSpec, sortSpec, archiveSpec, metaSpec
   , shapeSpec, alternationSpec
   , degenerateSpec
   , targetSpec, refSpec
@@ -310,6 +313,104 @@ plannedSpec = testGroup "Planned"
       -- reading of the token is the date one.
       assertEqual "still the date key" [Term False (Just "planned") "*empty*"]
                   (parsed "planned:*empty*")
+  ]
+
+-- | The ORDER token: @sort:COL@, @sort:COL:desc@.
+--
+-- Two halves, and they meet in the query: it NARROWS NOTHING here, whatever it
+-- names, and what it says about the order is 'Glance.Web.Sort.sortChainIn's
+-- answer to the same string.  The cases are SCHEMA.md's and the parity vectors'
+-- (@fixtures\/parity\/sort-tokens.json@) — what is asserted is the contract
+-- rather than this port of it.  Where the chain lands the ROWS is
+-- @\/headlines@' (@TestServe@).
+sortSpec :: TestTree
+sortSpec = testGroup "Sort tokens"
+  [ testCase "the key is spelled once, and it is not a column" $ do
+      assertEqual "the key" "sort" sortKey
+      assertBool "and no column carries it" (sortKey `notElem` filterKeys)
+      assertEqual "a token names it like any other key"
+                  [Term False (Just "sort") "deadline"] (parsed "sort:deadline")
+
+  , testCase "it narrows nothing, whatever it names" $ do
+      every <- matching ""
+      mapM_ (`matches` every)
+        [ "sort:deadline", "sort:deadline:desc", "sort:state sort:title"
+        , "sort:", "sort:nosuchcolumn", "sort:deadline:sideways" ]
+
+  , testCase "and never as free text, which is what would narrow" $ do
+      -- The letters are in no row, so a token read as text would empty the
+      -- table — which is exactly what a producer without the key would do.
+      matches "sort:title" =<< matching ""
+      assertEqual "the token resolved to the key"
+                  [Term False (Just "sort") "title"] (parsed "sort:title")
+
+  , testCase "beside a predicate it leaves the narrowing to it" $ do
+      matches "state:*inactive* sort:title" [Drop, Schema]
+      matches "sort:title state:*inactive*" [Drop, Schema]
+
+  , testCase "a quoted token is free text, here as everywhere" $ do
+      matches "\"sort:title\"" []
+      assertEqual "free text" [Term False Nothing "sort:title"] (parsed "\"sort:title\"")
+
+  -- The chain the same query states.  Written order is precedence, repeats
+  -- compose, and a query naming none leaves the chain it was asked under.
+  , testCase "a query naming no sort key leaves the chain it was asked under" $ do
+      assertEqual "the default" (Right defaultSortChain)
+                  (sortChainIn defaultSortChain "state:TODO tag:web")
+      assertEqual "and the empty chain stays empty" (Right [])
+                  (sortChainIn [] "state:TODO")
+
+  , testCase "a sort token replaces it, whole" $ do
+      assertEqual "one key" (Right [("deadline", True)])
+                  (sortChainIn defaultSortChain "sort:deadline")
+      assertEqual "the default is gone rather than behind it"
+                  (Right [("deadline", True)])
+                  (sortChainIn defaultSortChain "state:TODO sort:deadline")
+
+  , testCase "the direction is the token's second half" $ do
+      assertEqual "desc" (Right [("deadline", False)])
+                  (sortChainIn defaultSortChain "sort:deadline:desc")
+      assertEqual "asc spells the default" (Right [("deadline", True)])
+                  (sortChainIn defaultSortChain "sort:deadline:asc")
+      assertEqual "and the word is folded" (Right [("deadline", False)])
+                  (sortChainIn defaultSortChain "sort:deadline:DESC")
+      -- A trailing colon is the direction half-typed, and an unspelled
+      -- direction ascends — the renderer's own reading of the same token.
+      assertEqual "a trailing colon is no direction at all"
+                  (Right [("deadline", True)])
+                  (sortChainIn defaultSortChain "sort:deadline:")
+
+  , testCase "written order is precedence, and repeats compose" $ do
+      assertEqual "two keys" (Right [("state", True), ("deadline", False)])
+                  (sortChainIn defaultSortChain "sort:state sort:deadline:desc")
+      assertEqual "the other way round"
+                  (Right [("deadline", False), ("state", True)])
+                  (sortChainIn defaultSortChain "sort:deadline:desc sort:state")
+      -- The tokens need not be adjacent: a chain is the sort tokens in the
+      -- order the query spells them, whatever stands between them.
+      assertEqual "with predicates between them"
+                  (Right [("state", True), ("title", True)])
+                  (sortChainIn defaultSortChain "sort:state tag:web sort:title")
+
+  , testCase "a half-typed key orders nothing and refuses nothing" $
+      assertEqual "the key: rule" (Right []) (sortChainIn defaultSortChain "sort:")
+
+  , testCase "one column, one direction: everything else is refused by name" $
+      mapM_ (\(q, named) -> case sortChainIn defaultSortChain q of
+               Right chain -> assertFailure (T.unpack q <> " was read as " <> show chain)
+               Left why    -> assertBool (T.unpack q <> ": " <> T.unpack why)
+                                         (named `T.isInfixOf` why))
+        [ ("-sort:title",             "-sort:title")
+        , ("sort:title|state",        "sort:title|state")
+        , ("sort:nosuchcolumn",       "nosuchcolumn")
+        , ("sort:title:sideways",     "sort:title:sideways")
+        , ("sort:title sort:title",   "title")
+        , ("sort:title sort:title:desc", "title") ]
+
+  , testCase "a refusal is the whole query's, wherever the token sits" $
+      assertBool "the good key does not rescue the bad one"
+                 (either (const True) (const False)
+                         (sortChainIn defaultSortChain "sort:title -sort:state"))
   ]
 
 -- | Which queries turn the served view's archive exclusion off

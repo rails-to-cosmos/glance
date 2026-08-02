@@ -16,10 +16,13 @@
 -- whatever it spells.  Everything else is free text: a case-insensitive
 -- substring of the row as it displays.
 --
--- Those two have no vocabulary behind them and no renderer branch: @planned@,
--- which the renderer can still answer from the row it holds, and @ref:ROWID@
--- ('refKey'), which it cannot — resolving a reference needs the store, so the
--- renderer reads the token as free text and narrows further than this does.
+-- Three keys are no column: @planned@, which the renderer answers from the row
+-- it holds; @ref:ROWID@ ('refKey'), which it cannot — resolving a reference
+-- needs the store, so the renderer reads the token as free text and narrows
+-- further than this does; and @sort@ ('sortKey'), which is no predicate at all.
+-- A sort token states the ORDER and narrows NOTHING: it is a key here so that
+-- it is never read as free text, and what it says about the order is
+-- 'Glance.Web.Sort's answer to the same query.
 --
 -- An org TAG is not a key.  @tag:course@ is the one spelling, and the facet
 -- then search a tag tree gives an org user is the two tokens
@@ -75,6 +78,7 @@ module Glance.Web.Filter ( FilterEnv (..)
                          , plannedKey
                          , refKey
                          , scanQuery
+                         , sortKey
                          , storeEnv
                          , tagsKey
                          ) where
@@ -129,6 +133,18 @@ refKey = "ref"
 -- name the way a column does (SCHEMA.md, Filter query).
 plannedKey :: Text
 plannedKey = "planned"
+
+-- | The key that states the ORDER: @sort:COL@, @sort:COL:desc@
+-- ('Glance.Web.Sort').  A key here so that a sort token is never read as free
+-- text, and no predicate at all — it NARROWS NOTHING, whatever it names and
+-- whatever its polarity ('compile' drops the term).
+--
+-- Which is the whole of what this module does with it: what the chain says is
+-- 'Glance.Web.Sort.sortChainIn's answer, read off the tokens this module's own
+-- 'parseFilter' produced, so a token cannot be a predicate for one of them and
+-- an ordering for the other.
+sortKey :: Text
+sortKey = "sort"
 
 -- | The date columns, by where they sit in 'filterKeys' — which is where their
 -- fields sit in the search text.
@@ -337,11 +353,12 @@ matchesFilter env q = case compile env (parseFilter q) of
   [test]  -> test
   tests   -> \r -> all ($ r) tests
 
--- | What a predicate's key turned out to name: a column, at its field of the
--- search text, the two date columns together ('plannedKey'), or the link graph
--- ('refKey').  Resolved once per term, so the grammar's question — is this a
--- key — and the matcher's read one answer.
-data Field = Col !Int | Planned | Ref
+-- | What a token's key turned out to name: a column, at its field of the search
+-- text, the two date columns together ('plannedKey'), the link graph
+-- ('refKey'), or the ORDER ('sortKey'), which is no field and narrows nothing.
+-- Resolved once per term, so the grammar's question — is this a key — and the
+-- matcher's read one answer.
+data Field = Col !Int | Planned | Ref | Order
 
 -- | KEY as the field it names, or 'Nothing' where it names none — which is the
 -- test 'parseFilter' makes, so a token is a predicate exactly where there is a
@@ -349,6 +366,7 @@ data Field = Col !Int | Planned | Ref
 fieldOf :: Text -> Maybe Field
 fieldOf key | key == plannedKey = Just Planned
             | key == refKey     = Just Ref
+            | key == sortKey    = Just Order
             | otherwise         = Col <$> elemIndex key filterKeys
 
 -- | The cells FIELD reads, by their position in 'filterKeys'.  A column is its
@@ -360,6 +378,7 @@ fieldCells :: Field -> [Int]
 fieldCells (Col i) = [i]
 fieldCells Planned = dateColumns
 fieldCells Ref     = []
+fieldCells Order   = []
 
 -- | TERMS as the tests a row must all pass.  One rule, so there is nothing to
 -- group: every token narrows, and two tokens naming one key are read as the AND
@@ -367,8 +386,14 @@ fieldCells Ref     = []
 -- both, and @state:TODO state:DONE@ asks a cell holding one value to hold two,
 -- which is no row.  What ORs is a value's alternatives, inside one token
 -- ('predTest'), and a negation is that token's whole answer inverted.
+--
+-- A @sort@ token contributes NO test at all, and that is why it is dropped HERE
+-- rather than answered inside 'keyTest': it states the order and narrows
+-- nothing in EITHER polarity, where a match-all under the inverter below would
+-- make @-sort:x@ the query that empties the table.  The renderer drops it at
+-- the same place, above its own negation.
 compile :: FilterEnv -> [Term] -> [HeadlineRecord -> Bool]
-compile env = map inverted
+compile env = map inverted . filter ((/= Just sortKey) . tmKey)
   where inverted t | tmNegated t = not . termTest env t
                    | otherwise   = termTest env t
 
@@ -430,6 +455,10 @@ keyTest :: FilterEnv -> Text -> Field -> Text -> HeadlineRecord -> Bool
 keyTest env _key Ref value = case feRef env value of
   Nothing  -> const False
   Just row -> \r -> hrId r /= rrId row && any (`elem` hrLinks r) (rrTargets row)
+-- @sort@ is no predicate at all and never reaches this: 'compile' drops the
+-- term before a test is built for it.  The arm is here for totality, and the
+-- answer it gives is the one that arm means — every row.
+keyTest _env _key Order _value = const True
 -- Every other key is a predicate over the CELLS it names ('fieldCells'), which
 -- is one for a column and the two dates for @planned@.  The two metas the set
 -- decides are @*empty*@ — every named cell empty, so an unplanned row is one

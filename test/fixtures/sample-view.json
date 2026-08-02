@@ -20,11 +20,10 @@
     { "key": "RET", "command": "materialize", "label": "Materialize" }
   ],
   "sort": [
-    { "column": "title", "ascending": true },
     { "column": "state", "ascending": true },
+    { "column": "title", "ascending": true },
     { "column": "deadline", "ascending": true },
-    { "column": "scheduled", "ascending": true },
-    { "column": "priority", "ascending": true }
+    { "column": "scheduled", "ascending": true }
   ],
   "rows": [
     { "id": "ship-table-view", "cells": {

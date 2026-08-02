@@ -91,6 +91,41 @@ section groups a feature arc, and its date is that arc's last commit.
   and the sheet's logbook already wear.
 
 ### Added
+- **The order is part of the query.** `sort:COL` orders the answer by that
+  column and `sort:COL:desc` reverses it; written order is precedence, so
+  several tokens compose a chain (`sort:state sort:deadline` is state with
+  deadline settling its ties). The token NARROWS NOTHING — it states an order
+  and leaves the set to the predicates beside it — which makes it the one key in
+  the grammar that is no predicate, and `?q=sort:deadline&limit=100` is
+  therefore the first hundred rows OF THAT ORDER rather than a hundred arbitrary
+  rows a browser then re-sorts. What the view declares is the effective chain,
+  so what a client is told and what it is served stay one fact.
+  A query naming any sort key replaces the default chain; naming none leaves it
+  standing, which keeps the default invisible until a reader diverges from it.
+  Refusals are per token and name it: one column, one direction, so a negation
+  (`-sort:x`), an alternation (`sort:a|b`), a column that is not there and a
+  direction other than `asc`/`desc` are each a 400, as is a column named twice.
+  `?order=document` still picks the base the query overrides.
+  `^` is that grammar's key: it composes the chain the way it always did — the
+  column at point to the head, or a flip where it already leads — and now WRITES
+  IT INTO THE QUERY, so the press is an ordinary commit. The URL carries the
+  order, `DEL` walks the keys back off one at a time, a `?q=` link opens in the
+  order it names, and the daemon is asked for the order the reader just stated.
+  The shell keeps no record of a sort and asks the renderer for none.
+  New module `Glance.Web.Sort` beside `Glance.Web.Filter`: one query, split by
+  what a token does — narrow, or order — over one scanner.
+- **The default order opens on state, in the tree's own cycle.**
+  `defaultSortChain` is state, title, deadline, scheduled, all ascending, with
+  state read by BADGE PALETTE position — which is the order your `#+TODO:` line
+  spells — so the table opens with the work in org's order rather than
+  alphabetically, and the title settles rows sharing a state. Priority left the
+  chain: a fifth key behind four that have already separated nearly every pair
+  of rows, and `sort:priority` is how to ask for it.
+- **`a` carries its own order.** The agenda query is
+  `state:*active* -planned:*empty* sort:scheduled`, so the whole canned view is
+  one string: the server answers page one in that order, `DEL` walks out of it
+  like any other token, and nothing has to be asked of the renderer once the
+  rows are up.
 - The tags list on `:` is a MUTABLE MOUNT — the page's fourth table-view mount
   (`#ttable`), after the table, the property panel and the link popup. Three
   columns, declared server-side in `Glance.Query.tagColumns`: the tag, its
