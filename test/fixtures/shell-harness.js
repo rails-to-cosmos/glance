@@ -107,14 +107,14 @@ let layers = [
 const configWrites = [];
 let configTick = 1;
 // What /keywords resolves for the rows a command names: the classification
-// chain, nearest source first, each source holding what it is the nearest to
+// chain, widest source first, each source holding what it is the widest to
 // declare.  Canned, the way the layers above are: the resolution is the
 // server's and TestConfig is where the rule itself is tested — what the page
 // owes is drawing whatever comes back, in the order it comes back.
 let sources = [
-  { source: "file",    active: ["LATER"],   inactive: [] },
+  { source: "default", active: ["TODO"],    inactive: ["DONE"] },
   { source: "book",    active: ["READING"], inactive: ["READ"] },
-  { source: "builtin", active: ["TODO"],    inactive: ["DONE"] },
+  { source: "file",    active: ["LATER"],   inactive: [] },
 ];
 // Every /keywords URL the page asked for, which is the whole of what says WHICH
 // rows it resolved the palette for.  `stalling' holds one out forever.
@@ -646,13 +646,14 @@ const ACTIONS = {
   // The resolution never arrives, which is what leaves the palette standing in
   // the state between the press that raised it and the answer that fills it.
   stall: () => { stalling = true; },
-  // The resolution a marked set spanning two tags comes back as: two tag
-  // sources, in the order the server put them, and no file layer at all.
+  // The resolution a marked set spanning two tags comes back as: org's own pair
+  // and then two tag sources, in the order the server put them, and no file
+  // layer at all.
   twotags: () => {
     sources = [
+      { source: "default", active: ["TODO"], inactive: ["DONE"] },
       { source: "book", active: ["READING"], inactive: ["READ"] },
       { source: "film", active: ["WATCHING"], inactive: ["WATCHED"] },
-      { source: "builtin", active: ["TODO"], inactive: ["DONE"] },
     ];
   },
   sheet: (text) => { field("mtext").value = text; },

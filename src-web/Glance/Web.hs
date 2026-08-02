@@ -751,9 +751,9 @@ again = "; materialize it again and re-apply the edit"
 -- the chain that classifies them.
 --
 -- @{"sources": [{"source": …, "active": […], "inactive": […]}], "unknown": […]}@.
--- One entry per SOURCE in precedence order — the rows' own files, then their
--- tags, then @system.org@, then org's built-in cycle — and a keyword appears
--- under the NEAREST source that declares it and nowhere below it
+-- One entry per SOURCE in precedence order — @default@, org's own cycle, then
+-- @system.org@, then the rows' tags, then their own files — and a keyword
+-- appears under the WIDEST source that declares it and nowhere below it
 -- ('Glance.Query.keywordSources', which is the whole of the rule).  So the
 -- answer classifies as well as enumerates: it is 'Data.Org.Config.classify' read
 -- forwards, and a palette drawing it shows a reader why @READING@ is active here
@@ -3133,10 +3133,11 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        flat.push(c);"
   , "        return c;"
   , "      };"
+    -- Every source is drawn under the name it arrives under: `default',
+    -- `system', `file' and a tag all read as they are, so this page holds no
+    -- table of labels to keep in step with the resolver's names.
   , "      prompting.table = (sources || []).map((s) => ({"
-    -- `built-in' is the one scope whose label is not the name it arrives under;
-    -- a tag is its own label, and `file' and `system' read as they are.
-  , "        source: s.source === \"builtin\" ? \"built-in\" : s.source,"
+  , "        source: s.source,"
   , "        cells: [s.active || [], s.inactive || []].map((ws) => ws.map(held)),"
   , "      }));"
   , "      prompting.meta = { label: CLEAR, keyword: null, meta: true };"
@@ -3184,10 +3185,11 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      el(\"pinput\").blur();"
   , "    }"
     -- The palette is the RESOLUTION, drawn as the layered table it is: one row
-    -- per source in precedence order, the source named down the first column
-    -- and its keywords in the Active and Inactive cells.  What a reader learns
-    -- from it is why — `READING' under `book' and not under `system' is the
-    -- classify chain saying which scope answered.  The hairlines are the rows'
+    -- per source in precedence order, widest first, the source named down the
+    -- first column and its keywords in the Active and Inactive cells.  What a
+    -- reader learns from it is why — `TODO' under `default' and `READING' under
+    -- `book' is the classify chain saying which scope answered.  The hairlines
+    -- are the rows'
     -- own borders and the old active/done split is the two COLUMNS; `*clear*'
     -- keeps a spanning row of its own at the foot, in the muted italic every
     -- starred meta wears, since no scope declares taking a keyword off.
@@ -3274,9 +3276,9 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    el(\"prompt\").addEventListener(\"click\", (e) =>"
   , "      { if (e.target === el(\"prompt\")) unask(); });"
     -- What C-c C-t offers: the states the SERVER says those rows may be set to,
-    -- with the scope that declares each — the file's own `#+TODO:', its tags'
-    -- configs, `system.org', org's built-in cycle — plus the entry that takes a
-    -- keyword off.  Resolved per request because the
+    -- with the scope that declares each — org's own cycle under `default',
+    -- `system.org', the row's tags' configs, its file's own `#+TODO:' — plus the
+    -- entry that takes a keyword off.  Resolved per request because the
     -- answer is per ROW: the state column's badges are the union of every file
     -- loaded, which is a superset and says nothing about where a keyword came
     -- from.  The column's `values' are the filter's group meta-values

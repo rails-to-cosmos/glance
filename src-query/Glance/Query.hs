@@ -95,6 +95,7 @@ module Glance.Query ( ConfigLayerFile (..)
                     , rowJSON
                     , setPlanningEdits
                     , setStateEdits
+                    , settableStates
                     , sortedForView
                     , subtreeLinks
                     , subtreeText
@@ -1427,28 +1428,29 @@ archived :: HeadlineRecord -> Bool
 archived r = T.toLower archiveTag `elem` tagsOfCell (hrTags r)
 
 -- | The classification chain behind ROWS, made visible: one entry per SOURCE in
--- precedence order, each holding the keywords it is the NEAREST to declare.
+-- precedence order, each holding the keywords it is the WIDEST to declare.
 --
 -- This is 'Data.Org.Config.classify' turned inside out, over the very list that
 -- one folds ('Data.Org.Config.keywordScopes'): that function takes the first
 -- scope with an opinion about a keyword, and this one reports what each scope
--- claims.  Deduplication IS the classification rule — a keyword the file and a
--- tag both declare belongs to the file alone, so it appears in the file's entry
--- and nowhere below it.  A source left with nothing after that is dropped
--- rather than shown empty.
+-- claims.  Deduplication IS the classification rule — a keyword @default@ and a
+-- file both declare belongs to @default@ alone, so it appears in that entry and
+-- nowhere below it.  A source left with nothing after that is dropped rather
+-- than shown empty, which is why a @system.org@ redeclaring TODO and DONE shows
+-- its OTHER keywords and no row at all when it has none.
 --
 -- Each entry's own active\/inactive split is that source's, which is why the
 -- answer classifies as well as enumerates: @system.org@ writing @| READING@
--- puts READING in the system entry's inactive half, and a @book@ config
--- writing it before the bar puts it in the book entry's active half — and the
--- dedup decides which of the two a given row is shown.
+-- puts READING in the system entry's inactive half, and a @book@ config writing
+-- it before the bar reaches a row only where the system layer said nothing.
+-- The dedup decides which of the two a row is shown, and the wider one wins.
 --
 -- What this layer adds to the scopes is the ROWS.  A record supplies its file's
 -- own declarations and its tags, and SEVERAL of them — the marked set — merge
 -- by source NAME: the file entry is the union of those rows' files' own
 -- pragmas, and the tags are every tag any of them carries, in first-seen order
 -- across the rows as given.  Merging costs one property: a keyword one row
--- reaches through its file and another through a tag lands in the NEARER of the
+-- reaches through its file and another through a tag lands in the WIDER of the
 -- two, so the table describes the set rather than any one member of it.  Rows
 -- whose tag ORDER disagrees are resolved the same way, by the merged order.
 --
@@ -1460,11 +1462,11 @@ archived r = T.toLower archiveTag `elem` tagsOfCell (hrTags r)
 -- merge's cost stated as what a reader sees: the table describes the set, and a
 -- keyword belonging to part of it is a refusal naming the row it does not fit.
 keywordSources :: ConfigLayers -> [HeadlineRecord] -> [(Text, TodoKeywords)]
-keywordSources cfg rows = nearest Set.empty (sortOn fst chain)
+keywordSources cfg rows = widest Set.empty (sortOn fst chain)
   where
     -- The one scope whose value differs between rows, merged before the chain
     -- is built.  Every other entry a row contributes is a function of the tag
-    -- or a constant, so a repeat carries the same set — and 'nearest' drops a
+    -- or a constant, so a repeat carries the same set — and 'widest' drops a
     -- repeat by construction, everything it declares being seen already.
     filed   = mergeKeywords (map hrDeclared rows)
     chain   = [ (rank, (source, kw))
@@ -1472,10 +1474,10 @@ keywordSources cfg rows = nearest Set.empty (sortOn fst chain)
               , (rank, source, kw) <- keywordScopes cfg filed (tagsOfCell (hrTags r)) ]
     -- 'sortOn' is stable, so the scopes keep their order and the tags keep the
     -- order the rows named them in.
-    nearest _seen [] = []
-    nearest seen ((_rank, (source, kw)) : rest)
-      | null actives && null inactives = nearest seen rest
-      | otherwise = (source, TodoKeywords actives inactives) : nearest taken rest
+    widest _seen [] = []
+    widest seen ((_rank, (source, kw)) : rest)
+      | null actives && null inactives = widest seen rest
+      | otherwise = (source, TodoKeywords actives inactives) : widest taken rest
       where actives   = filter unseen (tkActive kw)
             inactives = filter unseen (tkInactive kw)
             unseen w  = not (Set.member w seen)
@@ -1493,9 +1495,9 @@ keywordSources cfg rows = nearest Set.empty (sortOn fst chain)
 -- keeps the newline that ends it.  A headline with no keyword asked to drop one
 -- costs no edit.
 --
--- KEYWORD is refused unless R's OWN CHAIN declares it ('settableStates'): the
--- file's @#+TODO:@ lines, the configs of the tags THIS row carries,
--- @system.org@, org's TODO\/DONE.  The bar is the chain rather than the parse's
+-- KEYWORD is refused unless R's OWN CHAIN declares it ('settableStates'): org's
+-- TODO\/DONE, @system.org@, the configs of the tags THIS row carries, the file's
+-- own @#+TODO:@ lines.  The bar is the chain rather than the parse's
 -- recognized set ('hrKeywords') because the chain is what a reader is shown: the
 -- palette draws 'keywordSources' and a state it does not offer is one this row
 -- has no configuration for.  Recognition stays a superset — a word another tag's
@@ -1527,6 +1529,9 @@ setStateEdits cfg (Just keyword) r
 -- word, and the per-source split is where a word sits rather than whether it is
 -- there.  The coupling runs the other way too, and is the point — a change to
 -- what the palette SHOWS a row is a change to what that row may be set to.
+--
+-- Which is why reordering the chain leaves this alone: every scope's words are
+-- here either way, and the order only decides which entry a word came out of.
 settableStates :: ConfigLayers -> HeadlineRecord -> [Text]
 settableStates cfg r =
   [ word | (_source, kw) <- keywordSources cfg [r], word <- tkActive kw <> tkInactive kw ]

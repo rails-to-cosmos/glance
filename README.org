@@ -328,14 +328,24 @@ mis-press cheap.
 
 *The palette is the resolver's answer.* It is a table — =Source= | =Active= |
 =Inactive= — with one row per layer that has something to say about the rows you
-marked, in the order the resolver consults them: the file's own =#+TODO:= line,
-then each of its tags' configs, then =system.org=, then org's built-in
-=TODO=/=DONE=. A keyword shows
-up under the *nearest* layer that declares it and nowhere below it, so the table
+marked, in the order the resolver consults them: =default= (org's own
+=TODO=/=DONE=), then =system.org=, then each of the row's tags' configs, then
+the file's own =#+TODO:= line. A keyword shows
+up under the *widest* layer that declares it and nowhere below it, so the table
 is the classification rule made visible: if =READING= sits in the =book= row,
-=book.org= is what makes it active here, and a file that redeclares it takes it
-into the =file= row instead. Mark rows across two tags and both tags are rows of
-their own.
+=book.org= is what makes it active here, and a file redeclaring it adds nothing
+— =book.org= still answers for it. Mark rows across two tags and both tags are
+rows of their own.
+
+Widest first is deliberate. The vocabulary a whole tree shares is settled at the
+top and a narrower layer *extends* it: =TODO= means what org says it means in
+every file of every tree, =system.org='s cycle means what the tree says in every
+file of it, and a tag or a single document adds words under that. The cost is
+that a file's own =#+TODO:= line can no longer redefine a word a layer above it
+already claimed — =#+TODO: | TODO= in one file leaves that file's =TODO= rows
+active, the way they are everywhere else. What a row may be *set* to is
+unaffected: that is the union of every layer of its chain, and a union has no
+order.
 
 The chain ends there, and what is *not* in it is the recognition union. A
 keyword any layer declares parses as a state in every file under the root — that
@@ -347,7 +357,9 @@ with nobody's opinion attached: unfinished, and in the default view.
 The letters are deterministic. Each entry claims the first letter of *its own
 spelling* that no entry above it took, reading the table left to right and top
 to bottom, out of one =a=–=z= pool — so =TODO= is =t=, =DONE= is =d=, and
-=DELEGATED=, finding =d= gone, is =e=. The claimed letter is *bold where it sits
+=DELEGATED=, finding =d= gone, is =e=. =default= is the first row drawn, so
+=t= and =d= are those two words in every tree and no cycle can take them.
+The claimed letter is *bold where it sits
 in the word*, which is the whole of the explanation. Hairlines fall between the
 source rows, =*clear*= spans a row at the foot, and it takes its letter out of
 the same pool as everything else — =c= where nothing claimed one, =l= where
@@ -369,8 +381,8 @@ own endpoint if you want it directly:
 
 #+begin_src sh
 curl -s 'localhost:7777/keywords?ids=ROW-ID,OTHER-ID'
-# {"sources":[{"source":"book","active":["READING"],"inactive":["READ"]},
-#             {"source":"builtin","active":["TODO"],"inactive":["DONE"]}],
+# {"sources":[{"source":"default","active":["TODO"],"inactive":["DONE"]},
+#             {"source":"book","active":["READING"],"inactive":["READ"]}],
 #  "unknown":[]}
 #+end_src
 

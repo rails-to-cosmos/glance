@@ -17,12 +17,18 @@
 -- (docs\/invariants.md, Parser) still holds — no file's parse can reach
 -- another's.
 --
--- CLASSIFICATION is NEAREST SCOPE ('classify').  Whether a recognized keyword
--- is active or done-like is asked of the file's own @#+TODO:@ first, then of
--- the headline's tags in order, then of @system.org@, and last of org's own
--- TODO\/DONE.  So @READING@ is active because @book.org@ declares it before the
--- bar, and a file that redeclares it after one makes it done-like for its own
--- headlines and nobody else's.
+-- CLASSIFICATION is WIDEST SCOPE ('classify').  Whether a recognized keyword
+-- is active or done-like is asked of org's own TODO\/DONE first, then of
+-- @system.org@, then of the headline's tags in order, and last of the file's
+-- own @#+TODO:@.  So @TODO@ is active in every tree whatever a layer under it
+-- says, and @READING@ is active because @book.org@ declares it before the bar —
+-- the widest scope with an opinion about the word being the one that answers.
+--
+-- A narrower scope ADDS words and shadows none of the wider one's.  A file
+-- redeclaring @READING@ after the bar still parses it as a state and still
+-- offers it, and @book.org@'s answer is the one its rows are classified by:
+-- the vocabulary a reader shares across a tree is decided once, at the top,
+-- and a leaf cannot make a shared word mean something else under it.
 --
 -- The union is NOT a scope.  A keyword only another tag's config names is
 -- recognized in this file — the whole point of the superset — and no scope this
@@ -537,10 +543,19 @@ seedContext cfg = setTodo (Set.fromList (tkActive seed)) (Set.fromList (tkInacti
   where seed = clSeed cfg
 
 -- | The scopes that answer for a headline carrying TAGS in a file whose own
--- @#+TODO:@ lines declare FILEKW, NEAREST FIRST: the file's own declarations,
--- then the headline's tags IN ORDER, then @system.org@, then org's built-in
--- TODO\/DONE.  Each entry is its RANK, the name it answers under and what it
+-- @#+TODO:@ lines declare FILEKW, WIDEST FIRST: org's own TODO\/DONE, then
+-- @system.org@, then the headline's tags IN ORDER, then the file's own
+-- declarations.  Each entry is its RANK, the name it answers under and what it
 -- declares.
+--
+-- WIDEST first is the DEFERRED BOUNDARY: the scope every reader of the tree
+-- shares gets the first word, and each narrower one may add to the vocabulary
+-- without redefining what a wider one already settled.  So @TODO@ means what
+-- org says it means under every tree and in every file, @system.org@'s cycle
+-- means what the tree says it means in every file of it, and a tag or a single
+-- document adds its own words under that.  The old order ran the other way, and
+-- a file redeclaring a shared word made it classify differently from its
+-- neighbours' — a private opinion about a public word.
 --
 -- FOUR scopes and no fifth.  The recognition union ('clSeed') is not one: it
 -- says which words PARSE as states under this root, which is a superset of what
@@ -554,26 +569,29 @@ seedContext cfg = setTodo (Set.fromList (tkActive seed)) (Set.fromList (tkInacti
 -- scope claims, and 'Glance.Query.settableStates' is THAT flattened rather than
 -- a third fold of this — so the active-ness the table shows, the palette a
 -- reader picks a state out of and the words a write is allowed describe one
--- chain by construction.  The rank travels beside the name because
--- a tree may configure a tag called @system@: the two entries stay apart and the
--- tag keeps its own place in the order.
+-- chain by construction.  Only the BUCKET a word sits in moves with the order;
+-- the flattened union is every scope's words either way, so what a row may be
+-- set to is unchanged by it.  The rank travels beside the name because a tree
+-- may configure a tag called @system@: the two entries stay apart and the tag
+-- keeps its own place in the order.
 keywordScopes :: ConfigLayers -> TodoKeywords -> [Text] -> [(Int, Text, TodoKeywords)]
 keywordScopes cfg fileKw tags =
-  (0, fileSource, fileKw)
-    : [ (1, tag, kw) | tag <- tags, Just kw <- [lookup tag (clTags cfg)] ]
-   <> [ (2, systemSource,  clSystem cfg)
-      , (3, builtinSource, builtinKeywords) ]
+  (0, defaultSource, builtinKeywords)
+    : (1, systemSource, clSystem cfg)
+    : [ (2, tag, kw) | tag <- tags, Just kw <- [lookup tag (clTags cfg)] ]
+   <> [ (3, fileSource, fileKw) ]
 
 -- | The names 'keywordScopes' gives the three scopes that are not tags.
 -- Reserved by convention alone: a tag spelled like one of them is still a scope
 -- of its own, at its own rank.
-fileSource, systemSource, builtinSource :: Text
+fileSource, systemSource, defaultSource :: Text
 fileSource    = "file"
 systemSource  = "system"
-builtinSource = "builtin"
+defaultSource = "default"
 
 -- | Org's own two states, which every parse recognizes whatever a tree
--- configures.  Read off 'defaultContext' rather than spelled again, since that
+-- configures and which answer under the name @default@ at the head of the
+-- chain.  Read off 'defaultContext' rather than spelled again, since that
 -- is where org's built-in cycle is declared — and read HERE rather than at each
 -- of the two callers, so the scope 'classify' consults and the scope a palette
 -- shows cannot come to hold different words.
@@ -583,7 +601,9 @@ builtinKeywords = TodoKeywords (Set.toAscList (todoActive defaultContext))
 
 -- | Is KEYWORD an active state on a headline carrying TAGS, in a file whose own
 -- @#+TODO:@ lines declare FILEKW?  The first scope of 'keywordScopes' with
--- anything to say about it answers, and a farther one disagreeing is ignored.
+-- anything to say about it answers, and a NARROWER one disagreeing is ignored:
+-- org's pair outranks the tree's cycle, which outranks a tag's, which outranks
+-- the file's own line.
 --
 -- The final 'True' is REACHED, by exactly the keywords the recognition union
 -- put in reach of this file and no scope of this headline's claims — another

@@ -926,7 +926,7 @@ commandKeySpec shell = testGroup "Shell commands"
   , testCase "C-n walks the fallback list, and the arrows do the same" $
       mapM_ (\key -> bootOf shell "" 500 "C-c C-t" ("press:/ press:" <> key)
                (assertEqual (T.unpack key <> ": stepped to the second entry")
-                            [Just "READING"] <=< keywordsOf))
+                            [Just "DONE"] <=< keywordsOf))
             ["C-n press:Enter", "ArrowDown press:Enter"]
 
     -- One door out of either mode: `/' is entered and never left, so ESC is
@@ -1446,8 +1446,16 @@ sortOf answer = field "sorted" answer >>= said
 whichKeySpec :: IO T.Text -> TestTree
 whichKeySpec shell = testGroup "Shell which-key"
   [ testCase "the assignment, cycle by cycle" $ mapM_ (assigns shell)
-      -- The plain chain: DONE has the d, so DELEGATED falls through to its e.
+      -- The chain as the resolver now draws it: org's pair leads, so TODO takes
+      -- `t' and DONE takes `d' whatever a narrower scope declares, and
+      -- DELEGATED falls through to its own `e'.  The letters a reader learns
+      -- for the two words every tree has are the same in every tree.
       [ ( "TODO,DONE,DELEGATED", ["t@0", "d@0", "e@1"] )
+      -- The same three words drawn the other way round, which is what the old
+      -- nearest-scope order did to a tree whose file or tag declared DELEGATED:
+      -- it claimed `d' and DONE was pushed off it.  Order-only, so the rule did
+      -- not have to change for this to stop happening — the chain did.
+      , ( "DELEGATED,TODO,DONE", ["d@0", "t@0", "o@1"] )
       -- A whole tree's, in the order the producer sends it — actives as
       -- declared, then the done-like ones, then the meta.  Nothing is
       -- special-cased: DONE is `o' for the reason DELEGATED is `e'.
@@ -1464,18 +1472,20 @@ whichKeySpec shell = testGroup "Shell which-key"
       , ( "CANCELLED,*clear*",    ["c@0", "l@2"] ) ]
 
     -- What the reader sees, and why: one row per SOURCE in precedence order,
-    -- its keywords in the Active and Inactive cells, each an accent-boxed key
-    -- token and the word with the claimed letter BOLD WHERE IT SITS — which is
-    -- the whole of the teaching.  The table IS the classify chain: `READING'
-    -- under `book' says which scope answered for it.  The meta spans a row of
-    -- its own at the foot, in the muted italic every starred value wears.
+    -- widest first, its keywords in the Active and Inactive cells, each an
+    -- accent-boxed key token and the word with the claimed letter BOLD WHERE IT
+    -- SITS — which is the whole of the teaching.  The table IS the classify
+    -- chain: `TODO' under `default' and `READING' under `book' say which scope
+    -- answered for each.  Every source is drawn under the NAME it arrives
+    -- under, so the page keeps no table of labels.  The meta spans a row of its
+    -- own at the foot, in the muted italic every starred value wears.
   , testCase "the table draws one row per source, keywords in their cells" $
       bootOf shell "" 500 "C-c C-t" "" $ \answer -> do
         assertEqual "the header, the sources in order, and the meta last"
           [ ("pr ph", "source",   ["active"],      ["inactive"])
-          , ("pr",    "file",     ["l [L]ATER"],   [])
+          , ("pr",    "default",  ["t [T]ODO"],    ["d [D]ONE"])
           , ("pr",    "book",     ["r [R]EADING"], ["e R[E]AD"])
-          , ("pr",    "built-in", ["t [T]ODO"],    ["d [D]ONE"])
+          , ("pr",    "file",     ["l [L]ATER"],   [])
           , ("pr pm", "",         ["c *[c]lear*"], []) ] =<< paletteOf answer
         assertEqual "and the foot names the keys the list cannot draw"
                     "a letter sets it · / to search · ESC leaves"
@@ -1499,11 +1509,11 @@ whichKeySpec shell = testGroup "Shell which-key"
     -- rendering of it.
   , testCase "a set spanning two tags shows both tag sources" $
       bootOf shell "" 500 "" "twotags press:t" $
-        assertEqual "book then film, then the built-in cycle"
+        assertEqual "the default pair, then book, then film"
           [ ("pr ph", "source",   ["active"],       ["inactive"])
+          , ("pr",    "default",  ["t [T]ODO"],     ["d [D]ONE"])
           , ("pr",    "book",     ["r [R]EADING"],  ["e R[E]AD"])
           , ("pr",    "film",     ["w [W]ATCHING"], ["a W[A]TCHED"])
-          , ("pr",    "built-in", ["t [T]ODO"],     ["d [D]ONE"])
           , ("pr pm", "",         ["c *[c]lear*"],  []) ] <=< paletteOf
 
     -- The hues are the producer's and travel on the state column; the
@@ -1511,8 +1521,8 @@ whichKeySpec shell = testGroup "Shell which-key"
     -- up.  A keyword no badge names carries none, and is drawn all the same.
   , testCase "each keyword wears its own badge colour, where there is one" $
       bootOf shell "" 500 "C-c C-t" "" $
-        assertEqual "READING, TODO and DONE have badges; LATER and READ do not"
-          [ ("[R]EADING", "#bb9af7"), ("[T]ODO", "#e0af68"), ("[D]ONE", "#73daca") ]
+        assertEqual "TODO, DONE and READING have badges; LATER and READ do not"
+          [ ("[T]ODO", "#e0af68"), ("[D]ONE", "#73daca"), ("[R]EADING", "#bb9af7") ]
           <=< paletteHues
 
     -- The overlay goes up on the keypress and the answer fills it, so the guard
@@ -1533,11 +1543,11 @@ whichKeySpec shell = testGroup "Shell which-key"
         assertEqual "the box says which mode it is in" "narrow"
           =<< textAt "pmode" answer
         assertEqual "the same entries in the same order, with a cursor and no tokens"
-          [ ("pe pat", "", ["LATER"],   [])
+          [ ("pe pat", "", ["TODO"],    [])
+          , ("pe",     "", ["DONE"],    [])
           , ("pe",     "", ["READING"], [])
           , ("pe",     "", ["READ"],    [])
-          , ("pe",     "", ["TODO"],    [])
-          , ("pe",     "", ["DONE"],    [])
+          , ("pe",     "", ["LATER"],   [])
           , ("pe pm",  "", ["*clear*"], []) ] =<< paletteOf answer
         assertEqual "and the foot names the keys that are live there"
                     "RET sets it · C-n/C-p walks · ESC leaves"
@@ -4438,46 +4448,57 @@ withConfigTree k = withTempDir $ \dir -> do
 --
 -- The chain itself is 'Data.Org.Config.classify' and @TestConfig@ is where the
 -- rule is tested; what is pinned here is the resolution READ FORWARDS — a
--- keyword under the NEAREST source that declares it and nowhere below it — plus
+-- keyword under the WIDEST source that declares it and nowhere below it — plus
 -- how several rows merge and what the route refuses.
 keywordsSpec :: TestTree
 keywordsSpec = testGroup "GET /keywords"
-  [ testCase "the file's own pragma takes a keyword off every source below it" $
+  [ testCase "the default pair leads and every source below it loses those words" $
       withLayeredTree $ \a -> do
         r <- getFrom a "/keywords?ids=filed"
         assertEqual "status" 200 (status r)
-        -- READING is the file's, book's AND pile's; it belongs to the file
-        -- alone, which leaves pile with nothing and so no row.  READ is book's
-        -- and the system layer's, so it stays with the nearer of the two.
-        -- The chain ENDS at the built-ins: `film''s cycle is recognized here,
-        -- since recognition is a superset, and no scope this row reaches claims
-        -- it — so it is neither shown nor settable.
-        assertEqual "file, then book, then the system layer, then org's own"
-          [ ("file",    ["READING"],   [])
-          , ("book",    [],            ["READ"])
-          , ("system",  ["STARTED"],   [])
-          , ("builtin", ["TODO"],      ["DONE"]) ] =<< sourcesOf r
+        -- READING is the file's, book's AND pile's; book is the widest of the
+        -- three to declare it, which leaves pile and the file with nothing and
+        -- so no rows.  READ is the system layer's and book's, and stays with the
+        -- WIDER of the two.  The chain ENDS at the file: `film''s cycle is
+        -- recognized here, since recognition is a superset, and no scope this
+        -- row reaches claims it — so it is neither shown nor settable.
+        assertEqual "org's own, then the system layer, then book"
+          [ ("default", ["TODO"],      ["DONE"])
+          , ("system",  ["STARTED"],   ["READ"])
+          , ("book",    ["READING"],   []) ] =<< sourcesOf r
         assertEqual "and nothing was asked for that is not there" [] =<< textsAt "unknown"
           =<< decoded r
+
+    -- The reorder's display consequence, pinned: `filed' declares READING in its
+    -- own `#+TODO:' and `tagged' does not, and the two now answer ALIKE — the
+    -- word belongs to `book', the widest scope that names it, either way.  Under
+    -- the old chain the file's own line pulled it into a `file' row.
+  , testCase "a file redeclaring a wider scope's word gets no row of its own" $
+      withLayeredTree $ \a -> do
+        filed <- sourcesOf =<< getFrom a "/keywords?ids=filed"
+        assertEqual "the row whose file declares nothing answers the same" filed
+          =<< sourcesOf =<< getFrom a "/keywords?ids=tagged"
+        assertEqual "and no source is named for the file at all" []
+          [ src | (src, _a, _i) <- filed, src == "file" ]
 
   , testCase "the first tag that declares a keyword is the one that keeps it" $
       withLayeredTree $ \a -> do
         -- The same two tags with no file pragma over them: book is named first
         -- on the headline, so READING is book's and pile drops out entirely.
         assertEqual "book, and no pile row at all"
-          [ ("book",    ["READING"],  ["READ"])
-          , ("system",  ["STARTED"],  [])
-          , ("builtin", ["TODO"],     ["DONE"]) ]
+          [ ("default", ["TODO"],     ["DONE"])
+          , ("system",  ["STARTED"],  ["READ"])
+          , ("book",    ["READING"],  []) ]
           =<< sourcesOf =<< getFrom a "/keywords?ids=tagged"
 
-  , testCase "a row no scope speaks for is offered the system layer and org's own" $
+  , testCase "a row no scope speaks for is offered org's own and the system layer" $
       withLayeredTree $ \a ->
         -- Untagged, in a file that declares nothing: the tags' cycles parse
         -- here and no scope this row reaches names one, so the palette stops
         -- where the chain does and neither READING nor WATCHING is on offer.
-        assertEqual "the system layer and org's own, and nothing under them"
-          [ ("system",  ["STARTED"], ["READ"])
-          , ("builtin", ["TODO"],    ["DONE"]) ]
+        assertEqual "org's own and the system layer, and nothing under them"
+          [ ("default", ["TODO"],    ["DONE"])
+          , ("system",  ["STARTED"], ["READ"]) ]
           =<< sourcesOf =<< getFrom a "/keywords?ids=bare"
 
     -- The marked set: one answer over every row it holds, and a tag any of them
@@ -4485,23 +4506,22 @@ keywordsSpec = testGroup "GET /keywords"
   , testCase "two rows under different tags bring both tag sources" $
       withLayeredTree $ \a ->
         assertEqual "book from one, film from the other"
-          [ ("book",    ["READING"],  ["READ"])
-          , ("film",    ["WATCHING"], ["WATCHED"])
-          , ("system",  ["STARTED"],  [])
-          , ("builtin", ["TODO"],     ["DONE"]) ]
+          [ ("default", ["TODO"],      ["DONE"])
+          , ("system",  ["STARTED"],   ["READ"])
+          , ("book",    ["READING"],   [])
+          , ("film",    ["WATCHING"],  ["WATCHED"]) ]
           =<< sourcesOf =<< getFrom a "/keywords?ids=tagged,filmed"
 
-    -- The merge's one cost, stated: READING is under `book' for the tagged row
-    -- alone and under `file' for the one whose file declares it, and the set
-    -- answers with the NEARER of the two.  So the table describes the set
+    -- The merge's one cost, stated: WATCHED is `film''s alone and READ is the
+    -- system layer's, so a set spanning the two rows shows each word under the
+    -- WIDEST source any member reaches it by.  The table describes the set
     -- rather than any one member of it.
-  , testCase "a keyword nearer in one row than another lands in the nearer source" $
+  , testCase "a keyword wider in one row than another lands in the wider source" $
       withLayeredTree $ \a ->
-        assertEqual "the file's, though one of the two rows reaches it by tag"
-          [ ("file",    ["READING"],  [])
-          , ("book",    [],           ["READ"])
-          , ("system",  ["STARTED"],  [])
-          , ("builtin", ["TODO"],     ["DONE"]) ]
+        assertEqual "one answer over both rows, widest source first"
+          [ ("default", ["TODO"],     ["DONE"])
+          , ("system",  ["STARTED"],  ["READ"])
+          , ("book",    ["READING"],  []) ]
           =<< sourcesOf =<< getFrom a "/keywords?ids=tagged,filed"
 
     -- The command route's convention: an id the store has no row for is named
@@ -4513,9 +4533,9 @@ keywordsSpec = testGroup "GET /keywords"
         assertEqual "status" 200 (status r)
         assertEqual "the ones that are gone" ["nosuch"] =<< textsAt "unknown" =<< decoded r
         assertEqual "resolved for the one that is not"
-          [ ("book",    ["READING"],  ["READ"])
-          , ("system",  ["STARTED"],  [])
-          , ("builtin", ["TODO"],     ["DONE"]) ] =<< sourcesOf r
+          [ ("default", ["TODO"],     ["DONE"])
+          , ("system",  ["STARTED"],  ["READ"])
+          , ("book",    ["READING"],  []) ] =<< sourcesOf r
 
   , testCase "every id unknown resolves nothing and still says which" $
       withLayeredTree $ \a -> do
@@ -4530,18 +4550,18 @@ keywordsSpec = testGroup "GET /keywords"
     -- the singular key `POST /command' also takes.
   , testCase "ids repeat, ids comma-separate, id is one, and none is a 400" $
       withLayeredTree $ \a -> do
-        let both = [ ("book",    ["READING"],  ["READ"])
-                   , ("film",    ["WATCHING"], ["WATCHED"])
-                   , ("system",  ["STARTED"],  [])
-                   , ("builtin", ["TODO"],     ["DONE"]) ]
+        let both = [ ("default", ["TODO"],     ["DONE"])
+                   , ("system",  ["STARTED"],  ["READ"])
+                   , ("book",    ["READING"],  [])
+                   , ("film",    ["WATCHING"], ["WATCHED"]) ]
         assertEqual "repeated" both
           =<< sourcesOf =<< getFrom a "/keywords?ids=tagged&ids=filmed"
         assertEqual "and mixed with the comma form" both
           =<< sourcesOf =<< getFrom a "/keywords?ids=tagged&id=filmed"
         assertEqual "the singular spelling answers for one"
-          [ ("book",    ["READING"],  ["READ"])
-          , ("system",  ["STARTED"],  [])
-          , ("builtin", ["TODO"],     ["DONE"]) ]
+          [ ("default", ["TODO"],     ["DONE"])
+          , ("system",  ["STARTED"],  ["READ"])
+          , ("book",    ["READING"],  []) ]
           =<< sourcesOf =<< getFrom a "/keywords?id=tagged"
         r <- getFrom a "/keywords"
         assertEqual "status" 400 (status r)
@@ -4552,9 +4572,9 @@ keywordsSpec = testGroup "GET /keywords"
       r <- withLayeredTree (\a -> postTo a "/keywords" "{}")
       assertEqual "status" 405 (status r)
 
-    -- A tree may configure a tag called `system', and the four reserved names
+    -- A tree may configure a tag called `system', and the three reserved names
     -- are not taken out of the tag namespace to stop it.  The entries stay
-    -- apart — a tag keeps its tag RANK, so it sits above the system layer the
+    -- apart — a tag keeps its tag RANK, so it sits BELOW the system layer the
     -- way any other tag does — and the precedence order is what tells the two
     -- rows named alike apart.
   , testCase "a tag spelled like a reserved source keeps its own rank" $
@@ -4564,10 +4584,10 @@ keywordsSpec = testGroup "GET /keywords"
         _ <- orgFile dir "a.org" (T.unlines
                [ "* one :system:", ":PROPERTIES:", ":ORG_GLANCE_ID: only", ":END:" ])
         (a, _hub) <- serverOver dir
-        assertEqual "the tag first, keeping SHELVED, then the layer it shadows"
-          [ ("system",  ["PLANNED"], ["SHELVED"])
-          , ("system",  ["STARTED"], [])
-          , ("builtin", ["TODO"],    ["DONE"]) ]
+        assertEqual "org's own, then the layer keeping SHELVED, then the tag it shadows"
+          [ ("default", ["TODO"],    ["DONE"])
+          , ("system",  ["STARTED"], ["SHELVED"])
+          , ("system",  ["PLANNED"], []) ]
           =<< sourcesOf =<< getFrom a "/keywords?ids=only"
   ]
 

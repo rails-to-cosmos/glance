@@ -458,15 +458,17 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   rejected.
 - `GET /keywords?ids=A,B` is the state palette's source of truth:
   `{sources: [{source, active, inactive}], unknown: […]}`, one entry per SOURCE
-  in precedence order over the ROWS named — `file`, then their tags in row
-  order, then `system`, then `builtin` — with each keyword under
-  the NEAREST source that declares it and nowhere below it
+  in precedence order over the ROWS named — `default`, then `system`, then their
+  tags in row order, then `file` — with each keyword under
+  the WIDEST source that declares it and nowhere below it
   (`Glance.Query.keywordSources`, which is `classify` read forwards; the dedup
-  IS the classification rule). A source left empty is dropped. FOUR sources and
+  IS the classification rule). A source left empty is dropped, so a `system.org`
+  redeclaring TODO/DONE shows its other keywords and no row when it has none.
+  FOUR sources and
   no `union` row: the recognition seed is not a scope, so another tag's cycle is
   neither shown nor settable on a row that does not carry the tag. Over ONE row
   the answer IS `setStateEdits`' rule. Several ids merge by source NAME, so a
-  keyword one row reaches by file and another by tag lands in the NEARER — the
+  keyword one row reaches by file and another by tag lands in the WIDER — the
   table describes the SET rather than any one member of it, and a keyword only
   part of the set reaches is offered and refused with a 400 naming the row.
   Three reserved names
@@ -858,9 +860,11 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - `t`/`C-c C-t` raise a value palette of the shell's OWN, and what it shows is
   the RESOLVER'S TRUTH: `GET /keywords?ids=…` answers with the classification
   chain behind those rows, and the palette draws it as a table — Source |
-  Active | Inactive, one row per source in precedence order, `*clear*` spanning
-  a row of its own at the foot — FOUR sources at most (`file`, tags, `system`,
-  `built-in`), no `union` row. The keywords are the server's, never the state
+  Active | Inactive, one row per source in precedence order (widest first, so
+  `default` leads), `*clear*` spanning
+  a row of its own at the foot — FOUR sources at most (`default`, `system`,
+  tags, `file`), no `union` row, each drawn under the NAME it arrived under.
+  The keywords are the server's, never the state
   column's `badges` (a superset that says nothing about where a keyword came
   from) and never its `values` (`*active*` is not a keyword); only the HUES are
   read off the badges, by value. What it shows IS what is settable — one chain
@@ -927,7 +931,8 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   takes the INDEX of the first letter of its OWN spelling, downcased, that no
   earlier entry claimed — one `a`–`z` pool, `-1` for none left, so `TODO DONE
   DELEGATED` = `t d e`. Pure and order-only, so a tree's cycle always yields the
-  same letters. One pool over the WHOLE table, so a letter is the reader's
+  same letters, and `default` leading the draw is what gives `TODO` `t` and
+  `DONE` `d` in every tree. One pool over the WHOLE table, so a letter is the reader's
   wherever in it the keyword sits, and the fallback narrows that same list.
   `*clear*` is in the pool with no privilege for being last (stars
   are not letters, so `c`, else `l`, `e`…). `setChoices` folds the letter into
@@ -1123,10 +1128,22 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 
 - Recognition unions system + tag configs + file pragmas (superset — a
   keyword declared anywhere parses everywhere); classification is
-  nearest-scope: file > tags (first wins) > system > built-in. FOUR scopes:
+  widest-scope: `default` (org's TODO/DONE) > system > tags (first wins) > file.
+  FOUR scopes:
   the recognition union is NOT one of them, so a keyword only another tag's
   config names is unclassified here (`classify`'s fallback, active), shown by no
   palette and settable on no row that does not reach it.
+  WIDEST-FIRST IS THE DEFERRED BOUNDARY, and it inverts what a file's own
+  `#+TODO:` buys: the shared scope settles a word once and a narrower one
+  extends the vocabulary without redefining it, so `#+TODO: | TODO` in a file no
+  longer makes that file's `TODO` rows done-like and a `book` row's `READING`
+  answers to `book.org` over its own file's line. A tag called `system` still
+  keeps its TAG rank and so now sits BELOW the system layer. SETTING is
+  unchanged in content — `settableStates` is the chain flattened and a union has
+  no order — so the reorder moved which source SHOWS a word and no word a row
+  may be set to. Letters fall out of it: `default` drawing first makes `TODO` =
+  `t` and `DONE` = `d` in every tree, and a `DELEGATED` under any narrower scope
+  cannot claim `d`.
   Config lives at `<root>/.org-glance/config/{system.org,tags/*.org}`,
   is never a row source, and a config change reseeds and reloads the
   world (debounced, view-changed follows). The chain is ONE list,
@@ -1139,8 +1156,8 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   cannot hold different words. `GET /keywords` serves that chain per row, which
   is what the state palette draws.
 - SET-STATE LEGALITY IS THE ROW'S CHAIN, not its file's recognized set: a
-  keyword is settable only where the file's own `#+TODO:`, one of THAT row's
-  tags' configs, `system.org` or org's cycle declares it. Whole-request 400
+  keyword is settable only where org's cycle, `system.org`, one of THAT row's
+  tags' configs or the file's own `#+TODO:` declares it. Whole-request 400
   naming the keyword and the row when any named row's chain lacks it, so a
   marked set spanning tags is refused for the member it does not fit. The
   palette is the truth — over one row what `/keywords` offers is exactly what a

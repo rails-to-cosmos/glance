@@ -388,9 +388,9 @@ keyTest _env key (Col i) value
   where
     cell = cellOf i
     -- The two meta-values SCHEMA.md lets a producer add.  Group membership is
-    -- resolved at LOAD, per row, by the nearest scope that classifies the
-    -- keyword — the row's file, then its tags' configs, then the system layer,
-    -- then org's TODO/DONE ('Data.Org.Config.classify') — and arrives here as
+    -- resolved at LOAD, per row, by the widest scope that classifies the
+    -- keyword — org's TODO/DONE, then the system layer, then the row's tags'
+    -- configs, then its file ('Data.Org.Config.classify') — and arrives here as
     -- 'hrActive'.  Each answers to two spellings — org-glance writes the groups
     -- `*active*' and `*inactive*', and the view offers those
     -- ('Glance.Query.stateValues') — so the stars come off before the

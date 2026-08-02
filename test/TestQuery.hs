@@ -32,8 +32,8 @@ import Glance.Query ( ConfigLayers (..), HeadlineParts (..), HeadlineRecord (..)
                     , loadDirFilesSerially, loadDirFilesWith, loadFile, matchesSearch
                     , noConfig, orgLinks
                     , planningTimestamp, readsAsTimestamp, recomposedSubtree
-                    , setPlanningEdits, setStateEdits, subtreeLinks, subtreeText
-                    , viewJSON )
+                    , setPlanningEdits, setStateEdits, settableStates, subtreeLinks
+                    , subtreeText, viewJSON )
 
 -- Fixtures
 
@@ -1318,12 +1318,23 @@ commandSpec = testGroup "Commands"
           let shown = [ w | (_source, kw) <- keywordSources layered [r]
                           , w <- tkActive kw <> tkInactive kw ]
           assertEqual "every rung of this row's chain is on offer"
-                      [ "NEXT", "WAITING", "CANCELLED"   -- the file's own
-                      , "READING", "READ"                -- its `book' tag's
+                      [ "TODO", "DONE"                   -- org's own
                       , "STARTED"                        -- system.org's
-                      , "TODO", "DONE" ]                 -- org's own
+                      , "READING", "READ"                -- its `book' tag's
+                      , "NEXT", "WAITING", "CANCELLED" ] -- the file's own
                       shown
           accepts r shown
+
+      -- What the chain's ORDER costs a write: nothing.  The scopes were
+      -- reordered widest-first and the offer is their union either way, so the
+      -- words this row may be put into are the words it could be put into
+      -- before — only the source each is shown under moved.
+    , testCase "and the reorder moved which source shows a word, never the set" $
+        withRecord (keyworded "* NEXT Plain :book:\n") $ \r ->
+          assertEqual "the same eight words the nearest-scope chain offered"
+                      (sort [ "NEXT", "WAITING", "CANCELLED", "READING", "READ"
+                            , "STARTED", "TODO", "DONE" ])
+                      (sort (settableStates layered r))
 
       -- The state column ships these two as filter vocabulary beside its
       -- badges.  No file declares one, so no file can be put into one.

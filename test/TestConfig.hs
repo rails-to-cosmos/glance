@@ -3,7 +3,7 @@
 --
 -- The two questions are tested apart on purpose, because they answer
 -- differently.  Recognition is a UNION over every layer and reaches every file
--- under the root; classification is NEAREST SCOPE and reaches one headline.  A
+-- under the root; classification is WIDEST SCOPE and reaches one headline.  A
 -- change that collapses them passes half of this module and fails the other.
 module TestConfig (spec) where
 
@@ -234,35 +234,57 @@ recognitionSpec = testGroup "Recognition"
 
 -- Classification
 
--- | Whether a recognized keyword is active is answered by the NEAREST scope:
--- the file's own @#+TODO:@, then the headline's tags in order, then the system
--- layer, then org's TODO\/DONE, then the union.
+-- | Whether a recognized keyword is active is answered by the WIDEST scope:
+-- org's TODO\/DONE, then the system layer, then the headline's tags in order,
+-- then the file's own @#+TODO:@.  The union answers nowhere.
 classificationSpec :: TestTree
 classificationSpec = testGroup "Classification"
-  [ testCase "the file's own pragma outranks the tag config" $
+  [ testCase "the tag config outranks the file's own pragma" $
       withRows Nothing [("book.org", bookConfig)]
                -- book.org calls READING active; this file calls it done-like,
-               -- and the headline wears the tag that would have said otherwise.
+               -- and the headline wears the tag.  The tag is the wider scope, so
+               -- the file's private opinion about a shared word is not applied.
                [("a.org", "#+TODO: | READING\n* READING done with it :book:\n")] $ \rows ->
-      assertEqual "the file wins" [(Just "READING", Just False)] (states rows)
+      assertEqual "the tag wins" [(Just "READING", Just True)] (states rows)
 
-  , testCase "the tag config outranks the system layer" $
+  , testCase "the system layer outranks the tag config" $
       withRows (Just "#+TODO: | READING\n") [("book.org", bookConfig)]
                [ ("a.org", "* READING tagged :book:\n")
                , ("b.org", "* READING untagged\n") ] $ \rows ->
-      -- Tagged: book.org answers, active.  Untagged: nothing nearer than the
-      -- system layer has anything to say, and it says done-like.
-      assertEqual "tag then system"
-                  [(Just "READING", Just True), (Just "READING", Just False)] (states rows)
+      -- The tree said READING is done-like, so it is done-like in both rows:
+      -- carrying the `book' tag no longer buys a row a different answer about a
+      -- word the layer above it already settled.
+      assertEqual "the system layer, tagged or not"
+                  [(Just "READING", Just False), (Just "READING", Just False)] (states rows)
 
-  , testCase "the system layer outranks org's own TODO and DONE" $
-      withRows (Just "#+TODO: | TODO\n") [] [("a.org", "* TODO not work here\n")] $ \rows ->
-      assertEqual "system wins over the builtin" [(Just "TODO", Just False)] (states rows)
+  , testCase "org's own TODO and DONE outrank every layer under them" $
+      -- The system layer puts TODO after the bar; org's pair is the widest
+      -- scope and answers first, so TODO is work here as it is everywhere.
+      withRows (Just "#+TODO: | TODO\n") [] [("a.org", "* TODO still work here\n")] $ \rows ->
+      assertEqual "the default pair wins" [(Just "TODO", Just True)] (states rows)
 
-  , testCase "and with no layer at all the builtin is what answers" $
+  , testCase "and with no layer at all the default pair is what answers" $
       withRows Nothing [] [("a.org", "* TODO one\n* DONE two\n")] $ \rows ->
       assertEqual "TODO active, DONE not"
                   [(Just "TODO", Just True), (Just "DONE", Just False)] (states rows)
+
+    -- The reorder's cost, pinned where a reader meets it: a file redeclaring a
+    -- word a wider scope already settled keeps the word RECOGNIZED and loses
+    -- the redefinition.  Under the old nearest-scope chain both of these
+    -- classified the file's way.
+  , testCase "a file redeclaring a wider scope's word does not move its rows" $
+      withRows (Just "#+TODO: STARTED | SHELVED\n") []
+               [ ("a.org", "#+TODO: | TODO\n* TODO org's answer stands\n")
+               , ("b.org", "#+TODO: SHELVED |\n* SHELVED the tree's answer stands\n") ] $
+        \rows ->
+      assertEqual "the default pair and then the system layer"
+                  [(Just "TODO", Just True), (Just "SHELVED", Just False)] (states rows)
+
+  , testCase "and the word it redeclares still parses as a state" $
+      withRows (Just "#+TODO: STARTED | SHELVED\n") []
+               [("b.org", "#+TODO: SHELVED |\n* SHELVED the tree's answer stands\n")] $ \rows ->
+      assertEqual "the keyword did not land in the title"
+                  ["the tree's answer stands"] (titles rows)
 
   , testCase "the first tag with anything to say about the keyword wins" $ do
       let reading  = "#+TODO: TODO READING |\n"          -- active
@@ -298,23 +320,24 @@ classificationSpec = testGroup "Classification"
         \rows -> assertEqual "neither" [(Nothing, Nothing)] (states rows)
 
   , testCase "the resolver is the rule, and it is total" $ do
-      -- The chain, exercised where the fixtures cannot reach: a keyword in no
-      -- layer whatsoever still has to come back with an answer.
-      let cfg = ConfigLayers { clSystem  = TodoKeywords [] ["TODO"]
+      -- The chain, exercised where the fixtures cannot reach: every rung is the
+      -- winner over a narrower one that disagrees, and a keyword in no layer
+      -- whatsoever still has to come back with an answer.
+      let cfg = ConfigLayers { clSystem  = TodoKeywords [] ["TODO", "STARTED"]
                              , clTags    = [("book", TodoKeywords ["READING"] [])]
-                             , clSeed    = TodoKeywords ["READING"] ["TODO"]
+                             , clSeed    = TodoKeywords ["READING", "STARTED"] ["TODO"]
                              , clFilter  = Nothing
                              , clCapture = Nothing
                              , clPrint   = ""
                              , clDirs    = [] }
-          file = TodoKeywords [] ["READING"]
-      assertEqual "file first" False (classify cfg file ["book"] "READING")
-      assertEqual "then the tag" True (classify cfg noKeywords ["book"] "READING")
-      assertEqual "then the system" False (classify cfg noKeywords [] "TODO")
-      assertEqual "then the builtin" False (classify cfg noKeywords [] "DONE")
+          file = TodoKeywords ["STARTED"] ["READING"]
+      assertEqual "the default pair first" True (classify cfg file ["book"] "TODO")
+      assertEqual "then the system layer" False (classify cfg file ["book"] "STARTED")
+      assertEqual "then the tag" True (classify cfg file ["book"] "READING")
+      assertEqual "and last the file" False (classify cfg file [] "READING")
       -- And no fifth scope: the seed names READING and the chain stops at the
-      -- built-ins, so an untagged row takes the fallback rather than the layer
-      -- that happened to declare it.
+      -- file, so a row reaching neither takes the fallback rather than the
+      -- layer that happened to declare it.
       assertEqual "the seed is not a scope" True (classify cfg noKeywords [] "READING")
       assertEqual "and a word nothing names is active" True (classify cfg noKeywords [] "NOPE")
   ]
@@ -723,11 +746,11 @@ absenceSpec = testGroup "No config"
       bare <- loadFile path >>= either (assertFailure . show) pure
       assertEqual "row for row" (map shape bare) (map shape rows)
 
-  , testCase "and its rows classify by the file and the builtin alone" $
+  , testCase "and its rows classify by the default pair and the file alone" $
       withTempDirNamed "config" $ \dir -> do
       _ <- orgFile dir "a.org" "#+TODO: NEXT | GONE\n* NEXT one\n* GONE two\n* TODO three\n"
       (_cfg, rows) <- loaded dir
-      assertEqual "the file's two, then org's own"
+      assertEqual "the file's two, and org's own over them"
                   [ (Just "NEXT", Just True), (Just "GONE", Just False)
                   , (Just "TODO", Just True) ]
                   (states rows)

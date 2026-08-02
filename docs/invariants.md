@@ -362,14 +362,14 @@ on.
 
 ## Keyword configuration (layered)
 
-- **Recognition is a superset; classification is nearest-scope.** The parse
+- **Recognition is a superset; classification is widest-scope.** The parse
   seed for every file unions `defaultContext` with `#+TODO:` sets read from
   `<root>/.org-glance/config/system.org` (when present) and
   `config/tags/*.org` (tag name = filename), so a keyword declared anywhere
   parses as a state everywhere — the STARTED-in-title misparse class ends
-  here. Active-vs-inactive resolves per headline by nearest scope: file
-  pragma > its tags' configs (first tag wins) > system > built-in
-  TODO/DONE; the palette and the `state:*active*` metas consult the
+  here. Active-vs-inactive resolves per headline by WIDEST scope: `default`
+  (org's own TODO/DONE) > system > its tags' configs (first tag wins) > file
+  pragma; the palette and the `state:*active*` metas consult the
   resolver, while parse-time `Todo.active` keeps its position-dependent
   snapshot semantics. The chain is ONE list — `keywordScopes`, an entry per
   scope carrying its rank, the name it answers under and what it declares —
@@ -381,8 +381,29 @@ on.
   reader, so the scope that classifies and the scope a palette shows cannot come
   to hold different words. Evidence: `src/Data/Org/Config.hs`, `TestConfig`.
   Breaks: dropping the recognition seed re-scatters foreign-keyword headlines
-  into titles; flipping the precedence misclassifies file-local overrides.
+  into titles; flipping the precedence moves every keyword's bucket.
   **test + corpus** (`scan` reports `config keywords`)
+- **Widest-first is the DEFERRED BOUNDARY, and it inverts what a file's own
+  `#+TODO:` buys.** The chain ran file > tags > system > builtin until
+  2026-08-02 and now runs default > system > tags > file, for `classify` and
+  for the `/keywords` draw alike — one rule, read forwards. What the order buys:
+  the scope every reader of a tree shares settles a word once, and a narrower
+  scope EXTENDS the vocabulary without redefining it, so `TODO` means what org
+  says it means in every file of every tree and `system.org`'s cycle means what
+  the tree says in every file of it. What it costs, stated honestly: a file
+  redeclaring a word a wider scope already settled keeps the word RECOGNIZED and
+  loses the redefinition — `#+TODO: | TODO` no longer makes that file's `TODO`
+  rows done-like, and a `book`-tagged row's `READING` answers to `book.org` over
+  its own file's line. SETTING is untouched in content: `settableStates` is the
+  chain FLATTENED and a union has no order, so every word a row could be put
+  into before it can be put into now; what moved is which source shows it, which
+  is a DISPLAY change with a write-legality footprint of exactly zero. Evidence:
+  `TestConfig` "the tag config outranks the file's own pragma", "org's own TODO
+  and DONE outrank every layer under them", "a file redeclaring a wider scope's
+  word does not move its rows"; `TestQuery` "and the reorder moved which source
+  shows a word, never the set"; `TestServe` "a file redeclaring a wider scope's
+  word gets no row of its own". Breaks: putting file first re-opens the private
+  opinion about a public word. **test**
 - **The recognition union is NOT a scope, and that is the whole of what it is
   not.** `clSeed` feeds `seedContext` and nothing else: it is absent from
   `keywordScopes`, so no headline is classified by it, no `/keywords` answer has
@@ -403,13 +424,15 @@ on.
 - **`GET /keywords` is `keywordScopes` read forwards, and the dedup IS the
   rule.**
   `?ids=A,B` answers `{sources: [{source, active, inactive}], unknown}`: one
-  entry per SOURCE in precedence order over the rows named — `file`, then their
-  tags in row order, then `system`, then `builtin` — with each
-  keyword under the NEAREST source that declares it and nowhere below it, and a
-  source left with nothing dropped rather than shown empty. Each entry's own
+  entry per SOURCE in precedence order over the rows named — `default`, then
+  `system`, then their tags in row order, then `file` — with each
+  keyword under the WIDEST source that declares it and nowhere below it, and a
+  source left with nothing dropped rather than shown empty. So `default` always
+  leads with org's TODO/DONE and a `system.org` redeclaring the pair shows its
+  OTHER keywords and no row at all when it has none. Each entry's own
   active/inactive split is that source's, so the answer classifies as well as
-  enumerates: `READING` under `book` and `READ` under `book` rather than
-  `system` is `classify` saying which scope answered. FOUR sources and no
+  enumerates: `READING` under `book` rather than under the row's own `file` is
+  `classify` saying which scope answered. FOUR sources and no
   `union` row: the recognition seed is not a scope, so a keyword only another
   tag's config names is offered nowhere and settable nowhere it is not
   configured. Over ONE row the offer IS `setStateEdits`' rule, `settableStates`
@@ -426,7 +449,7 @@ on.
   marked set is one answer: the `file` entry is the union of those rows' files'
   own pragmas, and the tags are every tag any of them carries in first-seen
   order across the rows as given. So a keyword one row reaches through its file
-  and another through a tag lands in the NEARER of the two, and rows whose tag
+  and another through a tag lands in the WIDER of the two, and rows whose tag
   ORDER disagrees are resolved by the merged order — the table describes the
   SET rather than any one member of it. The second cost is new with the
   tightening: a keyword only PART of the set reaches is offered for the set, and
@@ -436,9 +459,9 @@ on.
   tag's cycle, and the reader is better told which row refused. The three
   reserved names are not taken
   out of the tag namespace: a tag called `system` keeps its TAG rank, so it
-  still sits above the system layer, and the table shows the name twice with
+  now sits BELOW the system layer, and the table shows the name twice with
   the precedence order to tell them apart. Evidence: `TestServe` "a keyword
-  nearer in one row than another lands in the nearer source", "a tag spelled
+  wider in one row than another lands in the wider source", "a tag spelled
   like a reserved source keeps its own rank", "a marked set spanning tags is
   refused for the row that cannot take it". **test**
 - **`hrDeclared` is stored because it is not recoverable, and forced because it
@@ -446,7 +469,7 @@ on.
   file's OWN `#+TODO:` sets beside the recognized union (`hrKeywords`): a file
   redeclaring a seeded keyword the other way adds nothing to the union it
   disagrees with, so the difference of the two loses exactly the case the
-  nearest-scope rule exists for. One value shared per file, like the union
+  widest-scope rule exists for. One value shared per file, like the union
   beside it — and through the same `forcedKeywords`, because a `TodoKeywords`
   field is strict only to WHNF: the first cons cell. An unforced set is a thunk
   over the file's `[Spanned Element]`, so storing one would pin the whole parse
@@ -2264,11 +2287,18 @@ on.
   `TODO` `DONE` `DELEGATED` is `t` `d` `e`, and a whole cycle
   `TODO NEXT STARTED WAITING DELEGATED CANCELLED DONE *clear*` is
   `t n s w d c o l`. Order-only and side-effect-free, so one tree's cycle always
-  yields the same letters and the muscle memory holds. `*clear*` is in the pool
+  yields the same letters and the muscle memory holds — and since the chain
+  draws `default` first, `TODO` takes `t` and `DONE` takes `d` in EVERY tree,
+  whatever a narrower scope declares. `DELEGATED` sitting in a tag's or a file's
+  cycle cannot claim `d` ahead of it, which the reordered chain buys for free
+  rather than by special-casing the pool. `*clear*` is in the pool
   like any other entry and gets no privilege for being last: its stars are not
   letters, so it is `c` where nothing took one and falls through `l`, `e`, `a`,
   `r` where something did. An unbound entry draws a muted `·` and is reachable
-  through `/` alone. `setChoices` folds the letter into each entry once, so the drawing
+  through `/` alone — and the reorder made one reachable on ~/sync: a `book` row
+  spends `t d e p s c r a` on `default` and `system` before `READ`, whose four
+  letters are all gone by then, so it draws the `·`. That is the price of a
+  finite pool with the shared scopes drawn first, and `/` is what pays it. `setChoices` folds the letter into each entry once, so the drawing
   and the dispatch read ONE FIELD of one object and a letter drawn cannot drift
   from a letter honoured — a parallel array would have to stay indexed against
   `shown`, which narrows, rather than `choices`, which does not. Evidence:
@@ -2289,7 +2319,9 @@ on.
   muted italic every starred meta wears, since no scope declares taking a
   keyword off. The source cell is the muted small lowercase a tag wears
   everywhere else on this page, whether it holds a tag or one of the reserved
-  labels (`file`, `system`, `built-in`). The foot names the keys the
+  labels (`default`, `system`, `file`), and every source is drawn under the NAME
+  it arrived under — the page keeps no label table to hold in step. The foot
+  names the keys the
   table cannot draw
   for itself — `a letter sets it · / to search · ESC leaves`, and the fallback's
   own line in its own mode. Evidence: `TestServe` "Shell which-key". **test**
