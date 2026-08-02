@@ -20,8 +20,9 @@ import Glance.Query ( HeadlineRecord (..), QueryResult (qrRecords), displayText
                     , loadDir, matchesSearch, refTargetOf, refTargets, tagsOfCell
                     , viewJSON )
 import Glance.Web.Filter ( FilterEnv, Term (..), Token (..), archiveKey, cellAt
-                         , filterKeys, matchesFilter, namesArchive, parseFilter
-                         , plannedKey, refKey, scanQuery, storeEnv, tagsEnv )
+                         , emptyEnv, filterKeys, matchesFilter, namesArchive
+                         , parseFilter, plannedKey, refKey, scanQuery, storeEnv
+                         , tagsKey )
 
 -- Fixtures
 --
@@ -42,14 +43,14 @@ titleOf Plain  = "Plain headline without a state"
 titleOf Drop   = "Drop the old renderer"
 titleOf Schema = "Read the schema"
 
--- | The tags the fixture's rows carry, which is the vocabulary its virtual
--- filter keys come from — derived here the way the store derives it.
+-- | The tags the fixture's rows carry, derived here the way the store derives
+-- its own list.  No predicate reads it any more — an org tag is not a key — and
+-- what it is still for is saying so ('tagsSpec').
 vocabularyOf :: [HeadlineRecord] -> [Text]
 vocabularyOf = sort . nub . concatMap (tagsOfCell . hrTags)
 
 -- | The environment RECORDS answer as, which is what a store hands the filter:
--- their tags as the virtual keys, and themselves as what a @ref:@ resolves
--- against.
+-- the rows themselves, as what a @ref:@ resolves against.
 envOf :: [HeadlineRecord] -> FilterEnv
 envOf records = storeEnv (vocabularyOf records) records
 
@@ -71,7 +72,7 @@ matches q rows = assertEqual (T.unpack q) rows =<< matching q
 
 spec :: TestTree
 spec = testGroup "Filter"
-  [ tokenSpec, predicateSpec, virtualSpec, plannedSpec, archiveSpec, shapeSpec
+  [ tokenSpec, predicateSpec, tagsSpec, plannedSpec, archiveSpec, shapeSpec
   , degenerateSpec
   , targetSpec, refSpec
   , layoutSpec ]
@@ -192,10 +193,10 @@ refSpec = testGroup "References"
   [ testCase "the key is spelled once, and it is not a column" $ do
       assertEqual "the key" "ref" refKey
       assertBool "and no column carries it" (refKey `notElem` filterKeys)
-      -- Known with no vocabulary behind it, the way `planned' is: the store
-      -- decides what it RESOLVES to, never whether it parses.
-      assertEqual "a predicate without a vocabulary"
-                  [Term False (Just "ref") "alpha"] (parseFilter [] "ref:alpha")
+      -- Named by the grammar, the way `planned' is: the store decides what it
+      -- RESOLVES to, never whether it parses.
+      assertEqual "a predicate wherever it is written"
+                  [Term False (Just "ref") "alpha"] (parsed "ref:alpha")
 
   , testCase "an id link makes the row that carries it a reference" $
       assertEqual "by id" ["By id"] =<< refMatching "ref:alpha"
@@ -247,11 +248,11 @@ refSpec = testGroup "References"
           , matchesFilter (envOf records) ("ref:alpha ref:" <> rid) r ]
 
   , testCase "without a store behind it a ref resolves to nothing" $ do
-      -- `tagsEnv' is what a caller holding no rows answers with: the term still
-      -- parses as a predicate, and matches no row.
+      -- `emptyEnv' is what a caller holding no rows answers with: the term
+      -- still parses as a predicate, and matches no row.
       records <- qrRecords <$> loadDir viewDir
       assertEqual "no rows" []
-        [ hrTitle r | r <- records, matchesFilter (tagsEnv []) "ref:alpha" r ]
+        [ hrTitle r | r <- records, matchesFilter emptyEnv "ref:alpha" r ]
   ]
 
 -- | @planned@: the virtual key over the two date columns together.
@@ -266,10 +267,10 @@ plannedSpec = testGroup "Planned"
   [ testCase "the key is spelled once, and it is not a column" $ do
       assertEqual "the key" "planned" plannedKey
       assertBool "and no column carries it" (plannedKey `notElem` filterKeys)
-      -- Known without a vocabulary, where a tag key is not: it stands over the
-      -- columns rather than over the tree's tags.
+      -- Named by the grammar rather than by the tree: it stands over the
+      -- columns, and nothing a tree carries can add a key or take one away.
       assertEqual "a predicate with nothing loaded"
-                  [Term False (Just "planned") "none"] (parseFilter [] "planned:none")
+                  [Term False (Just "planned") "none"] (parsed "planned:none")
 
   , testCase "a row is planned when either date cell holds anything" $ do
       matches "-planned:none" [Ship, Privet, Reply]
@@ -302,13 +303,11 @@ plannedSpec = testGroup "Planned"
       matches "state:*inactive* -planned:none" []
       matches "-planned:2026-08" [Plain, Drop, Schema]
 
-  , testCase "a column of that name would shadow it, and no column has one" $
-      -- The rule is stated the way the tag rule is: a key resolves once, and
-      -- `planned' is looked up ahead of the vocabulary, so a tree tagged
-      -- `:planned:' does not take the key away.
-      assertEqual "the virtual key wins over a tag spelled alike"
-                  [Term False (Just "planned") "none"]
-                  (parseFilter ["planned"] "planned:none")
+  , testCase "a tree tagged :planned: cannot take the key away" $
+      -- There is nothing left to shadow: a tag is not a key, so the only
+      -- reading of the token is the date one.
+      assertEqual "still the date key" [Term False (Just "planned") "none"]
+                  (parsed "planned:none")
   ]
 
 -- | Which queries turn the served view's archive exclusion off
@@ -317,89 +316,100 @@ plannedSpec = testGroup "Planned"
 -- query, since it is the grammar answering.
 archiveSpec :: TestTree
 archiveSpec = testGroup "Archive key"
-  [ testCase "is an ordinary tag key, folded like every other one" $
-      assertEqual "the key" "archive" archiveKey
+  [ testCase "is an ordinary value of the tag column, folded like every cell" $ do
+      assertEqual "the value" "archive" archiveKey
+      assertEqual "and the key it is named under" "tag" tagsKey
 
-  , testCase "every spelling of the key counts as naming it" $
-      mapM_ (\q -> assertBool (show q <> " did not read as naming the key")
+  , testCase "every spelling of the predicate counts as naming it" $
+      mapM_ (\q -> assertBool (show q <> " did not read as naming the tag")
                              (namesArchive [archiveKey] q))
-            [ "archive:", "-archive:", "archive:draft", "state:DONE archive:"
-            , "archive=", "archive:\"two words\"" ]
+            [ "tag:archive", "-tag:archive", "state:DONE tag:archive"
+            , "tag=archive", "tag:\"archive\"", "tag:ARCHIVE" ]
 
   , testCase "and a query that says nothing about it does not" $
-      mapM_ (\q -> assertBool (show q <> " read as naming the key")
+      mapM_ (\q -> assertBool (show q <> " read as naming the tag")
                              (not (namesArchive [archiveKey] q)))
-            -- Free text is not a predicate, quoted text never is, and a
-            -- longer key is a different key.
-            [ "", "archive", "\"archive:\"", "archived:yes", "state:DONE"
-            , "title:archive" ]
+            -- Free text is not a predicate, quoted text never is, another
+            -- column is another cell, and the bare tag key is gone: with tags
+            -- out of the grammar, `archive:draft' is text like any other.
+            [ "", "archive", "\"tag:archive\"", "archive:", "archive:draft"
+            , "state:DONE", "title:archive"
+            -- WHOLE value, where the predicate itself is a substring of the
+            -- cell: `tag:arch' finds an archived row and leaves the exclusion
+            -- on, so it answers empty rather than half-answering.
+            , "tag:arch", "tag:archived" ]
 
-    -- With no archived row loaded the word is not in the vocabulary, so it is
-    -- free text and this is False — which is sound, since there is nothing for
-    -- the exclusion to hide either.
-  , testCase "with the tag nowhere in the tree, the word is only text" $
-      assertBool "read as a predicate against an empty vocabulary"
-                 (not (namesArchive [] "archive:draft"))
+    -- With nothing archived in the tree the word names no tag of it, and this
+    -- is False — sound, since there is nothing for the exclusion to hide.
+  , testCase "with the tag nowhere in the tree, naming it counts for nothing" $
+      assertBool "read as naming a tag against an empty vocabulary"
+                 (not (namesArchive [] "tag:archive"))
   ]
 
--- Virtual keys
+-- Tags are not keys
 
--- | Every org tag in the view is a filter key of its own (SCHEMA.md, Filter
--- query): @contact:tanik@ is the facet and the search in one token.  The
--- fixture's vocabulary is @cleanup@, @glance@, @unicode@ and @web@.
-virtualSpec :: TestTree
-virtualSpec = testGroup "Virtual keys"
-  [ testCase "the vocabulary is the distinct tags of the loaded rows" $ do
-      records <- qrRecords <$> loadDir viewDir
-      assertEqual "tags" ["cleanup", "glance", "unicode", "web"] (vocabularyOf records)
-      -- Split on the colons org writes around them, lowercased, empties gone.
-      assertEqual "one cell" ["web", "glance"] (tagsOfCell ":web:glance:")
-      assertEqual "untagged" [] (tagsOfCell "")
-
-  , testCase "a tag key with no value is the tag alone" $ do
-      matches "web:" [Ship, Schema]
-      matches "glance:" [Ship]
-      matches "unicode:" [Privet]
-
-  , testCase "a tag key with a value is the tag and the text" $ do
-      matches "web:schema" [Schema]
-      matches "web:ship" [Ship]
-      -- The text is the whole row, so a tag facet searches every cell.
-      matches "web:2026-08-01" [Ship]
-      -- And the tag has to be on the row: the word is, the tag is not.
-      matches "cleanup:renderer" [Drop]
-      matches "web:renderer" []
-
-  , testCase "membership is the whole tag, not a substring of the cell" $ do
-      -- `:web:glance:' holds `glance', and `glan' is not a tag.
-      matches "glan:" []
-      assertEqual "not a key" [Term False Nothing "glan:x"]
-                              (parseFilter ["glance"] "glan:x")
-
-  , testCase "a column shadows a tag of the same name" $ do
-      -- A file tagged `:title:' would otherwise take the column's key away.
-      assertEqual "the column wins" [Term False (Just "title") "x"]
-                                    (parseFilter ["title"] "title:x")
-      assertEqual "and the tag is still text elsewhere"
-                  [Term False (Just "glance") "x"] (parseFilter ["glance"] "glance:x")
-
-  , testCase "tag keys AND within one key, being multi-valued" $ do
-      -- `contact:x contact:y' is tagged contact and matching both texts, so two
-      -- of them narrow where two `state:' widen.
-      matches "web:the web:schema" [Schema]
-      matches "web:ship web:table" [Ship]
-      matches "web:ship web:schema" []
-      matches "web: glance:" [Ship]
-      matches "web: state:DONE" [Schema]
-
-  , testCase "a negated tag key drops what it matches" $ do
-      matches "-web:" [Privet, Reply, Plain, Drop]
-      matches "-web:ship" [Privet, Reply, Plain, Drop, Schema]
-
-  , testCase "a key the vocabulary does not hold is free text, as before" $ do
+-- | An org tag names no filter key.  @tag:course@ is the one spelling, and the
+-- facet-then-search a tag tree gives an org user is the two tokens
+-- @tag:course text@ — a predicate reads one cell, free text reads the row.  The
+-- fixture's tags are @cleanup@, @glance@, @unicode@ and @web@, and none of them
+-- is a key.
+tagsSpec :: TestTree
+tagsSpec = testGroup "Tags are not keys"
+  [ testCase "a tag key is free text, colon and all" $ do
+      assertEqual "a tag of the tree" [Term False Nothing "web:ship"] (parsed "web:ship")
+      assertEqual "and one it does not carry" [Term False Nothing "contact:tanik"]
+                                              (parsed "contact:tanik")
+      -- What the facet used to answer, and what the text now does.
+      matches "web:schema" []
+      matches "web:ship" []
       matches "contact:tanik" []
-      assertEqual "no vocabulary, no key" [Term False Nothing "web:ship"]
-                                          (parseFilter [] "web:ship")
+
+  , testCase "and matched as the text it is, org's own colons included" $
+      -- A coincidence worth writing down: org spells a tags cell `:web:', so
+      -- the free text `web:' is inside the cell of every row carrying the tag.
+      -- The facet is gone all the same — a value after it no longer scopes.
+      matches "web:" [Ship, Schema]
+
+  , testCase "tag: is the one spelling, and it is the column's" $ do
+      matches "tag:web" [Ship, Schema]
+      matches "tag:glance" [Ship]
+      matches "tag:unicode" [Privet]
+      matches "tag:none" [Reply, Plain]
+
+  , testCase "the facet and the search are two tokens now" $ do
+      -- `web:schema' was one; `tag:web schema' is what it meant, and reads the
+      -- same rows.  The text is the whole row, so it searches every cell.
+      matches "tag:web schema" [Schema]
+      matches "tag:web ship" [Ship]
+      matches "tag:web 2026-08-01" [Ship]
+      matches "tag:cleanup renderer" [Drop]
+      matches "tag:web renderer" []
+
+  , testCase "which costs the whole-tag reading, the column being a substring" $ do
+      -- `glan:' was no tag and matched nothing; `tag:glan' is a substring of
+      -- `:web:glance:' and matches.  The wider reading is the tag column's own,
+      -- and it is the reading the renderer has for that column too.
+      matches "glan:" []
+      matches "tag:glan" [Ship]
+
+  , testCase "the tags a tree carries change no answer at all" $ do
+      -- The one divergence this removal was for: the keys a query could name
+      -- were the loaded rows' tags on one side of the wire and the whole
+      -- store's on the other.  Now neither side has any.
+      records <- qrRecords <$> loadDir viewDir
+      assertEqual "the fixture's tags" ["cleanup", "glance", "unicode", "web"]
+                  (vocabularyOf records)
+      let with q    = [ hrTitle r | r <- records
+                      , matchesFilter (storeEnv (vocabularyOf records) records) q r ]
+          without q = [ hrTitle r | r <- records
+                      , matchesFilter (storeEnv [] records) q r ]
+      mapM_ (\q -> assertEqual (T.unpack q) (with q) (without q))
+            [ "web:", "web:ship", "glance:x", "tag:web", "title:web", "" ]
+
+  , testCase "and a column can no longer be shadowed by one" $ do
+      -- A file tagged `:title:' could once have taken the column's key away.
+      assertEqual "the column" [Term False (Just "title") "x"] (parsed "title:x")
+      assertEqual "the tag, as text" [Term False Nothing "glance:x"] (parsed "glance:x")
   ]
 
 -- Tokenizer
@@ -469,10 +479,10 @@ tokenSpec = testGroup "Tokens"
       assertEqual "columns" keys filterKeys
   ]
 
--- | Q parsed with no virtual keys — the tokenizer's own subject, where the
--- only thing that makes a predicate is a column.
+-- | Q parsed: the tokenizer's own subject, where the only thing that makes a
+-- predicate is a column, @planned@ or @ref@.
 parsed :: Text -> [Term]
-parsed = parseFilter []
+parsed = parseFilter
 
 -- Field predicates
 
@@ -649,7 +659,7 @@ degenerateSpec = testGroup "Plain text"
       assertEqual "no row carries it" []
         [ hrTitle r | r <- records, matchesFilter (envOf records) q r ]
       assertBool "and it is not read as a predicate"
-                 (all ((== Nothing) . tmKey) (parseFilter (vocabularyOf records) q))
+                 (all ((== Nothing) . tmKey) (parseFilter q))
   ]
 
 -- Haystack layout

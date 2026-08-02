@@ -9,32 +9,31 @@
 -- @parseQuery@ and @tokenTest@.
 --
 -- Tokens separate on whitespace and @&@.  @key:value@ is a field predicate only
--- when KEY names a column ('Glance.Query.filterKeys') or one of the producer's virtual keys,
--- which is what keeps org cell text — @:work:@, @=code=@ — from turning into
--- one by accident; @=@ is an alias for @:@, a leading @-@ negates either form,
--- and a token that /opens/ with a quote is free text whatever it spells.
--- Everything else is free text: a case-insensitive substring of the row as it
--- displays.
+-- when KEY names a column ('Glance.Query.filterKeys') or one of the two keys
+-- that are no column, which is what keeps org cell text — @:work:@, @=code=@ —
+-- from turning into one by accident; @=@ is an alias for @:@, a leading @-@
+-- negates either form, and a token that /opens/ with a quote is free text
+-- whatever it spells.  Everything else is free text: a case-insensitive
+-- substring of the row as it displays.
 --
--- Two virtual keys are the producer's alone and have no renderer branch:
--- @planned@, which the renderer can still answer from the row it holds, and
--- @ref:ROWID@ ('refKey'), which it cannot — resolving a reference needs the
--- store, so the renderer reads the token as free text and narrows further than
--- this does.
+-- Those two have no vocabulary behind them and no renderer branch: @planned@,
+-- which the renderer can still answer from the row it holds, and @ref:ROWID@
+-- ('refKey'), which it cannot — resolving a reference needs the store, so the
+-- renderer reads the token as free text and narrows further than this does.
 --
--- The virtual keys are this producer's org tags — every distinct tag in the
--- @tag@ column is a key of its own, so @contact:tanik@ is "tagged @contact@
--- and matching @tanik@", the facet-then-search shape a tag tree gives an org
--- user.  Membership is whole-tag, so @web:@ is not @website:@; an empty value
--- asks for the tag alone.  A column shadows a tag of the same name
--- (@title:@ stays the column), and a key that is neither is free text as
--- before.
+-- An org TAG is not a key.  @tag:course@ is the one spelling, and the facet
+-- then search a tag tree gives an org user is the two tokens
+-- @tag:course text@ — what @course:text@ used to be, since a predicate reads
+-- one cell and free text reads the row.  The bare form cost more than it
+-- bought: the keys a query could name were the loaded rows' tags on one side of
+-- the wire and the whole store's on the other, so one token was a predicate
+-- here and free text there.
 --
 -- Same-key predicates combine by the field's arity: a single-valued one ORs
 -- (@state:TODO state:DONE tanik@ is either state and the text — ANDing a badge
 -- with itself is always empty), a multi-valued one ANDs (@tag:a tag:b@ is a
--- row carrying both, and @contact:x contact:y@ is tagged @contact@ and matching
--- both texts).  Distinct keys and free text AND; negations AND regardless.
+-- row carrying both).  Distinct keys and free text AND; negations AND
+-- regardless.
 --
 -- Three rules are uniform across the column types: @key:none@ matches the empty
 -- cell (so a literal cell reading @none@ is unreachable by predicate — the
@@ -51,6 +50,7 @@ module Glance.Web.Filter ( FilterEnv (..)
                          , Token (..)
                          , archiveKey
                          , cellAt
+                         , emptyEnv
                          , filterKeys
                          , matchesFilter
                          , namesArchive
@@ -59,17 +59,17 @@ module Glance.Web.Filter ( FilterEnv (..)
                          , refKey
                          , scanQuery
                          , storeEnv
-                         , tagsEnv
+                         , tagsKey
                          ) where
 
 import Data.List (elemIndex, find, nub)
-import Data.Maybe (fromMaybe, isNothing, mapMaybe)
+import Data.Maybe (fromMaybe, isJust, isNothing, mapMaybe)
 import Data.Text (Text)
 
 import qualified Data.Text as T
 
 import Glance.Query ( HeadlineRecord (hrActive, hrId, hrLinks, hrSearch)
-                    , archiveTag, cellSep, filterKeys, refSpellings, tagsOfCell )
+                    , archiveTag, cellSep, filterKeys, refSpellings )
 
 -- Grammar
 --
@@ -172,45 +172,52 @@ data Scan = Scan
   , inQuotes :: !Bool
   }
 
--- | Q's tokens resolved against the view's columns and VOCABULARY: a field
--- predicate where the token names one of them, free text everywhere else.
--- Columns are looked up first, so a tag sharing a column's name is shadowed by
--- it rather than the other way round (SCHEMA.md).
-parseFilter :: [Text] -> Text -> [Term]
-parseFilter vocabulary = map resolve . scanQuery
+-- | Q's tokens resolved against the keys a predicate may name: a field
+-- predicate where the token names one, free text everywhere else.  One
+-- resolution, 'fieldOf', decides both whether a key is a key and what it reads,
+-- so the grammar and the matcher cannot disagree about a token.
+parseFilter :: Text -> [Term]
+parseFilter = map resolve . scanQuery
   where
     resolve t
       | tkQuoted t = free t
       | otherwise  = case splitKey (tkBody t) of
-          Just (key, value) | known key -> Term (tkNegated t) (Just key) value
-          _notAPredicate                -> free t
-    known key = key `elem` filterKeys || key == plannedKey || key == refKey
-                || key `elem` vocabulary
+          Just (key, value) | isJust (fieldOf key) -> Term (tkNegated t) (Just key) value
+          _notAPredicate                           -> free t
     free t = Term (tkNegated t) Nothing (tkBody t)
 
--- | The virtual key an archived row answers to: 'Glance.Query.archiveTag'
--- folded, the way every tag reaches the vocabulary ('tagsOfCell').  It is an
--- ordinary tag key in every respect — @archive:@, @-archive:@ and
--- @archive:draft@ all parse and match as they would for @:work:@ — and the one
--- thing that is not ordinary about it is who names it: @\/headlines@ hides
--- archived rows unless the query does ('namesArchive'), so this is the key that
--- turns the default view off.
+-- | The tags column's key, singular where its header is plural.  Spelled once:
+-- it is the column an archive query names ('namesArchive') and the one field of
+-- this view that holds a list ('multiValued').
+tagsKey :: Text
+tagsKey = "tag"
+
+-- | The archive tag as a query spells it: 'Glance.Query.archiveTag' folded, the
+-- way every cell was folded into the haystack at load.  It is an ordinary value
+-- of the @tag@ column in every respect — @tag:archive@ and @-tag:archive@ match
+-- as they would for @:work:@ — and the one thing that is not ordinary about it
+-- is who names it: @\/headlines@ hides archived rows unless the query does
+-- ('namesArchive'), so this is the value that turns the default view off.
 archiveKey :: Text
 archiveKey = T.toLower archiveTag
 
--- | Does Q name 'archiveKey' as a predicate, given VOCABULARY?  Any spelling
--- counts — @archive:@, a negated one, one carrying a value — because all of
+-- | Does Q name 'archiveKey' through the @tag@ column, given VOCABULARY?  Any
+-- spelling counts — @tag:archive@, a negated one, a quoted one — because all of
 -- them are a reader who has said something about archived rows, and a default
 -- exclusion layered under any of them would answer a different question than
 -- the one asked.
 --
--- Resolved through 'parseFilter' rather than by scanning the string, so the
--- word only counts where it is a key: with no archived row loaded, @archive@ is
--- not in the vocabulary, @archive:x@ is free text, and this is 'False' — which
--- is sound, since there is nothing to hide either.
+-- The value is matched WHOLE, where the predicate itself reads the cell by
+-- substring: @tag:arch@ finds an archived row and does not turn the exclusion
+-- off, so it answers empty.  The alternative is a prefix of a prefix deciding
+-- what the default view shows.
+--
+-- VOCABULARY is the tree's tags, and the word only counts where the tree
+-- carries one — sound, since with nothing archived there is nothing to hide.
 namesArchive :: [Text] -> Text -> Bool
 namesArchive vocabulary q =
-  any ((== Just archiveKey) . tmKey) (parseFilter vocabulary q)
+  archiveKey `elem` vocabulary && any names (parseFilter q)
+  where names t = tmKey t == Just tagsKey && T.toLower (tmValue t) == archiveKey
 
 -- | BODY at its first @:@ or @=@, when the separator has a key ahead of it and
 -- is there at all.  A body opening with the separator has none, which is what
@@ -230,30 +237,33 @@ data RefRow = RefRow
   , rrTargets :: ![Text]  -- ^ 'Glance.Query.refSpellings' of it.
   }
 
--- | What a query needs beyond the row in hand.  Two keys reach past the row:
--- every virtual tag key needs the store's vocabulary, and @ref:@ needs the
--- store itself.
-data FilterEnv = FilterEnv
-  { feTags :: ![Text]                  -- ^ the virtual keys: every org tag the store carries.
-  , feRef  :: Text -> Maybe RefRow     -- ^ a row id resolved, or 'Nothing' where no row claims it.
+-- | What a query needs beyond the row in hand, which is one key's worth:
+-- @ref:@, since resolving a reference needs the store.  Every other predicate
+-- is decided from the row's own cells.
+newtype FilterEnv = FilterEnv
+  { feRef :: Text -> Maybe RefRow      -- ^ a row id resolved, or 'Nothing' where no row claims it.
   }
 
--- | An environment with no store behind it: the tags alone, and @ref:@
--- resolving nothing, so a @ref:@ term parses as a predicate and matches no row.
--- What a caller holding rows but no index answers with.
-tagsEnv :: [Text] -> FilterEnv
-tagsEnv tags = FilterEnv tags (const Nothing)
+-- | An environment with no store behind it: @ref:@ resolves nothing, so a
+-- @ref:@ term parses as a predicate and matches no row.  What a caller holding
+-- rows but no index answers with.
+emptyEnv :: FilterEnv
+emptyEnv = FilterEnv (const Nothing)
 
--- | The environment ROWS answer as: their TAGS as the virtual keys, and @ref:@
--- resolved by exact row id over the rows themselves.
+-- | The environment ROWS answer as: @ref:@ resolved by exact row id over the
+-- rows themselves.
 --
 -- The rows are the store's, which is to say already id-resolved
 -- ('Glance.Query.resolveIds'), so the first match IS the resolution and a
 -- loser's row can never be what a @ref:@ points at.  The scan is linear and
 -- runs once per @ref:@ term per request rather than once per row, since
 -- 'compile' builds each term's test before the rows are walked.
+--
+-- TAGS is the store's tag list.  The matcher no longer reads it — an org tag is
+-- not a key, so no query depends on which tags a tree carries — and the
+-- parameter stands until 'Glance.Web' drops it from the call.
 storeEnv :: [Text] -> [HeadlineRecord] -> FilterEnv
-storeEnv tags rows = FilterEnv tags resolve
+storeEnv _tags rows = FilterEnv resolve
   where resolve rid = (\r -> RefRow (hrId r) (refSpellings r))
                         <$> find ((== rid) . hrId) rows
 
@@ -261,38 +271,37 @@ storeEnv tags rows = FilterEnv tags resolve
 -- @filter (matchesFilter env q)@ pays for the query per request rather than per
 -- row — the same reason 'Glance.Query.matchesSearch' takes its needle first.
 matchesFilter :: FilterEnv -> Text -> HeadlineRecord -> Bool
-matchesFilter env q = case compile env (parseFilter (feTags env) q) of
+matchesFilter env q = case compile env (parseFilter q) of
   []      -> const True
   [test]  -> test
   tests   -> \r -> all ($ r) tests
 
 -- | What a predicate's key turned out to name: a column, at its field of the
--- search text, the two date columns together ('plannedKey'), or one of the
--- producer's virtual keys, which is a tag.  Resolved once per term, so the
--- arity and the test read one answer rather than looking the key up again for
--- each.
-data Field = Col !Int | Planned | Ref | Tag
+-- search text, the two date columns together ('plannedKey'), or the link graph
+-- ('refKey').  Resolved once per term, so the arity and the test read one
+-- answer rather than looking the key up again for each.
+data Field = Col !Int | Planned | Ref
   deriving (Eq)
 
--- | KEY as a field.  A key that is none of the three named ones reached 'Term'
--- by being in the vocabulary, which is to say by being a tag.
-fieldOf :: Text -> Field
-fieldOf key | key == plannedKey = Planned
-            | key == refKey     = Ref
-            | otherwise         = maybe Tag Col (elemIndex key filterKeys)
+-- | KEY as the field it names, or 'Nothing' where it names none — which is the
+-- test 'parseFilter' makes, so a token is a predicate exactly where there is a
+-- field for it to read.
+fieldOf :: Text -> Maybe Field
+fieldOf key | key == plannedKey = Just Planned
+            | key == refKey     = Just Ref
+            | otherwise         = Col <$> elemIndex key filterKeys
 
--- | Does FIELD hold a list of values rather than one?  The @tag@ column does,
--- and so does every virtual key; the rest of this view holds one value per
--- cell.  This is the split SCHEMA.md makes: @state:TODO state:DONE@ has to be
--- either state, since a row with both does not exist, while @tag:a tag:b@ is a
--- row carrying both, the way a label filter reads.
+-- | Does FIELD hold a list of values rather than one?  The @tag@ column does;
+-- the rest of this view holds one value per cell.  This is the split SCHEMA.md
+-- makes: @state:TODO state:DONE@ has to be either state, since a row with both
+-- does not exist, while @tag:a tag:b@ is a row carrying both, the way a label
+-- filter reads.
 --
 -- @planned@ reads one of two dates, so it ORs like the date columns it stands
 -- over: @planned:2026-08 planned:2026-09@ is either month.  @ref@ reads a LIST
 -- — the targets a subtree points at — so it ANDs like the tags do, and
 -- @ref:a ref:b@ is a row referring to both.
 multiValued :: Field -> Bool
-multiValued Tag     = True
 multiValued Ref     = True
 multiValued Planned = False
 multiValued (Col i) = i == tagsColumn
@@ -311,7 +320,7 @@ compile env terms = singles <> groups
                | otherwise   = termTest env t
     keyed   = [ (key, field, keyTest env key field (valueFor field t))
               | t <- terms, not (tmNegated t), Just key <- [tmKey t]
-              , let field = fieldOf key ]
+              , Just field <- [fieldOf key] ]
     groups  = [ joining field [ test | (k, _field, test) <- keyed, k == key ]
               | (key, field) <- nub [ (k, f) | (k, f, _test) <- keyed ] ]
     joining field | multiValued field = \tests r -> all ($ r) tests
@@ -333,11 +342,10 @@ folded = T.toLower . tmValue
 -- term lands in the AND\/OR shape depends on it.  Kept for the one list that
 -- mixes the two kinds: the negations and the free text, which stand alone.
 termTest :: FilterEnv -> Term -> HeadlineRecord -> Bool
-termTest env t =
-  maybe (freeTest (folded t))
-        (\key -> let field = fieldOf key
-                 in keyTest env key field (valueFor field t))
-        (tmKey t)
+termTest env t = fromMaybe (freeTest (folded t)) $ do
+  key   <- tmKey t
+  field <- fieldOf key
+  pure (keyTest env key field (valueFor field t))
 
 -- | VALUE as free text: a substring of the row as it displays, an empty value
 -- matching every row.
@@ -345,13 +353,10 @@ freeTest :: Text -> HeadlineRecord -> Bool
 freeTest value | T.null value = const True
                | otherwise    = T.isInfixOf value . hrSearch
 
--- | @KEY:VALUE@ as a row test, FIELD being what KEY resolved to.  A virtual key
--- is a facet: the tag has to be on the row, and the value then searches the row
--- the way a bare token would.  With no value it is the facet alone, which is
--- the one place an empty value narrows anything.
+-- | @KEY:VALUE@ as a row test, FIELD being what KEY resolved to.  KEY is passed
+-- beside it because a column's semantics are its own — a badge is whole-value,
+-- a date is a prefix — and the field is only where the cell is.
 keyTest :: FilterEnv -> Text -> Field -> Text -> HeadlineRecord -> Bool
-keyTest _env key Tag value =
-  \r -> key `elem` tagsOfCell (cellOf tagsColumn r) && freeTest value r
 -- @ref@ over the link targets a subtree carries ('Glance.Query.hrLinks'),
 -- matched against how a link may spell the row named ('refSpellings').
 --
@@ -425,7 +430,7 @@ cellOf n = cellAt n . hrSearch
 -- | Where the tag column sits in 'filterKeys', which is where its field sits
 -- in the search text.
 tagsColumn :: Int
-tagsColumn = length (takeWhile (/= "tag") filterKeys)
+tagsColumn = length (takeWhile (/= tagsKey) filterKeys)
 
 -- | Field N of HAY, which is 'Glance.Query.hrSearch' — the display cells,
 -- lowercased and joined by @\\x1f@ in 'filterKeys' order.  Cut rather than

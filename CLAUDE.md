@@ -402,12 +402,14 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   answering to `tagged`. Keyword
   legality is per file (`hrKeywords`); `*active*`/`*inactive*` are in no keyword
   set and are refused like any other word.
-- `/headlines` hides archived rows unless the query names the `archive` key
-  (`Glance.Web.Filter.namesArchive`, any spelling — negated, valued, whatever),
-  and `X-Glance-Archived` counts what it took. The predicate is exactly
-  `-archive:`. The vocabulary a query is parsed against stays the WHOLE store's
-  (`storeTags`), so the exclusion can never hide the key that reaches what it
-  hid. The socket is NOT filtered: it carries row ops whatever the client's
+- `/headlines` hides archived rows unless the query names the archive TAG
+  through the `tag` column (`Glance.Web.Filter.namesArchive`, any spelling —
+  negated, quoted, beside other tokens), and `X-Glance-Archived` counts what it
+  took. The predicate is exactly `-tag:archive`; the value is matched WHOLE
+  where the column itself is a substring, so `tag:arch` finds an archived row
+  and leaves the exclusion on. The word counts only where the tree carries the
+  tag (`storeTags`), which is sound: with nothing archived there is nothing to
+  hide. The socket is NOT filtered: it carries row ops whatever the client's
   query, so an unfiltered client splices in an archived row `/headlines` would
   not have served — the shell's default query makes it refetch instead.
 - Materialize: `GET`/`POST /headline?id=…` serves and replaces a headline's raw
@@ -531,11 +533,12 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - `?q=` is SCHEMA.md's filter query, parsed in `Glance.Web.Filter` as a port of
   `table-view.js`'s `scanQuery`/`parseQuery`/`tokenTest` — parity is the
   contract. Tokens split on whitespace and `&`; `key:value` (`=` alias) is a
-  predicate only for a column key or a producer virtual key, so `:work:` and
-  `=code=` stay text; a token opening with `"` is free text; `-` negates.
-  Same-key predicates combine by field arity — single-valued OR (`state:`),
-  multi-valued AND (the `tag` column and every virtual tag key) — and
-  everything else ANDs. `Glance.Web.Filter` dispatches on the KEY NAME, never on
+  predicate only for a column key, `planned` or `ref`, so `:work:`, `=code=` and
+  `course:x` stay text; a token opening with `"` is free text; `-` negates. One
+  resolution decides both halves of that (`fieldOf` answering `Nothing`), so the
+  grammar and the matcher cannot disagree about a token. Same-key predicates
+  combine by field arity — single-valued OR (`state:`), multi-valued AND (the
+  `tag` column and `ref`) — and everything else ANDs. `Glance.Web.Filter` dispatches on the KEY NAME, never on
   the column's declared `kind` — it does not import it: `state` is whole-value
   case-insensitive plus the `*active*`/`*inactive*` meta values (`starless`
   strips one matched asterisk pair before those two comparisons and nowhere
@@ -543,23 +546,24 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   matches nothing; and `*active*` ORs in the EMPTY cell, where `*inactive*`
   does not), `priority` is exact
   equality, `scheduled`/`deadline` are prefix, everything else is substring.
-  `key:none` is the empty cell on the COLUMN keys only — `tag:none` is untagged,
-  since `tag` is a column — and has no branch for a virtual key, where
-  `contact:none` means tagged `contact` AND the row text containing `none`.
-  `key:` narrows nothing. The virtual keys are the store's org tags
-  (`storeTags`, kept per tag beside the rows): `TAG:text` is tagged whole-TAG and
-  matching text, empty text being presence; a column shadows a tag of its name.
-  `planned` is the one virtual key that is neither a column nor a tag: a row is
-  planned when its `scheduled` OR `deadline` cell holds anything, so
-  `planned:none` is neither and `-planned:none` is the agenda's half. It resolves
-  ahead of the vocabulary (so it shadows a tag of that name), takes a date PREFIX
-  asked of both cells at once, and is single-valued like the columns it stands
-  over. Renderer-decidable off the same two cells — no keyword set, no
+  `key:none` is the empty cell — `tag:none` is untagged — and `key:` narrows
+  nothing. AN ORG TAG NAMES NO KEY: `course:text` is free text, colon and all,
+  and `tag:course text` is the one spelling, the predicate reading the tags cell
+  and the free text reading the row. Two consequences are the price: `tag:` is a
+  SUBSTRING of the cell where a tag key was whole-tag (`tag:glan` finds
+  `:glance:`), and org spells a tags cell `:web:`, so the free text `web:` is
+  still inside every row carrying the tag. What it buys is the vocabulary
+  divergence: the keys were the whole store's tags here and the loaded rows'
+  tags in `table-view.js`, so one token meant two things across the wire.
+  `planned` is one of the two keys that are not columns: a row is planned when
+  its `scheduled` OR `deadline` cell holds anything, so `planned:none` is
+  neither and `-planned:none` is the agenda's half. It takes a date PREFIX asked
+  of both cells at once, and is single-valued like the columns it stands over. Renderer-decidable off the same two cells — no keyword set, no
   vocabulary, no clock. The renderer's half landed in table-view alongside;
   the vendored `assets/table-view.js` predates it and `make sync-renderer`
   closes the gap, which costs nothing meanwhile — `onFilter` means the renderer
   narrows nothing.
-  `ref:ROWID` is the second producer-only virtual key and the one a row cannot
+  `ref:ROWID` is the other key that is not a column, and the one a row cannot
   answer alone: it is every row whose subtree POINTS AT the row named, resolved
   through the store's own id-resolved rows (`storeEnv`, exact-string like
   `resolveIds`). Matched against `hrLinks`, over `refSpellings` of the target —
@@ -571,8 +575,9 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   bookmarked URL opens an empty view. Multi-valued, so `ref:a ref:b` ANDs. Its
   value is the ONE predicate value not folded: a row id is exact-string, and
   ~/sync carries ids spelled `Password-…`/`Pets-…` that a fold would put beyond
-  reach. `FilterEnv` is what carries the store to the matcher — `tagsEnv` for a
-  caller with no rows behind it, where `ref:` still parses and matches nothing.
+  reach. `FilterEnv` is what carries the store to the matcher, and `ref:` is now
+  all it carries — `emptyEnv` for a caller with no rows behind it, where `ref:`
+  still parses and matches nothing.
   The tags column's key is `tag`, singular (header stays `Tags`). A predicate
   reads one `\x1f` field of `hrSearch`, so per-cell matching and free text agree
   by construction.
@@ -661,10 +666,6 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
     bar fell and the hues are not a contract. Additive; a renderer ignores the
     field. The value palette reads the badges for their HUES alone; its own
     active/inactive split is `/keywords`'.
-  - Vocabulary scopes differ: the server's virtual keys are the whole store's
-    tags, the renderer's are derived from the rows it currently holds. A tag
-    outside the loaded page is a predicate on one side and free text on the
-    other.
   - Keys are matched case-sensitively on BOTH sides and every real key is
     lowercase, so `Tag:x` is free text either way. Values are folded on both.
   - Separators are exactly `&`, space, tab and newline. `\r` is not one, nor is
@@ -823,7 +824,7 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   returns zero, so the opposite skew is never reported; the local recount drops
   the key and tests the value against the whole row text, so a correct empty
   facet answer warns whenever the word appears elsewhere; and it consults column
-  keys alone, so every virtual key is treated as suspect. It reports a suspicion
+  keys alone, so `planned:` and `ref:` are treated as suspect. It reports a suspicion
   and corrects nothing. Its baseline is a remembered unfiltered paint, and a
   boot that had none — a `?q=` link, or the default view — arms it with `arm`'s
   own unfiltered fetch and re-runs the check the boot could not.

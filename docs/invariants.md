@@ -1320,9 +1320,9 @@ on.
   one it does not, so a palette may commit the same letter twice without the
   second press meaning anything. `archive`'s idempotence is that first half,
   matched through `Glance.Query.archived`, which reads `tagsOfCell . hrTags` —
-  the same folding the filter vocabulary is built with, so "archived" means
-  exactly what the query `archive:` means and a file spelling the tag
-  `:archive:` counts. The
+  the same folding the tag list is built with, so "archived" means exactly what
+  the query `tag:archive` means and a file spelling the tag `:archive:` counts.
+  The
   file is still rewritten (the engine has no equality short-circuit), so the
   cost of archiving a marked set twice is an inotify event and a re-parse per
   file, and `guarded` then finds nothing moved and leaves the generation alone.
@@ -1330,28 +1330,27 @@ on.
   between the two runs and compares the file byte for byte. **test**
 - **`D` archives and never deletes, and the default view is what makes that
   work.** `/headlines` drops rows carrying the archive tag unless the query
-  names the `archive` key — any spelling of it, `archive:`, `-archive:`,
-  `archive:draft`, since all of them are a reader who has said something about
-  archived rows and layering a default exclusion under any of them would answer
-  a different question than the one asked. The predicate is exactly what
-  `-archive:` spells, and `X-Glance-Archived` reports how many rows it took, so
-  a client can tell "nothing matches" from "the matches are all archived". The
-  header is zero whenever the query named the key: a reader who asked is never
-  told anything was withheld. Without the exclusion an org tree accumulates rows
-  that are done with rather than gone and the default table grows without bound,
-  which is the whole reason `D` can be an archive rather than a delete.
-  Evidence: `TestServe` "GET /headlines and the archive", `TestFilter`
-  "Archive key". **test**
-- **The vocabulary is derived from the UNFILTERED store, and that is what keeps
-  the key reachable.** `?q=` is parsed against `storeTags`, every tag in the
-  tree, and the exclusion is applied to the ROWS afterwards. Derive the
-  vocabulary from the rows a query left standing and the default view would take
-  `archive` out of the keys a query may name, so the one query that reaches the
-  hidden rows would degrade to free text — and free text finds them too, badly,
-  since every archived row's tag cell holds the word. The test that tells the
-  two apart is a valued predicate: `archive:filed` matches as a facet and
-  matches nothing as text, because no row spells `archive:filed` anywhere.
-  **test**
+  names that tag through the `tag` column — any spelling of it, `tag:archive`,
+  `-tag:archive`, `tag:"archive"`, since all of them are a reader who has said
+  something about archived rows and layering a default exclusion under any of
+  them would answer a different question than the one asked. The predicate is
+  exactly what `-tag:archive` spells, and `X-Glance-Archived` reports how many
+  rows it took, so a client can tell "nothing matches" from "the matches are all
+  archived". The header is zero whenever the query named the tag: a reader who
+  asked is never told anything was withheld. Without the exclusion an org tree
+  accumulates rows that are done with rather than gone and the default table
+  grows without bound, which is the whole reason `D` can be an archive rather
+  than a delete. Evidence: `TestServe` "GET /headlines and the archive",
+  `TestFilter` "Archive key". **test**
+- **The archive value is matched WHOLE where the column is a substring.**
+  `namesArchive` compares a `tag` predicate's folded value against `archiveKey`
+  by equality, while the predicate it is reading matches the tags cell by
+  substring. So `tag:arch` finds every archived row and does not lift the
+  exclusion — the query answers empty rather than half-answering. The
+  alternative is a prefix of a prefix deciding what the default view shows.
+  `namesArchive` also takes the store's tag list and answers `False` when the
+  tree carries no archive tag at all, which is sound: with nothing archived
+  there is nothing for the exclusion to hide. **test**
 - **The socket is NOT filtered, and the exclusion is `/headlines`' alone.** Row
   frames carry whatever moved; the store has no client's query to apply and
   `resolvedRows` is the served view's own resolution rather than a per-client
@@ -1554,15 +1553,16 @@ on.
   `parseQuery` and `tokenTest`, term for term, because the renderer filters
   locally with the same grammar and a query that means two things is a table
   that disagrees with itself. Tokens split on whitespace and `&`; `key:value`
-  (`=` alias) is a predicate only when the key is a column key or one of the
-  producer's virtual keys, which is what keeps org cell text — `:work:`,
-  `=code=` — from becoming one by accident; a token that *opens* with a quote is
-  free text; a leading `-` negates. Distinct keys and free text AND, and
+  (`=` alias) is a predicate only when the key is a column key, `planned` or
+  `ref`, which is what keeps org cell text — `:work:`, `=code=` — from becoming
+  one by accident; a token that *opens* with a quote is free text; a leading `-`
+  negates. One resolution answers both "is this a key" and "what does it read"
+  (`fieldOf`, `Nothing` where it names none), so the grammar and the matcher
+  cannot disagree about a token. Distinct keys and free text AND, and
   negations AND regardless. Predicates sharing one key combine
   by the field's arity: single-valued fields OR, since a badge cell ANDed with
   itself is always empty, and multi-valued ones AND — the `tag` column and
-  every virtual tag key, where `tag:a tag:b` is a row carrying both and
-  `contact:x contact:y` is tagged `contact` and matching both texts. Dispatch is
+  `ref`, where `tag:a tag:b` is a row carrying both. Dispatch is
   on the KEY NAME, never on the column's declared `kind` — `Glance.Web.Filter`
   does not import it. `state` is whole-value case-insensitive plus this
   producer's `state:*active*`/`state:*inactive*` meta values — `*active*` ORing
@@ -1571,34 +1571,40 @@ on.
   a column declared `badge` but named something else is matched as text, and the
   `priority` column, declared `text`, is matched exactly. That last pair agrees
   with the renderer only because the cell is one character long, where a
-  substring test and an equality test cannot differ. Then two uniform rules —
-  `key:` narrows nothing, a value may be quoted — and one that is NOT uniform:
-  `key:none` is the empty cell on the COLUMN keys only. `tag:none` is untagged
-  because `tag` is a column; on a virtual key there is no `none` branch at all,
-  so `contact:none` reads as "tagged `contact` AND the row text contains
-  `none`". SCHEMA.md's blanket phrasing overstates that; the renderer agrees
-  with the code rather than with the schema. The tags column's key is
+  substring test and an equality test cannot differ. Then three uniform rules:
+  `key:` narrows nothing, a value may be quoted, and `key:none` is the empty
+  cell — `tag:none` is untagged. The tags column's key is
   `tag`, singular, so the key a filter names and the tags it names read alike
   (`tag:travel`); the header stays `Tags` and `hrSearch`'s field order is
-  unchanged, since only the name moved. The virtual keys are the store's org tags (`Glance.Web.Store.stTags`,
-  counted per tag beside the rows so a query costs no fold over 13k rows):
-  `TAG:text` is tagged whole-`TAG` *and* matching text, an empty value being
-  presence alone, and a column shadows a tag of its name. Two consequences to
-  keep: a predicate reads one `\x1f` field of `hrSearch` rather than
-  re-deriving a cell, so per-cell matching and free text agree by construction;
-  and the vocabulary moves only when rows do, which is exactly when `guarded`
-  moves the generation the `ETag` spells, so a cached answer can never be one
-  the old vocabulary produced. Evidence: `TestFilter` (tokens, predicates,
-  virtual keys, shape, degenerate parity with `matchesSearch`), `TestServe`
-  "GET /headlines filter and paging". **test**
-- **`planned` is a virtual key over the two date columns, and both sides can
+  unchanged, since only the name moved. One consequence to keep: a predicate
+  reads one `\x1f` field of `hrSearch` rather than re-deriving a cell, so
+  per-cell matching and free text agree by construction. Evidence: `TestFilter`
+  (tokens, predicates, tags, shape, degenerate parity with `matchesSearch`),
+  `TestServe` "GET /headlines filter and paging". **test**
+- **AN ORG TAG NAMES NO KEY, and the one spelling is `tag:`.** `course:text` is
+  free text, colon and all; `tag:course text` is what it meant, the predicate
+  reading the tags cell and the free text reading the row, so nothing
+  expressible is lost. The keys a query may name are the view's own — the
+  columns, `planned`, `ref` — and none of them is derived from the ROWS, which
+  is the point: they were the WHOLE STORE's tags here and the LOADED ROWS' tags
+  in `table-view.js`, so a tag outside the client's page was a predicate on one
+  side of the wire and free text on the other, and no schema revision mechanism
+  exists to reconcile them. Three consequences are the price, and are written
+  down rather than papered over: `tag:` matches its column by SUBSTRING where a
+  tag key was whole-tag, so `tag:glan` finds `:glance:` where `glan:` found
+  nothing; org spells a tags cell `:web:`, so the free text `web:` is still
+  inside every row carrying the tag and answers the same rows a facet did; and
+  `contact:none` — which meant "tagged `contact` AND the row text holding
+  `none`", the one place `key:none` was not the empty cell — is gone with the
+  branch that produced it. Evidence: `TestFilter` "Tags are not keys", which
+  runs every fixture query against the store's real tag list and against an
+  empty one and asserts the two answers are equal. **test**
+- **`planned` is a key over the two date columns, and both sides can
   decide it.** A row is planned when its `scheduled` OR its `deadline` cell
   holds anything, so `planned:none` is an entry nobody has put a day on and
-  `-planned:none` is the agenda's half of its query. It is neither a column —
-  nothing renders a `planned` cell — nor a tag, so it is resolved ahead of the
-  vocabulary and shadows an org tag of that name the way a column does; a
-  predicate on it parses with no rows loaded at all, where a tag key needs the
-  store's `stTags`. Its value is the date prefix `scheduled:` and `deadline:`
+  `-planned:none` is the agenda's half of its query. Nothing renders a `planned`
+  cell, so it is a key with no column behind it; a tree tagged `:planned:`
+  cannot take it, there being no tag keys to take it with. Its value is the date prefix `scheduled:` and `deadline:`
   each take, asked of both cells at once (`planned:2026-08` is either date in
   that month), and it is SINGLE-VALUED like the columns it stands over, so
   `planned:X planned:Y` is either. That is the whole rule, and it is stated this
@@ -1606,13 +1612,13 @@ on.
   no keyword set, no vocabulary, no clock. `Glance.Web.Filter.plannedKey`,
   `TestFilter` "Planned". **test** (this half; the renderer's is
   table-view's)
-- **`ref:ROWID` is a virtual key no row can answer alone.** It is every row
+- **`ref:ROWID` is the key no row can answer alone.** It is every row
   whose subtree points AT the row named, so the question needs the TARGET's row
   as much as the candidate's: `FilterEnv` is what carries the store to the
-  matcher, `storeEnv` resolves the id through the same id-resolved rows every
-  other answer is built from (exact-string, the way `resolveIds` is), and
-  `tagsEnv` is that environment for a caller with no rows behind it, where
-  `ref:` still parses and matches nothing. What is matched is `hrLinks` against
+  matcher and `ref:` is now all it carries, `storeEnv` resolves the id through
+  the same id-resolved rows every other answer is built from (exact-string, the
+  way `resolveIds` is), and `emptyEnv` is that environment for a caller with no
+  rows behind it, where `ref:` still parses and matches nothing. What is matched is `hrLinks` against
   `refSpellings` of the target — its `ORG_GLANCE_ID` where it has one, plus its
   title, which is what the `[[Title]]` and `[[*Title]]` forms resolve against.
   A row is NOT its own reference: org-glance's materialize footer writes a
@@ -1660,8 +1666,7 @@ on.
   cells happened to look tag-shaped stole both the arity and the vocabulary.
   The verdict was re-derived on every row-set change, so it could flip between
   two pages of one session. What remains is the version skew this whole section
-  is about: an asset predating the field still samples. Virtual keys are the
-  other point of agreement: multi-valued unconditionally on both sides.
+  is about: an asset predating the field still samples.
   Evidence: `TestQuery` "the multi-valued column says so, and it is the only
   one", plus the golden. **test**
 - **Date-ness is asymmetric the same way.** The server prefix-matches exactly
@@ -1733,17 +1738,19 @@ on.
   group values a filter can name" plus the `sample-view.json` golden; over the
   wall, `fixtures/parity/filter-query.json`'s four meta cases and the driver's
   "== producer meta-values". **test** (the producer's half) / **none** (SCHEMA's)
-- **The two vocabularies have different scopes.** The server parses against
-  `storeTags` — every tag in the tree, folded per file — so a predicate is a
-  predicate whether or not any matching row is loaded. The renderer's
-  `tagVocab` iterates the rows it currently holds and is rebuilt on every
-  row-set change. A tag present in the store but absent from the page is
-  therefore a predicate on one side and free text on the other, which is exactly
-  the divergence the tripwire was built for. **none**
+- **The two vocabularies had different scopes, and that is why neither has one.**
+  The server parsed against `storeTags` — every tag in the tree — while the
+  renderer's `tagVocab` iterated the rows it currently held, so a tag present in
+  the store and absent from the page was a predicate on one side of the wire and
+  free text on the other. It was the divergence the tripwire was built for, and
+  no schema revision mechanism exists to reconcile the two derivations. Both
+  sides now name their keys — columns, `planned`, `ref` — and `tagVocab`
+  survives as the tags column's VALUE DOMAIN, which is a completion aid rather
+  than a grammar. **test** (`TestFilter` "Tags are not keys")
 - **Keys are case-sensitive on both sides; values are folded on both.** The
-  server tests membership of `filterKeys` and the tag vocabulary by exact
-  `elem`, and every real key is lowercase — `filterKeys` are written that way
-  and tags are lowercased by `tagsOfCell`; the renderer does the same with a
+  server tests membership of `filterKeys` by exact
+  `elem`, and every real key is lowercase — `filterKeys` are written that way;
+  the renderer does the same with a
   `Set` over lowercased text. So `Tag:x` and `TAG:x` are predicates on NEITHER
   side, degrading to free text for the literal string. Values go through
   `T.toLower` against a haystack lowercased at load, and `toLowerCase` against
@@ -2606,10 +2613,45 @@ on.
   page cannot give. It insists on `sortBy("scheduled", true)`, feature-detected:
   the view already declares that sort and a remount re-reads it, so the call is
   what makes the order the agenda's own rather than a coincidence of the default,
-  and an asset predating a programmatic sort still gets the view — which the
-  vendored `assets/table-view.js` does, `sortBy` having landed in table-view
-  beside this and not yet been synced. Evidence:
-  `TestServe` "Shell agenda". **test**
+  and an asset predating a programmatic sort still gets the view. The vendored
+  `assets/table-view.js` carries `sortBy` (and nothing else about sorting: no
+  `toggleSort` on the handle, no accessor for the order in force), so the call
+  lands. It goes through `sortRows`, the one place a sort is asked for.
+  Evidence: `TestServe` "Shell agenda". **test**
+- **Every column of the view opts into sorting.** `sortable` is SCHEMA.md's
+  opt-in — absent is `false`, both renderers read it that way — and
+  `Glance.Query.column` declares it on all six, so it sits on the column helper
+  rather than in a per-kind list that would name every column anyway. It gates
+  what a READER may reach: `^` and a header click consult it, a producer's own
+  `sortBy` ignores it. Evidence: `TestQuery` "every column opts into sorting",
+  and the golden `sample-view.json`. **test**
+- **`^` reverses the sort on the column at point, and the renderer decides all
+  three of its rules.** WHICH column is the cell selection's
+  (`getSelection().col`), so a whole-row selection is refused — `^ → toggle-sort
+  (no column selected — f/l to pick one)` — rather than guessed at, the
+  renderer's own `^` having point to read where this has none. WHETHER it sorts
+  is that column's `sortable`; `sortBy` ignores the flag, so honouring it is
+  this page's job or `^` would sort a column a header click will not. And the
+  CYCLE is two states, `▲` and `▼`, because the handle has no third: `sortBy`
+  states an order and no call takes one off, where `table-view.el`'s `^`
+  (`table-view-sort-cycle`) goes on through its nulls-first variants. The
+  command is in `ONCE` — a held reversing key lands on whichever direction the
+  parity of the repeat count leaves it. Evidence: `TestServe` "Shell sort".
+  **test**
+- **The sort in force is the one thing about the table this page remembers, and
+  the handle is why.** `mount` publishes `sortBy` and no accessor, so the
+  direction the next `^` reverses cannot be read back and `sortAt` keeps it.
+  Two places touch it: a MOUNT seeds it off the view's declared `sort` (which is
+  where the renderer seeds its own sort keys, so the first `^` on the scheduled
+  column reverses the order the view opened in), and `sortRows` writes it
+  wherever a sort is asked for — the one call site, the agenda's included. A
+  `setRows` is not one of them: the renderer keeps its sort keys across a
+  repaint, dropping the derived orders alone, so a filter refetch and a socket
+  splice land in the order the reader put the table in and nothing re-asserts
+  it. That is a fact about the vendored `assets/table-view.js` rather than a
+  contract — re-read it when `make sync-renderer` moves. Evidence: `TestServe`
+  "a refetch keeps the sort, and nothing re-asserts it" and "a remount re-seeds
+  the record off the view it mounts". **test**
 - **The materialize sheet has no buttons, and closing it is the save.** Dirty is
   either pane against what the file holds as far as the page knows — the
   materialized original, then whatever the last 200 wrote — and it decides
@@ -3025,12 +3067,12 @@ on.
   names the live `ref:` chip. Evidence: `TestServe` "@ out of an empty query
   leaves no crumb, and DEL is still the way back", "and that DEL lands on all
   rows, first row selected". **test**
-- **A filtered answer of zero to a virtual key is checked against the rows the
-  page holds.** The renderer suggests keys from the vocabulary it derives; the
-  server parses with the vocabulary it derives; if the two are different
-  versions the suggestion is a query the applied path evaluates as plain text
-  and answers with nothing — which is what a user hit live (`task:tanik`,
-  19 suggested, 0 returned). So the shell keeps the last unfiltered answer and,
+- **A filtered answer of zero to a key the columns do not name is checked
+  against the rows the page holds.** The renderer suggests tokens off the view
+  it holds; the server parses off the view it serves; if the two are different
+  versions the suggestion can be a query the applied path evaluates as plain
+  text and answers with nothing — which is what a user hit live (`task:tanik`,
+  19 suggested, 0 returned, back when a tag was a key). So the shell keeps the last unfiltered answer and,
   when the server returns 0 for a query carrying a `key:value` its columns do
   not name, counts locally: if the words are in the rows, it says
   `filter parity divergence — asset\/daemon version skew` and logs both counts.
@@ -3057,9 +3099,9 @@ on.
   opposite skew — the server matching rows the renderer would not — is never
   reported. The local recount DROPS THE KEY and tests the value against the
   whole joined row text, so a correct empty facet answer warns whenever the word
-  happens to appear elsewhere: `contact:tanik` with no `contact`-tagged rows but
-  "tanik" in a title fires it. And it consults column keys alone, so every
-  virtual-key predicate is treated as suspect, while its `key:value` gate also
+  happens to appear elsewhere: `tag:contact` with no `contact`-tagged rows
+  loaded but "contact" in a title fires it. And it consults column keys alone,
+  so `planned:` and `ref:` are treated as suspect, while its `key:value` gate also
   admits ordinary text such as a bare URL. One more source of drift sits beside
   it: unfiltered frames splice into the renderer without updating the remembered
   set, so the baseline ages over the life of the page. **test** (that it fires,

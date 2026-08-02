@@ -104,10 +104,10 @@ unfiltered table carries no filter chrome at all. It speaks
 it: =state:TODO state:DONE tanik= is either state and the text, because
 distinct keys and free text AND. A =key:value=
 is a predicate only when =key= names a column — =state=, =priority=, =title=,
-=tag=, =scheduled=, =deadline= — or one of your own org tags, so =:work:= and
-==code== stay the org text they are. Tags are keys of their own:
-=contact:tanik= is "tagged =contact= and matching =tanik=", and =contact:= alone
-is the facet. Two predicates on one key combine by what the field holds: one
+=tag=, =scheduled=, =deadline= — so =:work:= and ==code== stay the org text
+they are, and so does an org tag: =tag:contact tanik= is "tagged =contact= and
+matching =tanik=", two tokens because the predicate reads the tags cell and the
+free text reads the row. Two predicates on one key combine by what the field holds: one
 value means either of them (=state:TODO state:DONE=, since no row is both),
 a list means all of them (=tag:web tag:glance= carries both, the way a label
 filter reads). =-token= negates, ="two words"= quotes, =key:none= asks for an
@@ -536,19 +536,18 @@ where it was. Pressing =D= twice costs nothing: a row already carrying the tag
 is left alone. What makes an archive worth having is the other half — the table
 leaves archived rows out unless you ask for them:
 
-| query              | what you get                                 |
-|--------------------+----------------------------------------------|
-| (nothing)          | everything except archived rows              |
-| =archive:=         | the archived rows                            |
-| =-archive:=        | everything except them — the default, spelled |
-| =archive:tanik=    | archived rows matching =tanik=                |
+| query                  | what you get                                  |
+|------------------------+-----------------------------------------------|
+| (nothing)              | everything except archived rows               |
+| =tag:archive=          | the archived rows                             |
+| =-tag:archive=         | everything except them — the default, spelled |
+| =tag:archive tanik=    | archived rows matching =tanik=                |
 
-Any query that mentions the =archive= key at all turns the default off, and the
+Any query that names the =archive= tag at all turns the default off, and the
 response's =X-Glance-Archived= header says how many rows were left out, so an
-empty table can be told from one whose matches are all filed away. The key stays
-in the vocabulary whether or not the default is hiding its rows, which is what
-makes it reachable at all: the filter is parsed against every tag in the tree,
-and only the rows are narrowed.
+empty table can be told from one whose matches are all filed away. Only the rows
+are narrowed, never the grammar: the predicate that reaches what the default
+hides is the same =tag:= it would be for any other tag.
 
 *=o= follows the row.* An org entry that points somewhere — a bracket link on
 the title, a bare URL in the body, a reference under a child — is a row you can
@@ -639,6 +638,7 @@ parameter and a key line that had to be rewritten whenever it moved.
 | =>= =G=     | =last-row=                        | last row on the page                          |
 | =]=         | =next-page=                       | turns a page; echoes =page 3/129=             |
 | =[=         | =previous-page=                   | turns one back                                |
+| =^=         | =toggle-sort=                     | sorts by the column at point; again reverses  |
 | =RET=       | =org-glance-overview:materialize= | opens the sheet                               |
 | =/=         | =filter-rows=                     | summons the filter palette                    |
 | =DEL=       | =filter-drop-token=               | drops a token; then walks a drill back        |

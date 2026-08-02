@@ -11,6 +11,33 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ## Unreleased
 
+### Removed
+- Virtual tag keys leave `?q=`. An org tag no longer names a filter key:
+  `course:text` is free text, colon and all, and `tag:course text` is the one
+  spelling — the predicate reads the tags cell, the free text reads the row, and
+  nothing expressible is lost. It kills the worst parity divergence the grammar
+  had: the keys a query could name were the WHOLE STORE's tags here and the
+  LOADED ROWS' tags in `table-view.js`, so one token was a predicate on one side
+  of the wire and free text on the other. It also takes `contact:none` with it,
+  which meant "tagged contact and the row text holding none" and read like the
+  empty-cell rule it was not. Two differences are written down rather than
+  papered over: `tag:` matches its column by SUBSTRING where a tag key matched
+  whole-tag (`tag:glan` finds `:glance:`), and org spells a tags cell `:web:`,
+  so the free text `web:` is still inside every row carrying the tag.
+- The archive exclusion is named as `tag:archive` rather than `archive:`
+  (`Glance.Web.Filter.namesArchive`), the archive tag having been an ordinary
+  virtual key. Any spelling of that predicate still counts — negated, quoted,
+  beside other tokens — and the value is matched WHOLE, so `tag:arch` finds an
+  archived row and leaves the exclusion on rather than half-lifting it.
+  `-archive:` keeps working by coincidence: as free text it drops exactly the
+  rows whose tags cell spells `:archive:`.
+- `Glance.Web.Filter` sheds the machinery the feature alone consumed: the `Tag`
+  field constructor and its arity, `parseFilter`'s vocabulary parameter,
+  `FilterEnv`'s tag list (`tagsEnv` is now the tag-free `emptyEnv`), and the
+  `tagsOfCell` import. `Glance.Web.Store.storeTags` stays — it is `tag:`'s value
+  domain, the tag palette's vocabulary and `namesArchive`'s "is anything
+  archived" guard.
+
 ### Added
 - `:` manages tags over the marked rows, or the row at point: a which-key
   palette of the set's own tags where a letter toggles one under dired's
