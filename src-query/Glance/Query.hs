@@ -1978,23 +1978,22 @@ filterKeys :: [Text]
 filterKeys = [ key | (key, _header, _kind, _cell) <- viewColumns ]
 
 -- | 'viewColumns' as SCHEMA.md's Column objects, PALETTE giving the state
--- badges.  What a column carries past its key, header and type is the kind's:
--- which columns sort, the priority letters, and the badge list.
+-- badges.  Every column sorts, so @sortable@ rides on the column itself
+-- ('column'); what a kind adds past that is the priority letters, the badge
+-- list and the tags column's arity.
 columns :: TodoKeywords -> [Value]
 columns palette =
   [ column key header kind (extra key) | (key, header, kind, _cell) <- viewColumns ]
   where
     extra key = case key of
-      "state"    -> sortable <> [ "badges" .= badges palette, "values" .= stateValues ]
-      "priority" -> sortable <> [ "values" .= (["A", "B", "C"] :: [Text]) ]
-      "title"    -> []
+      "state"    -> [ "badges" .= badges palette, "values" .= stateValues ]
+      "priority" -> [ "values" .= (["A", "B", "C"] :: [Text]) ]
       -- Declared rather than left to be sampled: the renderer decides a
       -- column's arity from up to 40 non-empty cells, so a page with fewer
       -- than two tagged rows finds no multi-valued column at all and ORs
       -- @tag:a tag:b@ where this producer ANDs it.  The declaration wins there.
       "tag"      -> [ "multi" .= True ]
-      _date      -> sortable
-    sortable = [ "sortable" .= True ]
+      _          -> []
 
 -- | The state column's meta values: filter vocabulary rather than cell text.
 -- SCHEMA.md lets a producer add values over a column's own domain, and this one
@@ -2008,9 +2007,18 @@ stateValues :: [Text]
 stateValues = ["*active*", "*inactive*"]
 
 -- | A column object: KEY, HEADER and TYPE, then whatever EXTRA the kind needs.
+--
+-- @sortable@ is on every one of them, because order means something in all six:
+-- a state cycle, a priority letter, a title alphabetically, the tags a row
+-- carries, and the two dates.  SCHEMA.md makes the field opt-in and this
+-- producer opts every column in, which is why it sits here rather than in a
+-- per-kind list with one entry per column.  It gates what a READER may sort by
+-- — @^@ and a header click read it, and a producer's own @sortBy@ ignores it —
+-- so the shell honours it too before it asks for a sort.
 column :: Text -> Text -> Text -> [Pair] -> Value
 column key header kind extra =
-  object ([ "key" .= key, "header" .= header, "type" .= kind ] <> extra)
+  object ([ "key" .= key, "header" .= header, "type" .= kind
+          , "sortable" .= True ] <> extra)
 
 -- | One row: the identity a renderer keys updates off, and its cells.  Exported
 -- because a live producer streams rows one at a time — a @upsert-row@ frame

@@ -842,7 +842,12 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   shows a command's FIRST binding — still reads `n/p rows · f/b cells`. Same
   handler, so an arrow walks off the last cell into the whole-row look the way
   `f` does. Ends
-  are `<` and `>`, plus vi's `G` beside `>`. `g` is `apply-default-filter`, `a`
+  are `<` and `>`, plus vi's `G` beside `>`. `^` is `toggle-sort` — the cell
+  selection's column, sortable-honoring, a TWO-state cycle (the handle has no
+  clear-sort call; off is unreachable without a remount) — and the sort
+  SURVIVES refetch/splice (setRows drops caches, not sortKeys); `sortAt` is the
+  shell's one record, written at mount seed and sortRows alone.
+  `g` is `apply-default-filter`, `a`
   is `org-glance-agenda`, `,`
   is `customize`, `:` is `org-agenda-set-tags` — the AGENDA's own key for the
   same question over there — `o` and `!` are `org-glance-overview:open`, `@` is

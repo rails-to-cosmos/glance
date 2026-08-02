@@ -417,11 +417,11 @@ safeName name = not (T.null name)
 -- rather than deletes ('runCommand'), so an org tree accumulates rows that are
 -- done with rather than gone, and a view that showed them by default would
 -- grow without bound.  The rule is one predicate, applied after @q@ and spelled
--- exactly as @-archive:@ would be: any query naming the @archive@ key at all
--- turns it off ('Glance.Web.Filter.namesArchive'), and @X-Glance-Archived@
--- reports how many rows the exclusion took.  The vocabulary a query is parsed
--- against stays the WHOLE store's, so hiding the rows never hides the key that
--- reaches them.
+-- exactly as @-tag:archive@ would be: any query naming that tag through the
+-- @tag@ column turns it off ('Glance.Web.Filter.namesArchive') — negated,
+-- quoted, whatever — and @X-Glance-Archived@ reports how many rows the
+-- exclusion took.  The value is matched WHOLE where the column itself matches
+-- by substring, so @tag:arch@ leaves the exclusion on.
 --
 -- A page is cut out of the view's declared sort ('Glance.Query.sortedForView'),
 -- never out of walk order — page two has to be the rows the table would show
@@ -457,16 +457,16 @@ headlines opts hub request = case pageParams request of
       then pure (responseLBS status304 (cacheHeaders tag) "")
       else do
         let qr      = storeResult st
-            -- The vocabulary is the whole store's, filtered set or not: the
-            -- exclusion below must not be able to take `archive:' out of the
-            -- keys a query may name, or the only way back to what it hides
-            -- would be gone with it.
+            -- The whole store's tags, filtered set or not: the exclusion below
+            -- reads them twice — for whether the tree has anything archived at
+            -- all, and for whether the query said so — and a vocabulary cut
+            -- down to the answer could not say either.
             vocab   = storeTags st
             -- `ref:' reads the link graph, so the query is matched against an
-            -- environment carrying the store's rows and not the tags alone.
-            -- The rows are the id-resolved ones the answer is drawn from, which
-            -- is what makes a reference point where the table points.
-            env     = storeEnv vocab (qrRecords qr)
+            -- environment carrying the store's rows.  They are the id-resolved
+            -- ones the answer is drawn from, which is what makes a reference
+            -- point where the table points.
+            env     = storeEnv (qrRecords qr)
             asked   = filter (matchesFilter env q) (qrRecords qr)
             matched = if hiding then filter (not . archived) asked else asked
             -- A tree with nothing archived in it pays no pass over the answer:
@@ -1662,6 +1662,13 @@ keyBindings =
       `helps` lastRowHelp
   , bind ["]"]          "next-page"                       (Just "nextPage")       "table"
   , bind ["["]          "previous-page"                   (Just "previousPage")   "table"
+  -- The order the rows are in, over the column the cell keys are standing in:
+  -- table-view's own @^@ (@table-view-sort-cycle@ there), which is why the key
+  -- is that one.  It REVERSES rather than cycling off — the handle states an
+  -- order and offers no way back to none — and it refuses a whole-row selection
+  -- rather than guessing which column was meant.
+  , bind ["^"]          "toggle-sort"                     (Just "toggleSort")     "table"
+      `helps` "sort by the column at point; again reverses it"
   , bind ["RET"]        "org-glance-overview:materialize" (Just "materializeRow") "table"
   , bind ["/"]          "filter-rows"                     (Just "focusFilter")    "table"
       `helps` "summon the filter palette"
@@ -1789,7 +1796,12 @@ onceCommands = [ "filter-drop-token", "unmark-all", "mark-all"
                  -- too, and each one leaves a crumb: a held key would build a
                  -- trail of identical steps for DEL to walk back one at a time.
                , "org-glance-overview:open", "org-glance-agenda"
-               , "org-glance-overview:relations" ]
+               , "org-glance-overview:relations"
+                 -- A reversing key is the one kind a repeat cannot help: a held
+                 -- `^' re-sorts the whole set per repeat and lands on whichever
+                 -- direction the parity of the count leaves it, so what a reader
+                 -- gets is the order they asked for or its opposite, at random.
+               , "toggle-sort" ]
 
 -- | The resident key line, in the order it reads: the commands worth naming
 -- ahead of the echo pill, each with the word the line shows for it.  Commands
@@ -1808,6 +1820,8 @@ keyHints =
   -- is the whole point: without it a reader takes `<' for a within-page key and
   -- never finds out that it climbs.
   , (["first-row", "last-row"],            "first/last row, again = page up/down")
+  -- Beside the cell keys in spirit: what it sorts by is the column they picked.
+  , (["toggle-sort"],                      "sort")
   , (["org-glance-overview:materialize"],  "materialize")
   , (["org-glance-overview:open"],         "open link")
   , (["mark-toggle", "unmark", "unmark-all", "mark-all"], "mark")
@@ -2365,6 +2379,13 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      // out of them (`parity'), and cell movement names its landing column"
   , "      // by the header sitting over it."
   , "      cols = view.columns || [];"
+      -- A mount takes its sort keys from the view, so the record of them starts
+      -- there too: the served view declares scheduled ascending, which is what
+      -- the first `^' on that column reverses.  A view declaring none mounts
+      -- unsorted and the first press asks for ascending, which is the
+      -- renderer's own rule for a column that is not the primary one.
+  , "      sortAt = view.sort"
+  , "        ? { key: view.sort.column, asc: view.sort.ascending !== false } : null;"
   , "      // Whatever the remount that led here took down goes back up over the"
   , "      // new table; on a first boot there is nothing stashed and nothing to do."
   , "      restore();"
@@ -3117,10 +3138,21 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- same at a stop as at a turn.
   , "    const pager = () => !!table && typeof table.nextPage === \"function\""
   , "      && typeof table.pageInfo === \"function\";"
-    -- The programmatic sort, which is the agenda's and nothing else's.  Named
-    -- here with the rest, since this is where a reader greps for which renderer
-    -- calls are optional.
+    -- The programmatic sort: the agenda's, and `^''s.  Named here with the rest,
+    -- since this is where a reader greps for which renderer calls are optional.
+    --
+    -- `sortBy' STATES an order and the handle publishes no accessor for the one
+    -- in force, so the direction the next `^' reverses is the one thing about
+    -- the table this page has to remember.  It is written where a sort is
+    -- ASKED FOR and re-seeded where the renderer re-seeds its own — a mount,
+    -- off the view's declared `sort' — so the two cannot drift for longer than
+    -- one call.  A `setRows' does not enter into it: the renderer keeps its
+    -- sort keys across one (it drops the derived orders and nothing else), so
+    -- a filter refetch and a socket splice both land in the order the reader
+    -- put the table in, and nothing here re-asserts it.
   , "    const sorts = () => !!table && typeof table.sortBy === \"function\";"
+  , "    let sortAt = null;"
+  , "    function sortRows(key, asc) { table.sortBy(key, asc); sortAt = { key, asc }; }"
   , "    function turnPage(b, step) {"
   , "      if (!pager()) { said(b, \"this table-view.js has no pager\"); return; }"
   , "      if (step > 0) table.nextPage(); else table.previousPage();"
@@ -4237,11 +4269,12 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- view — earliest first — and the view JSON already declares it, which a
     -- remount re-reads; the call is what makes the order the agenda's own
     -- rather than a coincidence of the default, and it is feature-detected
-    -- since an asset predating a programmatic sort has only its headers.  The
-    -- count is the server's answer to the query, which is the one number a
-    -- first page cannot give.
+    -- since an asset predating a programmatic sort has only its headers.  It
+    -- goes through the helper `^' writes, so there is one place a sort is asked
+    -- for and one record of which one is in force.  The count is the server's
+    -- answer to the query, which is the one number a first page cannot give.
   , "    function landedAgenda(b, total) {"
-  , "      if (sorts()) table.sortBy(\"scheduled\", true);"
+  , "      if (sorts()) sortRows(\"scheduled\", true);"
   , "      said(b, `agenda · ${total} row${total === 1 ? \"\" : \"s\"}`);"
   , "    }"
   , ""
@@ -4363,6 +4396,32 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      previousPage: (b) => turnPage(b, -1),"
   , "      firstRow: (b) => endStop(b, false),"
   , "      lastRow: (b) => endStop(b, true),"
+    -- `^' sorts by the column the CELL selection is standing in, which is the
+    -- whole of how it picks one: a whole-row selection names no column, and
+    -- guessing one — the primary, the first, the last one sorted — would be
+    -- this page inventing a rule the renderer's own `^' does not have (there
+    -- the answer is where point is).  So it refuses and says which key picks a
+    -- column.
+    --
+    -- `sortable' is the RENDERER's opt-in and `sortBy' ignores it — the flag
+    -- gates what a reader may reach, where a producer's own call is the
+    -- producer's business — so a page driving a reader's key has to honour it
+    -- here or it would sort a column the header click will not.
+    --
+    -- Two states, and the ceiling is the handle's: `sortBy' states an order and
+    -- there is no call that takes one off, so `^' reverses where table-view.el's
+    -- cycles through its nulls-first variants.  A third press is the first one
+    -- again.
+  , "      toggleSort: (b) => {"
+  , "        if (!sorts()) { said(b, \"this table-view.js has no sort\"); return; }"
+  , "        const at = column(), c = at === null ? null : cols[at];"
+  , "        if (!c) { said(b, \"no column selected — f/l to pick one\"); return; }"
+  , "        const named = c.header || c.key;"
+  , "        if (c.sortable !== true) { said(b, `${named} does not sort`); return; }"
+  , "        const asc = !(sortAt && sortAt.key === c.key && sortAt.asc);"
+  , "        sortRows(c.key, asc);"
+  , "        said(b, `${named} ${asc ? \"▲\" : \"▼\"}`);"
+  , "      },"
   , "      materializeRow: () => {"
   , "        const id = focusedId();"
   , "        if (id) materialize(id);"

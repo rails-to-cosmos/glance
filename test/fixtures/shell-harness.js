@@ -37,7 +37,7 @@
 //   bare          the mounted handle loses its mark calls, the way an older
 //                 table-view.js never had them
 //   pageless      and its pager calls, the way one older still never had those
-//   sortless      and its programmatic sort, which the agenda asks for
+//   sortless      and its programmatic sort, which `^' and the agenda ask for
 //   crumbless     and its crumb trail, which `@' needs before it will drill
 //   onemailto     the row points at one link that is not http(s)
 //   partly        two of the three rows carry `web' and the third does not,
@@ -75,12 +75,21 @@ let rows = ["one", "two", "three"].map((title, i) =>
 // The state column carries its badge palette, which is where the value palette
 // C-c C-t raises reads its COLOURS — the keywords themselves are /keywords'
 // answer, and a keyword no badge names simply carries no hue.
+// ONE of the two declares `sortable', which is the renderer's opt-in: `^' has
+// to reach a column that sorts and refuse one that does not, and a pair with
+// one of each is what makes both answers reachable.  The real producer opts
+// every column in.
 let columns = [
-  { key: "state", badges: [ { value: "TODO", color: "#e0af68", group: "active" }
-                          , { value: "READING", color: "#bb9af7", group: "active" }
-                          , { value: "DONE", color: "#73daca", group: "inactive" } ] },
+  { key: "state", sortable: true,
+    badges: [ { value: "TODO", color: "#e0af68", group: "active" }
+            , { value: "READING", color: "#bb9af7", group: "active" }
+            , { value: "DONE", color: "#73daca", group: "inactive" } ] },
   { key: "tag" },
 ];
+// The view's own sort, which a mount takes its order from — the producer always
+// declares one, over a column this stub has (the real one's is `scheduled').
+// It is what the first `^' on that column REVERSES.
+const declaredSort = { column: "state", ascending: true };
 let tag = "\"t0\"";
 // Set by `noreferences': nothing points at the row `@' names, so the ref query
 // answers empty — which is what the drill's probe reads before it applies
@@ -213,7 +222,8 @@ globalThis.fetch = (url, init) => {
       // The server's own answer to a tag it still stands behind: no body at all.
       if (sent === tag) return answer(304, null, {});
       const empty = unreferenced && String(url).indexOf("q=ref%3A") !== -1;
-      return answer(200, { title: "t", columns, rows: empty ? [] : capped(url, rows) },
+      return answer(200, { title: "t", columns, sort: declaredSort,
+                           rows: empty ? [] : capped(url, rows) },
                     { "x-glance-total": empty ? "0" : String(served), etag: tag });
     };
     if (hanging) return new Promise((go) => held.push(() => go(send())));
@@ -322,8 +332,11 @@ let mounts = 0, sets = 0, raises = 0, pmounts = 0, psets = 0;
 // flash is what this reads out.
 const paints = [];
 // The last programmatic sort asked of a handle, which is the whole of what the
-// agenda's own ordering can be observed to have done.
-let sorted = null;
+// agenda's own ordering can be observed to have done — and HOW MANY have been
+// asked for, which is what says a sort was left alone: the renderer keeps its
+// order across a `setRows', so a refetch that re-asserted one would show up
+// here as a second call.
+let sorted = null, sortCalls = 0;
 /** The live table instance and the live panel instance.  The table starts as a
  * standing empty one so a boot that never got to mount — the indexing poll, an
  * offline daemon — still answers about a table rather than throwing. */
@@ -461,10 +474,11 @@ const makeMount = (host, view, options, own) => {
     // What the renderer's palette does: the overlay goes up and its field
     // takes focus, which is the whole of what the shell can see of it.
     openFilter: () => { raises += 1; field("filter").focus(); },
-    // The programmatic sort, which is what the agenda asks for once its rows
-    // are up.  Recorded rather than performed: the ORDER is the renderer's
-    // and TableView's own suite is where it is tested.
-    sortBy: (column, ascending) => { sorted = { column, ascending }; },
+    // The programmatic sort: what `^' asks for over the column at point, and
+    // what the agenda insists on once its rows are up.  Recorded rather than
+    // performed: the ORDER is the renderer's and TableView's own suite is where
+    // it is tested.
+    sortBy: (column, ascending) => { sorted = { column, ascending }; sortCalls += 1; },
     // The drill-down trail.  `popCrumb' pops and RETURNS — it never applies —
     // because whoever owns the fetching owns what a query means, which is the
     // whole reason the shell has a ladder to walk rather than the renderer.
@@ -1049,8 +1063,8 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     pmode: field("pbox").className, plist: paletteRows(), resolved,
     pfoot: field("pfoot").textContent, assigned, commands,
     // Following a link: which rows were asked about, which tabs were opened,
-    // and the sort the agenda insisted on.
-    linked, opened, sorted, tagged,
+    // and the sort `^' or the agenda asked for, with how many were asked for.
+    linked, opened, sorted, sortCalls, tagged,
     // The drill-down trail as the strip would draw it, labels alone — the
     // queries behind them are the shell's business and the URL already carries
     // them.

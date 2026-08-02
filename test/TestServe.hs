@@ -26,7 +26,7 @@ import System.FilePath (takeDirectory, (</>))
 import System.Process (readProcessWithExitCode)
 import Test.Tasty (TestTree, testGroup, withResource)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
-import TestDefaults ( boolAt, document, field, intAt, listAt, maybeTextAt, membersAt
+import TestDefaults ( boolAt, document, field, intAt, listAt, maybeTextAt
                     , orgFile, textAt, textsAt, viewDir, withTempDir )
 
 import qualified Data.Aeson.Key as Key
@@ -338,7 +338,7 @@ spec = withResource (body <$> get assetsDir "/") (const (pure ())) $ \shell ->
     , pageSpec shell, keymapSpec shell
     , glueSpec shell, bootSpec shell, liveSpec shell, washSpec shell
     , paletteSpec shell
-    , moveSpec shell, markSpec shell
+    , moveSpec shell, sortKeySpec shell, markSpec shell
     , commandKeySpec shell, promptKeySpec shell, whichKeySpec shell, tagKeySpec shell
     , openKeySpec shell, agendaSpec shell, drillSpec shell, logSpec shell
     , sheetSpec shell
@@ -757,6 +757,88 @@ moveSpec shell = testGroup "Shell movement"
 -- pages in it, and the harness's three rows are one page whatever the size.
 moveScript :: T.Text -> T.Text
 moveScript script = "rows:9 paged:3 " <> script
+
+-- | @^@: the order the rows are in, over the column the cell keys picked.
+--
+-- Three rules, and the renderer decides all three.  WHICH column is the cell
+-- selection's, so a whole-row selection is a refusal rather than a guess.
+-- WHETHER it sorts is the column's own @sortable@ — the renderer's opt-in,
+-- which @sortBy@ ignores, so honouring it is this page's job.  And how far the
+-- cycle goes is the handle's ceiling: @sortBy@ states an order and no call
+-- takes one off, so @^@ REVERSES and a third press is the first again.
+--
+-- The record of which order is in force is the one thing about the table this
+-- page keeps, because the handle publishes no accessor for it.  Two cases pin
+-- where it comes from and how long it lasts: a mount seeds it off the view's
+-- declared @sort@, and a refetch leaves both it and the renderer's own sort
+-- keys alone.
+sortKeySpec :: IO T.Text -> TestTree
+sortKeySpec shell = testGroup "Shell sort"
+  [ testCase "sorts by the column at point, reversing the order the view declared" $
+      bootOf shell "" 500 "f ^" "" $ \answer -> do
+        assertEqual "the view opened on this column ascending, so the key turns it"
+                    (Just ("state", False)) =<< sortOf answer
+        assertEqual "and the echo speaks the direction it landed in"
+                    "^ → toggle-sort (state ▼)" =<< textAt "echo" answer
+
+  , testCase "a second press turns it back, and a third is the first again" $ do
+      bootOf shell "" 500 "f ^ ^" "" $ \answer -> do
+        assertEqual "back up" (Just ("state", True)) =<< sortOf answer
+        assertEqual "the echo" "^ → toggle-sort (state ▲)" =<< textAt "echo" answer
+      -- Two states, because the handle has no third: `sortBy' states an order
+      -- and nothing takes one off, where table-view.el's `^' cycles on through
+      -- its nulls-first variants.
+      bootOf shell "" 500 "f ^ ^ ^" "" $
+        assertEqual "and round again" (Just ("state", False)) <=< sortOf
+
+    -- The column is the renderer's, so a selection that names none is a
+    -- question this page cannot answer: it says which key answers it instead of
+    -- picking a column on the reader's behalf.
+  , testCase "a whole-row selection names no column, and the key says which picks one" $
+      bootOf shell "" 500 "^" "" $ \answer -> do
+        assertEqual "nothing was asked of the renderer" 0 =<< intAt "sortCalls" answer
+        assertEqual "the echo names the key that picks a column"
+                    "^ → toggle-sort (no column selected — f/l to pick one)"
+                    =<< textAt "echo" answer
+
+    -- `sortable' gates what a READER may reach and `sortBy' ignores it, so a
+    -- page driving a reader's key is the only thing that can honour it.
+  , testCase "a column that declares no sortable is left alone" $
+      bootOf shell "" 500 "f f ^" "" $ \answer -> do
+        assertEqual "the column the cursor is in" 1 =<< intAt "col" answer
+        assertEqual "nothing was asked of the renderer" 0 =<< intAt "sortCalls" answer
+        assertEqual "and the echo names it"
+                    "^ → toggle-sort (tag does not sort)" =<< textAt "echo" answer
+
+  , testCase "an asset with no programmatic sort is named, not crashed into" $
+      bootOf shell "" 500 "" "sortless press:f press:^" $ \answer -> do
+        assertEqual "no sort was asked for" Nothing =<< sortOf answer
+        assertEqual "the echo" "^ → toggle-sort (this table-view.js has no sort)"
+                    =<< textAt "echo" answer
+
+    -- The renderer keeps its sort keys across a `setRows' — it drops the
+    -- derived orders and nothing else — so a reconnect that repaints the rows
+    -- lands them in the order the reader put the table in, and this page
+    -- re-asserts nothing.  The record survives with it: the next press
+    -- continues the cycle rather than starting it over.
+  , testCase "a refetch keeps the sort, and nothing re-asserts it" $ do
+      bootOf shell "" 500 "f ^" "moved close:resync" $ \answer -> do
+        assertEqual "one sort asked for, at the press" 1 =<< intAt "sortCalls" answer
+        assertEqual "and it is still the one that was asked for"
+                    (Just ("state", False)) =<< sortOf answer
+      bootOf shell "" 500 "f ^" "moved close:resync press:^" $ \answer -> do
+        assertEqual "the press after it continues the cycle"
+                    (Just ("state", True)) =<< sortOf answer
+        assertEqual "the echo" "^ → toggle-sort (state ▲)" =<< textAt "echo" answer
+
+    -- A REMOUNT is where the renderer re-reads the view's own sort, so it is
+    -- where the record goes back to what the view declares: the press after one
+    -- reverses the declared order again rather than the one that was in force.
+  , testCase "a remount re-seeds the record off the view it mounts" $
+      bootOf shell "" 500 "f ^" "close:view-changed press:f press:^" $ \answer ->
+        assertEqual "the declared order, reversed again"
+                    "^ → toggle-sort (state ▼)" =<< textAt "echo" answer
+  ]
 
 -- | Marking, driven through the keys a reader presses.  The renderer holds the
 -- marks and this page holds the keys, so what is asserted here is the half that
@@ -2854,7 +2936,7 @@ bootOf shell search total keys acts check = do
 -- rather than spelled twice: two cases read the list, one for the dispatch that
 -- honours it and one for the rule that every entry is a bound command.
 --
--- The first five write or destroy; the last two do neither and are here because
+-- The first five write or destroy; the rest do neither and are here because
 -- a leaned-on key is ruinous either way — `o' is a browser tab per repeat and
 -- `a' a remount per repeat.
 onceNames :: [T.Text]
@@ -2863,7 +2945,10 @@ onceNames = [ "filter-drop-token", "unmark-all", "mark-all"
             , "org-glance-overview:open", "org-glance-agenda"
               -- A held `@' is a remount per repeat, each leaving a crumb behind
               -- for DEL to walk back one at a time.
-            , "org-glance-overview:relations" ]
+            , "org-glance-overview:relations"
+              -- And a held `^' re-sorts per repeat and lands on whichever
+              -- direction the parity of the count leaves it.
+            , "toggle-sort" ]
 
 -- | The browser the boot runs in, stubbed down to what it touches.
 harness :: FilePath
@@ -3404,7 +3489,9 @@ shellGlue =
   , Glue "`a' is the agenda query through the same door, plus its own sort"
       [ "const AGENDA_QUERY = \"state:*active* -planned:none\";"
       , "applyAgenda: (b) => applyView(b, AGENDA_QUERY, (total) => landedAgenda(b, total)),"
-      , "if (sorts()) table.sortBy(\"scheduled\", true);"
+      -- Through the one helper that asks for a sort, so the agenda's order and
+      -- `^''s record of it cannot be two different answers.
+      , "if (sorts()) sortRows(\"scheduled\", true);"
       , "said(b, `agenda · ${total} row${total === 1 ? \"\" : \"s\"}`);"
       -- The landing is an ARGUMENT of the boot it belongs to, so a boot that
       -- never lands cannot leave one behind for the next.
@@ -3508,6 +3595,34 @@ shellGlue =
       -- The row is handed to its handler so the echo can open the same way.
       , "if (handler) handler(b);" ]
       ["let col = ", "selCol", "lastColumn"]
+
+  -- `^' sorts by the column the cell selection is standing in.  The record of
+  -- which order is in force is the one thing about the table this page keeps,
+  -- and it keeps it because the handle publishes no accessor: `sortBy' STATES
+  -- an order and nothing reads one back.  It is seeded where the renderer seeds
+  -- its own (a mount, off the view's `sort') and written where a sort is asked
+  -- for, and those are the only two places.
+  , Glue "`^' reverses the sort on the column at point, and honours the opt-in"
+      [ "toggleSort: (b) => {"
+      , "let sortAt = null;"
+      , "function sortRows(key, asc) { table.sortBy(key, asc); sortAt = { key, asc }; }"
+      , "sortAt = view.sort"
+      , "? { key: view.sort.column, asc: view.sort.ascending !== false } : null;"
+      -- The column comes out of the renderer's selection like every other key's.
+      , "const at = column(), c = at === null ? null : cols[at];"
+      , "if (!c) { said(b, \"no column selected — f/l to pick one\"); return; }"
+      -- `sortBy' ignores `sortable', so the page driving a reader's key is what
+      -- has to honour it.
+      , "if (c.sortable !== true) { said(b, `${named} does not sort`); return; }"
+      , "const asc = !(sortAt && sortAt.key === c.key && sortAt.asc);"
+      , "sortRows(c.key, asc);"
+      , "said(b, `${named} ${asc ? \"▲\" : \"▼\"}`);"
+      -- An asset with no programmatic sort says so rather than throwing.
+      , "if (!sorts()) { said(b, \"this table-view.js has no sort\"); return; }" ]
+      -- One call site: a second direct `sortBy' with a column spelled into it
+      -- would be an order asked for and never recorded.  And the arrow the
+      -- header wears is the renderer's own drawing, never this page's read.
+      [ "table.sortBy(\"", "tv-arrow" ]
 
   -- `f → next-column (Headline)', and `f → next-column (row mode)' where the
   -- walk left the cells.  Walking off an end is a LANDING rather than a wall:
@@ -5754,17 +5869,17 @@ archiveViewSpec = testGroup "GET /headlines and the archive"
         assertEqual "X-Glance-Total" (Just "2") (header "X-Glance-Total" r)
         assertEqual "X-Glance-Archived" (Just "1") (header "X-Glance-Archived" r)
 
-  , testCase "the exclusion is exactly what -archive: spells" $
+  , testCase "the exclusion is exactly what -tag:archive spells" $
       withArchived $ \a -> do
         implicit <- rowsOf =<< getFrom a "/headlines"
-        explicit <- getFrom a "/headlines?q=-archive%3A"
+        explicit <- getFrom a "/headlines?q=-tag%3Aarchive"
         assertEqual "the same rows" (map rowId implicit) . map rowId =<< rowsOf explicit
         -- A query that says it itself is not one this server also says: the
         -- count is zero because nothing was withheld from it.
         assertEqual "nothing hidden from it" (Just "0")
                     (header "X-Glance-Archived" explicit)
 
-  , testCase "naming the key at all shows them" $
+  , testCase "naming the tag at all shows them" $
       withArchived $ \a ->
         mapM_ (\(path, wanted) -> do
                  r <- getFrom a path
@@ -5772,17 +5887,18 @@ archiveViewSpec = testGroup "GET /headlines and the archive"
                    =<< rowsOf r
                  assertEqual (show path <> ": nothing hidden") (Just "0")
                              (header "X-Glance-Archived" r))
-              [ ("/headlines?q=archive%3A", ["filed"])
-              , ("/headlines?q=archive%3Afiled", ["filed"])
-              , ("/headlines?q=state%3ADONE%20archive%3A", ["filed"]) ]
+              [ ("/headlines?q=tag%3Aarchive", ["filed"])
+              , ("/headlines?q=tag%3Aarchive%20filed", ["filed"])
+              , ("/headlines?q=state%3ADONE%20tag%3Aarchive", ["filed"]) ]
 
-    -- The vocabulary is the WHOLE store's, which is what makes the key reach
-    -- what the default hides.  A value no row spells as text is the proof: as
-    -- free text `archive:filed' matches nothing, so a match is a predicate.
-  , testCase "the key survives the exclusion that hides its rows" $
+    -- The vocabulary is the WHOLE store's, which is what makes the predicate
+    -- reach what the default hides.  A spelling no row carries as text is the
+    -- proof: as free text `tag:archive' matches nothing, so a match is the
+    -- predicate reading the tags cell.
+  , testCase "the predicate survives the exclusion that hides its rows" $
       withArchived $ \a -> do
-        faceted <- getFrom a "/headlines?q=archive%3Afiled"
-        text' <- getFrom a "/headlines?q=%22archive%3Afiled%22"
+        faceted <- getFrom a "/headlines?q=tag%3Aarchive"
+        text' <- getFrom a "/headlines?q=%22tag%3Aarchive%22"
         assertEqual "as a predicate" (Just "1") (header "X-Glance-Total" faceted)
         assertEqual "as free text" (Just "0") (header "X-Glance-Total" text')
 
@@ -5948,6 +6064,9 @@ pageSpec shell = testGroup "GET /"
         -- The one label carrying a second sentence: without it a reader takes
         -- `<' for a within-page key and never finds out that it climbs.
         , (["first-row", "last-row"], "first/last row, again = page up/down")
+        -- Beside the movement group: what it sorts by is the column the cell
+        -- keys picked.
+        , (["toggle-sort"], "sort")
         , (["org-glance-overview:materialize"], "materialize")
         -- What a row points AT, beside what it IS: `RET' opens the entry and
         -- `o' follows it out.
@@ -6043,6 +6162,10 @@ expectedRows =
   , (["G"],          "G",       "last-row",                        Just "lastRow",        "table", endHelp)
   , (["]"],          "]",       "next-page",                       Just "nextPage",       "table", Nothing)
   , (["["],          "[",       "previous-page",                   Just "previousPage",   "table", Nothing)
+  -- table-view's own key for the same question, in both renderers: `^' sorts by
+  -- the column point is in.
+  , (["^"],          "^",       "toggle-sort",                     Just "toggleSort",     "table",
+       Just "sort by the column at point; again reverses it")
   , (["RET"],        "RET",     "org-glance-overview:materialize", Just "materializeRow", "table", Nothing)
   , (["/"],          "/",       "filter-rows",                     Just "focusFilter",    "table",
        Just "summon the filter palette")

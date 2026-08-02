@@ -19,7 +19,7 @@ import qualified Data.Text as T
 import Glance.Query ( HeadlineRecord (..), QueryResult (qrRecords), displayText
                     , loadDir, matchesSearch, refTargetOf, refTargets, tagsOfCell
                     , viewJSON )
-import Glance.Web.Filter ( FilterEnv, Term (..), Token (..), archiveKey, cellAt
+import Glance.Web.Filter ( Term (..), Token (..), archiveKey, cellAt
                          , emptyEnv, filterKeys, matchesFilter, namesArchive
                          , parseFilter, plannedKey, refKey, scanQuery, storeEnv
                          , tagsKey )
@@ -49,16 +49,11 @@ titleOf Schema = "Read the schema"
 vocabularyOf :: [HeadlineRecord] -> [Text]
 vocabularyOf = sort . nub . concatMap (tagsOfCell . hrTags)
 
--- | The environment RECORDS answer as, which is what a store hands the filter:
--- the rows themselves, as what a @ref:@ resolves against.
-envOf :: [HeadlineRecord] -> FilterEnv
-envOf records = storeEnv (vocabularyOf records) records
-
 -- | The rows Q matches, in walk order.
 matching :: Text -> IO [Row]
 matching q = do
   records <- qrRecords <$> loadDir viewDir
-  let hit = [ hrTitle r | r <- records, matchesFilter (envOf records) q r ]
+  let hit = [ hrTitle r | r <- records, matchesFilter (storeEnv records) q r ]
   mapM (named records) hit
   where
     named records t = case [ row | row <- [minBound ..], titleOf row == t ] of
@@ -179,7 +174,7 @@ withRefTree k = withTempDir $ \dir -> do
 -- | The rows of the fixture that Q matches, by title, in walk order.
 refMatching :: Text -> IO [Text]
 refMatching q = withRefTree $ \records ->
-  pure [ hrTitle r | r <- records, matchesFilter (envOf records) q r ]
+  pure [ hrTitle r | r <- records, matchesFilter (storeEnv records) q r ]
 
 -- | The id of the row titled NAME.  Looked up rather than spelled: a row with
 -- no @ORG_GLANCE_ID@ falls back to @PATH#K@, and the path is a temp directory's.
@@ -215,7 +210,7 @@ refSpec = testGroup "References"
       withRefTree $ \records -> do
         rid <- idOf "Second" records
         assertEqual "by title" ["By title"]
-          [ hrTitle r | r <- records, matchesFilter (envOf records) ("ref:" <> rid) r ]
+          [ hrTitle r | r <- records, matchesFilter (storeEnv records) ("ref:" <> rid) r ]
 
   , testCase "an id no row claims matches nothing, and does not fail" $
       -- A filter rather than a command: an unresolvable id narrows to the empty
@@ -245,7 +240,7 @@ refSpec = testGroup "References"
         rid <- idOf "Second" records
         assertEqual "both" []
           [ hrTitle r | r <- records
-          , matchesFilter (envOf records) ("ref:alpha ref:" <> rid) r ]
+          , matchesFilter (storeEnv records) ("ref:alpha ref:" <> rid) r ]
 
   , testCase "without a store behind it a ref resolves to nothing" $ do
       -- `emptyEnv' is what a caller holding no rows answers with: the term
@@ -395,16 +390,18 @@ tagsSpec = testGroup "Tags are not keys"
   , testCase "the tags a tree carries change no answer at all" $ do
       -- The one divergence this removal was for: the keys a query could name
       -- were the loaded rows' tags on one side of the wire and the whole
-      -- store's on the other.  Now neither side has any.
+      -- store's on the other.  Now neither side has any, and the environment a
+      -- query is matched in cannot carry a tag list to disagree over — it is
+      -- the rows alone ('storeEnv'), which is what makes this structural rather
+      -- than a pair of answers that happen to agree.
       records <- qrRecords <$> loadDir viewDir
       assertEqual "the fixture's tags" ["cleanup", "glance", "unicode", "web"]
                   (vocabularyOf records)
-      let with q    = [ hrTitle r | r <- records
-                      , matchesFilter (storeEnv (vocabularyOf records) records) q r ]
-          without q = [ hrTitle r | r <- records
-                      , matchesFilter (storeEnv [] records) q r ]
-      mapM_ (\q -> assertEqual (T.unpack q) (with q) (without q))
-            [ "web:", "web:ship", "glance:x", "tag:web", "title:web", "" ]
+      -- Every one of those tags, spelled as the key it used to be, resolves to
+      -- free text — including the two a column shares no name with.
+      assertEqual "no tag is a key"
+        [ [Term False Nothing (t <> ":x")] | t <- vocabularyOf records ]
+        [ parsed (t <> ":x") | t <- vocabularyOf records ]
 
   , testCase "and a column can no longer be shadowed by one" $ do
       -- A file tagged `:title:' could once have taken the column's key away.
@@ -646,7 +643,7 @@ degenerateSpec :: TestTree
 degenerateSpec = testGroup "Plain text"
   [ testCase "one word answers exactly what matchesSearch answers" $ do
       records <- qrRecords <$> loadDir viewDir
-      let same q = [ (hrTitle r, matchesSearch q r, matchesFilter (envOf records) q r)
+      let same q = [ (hrTitle r, matchesSearch q r, matchesFilter (storeEnv records) q r)
                    | r <- records ]
           wrong q = [ row | row@(_t, a, b) <- same q, a /= b ]
       mapM_ (\q -> assertEqual (T.unpack q) [] (wrong q))
@@ -657,7 +654,7 @@ degenerateSpec = testGroup "Plain text"
       records <- qrRecords <$> loadDir viewDir
       let q = "note:later"
       assertEqual "no row carries it" []
-        [ hrTitle r | r <- records, matchesFilter (envOf records) q r ]
+        [ hrTitle r | r <- records, matchesFilter (storeEnv records) q r ]
       assertBool "and it is not read as a predicate"
                  (all ((== Nothing) . tmKey) (parseFilter q))
   ]

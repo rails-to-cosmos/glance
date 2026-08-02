@@ -259,11 +259,10 @@ emptyEnv = FilterEnv (const Nothing)
 -- runs once per @ref:@ term per request rather than once per row, since
 -- 'compile' builds each term's test before the rows are walked.
 --
--- TAGS is the store's tag list.  The matcher no longer reads it — an org tag is
--- not a key, so no query depends on which tags a tree carries — and the
--- parameter stands until 'Glance.Web' drops it from the call.
-storeEnv :: [Text] -> [HeadlineRecord] -> FilterEnv
-storeEnv _tags rows = FilterEnv resolve
+-- The rows are the whole of the environment: an org tag is not a key, so no
+-- query depends on which tags a tree carries and the matcher asks for none.
+storeEnv :: [HeadlineRecord] -> FilterEnv
+storeEnv rows = FilterEnv resolve
   where resolve rid = (\r -> RefRow (hrId r) (refSpellings r))
                         <$> find ((== rid) . hrId) rows
 

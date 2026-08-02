@@ -1093,6 +1093,15 @@ viewSpec = testGroup "View"
       assertEqual "column keys"
         ["state", "priority", "title", "tag", "scheduled", "deadline"] keys
 
+  -- SCHEMA.md makes `sortable' opt-in and this producer opts every column in:
+  -- order means something in all six, and the flag is what a READER's `^' or a
+  -- header click reads before it will sort one.  Stated as the whole list, so a
+  -- column added without it fails here rather than arriving unsortable.
+  , testCase "every column opts into sorting" $ withView $ \v -> do
+      keys <- columnKeysOf v
+      flags <- listAt "columns" v >>= mapM (maybeBoolAt "sortable")
+      assertEqual "one sortable per column" (map (const (Just True)) keys) flags
+
   -- The renderer stopped drawing an outline, so the producer stopped
   -- describing one: a row is an id and its cells, and nothing says where it
   -- sits among the others.  Asked of a fixture that HAS an outline, the

@@ -39,6 +39,19 @@ section groups a feature arc, and its date is that arc's last commit.
   archived" guard.
 
 ### Added
+- `^` sorts the table by the column at point, which is the cell selection's:
+  `f`/`l` pick a column and `^` orders by it, echoing `^ → toggle-sort
+  (Scheduled ▲)`. A second press reverses it and a third is the first again —
+  two states, because the renderer's handle states an order and offers no call
+  that takes one off. A whole-row selection is refused rather than guessed at
+  (`no column selected — f/l to pick one`), a column that declares no `sortable`
+  is left alone, and a held `^` counts as one press. The order survives a filter
+  refetch and a socket splice; a remount takes the view's declared sort back.
+- Every column of `/headlines` declares `sortable: true`. SCHEMA.md makes the
+  field opt-in and this producer opts all six in — a state cycle, a priority
+  letter, a title, the tags, and the two dates all mean something in order —
+  where `title` and `tag` had been left out. It is what a header click and `^`
+  read; a producer's own `sortBy` never consulted it.
 - `:` manages tags over the marked rows, or the row at point: a which-key
   palette of the set's own tags where a letter toggles one under dired's
   normalize-up rule — a tag every row carries comes off all of them, one only
