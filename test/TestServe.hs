@@ -60,7 +60,7 @@ sampleFile = viewDir <> "/sample.org"
 -- edit to, and an oracle that runs the same code as the server proves nothing
 -- about it.
 sampleDigest :: T.Text
-sampleDigest = "0de46a0cceb1b1b30364c0bba0107e63bbd2c9b504d1e2bf31f29321f1ff2493"
+sampleDigest = "ba16aa19887a04a410a1f0047b4fcee147818d0c8471e4e1db60f5bc7dfe22dc"
 
 -- | A file whose first headline is materialized, edited and written back.  The
 -- id is in the drawer, so it stays the same across the temp directory's name

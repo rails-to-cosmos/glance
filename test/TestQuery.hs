@@ -198,6 +198,24 @@ linkSpec = testGroup "Links"
   , testCase "a row pointing nowhere carries an empty list rather than a slice" $
       withRecordsOf "* plain\njust prose about https://x.example\n" $ \recs ->
         assertEqual "nothing to keep" [[]] (map hrLinks recs)
+
+    -- 'hrLinked' is the WIDER question the same scan answers: is there anywhere
+    -- to go from this row, which is what @o@ follows and what the title's
+    -- underline says.  A URL is a link and no reference at all, so the two
+    -- fields disagree on most linked rows — ~/sync at 2026-08-02 carries 4976
+    -- linked rows and 1824 referencing ones.
+  , testCase "a row whose only link is a URL is linked and references nothing" $
+      withRecordsOf "* plain\nsee https://x.example for the rest\n" $ \recs -> do
+        assertEqual "linked" [True] (map hrLinked recs)
+        assertEqual "and pointing at no row" [[]] (map hrLinks recs)
+
+  , testCase "a reference is a link too, so a referencing row is linked" $
+      withRecordsOf "* plain\n[[org-glance-visit:alpha][A]]\n" $ \recs ->
+        assertEqual "both" [(True, ["alpha"])] (map (\r -> (hrLinked r, hrLinks r)) recs)
+
+  , testCase "and a row with nothing to follow is not linked" $
+      withRecordsOf "* plain\njust prose, no link in it\n" $ \recs ->
+        assertEqual "nowhere to go" [False] (map hrLinked recs)
   ]
 
 -- | The subtree lens: a subtree split into the parts a client edits and the
@@ -743,7 +761,8 @@ shapeOf r = map T.pack
   [ hrFile r, show (hrId r), show (hrCategory r), show (hrDigest r)
   , show (hrSubtree r), show (hrKeywords r), show (hrState r), show (hrPriority r)
   , show (hrTitle r), show (hrTags r), show (hrScheduled r), show (hrDeadline r)
-  , show (hrSearch r), show (hrLinks r), show (T.length (hrDoc r)) ]
+  , show (hrSearch r), show (hrLinks r), show (hrLinked r)
+  , show (T.length (hrDoc r)) ]
 
 outcomeShape :: Either LoadFailure [HeadlineRecord] -> Either LoadFailure [[Text]]
 outcomeShape = fmap (map shapeOf)
@@ -1136,6 +1155,24 @@ schemaSpec = testGroup "Schema conformance"
       ids <- each "rows" "id" v >>= mapM text
       assertEqual "the fixture's rows" 6 (length ids)
       assertBool ("blank id in " <> show ids) (not (any T.null ids))
+
+    -- An ADDITIVE row field (@table-view/SCHEMA.md@): a renderer that never
+    -- learns it renders as it always did, which is what SPARSE buys — @true@ or
+    -- absent, never @false@, so a row with nowhere to go is the row it was
+    -- before the field existed.
+  , testCase "a linked row says so, and a bare one says nothing at all" $
+      withViewOf (T.unlines [ "* linked", "see https://x.example", "* bare" ]) $ \v -> do
+        rows <- listAt "rows" v
+        assertEqual "the fixture's rows" 2 (length rows)
+        assertEqual "true, then absent" [Just True, Nothing]
+                    =<< mapM (maybeBoolAt "linked") rows
+
+  , testCase "and it is a row field rather than a cell of its own" $
+      withViewOf "* linked\nsee https://x.example\n" $ \v -> do
+        cols <- columnKeysOf v
+        cells <- each "rows" "cells" v >>= mapM keysOf
+        assertBool "linked is a column" ("linked" `notElem` cols)
+        assertBool (show cells <> " names linked") (all ("linked" `notElem`) cells)
 
   , testCase "the badge column carries a palette" $ withView $ \v -> do
       state <- columnOf "state" v

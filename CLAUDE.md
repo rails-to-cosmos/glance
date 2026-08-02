@@ -211,7 +211,10 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - An edit under a child moves `hrDoc`/`hrDigest`/the extent and no cell: the
   store still refreshes the entry (so materialize is drift-free) and emits NO
   frame and no generation bump, `streamed` diffing row JSON and `guarded`
-  moving on frames or a load outcome alone.
+  moving on frames or a load outcome alone. `linked` rides in that JSON, so the
+  one child edit that DOES stream is the one giving the subtree its first link
+  or taking its last — the deeper text can move a row FIELD where it can move no
+  cell.
 - One row per id. Two files claiming an `ORG_GLANCE_ID` are resolved by
   `Glance.Query.resolveIds` — a `.org-glance/data/` path wins, else walk order —
   and the losers are counted, in `X-Glance-Id-Collisions` and in the scan
@@ -619,6 +622,14 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   construction. `scan` is unaffected either way: it is a parser oracle off
   `orgParse` and builds no records, so the scan budget (~37.8 MB at `-N8`) does
   not move and this is NOT the number to quote for `hrLinks`.
+- `hrLinked` is the same scan's wider answer — does the subtree hold ANY link —
+  and it is what the wire carries: `rowJSON` emits `"linked": true` and nothing
+  at all when it is false, sparse so a row with nowhere to go is the row it was
+  before the field existed (SCHEMA.md's Row, additive). The renderer underlines
+  that row's `title` cell, ink unchanged. It is the WIDE field on purpose: ~/sync
+  at 2026-08-02 has 4976 linked rows against 1824 referencing ones, so marking
+  off `hrLinks` would leave 3152 rows `o` opens unmarked. Every reference is a
+  link, so nothing underlined answers `/links` empty.
 - KNOWN LIMIT of `ref:`, inherited from the `/links` grammar rather than
   introduced: a link nested inside another link's DESCRIPTION yields no
   reference at either end. The outer link fails to close (its description breaks
@@ -1012,7 +1023,10 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - `o`/`!` (`org-glance-overview:open`) FOLLOW the row, and the ANSWER decides the
   gesture: `GET /links?id=` for the row at point, then no links is an echo
   refusal, ONE is `window.open(target, "_blank", "noopener")`, and SEVERAL raise
-  the palette. Every open writes a `cmd` line naming the target.
+  the palette. Every open writes a `cmd` line naming the target. WHICH rows have
+  one is on screen ahead of the press: `linked` underlines the title, over every
+  link `/links` would report rather than the ones a tab can take, so an
+  underlined `mailto:` row still warns on commit.
   A tab can be pointed at `http`/`https` and NOTHING ELSE (`followable`): org
   writes `mailto:`, `file:`, `id:`, its own org-glance protocols and bare
   `[[Title]]` internal links, `/links` reports them all, and each names

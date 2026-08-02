@@ -14,3 +14,4 @@ DEADLINE: <2026-08-10 Mon 17:00>
 * CANCELLED [#C] Drop the old renderer :cleanup:
 CLOSED: [2026-07-20 Mon 12:00]
 * DONE Read the schema :web:
+the contract is [[https://example.org/schema][SCHEMA.md]]

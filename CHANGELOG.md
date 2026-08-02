@@ -37,6 +37,17 @@ section groups a feature arc, and its date is that arc's last commit.
   archived" guard.
 
 ### Added
+- A row whose subtree holds a link wears an UNDERLINED title, so which rows `o`
+  has something to follow is on screen before the press. `/headlines` and every
+  streamed row carry `"linked": true` where there is a link and carry nothing
+  where there is not (SCHEMA.md's Row, additive and sparse); the renderer
+  underlines the `title` cell and leaves its colour alone, which keeps the mark
+  clear of the four row washes and the two selection bands — a linked row under
+  the cursor still reads as linked. It is every link `GET /links` would report
+  rather than the references `ref:` matches, since that is what `o` follows:
+  ~/sync carries 4976 linked rows against 1824 referencing ones. An underlined
+  row whose only link is a `mailto:` still warns on commit — the underline says
+  there is a link, never that a tab can take it.
 - `^` sorts the table by the column at point, which is the cell selection's:
   `f`/`l` pick a column and `^` orders by it, echoing `^ → toggle-sort
   (Scheduled ▲)`. A second press reverses it and a third is the first again —

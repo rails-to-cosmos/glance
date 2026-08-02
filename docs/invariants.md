@@ -329,6 +329,21 @@ on.
   and builds no records at all. Evidence: `TestQuery` "Reference targets".
   **test** (the rule) / **docs** (the census and the residency, which no test
   measures)
+- **`hrLinked` is the WIDER question the same scan answers, and it is the one
+  the wire carries.** One `orgLinks` call per subtree at load feeds both fields:
+  `hrLinks` keeps the references among those links and `hrLinked` says whether
+  there were any. `rowJSON` emits `"linked": true` off the second and NOTHING
+  off it when it is false — sparse, so a row with nowhere to go is the row it
+  was before the field existed, which is what makes it additive under
+  `table-view/SCHEMA.md`'s unknown-fields rule. The two fields are far apart and
+  the wide one is what the underline means: over ~/sync at 2026-08-02, 4976 of
+  10433 rows carry a link and only 1824 carry a reference, so a `linked` off
+  `hrLinks` would leave 3152 rows unmarked that `o` opens. Every reference is a
+  link, so nothing is marked that `GET /links` would answer empty for.
+  The renderer's half is the `title` cell's underline, which is a decoration
+  rather than a ground and therefore contests none of the row states.
+  Evidence: `TestQuery` "Links" (the two fields over one subtree) and "Schema
+  conformance" (the sparse wire shape, plus the golden). **test**
 - **KNOWN LIMIT: a link nested in another link's DESCRIPTION is a reference at
   neither end.** Inherited from the `/links` grammar rather than introduced
   with `hrLinks`. The outer link fails to close — its description breaks at the

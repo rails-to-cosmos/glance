@@ -183,6 +183,7 @@ data HeadlineRecord = HeadlineRecord
   , hrDeadline  :: !(Maybe Text)    -- ^ ISO date, see 'isoStamp'.
   , hrSearch    :: !Text            -- ^ the cells as they display, lowercased; see 'searchTextOf'.
   , hrLinks     :: ![Text]          -- ^ the rows this subtree points AT, normalized; see 'refTargets'.
+  , hrLinked    :: !Bool            -- ^ does the subtree hold a link at all — what @o@ follows; see 'subtreeLinks'.
   , hrActive    :: !(Maybe Bool)    -- ^ whether 'hrState' is an active state HERE; see 'Data.Org.Config.classify'.
   } deriving (Show)
 
@@ -446,10 +447,17 @@ recordOf cfg declared path ordinal doc digest category keywords h subtree = forc
   , hrDeadline  = due
   , hrSearch    = searchTextOf [ opt state, opt pri, titleCell, tagsCell
                                , opt scheduled, opt due ]
-  , hrLinks     = refTargets (sliceSpan doc subtree)
+  , hrLinks     = refTargetsOf links
+  , hrLinked    = not (null links)
   , hrActive    = classify cfg declared (tagsOfCell tagsCell) <$> state
   }
   where sp = spans h
+        -- One scan of the subtree answers both questions: which ROWS it points
+        -- at ('hrLinks') and whether it points ANYWHERE ('hrLinked').  The
+        -- second is the wider set — every reference is a link and most links
+        -- are not references (~/sync at 2026-08-02: 4976 rows carry a link,
+        -- 1824 of them a reference).
+        links = orgLinks (sliceSpan doc subtree)
         -- The span is the lossless channel; the render is what is left when a
         -- headline carries no span for a component, which is to say when the
         -- component is empty.
@@ -620,7 +628,12 @@ refPrefixes = ["org-glance-visit:", "org-glance-open:", "org-glance-material:", 
 -- in the BODY of an entry, which is where a reader puts the sentence that
 -- explains it.
 refTargets :: Text -> [Text]
-refTargets = nub . map detach . mapMaybe (refTargetOf . fst) . orgLinks
+refTargets = refTargetsOf . orgLinks
+
+-- | The references among LINKS, which 'orgLinks' already read.  Split off so a
+-- caller wanting both answers about one subtree scans it once ('recordOf').
+refTargetsOf :: [(Text, Text)] -> [Text]
+refTargetsOf = nub . map detach . mapMaybe (refTargetOf . fst)
 
 -- | TARGET as the row it names, or 'Nothing' where it names no row.  Three
 -- shapes, and everything else — a @file:@ path, an @http@ URL, a protocol this
@@ -2030,15 +2043,21 @@ column key header kind extra =
   object ([ "key" .= key, "header" .= header, "type" .= kind
           , "sortable" .= True ] <> extra)
 
--- | One row: the identity a renderer keys updates off, and its cells.  Exported
--- because a live producer streams rows one at a time — a @upsert-row@ frame
--- carries exactly this object, so the streamed row and the row in the initial
--- view are built by the same code.
+-- | One row: the identity a renderer keys updates off, its cells, and whether
+-- there is anywhere to go from it.  Exported because a live producer streams
+-- rows one at a time — a @upsert-row@ frame carries exactly this object, so the
+-- streamed row and the row in the initial view are built by the same code.
+--
+-- @linked@ is SPARSE — @true@ or absent, never @false@ — which is what keeps it
+-- an addition to SCHEMA.md's Row rather than a field every row now owes.  It
+-- says the subtree holds a link, so @o@ has something to follow; @GET \/links@
+-- ('subtreeLinks') is the answer itself, asked per row.  A renderer marks the
+-- row's title with it, and one that never learns it renders as it always did.
 rowJSON :: HeadlineRecord -> Value
 rowJSON r = object
-  [ "id" .= hrId r
-  , "cells" .= object [ Key.fromText key .= cell r | (key, _header, _kind, cell) <- viewColumns ]
-  ]
+  (  [ "id" .= hrId r
+     , "cells" .= object [ Key.fromText key .= cell r | (key, _header, _kind, cell) <- viewColumns ] ]
+  <> [ "linked" .= True | hrLinked r ])
 
 -- | The state palette: every TODO keyword the loaded files declared, actives
 -- ahead of the done-like ones.  Palette order is also sort priority

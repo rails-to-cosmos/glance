@@ -39,6 +39,7 @@
         "tag": ":cleanup:", "scheduled": null, "deadline": null } },
     { "id": "test/fixtures/view/sample.org#5", "cells": {
         "state": "DONE", "priority": null, "title": "Read the schema",
-        "tag": ":web:", "scheduled": null, "deadline": null } }
+        "tag": ":web:", "scheduled": null, "deadline": null },
+      "linked": true }
   ]
 }

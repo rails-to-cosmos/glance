@@ -347,8 +347,9 @@
  * @typedef {{ column: string, ascending?: boolean, direction?: string }} Sort
  * @typedef {{ column: string, ascending: boolean, nullsFirst: boolean }} SortKey
  *          A normalized sort key (internal).
- * @typedef {{ id: string, cells?: Record<string, Cell> }} Row
- *          draws it and every other mode ignores it.
+ * @typedef {{ id: string, cells?: Record<string, Cell>, linked?: boolean }} Row
+ *          `linked' says the row leads somewhere; its `title' cell is
+ *          underlined, and a view with no such column shows nothing.
  * @typedef {{ title?: string,
  *             columns: Column[],
  *             actions?: Action[],
@@ -1026,6 +1027,14 @@
 .tv-table th.tv-colsel{background:color-mix(in srgb,var(--tv-col) var(--tv-col-wash),var(--tv-bg))}
 .tv-table tbody td.tv-colsel{background:color-mix(in srgb,var(--tv-col) var(--tv-col-wash),transparent)}
 .tv-table tbody td.tv-cell-sel{background:color-mix(in srgb,var(--tv-col) var(--tv-cell-wash),transparent)}
+/* A row that leads somewhere, said on the one cell a reader reads the row by.
+   The only state on this table written in TEXT rather than in a ground: the
+   four row washes and the two selection bands all write backgrounds, so an
+   underline contests none of them and reads through every combination — a
+   linked row under the cursor is still underlined. The ink does not move,
+   because the mark says there is somewhere to go rather than what state the
+   row is in, and a colour here would read as a second badge. */
+.tv-table tbody td.tv-linked{text-decoration:underline;text-underline-offset:2px}
 .tv-table tbody tr{cursor:default}
 .tv-table tbody tr.tv-pad td{padding:0;border:0}
 /* The third role, and the quietest: no box at all. A filled pill is a state, a
@@ -1887,11 +1896,17 @@
       const cols = columns(), cs = r.cells || {};
       const on = r.id === state.selected;
       const multi = multiColumn();
+      // A producer's `linked' marks ONE cell, the `title' column's, that being
+      // the text a reader reads the row by. A view without that column carries
+      // no mark: the flag says the row leads somewhere and there is no other
+      // cell it would be true of.
+      const linkedAt = r.linked ? titleColumn() : -1;
       let tds = marks ? `<td class="tv-box"></td>` : "";
       for (let c = 0; c < cols.length; c++) {
         const inCol = c === state.selCol;
         const cell = (cols[c].align === "right" ? "tv-right" : "")
-                   + (inCol ? " tv-colsel" : "") + (on && inCol ? " tv-cell-sel" : "");
+                   + (inCol ? " tv-colsel" : "") + (on && inCol ? " tv-cell-sel" : "")
+                   + (c === linkedAt ? " tv-linked" : "");
         tds += `<td class="${cell}">`
              + `${cellHTML(cols[c], cs[cols[c].key], dark, c === multi)}</td>`;
       }

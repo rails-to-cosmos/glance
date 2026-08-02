@@ -24,7 +24,8 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 
-import Glance.Query ( HeadlineRecord (hrDigest, hrFile, hrId, hrTitle), IdCollision (..)
+import Glance.Query ( HeadlineRecord (hrDigest, hrFile, hrId, hrLinked, hrTitle)
+                    , IdCollision (..)
                     , LoadFailure (..), QueryResult (..), TodoKeywords (..)
                     , WalkOptions (..), defaultWalk, loadDir, loadDirWith, loadFile
                     , noConfig, replaceSpans, rowJSON, setStateEdits, subtreeText )
@@ -74,6 +75,12 @@ upsertTitles frames = [ t | UpsertRow row <- frames, Just t <- [cellIn "title" r
 cellIn :: T.Text -> Value -> Maybe T.Text
 cellIn key (Object o) = KM.lookup "cells" o >>= stringAt key
 cellIn _key _row      = Nothing
+
+-- | A row object's whole @cells@ object: what a test compares when the question
+-- is whether the CELLS moved, the row fields beside them being another matter.
+cellsOf :: Value -> Maybe Value
+cellsOf (Object o) = KM.lookup "cells" o
+cellsOf _row       = Nothing
 
 -- | A store step that changes nothing and streams FRAMES: delivery under test
 -- with the diff out of the way.
@@ -463,6 +470,25 @@ diffSpec = testGroup "File diff"
                  (hrDigest was /= hrDigest now)
       assertBool ("the subtree is stale: " <> show (subtreeText now))
                  ("second" `T.isInfixOf` subtreeText now)
+
+    -- The one exception to the rule above, and it is the rule rather than a
+    -- hole in it: `linked' is a row FIELD read off the whole subtree, so a
+    -- child that grows the entry's first link changes the row JSON where no
+    -- cell moved.  A client that draws the mark has to be told.
+  , testCase "unless that edit gives the subtree its first link" $
+      withTempDir $ \dir -> do
+        let tree body = entryAs "one" "TODO parent" <> "** child\n" <> body
+        path <- orgFile dir "a.org" (tree "first\n")
+        store <- loadStore dir
+        was <- oneRecord "before" store
+        (next, frames) <- rewrite path (tree "see https://x.example\n") store
+        assertEqual "upserts" ["one"] (upsertIds frames)
+        assertBool "the generation moves with the frame" (stGen next > stGen store)
+        now <- oneRecord "after" next
+        assertEqual "the row was not linked" False (hrLinked was)
+        assertEqual "and now is" True (hrLinked now)
+        assertEqual "while every cell stayed where it was"
+                    (cellsOf (rowJSON was)) (cellsOf (rowJSON now))
 
   , testCase "a new headline is one upsert" $ withTempDir $ \dir -> do
       path <- orgFile dir "a.org" (entry "one")

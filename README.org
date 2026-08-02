@@ -567,13 +567,21 @@ never the grammar: the predicate that reaches what the default hides is the same
 
 *=o= follows the row.* An org entry that points somewhere — a bracket link on
 the title, a bare URL in the body, a reference under a child — is a row you can
-leave from. =o= (or =!=, org-glance's other spelling) asks the server what this
-row points at and then does the obvious thing: nothing to follow is a refusal
-that says so, *one* link opens in a new tab, and *several* raise the same
-palette =t= uses, one letter each, over the descriptions the entry itself
-wrote. =/= there narrows over the descriptions *and* the targets, since you may
-remember the host and not the wording. Every open writes a line into the log
-naming what was followed.
+leave from. *An underlined title says this is one of them*: the server marks
+every row whose subtree holds a link, and the table underlines that row's
+headline and leaves its colour alone, so which rows =o= has something for is on
+screen before you press it. =o= (or =!=, org-glance's other spelling) asks the
+server what this row points at and then does the obvious thing: nothing to
+follow is a refusal that says so, *one* link opens in a new tab, and *several*
+raise the same palette =t= uses, one letter each, over the descriptions the
+entry itself wrote. =/= there narrows over the descriptions *and* the targets,
+since you may remember the host and not the wording. Every open writes a line
+into the log naming what was followed.
+
+The underline is what the *link* is, never what it *leads to*: a row whose only
+link is a =mailto:= is underlined like any other, and pressing =o= there still
+warns that a tab does not go where that points (below). Marking only the rows a
+tab can reach would make the table quieter and the refusal a surprise.
 
 Finding the links is the server's job, not the page's. The rule is the one the
 table already reads a cell with — =[[TARGET][DESC]]= shows =DESC=, =[[TARGET]]=
