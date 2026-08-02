@@ -2084,6 +2084,64 @@ on.
   splicing — and coalesces, since a burst of saves would otherwise be a burst of
   whole-set requests. Unfiltered frames splice straight into the renderer.
   **none**
+- **A view swaps ON ITS ANSWER.** The table on screen stands until the new rows
+  are in hand, and then goes in ONE mount: the row count the renderer is handed
+  never passes through zero, and never through a partial set either, unless the
+  answer itself is empty. That is what decides the fetch a re-application makes.
+  A BOOT has nothing on screen, so it asks for `?limit=100` and pulls the rest in
+  behind the painted table — there the first page is the difference between a
+  table and a blank page. A RE-APPLICATION (`g`, `a`, `@`, a pop, a
+  `view-changed` remount) has a whole table standing, so `start` reads `!!table`
+  and asks for the WHOLE answer once. Asking for a page there replaced a complete
+  view with a hundred rows and reflowed the pager, the hint and the row heights
+  under the reader a moment later, which is the flash `g` was reported for. The
+  cost is that a re-application waits on the whole set rather than showing a page
+  of it early, which is what the wash below exists to say. Evidence: `TestServe`
+  "Shell wash", which reads the row count handed to the table at every mount and
+  every `setRows`, plus "Shell boot" and "Shell reconnect", whose fetch lists now
+  spell one URL where a remount used to spell two. **test**
+- **The stale wash: ONE mechanism, TWO triggers, one clear discipline.** What is
+  on screen stops being known to be current in exactly two ways — the view is
+  being replaced and its answer has not landed, or the socket that would deliver
+  a change is gone — and a reader can tell neither from a page that is simply
+  quiet. Both wear one look, carried by ONE class (`stale`) on the document
+  element and ONE declaration: `opacity:.55`, eased over 180 ms. Never blurred,
+  because a stale row is still the row and has to stay readable while its
+  replacement is on the way. Never `filter`, either, and that is a cross-repo
+  constraint rather than a preference: any `filter` makes its element the
+  containing block for `position:fixed` descendants, and the renderer's summoned
+  filter palette is one — a `.tv-veil` inside `#app` — so a saturation wash would
+  stop it covering the viewport and let `.tv-root`'s `overflow:hidden` clip it,
+  every time a fetch went past its grace with the palette open. `opacity` creates
+  a stacking context and no containing block, so it dims everything and
+  re-anchors nothing; against the page's own ground it takes the colour out of a
+  badge as it goes. It covers `#app` and
+  the whole modal band (`#modal`, `#prompt`, `#config`): a sheet open over stale
+  rows is stale with them, and floating clear of the wash would say otherwise.
+  The corner, the event strip and the key line are EXEMPT by omission — they are
+  where a reader finds out why, and dimming the answer along with the question
+  leaves the page saying nothing. Each trigger arms on a DELAY, which is the
+  whole of what keeps the wash off a page that is working: a view fetch at 300 ms
+  and a lost socket at 400 ms, so a fetch that answers quickly and a socket that
+  blips and comes back dim nothing at all. One state holder (`wash`) carries both
+  — a count, a timer and an on-flag per reason, one `arm`/`off` pair, one `show`
+  that toggles the class — and whoever arms a reason is who clears it. The two
+  differ only in who counts: a view fetch STEPS the count, since `load` overlaps
+  an abort with the fetch that replaced it and a boolean would clear the wash the
+  replacement still wants; the socket SETS it, since a connection refused closes
+  without ever having opened and would otherwise arm twice against one open. Only
+  fetches whose answer REPLACES the rows hold it (`viewing`): the parity baseline
+  and `@`'s probe go through `load` without it, since dimming a page for a fetch
+  that will not change it is the same lie the other way round, and a boot holds
+  nothing because a page with no table on it has no stale content to wash. The
+  page never READS the class — the look is entirely the stylesheet's, and the
+  suite forbids a branch here asking whether the wash is on. Evidence: `TestServe`
+  "Shell wash" for the behaviour (armed past the grace and cleared on the answer,
+  nothing at all inside it, an abort handing the wash to its replacement, a
+  socket blip against a socket that stays gone, and an open sheet washed with the
+  rows under it) and two `Shell glue` rows for the holder and the selectors,
+  the second forbidding `filter:blur` and any `html.stale` reaching the exempt
+  parts. **test**
 - **The shell's z-index bands must clear the renderer's.** Four values, all of
   them here: echo `2`, corner `3`, modal backdrop `100`, sheet `101`.  The value
   palette shares that pair rather than adding to it (`#modal,#prompt` and
@@ -2151,7 +2209,10 @@ on.
 - **The log strip is APPEND-ONLY, and `append(scope, severity, message)` is the
   whole of its interface.** A line is `HH:MM:SS SEV scope message`: the stamp
   muted, the severity in colour (`info` muted, `warn` `--g-warn`, `error`
-  `--g-bad`) and worn as the line's class as well as spelled in it, the scope one
+  `--g-bad`), SPELLED uppercase (`INFO`, `WARN`, `ERROR`) so it is what a reader
+  scans a screenful of chatter for and WORN lowercase as the line's class, which
+  is the name the stylesheet and the suite use — one value, two cases, and the
+  upcase happens at the one place the word is drawn. The scope is one
   word out of a fixed six — `ws`, `sync`, `cmd`, `filter`, `config`, `boot`. The
   parts are spans so each can carry its own colour, and a message's control
   characters collapse to spaces, so an entry is one line whatever it was handed.

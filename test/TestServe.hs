@@ -336,7 +336,8 @@ spec = withResource (body <$> get assetsDir "/") (const (pure ())) $ \shell ->
     , tagCommandSpec, tagsSpec, captureSpec
     , configSpec, keywordsSpec, linksSpec, indexingSpec
     , pageSpec shell, keymapSpec shell
-    , glueSpec shell, bootSpec shell, liveSpec shell, paletteSpec shell
+    , glueSpec shell, bootSpec shell, liveSpec shell, washSpec shell
+    , paletteSpec shell
     , moveSpec shell, markSpec shell
     , commandKeySpec shell, promptKeySpec shell, whichKeySpec shell, tagKeySpec shell
     , openKeySpec shell, agendaSpec shell, drillSpec shell, logSpec shell
@@ -423,10 +424,12 @@ shellBoots =
   , Boot "g applies the tree's default view over a cleared one"
       "?q=" 500 "g"
       [ "/headlines?limit=100", "/headlines"
-      -- The boot's two, then the remount's — which is a boot in its own right
-      -- and reads the URL `g' has just written.  It arms nothing: the parity
-      -- baseline was fetched by the boot and a remount does not throw it away.
-      , "/headlines?q=state%3A*active*&limit=100"
+      -- The boot's two, then the remount's ONE.  A re-application has a whole
+      -- table standing, so it asks for the whole answer and swaps on it —
+      -- where the boot's page-sized fetch buys a first paint, this one would
+      -- buy a complete table replaced by a partial one.  It arms nothing
+      -- either: the parity baseline was fetched by the boot and a remount does
+      -- not throw it away.
       , "/headlines?q=state%3A*active*" ]
       "?q=state%3A*active*"
 
@@ -435,7 +438,6 @@ shellBoots =
   , Boot "and re-applies it over a deep link that narrowed past it"
       "?q=tanik" 500 "g"
       [ "/headlines?q=tanik&limit=100", "/headlines?q=tanik", "/headlines"
-      , "/headlines?q=state%3A*active*&limit=100"
       , "/headlines?q=state%3A*active*" ]
       "?q=state%3A*active*"
   ]
@@ -497,21 +499,23 @@ shellLives =
     -- The one thing rows cannot carry.  No `view-changed' was sent here — this
     -- is the daemon-restart shape, where the columns moved with no socket open
     -- to say so — and the reconnect finds it by comparing what it fetched.
+    -- The remount asks ONE fetch, not the boot's pair: the table it is
+    -- replacing is already whole, so it swaps on the whole answer.
   , Live "columns that moved rebuild the mount, close reason or none"
       "" "" "recolumn close:resync"
-      (booted <> [reasked] <> take 2 booted) ["\"t0\""] 2 "" "" "?q=state%3A*active*"
+      (booted <> [reasked, reasked]) ["\"t0\""] 2 "" "" "?q=state%3A*active*"
 
     -- The killing case: a `view-changed' close mid-edit.  The mount goes, and
     -- the text the reader had not saved comes back with it.
   , Live "view-changed mid-edit rebuilds the mount and keeps the sheet's text"
       "" "Enter" "sheet:hello close:view-changed"
-      (booted <> take 2 booted) [] 2 "hello" "synced" "?q=state%3A*active*"
+      (booted <> [reasked]) [] 2 "hello" "synced" "?q=state%3A*active*"
 
     -- And when the file moved under the open sheet, the restore says so rather
     -- than flushing over it later: the text stands, at `conflict'.
   , Live "a sheet restored over a moved file lands in the conflict flow"
       "" "Enter" "sheet:hello rewritten close:view-changed"
-      (booted <> take 2 booted) [] 2 "hello" "conflict" "?q=state%3A*active*"
+      (booted <> [reasked]) [] 2 "hello" "conflict" "?q=state%3A*active*"
 
     -- A cleared filter is a `?q=' in the URL and nothing re-injects the default
     -- over it — which is what the reader saw as the filter resetting itself.
@@ -533,6 +537,110 @@ liveSpec shell = testGroup "Shell reconnect"
       assertEqual (lvLabel <> ": where the sheet stands") lvState =<< textAt "state" answer
       assertEqual (lvLabel <> ": the URL") lvUrl =<< textAt "url" answer
   | Live{..} <- shellLives ]
+
+-- | THE STALE WASH, and the paint discipline under it.
+--
+-- Two things stop what is on screen being known to be current — a view being
+-- replaced, and a socket that would deliver a change being gone — and they wear
+-- one look, carried by one class on the document element.  Each arms on a delay,
+-- which is the whole of what keeps it off a page that is working; whoever arms
+-- one is who clears it.
+--
+-- What the harness can see of the CSS is nothing, so the selectors and the
+-- exemptions are 'shellGlue''s rows.  What it can see is the class going on and
+-- coming off, and the row counts the table was handed on the way, which is where
+-- the paint discipline is: a view swaps ON ITS ANSWER, in one mount.
+washSpec :: IO T.Text -> TestTree
+washSpec shell = testGroup "Shell wash"
+  [ -- The bug this group exists for.  `g' over a table that is already whole
+    -- used to fetch a PAGE, mount that, and pull the rest in behind it, so a
+    -- complete view was replaced by a hundred rows and reflowed a moment later.
+    -- One fetch, one mount, and the count the table was handed never drops.
+    testCase "g swaps a view in one mount, and never through a partial one" $
+      bootOf shell "" 500 "" "rows:150 press:g" $ \answer -> do
+        paints <- paintsOf answer
+        -- The boot's page and the boot's rest over three rows, the store grown
+        -- to a hundred and fifty, then the swap — ONE entry.  A page-sized
+        -- fetch here would put a `100' between the last two, which is the
+        -- complete table replaced by a partial one.
+        assertEqual "the boot's two, then the swap" [3, 3, 150] paints
+        assertEqual "the table was built twice" 2 =<< intAt "mounts" answer
+        assertBool ("no paint was empty: " <> show paints) (0 `notElem` paints)
+
+    -- A commit REPAINTS rather than remounting, and the answer is ONE
+    -- `setRows': the rows standing are the last answer until the next one is in
+    -- hand.  `DEL' is the commit this suite can drive — it strips a token and
+    -- commits what is left, the same door a palette commit goes through.
+  , testCase "a commit that repaints hands over one set of rows" $
+      bootOf shell "?q=tanik%20web" 500 "" "rows:150 press:Backspace" $ \answer -> do
+        paints <- paintsOf answer
+        assertEqual "the boot's two, then the commit's one" [3, 3, 150] paints
+        assertEqual "and no remount" 1 =<< intAt "mounts" answer
+
+    -- The grace is the whole of what keeps the wash off a page that is working.
+    -- Every answer here is a microtask, so this is the ordinary case: a boot, a
+    -- swap and a reconnect, and nothing is ever dimmed.
+  , testCase "a page that answers dims nothing at all" $
+      bootOf shell "" 500 "" "press:g close:resync" $ \answer -> do
+        assertEqual "no transition" [] =<< textsAt "washed" answer
+        assertEqual "and nothing left on" False =<< boolAt "stale" answer
+
+    -- A view whose answer is out past the grace: the rows standing are stale
+    -- and say so, and the answer takes it back.
+  , testCase "a swap out past the grace dims the page, and its answer clears it" $
+      bootOf shell "" 500 "" "hang press:g wait:400 deliver" $ \answer -> do
+        assertEqual "armed, then cleared" ["on", "off"] =<< textsAt "washed" answer
+        assertEqual "nothing left on" False =<< boolAt "stale" answer
+
+    -- The COUNT is what the second half of that is for: `load' aborts the fetch
+    -- before it, so an abort and the fetch replacing it overlap, and a boolean
+    -- would clear the wash the replacement still wants.  Two swaps under one
+    -- hang is exactly that overlap.
+  , testCase "an abort hands the wash to the fetch that replaced it" $
+      bootOf shell "" 500 "" "hang press:g wait:400 press:g wait:100 deliver" $
+        \answer -> do
+          assertEqual "one arming and one clearing, no flap"
+                      ["on", "off"] =<< textsAt "washed" answer
+          assertEqual "nothing left on" False =<< boolAt "stale" answer
+
+    -- The other half of the grace: a reconnect that costs one revalidation is
+    -- over long before the socket's delay, so a blip dims nothing.
+  , testCase "a socket blip inside its delay dims nothing" $
+      bootOf shell "" 500 "" "close:resync wait:500" $ \answer -> do
+        assertEqual "no transition" [] =<< textsAt "washed" answer
+        assertEqual "and nothing left on" False =<< boolAt "stale" answer
+
+    -- A socket that stays gone is the one a reader can sit in for minutes: the
+    -- page goes on showing rows nothing can correct, and the wash is what says
+    -- so.  The daemon comes back, the retry behind the backoff finds it, and
+    -- the socket that opens is what takes the wash off.
+  , testCase "a socket that stays gone dims the page, and the reconnect clears it" $
+      bootOf shell "" 500 "" "offline close:x wait:500 online wait:900" $ \answer -> do
+        assertEqual "armed, then cleared" ["on", "off"] =<< textsAt "washed" answer
+        assertEqual "nothing left on" False =<< boolAt "stale" answer
+
+    -- And it stays on for as long as the socket is gone: the arming is not a
+    -- flash that goes by itself.
+  , testCase "and stays on while it is still gone" $
+      bootOf shell "" 500 "" "offline close:x wait:500" $ \answer -> do
+        assertEqual "armed and standing" ["on"] =<< textsAt "washed" answer
+        assertEqual "still on" True =<< boolAt "stale" answer
+
+    -- A sheet open over stale rows is stale with them.  The class is the
+    -- DOCUMENT's, so it reaches the overlays without this page naming one —
+    -- which selectors it reaches them by is `shellGlue''s row.
+  , testCase "an open sheet is washed with the rows under it" $
+      bootOf shell "" 500 "Enter" "offline close:x wait:500" $ \answer -> do
+        assertEqual "the sheet is still up" "on" =<< textAt "modal" answer
+        assertEqual "and the page is washed" True =<< boolAt "stale" answer
+  ]
+
+-- | Every row count the page handed the TABLE, in order: one per mount and one
+-- per @setRows@.  A view arriving in one piece is one entry.
+paintsOf :: Value -> IO [Int]
+paintsOf answer = traverse count =<< listAt "paints" answer
+  where count (Number n) = pure (round n)
+        count other = assertFailure ("expected a row count, got " <> show other)
 
 -- | A half-typed palette outlives a remount too, and comes back raised.  Its
 -- own case: the palette's lifecycle is the renderer's and what this page can
@@ -1485,9 +1593,8 @@ agendaSpec :: IO T.Text -> TestTree
 agendaSpec shell = testGroup "Shell agenda"
   [ testCase "applies its query the way g applies the tree's default" $
       bootOf shell "?q=" 500 "a" "" $ \answer -> do
-        assertEqual "the boot's two, then the remount's"
+        assertEqual "the boot's two, then the remount's one"
           [ "/headlines?limit=100", "/headlines"
-          , "/headlines?q=state%3A*active*%20-planned%3Anone&limit=100"
           , "/headlines?q=state%3A*active*%20-planned%3Anone" ]
           =<< textsAt "asked" answer
         assertEqual "and the URL it settles on is that query"
@@ -1531,9 +1638,8 @@ agendaSpec shell = testGroup "Shell agenda"
 
   , testCase "a held a remounts once" $
       bootOf shell "?q=" 500 "a" "repeat:a repeat:a repeat:a" $
-        assertEqual "one remount, so one pair of fetches"
+        assertEqual "one remount, so one fetch behind the boot's"
           [ "/headlines?limit=100", "/headlines"
-          , "/headlines?q=state%3A*active*%20-planned%3Anone&limit=100"
           , "/headlines?q=state%3A*active*%20-planned%3Anone" ] <=< textsAt "asked"
   ]
 
@@ -1555,7 +1661,7 @@ drillSpec shell = testGroup "Shell drill"
         assertEqual "the boot's three, the probe, then the drill's"
           [ "/headlines?q=state%3A*active*&limit=100", "/headlines?q=state%3A*active*"
           , "/headlines", "/headlines?q=ref%3Ar1&limit=1"
-          , "/headlines?q=ref%3Ar1&limit=100", "/headlines?q=ref%3Ar1" ]
+          , "/headlines?q=ref%3Ar1" ]
           =<< textsAt "asked" answer
         -- The crumb records where the reader was STANDING, so the label is the
         -- query being left rather than the one being applied.
@@ -1572,7 +1678,7 @@ drillSpec shell = testGroup "Shell drill"
       bootOf shell "?q=" 500 "@" "" $ \answer -> do
         assertEqual "the view is applied all the same"
           [ "/headlines?limit=100", "/headlines", "/headlines?q=ref%3Ar1&limit=1"
-          , "/headlines?q=ref%3Ar1&limit=100", "/headlines?q=ref%3Ar1" ]
+          , "/headlines?q=ref%3Ar1" ]
           =<< textsAt "asked" answer
         assertEqual "and the strip carries no chip" [] =<< textsAt "crumbs" answer
 
@@ -2481,15 +2587,15 @@ logSpec shell = testGroup "Shell log"
                    (all (stamped . stampOf . snd) strip)
 
     -- Every line, whatever wrote it: a clock, one of the three severities —
-    -- spelled in the line and worn as its class, so the colour and the word can
-    -- never disagree — and one of the six scopes.
+    -- SPELLED uppercase in the line and WORN lowercase as its class, so the
+    -- colour and the word can never disagree — and one of the six scopes.
   , testCase "every line is a stamp, a severity and a scope" $
       bootOf shell "" 500 "d q" "offline close:resync" $ \answer -> do
         strip <- logOf answer
         assertBool ("stamped: " <> show strip)
                    (all (stamped . stampOf . snd) strip)
-        assertEqual "the severity is the class it wears" []
-          [ line | line@(sev, text) <- strip, sevOf text /= sev ]
+        assertEqual "the severity is the class it wears, upcased" []
+          [ line | line@(sev, text) <- strip, sevOf text /= T.toUpper sev ]
         assertEqual "out of the three" []
           [ sev | (sev, _text) <- strip, sev `notElem` ["info", "warn", "error"] ]
         assertEqual "and the six scopes" []
@@ -2740,9 +2846,50 @@ glueSpec shell = testGroup "Shell glue"
 shellGlue :: [Glue]
 shellGlue =
   [ glue "paints a page and loads the rest behind it"
-      [ "const PAGE = 100;", "load(`${narrow}limit=${PAGE}`)"
-      , "r.headers.get(\"X-Glance-Total\")", "a.total > (a.view.rows || []).length"
+      [ "const PAGE = 100;", "swap ? asking(asked) : `${narrow}limit=${PAGE}`"
+      , "r.headers.get(\"X-Glance-Total\")"
+      , "if (!swap && a.total > (a.view.rows || []).length)"
       , "if (table && query === asked) paint(b)" ]
+
+  -- SWAP ON THE ANSWER.  The two-phase fetch is the BOOT's, where the first
+  -- page is the difference between a table and a blank page; a re-application
+  -- has a whole table standing and asks for the whole answer, so the rows go
+  -- in one mount rather than a page's worth reflowing a moment later.
+  , glue "a view already on screen is replaced in one mount"
+      [ "const swap = !!table;"
+      , "viewing(load(swap ? asking(asked) : `${narrow}limit=${PAGE}`)).then((a) => {"
+      , "else arm(a.total);" ]
+
+  -- THE WASH: one state holder, two reasons, one class.  The view reason is
+  -- STEPPED, since an abort overlaps the fetch that replaced it; the socket's
+  -- is SET, since a connection refused closes without ever having opened.
+  , Glue "the wash is one holder over two reasons"
+      [ "const WASH = { view: 300, socket: 400 };"
+      , "      n: { view: 0, socket: 0 }, at: { view: 0, socket: 0 },"
+      , "      step(why, by) { this.want(why, this.n[why] + by); },"
+      , "wash.step(\"view\", 1);"
+      , "return p.finally(() => wash.step(\"view\", -1));"
+      , "backoff = 1000; dot(\"live\"); wash.want(\"socket\", 0);"
+      , "wash.want(\"socket\", 1);"
+      , "document.documentElement.classList.toggle(\"stale\"," ]
+      -- One class, and the page reads it nowhere: the look is the stylesheet's
+      -- whole business, so no branch here may ask whether the wash is on.
+      [ "classList.contains", "wash.on.view ?", "if (wash.on" ]
+
+  -- What it dims, and what it must not.  The table and the whole modal band go
+  -- under it — a sheet open over stale rows is stale with them — and the parts
+  -- that EXPLAIN the state stay legible, since dimming the answer along with
+  -- the question leaves the page saying nothing.  ONE property: no blur, since
+  -- a stale row is still the row, and no `filter' of any kind, since a filter
+  -- would make `#app' the containing block for the renderer's own fixed palette
+  -- backdrop and clip it inside the table's box.
+  , Glue "the wash dims the table and the overlays, and exempts what explains"
+      [ "  html.stale #app,html.stale #modal,html.stale #prompt,html.stale #config{"
+      , "    opacity:.55}"
+      , "  #app,#modal,#prompt,#config{transition:opacity .18s ease}" ]
+      [ "html.stale #log", "html.stale #corner", "html.stale #kbd"
+      , "html.stale #echo", "html.stale body", "stale #app{filter", "filter:blur"
+      , "filter:saturate", "filter:grayscale" ]
 
   -- The page opens on a view rather than on everything.  It is a query like
   -- any other: in the URL, mounted as a chip, asked of the server — so DEL
@@ -3270,7 +3417,7 @@ shellGlue =
       -- paint is exactly page one.
       [ "const PAGE = 100;   // rows in the first paint, and rows to a page"
       , "pageSize: PAGE,"
-      , "load(`${narrow}limit=${PAGE}`)"
+      , "swap ? asking(asked) : `${narrow}limit=${PAGE}`"
       -- The turn is the renderer's, and the bracket says where it landed:
       -- `] → next-page (page 3/129)'.
       , "nextPage: (b) => turnPage(b, 1),"

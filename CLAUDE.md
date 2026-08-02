@@ -691,8 +691,9 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   sweeps every `.hs` under `src*/` and `app/` for `/home/`, and asserts what it
   swept first so an empty sweep cannot pass.
 - The shell is vanilla inline JS with no framework, build step or dependency,
-  and shrinking it beats adding to it. It boots on `?limit=100`, pulls the rest
-  in behind the painted table, mounts with `onFilter` so the server narrows, and
+  and shrinking it beats adding to it. The BOOT — and only the boot — asks
+  `?limit=100` and pulls the rest in behind the painted table; it
+  mounts with `onFilter` so the server narrows, and
   opens its socket with `?bootstrap=off`. With no `q` in the URL the boot query
   is `state:*active*` — the default view, applied as a real query: written into
   the URL through `remember`, mounted as `initialQuery`, and asked of the server,
@@ -735,6 +736,29 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - With a filter applied, a socket frame does not splice — it schedules a
   refetch 250 ms out, coalescing a burst into one request. Unfiltered frames
   splice straight into the renderer.
+- A VIEW SWAPS ON ITS ANSWER. The table on screen stands until the new rows are
+  in hand and then goes in ONE mount — the count handed to the renderer never
+  passes through zero or through a partial set unless the answer is empty. That
+  decides the fetch: a boot (`!table`) takes `?limit=100` plus the pull behind
+  it, a re-application (`g`, `a`, `@`, pop, a `view-changed` remount) asks for
+  the WHOLE answer once, since a page-sized mount there replaced a complete
+  table with a hundred rows and reflowed the pager and the hint a moment later.
+- THE STALE WASH: one mechanism, two triggers, one clear discipline. One class
+  (`stale`) on the document element dims `#app` and the whole modal band
+  (`#modal`, `#prompt`, `#config`) to `opacity:.55`, eased 180 ms. One property,
+  and never a `filter` of any kind: a filter makes its element the containing
+  block for `position:fixed` descendants, and the renderer's palette backdrop
+  (`.tv-veil`, inside `#app`) is one — it would stop covering the viewport and be
+  clipped by `.tv-root`'s `overflow:hidden`. No blur either: a stale row is still
+  the row. The corner, the log
+  strip and the key line are exempt by omission: they explain the state. Triggers:
+  a view fetch in flight past 300 ms, and a socket down past 400 ms; the delays
+  are what keep a working page undimmed. One holder (`wash`) carries a count, a
+  timer and an on-flag per reason with one `arm`/`off`/`show`; the view reason is
+  STEPPED (an abort overlaps the fetch that replaced it) and the socket's is SET
+  (a refused connection closes without ever opening). `viewing` marks the fetches
+  whose answer replaces the rows — the parity baseline and `@`'s probe are not
+  among them, and a boot holds nothing. The page never reads the class back.
 - Shell z-indexes are four: echo `2`, corner `3`, modal backdrop `100`, sheet
   `101`. The value palette shares the pair with the sheet (`#modal,#prompt` and
   `#pbox`), so the four values stand whatever else is added. The cross-repo constraint is the backdrop pair clearing the renderer's
@@ -764,7 +788,9 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   sideways. A long message therefore moves nothing.
 - The log strip is append-only and its whole interface is
   `append(scope, severity, message)`. A line is `HH:MM:SS SEV scope message` —
-  severity `info`/`warn`/`error`, coloured and worn as the line's class; scope
+  severity `info`/`warn`/`error`, coloured, SPELLED uppercase (`INFO`/`WARN`/
+  `ERROR`) and WORN lowercase as the line's class, the upcase happening at the
+  one place the word is drawn; scope
   one of `ws`, `sync`, `cmd`, `filter`, `config`, `boot`; control characters in
   the message collapse to spaces. Nothing clears it, the boot line included; the
   ring holds 500 and drops the OLDEST; a line identical to the one before it

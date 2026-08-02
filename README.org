@@ -148,6 +148,23 @@ pulls the rest in behind the painted table so movement and sorting see
 everything, hands the filter to the server rather than narrowing locally,
 and opens its socket with =?bootstrap=off= because it already has the rows.
 
+*A view swaps on its answer.* The two-phase fetch above is the boot's, where the
+first page is the difference between a table and a blank page. Every view
+applied afterwards — =g=, =a=, =@=, walking back out of a drill — asks for the
+whole answer and puts it up in one go: the table you are looking at stands until
+the new rows are in hand, so a view never arrives half-built and the pager never
+reflows under your eyes a moment after it landed.
+
+*And says when it has gone stale.* Two things stop what is on screen being
+current: a view being replaced, and the socket that would deliver a change being
+gone. Neither looks any different from a page that is simply quiet, so the page
+fades itself back — the table and anything open over it, never blurred, so you
+can still read a stale row while its replacement is on the way.
+The status corner, the event strip and the key line stay bright: they are where
+you find out why. Both arm on a delay (300 ms for a fetch, 400 ms for the
+socket), so a filter that answers at once and a socket that blips and comes back
+dim nothing at all.
+
 *The tab stays live.* The directory is walked and parsed once, at startup, into
 an in-memory store; a request then costs an encode rather than a walk (0.09 s
 for 13344 rows against 14.5 s per request before). A file watcher re-parses one
@@ -748,9 +765,9 @@ boxes that can outgrow their room scroll inside themselves, so the corner and
 the key line hold their places whatever arrives.
 
 *The log under the table is an event log, and it keeps everything.* A line reads
-=14:03:22 info cmd headline "Ship the thing" archived=: a clock, a severity
-(=info=, =warn= or =error=, the word coloured so a warning is findable in a
-screenful), a scope saying which part of the page is talking (=ws=, =sync=,
+=14:03:22 INFO cmd headline "Ship the thing" archived=: a clock, a severity
+(=INFO=, =WARN= or =ERROR=, upper case and coloured so a warning is findable in
+a screenful), a scope saying which part of the page is talking (=ws=, =sync=,
 =cmd=, =filter=, =config=, =boot=), and the message. Nothing ever clears it —
 the boot line is an ordinary line and stays at the bottom of the scrollback —
 so what went past while you were reading the table is still there to scroll back

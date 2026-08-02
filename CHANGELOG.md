@@ -34,8 +34,19 @@ section groups a feature arc, and its date is that arc's last commit.
   `previous-column`/`next-column` beside `b`/`h` and `f`/`l`, and the key line
   is unchanged — an arrow rides behind its letters the way `<up>`/`<down>`
   always have.
+- The page says when what is on screen has gone stale: one wash — faded back,
+  never blurred — over the table and anything open above it, armed by a view
+  fetch out past 300 ms or a socket down past 400 ms, and cleared by the answer
+  or the reconnect. The status corner, the event log and the key line stay
+  bright, being where a reader finds out why.
 
 ### Changed
+- A view now swaps on its answer: `g`, `a`, `@` and a walk back out of a drill
+  ask for the whole set once and put it up in one mount, so a complete table is
+  no longer replaced by a page of rows and reflowed a moment later. The
+  page-sized first fetch stays where it earns its keep, on the boot.
+- The event log spells its severity in upper case — `14:03:22 INFO cmd …` —
+  which is what a reader scans a screenful of chatter for.
 - Whichever pane of the materialize sheet holds the keys says so on its own
   frame, so crossing with `TAB` moves one mark rather than losing it.
 - The property panel is a table-view mount, so the renderer draws every list on

@@ -53,6 +53,10 @@
 //   spam:N        N distinct lines appended to the page's event log, which is
 //                 the only way to reach a ring that holds five hundred
 //   offline       the daemon goes away: every request after this fails
+//   online        and comes back, which is what the retry finds
+//   hang          /headlines stops answering, so a swap can be watched in flight
+//   deliver       and answers everything held since
+//   wait:MS       MS milliseconds pass, which is what a delayed state needs
 //
 // The answer is what the page asked for and what it still holds afterwards.
 const fs = require("fs");
@@ -182,19 +186,38 @@ const answer = (status, body, headers) => Promise.resolve({
   json: () => Promise.resolve(body),
   text: () => Promise.resolve(""),
 });
-// Set by `offline': the daemon is gone and every request fails at the network.
+// Set by `offline' and taken back by `online': the daemon is gone and every
+// request fails at the network.
 let down = false;
+// Set by `hang': /headlines answers nothing until `deliver' lets it go, which
+// is the only way to observe the page WHILE a swap is in flight — everything
+// else here settles as a microtask and one turn of the loop is past it.
+let hanging = false;
+const held = [];
+/**
+ * The rows a URL asks for.  The server caps a `limit=' fetch, so a page-sized
+ * first paint really is one page: a swap that asks for the whole set can be
+ * told from a boot that asks for a page by what each of them gets back.
+ */
+const capped = (url, list) => {
+  const at = /[?&]limit=(\d+)/.exec(String(url));
+  return at ? list.slice(0, Number(at[1])) : list;
+};
 globalThis.fetch = (url, init) => {
   if (down) return Promise.reject(new Error("fetch failed"));
   const sent = ((init || {}).headers || {})["if-none-match"];
   if (String(url).startsWith("/headlines")) {
     asked.push(url);
     if (sent) tags.push(sent);
-    // The server's own answer to a tag it still stands behind: no body at all.
-    if (sent === tag) return answer(304, null, {});
-    const empty = unreferenced && String(url).indexOf("q=ref%3A") !== -1;
-    return answer(200, { title: "t", columns, rows: empty ? [] : rows },
-                  { "x-glance-total": empty ? "0" : String(served), etag: tag });
+    const send = () => {
+      // The server's own answer to a tag it still stands behind: no body at all.
+      if (sent === tag) return answer(304, null, {});
+      const empty = unreferenced && String(url).indexOf("q=ref%3A") !== -1;
+      return answer(200, { title: "t", columns, rows: empty ? [] : capped(url, rows) },
+                    { "x-glance-total": empty ? "0" : String(served), etag: tag });
+    };
+    if (hanging) return new Promise((go) => held.push(() => go(send())));
+    return send();
   }
   if (String(url) === "/command") {
     const sent = JSON.parse((init || {}).body || "{}");
@@ -274,6 +297,11 @@ let socket = null;
 globalThis.WebSocket = function () {
   socket = this;
   this.close = () => { socket = null; };
+  // A socket opens on a later turn than the one it was constructed in — the
+  // page assigns `onopen' after the constructor returns — and the wash's other
+  // half is cleared by that event, so a stub that never fired one would show a
+  // reconnect that never finished.
+  setTimeout(() => { if (socket === this && this.onopen) this.onopen(); }, 0);
 };
 // TWO MOUNTS.  The page builds the table in `#app' and the property panel in
 // the sheet, so everything a renderer holds PER MOUNT is held per instance here
@@ -288,6 +316,11 @@ globalThis.WebSocket = function () {
 // shell's own model and arrive through `setRows', so that instance keeps what it
 // is handed.
 let mounts = 0, sets = 0, raises = 0, pmounts = 0, psets = 0;
+// Every row count the shell has ever handed the TABLE, in order: one entry per
+// mount and one per `setRows'.  A view swapping on its answer is one entry and
+// a view painted before its answer is two, so what a reader would have seen
+// flash is what this reads out.
+const paints = [];
 // The last programmatic sort asked of a handle, which is the whole of what the
 // agenda's own ordering can be observed to have done.
 let sorted = null;
@@ -365,7 +398,7 @@ const makeMount = (host, view, options, own) => {
         m.own = (list || []).slice();
         m.cursor = Math.max(0, Math.min(m.cursor, m.own.length - 1));
         psets += 1;
-      } else sets += 1;
+      } else { sets += 1; paints.push((list || []).length); }
     },
     getQuery: () => m.held,
     stripLastToken: () => {
@@ -456,7 +489,8 @@ globalThis.TableView = {
   mount: (host, view, options) => {
     const panel = host === field("mptable");
     const inst = makeMount(host, view, options, panel ? [] : null);
-    if (panel) { pmounts += 1; pan = inst; } else { mounts += 1; main = inst; }
+    if (panel) { pmounts += 1; pan = inst; }
+    else { mounts += 1; main = inst; paints.push(((view || {}).rows || []).length); }
     if (markless) strip(inst.handle, MARK_CALLS);
     if (pagerless) strip(inst.handle, PAGE_CALLS);
     if (sortnone) strip(inst.handle, SORT_CALLS);
@@ -569,6 +603,25 @@ const STATEFUL = [ "mtext", "mnote", "mfile", "modal", "mprops", "mlog", "sheet"
                  // The corner's theme select, which has to be a real element
                  // for the focus it takes and gives back to be observable.
                  , "themesel" ];
+// The document element, which is where the stale wash lands and where the theme
+// pins its attribute.  A real element rather than the catch-all proxy, because
+// the wash IS a class going on and coming off and a stub that swallows every
+// write can show none of it.  Every transition of that class is recorded, so a
+// wash that armed and cleared reads differently from one that never armed.
+const root = make("html");
+const washed = [];
+root.classList = {
+  contains: (name) => root.className.split(" ").indexOf(name) !== -1,
+  toggle: (name, force) => {
+    const has = root.classList.contains(name);
+    const on = force === undefined ? !has : !!force;
+    if (on === has) return on;
+    root.className = on ? `${root.className} ${name}`.trim()
+                        : root.className.split(" ").filter((c) => c !== name).join(" ");
+    if (name === "stale") washed.push(on ? "on" : "off");
+    return on;
+  },
+};
 // The page's own key dispatch, kept so a press can be delivered to it.
 const pressed = [];
 globalThis.document = {
@@ -583,7 +636,7 @@ globalThis.document = {
   },
   getSelection: () => null,
   get activeElement() { return active; },
-  documentElement: node,
+  documentElement: root,
   body: node,
 };
 globalThis.window = globalThis;
@@ -887,6 +940,21 @@ const ACTIONS = {
   // The daemon goes away: every request after this fails at the network, which
   // is what the reconnect's error line and the retry behind it are written for.
   offline: () => { down = true; },
+  // And comes back, which is what the retry behind the backoff finds.
+  online: () => { down = false; },
+  // /headlines stops answering, so a view application can be observed WHILE it
+  // is in flight — the state the wash is armed by and the one turn of the loop
+  // every other answer here is already past.
+  hang: () => { hanging = true; },
+  // And answers: every request held since, in the order they were made.
+  deliver: () => {
+    hanging = false;
+    while (held.length) held.shift()();
+  },
+  // Time passing, which is the one thing a delayed state needs and no other act
+  // can stand in for: the wash arms on a timer and a script has to be able to
+  // sit either side of it.
+  wait: (ms) => new Promise((done) => setTimeout(done, Number(ms))),
 };
 
 // Every fetch here settles as a microtask, so one turn of the event loop is
@@ -903,12 +971,20 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     const at = act.indexOf(":");
     const verb = at === -1 ? act : act.slice(0, at);
     if (!ACTIONS[verb]) throw new Error(`no such act: ${act}`);
-    ACTIONS[verb](at === -1 ? "" : act.slice(at + 1));
+    // Awaited, so an act that takes time — `wait' is the only one — is over
+    // before the next reads the page.
+    await ACTIONS[verb](at === -1 ? "" : act.slice(at + 1));
     await settle();
   }
   await settle();
   const said = JSON.stringify({
     asked, tags, url: location.search, mounts, sets, raises,
+    // The stale wash: every transition of the class, oldest first, and whether
+    // it is on at the end.  A page that was never dimmed reports neither.
+    washed, stale: root.classList.contains("stale"),
+    // And every row count the table was handed, which is what says whether a
+    // view arrived in one piece.
+    paints,
     sheet: field("mtext").value, state: field("mnote").className,
     modal: field("modal").className,
     palette: field("filter").value,

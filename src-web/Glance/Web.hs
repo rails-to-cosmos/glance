@@ -1921,6 +1921,20 @@ shellPage opts hub = do
 -- loaded rows are the server's answer to a query and only it knows whether the
 -- changed row still matches.
 --
+-- Every view swaps ON ITS ANSWER.  The table that is up stands until the new
+-- rows are in hand and then goes in one mount, so no view is ever shown
+-- half-arrived: a re-application asks for the whole answer rather than for a
+-- page, since a page-sized mount over a full table is a complete view replaced
+-- by a partial one and reflowed a moment later.  The two-phase fetch is the
+-- BOOT's, where the first page is the difference between a table and a blank
+-- page.  While the answer is out — or while the socket that would deliver a
+-- change is gone — the page wears the stale wash: one class on the document
+-- element fading back the table and every overlay open over it, never blurring
+-- them, so the rows stay readable while they are known to be
+-- out of date.  The corner, the event strip and the key line are exempt,
+-- being where a reader finds out why.  Each half arms on a delay — a fetch
+-- that answers quickly and a socket that blips and comes back dim nothing.
+--
 -- The filter is summoned rather than resident.  The mount asks for @palette@,
 -- so an unfiltered table carries no filter chrome but its chip row, and @\/@
 -- raises the overlay through @openFilter@ — the renderer's one entry point for
@@ -2159,7 +2173,11 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        const line = document.createElement(\"div\");"
   , "        line.className = sev;"
   , "        part(line, \"span\", \"lt\", new Date().toTimeString().slice(0, 8));"
-  , "        part(line, \"span\", \"lv\", sev);"
+      -- The severity is SPELLED uppercase and WORN lowercase: the word is what
+      -- a reader scans a screenful of chatter for, and the class is what the
+      -- stylesheet and the suite name.  One value, two cases, and the display
+      -- is the only place the fold happens.
+  , "        part(line, \"span\", \"lv\", sev.toUpperCase());"
   , "        part(line, \"span\", \"lc\", scope);"
   , "        part(line, \"span\", \"lm\", text);"
   , "        logLast = { scope, sev, text, n: 1, count: part(line, \"span\", \"ln\", \"\") };"
@@ -2170,6 +2188,53 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    }"
   , "    const dot = (name) => (document.getElementById(\"dot\").className = name);"
   , "    const el = (id) => document.getElementById(id);"
+    -- THE WASH.  What is on screen stops being known to be current in exactly
+    -- two ways: the view is being replaced and its answer has not landed, or
+    -- the socket that would deliver a change is gone.  A reader cannot tell
+    -- either of those from a page that is simply quiet, so both wear ONE look
+    -- — faded back, and never blurred, since stale rows are still the rows and
+    -- have to stay readable while the answer is on its way —
+    -- carried by ONE class on the document element.  What EXPLAINS the state
+    -- is exempt: the corner's dot, the event strip and the key line are where
+    -- a reader finds out why, and washing the answer along with the question
+    -- would leave nothing to read.
+    --
+    -- Each reason arms on a DELAY, which is the whole of what keeps the wash
+    -- off a page that is working: a fetch answering inside its grace and a
+    -- socket that blips and comes back dim nothing at all.  Whoever arms a
+    -- reason is who clears it.
+  , "    const WASH = { view: 300, socket: 400 };"
+  , "    const wash = {"
+  , "      n: { view: 0, socket: 0 }, at: { view: 0, socket: 0 },"
+  , "      on: { view: false, socket: false },"
+      -- Reason WHY now stands COUNT times over.  Arming and clearing are one
+      -- discipline for both reasons; what differs is who counts.  A view fetch
+      -- STEPS the count, because `load' overlaps an abort with the fetch that
+      -- replaced it and a boolean would clear the wash the replacement still
+      -- wants.  The socket SETS it, because a connection closing before it
+      -- ever opened would otherwise arm twice against one open.
+  , "      want(why, count) {"
+  , "        const was = this.n[why];"
+  , "        this.n[why] = Math.max(0, count);"
+  , "        if (this.n[why] === was) return;"
+  , "        if (this.n[why]) this.arm(why); else this.off(why);"
+  , "      },"
+  , "      step(why, by) { this.want(why, this.n[why] + by); },"
+  , "      arm(why) {"
+  , "        if (this.on[why] || this.at[why]) return;"
+  , "        this.at[why] = setTimeout(() => {"
+  , "          this.at[why] = 0; this.on[why] = true; this.show();"
+  , "        }, WASH[why]);"
+  , "      },"
+  , "      off(why) {"
+  , "        clearTimeout(this.at[why]); this.at[why] = 0;"
+  , "        this.on[why] = false; this.show();"
+  , "      },"
+  , "      show() {"
+  , "        document.documentElement.classList.toggle(\"stale\","
+  , "          this.on.view || this.on.socket);"
+  , "      },"
+  , "    };"
     -- Does MOUNT carry the optional call NAME?  Every renderer capability this
     -- page uses is detected before it is used, and there are TWO mounts now —
     -- the table and the sheet's property panel — so the question is asked of a
@@ -2287,6 +2352,19 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    }"
   , "    const quiet = (e) => {"
   , "      if (e.name !== \"AbortError\") append(\"ws\", \"error\", `load failed: ${e.message}`);"
+  , "    };"
+    -- A fetch whose answer REPLACES what is on screen, marked as one: it holds
+    -- the wash's view reason for as long as it is out, so a swap that takes
+    -- longer than the grace says so rather than leaving stale rows looking
+    -- current.  The parity baseline and the probe behind `@' go through `load'
+    -- without this, because neither replaces anything and dimming a page for a
+    -- fetch that will not change it is the same lie the other way round.  A
+    -- boot holds nothing either: a page with no table on it has no stale
+    -- content to wash.
+  , "    const viewing = (p) => {"
+  , "      if (!table) return p;"
+  , "      wash.step(\"view\", 1);"
+  , "      return p.finally(() => wash.step(\"view\", -1));"
   , "    };"
   , "    // The unfiltered answer is kept: with a filter on, the loaded rows are"
   , "    // the server's answer to it and cannot be used to check that answer."
@@ -2449,7 +2527,8 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
       -- landing rule `applyView' uses closes that: the first row of what came
       -- back, and nothing when nothing did.
   , "    const fetchRows = () =>"
-  , "      load(asking(query)).then((a) => { if (table) { paint(a); land(null); } })"
+  , "      viewing(load(asking(query)))"
+  , "        .then((a) => { if (table) { paint(a); land(null); } })"
   , "        .catch(quiet);"
   , "    // A commit is the moment a NEW query goes to the server — a settled"
   , "    // debounce, a committed token, an accepted completion."
@@ -4486,11 +4565,19 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      const scheme = location.protocol === \"https:\" ? \"wss\" : \"ws\";"
   , "      // The rows came over HTTP; the socket's own set-rows would resend them."
   , "      socket = new WebSocket(`${scheme}://${location.host}/ws?bootstrap=off`);"
-  , "      socket.onopen = () => { backoff = 1000; dot(\"live\"); };"
+      -- The other half of the wash, and the only one a reader can sit in for
+      -- minutes: a page whose socket is gone goes on showing rows nothing can
+      -- correct.  Set rather than stepped — a connection refused closes
+      -- without ever opening — and the delay is what keeps a reconnect that
+      -- costs one revalidation from dimming anything.
+  , "      socket.onopen = () => {"
+  , "        backoff = 1000; dot(\"live\"); wash.want(\"socket\", 0);"
+  , "      };"
   , "      socket.onmessage = (e) => apply(JSON.parse(e.data));"
   , "      socket.onclose = (e) => {"
   , "        socket = null;"
   , "        dot(\"down\");"
+  , "        wash.want(\"socket\", 1);"
   , "        // The columns moved, which SCHEMA.md's row ops cannot say: the"
   , "        // mount has to go.  Every other close — a backlog abandoned under"
   , "        // a write storm (`resync'), a restarted daemon, a dead network —"
@@ -4559,14 +4646,23 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      // from the first paint on."
   , "      const asked = (query = bootQuery());"
   , "      if (!params().has(\"q\")) remember(asked);"
+      -- SWAP ON THE ANSWER.  A boot has nothing on screen, so it takes the
+      -- first page it can get and pulls the rest in behind the painted table.
+      -- A RE-APPLICATION has a whole table standing — `g', `a', `@', a pop, a
+      -- `view-changed' remount — and asks for the WHOLE answer once, because a
+      -- page-sized mount here replaces a complete table with a partial one and
+      -- reflows the pager and the hint under the reader a moment later.  Under
+      -- either, the rows that are up STAND until the new ones are in hand and
+      -- the swap is one mount; the wash is what says they are on their way.
+  , "      const swap = !!table;"
   , "      const narrow = asking(asked) + (asked ? \"&\" : \"?\");"
-  , "      load(`${narrow}limit=${PAGE}`).then((a) => {"
+  , "      viewing(load(swap ? asking(asked) : `${narrow}limit=${PAGE}`)).then((a) => {"
   , "        mount(a.view);"
   , "        if (after) after(a.total);"
   , "        listen();"
   , "        // The rest behind the painted table: n/p, sort and materialize all"
   , "        // want the whole answer, and the renderer holds it without the DOM."
-  , "        if (a.total > (a.view.rows || []).length)"
+  , "        if (!swap && a.total > (a.view.rows || []).length)"
   , "          load(asking(asked))"
   , "            .then((b) => { if (table && query === asked) paint(b); arm(a.total); })"
   , "            .catch(quiet);"
@@ -4928,6 +5024,31 @@ page head' title body = T.unlines
   -- The gear is the coarse pointer's only way in, so a fine pointer never sees
   -- it: the rule that shows it is in the one media block below.
   , "  #gear{display:none}"
+  -- THE WASH.  One class on the document element, over the table and the whole
+  -- modal band: a sheet open on rows that have gone stale is stale with them,
+  -- so the overlays go under the same wash rather than floating over it looking
+  -- current.  Eased, so the state arrives as a change rather than as a flicker,
+  -- and the transition sits on the elements themselves so coming back is eased
+  -- too.
+  --
+  -- ONE PROPERTY, and it is `opacity'.  Never BLUR — a reader has to be able to
+  -- read a stale row while its replacement is on the way, and blur is what takes
+  -- that away.  Never `filter' either, which is the cross-repo constraint here:
+  -- ANY filter makes its element the containing block for `position:fixed'
+  -- descendants, and the renderer's summoned filter palette is one — a
+  -- `.tv-veil' inside `#app', which would stop covering the viewport and start
+  -- being clipped by `.tv-root''s own `overflow:hidden' the moment a fetch went
+  -- past its grace.  `opacity' creates a stacking context and no containing
+  -- block, so it is the one declaration that dims everything and re-anchors
+  -- nothing; over the page's own ground it takes the colour out of a badge as
+  -- it goes.
+  --
+  -- The corner, the event strip and the key line are EXEMPT by omission: they
+  -- are where a reader finds out what the page is waiting on, and dimming the
+  -- explanation with the thing it explains leaves the page saying nothing.
+  , "  #app,#modal,#prompt,#config{transition:opacity .18s ease}"
+  , "  html.stale #app,html.stale #modal,html.stale #prompt,html.stale #config{"
+  , "    opacity:.55}"
   -- The echo area and the status corner are the page's, and the backdrop dims
   -- the page: both sit under it (2 and 3 against the modal's 100) and grey out
   -- with everything else while the sheet is open.  They stay above the table.
