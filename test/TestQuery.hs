@@ -33,7 +33,7 @@ import Glance.Query ( ConfigLayers (..), HeadlineParts (..), HeadlineRecord (..)
                     , loadDirFilesSerially, loadDirFilesWith, loadFile, matchesSearch
                     , noConfig, orgLinks
                     , planningTimestamp, readsAsTimestamp, recomposedSubtree
-                    , linkColumns, linkType, removeTagEdits, rowJSON
+                    , linkColumns, linkType, removeTagEdits, renameTagEdits, rowJSON
                     , setPlanningEdits, setStateEdits
                     , settableStates, sortedForView, sortedTagsCell
                     , subtreeLinks, subtreeText, tagText, tagged, viewJSON )
@@ -1463,6 +1463,10 @@ addTagIs what doc tag = editsAre what doc (addTagEdits tag)
 removeTagIs :: String -> Text -> Text -> Text -> Assertion
 removeTagIs what doc tag = editsAre what doc (removeTagEdits tag)
 
+-- | WHAT: DOC with @rename-tag FROM TO@ applied to its one headline is WANTED.
+renameTagIs :: String -> Text -> Text -> Text -> Text -> Assertion
+renameTagIs what doc from to = editsAre what doc (renameTagEdits from to)
+
 -- | Is TEXT a tag, as 'tagText' answers?  The predicate is the parser's own
 -- charset, so what this pins is the pair agreeing rather than a second list.
 tagIs :: (Text, Bool) -> Assertion
@@ -1726,6 +1730,91 @@ commandSpec = testGroup "Commands"
           assertEqual "added" "* TODO Ship it :web:work:\n" added
           withRecord added $ \r' ->
             assertEqual "and back" doc (splice added (removeTagEdits "work" r'))
+    ]
+
+    -- The third tag command, and the one that is a command rather than a
+    -- composition: a remove and an add spliced together are not even disjoint
+    -- edits, and they move the entry to the end of the run.
+  , testGroup "rename-tag"
+    [ testCase "replaces the entry where it stands, colon and all left alone" $ do
+        renameTagIs "in the middle" "* TODO Ship it :web:glance:work:\n"
+                    "glance" "code" "* TODO Ship it :web:code:work:\n"
+        renameTagIs "at the head" "* TODO Ship it :web:glance:\n"
+                    "web" "code" "* TODO Ship it :code:glance:\n"
+        renameTagIs "alone" "* TODO Ship it :work:\n"
+                    "work" "projects" "* TODO Ship it :projects:\n"
+
+      -- The property the popup's cursor rests on and a composition cannot have:
+      -- the run's ORDER is untouched, so the union it draws does not reshuffle
+      -- under the reader's hands.
+    , testCase "and the run's order is what it was" $
+        renameTagIs "kept" "* TODO Ship it :a:b:c:\n" "a" "z"
+                           "* TODO Ship it :z:b:c:\n"
+
+      -- Every other byte of the document, which is the write-back invariant
+      -- read at this layer.
+    , testCase "the lines under the headline are untouched" $
+        renameTagIs "planned" (T.unlines [ "* TODO Ship it :work:"
+                                         , "SCHEDULED: <2026-08-01 Sat>"
+                                         , ":PROPERTIES:"
+                                         , ":ORG_GLANCE_ID: ship"
+                                         , ":END:" ])
+                              "work" "projects"
+                              (T.unlines [ "* TODO Ship it :projects:"
+                                         , "SCHEDULED: <2026-08-01 Sat>"
+                                         , ":PROPERTIES:"
+                                         , ":ORG_GLANCE_ID: ship"
+                                         , ":END:" ])
+
+    , testCase "a row that does not carry the old name costs no edit" $
+        withRecord "* TODO Ship it :web:\n" $ \r ->
+          assertEqual "no edits" [] (renameTagEdits "work" "projects" r)
+
+    , testCase "and a row with no run at all costs none either" $
+        withRecord "* TODO Ship it\n" $ \r ->
+          assertEqual "no edits" [] (renameTagEdits "work" "projects" r)
+
+      -- Matching FOLDS, the way presence does, so a change of SPELLING is a
+      -- rename like any other.
+    , testCase "the old name is matched folded, and the new one written as given" $ do
+        renameTagIs "folded" "* TODO Ship it :Work:\n" "work" "projects"
+                             "* TODO Ship it :projects:\n"
+        renameTagIs "respelled" "* TODO Ship it :Work:\n" "work" "work"
+                                "* TODO Ship it :work:\n"
+
+      -- ONE TAG ONCE, which is what 'removeTagEdits' keeps by cutting every
+      -- entry that spells its tag: the first becomes the new name and the rest
+      -- go, so a file spelling one tag twice comes out clean.
+    , testCase "a tag spelled twice comes out spelled once" $
+        renameTagIs "deduplicated" "* TODO Ship it :work:web:Work:\n" "work" "projects"
+                                   "* TODO Ship it :projects:web:\n"
+
+      -- And where the row ALREADY carries the new name, the rename is a
+      -- removal: writing it would leave the run holding it twice.  The entry
+      -- that survives is the one the file already had, in its own place.
+    , testCase "a row already carrying the new name loses the old one instead" $ do
+        renameTagIs "merged" "* TODO Ship it :web:work:\n" "web" "work"
+                             "* TODO Ship it :work:\n"
+        renameTagIs "merged the other way" "* TODO Ship it :web:work:\n" "work" "web"
+                                           "* TODO Ship it :web:\n"
+
+      -- Which never empties the run: the entry carrying the new name is one of
+      -- the ones left standing, so there is no whole-run branch to reach.
+    , testCase "and the run and its separator stand" $
+        renameTagIs "run kept" "* TODO Ship it  :a:b:\n" "a" "b"
+                               "* TODO Ship it  :b:\n"
+
+      -- The composition this replaces, spelled out: removing the LAST entry
+      -- takes the whole run away and adding one inserts at the end of the run
+      -- it just took, so the two edit sets cannot be applied together.
+    , testCase "the composition it replaces writes the tag onto the title" $ do
+        let doc = "* TODO Ship it :work:\n"
+        withRecord doc $ \r -> do
+          assertEqual "the removal takes the run, and the addition lands past it"
+                      "* TODO Ship itprojects:\n"
+                      (splice doc (removeTagEdits "work" r <> addTagEdits "projects" r))
+          assertEqual "where the one command spells the file" "* TODO Ship it :projects:\n"
+                      (splice doc (renameTagEdits "work" "projects" r))
     ]
 
     -- The wall both tag commands put up, and it is the PARSER's own charset:

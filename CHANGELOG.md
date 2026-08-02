@@ -91,6 +91,41 @@ section groups a feature arc, and its date is that arc's last commit.
   and the sheet's logbook already wear.
 
 ### Added
+- The tags list on `:` is a MUTABLE MOUNT — the page's fourth table-view mount
+  (`#ttable`), after the table, the property panel and the link popup. Three
+  columns, declared server-side in `Glance.Query.tagColumns`: the tag, its
+  COVERAGE over the rows the command would run over (`all`, or `2/3`), and how
+  many rows the whole tree has under it. `GET /tags` grew the third as `counts`,
+  one pass over the store's rows per request — `stTags` counts FILES, which is a
+  different question. A tag is its row's id, so a flag, the cursor and a rename
+  all name the same thing after any number of writes.
+  It replaces the which-key palette that carried this list, and the letters go
+  with it: a keyword is a single word committed from memory and a tag over a set
+  of rows is a RECORD a reader has to read. The tell was the muted `3/5` aside —
+  a palette entry that needs a note about itself is a record wearing a letter.
+  The which-key machinery is now the state palette's alone (`prompting.sticky`,
+  `letterMode` and `prompting.letters` are gone with it).
+  Gestures are the ones this page already spells, borrowed rather than invented:
+  `d` flags a tag red and a second `d` — or `D` — removes every flagged tag from
+  every target carrying it, one `remove-tag` per tag and the flags spent, which
+  is dired's and the table's own archive gesture; `u` unflags; `+` raises the
+  value palette's completing field over the addable vocabulary and adds; `RET`
+  opens the tag cell as a field over itself, which is the property panel's edit
+  overlay over one cell.
+- `POST /command rename-tag {from, to}` — the seventh command, and the write
+  behind that `RET`. `Glance.Query.renameTagEdits` REPLACES the entry where the
+  author put it, so `:a:work:b:` renamed to `projects` is `:a:projects:b:` and
+  the run's order, its delimiters and every other byte stand. It is a command
+  rather than a `remove-tag` and an `add-tag` fired in turn because those two
+  edit sets are not disjoint — removing a LAST entry takes the whole run away and
+  the addition inserts at the end of the run it just took — so composing them
+  spells the tag onto the title, and because the pair would be two writes under
+  two digests where this is one drift-locked splice per file. One tag once: the
+  first entry spelling `from` becomes `to`, further ones are cut, and a row
+  already carrying `to` loses `from` instead. Both ends take the parser's charset
+  wall, a row not carrying `from` costs no edit, and rename-then-rename-back is
+  the identity on the bytes.
+
 - The view declares a SORT CHAIN rather than one key: title, then state,
   deadline, scheduled and priority, every key ascending
   (`Glance.Query.defaultSortChain`). SCHEMA.md's `sort` takes an array for
@@ -342,6 +377,23 @@ section groups a feature arc, and its date is that arc's last commit.
   `{dirty, flush, refresh, shut, scope}` and nothing else; `activeSheet()` is
   total, since neither sheet opens over the other. Behaviour is unchanged — the
   harness drives both sheets through pristine, dirty, conflict and discard.
+
+### Fixed
+- **A weekday in any language keeps its headline's property drawer.** The
+  timestamp parser took exactly three letters in the weekday slot, so ~/sync's
+  Dutch stamps — `CLOSED: [2025-12-04 do 22:34]`, with `ma`, `zo`, `vr` and `za`
+  beside `do` — failed the timestamp, failed `planningP`, and left the drawer no
+  longer the next thing after the title line, taking the headline's properties
+  and its `ORG_GLANCE_ID` whole. The slot now takes a run of LETTERS in any
+  script, of any length, and drops it the way it always did: the weekday is
+  display-only, recomputed from the date on every render, so a locale's word
+  carries nothing the parser needs. Letters alone is what holds a repeater out
+  of the slot — `.+3d` opens with `.` — which leaves the trailing dot French and
+  Catalan abbreviate with (`lun.`) still refused, a boundary the corpus does not
+  reach. This is the gap the drift instrument reported and did not fix: over
+  ~/sync/views the blobs carrying no id go **49 → 21** and the records without
+  blobs **57 → 29**, both by exactly the 28 it named. The corpus oracle is
+  unmoved — 12596 headlines, 0 span violations over ~/sync.
 
 ## 0.4.0.0 - 2026-08-02
 

@@ -337,7 +337,7 @@ spec = withResource (body <$> get assetsDir "/") (const (pure ())) $ \shell ->
     [ headlineSpec, bannerSpec, statsSpec, cacheSpec, gzipSpec, querySpec
     , orderSpec, archiveViewSpec
     , bootstrapSpec, materializeSpec, commitSpec, commandSpec, planningSpec
-    , tagCommandSpec, tagsSpec, captureSpec
+    , tagCommandSpec, renameCommandSpec, tagsSpec, captureSpec
     , configSpec, keywordsSpec, linksSpec, indexingSpec
     , pageSpec shell, keymapSpec shell
     , glueSpec shell, bootSpec shell, liveSpec shell, washSpec shell
@@ -919,6 +919,39 @@ markSpec shell = testGroup "Shell marks"
         assertEqual "and the flag is spent" [] =<< textsAt "flagged" answer
         assertEqual "counted" "d → archive-flag (archived · 1 flagged)" =<< textAt "echo" answer
 
+    -- AN ARCHIVED ROW SPENDS ITS MARK, the way it spends its flag.  A mark
+    -- survives a `setRows' and a filter that hides its row — which is what makes
+    -- it useful, and what would otherwise leave an archived row marked where no
+    -- reader can see it: the count would carry it, `U' would answer about it,
+    -- and it would come back marked under `tag:*archive*'.
+  , testCase "archiving takes the archived rows' marks with their flags" $ do
+      -- `m' marks and STEPS, so the two presses mark r1 and r2 and leave the
+      -- cursor past them; `p p' walks back to the row the flag is for.
+      bootOf shell "" 500 "m m p p d d" "" $ \answer -> do
+        assertEqual "the row that was archived" [("archive", ["r1"])] =<< postedOf answer
+        assertEqual "keeps neither its flag" [] =<< textsAt "flagged" answer
+        assertEqual "nor its mark, and the other row keeps its own" ["r2"]
+          =<< textsAt "marked" answer
+      -- `D' with nothing flagged takes the row at point, which the three marks
+      -- left on the last one: the marks it did not reach are untouched.
+      bootOf shell "" 500 "m m m D" "" $ \answer -> do
+        assertEqual "the row at point went" [("archive", ["r3"])] =<< postedOf answer
+        assertEqual "and the marks the archive did not reach stand"
+                    ["r1", "r2"] =<< textsAt "marked" answer
+
+  , testCase "and an unmarked row costs no mark at all" $
+      bootOf shell "" 500 "n m p p d d" "" $ \answer -> do
+        assertEqual "the row at point was archived" [("archive", ["r1"])]
+          =<< postedOf answer
+        assertEqual "the mark on the OTHER row is untouched" ["r2"]
+          =<< textsAt "marked" answer
+
+    -- A refused write archived nothing, so it spends nothing either.
+  , testCase "a refused archive leaves the mark where it was" $
+      bootOf shell "" 500 "" "refuse press:m press:p press:d press:d" $ \answer -> do
+        assertEqual "the command went" [("archive", ["r1"])] =<< postedOf answer
+        assertEqual "and the mark stands" ["r1"] =<< textsAt "marked" answer
+
     -- The flag stays on the ROW rather than following the cursor, so a walk
     -- between the two presses is a walk back before the second one lands.
   , testCase "d on one row and d on another flags both and archives neither" $
@@ -1164,244 +1197,324 @@ commandKeySpec shell = testGroup "Shell commands"
           =<< textAt "phead" answer
   ]
 
--- | @:@ — the manage-tags palette, which is the one that STAYS UP.
+-- | @:@ — the manage-tags popup, which is the page's FOURTH table-view mount
+-- and the only MUTABLE one.
 --
--- What is pinned here is the page's half: the union it lists, the partial count
--- beside an entry only some of the set carries, the normalize-up toggle, the
--- refresh that comes out of the command's own answer rather than a re-read, and
--- the typing mode that reaches past the set into the tree's vocabulary.  The
--- span math is @TestQuery@'s and the route is @tagCommandSpec@'s.
+-- What is pinned here is the page's half: the mount it raises and the shape of
+-- it, the coverage column, the removal gesture, the add flow and the rename.
+-- The span math is @TestQuery@'s and the routes are @tagCommandSpec@'s.
 tagKeySpec :: IO T.Text -> TestTree
 tagKeySpec shell = testGroup "Shell tags"
-  [ testCase ": lists the row's own tags, each under a letter" $
+  [ testCase ": raises a mount over the row's own tags" $
       bootOf shell "" 500 ":" "" $ \answer -> do
-        assertEqual "the palette says what it is over and how many"
-                    "tags · 1 row" =<< textAt "phead" answer
+        assertEqual "raised" "on" =<< textAt "tagpop" answer
+        assertEqual "and no value palette with it" "" =<< textAt "prompt" answer
+        assertEqual "titled by what it is over and how many"
+                    "tags · 1 row" =<< textAt "thead" answer
         assertEqual "one request, naming the row" ["/tags?ids=r1"]
           =<< textsAt "tagged" answer
-        assertEqual "the row's run, under the letters it claimed"
-                    [("pe", "", ["[w]eb"], [])] =<< paletteOf answer
-        assertEqual "and the foot says what a letter does"
-                    "a letter toggles it · / finds · + adds · ESC leaves"
-          =<< textAt "pfoot" answer
+        assertEqual "one mount, built on the first raise" 1 =<< intAt "tmounts" answer
+        assertEqual "the columns the shell declared" ["title", "on", "rows"]
+          =<< traverse (textAt "key") =<< listAt "tcols" answer
+
+    -- A ROW IS A RECORD: the tag, how much of the set carries it, and what the
+    -- whole tree has under it.  The third is the server's count and the one
+    -- number no arithmetic over the rows in hand recovers.
+  , testCase "a row is the tag, its coverage and the tree's count" $
+      bootOf shell "" 500 ":" "" $ \answer -> do
+        assertEqual "one row per tag" [["web", "all", "40"]] =<< pairsAt "ttags" answer
+        assertEqual "the cursor lands on the first" 0 =<< intAt "tat" answer
+        assertEqual "and the foot names every key that works"
+                    "RET renames · d flags · D removes · + adds · ESC leaves"
+          =<< textAt "tfoot" answer
+
+    -- MUTABLE, and stated in the mount: flags for the removal gesture, no marks
+    -- (the set this runs over is the TABLE's and was settled before it went up),
+    -- no per-row hint and no page.
+  , testCase "the mount is mutable: flags on, marks off, no hints, no page" $
+      bootOf shell "" 500 ":" "" $ \answer -> do
+        assertEqual "marks off" False =<< boolAt "tmarks" answer
+        assertEqual "flags on" True =<< boolAt "tflags" answer
+        assertEqual "hints off" False =<< boolAt "thints" answer
+        assertEqual "no page size, so the whole list is on show" 0
+          =<< intAt "tpage" answer
+        assertEqual "and the flag's own hint names the two keys that answer it"
+                    "d/D remove · u unflag" =<< textAt "tflagHelp" answer
 
     -- The same rows every other keyed write runs over: the marked set where
     -- there is one, the row at point otherwise.
   , testCase "over a marked set it names the whole set, in one request" $
       bootOf shell "" 500 "m m :" "" $ \answer -> do
-        assertEqual "the title counts them" "tags · 2 rows" =<< textAt "phead" answer
+        assertEqual "the title counts them" "tags · 2 rows" =<< textAt "thead" answer
         assertEqual "and the resolution is one request"
                     ["/tags?ids=r1&ids=r2"] =<< textsAt "tagged" answer
 
-    -- NORMALIZE UP.  A tag only part of the set carries wears the count that
-    -- says so, and the letter LEVELS the set rather than taking anything away:
-    -- the write goes to the rows that LACK it, and only when every row carries
-    -- it does the same letter take it off.
-  , testCase "a tag part of the set carries wears its count" $
+    -- COVERAGE, which is what the letter palette wrote into a muted aside and
+    -- this one gives a column: `all' where the set is level, `k/n' where it is
+    -- not.  `partly' leaves the third row without `web'.
+  , testCase "a tag part of the set carries says so in its own cell" $
       bootOf shell "" 500 "" "partly press:m press:m press:m press::" $
-        assertEqual "two of the three rows" [("[w]eb", "2/3")] <=< paletteHints
+        assertEqual "two of the three rows" [["web", "2/3", "40"]] <=< pairsAt "ttags"
 
-  , testCase "and the letter adds it to the rows that lack it" $
-      bootOf shell "" 500 "" "partly press:m press:m press:m press:: press:w" $ \answer -> do
-        assertEqual "the row that had none, and only it"
-                    [("add-tag", ["r3"])] =<< postedOf answer
-        assertEqual "as the tag the entry names" ["web"] =<< tagsPosted answer
-        assertEqual "and the pill says what landed"
-                    ": → org-agenda-set-tags (tagged :web: · 1)" =<< textAt "echo" answer
+    -- The popup browses on the same keys the property panel and the link popup
+    -- do, which is `rowStep' in one place.
+  , testCase "n and p walk it, in both spellings" $ do
+      let two = "press:m press:m press:: press:+ type:work press:Enter"
+      bootOf shell "" 500 "" two $ \answer -> do
+        assertEqual "two tags to walk"
+                    [["web", "all", "40"], ["work", "all", "9"]] =<< pairsAt "ttags" answer
+        assertEqual "the cursor lands on the one just written" 1 =<< intAt "tat" answer
+      bootOf shell "" 500 "" (two <> " press:p") $
+        assertEqual "up one" 0 <=< intAt "tat"
+      bootOf shell "" 500 "" (two <> " press:k press:j") $
+        assertEqual "and back" 1 <=< intAt "tat"
 
-    -- The palette STAYS, and what it shows next comes out of the ANSWER: this
-    -- route never writes the store, so a re-read here would report what the
-    -- files said before the write.  The count is levelled the moment the write
-    -- lands, and the second press is the removal the first one could not be.
-  , testCase "the list is refreshed from what landed, and the palette stays up" $
-      bootOf shell "" 500 "" "partly press:m press:m press:m press:: press:w" $ \answer -> do
-        assertEqual "still up" "on" =<< textAt "prompt" answer
-        assertEqual "and the count is gone, the set being level"
-                    [("[w]eb", "")] =<< paletteHints answer
-        assertEqual "the store was not asked again" ["/tags?ids=r1&ids=r2&ids=r3"]
-          =<< textsAt "tagged" answer
+    -- THE DELETION GESTURE, dired's and the page's: `d' flags, `d' again on the
+    -- flagged row IS `D', and the removal goes to every target CARRYING the tag.
+  , testCase "d flags the tag at point and writes nothing" $
+      bootOf shell "" 500 ":" "press:d" $ \answer -> do
+        assertEqual "flagged" ["web"] =<< textsAt "tflagged" answer
+        assertEqual "nothing written" [] =<< postedOf answer
+        assertEqual "and the echo says what a second press does"
+                    "d → tag-flag (d again removes)" =<< textAt "echo" answer
 
-  , testCase "so the second press on a levelled set takes the tag off" $
-      bootOf shell "" 500 ""
-             "partly press:m press:m press:m press:: press:w press:w" $ \answer -> do
-        assertEqual "add first, then remove over every row"
-                    [("add-tag", ["r3"]), ("remove-tag", ["r1", "r2", "r3"])]
-          =<< postedOf answer
-        assertEqual "and the entry went with it" [("pnone", "", ["no tags on these rows — / finds one, + adds one"], [])]
-          =<< paletteOf answer
-
-  , testCase "a tag every row carries comes off on the first press" $
-      bootOf shell "" 500 "m m m :" "press:w" $ \answer -> do
+  , testCase "a second d removes it from every row carrying it" $
+      bootOf shell "" 500 "m m m :" "press:d press:d" $ \answer -> do
         assertEqual "over all three" [("remove-tag", ["r1", "r2", "r3"])]
           =<< postedOf answer
-        assertEqual "named as the removal it is"
+        -- Mounted once and kept, like the panel and the link popup: a write is
+        -- a `setRows' over the same instance, never a second mount.
+        assertEqual "still one mount" 1 =<< intAt "tmounts" answer
+        assertEqual "and a repaint for the raise and for what landed" 2
+          =<< intAt "tsets" answer
+        assertEqual "as the tag the row named" ["web"] =<< tagsPosted answer
+        assertEqual "the pill names what landed"
                     ": → org-agenda-set-tags (untagged :web: · 3)" =<< textAt "echo" answer
+        assertEqual "the flag was spent" [] =<< textsAt "tflagged" answer
+        assertEqual "and the entry went with it" [] =<< pairsAt "ttags" answer
+        assertEqual "leaving the foot naming the one key that still does anything"
+                    "nothing tagged here · + adds one · ESC leaves"
+          =<< textAt "tfoot" answer
 
-    -- The log names every row a bulk write landed on, one line each, the way it
-    -- does for every other command.
-  , testCase "the log names the rows, tagged or untagged" $
-      bootOf shell "" 500 "m m :" "press:w" $ \answer -> do
-        lines' <- map (message . cut) <$> logOf answer
-        assertEqual "one line per row"
-                    ["headline \"one\" untagged :web:", "headline \"two\" untagged :web:"]
-                    (drop (length lines' - 2) lines')
+  , testCase "D is the same handler without the flagging press" $
+      bootOf shell "" 500 "m m :" "press:D" $ \answer -> do
+        assertEqual "both rows" [("remove-tag", ["r1", "r2"])] =<< postedOf answer
+        assertEqual "and the popup stands" "on" =<< textAt "tagpop" answer
 
-    -- The field reaches PAST the set: the letters are the union, the field is
-    -- the tree's whole vocabulary LESS what every target already carries, and
-    -- RET on a tag none of the rows has adds it to all of them.  A tag the tree
-    -- has never held is committable too, since a first use has to start
-    -- somewhere.  `web' is on all three fixture rows, so adding it would be a
-    -- no-op and it is not offered.
-  , testCase "the field completes over what can be added, not over the set" $
-      bootOf shell "" 500 ":" "press:/" $ \answer -> do
-        assertEqual "the box says which mode it is in" "narrow" =<< textAt "pmode" answer
+    -- Several flags are several commands, since a command names ONE tag — each
+    -- its own per-file batch of atomic writes — and every one of them is aimed
+    -- at the rows carrying THAT tag.  `partly' leaves the third row without
+    -- `web', so the two removals name different sets.
+  , testCase "D over several flagged tags is one command each, over its own rows" $
+      bootOf shell "" 500 ""
+             ("partly press:m press:m press:m press:: press:+ type:work press:Enter"
+              <> " press:d press:p press:d press:D") $ \answer -> do
+        assertEqual "the add, then a removal per flagged tag"
+                    [ ("add-tag", ["r1", "r2", "r3"])
+                    , ("remove-tag", ["r1", "r2", "r3"])
+                    , ("remove-tag", ["r1", "r2"]) ] =<< postedOf answer
+        assertEqual "each carrying its own tag" ["work", "work", "web"]
+          =<< tagsPosted answer
+        assertEqual "and every tag went" [] =<< pairsAt "ttags" answer
+
+  , testCase "u takes a flag off before anything is written" $
+      bootOf shell "" 500 ":" "press:d press:u" $ \answer -> do
+        assertEqual "no flag left" [] =<< textsAt "tflagged" answer
+        assertEqual "nothing written" [] =<< postedOf answer
+        assertEqual "and the echo says which" "u → tag-unflag (flag cleared)"
+          =<< textAt "echo" answer
+
+    -- A HELD `d' must not flag a tag and remove it from ONE press, which is the
+    -- confirmation the two-press shape exists to be.
+  , testCase "a held d flags once and never removes" $
+      bootOf shell "" 500 ":" "press:d repeat:d repeat:d" $ \answer -> do
+        assertEqual "nothing written" [] =<< postedOf answer
+        assertEqual "and the flag is still just a flag" ["web"]
+          =<< textsAt "tflagged" answer
+
+    -- `+' — the add flow, unchanged: one field over the ADDABLE vocabulary,
+    -- which is the tree's tags less the ones every target already carries.
+  , testCase "+ raises the field over what can be added" $
+      bootOf shell "" 500 ":" "press:+" $ \answer -> do
+        assertEqual "the palette is up over the popup" "on" =<< textAt "prompt" answer
+        assertEqual "in its typing mode" "narrow" =<< textAt "pmode" answer
+        assertEqual "titled by the rows it would write" "add a tag · 1 row"
+          =<< textAt "phead" answer
         assertEqual "the tree's tags, less the one every row already has"
           [ ("pe pat", "", ["archive"], [])
           , ("pe",     "", ["book"],    [])
           , ("pe",     "", ["work"],    []) ] =<< paletteOf answer
         assertEqual "and the foot names what RET does there"
-                    "RET adds it · C-n/C-p walks · ESC goes back" =<< textAt "pfoot" answer
+                    "RET adds it · C-n/C-p walks · ESC leaves" =<< textAt "pfoot" answer
 
-    -- A tag only SOME of the targets carry stays offered: adding it is the
-    -- normalize-up half of the letter's rule, which is a write rather than a
-    -- no-op.  `partly' leaves the third row without `web'.
+    -- A tag only SOME of the targets carry stays offered, wearing the coverage
+    -- that says who lacks it: adding it levels the set up, which is a write.
   , testCase "a tag some of the set carries is still addable, and says so" $
-      bootOf shell "" 500 "" "partly press:m press:m press:m press:: press:/" $
-        assertEqual "offered first, wearing the count that says who lacks it"
+      bootOf shell "" 500 "" "partly press:m press:m press:m press:: press:+" $
+        assertEqual "offered first, wearing its coverage"
           [ ("web", "2/3"), ("archive", ""), ("book", ""), ("work", "") ]
           <=< paletteHints
 
-  , testCase "RET there adds the narrowed tag to every row lacking it" $
-      bootOf shell "" 500 "m m :" "press:/ type:work press:Enter" $ \answer -> do
+  , testCase "RET there adds the tag to every row lacking it and stays open" $
+      bootOf shell "" 500 "m m :" "press:+ type:work press:Enter" $ \answer -> do
         assertEqual "both rows, since neither carries it"
                     [("add-tag", ["r1", "r2"])] =<< postedOf answer
         assertEqual "as the tag typing settled on" ["work"] =<< tagsPosted answer
+        assertEqual "the field is gone" "" =<< textAt "prompt" answer
+        assertEqual "the popup stands" "on" =<< textAt "tagpop" answer
+        assertEqual "with the new tag beside the old one"
+                    [["web", "all", "40"], ["work", "all", "9"]]
+          =<< pairsAt "ttags" answer
+        assertEqual "the store was not asked again" ["/tags?ids=r1&ids=r2"]
+          =<< textsAt "tagged" answer
+
+    -- The field's own RET must not reach the popup underneath it.  The palette
+    -- closes as it commits and its listener runs AHEAD of the popup's, so
+    -- without the claimed-key guard the same press would land on a popup with
+    -- no prompt on it and open the rename over the tag it had just written.
+  , testCase "the RET that adds does not open the rename behind it" $
+      bootOf shell "" 500 ":" "press:+ type:work press:Enter" $ \answer -> do
+        assertEqual "the tag was added" [("add-tag", ["r1"])] =<< postedOf answer
+        assertEqual "and no rename opened" False =<< boolAt "trename" answer
 
   , testCase "and a tag the tree has never held is committable all the same" $
-      bootOf shell "" 500 ":" "press:/ type:brandnew press:Enter" $ \answer -> do
+      bootOf shell "" 500 ":" "press:+ type:brandnew press:Enter" $ \answer -> do
         assertEqual "the typed line, folded" ["brandnew"] =<< tagsPosted answer
         assertEqual "over the row at point" [("add-tag", ["r1"])] =<< postedOf answer
+        assertEqual "and it joins the list under a count of its own"
+                    [["web", "all", "40"], ["brandnew", "all", "1"]]
+          =<< pairsAt "ttags" answer
 
-    -- `+' is the property panel's convention and the SECOND DOOR into that one
-    -- field — the way `d' on an already-flagged row is `D'.  It was a mode of
-    -- its own, which asked a reader to know whether the tag they were about to
-    -- type existed before they had typed it.
-  , testCase "+ is the second door into that same field" $
-      bootOf shell "" 500 ":" "press:+" $ \answer -> do
-        assertEqual "the field is up" "narrow" =<< textAt "pmode" answer
-        assertEqual "completing over the same list"
-          [ ("pe pat", "", ["archive"], [])
-          , ("pe",     "", ["book"],    [])
-          , ("pe",     "", ["work"],    []) ] =<< paletteOf answer
-        assertEqual "under the same foot"
-                    "RET adds it · C-n/C-p walks · ESC goes back"
-          =<< textAt "pfoot" answer
-
-  , testCase "RET there adds the typed tag to every target and stays open" $
-      bootOf shell "" 500 "m m :" "press:+ type:brandnew press:Enter" $ \answer -> do
-        assertEqual "both rows, neither carrying it"
-                    [("add-tag", ["r1", "r2"])] =<< postedOf answer
-        assertEqual "as the line that was typed" ["brandnew"] =<< tagsPosted answer
-        assertEqual "the palette stands" "on" =<< textAt "prompt" answer
-        assertEqual "back among the letters" "" =<< textAt "pmode" answer
-        assertEqual "with the new tag beside the old one"
-          [ ("pe", "", ["[w]eb"],      [])
-          , ("pe", "", ["[b]randnew"], []) ] =<< paletteOf answer
-
-    -- ESC out of the field is a step back rather than a door out, from EITHER
-    -- door: the field is a detour off the letters and the letters are where the
-    -- next op is pressed.  A second ESC is what closes the palette.
-  , testCase "ESC from the field goes back to the letters, palette standing" $
-      bootOf shell "" 500 ":" "press:/ type:brandnew press:Escape" $ \answer -> do
-        assertEqual "nothing was written" [] =<< postedOf answer
-        assertEqual "the palette is still up" "on" =<< textAt "prompt" answer
-        assertEqual "in letter mode" "" =<< textAt "pmode" answer
-        assertEqual "showing what it showed" [("pe", "", ["[w]eb"], [])]
-          =<< paletteOf answer
-
-    -- The charset is the SERVER's wall, so a name it will not write comes back
-    -- as the refusal it is rather than being second-guessed here.
-  , testCase "a tag the server refuses is one cmd error line" $
-      bootOf shell "" 500 ":" "refuse press:+ type:50% press:Enter" $ \answer -> do
-        assertEqual "the request still went" [("add-tag", ["r1"])] =<< postedOf answer
-        assertEqual "and the server's own words are in the log"
-                    (Just "r1: a.org changed on disk") =<< lastLog answer
-
-  , testCase "a commit out of typing mode comes back to the letters" $
-      bootOf shell "" 500 ":" "press:/ type:work press:Enter" $ \answer -> do
-        assertEqual "still up" "on" =<< textAt "prompt" answer
-        assertEqual "in letter mode" "" =<< textAt "pmode" answer
-        assertEqual "with the new tag in the list beside the old one"
-          [ ("pe", "", ["[w]eb"],  [])
-          , ("pe", "", ["w[o]rk"], []) ] =<< paletteOf answer
-
-    -- `/' onto a tag every target has already is a line and no round trip: the
-    -- typing mode only ever ADDS, and there is nothing left to add.
   , testCase "typing a tag every row has writes nothing and says so" $
-      bootOf shell "" 500 "m m m :" "press:/ type:web press:Enter" $ \answer -> do
+      bootOf shell "" 500 "m m m :" "press:+ type:web press:Enter" $ \answer -> do
         assertEqual "no command went" [] =<< postedOf answer
         assertEqual "and the pill says why"
                     ": → org-agenda-set-tags (:web: is on every row already)"
           =<< textAt "echo" answer
 
-  , testCase "an untagged set opens on the line that says so" $ do
-      bootOf shell "" 500 "" "untagged press::" $ \answer -> do
-        assertEqual "the palette is up" "on" =<< textAt "prompt" answer
-        assertEqual "and empty for a reason"
-                    [("pnone", "", ["no tags on these rows — / finds one, + adds one"], [])]
-          =<< paletteOf answer
-      -- And `/' is the way in from there: the vocabulary is the tree's, so a
-      -- set with nothing on it still has everything to reach for.
-      bootOf shell "" 500 "" "untagged press:: press:/" $ \answer -> do
-        assertEqual "typing mode" "narrow" =<< textAt "pmode" answer
-        assertEqual "over the store's whole vocabulary"
-          [ ("pe pat", "", ["archive"], [])
-          , ("pe",     "", ["book"],    [])
-          , ("pe",     "", ["web"],     [])
-          , ("pe",     "", ["work"],    []) ] =<< paletteOf answer
+    -- RET IS THE RENAME, through the property panel's edit model: the tag cell
+    -- becomes a field over itself, opened on the text it holds.
+  , testCase "RET opens the tag at point over itself" $
+      bootOf shell "" 500 ":" "press:Enter" $ \answer -> do
+        assertEqual "the overlay is up" True =<< boolAt "trename" answer
+        assertEqual "holding the tag it opened on" "web" =<< textAt "tname" answer
+        assertEqual "and nothing is written by opening it" [] =<< postedOf answer
 
-    -- The two guards every palette here owes, both of them one press: the key
-    -- that OPENED the overlay is not a key IN it, and a held letter commits once.
-  , testCase "the press that raises it is not a key in it" $
-      bootOf shell "" 500 "" "press::" $ \answer -> do
+  , testCase "and RET again commits it as one rename-tag" $
+      bootOf shell "" 500 "m m :" "press:Enter tname:code press:Enter" $ \answer -> do
+        assertEqual "one command, over the rows carrying the old name"
+                    [("rename-tag", ["r1", "r2"])] =<< postedOf answer
+        assertEqual "carrying both ends" [("web", "code")] =<< renamesPosted answer
+        assertEqual "the overlay is gone" False =<< boolAt "trename" answer
+        assertEqual "the popup stands" "on" =<< textAt "tagpop" answer
+        assertEqual "the row is renamed in place, keeping its coverage"
+                    [["code", "all", "2"]] =<< pairsAt "ttags" answer
+        assertEqual "the pill names what landed"
+                    ": → org-agenda-set-tags (renamed :web:→:code: · 2)"
+          =<< textAt "echo" answer
+
+  , testCase "the log names every row a rename landed on" $
+      bootOf shell "" 500 "m m :" "press:Enter tname:code press:Enter" $ \answer -> do
+        lines' <- map (message . cut) <$> logOf answer
+        assertEqual "one line per row"
+                    ["headline \"one\" retagged web→code", "headline \"two\" retagged web→code"]
+                    (drop (length lines' - 2) lines')
+
+    -- The typed name is folded, because presence is, and a name that does not
+    -- move costs no round trip.
+  , testCase "a rename to the same name writes nothing" $
+      mapM_ (\typed -> bootOf shell "" 500 ":" ("press:Enter tname:" <> typed
+                                                <> " press:Enter") $ \answer -> do
+               assertEqual (T.unpack typed <> ": no command went") []
+                 =<< postedOf answer
+               assertEqual "and the pill says so"
+                           ": → org-agenda-set-tags (unchanged)" =<< textAt "echo" answer)
+            ["web", "WEB", ""]
+
+    -- ESC over the overlay is the ROW's, and only from the popup does the key
+    -- reach the popup — the ladder the property panel's open row already walks.
+  , testCase "ESC leaves the rename a rung at a time" $ do
+      bootOf shell "" 500 ":" "press:Enter tname:code press:Escape" $ \answer -> do
         assertEqual "nothing was written" [] =<< postedOf answer
-        assertEqual "and it is up" "on" =<< textAt "prompt" answer
+        assertEqual "the overlay is gone" False =<< boolAt "trename" answer
+        assertEqual "the popup stands" "on" =<< textAt "tagpop" answer
+        assertEqual "and the tag is the tag it was" [["web", "all", "40"]]
+          =<< pairsAt "ttags" answer
+      bootOf shell "" 500 ":" "press:Enter press:Escape press:Escape" $
+        assertEqual "a second ESC closes it" "" <=< textAt "tagpop"
 
-  , testCase "a held letter commits once" $
-      bootOf shell "" 500 ":" "press:w repeat:w repeat:w" $
-        assertEqual "one write" [("remove-tag", ["r1"])] <=< postedOf
+  , testCase "ESC from the + field leaves the popup standing" $
+      bootOf shell "" 500 ":" "press:+ type:work press:Escape" $ \answer -> do
+        assertEqual "nothing was written" [] =<< postedOf answer
+        assertEqual "the field is gone" "" =<< textAt "prompt" answer
+        assertEqual "and the popup is still up" "on" =<< textAt "tagpop" answer
 
-    -- ESC is one key with one meaning per rung: out of the field it is a step
-    -- back to the letters, and out of the letters it is the door.  Two presses
-    -- from the field, one from where the palette opens.
-  , testCase "ESC leaves it a rung at a time, having written nothing" $
-      mapM_ (\acts -> bootOf shell "" 500 ":" acts $ \answer -> do
-               assertEqual (T.unpack acts <> ": no command went") [] =<< postedOf answer
-               assertEqual "the overlay is down" "" =<< textAt "prompt" answer)
-            [ "press:Escape"
-            , "press:/ press:Escape press:Escape"
-            , "press:+ press:Escape press:Escape" ]
+  , testCase "ESC from the popup closes it, having written nothing" $
+      bootOf shell "" 500 ":" "press:Escape" $ \answer -> do
+        assertEqual "nothing was written" [] =<< postedOf answer
+        assertEqual "the popup is down" "" =<< textAt "tagpop" answer
 
-    -- While it is up every `table' row is dead, so the letters are the
-    -- palette's: `n' moves nothing and `d' flags nothing.
-  , testCase "the table's own letters are the palette's while it is up" $
-      bootOf shell "" 500 ":" "press:n press:d" $ \answer -> do
-        assertEqual "the cursor never moved" 0 =<< intAt "cursor" answer
-        assertEqual "nothing was flagged" [] =<< textsAt "flagged" answer
-        assertEqual "and neither letter is one this list claims" [] =<< postedOf answer
+    -- THE LETTERS ARE GONE.  The state palette keeps them; a tag list is read
+    -- rather than committed from memory, so a bare letter here is nobody's.
+  , testCase "a letter commits nothing, the which-key list having gone" $
+      bootOf shell "" 500 ":" "press:w press:a press:b" $ \answer -> do
+        assertEqual "no command went" [] =<< postedOf answer
+        assertEqual "no value palette either" "" =<< textAt "prompt" answer
+        assertEqual "and the popup is still up" "on" =<< textAt "tagpop" answer
 
-  , testCase "a refused resolution closes the palette and says so" $
+    -- While it is up every `table' row is dead, so the keys the popup does not
+    -- claim reach nothing at all.
+  , testCase "the table's own keys are inert while the popup is up" $
+      bootOf shell "" 500 ":" "press:m press:M press:U press:t" $ \answer -> do
+        assertEqual "nothing was marked" [] =<< textsAt "marked" answer
+        assertEqual "nothing was flagged in the table" [] =<< textsAt "flagged" answer
+        assertEqual "no command was posted" [] =<< namesOf answer
+        assertEqual "and no state palette went up" "" =<< textAt "prompt" answer
+
+    -- And the popup's own keys are dead while its `+' field is up, which is
+    -- what the listener's `prompting' guard buys: `d' narrows the field rather
+    -- than flagging the tag underneath it.
+  , testCase "and the popup's own keys are dead under its field" $
+      bootOf shell "" 500 ":" "press:+ press:d" $ \answer -> do
+        assertEqual "nothing was flagged" [] =<< textsAt "tflagged" answer
+        assertEqual "and the field is still up" "narrow" =<< textAt "pmode" answer
+
+  , testCase "an untagged set opens on a popup that says so" $
+      bootOf shell "" 500 "" "untagged press::" $ \answer -> do
+        assertEqual "the popup is up" "on" =<< textAt "tagpop" answer
+        assertEqual "with nothing in it" [] =<< pairsAt "ttags" answer
+        assertEqual "and the foot naming the way in"
+                    "nothing tagged here · + adds one · ESC leaves"
+          =<< textAt "tfoot" answer
+
+  , testCase "a refused resolution raises nothing and says so" $
       bootOf shell "" 500 "" "refuse press::" $ \answer -> do
-        assertEqual "the overlay is down" "" =<< textAt "prompt" answer
+        assertEqual "no popup" "" =<< textAt "tagpop" answer
         assertEqual "and the log named it" (Just "tags failed: GET /tags?ids=<row id>")
           =<< lastLog answer
 
-  , testCase "and a set the store knows no row of closes it too" $
+  , testCase "and a set the store knows no row of raises none either" $
       bootOf shell "" 500 "" "unknownrows press::" $ \answer -> do
-        assertEqual "the overlay is down" "" =<< textAt "prompt" answer
+        assertEqual "no popup" "" =<< textAt "tagpop" answer
         assertEqual "the pill says which" ": → org-agenda-set-tags (no such row)"
           =<< textAt "echo" answer
+
+    -- THE LIST REFRESHES FROM THE ANSWER, never from a re-read: `/command' does
+    -- not write the store — the watch does, a debounce later — so asking
+    -- `/tags' again would report what the files said BEFORE the write.  The
+    -- fake store still says every row carries `web' when this reads the list.
+  , testCase "the list is what landed, and the store is not asked twice" $
+      bootOf shell "" 500 "m m :" "press:d press:d" $ \answer -> do
+        assertEqual "the one resolution, and no second" ["/tags?ids=r1&ids=r2"]
+          =<< textsAt "tagged" answer
+        assertEqual "and the tag is gone from a list nobody re-read" []
+          =<< pairsAt "ttags" answer
   ]
+
+-- | The pair each posted @rename-tag@ carried.
+renamesPosted :: Value -> IO [(T.Text, T.Text)]
+renamesPosted = traverse one <=< argsOf
+  where one v = (,) <$> textAt "from" v <*> textAt "to" v
 
 -- | The tag each posted command carried.
 tagsPosted :: Value -> IO [T.Text]
@@ -2125,13 +2238,16 @@ whichKeySpec shell = testGroup "Shell which-key"
                     . filter (not . T.null . snd)
           =<< paletteField "mark" answer
 
-    -- DEL is `*empty*'\''s, so a palette with no such entry leaves the press to
-    -- nobody: there is nothing to clear about a tag, and the map's own DEL is
-    -- already dead under `typing()'.
+    -- DEL is `*empty*'\''s, and the state palette is the only one carrying such
+    -- an entry.  Over the tags popup's own field the press is the field's text
+    -- editing and nothing else: it commits nothing, it does not reach the popup
+    -- underneath, and the map's own DEL is already dead under `typing()'.
   , testCase "DEL fires nothing in a palette that has no clear" $
-      bootOf shell "" 500 ":" "press:Backspace" $ \answer -> do
+      bootOf shell "" 500 ":" "press:+ press:Backspace" $ \answer -> do
         assertEqual "no command went" [] =<< postedOf answer
-        assertEqual "and the palette is still up" "on" =<< textAt "prompt" answer
+        assertEqual "the field is still up" "narrow" =<< textAt "pmode" answer
+        assertEqual "and the popup under it is untouched" [["web", "all", "40"]]
+          =<< pairsAt "ttags" answer
 
   , testCase "each keyword wears its own badge colour, where there is one" $
       bootOf shell "" 500 "C-c C-t" "" $
@@ -3095,8 +3211,8 @@ shellGlue =
   -- backdrop and clip it inside the table's box.
   , Glue "the wash dims the table and the overlays, and exempts what explains"
       [ "  html.stale #app,html.stale #modal,html.stale #prompt,html.stale #config,"
-      , "  html.stale #links{opacity:.55}"
-      , "  #app,#modal,#prompt,#config,#links{transition:opacity .18s ease}" ]
+      , "  html.stale #links,html.stale #tags{opacity:.55}"
+      , "  #app,#modal,#prompt,#config,#links,#tags{transition:opacity .18s ease}" ]
       [ "html.stale #log", "html.stale #corner", "html.stale #kbd"
       , "html.stale #echo", "html.stale body", "stale #app{filter", "filter:blur"
       , "filter:saturate", "filter:grayscale" ]
@@ -3256,21 +3372,45 @@ shellGlue =
       -- No cell coordinate on an entry either — a cell HOLDS its entries.
       [".psep", "stateChoices", "x.cell ===", "c.at ==="]
 
-  -- The tag palette's two rules behaviour cannot show.  First, the union is
+  -- The tags popup's rules behaviour cannot show.  First, the union is
   -- FIRST-SEEN rather than sorted: an added tag joins at the END, so a commit
-  -- moves no letter that was already claimed, where an alphabetical insert in
-  -- the middle would take one out from under the reader's fingers.
+  -- moves no row that was already on screen, where an alphabetical insert in
+  -- the middle would take one out from under the cursor.
   , Glue "the tag union is first-seen, and the refresh is the answer"
-      [ "for (const r of rows) for (const t of r.tags)"
+      [ "for (const r of ttargets) for (const t of r.tags)"
       , "if (seen.indexOf(t) === -1) seen.push(t);"
       -- And second, that what the list shows next comes out of the command's
       -- own per-id answer.  It has to: `/command' never writes the store — the
       -- watch does, a debounce later — so a re-read here would answer with what
       -- the files said BEFORE the write.
-      , "if (results && prompting === mine) landedTags(mine, off, tag, results);"
-      , "const landed = new Set(results.filter((x) => x.ok).map((x) => x.id));" ]
+      , "const landedIds = (results) =>"
+      , "new Set((results || []).filter((x) => x.ok).map((x) => x.id));" ]
       -- No sort over the union, and no second resolution behind a commit.
-      ["seen.sort(", "tagsOf(over", "tagsOf(prompting"]
+      ["seen.sort(", "tagsOf(over", "tagsOf(prompting", "tagsOf(ttargets"]
+
+  -- The tags popup is a MOUNT, and a mutable one: three columns declared
+  -- server-side, the removal gesture's flags asked for, marks refused, and the
+  -- rename overlay laid over the tag CELL — which behaviour cannot show,
+  -- because the suite's page has no layout for a geometry read to find.
+  , Glue "the tags popup is a mutable mount with a rename overlay"
+      [ "const TCOLS = "
+      , "tmount = TableView.mount(el(\"ttable\"), { columns: TCOLS, rows: [] },"
+      , "{ palette: true, marks: false, flags: true, actionHints: false,"
+      , "flagHelp: \"d/D remove · u unflag\" });"
+      -- The overlay is the property panel's model over one cell: the row's box
+      -- through the mount's published root, the cell's through the class the
+      -- renderer stamps on its own gutter.
+      , "const tr = tmount.el.querySelector(\"tbody tr.tv-sel\");"
+      , "const td = tr && tr.querySelector(\"td:not(.tv-box)\");"
+      , "el(\"tedit\").style.left = `${c.left - b.left}px`;"
+      -- And the write is ONE command rather than a remove and an add composed.
+      , "fire(tagging, \"rename-tag\", over.map((r) => r.id), { from, to },"
+      , "`retagged ${args.from}→${args.to}`" ]
+      -- THE LETTERS ARE GONE from this list, and with them the palette that
+      -- stayed open over its own writes.  No second copy of the tag sets here
+      -- either: the popup's rows are derived from the targets on every repaint.
+      [ "tagChoices", "tagVocabulary", "tagCommit", "landedTags", "letterMode"
+      , "prompting.sticky", "a letter toggles it", "prompting.letters" ]
 
   -- `@' asks before it applies: a row nothing points at leaves the table, the
   -- filter and the trail where they were.  The probe is a COUNT — one row —
@@ -3424,11 +3564,11 @@ shellGlue =
       -- The pane hosts the mount and positions the overlay, and that is the
       -- whole of what it styles: `.tv-root' brings the frame and draws the rows.
       , "#mprops{flex:1 1 240px;min-width:0;min-height:0;position:relative;"
-      , "#mptable .tv-root,#ltable .tv-root{flex:1;min-width:0;font-family:var(--dk-mono)}"
+      , "#mptable .tv-root,#ltable .tv-root,#ttable .tv-root{flex:1;min-width:0;"
       -- The open row's fields sit OVER the row, since the mount rewrites its own
       -- rows as it scrolls, and they land on the text they replace.
-      , "#pedit{display:none;position:absolute;left:0;right:0;"
-      , "#pedit input{font:13px/1.5 var(--dk-mono);padding:5px 12px;"
+      , "#pedit,#tedit{display:none;position:absolute;background:var(--g-sel)}"
+      , "#pedit input,#tedit input{font:13px/1.5 var(--dk-mono);padding:5px 12px;"
       -- A planning row's key is org's rather than the author's, and says so.
       , "#pkey[readonly]{color:var(--g-mute)}"
       -- ONE FOCUS LANGUAGE: whichever pane holds the keys wears the accent on
@@ -3474,6 +3614,9 @@ shellGlue =
       -- It takes the height the table and the key line leave, and scrolls
       -- inside it rather than at a cap of its own.
       , "background:var(--g-surface);flex:1 1 auto;overflow-y:auto}"
+      -- Seven of its own line boxes and no more, computed off the font and the
+      -- padding above it rather than eyeballed; #56 owns making it a preference.
+      , "max-height:calc(7 * 1.5 * 12px + 2 * 6px + 2 * 1px);"
       -- The end of a long message is scrolled to unless the reader has scrolled
       -- up to hold a place.
       , "box.scrollTop + box.clientHeight >= box.scrollHeight - 4"
@@ -3578,7 +3721,7 @@ shellGlue =
       -- Through the one helper that asks for a sort, so the agenda's order and
       -- `^''s record of it cannot be two different answers.
       , "if (sorts()) sortRows(\"scheduled\", true);"
-      , "said(b, `agenda · ${total} row${total === 1 ? \"\" : \"s\"}`);"
+      , "said(b, `agenda · ${rowsWord(total)}`);"
       -- The landing is an ARGUMENT of the boot it belongs to, so a boot that
       -- never lands cannot leave one behind for the next.
       , "function start(after) {"
@@ -3747,7 +3890,7 @@ shellGlue =
   -- everywhere else.  All of them in the one block, which is where every rule
   -- a touch device gets lives — the panes stacking there included.
   , glue "a coarse pointer gets fields iOS will not zoom into"
-      [ "#mtext,#pinput,#pedit input,.ctext,.cview{font-size:16px}}", "font:12px/1.5 var(--dk-mono)"
+      [ "#mtext,#pinput,#pedit input,#tedit input,.ctext,.cview{font-size:16px}}", "font:12px/1.5 var(--dk-mono)"
       , "#mpanes{flex-direction:column}" ]
 
   -- The keyboard-first exception, and the second one the page makes: `,'
@@ -4682,6 +4825,10 @@ keywordArg keyword = object ["keyword" .= keyword]
 tagArg :: T.Text -> Value
 tagArg tag = object ["tag" .= tag]
 
+-- | @rename-tag@'s argument, which names both ends.
+renameArg :: T.Text -> T.Text -> Value
+renameArg from to = object ["from" .= from, "to" .= to]
+
 -- | Run K over a server holding both files: the app, the hub whose store it
 -- answers from — the write cases look at that store afterwards, and the
 -- idempotence case steps it the way the watch would — and the two paths.
@@ -5177,6 +5324,123 @@ tagCommandSpec = testGroup "POST /command add-tag and remove-tag"
           . map rowId =<< rowsOf =<< getFrom a "/headlines?q=work"
   ]
 
+-- | @rename-tag@: the command the tags popup's @RET@ commits.
+--
+-- The span math is @TestQuery@'s ("rename-tag"); what belongs here is the
+-- route — the argument shape, the two walls it puts up, and that a rename over
+-- several rows of one file is still ONE atomic write.
+renameCommandSpec :: TestTree
+renameCommandSpec = testGroup "POST /command rename-tag"
+  [ testCase "replaces the entry where it stands, moving no other byte" $
+      withCommandable $ \a _hub path _other -> do
+        before <- document path
+        r <- postTo a "/command" (command "rename-tag" ["first"] (renameArg "one" "two"))
+        assertEqual "status" 200 (status r)
+        assertEqual "the row landed" [("first", True)] =<< outcomesOf r
+        assertEqual "the file is the old one with that entry renamed"
+                    (T.replace "* NEXT First :one:" "* NEXT First :two:" before)
+          =<< document path
+        onDisk <- digestOnDisk path
+        assertEqual "the digest it reports is the file's" [onDisk] =<< digestsOf r
+
+    -- BOTH DIRECTIONS from one edit set: the entry is replaced rather than cut
+    -- and re-appended, so a rename and its inverse put the file back byte for
+    -- byte — the property a remove-then-add composition cannot have.
+  , testCase "and renaming it back puts the file where it was" $
+      withCommandable $ \a hub path _other -> do
+        before <- document path
+        _ <- postTo a "/command" (command "rename-tag" ["first"] (renameArg "one" "two"))
+        watchStep hub path
+        r <- postTo a "/command" (command "rename-tag" ["first"] (renameArg "two" "one"))
+        assertEqual "status" 200 (status r)
+        assertEqual "byte for byte" before =<< document path
+
+    -- A row that does not carry the old name costs no edit, which is what makes
+    -- the command safe to send over the whole set the popup was raised on.
+  , testCase "a row that never carried it lands, changing nothing" $
+      withCommandable $ \a _hub path _other -> do
+        before <- document path
+        r <- postTo a "/command" (command "rename-tag" ["second"] (renameArg "one" "two"))
+        assertEqual "status" 200 (status r)
+        assertEqual "the row landed" [("second", True)] =<< outcomesOf r
+        assertEqual "and the file says what it always said" before =<< document path
+
+    -- Two rows of one file are ONE editFile, and the proof is that the second
+    -- landed: a write per row would pin the second to the digest the first
+    -- invalidated.
+  , testCase "two rows of one file are one write, and both land" $
+      withCommandable $ \a hub path _other -> do
+        _ <- postTo a "/command" (command "add-tag" ["first", "second"] (tagArg "work"))
+        watchStep hub path
+        r <- postTo a "/command" (command "rename-tag" ["first", "second"]
+                                          (renameArg "work" "projects"))
+        assertEqual "both rows" [("first", True), ("second", True)] =<< outcomesOf r
+        here <- document path
+        assertContains "the entry moved in place" "* NEXT First :one:projects:" here
+        assertContains "and in the row that had only it" "* Second :projects:" here
+        onDisk <- digestOnDisk path
+        assertEqual "one write, so one digest, and it is the file's" [onDisk]
+                    . nub =<< digestsOf r
+
+  , testCase "rows in two files are two writes, and each is its own" $
+      withCommandable $ \a hub path other -> do
+        _ <- postTo a "/command" (command "add-tag" ["first", "third"] (tagArg "work"))
+        watchStep hub path
+        watchStep hub other
+        r <- postTo a "/command" (command "rename-tag" ["first", "third"]
+                                          (renameArg "work" "projects"))
+        assertEqual "both rows" [("first", True), ("third", True)] =<< outcomesOf r
+        assertEqual "two files, two digests" 2 . length . nub =<< digestsOf r
+        assertContains "here" "* NEXT First :one:projects:" =<< document path
+        assertContains "and there" "* TODO Third :projects:" =<< document other
+
+    -- The charset wall is the request's, and it stands at BOTH ends: a string
+    -- that is not a tag is not a tag for any row.
+  , testCase "a name no parser reads refuses the request, naming it" $
+      mapM_ (\(from, to, named) ->
+               withCommandable $ \a _hub path _other -> do
+                 before <- document path
+                 r <- postTo a "/command"
+                        (command "rename-tag" ["first"] (renameArg from to))
+                 assertEqual (T.unpack named <> ": status") 400 (status r)
+                 assertContains "names what it turned down" named (body r)
+                 assertEqual "and nothing was written" before =<< document path)
+            [("one", "50%", "50%"), ("50%", "one", "50%"), ("one", "", "")]
+
+  , testCase "and a request naming only one end says what one wants" $
+      mapM_ (\args -> withCommandable $ \a _hub _path _other -> do
+               r <- postTo a "/command" (command "rename-tag" ["first"] args)
+               assertEqual "status" 400 (status r)
+               assertContains "asks for both ends" "from" (body r)
+               assertContains "by name" "to" (body r))
+            [ object ["from" .= ("one" :: T.Text)]
+            , object ["to" .= ("two" :: T.Text)]
+            , object [] ]
+
+  , testCase "an id no row carries is refused on its own" $
+      withCommandable $ \a _hub path _other -> do
+        r <- postTo a "/command" (command "rename-tag" ["first", "nosuch"]
+                                          (renameArg "one" "two"))
+        assertEqual "status" 200 (status r)
+        assertEqual "one landed, one did not"
+                    [("first", True), ("nosuch", False)] =<< outcomesOf r
+        assertContains "and the row that is there moved" "* NEXT First :two:"
+          =<< document path
+
+    -- The route writes the FILE; the watch is what updates rows, so the new
+    -- name is a filter key only once the file has been read again.
+  , testCase "the row arrives over the watch, under its new name" $
+      withCommandable $ \a hub path _other -> do
+        _ <- postTo a "/command" (command "rename-tag" ["first"] (renameArg "one" "two"))
+        watchStep hub path
+        assertEqual "the old name reaches nothing" []
+          . map rowId =<< rowsOf =<< getFrom a "/headlines?q=one%3A"
+        r <- getFrom a "/headlines?q=two%3A"
+        assertEqual "and the new one reaches the row" ["first"] . map rowId =<< rowsOf r
+        assertEqual "the cell carries the run the file holds" [":two:"]
+          =<< traverse (cellAt "tag") =<< rowsOf r
+  ]
+
 -- | ROW's cell under KEY, empty where it has none.
 cellAt :: T.Text -> Value -> IO T.Text
 cellAt key row = do
@@ -5215,6 +5479,24 @@ tagsSpec = testGroup "GET /tags"
         assertEqual "every tag in the store, sorted" ["archive", "shelf", "web", "work"]
           =<< textsAt "vocabulary" =<< decoded =<< getFrom a "/tags?ids=bare"
 
+    -- The COUNTS are the tree's rows per tag, which is what the popup's third
+    -- column shows.  Rows rather than files, and rows rather than the named
+    -- set: the store's own `stTags' counts FILES, so this is a different
+    -- question and no arithmetic recovers it.  `web' is on two rows of one
+    -- file, `archive' on one row of another, and the fold is the presence
+    -- rule's — `:Web:' counts as `web'.
+  , testCase "the counts are the tree's rows per tag, folded" $
+      withTaggedTree $ \a -> do
+        counts <- field "counts" =<< decoded =<< getFrom a "/tags?ids=bare"
+        assertEqual "one entry per tag the store holds"
+                    ["archive", "shelf", "web", "work"] =<< countedTags counts
+        assertEqual "web is on two rows of one file, however it is spelled" 2
+          =<< intAt "web" counts
+        assertEqual "work on one of them" 1 =<< intAt "work" counts
+        assertEqual "shelf on one row of the other file" 1 =<< intAt "shelf" counts
+        assertEqual "and the archive tag counts like any other" 1
+          =<< intAt "archive" counts
+
   , testCase "an id the store does not hold is named and left out" $
       withTaggedTree $ \a -> do
         r <- getFrom a "/tags?ids=nosuch,both"
@@ -5243,6 +5525,11 @@ tagsSpec = testGroup "GET /tags"
 tagRowsOf :: SResponse -> IO [(T.Text, [T.Text])]
 tagRowsOf = traverse one <=< rowsOf
   where one v = (,) <$> textAt "id" v <*> textsAt "tags" v
+
+-- | The tags a counts object names, sorted: JSON object order is nobody's
+-- contract, and what each of them counts is read with 'intAt'.
+countedTags :: Value -> IO [T.Text]
+countedTags = fmap sort . fieldsOf
 
 -- | A tree whose rows disagree about their tags, and which holds one tag no row
 -- the palette would resolve for carries — so the vocabulary being the STORE's
@@ -6180,7 +6467,7 @@ pageSpec shell = testGroup "GET /"
             -- The table asks for its height and can give it back; the key line
             -- never gives any of its own up, so a short window squeezes the
             -- table rather than clipping the line.
-            , "#app{height:80vh;min-height:0}"
+            , "#app{flex:1 1 auto;min-height:0}"
             , "#kbd{flex:none;" ] b
       -- Table, log, key line, in that order — the corner and the pill are
       -- fixed and out of the column, and the sheet is display:none until it

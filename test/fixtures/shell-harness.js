@@ -30,6 +30,8 @@
 //   theme:NAME    NAME picked in the settings sheet's theme select, event and all
 //   type:TEXT     TEXT typed into the value palette's field, which narrows it —
 //                 `/' has to have put the palette in that mode first
+//   tname:TEXT    TEXT typed into the tags popup's rename overlay, which `RET'
+//                 has to have opened over the tag at point first
 //   assign:A,B,C  the which-key assignment run over that cycle, as the pure
 //                 function it is
 //   refuse        the next /command refuses — every row it named, or the
@@ -173,6 +175,11 @@ const opened = [];
 // command's own per-id answer.
 let rowTags = { r1: ["web"], r2: ["web"], r3: ["web"] };
 let vocabulary = ["archive", "book", "web", "work"];
+// And how many ROWS the whole tree has under each of them, which is the popup's
+// third column and the one number no arithmetic over the rows in hand recovers.
+// Canned like the rest: the count is the store's and TestServe's route cases are
+// where it is measured.
+const tagCounts = { archive: 12, book: 3, web: 40, work: 7 };
 // Every /tags URL asked for, which is what says WHICH rows the palette
 // resolved for.
 const tagged = [];
@@ -267,6 +274,7 @@ globalThis.fetch = (url, init) => {
     return answer(200, {
       rows: ids.filter((id) => rowTags[id]).map((id) => ({ id, tags: rowTags[id].slice() })),
       vocabulary,
+      counts: tagCounts,
       unknown: ids.filter((id) => !rowTags[id]),
     });
   }
@@ -318,19 +326,21 @@ globalThis.WebSocket = function () {
   // reconnect that never finished.
   setTimeout(() => { if (socket === this && this.onopen) this.onopen(); }, 0);
 };
-// THREE MOUNTS.  The page builds the table in `#app', the property panel in the
-// sheet and the link popup in its own overlay, so everything a renderer holds
-// PER MOUNT is held per instance here rather than once for the page: the cursor
-// and its column, the page, the marks, the flags, the applied query and the
-// crumb trail.  A remount replaces the table's instance and leaves the other two
-// standing, which is what the shell relies on when it puts a sheet back up.
+// FOUR MOUNTS.  The page builds the table in `#app', the property panel in the
+// sheet, the link popup in its own overlay and the tags popup in its own, so
+// everything a renderer holds PER MOUNT is held per instance here rather than
+// once for the page: the cursor and its column, the page, the marks, the flags,
+// the applied query and the crumb trail.  A remount replaces the table's
+// instance and leaves the other three standing, which is what the shell relies
+// on when it puts a sheet back up.
 //
 // They differ in ONE thing, and it is the rows.  The table's are the STORE's —
 // its `setRows' is a count and the rows it shows are `rows' above, which is what
-// lets an act move the store and the table follow.  The panel's and the popup's
-// are the shell's own models and arrive through `setRows', so those instances
-// keep what they are handed.
+// lets an act move the store and the table follow.  The panel's and the two
+// popups' are the shell's own models and arrive through `setRows', so those
+// instances keep what they are handed.
 let mounts = 0, sets = 0, raises = 0, pmounts = 0, psets = 0, lmounts = 0;
+let tmounts = 0, tsets = 0;
 // Every row count the shell has ever handed the TABLE, in order: one entry per
 // mount and one per `setRows'.  A view swapping on its answer is one entry and
 // a view painted before its answer is two, so what a reader would have seen
@@ -342,11 +352,11 @@ const paints = [];
 // order across a `setRows', so a refetch that re-asserted one would show up
 // here as a second call.
 let sorted = null, sortCalls = 0, sortChain = [];
-/** The live table instance, the live panel instance and the live link popup.
+/** The live table instance, the live panel instance and the two live popups.
  * The table starts as a standing empty one so a boot that never got to mount —
  * the indexing poll, an offline daemon — still answers about a table rather
  * than throwing. */
-let main = null, pan = null, lnk = null;
+let main = null, pan = null, lnk = null, tgs = null;
 /** COL as a real column index, or null for the whole-row look — which is what a
  * column outside the table IS.  The real one's `cellCol', mirrored here because
  * the shell's cell movement hands the index one past an end straight back. */
@@ -423,7 +433,7 @@ const makeMount = (host, view, options, own) => {
       if (m.own) {
         m.own = (list || []).slice();
         m.cursor = Math.max(0, Math.min(m.cursor, m.own.length - 1));
-        psets += 1;
+        if (m === tgs) tsets += 1; else if (m === pan) psets += 1;
       } else { sets += 1; paints.push((list || []).length); }
     },
     getQuery: () => m.held,
@@ -526,14 +536,17 @@ const makeMount = (host, view, options, own) => {
 main = makeMount(null, null, {}, null);
 globalThis.TableView = {
   // WHICH mount this is, by the element it was given: the sheet's panel hosts
-  // itself in `#mptable', the link popup in `#ltable' and the table in `#app'.
-  // Told apart by the host rather than by call order, since a remount builds a
-  // second table long after either of the others went up.
+  // itself in `#mptable', the link popup in `#ltable', the tags popup in
+  // `#ttable' and the table in `#app'.  Told apart by the host rather than by
+  // call order, since a remount builds a second table long after any of the
+  // others went up.
   mount: (host, view, options) => {
     const panel = host === field("mptable"), popup = host === field("ltable");
-    const inst = makeMount(host, view, options, panel || popup ? [] : null);
+    const tagbox = host === field("ttable");
+    const inst = makeMount(host, view, options, panel || popup || tagbox ? [] : null);
     if (panel) { pmounts += 1; pan = inst; }
     else if (popup) { lmounts += 1; lnk = inst; }
+    else if (tagbox) { tmounts += 1; tgs = inst; }
     else { mounts += 1; main = inst; paints.push(((view || {}).rows || []).length); }
     if (markless) strip(inst.handle, MARK_CALLS);
     if (pagerless) strip(inst.handle, PAGE_CALLS);
@@ -556,7 +569,7 @@ const CRUMB_CALLS = ["setCrumbs", "getCrumbs", "pushCrumb", "popCrumb"];
 const strip = (h, names) => { for (const name of names) delete h[name]; };
 /** An older asset is one asset: every mount loses the calls it never had. */
 const stripLive = (names) => {
-  for (const inst of [main, pan, lnk]) if (inst) strip(inst.handle, names);
+  for (const inst of [main, pan, lnk, tgs]) if (inst) strip(inst.handle, names);
 };
 // The one thing a key here does that leaves nothing on the page: the tab `o'
 // opens.  Recorded whole — the target, the tab name and the features — since
@@ -600,7 +613,7 @@ const fields = {};
 // The tag matters: `typing()' reads it off `document.activeElement' to decide
 // whether a key belongs to the table or to whatever has focus.
 const TAGS = { mtext: "textarea", filter: "input", pinput: "input",
-               pkey: "input", pval: "input", themesel: "select",
+               pkey: "input", pval: "input", tname: "input", themesel: "select",
                cfilter: "input", ctarget: "input" };
 /** A stand-in element, enough of one for the page to build its own chrome in. */
 const make = (tag) => {
@@ -652,6 +665,10 @@ const STATEFUL = [ "mtext", "mnote", "mfile", "modal", "mprops", "mlog", "sheet"
                  // the element it is given, and the two lines around it are the
                  // only chrome it draws for itself.
                  , "links", "lhead", "ltable", "lfoot"
+                 // And the tags popup, which is a mount and an edit overlay:
+                 // `ttable' is the element, `tpane' the box the overlay is
+                 // placed inside, and `tedit'/`tname' the rename itself.
+                 , "tags", "thead", "tpane", "ttable", "tfoot", "tedit", "tname"
                  // The settings sheet: its state, its panel frames, and the
                  // fields of the general panel — the two tree-wide lines, which
                  // are `system.org''s and ride in that layer's write.
@@ -717,7 +734,11 @@ const press = (name, repeating) => {
   const event = {
     key: ctrl || shift ? name.slice(2) : name,
     ctrlKey: ctrl, altKey: false, metaKey: false, shiftKey: shift,
-    repeat: !!repeating, target: node, preventDefault: () => prevented.push(name),
+    repeat: !!repeating, target: node,
+    // The DOM's own record of "a listener has handled this", which the later
+    // listeners on one document read to stay off a key an earlier one took.
+    defaultPrevented: false,
+    preventDefault: () => { prevented.push(name); event.defaultPrevented = true; },
   };
   for (const handler of pressed) handler(event);
 };
@@ -941,6 +962,14 @@ const ACTIONS = {
     box.value = text;
     box.fire("input", { target: box });
   },
+  // Typing into the tags popup's rename overlay, which is one field over the tag
+  // at point.  A closed overlay has no field, so a script that types without
+  // pressing RET first is typing into nothing on a real page: say so.
+  tname: (text) => {
+    if (field("tedit").className !== "on")
+      throw new Error("no tag is open for renaming");
+    typed(field("tname"), text);
+  },
   // Typing into the property panel: `pkey:1=EFFORT' is the key field over row 1,
   // `pval:1=0:45' its value.  The panel's rows are the mount's and the edit is
   // ONE overlay laid over the row at point, so the index says which row the
@@ -1124,6 +1153,24 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     lmarks: lnk ? lnk.marksOn : null, lflags: lnk ? lnk.flagsOn : null,
     lhints: lnk ? lnk.hintsOn : null, lpage: lnk ? lnk.pageSize : null,
     lmarked: lnk ? [...lnk.marks] : [], lflagged: lnk ? [...lnk.flags] : [],
+    // The tags popup, which is the page's FOURTH mount and the one that WRITES:
+    // whether it is up, its two lines of chrome, how many times it was built and
+    // re-set, the rows it shows with their coverage and their store-wide counts,
+    // where its cursor is, which tags wear a removal flag, and the options it
+    // was mounted with — no marks, flags on, no hint line, no page.
+    tagpop: field("tags").className, thead: field("thead").textContent,
+    tfoot: field("tfoot").textContent, tmounts, tsets,
+    // Spelled, since the count cell is a number and the other two are words:
+    // one shape for a reader to assert against.
+    ttags: cellsOf(tgs, ["title", "on", "rows"]).map((cells) => cells.map(String)),
+    tat: curOf(tgs),
+    tcols: tgs ? tgs.cols : [],
+    tmarks: tgs ? tgs.marksOn : null, tflags: tgs ? tgs.flagsOn : null,
+    thints: tgs ? tgs.hintsOn : null, tpage: tgs ? tgs.pageSize : null,
+    tflagHelp: tgs ? tgs.flagHelp : "", tflagged: tgs ? [...tgs.flags] : [],
+    // The rename overlay: whether a tag is open for editing and what its one
+    // field is holding.
+    trename: field("tedit").className === "on", tname: field("tname").value,
     // The drill-down trail as the strip would draw it, labels alone — the
     // queries behind them are the shell's business and the URL already carries
     // them.

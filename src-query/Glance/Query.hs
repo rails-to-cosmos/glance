@@ -95,6 +95,7 @@ module Glance.Query ( ConfigLayerFile (..)
                     , refTargetOf
                     , refTargets
                     , removeTagEdits
+                    , renameTagEdits
                     , replaceSpans
                     , resolveIds
                     , rowJSON
@@ -108,6 +109,7 @@ module Glance.Query ( ConfigLayerFile (..)
                     , sortedTagsCell
                     , subtreeLinks
                     , subtreeText
+                    , tagColumns
                     , tagText
                     , tagged
                     , tagsOfCell
@@ -698,6 +700,27 @@ linkColumns =
   [ column "type"  "Type"     "badge" ["badges" .= linkTypeBadges]
   , column "title" "Headline" "text"  []
   , column "url"   "Target"   "text"  []
+  ]
+
+-- | The manage-tags popup's columns: the tag itself, how much of the named set
+-- carries it, and how many rows the whole tree has under it.
+--
+-- The tag column is keyed @title@, the way the link popup's description column
+-- is: it is the readable NAME of the record a row stands for, and that is the
+-- key this page's readers — the log line naming a row, a renderer's own display
+-- rule — already look under.  A column keyed @tag@ would also invite the
+-- renderer's multi-value sampling, which reads a cell as a whole tag RUN
+-- (@:a:b:@); these cells are single words and there is nothing to split.
+--
+-- @on@ is the COVERAGE over the rows the command would run over — @all@, or
+-- @k\/n@ — and is the client's arithmetic over @GET \/tags@' per-row answer.
+-- @rows@ is the store-wide count that answer carries, so a reader deciding
+-- whether to drop a tag can see whether it is this set's or the tree's.
+tagColumns :: [Value]
+tagColumns =
+  [ column "title" "Tag"  "text"   []
+  , column "on"    "On"   "text"   []
+  , column "rows"  "Rows" "number" []
   ]
 
 -- References
@@ -1868,33 +1891,96 @@ addTagEdits tag r
 -- "remove it" leave the row not carrying it under 'tagged' — a file spelling one
 -- tag twice, or spelling it @:Work:@ where the caller said @work@, is still
 -- clean afterwards.
---
--- The TITLE LINE is cut once and every scan below runs inside it, which is
--- 'setPlanningEdits'' own rule and reached more cheaply here: a headline parses
--- at column 1, so its stars ARE its line's start and no @lineStart@ walk down
--- the document prefix is owed for the answer.
 removeTagEdits :: Text -> HeadlineRecord -> [(Span, Text)]
-removeTagEdits tag r = case hsTags hs of
-  Nothing  -> []
-  Just run -> cut run
-  where
-    hs   = headlineSpans r
-    from = spanStart (hsStars hs)
-    want = T.toLower tag
-    matches (_at, entry) = T.toLower entry == want
+removeTagEdits tag r = case tagRun r of
+  Nothing -> []
+  Just (run, separator, entries)
+    | null hit  -> []
+    | null left -> [ (Span (spanStart run - separator) (spanEnd run), "") ]
+    | otherwise -> map cutEntry hit
+    where (hit, left) = partition (spells tag) entries
 
-    cut run
-      | null hit  = []
-      | null left = [ (Span (spanStart run - separator) (spanEnd run), "") ]
-      | otherwise = [ (Span (spanStart run + at) (spanStart run + at + T.length e + 1), "")
-                    | (at, e) <- hit ]
-      where
-        line  = sliceSpan (hrDoc r) (Span from (spanEnd run))
-        ahead = spanStart run - from
-        (hit, left) = partition matches (tagEntries (T.drop ahead line))
-        -- The horizontal run between the title and the tags, which comes off
-        -- with the whole list.
-        separator = T.length (T.takeWhileEnd horizontal (T.take ahead line))
+-- | The span edits @rename-tag@ makes to R: FROM's entry becoming TO, in place.
+--
+-- A row that does not carry FROM costs no edit, which is what makes a rename
+-- over a marked set safe to send whole — and what makes it idempotent, since a
+-- second request finds nothing left spelling FROM.
+--
+-- The entry is replaced WITHOUT its closing colon, so the run's other entries
+-- and both of its delimiters keep their bytes and the tag lands where the
+-- author put it: @:a:work:b:@ renamed to @projects@ is @:a:projects:b:@, never
+-- an entry cut from the middle and appended at the end.  This is the reason
+-- rename is a command of its own rather than a remove and an add composed.
+-- Those two edit sets APPLY — they touch, and 'Data.Org.Edit.applyEdits' allows
+-- an edit to start where the last one ended — and what they apply to is wrong
+-- twice over: the addition's anchor is measured in the document BEFORE the
+-- removal, so for a lone tag it lands inside the run the removal deleted and
+-- spells @* Ship itprojects:@; and for an entry with neighbours the tag
+-- survives but MOVES to the end of the run.  The pair is also two writes under
+-- two digests where this is one drift-locked splice per file.
+--
+-- ONE TAG ONCE, which is the invariant 'removeTagEdits' keeps by cutting every
+-- entry that spells its tag.  Here the FIRST entry spelling FROM becomes TO and
+-- any further ones are cut, so a file spelling one tag twice comes out clean.
+-- And where the row ALREADY carries TO under some other entry, every FROM entry
+-- is cut instead: the rename would otherwise write a duplicate.  That branch
+-- can never empty the run, since the entry carrying TO is one of the ones it
+-- leaves standing.
+--
+-- Matching FROM is FOLDED and TO is written as it was given, which is
+-- 'addTagEdits'' rule and makes a change of SPELLING a rename like any other:
+-- @:Work:@ renamed to @work@ is one replacement.
+renameTagEdits :: Text -> Text -> HeadlineRecord -> [(Span, Text)]
+renameTagEdits from to r = case tagRun r of
+  Nothing -> []
+  Just (_run, _separator, entries) -> case partition (spells from) entries of
+    ([], _left) -> []
+    (hit@(first : rest), left)
+      | any (spells to) left -> map cutEntry hit
+      | otherwise            -> renamed first <> map cutEntry rest
+  where renamed (at, entry)
+          -- An entry already spelling TO costs no edit, which is 'addTagEdits''
+          -- rule reached from this side: a byte-identical rewrite is still a
+          -- temp-and-rename, an inotify event and a re-parse.
+          | entry == to = []
+          | otherwise   = [(Span at (at + T.length entry), to)]
+
+-- | R's tag RUN as the two commands that CUT one read it: the run's own span, the
+-- width of the horizontal separator in front of it, and its entries as offsets
+-- into the DOCUMENT with their text.  'Nothing' for a headline with no tags at
+-- all.
+--
+-- Read once because both want the same answers about it, and because the
+-- TITLE LINE is cut once and every scan runs inside it — 'setPlanningEdits''
+-- own rule, reached more cheaply here: a headline parses at column 1, so its
+-- stars ARE its line's start and no @lineStart@ walk down the document prefix
+-- is owed.
+tagRun :: HeadlineRecord -> Maybe (Span, Int, [(Int, Text)])
+tagRun r = case hsTags hs of
+  Nothing  -> Nothing
+  Just run -> let line  = sliceSpan (hrDoc r) (Span from (spanEnd run))
+                  ahead = spanStart run - from
+              in Just ( run
+                        -- The horizontal run between the title and the tags,
+                        -- which comes off with the whole list.
+                      , T.length (T.takeWhileEnd horizontal (T.take ahead line))
+                      , [ (spanStart run + at, entry)
+                        | (at, entry) <- tagEntries (T.drop ahead line) ] )
+  where hs   = headlineSpans r
+        from = spanStart (hsStars hs)
+
+-- | Does this entry of a tag run spell TAG?  FOLDED, the way presence is
+-- ('tagged'), so a file writing @:Work:@ answers to @work@.
+spells :: Text -> (Int, Text) -> Bool
+spells tag = \(_at, entry) -> T.toLower entry == want
+  where want = T.toLower tag
+
+-- | The edit that cuts one entry out of a run: itself and the colon that closes
+-- it, so @:a:b:c:@ minus @b@ is @:a:c:@ and the surviving entries keep their
+-- bytes.  A run emptied by its last entry is the CALLER's case, since only it
+-- knows what is left.
+cutEntry :: (Int, Text) -> (Span, Text)
+cutEntry (at, entry) = (Span at (at + T.length entry + 1), "")
 
 -- | The entries of a tag RUN — @":a:b:"@ — as their offsets into it and their
 -- text: @[(1, "a"), (3, "b")]@.  The empty pieces the opening and closing colons

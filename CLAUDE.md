@@ -58,6 +58,14 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   terminates the drawer.
 - Timestamp range halves share one bracket kind; `tsmHasTime` alone decides
   whether a time renders; the weekday is recomputed from the date.
+- The weekday slot takes a run of LETTERS in any script, of any length, and
+  drops it — display-only, so a locale's word is as good as org's. Letters is
+  the whole charset: a repeater opens with `.`, `+`, `-` or a digit, so one
+  letter is what holds `.+3d` out of the slot, and French `lun.` stays refused.
+  Exactly three letters lost ~/sync's Dutch stamps (`CLOSED: [2025-12-04 do
+  22:34]`) their planning line and, behind it, the drawer and the id whole — 28
+  blobs, `dfIdless` 49 → 21. A re-render comes back English; the span channel is
+  what carries the source spelling.
 - A range is spelled `<a>--<b>` or compactly as `<date wd 10:30-11:30>`;
   `tsCompactRange` preserves which, and the renderer never canonicalizes one
   into the other (CLOCK lines are always `--`). A `-` before a time opens a
@@ -354,10 +362,14 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `Value` is hand-built — no `ToJSON` on an internal type
   (table-view/SCHEMA.md is the contract).
 - Commands: one route, `POST /command {name, id | ids, args, digests?}`, over ONE
-  table — `commands`, name to `{argument shape, dated, edits}`. Six entries:
+  table — `commands`, name to `{argument shape, dated, edits}`. Seven entries:
   `set-state {keyword: KW | null}`, `set-planning {keyword:
   SCHEDULED|DEADLINE, date: TEXT | null}`, `archive {}`, `capture {text}`,
-  `add-tag {tag}` and `remove-tag {tag}`. `commandNames` is its keys, the
+  `add-tag {tag}`, `remove-tag {tag}` and `rename-tag {from, to}`.
+  `rename-tag` names both ends rather than reusing `tag` for one of them, and it
+  is a command rather than a remove and an add a client fires in turn: those two
+  edit sets are not disjoint (`renameTagEdits`), and the pair would be two writes
+  under two digests where the rename is one. `commandNames` is its keys, the
   per-name request-shape guards are each entry's own `csArgs`, and only
   `set-planning` is `csDated` — the one command whose date is read against the
   server's today. `parseCommand` resolves the name BEFORE anything else and a
@@ -535,13 +547,17 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `?ids=a&ids=b` = `?ids=a,b`; the repeated form is what an id CONTAINING a
   comma owes (the fallback row id is `path#ordinal`, and the split runs after
   percent-decoding), and it is what the shell writes.
-- `GET /tags?ids=A,B` is the tag palette's source of truth:
-  `{rows: [{id, tags}], vocabulary: […], unknown: […]}` — `rows` in the order
-  the ids were named, each row's tags folded through `tagsOfCell`, and
-  `vocabulary` the whole store's (`storeTags`). PER ROW rather than as one
-  union, because the client needs WHICH rows lack a tag: an add writes the rows
-  that do not carry it and no others. The union, its partial counts and their
-  order are the palette's, computed off this. Refusals follow `/keywords`'.
+- `GET /tags?ids=A,B` is the tags popup's source of truth:
+  `{rows: [{id, tags}], vocabulary: […], counts: {tag: n}, unknown: […]}` —
+  `rows` in the order the ids were named, each row's tags folded through
+  `tagsOfCell`, and `vocabulary` the whole store's (`storeTags`). PER ROW rather
+  than as one union, because the client needs WHICH rows lack a tag: an add
+  writes the rows that do not carry it and no others. The union, its coverage
+  counts and their order are the popup's, computed off this. `counts` is how many
+  ROWS the store holds under each tag, counted per request over `storeRecords`
+  because `stTags` counts FILES and no arithmetic recovers a row count from that;
+  a row counts once per tag however often its file spells one. Refusals follow
+  `/keywords`'.
 - `GET /links?id=ROW` is where a row points: `{links: [{target, desc}]}`, out of
   the row's SUBTREE, in order of appearance and one entry per target (first desc
   kept). The rule is the DISPLAY rule — `Glance.Query.linkAt` is the parser
@@ -849,8 +865,9 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   whose answer replaces the rows — the parity baseline and `@`'s probe are not
   among them, and a boot holds nothing. The page never reads the class back.
 - Shell z-indexes are four: echo `2`, corner `3`, modal backdrop `100`, sheet
-  `101`. The value palette shares the pair with the sheet (`#modal,#prompt` and
-  `#pbox`), so the four values stand whatever else is added. The cross-repo constraint is the backdrop pair clearing the renderer's
+  `101`. Every overlay shares that pair with the sheet
+  (`#modal,#prompt,#config,#links,#tags` and `#pbox,#lbox,#tbox`), so the four
+  values stand whatever else is added. The cross-repo constraint is the backdrop pair clearing the renderer's
   sticky header (`1`) and completion list (`5`); the corner and the echo sit
   below both on purpose, so they dim under the backdrop. The filter palette
   carries no shell z-index at all — the overlay is entirely the renderer's, and
@@ -967,7 +984,8 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   confirmation the two-press shape exists to be.
 - Seven keys write without a sheet, all `POST /command`, and WHICH ROWS is per
   command rather than one rule. `t`/`C-c C-t` (`set-state`), `:`
-  (`org-agenda-set-tags`) and `C-c C-s`/`C-c
+  (`org-agenda-set-tags`, which resolves the set once and then writes over it
+  from a popup) and `C-c C-s`/`C-c
   C-d` (`set-planning`) take the MARKED set when there is one and the row at
   point otherwise — dired's rule, and the generic bulk selection. `D` and `d`
   take the FLAGGED set instead and never read marks: a mark is what a reader lays
@@ -1038,46 +1056,46 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   dispatch, and `t` is both the opener and a letter), and `e.repeat` stops a HELD
   `t` committing through what it opened — `ONCE` cannot reach it, since it
   governs dispatch rows and the repeat lands while every row is dead.
-- `:` (`org-agenda-set-tags`) raises the tag palette, and it is the ONE palette
-  that STAYS UP: managing tags is several ops over one set where setting a state
-  is one, so a letter commits and the list comes back rather than the overlay
-  closing under the reader (`prompting.sticky`, the only thing `takeChoice`
-  branches on). What it lists is the SET's tags — the union over the target rows,
-  FIRST-SEEN across the rows as named, each row's in the order its file spells
-  them. First-seen rather than alphabetical because an added tag then joins at
-  the END and no letter already claimed moves; an alphabetical insert in the
-  middle would take one out from under the reader's fingers.
-  A letter TOGGLES, under dired's NORMALIZE-UP rule: a tag EVERY target carries
-  comes off all of them, and one only SOME of them carry — or none — goes on to
-  the rows that LACK it. So over a mixed set the first press levels it and only
-  the second takes anything away. A partial entry says so: `3/5` in the muted
-  `.pt` aside the link palette puts a target in, absent where the set is level.
-  The write goes to the rows it is FOR, so the answer's landed count is a count
-  of rows that MOVED.
-  The refresh is the ANSWER, never a re-read: `/command` does not write the store
-  — the watch does, a debounce later — so re-asking `/tags` would report what the
-  files said BEFORE the write. Normalize-up makes the new state a function of
-  what landed, so the palette folds the per-id results into the sets it holds and
-  redraws off those; a refused row keeps the tags it had.
-  ONE FIELD, TWO DOORS — `/` and `+` both raise it, the way `d` on an
-  already-flagged row IS `D`. It only ever ADDS; a letter is the only toggle.
-  What it COMPLETES over is the ADDABLE vocabulary (`prompting.wider`, a thunk
-  so it is current after a commit): the tree's whole `vocabulary` LESS the tags
-  every target already carries, since adding one of those is a no-op — a tag
-  only SOME of them carry stays offered and wears its `3/5`, adding it being the
-  normalize-up half of the letter's rule. The set's partial tags lead, then the
-  rest of the tree's. RET takes the highlighted entry or, where nothing matched,
-  the line as typed (`freely`) — so a tag the tree has never held is committable
-  and the charset wall that refuses garbage is the SERVER's. ESC steps BACK to
-  the letters from either door (`prompting.narrow && prompting.sticky`), and a
-  second ESC closes; `letterMode` re-derives the letter list through
-  `prompting.letters`, the field having replaced `choices` with what it
-  completes over. `+` claims no which-key letter because `whichKeys` hands out
-  `a`–`z` alone. A tag is FOLDED at commit, since presence is.
-  Guards are the state palette's, one press each: `prompting.raising` declines
-  the keydown that opened it and `e.repeat` stops a held letter committing
-  through it. `:` stays OUT of `ONCE` for `t`'s reason — raising sets
-  `prompting`, `typing()` kills every `table` row, and a held key cannot re-raise.
+- `:` (`org-agenda-set-tags`) raises the TAGS POPUP, the page's FOURTH
+  table-view mount (`#ttable`) and the only MUTABLE one. A tag over a set of rows
+  is a RECORD — a name, a coverage, a weight in the tree — and a reader deciding
+  whether to drop one READS those three, so it is the link popup's shape rather
+  than the which-key palette's, and the letters went with the list. Columns are
+  `Glance.Query.tagColumns`: `title` (the tag, keyed the link popup's way — a
+  column keyed `tag` would invite the renderer's multi-value sampling), `on` (the
+  coverage, `all` or `k/n`) and `rows` (`/tags`' store-wide count). Rows are the
+  UNION over the target rows, FIRST-SEEN across the rows as named and, within a
+  row, the order its file spells them — an alphabetical insert in the middle
+  would move the row out from under the cursor, where an append cannot. A tag IS
+  its row's id, so a flag, the cursor and a rename name the same thing after any
+  number of writes. Raised LATE, behind the fetch, like the link popup: `:` is no
+  key inside the list it opens, so no raising guard is owed; a set the store
+  knows no row of is a refusal rather than an empty popup. Mounted with
+  `marks: false` (the set a tag command runs over is the TABLE's, settled before
+  this went up) and `flags: true`.
+  The popup STAYS up under every write it carries, since managing tags is several
+  ops over one set; every write refreshes the list from the command's OWN per-id
+  answer, never a re-read — `/command` does not write the store, so asking
+  `/tags` again would report what the files said BEFORE it. The `rows` count is
+  stepped by what landed and corrected by the next resolution.
+  `d`/`D`/`u` are dired's gesture verbatim: `d` flags, a second `d` on a flagged
+  tag IS `D`, `u` unflags and walks on, `e.repeat` cannot flag and remove from
+  one press. `D` removes EVERY flagged tag from every target CARRYING it — one
+  `remove-tag` per tag, since a command names one — and SPENDS the flags. `+`
+  raises the value palette straight into its field (`askFrom`) over the ADDABLE
+  vocabulary: the tree's `vocabulary` LESS the tags every target already carries,
+  the set's partial ones leading and wearing their `2/3`, and RET commits the
+  highlighted entry or the line as typed (`freely`), so a tag the tree has never
+  held is reachable and the charset wall is the SERVER's. `RET` is the RENAME,
+  through the property panel's edit model over ONE cell: `#tedit` is laid over
+  the tag cell (`td:not(.tv-box)`, the row's box through the mount's published
+  root), RET commits `rename-tag {from, to}` over the targets carrying `from`,
+  ESC restores. A tag is FOLDED at commit, since presence is.
+  Its keys are a FOURTH document listener behind the dispatch, with two guards
+  about the palette `+` raises OVER it: it declines while `prompting` is set, and
+  it declines a key that palette has already CLAIMED (`e.defaultPrevented`) —
+  without the second, the very RET that added a tag would land on a popup with no
+  prompt on it and open the rename.
 - `o`/`!` (`org-glance-overview:open`) FOLLOW the row, and the ANSWER decides the
   gesture: `GET /links?id=` for the row at point, then no links is an echo
   refusal, ONE is `window.open(target, "_blank", "noopener")`, and SEVERAL raise
@@ -1181,7 +1199,8 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `setStateEdits`, which refuses any word a file's `#+TODO:` does not declare, and
   `keywordTextP` (letters and underscores) makes a starred word undeclarable, so
   the two walls meet. On the tag side it is `isTagChar`, which has no `*`: no
-  file can spell a tag `*archive*` and `add-tag` refuses one.
+  file can spell a tag `*archive*`, and `add-tag`, `remove-tag` and both ends of
+  `rename-tag` refuse one.
 - Browser writes are commands over the bridge: structured ones (toggle, retag,
   reschedule) and drift-locked raw replacement (materialize a subtree, later a
   file). Semantic org editing — refile, agenda logic — stays out of the browser.
@@ -1403,8 +1422,8 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   profiles.
 - With no popup open the TABLE holds the keys, and a control that keeps the
   focus belongs inside a popup. The popups — materialize sheet, settings sheet,
-  filter palette, value palette — and the controls in them are the only
-  legitimate focus holders. A focused `SELECT` counts as typing, so one in the
+  filter palette, value palette, link popup, tags popup — and the controls in
+  them are the only legitimate focus holders. A focused `SELECT` counts as typing, so one in the
   CORNER ate `n`/`p` as type-ahead until the reader clicked back, and the answer
   was a `blur()` every new corner control owed; moving that one control into the
   sheet retires the per-control rule. Inside a popup the focus is the popup's,

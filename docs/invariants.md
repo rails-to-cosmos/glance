@@ -141,6 +141,22 @@ on.
   store 00:00. Weekday is parsed, discarded, recomputed on render (wrong
   source weekdays re-render corrected — a spurious hunk if rendered rather
   than span-spliced). **test** (has-time, brackets) / **comment** (weekday)
+- **The weekday slot takes any word.** A run of LETTERS in any script, of any
+  length, read and dropped. Being display-only is what licenses the width: the
+  render recomputes the word from the date, so nothing downstream can tell one
+  spelling from another, and a locale's word costs the parser nothing. Exactly
+  three letters was English-only and the corpus is not: ~/sync writes Dutch
+  `ma`, `do`, `zo`, `vr` and `za`, each of which failed the timestamp, failed
+  the planning line, and left the drawer no longer next — the headline lost its
+  properties and its id whole, 28 blobs of ~/sync/views' 6063. Letters is the
+  whole charset because a repeater opens with `.`, `+`, `-` or a digit and a
+  time with a digit, so requiring one letter is what keeps `.+3d` out of the
+  slot; the trailing dot French and Catalan abbreviate with (`lun.`) is
+  therefore still refused, and admitting it needs a guard `.+3d` would
+  otherwise trip. The consequence a reader sees: a Dutch stamp re-rendered by
+  `TextShow` comes back English, so the source spelling survives the span
+  channel alone — which is every path that matters, materialize and the lens
+  slicing spans rather than rendering. **test + corpus**
 - **Two range spellings, source form preserved.** `<a>--<b>` and the compact
   same-day `<date wd 10:30-11:30>` both land in `tsStart`/`tsEnd`;
   `tsCompactRange` records which the source wrote and the renderer branches on
@@ -183,7 +199,8 @@ on.
   *Historical corpus figures, not reproducible from this repo:* an earlier
   measurement over `~/sync` found 4661 planning lines in parseable files
   carrying 7220 entries, 7161 of which attached, with ~70 stragglers the
-  timestamp parser rejects — two-letter weekday abbreviations, unit-less
+  timestamp parser rejects — two-letter weekday abbreviations (since fixed: the
+  weekday slot takes any word), unit-less
   repeaters (`10:00+2`), a repeater written before the time, diary sexps, a
   repeater followed by a warning period — and, since the entry loop stops at
   the first failure, later entries on those lines stranded with them; a further
@@ -416,15 +433,24 @@ on.
   records without blobs.
 
   THE INSTRUMENT REPORTS ITSELF: `dfIdless` counts blobs this parser read and
-  found no `ORG_GLANCE_ID` in — 51 on that corpus, which with the 8 parse
-  failures is 59 of 59 records-without-blobs, so none of that number is
-  org-glance indexing something that is not there. Their causes are this
-  parser's: 28 carry a non-English weekday in the planning line
-  (`CLOSED: [2025-12-04 do 22:34]`), which fails `planningP`, so the drawer is no
-  longer next and the headline loses its properties whole. Without the count a
-  parser gap would have read as index lag. Evidence: `TestIndex` — the fold over
-  a real MANIFEST + sealed + open store in a temp directory, the comparison's
-  five outcomes, and the report's shape. **test + corpus**
+  found no `ORG_GLANCE_ID` in, which with the parse failures accounted for every
+  records-without-blobs the run reported — so none of that number was org-glance
+  indexing something that is not there. Their causes were this parser's, and the
+  count is what named the largest: 28 blobs carried a non-English weekday in the
+  planning line (`CLOSED: [2025-12-04 do 22:34]`), which failed `planningP`, so
+  the drawer was no longer next and the headline lost its properties whole.
+  Without the count a parser gap would have read as index lag.
+
+  THE GAP IS CLOSED and the same count is what says so. The weekday slot now
+  takes any word (see Parser, above). Over ~/sync/views at 2026-08-02, before and
+  after that one change: idless blobs **49 → 21**, records without blobs
+  **57 → 29**, both moving by exactly the 28 the instrument had named; blobs
+  parsed, rows disagreeing and the 8 parse failures all unmoved, since none of
+  them was the weekday's. The figures in the paragraph above are the run that
+  found it, and predate the fix. What is left of the 21 has not been attributed.
+  Evidence: `TestIndex` — the fold over a real MANIFEST + sealed + open store in
+  a temp directory, the comparison's five outcomes, and the report's shape.
+  **test + corpus**
 
 ## Keyword configuration (layered)
 
@@ -511,20 +537,27 @@ on.
   shell writes one parameter per id and the comma form is left to a caller
   typing one out. Evidence:
   `Glance.Query.keywordSources`, `TestServe` "GET /keywords". **test**
-- **`GET /tags` is the tag palette's source of truth, and it answers PER ROW.**
-  `?ids=A,B` answers `{rows: [{id, tags}], vocabulary, unknown}`: `rows` in the
-  order the ids were named, each row's tags in the order its FILE spells them and
-  folded through `tagsOfCell` — the same reading `tagged` matches with and the
-  filter vocabulary is built from, so what this reports about a row is exactly
-  what a write to it will find there. Per row rather than as one union because
-  the client needs to know WHICH rows lack a tag: adding one writes the rows that
-  do not carry it and no others, and a union cannot say which those are. The
-  union, its partial counts and its first-seen order are the palette's, computed
-  off this. `vocabulary` is the whole store's (`storeTags`) rather than the named
-  rows', because a completing read has to reach a tag none of the targets carries
-  and the rows a page holds are a fraction of the tree. Refusals follow
-  `/keywords`': no ids is a 400, an unknown id is named in `unknown` and left
-  out, POST is 405, and it waits for the store like every route that reads one.
+- **`GET /tags` is the tags popup's source of truth, and it answers PER ROW.**
+  `?ids=A,B` answers `{rows: [{id, tags}], vocabulary, counts, unknown}`: `rows`
+  in the order the ids were named, each row's tags in the order its FILE spells
+  them and folded through `tagsOfCell` — the same reading `tagged` matches with
+  and the filter vocabulary is built from, so what this reports about a row is
+  exactly what a write to it will find there. Per row rather than as one union
+  because the client needs to know WHICH rows lack a tag: adding one writes the
+  rows that do not carry it and no others, and a union cannot say which those
+  are. The union, its coverage counts and its first-seen order are the popup's,
+  computed off this. `vocabulary` is the whole store's (`storeTags`) rather than
+  the named rows', because a completing read has to reach a tag none of the
+  targets carries and the rows a page holds are a fraction of the tree.
+  `counts` is how many ROWS the store holds under each tag, which is the popup's
+  third column and the one number no arithmetic over the rows in hand recovers:
+  the store's own `stTags` counts FILES, a different question. It is counted per
+  request (`tagRowCounts`, one pass over `storeRecords`) rather than kept, at the
+  cost of a keystroke, and a row counts ONCE per tag however often its file
+  spells one — so the number answers "how many rows would a `TAG:` predicate
+  reach". Refusals follow `/keywords`': no ids is a 400, an unknown id is named
+  in `unknown` and left out, POST is 405, and it waits for the store like every
+  route that reads one.
   Evidence: `TestServe` "GET /tags". **test**
 - **Several rows merge by source NAME, and the merge costs two properties.** The
   marked set is one answer: the `file` entry is the union of those rows' files'
@@ -1164,10 +1197,11 @@ on.
   (33 files, 214 spans, each file digest-checked before and after to prove the
   check never wrote). **test + corpus**
 - **The command layer is one route, and its unit of work is a FILE.**
-  `POST /command` takes `{name, id | ids, args, digests?}` and implements four
+  `POST /command` takes `{name, id | ids, args, digests?}` and implements seven
   names — `set-state {"keyword": KW | null}`,
   `set-planning {"keyword": "SCHEDULED" | "DEADLINE", "date": TEXT | null}`,
-  `archive {}` and `capture {"text": …}`. The ids it is
+  `archive {}`, `capture {"text": …}`, `add-tag {"tag": …}`,
+  `remove-tag {"tag": …}` and `rename-tag {"from": …, "to": …}`. The ids it is
   given are grouped by the file their rows came from, and each file is written
   ONCE — one `Glance.Query.replaceSpans` call carrying every span that file
   owes, under that file's own pinned digest. So a marked set of five rows in
@@ -1400,6 +1434,26 @@ on.
   `work`, is clean afterwards. Add-then-remove is the identity on the bytes,
   which is the property a toggle rests on. Evidence: `TestQuery` "remove-tag",
   which asserts the whole document each time. **test**
+- **`renameTagEdits` REPLACES the entry, which is why rename is a command and not
+  a composition.** The entry's text is replaced without its closing colon, so the
+  run's other entries and both delimiters keep their bytes and the tag stays
+  where the author put it: `:a:work:b:` renamed to `projects` is
+  `:a:projects:b:`. A remove and an add composed cannot do this and cannot even
+  be APPLIED together — removing a LAST entry takes the whole run away and adding
+  one inserts at the end of the run it just took, so the two spans are not
+  disjoint and `applyEdits` either refuses them or spells the tag onto the title
+  (`* Ship itprojects:`, which the suite writes down). It would also be two
+  writes under two digests where the rename is one drift-locked splice per file.
+  ONE TAG ONCE is kept the way `removeTagEdits` keeps it: the FIRST entry
+  spelling `from` becomes `to` and any further ones are cut, and where the row
+  ALREADY carries `to` under another entry every `from` entry is cut instead —
+  a branch that can never empty the run, since the entry carrying `to` is one it
+  leaves standing. Matching folds and `to` is written as given, so a change of
+  SPELLING is a rename like any other. A row not carrying `from` costs no edit,
+  which is what makes the command safe to send over the whole set the popup was
+  raised on, and what makes it idempotent. Rename and its inverse put the file
+  back byte for byte. Evidence: `TestQuery` "rename-tag", `TestServe`
+  "POST /command rename-tag". **test**
 - **A tag is refused where the PARSER would not read it back.**
   `Glance.Query.tagText` checks against `Data.Org.isTagChar`, hoisted out of
   `tagsP` and exported for exactly this: what this server writes has to reparse
@@ -1410,11 +1464,15 @@ on.
   (there, not here); the parser's is the one that binds, since it is what reads
   the write. The refusal is the WHOLE request's, decided in `parseCommand` with
   the rest of the shape: a word that is not a tag is not a tag for any row.
-  Evidence: `TestQuery` "the tags add-tag and remove-tag take", `TestServe`
-  "a tag no parser reads refuses the request, naming it". **test**
-- **Both tag commands are idempotent, from opposite sides.** `addTagEdits`
-  answers `[]` for a row `tagged` already finds it on and `removeTagEdits` for
-  one it does not, so a palette may commit the same letter twice without the
+  Both ends of `rename-tag` take the same wall, for the same reason: a `from`
+  org could not have written names nothing, and a `to` it could not read takes
+  the run down. Evidence: `TestQuery` "the tags add-tag and remove-tag take",
+  `TestServe` "a tag no parser reads refuses the request, naming it" (both
+  commands). **test**
+- **All three tag commands are idempotent.** `addTagEdits` answers `[]` for a
+  row `tagged` already finds it on, `removeTagEdits` for one it does not, and
+  `renameTagEdits` for one carrying no `from`, so a reader may press the same
+  key twice without the
   second press meaning anything. `archive`'s idempotence is that first half,
   matched through `Glance.Query.archived`, which reads `tagsOfCell . hrTags` —
   the same folding the tag list is built with, so "archived" means exactly what
@@ -2379,9 +2437,10 @@ on.
   parts. **test**
 - **The shell's z-index bands must clear the renderer's.** Four values, all of
   them here: echo `2`, corner `3`, modal backdrop `100`, sheet `101`.  The value
-  palette, the settings sheet and the link popup share that pair rather than
-  adding to it (`#modal,#prompt,#config,#links` and their boxes), so a fourth
-  overlay costs no band — which is the rule a new one joins under. The
+  palette, the settings sheet, the link popup and the tags popup share that pair
+  rather than adding to it (`#modal,#prompt,#config,#links,#tags` and their
+  boxes), so a fifth overlay costs no band — which is the rule a new one joins
+  under, and which #55 took without touching a value. The
   cross-repo constraint is the backdrop pair clearing the renderer's sticky
   header (`1`) and its completion list (`5`) — an unnumbered backdrop painted
   under both. The corner and the echo sit BELOW the backdrop deliberately, so
@@ -2619,84 +2678,125 @@ on.
   leaves the press to nobody: the map's own `DEL` is already dead under
   `typing()`. Evidence: `TestServe` "the meta entry clears the keyword rather
   than setting one", "DEL fires nothing in a palette that has no clear". **test**
-- **The manage-tags palette STAYS UP, and it is the only one that does.**
-  `:` — the agenda's own key for the same question over there — raises the same
-  overlay over `GET /tags`' answer, and a letter commits WITHOUT dissolving it:
-  tagging is several ops over one set where setting a state is one, and closing
-  after each would make the second op a fresh press and a fresh resolution.
-  `takeChoice` branches on `prompting.sticky` and on nothing else; the commit
-  runs either way, and what the flag decides is whether `prompting` is still the
-  live palette while it does — which is what lets the answer land back in the
-  list it came out of.
-  Evidence: `TestServe` "Shell tags". **test**
-- **A letter TOGGLES, under dired's normalize-up rule.** A tag EVERY target
-  carries comes off all of them; a tag only SOME of them carry — or none — goes
-  on to the rows that LACK it. So over a mixed set the first press LEVELS it and
-  only the second takes anything away, which is what makes a bulk tag safe to
-  press at: the destructive reading of a letter is never the first one. The
-  partial entries say so — `3/5` in the muted `.pt` aside, absent where the set
-  is level — so the rule reads off the list
-  rather than only out of this file. The write goes to the rows it is FOR (the
-  ones lacking the tag when adding, the ones carrying it when taking it off), so
-  the answer's landed count is a count of rows that MOVED. Evidence: `TestServe`
-  "a tag part of the set carries wears its count", "and the letter adds it to the
-  rows that lack it", "so the second press on a levelled set takes the tag off".
-  **test**
-- **The list refreshes from the ANSWER, never from a re-read.** `POST /command`
+- **The tags list is a MOUNT, and that is what made the letters go.** `:` — the
+  agenda's own key for the same question over there — raises `#tags`, the page's
+  FOURTH table-view mount (`#ttable`) and the first one that WRITES. A tag over a
+  set of rows is a RECORD: a name, a coverage over the set, a weight in the tree,
+  and a reader deciding whether to drop one is READING those three. That is the
+  link popup's case exactly ("two shapes for a choice"), so this list took the
+  same shape and the which-key letters went with the list it left. What decides
+  is the ENTRY rather than the count: a keyword is a single word committed from
+  memory, and `t d e` for `TODO DONE DELEGATED` is muscle memory after the second
+  use; a tag beside `2/3` and `40` is three facts a letter says nothing about.
+  Columns are `Glance.Query.tagColumns`, declared server-side like the link
+  popup's so the shape has one home: `title` — the tag, keyed the link popup's
+  way because it is the readable NAME of the record, and because a column keyed
+  `tag` would invite the renderer's multi-value sampling, which reads a cell as a
+  whole `:a:b:` run — `on` (the coverage, `all` or `k/n`) and `rows` (`/tags`'
+  store-wide count). A tag IS its row's id, since a tag appears once per popup
+  and that is the whole of its identity: a flag, the cursor and a rename all name
+  the same thing after any number of writes. Mounted once and kept, like the
+  panel and the link popup. Evidence: `TestServe` "Shell tags", "Shell glue"
+  ("the tags popup is a mutable mount with a rename overlay"). **test**
+- **It is MUTABLE, and every gesture in it is one this page already spells.**
+  `d`/`D`/`u` are dired's flag-then-confirm, borrowed from the table and the
+  property panel; `+` is the value palette's completing field; `RET` is the
+  panel's edit overlay. Nothing here is a new vocabulary. Mounted with
+  `marks: false` — the set a tag command runs over is the TABLE's and was settled
+  before this went up, so a second selection would be a second answer to a
+  settled question — and `flags: true`, since the removal is the two-press
+  gesture and the flag is its confirmation. The popup STAYS up under every write
+  it carries: managing tags is several ops over one set where setting a state is
+  one, and closing after each would make the second op a fresh press and a fresh
+  resolution. Evidence: `TestServe` "the mount is mutable: flags on, marks off,
+  no hints, no page". **test**
+- **Raised LATE, on the answer.** `:` is no key inside the list it opens, so an
+  empty mount put up on the press would buy nothing and cost a raising guard —
+  which is the whole of why the state palette raises early and this does not. A
+  set the store knows no row of is a REFUSAL rather than an empty popup, and a
+  refused resolution raises nothing and writes one `cmd` error line. An untagged
+  set does raise: it is honest rather than empty, and the foot names `+` as the
+  way in. Evidence: `TestServe` "an untagged set opens on a popup that says so",
+  "a refused resolution raises nothing and says so", "and a set the store knows
+  no row of raises none either". **test**
+- **`d`/`D` REMOVE, one command per flagged tag, over the rows CARRYING it.**
+  The first `d` flags the tag at point, a second `d` on an already-flagged one IS
+  `D` — the same handler, so it removes every flagged tag rather than the one
+  under it — and `u` takes a flag off and walks on. A held key cannot flag and
+  remove from one press (`e.repeat`), which is the confirmation the two-press
+  shape exists to be. Several flags are SEVERAL commands, since a command names
+  one tag; each is its own per-file batch of atomic writes, and each is aimed at
+  the targets carrying THAT tag, so two flagged tags over one set can name two
+  different row lists. The flags are SPENT before the first request goes out, the
+  way the table's archive flags are: a repaint drops rows, and a set left
+  standing would be removed again by the next press. Evidence: `TestServe` "a
+  second d removes it from every row carrying it", "D over several flagged tags
+  is one command each, over its own rows", "a held d flags once and never
+  removes". **test**
+- **`+` is the ADD, and it is the value palette's field with no letters behind
+  it.** `askFrom` raises `#prompt` straight into typing mode over the ADDABLE
+  vocabulary — `GET /tags`' `vocabulary`, the whole store's rather than the rows
+  on screen, LESS every tag all the targets already carry, since adding one of
+  those writes nothing and offering it is offering a no-op. A tag only SOME of
+  them carry STAYS, wearing its `2/3`, because adding it LEVELS the set and does
+  move rows; the set's partial tags lead and the rest of the tree follows. `RET`
+  takes the highlighted entry or, where nothing matched, the line as typed
+  (`freely`), so a tag the tree has never held is committable — a first use has
+  to start somewhere, and the charset wall that refuses a name org could not read
+  is the SERVER's. The write goes to the rows LACKING the tag, so the landed
+  count is a count of rows that MOVED, and a tag every target already has costs a
+  line in the pill and no round trip. One `ESC` closes the field and leaves the
+  popup standing. Evidence: `TestServe` "+ raises the field over what can be
+  added", "a tag some of the set carries is still addable, and says so", "RET
+  there adds the tag to every row lacking it and stays open". **test**
+- **`RET` is the RENAME, and it is the property panel's edit model over ONE
+  cell.** `#tedit` is laid over the tag cell — the row's box read through the
+  mount's published root (`tmount.el`), the cell's through
+  `td:not(.tv-box)`, which is the class the renderer already stamps on the flag
+  gutter rather than a column index this page would be counting. The other two
+  columns are DERIVED and never open, exactly as the link popup's type cell would
+  not. `RET` commits `rename-tag {from, to}` over the targets carrying `from`,
+  `ESC` restores, and a name that folds to the one it opened on costs no request.
+  The model is rewritten IN PLACE and deduplicated, mirroring the server's rule,
+  so the union's first-seen order does not shuffle under the cursor. Evidence:
+  `TestServe` "RET opens the tag at point over itself", "and RET again commits it
+  as one rename-tag", "a rename to the same name writes nothing". **test**
+- **THE LIST REFRESHES FROM THE ANSWER, never from a re-read.** `POST /command`
   does not write the store — the watch does, a debounce later — so asking
   `/tags` again after a commit would answer with what the files said BEFORE it.
-  Normalize-up makes the new state a function of what landed, so `landedTags`
-  folds the per-id results into the per-row sets the palette is holding and
-  redraws off those; a row the server refused keeps the tags it had, and a tag
-  written for the first time joins the local vocabulary so `/` offers it before
-  the watch has said anything. The suite asserts the count is level immediately
-  after the write while the fake store still says otherwise. Evidence:
-  `TestServe` "the list is refreshed from what landed, and the palette stays up".
+  Every write folds its own per-id results into the per-row tag sets the popup is
+  holding and repaints off those; a row the server refused keeps the tags it had,
+  and a tag written for the first time joins the local vocabulary so `+` offers
+  it before the watch has said anything. The `rows` count is STEPPED by what
+  landed for the same reason — the number is the tree's and only the tree can be
+  right about it, but a column standing still while the rows under it moved would
+  read as a stale answer rather than as a different question — and the next
+  resolution corrects it. The suite asserts the list is empty immediately after a
+  removal while the fake store still says every row carries the tag. Evidence:
+  `TestServe` "the list is what landed, and the store is not asked twice".
   **test**
-- **The union is FIRST-SEEN, and that is what keeps the letters still.** The
-  entries are the union over the target rows, in the order the ROWS introduce
-  them and, within a row, the order its FILE spells them. Alphabetical would be
-  no harder to compute and strictly worse: `whichKeys` is order-dependent, so an
-  insert in the middle can take a letter out from under the reader's fingers,
-  where an append cannot move one already claimed. Adding a tag is therefore the
-  only mutation that grows the list, and it grows it at the end. Evidence:
-  `TestServe` "Shell glue", "the tag union is first-seen, and the refresh is the
-  answer". **test**
-- **ONE FIELD, TWO DOORS, and it only ADDS.** `/` and `+` raise the same field
-  — the way `d` on an already-flagged row calls `D`'s handler rather than a
-  second one — and a letter stays the only toggle, so nothing typed can take a
-  tag off. They were two modes: `/` FOUND a tag the tree already held and `+`
-  CREATED one it did not, which asked a reader to know which of those they were
-  about to do before they had typed a character, and gave one `ESC` two
-  meanings.
-
-  WHAT IT COMPLETES OVER is the ADDABLE vocabulary — `prompting.wider`, a THUNK
-  rather than a list so it is current after a commit moved what the set holds.
-  That is `GET /tags`' `vocabulary`, the whole store's rather than the rows on
-  screen, LESS every tag all the targets already carry: adding one of those
-  writes nothing, so offering it is offering a no-op. A tag only SOME of them
-  carry STAYS, wearing its `3/5`, because adding it is the normalize-up half of
-  the letter's own rule and does move rows. The set's partial tags lead and the
-  rest of the tree follows.
-
-  `RET` takes the highlighted entry or, where nothing matched, the line as typed
-  (`freely`), so a tag the tree has never held is committable — a first use has
-  to start somewhere, and the charset wall that refuses a name org could not
-  read is the SERVER's rather than a second guess here. `ESC` steps BACK to the
-  letters from either door and a second `ESC` closes, which is `cancel` reading
-  `prompting.narrow && prompting.sticky` — a palette with letters behind it has
-  somewhere to go back to and an `askText` prompt has not. Coming back
-  re-derives the letter list through `prompting.letters`, a thunk beside
-  `wider`: the field REPLACED `choices` with what it completes over, so
-  restoring `shown` from `choices` would put the reader back among the wrong
-  list. `+` can never collide with an entry, since `whichKeys` hands out `a`–`z`
-  alone. Evidence: `TestServe` "Shell tags" — the addable list, a partial tag
-  still offered, `+` as the second door, `RET` on a novel line, and the ESC
-  ladder from either door. **test**
+- **The union is FIRST-SEEN, and now it is the CURSOR it keeps still.** The rows
+  are the union over the target rows, in the order the ROWS introduce them and,
+  within a row, the order its FILE spells them. Alphabetical would be no harder
+  to compute and strictly worse: an insert in the middle moves the row out from
+  under the cursor, where an append cannot. The rationale transfers unchanged
+  from the letters it used to protect. Evidence: `TestServe` "Shell glue", "the
+  tag union is first-seen, and the refresh is the answer". **test**
 - **A tag is FOLDED at commit, because presence is.** `/tags` reports what
-  `tagsOfCell` reads and `tagged` matches the same way, so a palette that wrote
-  `Work` would go on showing `work` and offering to add it again. Adding a tag
-  every target already has costs a line in the pill and no round trip.
+  `tagsOfCell` reads and `tagged` matches the same way, so a popup that wrote
+  `Work` would go on showing `work` and offering to add it again.
+- **Its keys are the FOURTH private listener, and two guards keep it off the
+  field raised OVER it.** While `prompting` is set the listener declines
+  outright, or a reader narrowing the add field would be flagging tags
+  underneath it — `typing()` has killed the map's rows and there is nothing else
+  between the two surfaces. And a key the palette has already CLAIMED is declined
+  too (`e.defaultPrevented`): the palette's listener runs AHEAD of this one and
+  closes the overlay as it commits, so the very `RET` that added a tag would
+  arrive here over a popup with no prompt on it and open the rename over the tag
+  it had just written. `defaultPrevented` is the DOM's own word for "handled",
+  which every listener on this page already says by calling `preventDefault`.
+  Evidence: `TestServe` "and the popup's own keys are dead under its field", "the
+  RET that adds does not open the rename behind it". **test**
 - **The overlay goes up on the keydown; the resolution fills it.** `ask` raises
   `#prompt` EMPTY and synchronously, drawing a `resolving…` line, and the
   `/keywords` answer arrives afterwards through `setChoices`. Everything that
@@ -2821,31 +2921,48 @@ on.
   has to be READ.** The page offers a set of options in one of two ways and
   there is no third.
   - A **which-key palette** (`#prompt`) is for a FIXED VOCABULARY a reader
-    commits from memory: the state palette's keywords, the tag palette's tags.
-    Every entry wears a letter, the letter commits on its own, and the palette IS
-    the confirmation. It works because the entries are single words a reader
-    already knows the shape of — `t d e` for `TODO DONE DELEGATED` is muscle
-    memory after the second use — so nothing has to be read before a key is
-    pressed. `/` is its completing-read fallback for a set too wide to have
-    claimed a letter each.
-  - A **read-only table-view mount** is for a list of RECORDS that has to be
-    read before it can be picked from: the link popup, where each entry has a
-    kind, a name and a destination and the reader is deciding WHICH. Letters are
-    the wrong instrument there — they are noise laid over the columns that carry
-    the answer, and a letter assigned to `First reference` teaches nothing about
-    where it points. So the surface is move, look, act: `n`/`p` (and `j`/`k`, and
-    the arrows), one key to commit, `ESC` to leave. The renderer draws it,
-    because this page has ONE list widget and a table of records is what it is
-    for — which is the same argument the property panel landed under (#50).
+    commits from memory, and the state palette's keywords are the whole of what
+    is left in it. Every entry wears a letter, the letter commits on its own, and
+    the palette IS the confirmation. It works because the entries are single
+    words a reader already knows the shape of — `t d e` for `TODO DONE DELEGATED`
+    is muscle memory after the second use — so nothing has to be read before a
+    key is pressed. `/` is its completing-read fallback for a set too wide to
+    have claimed a letter each, and the same field is what `+` raises over the
+    tags popup (`askFrom`): one widget for typing, two doors into it.
+  - A **table-view mount** is for a list of RECORDS that has to be read before it
+    can be picked from: the link popup, where each entry has a kind, a name and a
+    destination, and the tags popup, where each has a name, a coverage over the
+    named rows and a weight in the tree. Letters are the wrong instrument there —
+    they are noise laid over the columns that carry the answer, and a letter
+    assigned to `First reference` teaches nothing about where it points. So the
+    surface is move, look, act: `n`/`p` (and `j`/`k`, and the arrows), keys to
+    commit, `ESC` to leave. The renderer draws it, because this page has ONE list
+    widget and a table of records is what it is for — which is the same argument
+    the property panel landed under (#50). READ-ONLY is not part of the shape:
+    the link popup is one and the tags popup writes.
   What decides is the ENTRY rather than the length: a two-entry table still wants
   columns and a forty-keyword cycle still wants letters. A list whose entries are
   single known words takes letters; a list whose entries are records takes a
   mount.
-  Evidence: `TestServe` "Shell which-key" and "Shell open". **test**
+
+  **THE TAGS LIST MOVED ACROSS THIS LINE (#55), and it is the case that shows
+  where the line is.** It was a which-key palette and it read as one — every tag
+  under a letter, a letter toggling under a normalize-up rule, `3/5` in a muted
+  aside. What it could never be was READ: the aside carried the only fact about
+  the set, there was nowhere to put the tree's own count, and the letter had to
+  mean add here and remove there depending on a coverage the reader had to work
+  out from that aside. As a mount the three facts are three columns, the toggle
+  splits into the two gestures the page already has (`+` adds, `d`/`D` remove),
+  and `RET` is free to be the rename an in-place edit overlay was already the
+  model for. The tell was the ASIDE: a palette entry that needs a note about
+  itself is a record wearing a letter. Evidence: `TestServe` "Shell tags".
+
+  Evidence: `TestServe` "Shell which-key", "Shell open" and "Shell tags".
+  **test**
 - **The link popup is a MOUNT, it is READ-ONLY, and it is raised LATE.** `o` on a
   row with several links raises `#links`, a sibling of `#app` sharing the two z
-  levels with the sheets and the value palette, hosting the page's THIRD
-  table-view mount (`#ltable`). Three columns, declared server-side in
+  levels with the sheets, the value palette and the tags popup, hosting the
+  page's THIRD table-view mount (`#ltable`). Three columns, declared server-side in
   `Glance.Query.linkColumns` so the type vocabulary and its hues have one home
   next to the function deriving them: `type` as a badge, `title` as the
   description the entry itself wrote, `url` as the target. The `url` column is
@@ -2868,21 +2985,24 @@ on.
   and the arrows in one place, so the two modal surfaces cannot drift from each
   other or from the map's own `n`/`p`/`j`/`k` rows.
   Evidence: `TestServe` "Shell open". **test**
-- **KNOWN SHAPE, not yet a rule: three modal surfaces, three private listeners,
-  and one predicate each of them has to remember to join.** The value palette,
-  the property panel and the link popup each carry a document keydown listener
-  behind the dispatch, and each had to add itself to `typing()` (`pnav() ||
-  !!prompting || linking()`). A fourth joins by editing that predicate, and
-  forgetting is silent and destructive — the table's `d` and `D` stay live
-  underneath it. The keymap already holds the machinery this wants: `keyBindings`
-  rows carry a `scope` and `live` routes `any`/`modal`/`table` off page state, so
-  the deeper answer is a scope per surface plus one "which list holds the keys"
-  indirection, which would also put the popup's `o` and `RET` in the blob where
-  the key line and the echo can see them. It is not taken here because it is a
-  redesign of two LANDED listeners rather than an addition, and because the
-  palette's letters are dynamic (`whichKeys`) and stay a listener whatever
-  happens to the other two. The count is three; the fourth is what should force
-  the question. **none**
+- **KNOWN SHAPE, and the fourth surface has arrived: four private listeners, one
+  predicate each of them has to remember to join, and now an ORDER between two of
+  them.** The value palette, the property panel, the link popup and the tags
+  popup each carry a document keydown listener behind the dispatch, and each had
+  to add itself to `typing()` (`pnav() || !!prompting || linking() ||
+  managing()`). Forgetting is silent and destructive — the table's `d` and `D`
+  stay live underneath it. #55 added the second half of the cost: two of these
+  surfaces now STACK (`+` raises the palette over the popup), so the lower one
+  owes two guards of its own — decline while `prompting` is set, and decline a
+  key the palette already claimed (`e.defaultPrevented`). Neither is expressible
+  in the predicate. The keymap holds the machinery this wants: `keyBindings` rows
+  carry a `scope` and `live` routes `any`/`modal`/`table` off page state, so the
+  deeper answer is a scope per surface plus one "which list holds the keys"
+  indirection, which would also put the popups' own keys in the blob where the
+  key line and the echo can see them. It is still not taken, because it is a
+  redesign of THREE landed listeners rather than an addition and because the
+  palette's letters are dynamic (`whichKeys`). The count is four and they now
+  stack; a fifth, or a second stacking pair, should force the question. **none**
 - **`o` is the key inside the popup too, and `RET` is reserved for the edit.**
   The key that raised the list is the key that commits from it, over the link the
   cursor is on rather than the row's first — one gesture with one name. It opens
