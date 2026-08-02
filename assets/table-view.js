@@ -23,6 +23,9 @@
  *
  *   tv.getQuery();        // the query as last delivered
  *   tv.stripLastToken();  // drop the typed text, else the last chip -> bool
+ *   tv.pushCrumb({label, query});   // drilling in: leave a crumb behind
+ *   tv.popCrumb();        // walking out: {label, query} or null — the consumer applies it
+ *   tv.setCrumbs(list); tv.getCrumbs();
  *   tv.openFilter(); tv.closeFilter();   // summon and dismiss the filter
  *   tv.selectStep(+1);    // move a row, turning the page at either end -> bool
  *   tv.nextPage(); tv.previousPage();    // turn a page -> bool
@@ -73,11 +76,14 @@
  * - Selection is a row and, optionally, one cell of it: `select(id, col)' washes
  *   the whole column (`.tv-colsel' on every rendered td of it and on its th) and
  *   stamps `.tv-cell-sel' where that band crosses the cursor row, which is the
- *   crosshair; `getSelection()' reports both. The column is clamped to the ones
- *   that exist, never wrapped, and `select(id)' with no column is the whole-row
- *   selection this had before, with no band anywhere. Every class is re-derived
- *   from the same state on every render, so they survive a scroll, an upsert and
- *   a `setRows' that still carries the id.
+ *   crosshair; `getSelection()' reports both. A column index outside the table
+ *   is no column at all: cell movement is the consumer's loop — read the
+ *   column, add a step, hand it back — so the index one past either end is how
+ *   a reader walks OFF the cells, and the answer there is the whole-row
+ *   selection rather than a cursor stalled against a wall. `select(id)' with no
+ *   column is that same selection, with no band anywhere. Every class is
+ *   re-derived from the same state on every render, so they survive a scroll,
+ *   an upsert and a `setRows' that still carries the id.
  * - The whole selection is grounds — no outline, border or shadow on any of the
  *   three. The bands sit on the cells, where the table paints them above the
  *   rows, and the body's is translucent, so the zebra, a mark, a flag and the
@@ -254,6 +260,21 @@
  *   tokens something follows, so a word is never chipped out from under the
  *   caret. Backspace on an empty box takes the last chip off, a click takes any
  *   chip off, and `onFilter' is handed the whole query joined.
+ * - A drill-down leaves CRUMBS, and the strip is all the renderer does about
+ *   it: `pushCrumb'/`popCrumb'/`setCrumbs'/`getCrumbs' keep a trail of
+ *   `{label, query}', drawn as muted chips LEFT of the live ones in the same
+ *   row. `popCrumb' pops and RETURNS — it never applies — because whoever owns
+ *   the fetching owns what a query means; a consumer pushes as it drills in and
+ *   applies the popped query itself. Past four the oldest fold into one `… +N'
+ *   counter that takes a slot of its own, so the strip's width is fixed. Handle
+ *   state like a mark: it outlives `setRows' and every filter, and `setView'
+ *   drops it with the world it described. A crumb carries no `data-i', which is
+ *   what makes it inert to the click that takes a live chip off.
+ * - `chipLabel: (token) => string|null' aliases what a LIVE chip shows. The
+ *   query is unchanged — `getQuery', `onFilter' and the token a click removes
+ *   are all still the text as written — so a chip may lie prettily while the
+ *   grammar does not. Anything but a non-empty string leaves the token raw, and
+ *   crumbs never reach it: a label is already a label.
  * - Enter with the suggestion list open accepts a suggestion and stays. With
  *   the list closed it commits whatever is typed to a chip — cancelling the
  *   pending debounce, so the query is delivered exactly once — then selects the
@@ -300,6 +321,10 @@
  * @typedef {{ op: "insert", index: number, row: Row }
  *        | { op: "delete", index: number }
  *        | { op: "reset", rows: Row[] }} Op
+ * @typedef {{ label: string, query: string }} Crumb
+ *          One step of a drill-down trail: what to show, and the query that
+ *          gets back to it. The renderer draws the label and never reads the
+ *          query — applying one is the consumer's, who owns the fetching.
  * @typedef {{ onAction?: (command: string, id: string, row: Row) => void,
  *             onLink?: (target: string, row: Row | null) => void,
  *             onFilter?: (q: string) => void,
@@ -309,7 +334,8 @@
  *             actionHints?: boolean,
  *             flagHelp?: string,
  *             pageSize?: number,
- *             initialQuery?: string }} MountOptions
+ *             initialQuery?: string,
+ *             chipLabel?: (token: string) => string|null }} MountOptions
  * @typedef {{ el: HTMLElement,
  *             setView: (v: View) => void,
  *             setRows: (rows: Row[]) => void,
@@ -321,6 +347,10 @@
  *             select: (id: string, col?: number) => boolean,
  *             getSelection: () => { id: string|null, col: number|null },
  *             getQuery: () => string,
+ *             setCrumbs: (list: Crumb[]) => void,
+ *             getCrumbs: () => Crumb[],
+ *             pushCrumb: (c: Crumb) => number,
+ *             popCrumb: () => Crumb|null,
  *             stripLastToken: () => boolean,
  *             openFilter: () => void,
  *             closeFilter: () => void,
@@ -620,6 +650,14 @@
   const ACTIVE_META = "*active*";
 
   /**
+   * SCHEMA's virtual key over a view's DATE columns together: a row is planned
+   * when any of them holds anything. Answered here in full, unlike the metas
+   * above — the cells are all it takes, so no producer set, no vocabulary and
+   * no clock are needed and the two sides cannot disagree about a row.
+   */
+  const PLANNED_KEY = "planned";
+
+  /**
    * The values a column offers for completion: its declared `values' in their
    * own order, then any badge value they did not already name.  Merged rather
    * than shadowed — a producer adding meta-values to a badge column would
@@ -676,6 +714,7 @@
   const PRESS_SLOP = 10;       // px of drift that makes it a scroll instead
   const EASE = 0.3;            // fraction of the remaining scroll covered per frame
   const SNAP_PX = 0.5;         // closer than this and the ease is over
+  const CRUMB_MAX = 4;         // crumb chips drawn before the oldest collapse
 
   /** Run CB when nothing else is pending (or soon, where there is no idle). */
   const idle = (cb) =>
@@ -782,6 +821,26 @@
   border-radius:999px;font-size:12px;cursor:pointer;color:var(--tv-fg);
   border:1px solid var(--tv-border);background:var(--tv-alt)}
 .tv-chip:hover{border-color:var(--tv-accent);color:var(--tv-accent)}
+/* A crumb: where the reader came FROM. It keeps the chip's shape, so the strip
+   reads as one row, and gives up everything that makes a chip actionable — the
+   muted ink instead of the foreground, the page's own ground instead of the
+   chip panel's, a dashed hairline, no remove mark and no hover. The dash is a
+   second channel, the way the flagged row's left edge is: two washes alone
+   would leave a colour to carry the whole difference. The right padding goes
+   back to the left's — the remove mark is what a live chip is lopsided for.
+   The edge is respelled as the plain hairline because the palette's chip rule
+   tints one with frost, which is the APPLIED filter's identity and no part of
+   what a crumb says.
+
+   The ink is the floor that binds, as everywhere else here. --tv-muted is the
+   tag ink and the ground is --tv-bg, which is what a transparent chip is drawn
+   on in every mode, so it clears 4.5:1 in both themes (light 5.1, dark 11.5)
+   while sitting quieter than a live chip's ink does on its own ground (19.9
+   and 15.4). Spelled with the row it lives in so it outranks the palette's own
+   chip rule, the one other place a chip's ground is set. */
+.tv-chips .tv-chip-muted{color:var(--tv-muted);background:transparent;
+  border-color:var(--tv-border);border-style:dashed;cursor:default;padding-right:8px}
+.tv-chips .tv-chip-muted:hover{border-color:var(--tv-border);color:var(--tv-muted)}
 .tv-chip-x{font-style:normal;opacity:.55;padding:0 3px}
 .tv-chip:hover .tv-chip-x{opacity:1}
 /* The suggestion list hangs under the box, over the table. .tv-root clips with
@@ -955,6 +1014,13 @@
       return at === -1 ? `<b class="tv-key">${esc(t)}</b>`
         : `<b class="tv-key">${esc(t.slice(0, at))}</b> ${esc(t.slice(at + 1).trim())}`;
     }).filter(Boolean).join(" · ");
+    /**
+     * How a live chip should read, when the token itself is not what a reader
+     * wants shown — `(token) => string|null', anything but a non-empty string
+     * leaving the token raw. Display only: the query is never touched.
+     * @type {((token: string) => string|null)|null}
+     */
+    const chipLabel = typeof o.chipLabel === "function" ? o.chipLabel : null;
     /** How many chrome cells lead a row; what a column index has to skip. */
     const chrome = marks ? 1 : 0;
     /** The marked ids. @type {Set<string>} */
@@ -1082,8 +1148,10 @@
       // evidence: a table mounted before its rows arrive — an empty store, a
       // query that matched nothing, a mount filled by `setRows' a moment later
       // — decides there is no such column and never looks again, and the tag
-      // keys, their values and their arity all go with it.
+      // keys, their values and their arity all go with it.  Date-ness is read
+      // off the rows the same way and dies with them for the same reason.
       multiAt = undefined;
+      dateAt = undefined;
       queueIndex();
     }
 
@@ -1373,13 +1441,29 @@
     const columnKeys = () => columns().map((c) => c.key);
 
     /**
+     * The keys the VIEW itself implies: its columns, then `planned' where no
+     * column already carries that name. One spelling for the two places that
+     * ask — the resolution list and the completion tier — so a view with a
+     * column of its own called `planned' cannot list it twice in one and once
+     * in the other.
+     */
+    function namedKeys() {
+      const keys = columnKeys();
+      if (keys.indexOf(PLANNED_KEY) === -1) keys.push(PLANNED_KEY);
+      return keys;
+    }
+
+    /**
      * Every key a predicate may name: the columns, then the virtual keys the
      * rows imply. Columns lead, so a tag sharing a column's name is shadowed by
      * it — SCHEMA's collision rule, and the reason resolution is one ordered
      * list rather than two lookups.
      */
     function queryKeys() {
-      const keys = columnKeys();
+      // `planned' is neither a column nor a tag, and it outranks a tag spelled
+      // like it — `tokenTest' answers it before it reaches the vocabulary — so
+      // the view's own keys lead and the tags follow.
+      const keys = namedKeys();
       for (const tag of tagVocab().list) if (keys.indexOf(tag) === -1) keys.push(tag);
       return keys;
     }
@@ -1415,6 +1499,27 @@
     }
 
     /**
+     * Which columns hold dates, for the one predicate that reads them all at
+     * once. Sampled by `dateColumn' rather than named, which is the same
+     * asymmetry the prefix rule already has: a producer knows which of its
+     * columns are dates and this decides it off the cells, so a page carrying
+     * fewer than two dated rows finds no date column and `planned' narrows
+     * where a producer's own would not (SCHEMA, Filter query).
+     *
+     * Cached like `multiColumn''s verdict and thrown away with it: each column
+     * costs a sample of up to forty cells, and this asks every column.
+     * @returns {number[]}
+     */
+    function dateColumns() {
+      if (dateAt !== undefined) return dateAt;
+      dateAt = [];
+      for (let i = 0; i < columns().length; i++) if (dateColumn(i)) dateAt.push(i);
+      return dateAt;
+    }
+    /** @type {number[]|undefined} */
+    let dateAt;
+
+    /**
      * TOK as a row test, negation aside — `queryMatcher' applies that, since
      * where a token lands in the AND/OR shape depends on it. Free text is a
      * substring of the whole row; a field predicate reads one cell, by SCHEMA's
@@ -1428,6 +1533,17 @@
         // pure-free-text query costs exactly what it did before.
         return v ? (r) => rowText(r).search.includes(v) : () => true;
       const col = colByKey(tok.key);
+      // The date columns as one field, ahead of the vocabulary so a tag spelled
+      // `planned' is shadowed the way a column would shadow it. `none' is the
+      // row nobody put a day on; a value is the same prefix a date column takes,
+      // asked of every one of them, and a cell that prefix-matches is a cell
+      // with something in it, so the presence test never has to be spelled twice.
+      if (tok.key === PLANNED_KEY && !col) {
+        if (!v) return () => true;               // half-typed: narrows nothing
+        const dates = dateColumns();
+        if (v === "none") return (r) => dates.every((i) => !rowText(r).cells[i]);
+        return (r) => dates.some((i) => rowText(r).cells[i].startsWith(v));
+      }
       if (!col) {
         // A virtual key: carrying the tag, and matching the text beside it.
         // Membership comes from the vocabulary rather than from the cell, so
@@ -1472,7 +1588,9 @@
     /** Does KEY name a field a row may hold several of at once? */
     function manyValued(key) {
       const col = colByKey(key);
-      if (!col) return true;                 // a virtual key is one of its values
+      // `planned' stands over the date columns, which are single-valued, so it
+      // ORs its repeats the way they do: `planned:A planned:B' is either.
+      if (!col) return key !== PLANNED_KEY;  // a virtual key is one of its values
       return columns().indexOf(col) === multiColumn();
     }
 
@@ -1861,16 +1979,18 @@
     }
 
     /**
-     * COL clamped to a real column index, or null for a whole-row selection.
-     * Clamped rather than wrapped: walking off the last column stays there,
-     * which is what a table does.
+     * COL as a real column index, or null for a whole-row selection — which is
+     * what a column outside the table is. A consumer steps the selection by
+     * reading the column and handing back one more, so the index past an end is
+     * a reader walking off the cells, and the answer there is the row they are
+     * still on: an edge that swallows the key says nothing, and the row-only
+     * selection is a look the table already draws.
      * @param {number|null|undefined} col  @returns {number|null}
      */
-    function clampCol(col) {
+    function cellCol(col) {
       if (col === null || col === undefined) return null;
-      const n = columns().length;
-      if (!n) return null;
-      return Math.max(0, Math.min(n - 1, Math.trunc(col)));
+      const at = Math.trunc(col);
+      return at >= 0 && at < columns().length ? at : null;
     }
 
     /**
@@ -1883,7 +2003,7 @@
      */
     function setSelected(id, col) {
       state.selected = id ?? null;
-      state.selCol = id === null || id === undefined ? null : clampCol(col);
+      state.selCol = id === null || id === undefined ? null : cellCol(col);
       selAt = indexOfSelected();
       stampSelection();
     }
@@ -2064,8 +2184,10 @@
      * is how a consumer moves the selection. False when no visible row has that
      * id — a filtered-out row does not steal the selection.
      *
-     * COL selects one cell of that row, clamped to the columns that exist;
-     * omitted, the selection is the whole row, which is what it always was.
+     * COL selects one cell of that row; a COL outside the columns that exist
+     * selects none of them, so a consumer stepping past either end lands on the
+     * whole-row selection. Omitted, it is that same selection, which is what it
+     * always was.
      *
      * This scrolls, keeping a margin under the cursor. A click does not: the
      * row is under the pointer already, and yanking the viewport out from
@@ -2080,7 +2202,7 @@
       if (i === -1) return false;
       const was = selAt;
       state.selected = id;
-      state.selCol = clampCol(col);
+      state.selCol = cellCol(col);
       selAt = i;
       paintSelection(was);
       return true;
@@ -2317,19 +2439,31 @@
       selectRow(rows[0].id, state.selCol ?? undefined);
     }
 
-    function toggleSort(key) {
-      const col = colByKey(key);
-      if (!col || col.sortable !== true) return;
-      const primary = state.sortKeys[0];
-      state.sortKeys = (primary && primary.column === key)
-        ? [{ column: key, ascending: !primary.ascending, nullsFirst: false }]
-        : [{ column: key, ascending: true, nullsFirst: false }];
+    /**
+     * Sort on KEY in ASCENDING, replacing whatever sort was in force. False
+     * when no column carries that key, so a caller can tell a sort that did not
+     * happen from one that did.
+     * @param {string} key @param {boolean} ascending @returns {boolean}
+     */
+    function sortTo(key, ascending) {
+      if (!colByKey(key)) return false;
+      state.sortKeys = [{ column: key, ascending, nullsFirst: false }];
       page = 0;                          // a different order, read from the top
       continuous = false;
       dropSorted();
       scroll.scrollTop = 0;
       renderArrows();
       renderRows(true);
+      return true;
+    }
+
+    /** A header click: this column ascending, or the other way if it is already
+     *  the primary one. `sortable' gates what a READER may reach. */
+    function toggleSort(key) {
+      const col = colByKey(key);
+      if (!col || col.sortable !== true) return;
+      const primary = state.sortKeys[0];
+      sortTo(key, !(primary && primary.column === key && primary.ascending));
     }
 
     function dispatch(command, row) {
@@ -2479,6 +2613,15 @@
     /** @type {string[]} */
     let chips = [];
 
+    /**
+     * The trail a drill-down left: where the reader came FROM, oldest first.
+     * Handle state, the way a mark is — the consumer owns the drilling and this
+     * owns the strip — so it survives `setRows' and every filter, and `setView'
+     * takes it with the world it described.
+     * @type {Crumb[]}
+     */
+    let crumbs = [];
+
     /** The query as it stands: every chip, then whatever is in the box. */
     function effectiveQuery() {
       const typed = input.value.trim();
@@ -2487,13 +2630,53 @@
       return typed ? front + " " + typed : front;
     }
 
+    /** C as this keeps a crumb, or null when it is not one. @param {*} c */
+    function crumbOf(c) {
+      return c && typeof c === "object"
+        ? { label: String(c.label ?? ""), query: String(c.query ?? "") } : null;
+    }
+
+    /**
+     * How a live chip reads. A `chipLabel' formatter may alias the token to
+     * something a reader would rather see; the QUERY is untouched, so what
+     * `getQuery' answers, what `onFilter' is handed and what a click takes off
+     * are all still the token as written. Crumbs never reach this — a crumb's
+     * label IS its label, and running a token formatter over one would be
+     * asking a query question about a word that is not a query.
+     * @param {string} tok
+     */
+    function chipText(tok) {
+      if (!chipLabel) return tok;
+      const alias = chipLabel(tok);
+      return typeof alias === "string" && alias ? alias : tok;
+    }
+
+    /**
+     * The crumbs as the strip draws them, leftmost first. Past CRUMB_MAX the
+     * oldest collapse into one `… +N' counter, and the counter takes a slot of
+     * its own — so the strip is never wider than CRUMB_MAX chips however deep
+     * the drilling went, and the fifth crumb is what folds the first two away.
+     * @returns {string[]}
+     */
+    function crumbStrip() {
+      if (crumbs.length <= CRUMB_MAX) return crumbs.map((c) => c.label);
+      const kept = crumbs.slice(crumbs.length - (CRUMB_MAX - 1));
+      return ["… +" + (crumbs.length - kept.length)].concat(kept.map((c) => c.label));
+    }
+
+    // Crumbs lead, live chips follow: the trail is what was left behind and the
+    // chips are what is in force, so the row reads left to right as the reader
+    // walked it. A crumb carries no `data-i' — history is not a token that can
+    // be taken off — which is what the click delegation reads it by.
     function renderChips() {
       let html = "";
+      for (const text of crumbStrip())
+        html += `<span class="tv-chip tv-chip-muted">${esc(text)}</span>`;
       for (let i = 0; i < chips.length; i++)
-        html += `<span class="tv-chip" data-i="${i}" title="remove">${esc(chips[i])}`
+        html += `<span class="tv-chip" data-i="${i}" title="remove">${esc(chipText(chips[i]))}`
               + `<i class="tv-chip-x">×</i></span>`;
       chipsEl.innerHTML = html;
-      chipsEl.style.display = chips.length ? "" : "none";
+      chipsEl.style.display = (crumbs.length || chips.length) ? "" : "none";
     }
 
     /**
@@ -2674,8 +2857,9 @@
       const t = tokenAtCaret();
       if (!t || t.quoted) return null;
       if (t.key !== null) {
-        // A virtual key takes no value list — what follows it is free text over
-        // the rows it scopes, and there is no domain to offer for that.
+        // A virtual key takes no value list: under a tag key what follows is
+        // free text over the rows it scopes, and under `planned' it is a date
+        // prefix over several columns at once. Neither is a domain to enumerate.
         const col = colByKey(t.key);
         return col ? { stage: "value", tok: t, col, prefix: t.value } : null;
       }
@@ -2699,8 +2883,10 @@
         //    rows imply. Both are exact facts, so neither is dimmed; the
         //    columns come first because they are the view's own vocabulary,
         //    and a tag carries the count of the rows that hold it, a column
-        //    having no one number to show.
-        const keys = columnKeys();
+        //    having no one number to show.  `planned' rides with the columns:
+        //    it is the view's own vocabulary too, and having it in this list is
+        //    also what keeps a tag spelled like it out of the tier below.
+        const keys = namedKeys();
         for (const k of keys) {
           if (!k.toLowerCase().startsWith(p)) continue;
           out.push({ text: k + ":", count: -1, full: false, dim: false, pick: true });
@@ -3088,7 +3274,10 @@
     chipsEl.addEventListener("click", (e) => {
       const t = hit(e);
       const chip = t && /** @type {HTMLElement|null} */ (t.closest(".tv-chip"));
-      if (!chip) return;
+      // A crumb wears the chip's shape and carries no index, so it lands here
+      // and has nothing to drop. Without the guard the index reads NaN and
+      // `splice' takes it for zero, which is the FIRST live chip.
+      if (!chip || chip.dataset.i === undefined) return;
       dropChip(Number(chip.dataset.i));
     });
 
@@ -3176,6 +3365,7 @@
         state.filter = "";
         marked.clear();          // a different view; these were about the last one
         flagged.clear();
+        crumbs = [];             // and the trail was a path through it
         chips = [];
         input.value = "";
         renderChips();
@@ -3289,7 +3479,58 @@
        * @returns {string}
        */
       getQuery() { return lastQuery; },
+      /**
+       * Replace the crumb trail, oldest first. Anything that is not an object
+       * is dropped; a missing `label' or `query' reads as "".
+       * @param {Crumb[]} list
+       */
+      setCrumbs(list) {
+        crumbs = [];
+        for (const c of list || []) {
+          const one = crumbOf(c);
+          if (one) crumbs.push(one);
+        }
+        renderChips();
+      },
+      /**
+       * The trail as it stands, oldest first — copies, so a consumer reading
+       * it cannot move the strip by editing what it was handed.
+       * @returns {Crumb[]}
+       */
+      getCrumbs() { return crumbs.map((c) => ({ label: c.label, query: c.query })); },
+      /**
+       * Push one crumb on the end. What a consumer does as it drills IN.
+       * @param {Crumb} c  @returns {number} how deep the trail is now
+       */
+      pushCrumb(c) {
+        const one = crumbOf(c);
+        if (one) { crumbs.push(one); renderChips(); }
+        return crumbs.length;
+      },
+      /**
+       * Take the last crumb off and hand it back, or null on an empty trail.
+       * It is popped and NOT applied: whoever owns the fetching owns what a
+       * query means, so a consumer walking out re-applies the `query' itself.
+       * @returns {Crumb|null}
+       */
+      popCrumb() {
+        if (!crumbs.length) return null;
+        const gone = crumbs[crumbs.length - 1];
+        crumbs.pop();
+        renderChips();
+        return gone;
+      },
       stripLastToken,
+      /**
+       * Sort on COLUMN, ascending unless ASCENDING is false, replacing whatever
+       * sort is in force. A header click TOGGLES; this states an order, so a
+       * consumer applying a canned view lands on the same one every time. It
+       * ignores `sortable', which gates what a READER may reach rather than
+       * what a producer's own agent may ask for.
+       * @param {string} column @param {boolean} [ascending]
+       * @returns {boolean} false when no column carries that key
+       */
+      sortBy(column, ascending) { return sortTo(column, ascending !== false); },
       openFilter,
       closeFilter,
       selectStep,

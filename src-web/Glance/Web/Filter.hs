@@ -48,11 +48,12 @@ module Glance.Web.Filter ( Term (..)
                          , matchesFilter
                          , namesArchive
                          , parseFilter
+                         , plannedKey
                          , scanQuery
                          ) where
 
 import Data.List (elemIndex, nub)
-import Data.Maybe (fromMaybe, isNothing)
+import Data.Maybe (fromMaybe, isNothing, mapMaybe)
 import Data.Text (Text)
 
 import qualified Data.Text as T
@@ -73,6 +74,23 @@ import Glance.Query ( HeadlineRecord (hrActive, hrSearch), archiveTag, cellSep
 -- sampling its cells; here the two date columns are known by name.
 dateKeys :: [Text]
 dateKeys = ["scheduled", "deadline"]
+
+-- | The virtual key over the two date columns together: a row is @planned@ when
+-- either of them holds anything, so @planned:none@ is an entry nobody has put a
+-- day on and @-planned:none@ is the agenda's half of its query.
+--
+-- Decidable from the row alone, which is what makes it a key both sides can
+-- carry: the renderer has the same two cells and needs no keyword set, no
+-- vocabulary and no clock to answer it.  It is not a column — nothing renders a
+-- @planned@ cell — and it is not a tag either, so it shadows an org tag of that
+-- name the way a column does (SCHEMA.md, Filter query).
+plannedKey :: Text
+plannedKey = "planned"
+
+-- | The date columns' cells, one reader each: where they sit in 'filterKeys' is
+-- where their fields sit in the search text.
+dateCells :: [HeadlineRecord -> Text]
+dateCells = map cellOf (mapMaybe (`elemIndex` filterKeys) dateKeys)
 
 -- | One token of a query, as 'scanQuery' cuts it: the quotes and the leading
 -- @-@ are gone from 'tkBody', and what they meant is recorded beside it.  (The
@@ -140,7 +158,7 @@ parseFilter vocabulary = map resolve . scanQuery
       | otherwise  = case splitKey (tkBody t) of
           Just (key, value) | known key -> Term (tkNegated t) (Just key) value
           _notAPredicate                -> free t
-    known key = key `elem` filterKeys || key `elem` vocabulary
+    known key = key `elem` filterKeys || key == plannedKey || key `elem` vocabulary
     free t = Term (tkNegated t) Nothing (tkBody t)
 
 -- | The virtual key an archived row answers to: 'Glance.Query.archiveTag'
@@ -189,24 +207,30 @@ matchesFilter vocabulary q = case compile (parseFilter vocabulary q) of
   tests   -> \r -> all ($ r) tests
 
 -- | What a predicate's key turned out to name: a column, at its field of the
--- search text, or one of the producer's virtual keys, which is a tag.  Resolved
--- once per term, so the arity and the test read one answer rather than looking
--- the key up again for each.
-data Field = Col !Int | Tag
+-- search text, the two date columns together ('plannedKey'), or one of the
+-- producer's virtual keys, which is a tag.  Resolved once per term, so the
+-- arity and the test read one answer rather than looking the key up again for
+-- each.
+data Field = Col !Int | Planned | Tag
   deriving (Eq)
 
--- | KEY as a field.  A key that is not a column reached 'Term' by being in the
--- vocabulary, which is to say by being a tag.
+-- | KEY as a field.  A key that is neither a column nor 'plannedKey' reached
+-- 'Term' by being in the vocabulary, which is to say by being a tag.
 fieldOf :: Text -> Field
-fieldOf key = maybe Tag Col (elemIndex key filterKeys)
+fieldOf key | key == plannedKey = Planned
+            | otherwise         = maybe Tag Col (elemIndex key filterKeys)
 
 -- | Does FIELD hold a list of values rather than one?  The @tag@ column does,
 -- and so does every virtual key; the rest of this view holds one value per
 -- cell.  This is the split SCHEMA.md makes: @state:TODO state:DONE@ has to be
 -- either state, since a row with both does not exist, while @tag:a tag:b@ is a
 -- row carrying both, the way a label filter reads.
+--
+-- @planned@ reads one of two dates, so it ORs like the date columns it stands
+-- over: @planned:2026-08 planned:2026-09@ is either month.
 multiValued :: Field -> Bool
 multiValued Tag     = True
+multiValued Planned = False
 multiValued (Col i) = i == tagsColumn
 
 -- | TERMS as the tests a row must all pass.  Positive predicates sharing a key
@@ -254,6 +278,14 @@ freeTest value | T.null value = const True
 keyTest :: Text -> Field -> Text -> HeadlineRecord -> Bool
 keyTest key Tag value =
   \r -> key `elem` tagsOfCell (cellOf tagsColumn r) && freeTest value r
+-- @planned@ over its two cells: unplanned is neither of them holding anything,
+-- and a value is the date prefix @scheduled:@ and @deadline:@ each take, asked
+-- of both at once.  A cell that prefix-matches is a cell with something in it,
+-- so a value never needs the presence test spelled beside it.
+keyTest _key Planned value
+  | T.null value    = const True                        -- half-typed: narrows nothing
+  | value == "none" = \r -> all (T.null . ($ r)) dateCells
+  | otherwise       = \r -> any (T.isPrefixOf value . ($ r)) dateCells
 keyTest key (Col i) value
   | T.null value        = const True                    -- half-typed: narrows nothing
   | value == "none"     = T.null . cell

@@ -16,7 +16,8 @@
 -- one headline's raw subtree, @POST@ to write an edited one back —
 -- @POST \/command@ the structured writes, which name rows and let the server
 -- compute the spans, @GET \/keywords@ the states those rows may be set to and
--- which scope declares each, and @\/config@ the keyword layers themselves.
+-- which scope declares each, @GET \/links@ where one row points, and
+-- @\/config@ the keyword layers themselves.
 -- The view's field set is the contract
 -- (@table-view\/SCHEMA.md@), so the load counts ride along as @X-Glance-*@
 -- response headers and leave the body's shape alone.
@@ -128,7 +129,8 @@ import Glance.Query ( ConfigLayerFile (..), ConfigLayers (clDirs)
                     , headlineParts, keywordSources, orderedForView, planningKeywords
                     , planningTimestamp, readConfigLayers, readsAsTimestamp
                     , recomposedSubtree
-                    , replaceSpans, setPlanningEdits, setStateEdits, subtreeText
+                    , replaceSpans, setPlanningEdits, setStateEdits, subtreeLinks
+                    , subtreeText
                     , todoLines, viewJSONTextWith )
 import Glance.Web.Filter (archiveKey, matchesFilter, namesArchive)
 import Glance.Web.Store ( Client, Frame (ViewChanged), Hub, LoadState (..)
@@ -328,6 +330,7 @@ httpApp opts hub request respond = route >>= respond
       , (["command"],   True,  commandRoute)
       , (["config"],    True,  configRoute)
       , (["keywords"],  True,  readOnly (keywordsView hub request))
+      , (["links"],     True,  readOnly (linksView hub (queryId request)))
       , (["ws"],        True,  readOnly (pure (plain status400 wsHint)))
       ]
     route = case [ (needs, act) | (path, needs, act) <- named, path == pathInfo request ] of
@@ -773,6 +776,35 @@ keywordsView hub request = do
            ]
   where asked = queryIds request
         sourceJSON (source, kw) = object ("source" .= source : keywordsPair kw)
+
+-- Links
+
+-- | @GET \/links?id=ROW@: where that row points.
+--
+-- @{"links": [{"target": …, "desc": …}]}@, in order of appearance and one entry
+-- per target ('Glance.Query.subtreeLinks').  The rule is the DISPLAY rule the
+-- table already answers to: a bracket link is described by its @DESC@, or by
+-- its target where it has none, and a bare @http(s)@ or @mailto:@ URL describes
+-- itself.
+--
+-- Extracted here rather than in the page because it is org text work.  The
+-- shell holds no org parser and must not grow one, and the bracket grammar this
+-- reads is the one 'Glance.Query.displayText' already holds — a second copy in
+-- JavaScript would be a second grammar to keep in step with SCHEMA.md's link
+-- rule.
+--
+-- The SUBTREE, not the cells: a reader pressing @o@ on a row means the entry,
+-- and an entry keeps its references in its body.  A read, so it pins nothing
+-- and 404s an id the store has no row for, the way materialize does.
+linksView :: Hub -> Maybe Text -> IO Response
+linksView _hub Nothing = pure (jsonError status400 "GET /links?id=<row id>")
+linksView hub (Just rid) = do
+  found <- storeHeadline rid <$> readTVarIO (hubStore hub)
+  pure $ case found of
+    Nothing -> jsonError status404 ("no headline with id " <> rid)
+    Just r  -> jsonResponse status200
+      [ "links" .= [ object [ "target" .= target, "desc" .= desc ]
+                   | (target, desc) <- subtreeLinks r ] ]
 
 -- | The rows REQUEST names, deduplicated: every @ids@ parameter, each a comma
 -- separated list, and every @id@ parameter, each ONE id — the way
@@ -1564,9 +1596,17 @@ keyBindings =
       `helps` "mark every row loaded"
   , bind ["q"]          "quit-window"                     (Just "quitWindow")     "table"
   , bind ["TAB"]        "org-cycle"                       Nothing                 "table"
-  , bind ["o"]          "org-glance-overview:open"        Nothing                 "table"
-  , bind ["!"]          "org-glance-overview:open"        Nothing                 "table"
-  , bind ["a"]          "org-glance-agenda"               Nothing                 "table"
+    -- Where the row points, out of its own subtree: one link opens, several
+    -- raise the palette over their descriptions, none says so.  Two spellings,
+    -- org-glance's own.
+  , bind ["o"]          "org-glance-overview:open"        (Just "openLinks")      "table"
+      `helps` openHelp
+  , bind ["!"]          "org-glance-overview:open"        (Just "openLinks")      "table"
+      `helps` openHelp
+    -- A canned VIEW rather than a mode: the active rows carrying a date,
+    -- earliest first.  `g' is the way back.
+  , bind ["a"]          "org-glance-agenda"               (Just "applyAgenda")    "table"
+      `helps` "the active rows carrying a date, earliest first"
   , bind ["@"]          "org-glance-overview:relations"   Nothing                 "table"
   -- The one command that names no row: it writes a new entry into the tree's
   -- capture target, which is a line of the system config.
@@ -1625,6 +1665,10 @@ lastRowHelp  = "last row, again = page down"
 planningHelp :: Text
 planningHelp = "a date over the marked rows, or the row at point; empty clears it"
 
+-- | The open help line, shared by the two spellings of the one command.
+openHelp :: Text
+openHelp = "follow this row's link; several raise the palette"
+
 -- | Chords the browser needs more than this page does: never claimed as the key
 -- that abandons a prefix this map had entered, which is what leaves @C-x C-l@
 -- to the browser.  One completing a bound sequence is still claimed — that is
@@ -1646,7 +1690,11 @@ reservedChords = ["C-l", "C-r", "C-t", "C-w", "C-n", "C-p", "<f5>"]
 -- shape exists to be.
 onceCommands :: [Text]
 onceCommands = [ "filter-drop-token", "unmark-all", "mark-all"
-               , "archive-flag", "org-glance-overview:delete" ]
+               , "archive-flag", "org-glance-overview:delete"
+                 -- Neither writes a file, and both are ruinous held down: a
+                 -- leaned-on `o' is a browser tab per repeat, and a leaned-on
+                 -- `a' is a remount per repeat.
+               , "org-glance-overview:open", "org-glance-agenda" ]
 
 -- | The resident key line, in the order it reads: the commands worth naming
 -- ahead of the echo pill, each with the word the line shows for it.  Commands
@@ -1666,6 +1714,7 @@ keyHints =
   -- never finds out that it climbs.
   , (["first-row", "last-row"],            "first/last row, again = page up/down")
   , (["org-glance-overview:materialize"],  "materialize")
+  , (["org-glance-overview:open"],         "open link")
   , (["mark-toggle", "unmark", "unmark-all", "mark-all"], "mark")
   -- The two structured commands, beside the keys that pick what they run over.
   -- `state' runs over the MARKED set; archiving runs over the FLAGGED one, and
@@ -1678,6 +1727,7 @@ keyHints =
   , (["archive-flag", "org-glance-overview:delete"], "archive flagged")
   , (["filter-rows"],                      "filter")
   , (["apply-default-filter"],             "default view")
+  , (["org-glance-agenda"],                "agenda")
   , (["filter-drop-token"],                "drop token")
   , (["customize"],                        "settings")
   , (["quit-window"],                      "quit")
@@ -2610,6 +2660,10 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- same at a stop as at a turn.
   , "    const pager = () => !!table && typeof table.nextPage === \"function\""
   , "      && typeof table.pageInfo === \"function\";"
+    -- The programmatic sort, which is the agenda's and nothing else's.  Named
+    -- here with the rest, since this is where a reader greps for which renderer
+    -- calls are optional.
+  , "    const sorts = () => !!table && typeof table.sortBy === \"function\";"
   , "    function turnPage(b, step) {"
   , "      if (!pager()) { said(b, \"this table-view.js has no pager\"); return; }"
   , "      if (step > 0) table.nextPage(); else table.previousPage();"
@@ -2888,28 +2942,47 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    function letterAt(label, at) {"
   , "      return at === -1 ? null : label[at].toLowerCase();"
   , "    }"
-    -- Raised EMPTY and filled from `/keywords', which is what makes the table
-    -- the resolver's answer rather than this page's guess.  The overlay goes up
-    -- on the keydown, so everything that hangs off it being up — `typing()',
-    -- ESC, and the raising guard below — is unchanged by the request behind it;
-    -- what the reader sees for that moment is a line saying so.
+    -- The list palette, raised EMPTY: `t' fills it from `/keywords' — which is
+    -- what makes the table the resolver's answer rather than this page's guess
+    -- — and `o' fills it in the same tick, having already been answered.  Every
+    -- rung that hangs off the overlay being up (`typing()', ESC, the raising
+    -- guard below) is the same either way; what a reader sees until a fill
+    -- lands is the line saying so.
     --
-    -- `raising' is the keydown that opened this: it is still travelling, and
-    -- this listener sits behind the dispatch, so the press that raised the
-    -- overlay arrives here next.  `t' raises it AND is a letter in it, so
-    -- without declining that one event the single press would open and commit
-    -- at once.  Consumed by the first key the palette sees, which is always
-    -- that one — `ask' is reached from the dispatch and nowhere else.  The
+    -- TRAVELLING is the keydown that opened this, still in flight: this
+    -- listener sits behind the dispatch, so a palette raised ON the press sees
+    -- that press next, and `t' is both the opener and a letter in what it
+    -- opens. `o' raises its palette behind a fetch, by which time the press is
+    -- long gone and declining one would eat the reader's first real key. The
     -- prompt itself is handed back, so a fill landing after an ESC can tell
     -- that the overlay it was asked for is gone.
-  , "    function ask(title, commit) {"
+  , "    function ask(title, commit, foot, travelling) {"
   , "      prompting = { choices: [], shown: [], at: 0, commit,"
-  , "                    narrow: false, raising: true };"
+  , "                    narrow: false, raising: !!travelling };"
   , "      el(\"phead\").textContent = title;"
   , "      el(\"pinput\").value = \"\";"
   , "      el(\"prompt\").className = \"on\";"
-  , "      mode(\"\", \"a letter sets it · / to search · ESC leaves\");"
+  , "      mode(\"\", foot);"
   , "      return prompting;"
+  , "    }"
+    -- LIST under its letters, drawn.  The one place the which-key pool is
+    -- spent, so the rule a reader learns by heart has one implementation: the
+    -- state palette hands over its table flattened in draw order, and the link
+    -- palette its own flat list.  The letters are stamped IN PLACE, since the
+    -- table's cells hold these very objects and a copy would leave them holding
+    -- entries as they were before one was assigned.
+  , "    function offer(list) {"
+  , "      whichKeys(list.map((c) => c.label)).forEach((cut, i) => {"
+  , "        list[i].cut = cut;"
+  , "        list[i].key = letterAt(list[i].label, cut);"
+  , "      });"
+  , "      prompting.choices = list;"
+  , "      prompting.shown = list;"
+    -- A reader who pressed `/' and typed while an answer was out is narrowing
+    -- an empty list; the fill lands in the mode it finds rather than throwing
+    -- the typing away.
+  , "      if (prompting.narrow) narrowTo(el(\"pinput\").value);"
+  , "      else drawChoices();"
   , "    }"
     -- SOURCES as the palette holds them: the labels down the table's first
     -- column, and the flat ordered list everything else reads.  The flattening
@@ -2941,17 +3014,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      }));"
   , "      prompting.meta = { label: CLEAR, keyword: null, meta: true };"
   , "      flat.push(prompting.meta);"
-  , "      whichKeys(flat.map((c) => c.label)).forEach((cut, i) => {"
-  , "        flat[i].cut = cut;"
-  , "        flat[i].key = letterAt(flat[i].label, cut);"
-  , "      });"
-  , "      prompting.choices = flat;"
-  , "      prompting.shown = flat;"
-    -- A reader who pressed `/' and typed while the answer was out is narrowing
-    -- an empty list; the fill lands in the mode it finds rather than throwing
-    -- the typing away.
-  , "      if (prompting.narrow) narrowTo(el(\"pinput\").value);"
-  , "      else drawChoices();"
+  , "      offer(flat);"
   , "    }"
     -- The same overlay with no list in it: one line of text, typed and
     -- committed with RET.  It is the minibuffer the filter palette set the
@@ -3018,6 +3081,13 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        part(list, \"div\", \"pnone\", \"resolving…\");"
   , "        return;"
   , "      }"
+    -- A palette with no source table behind it is a flat list of entries under
+    -- their letters: the links.  There is nothing to lay out in columns — one
+    -- row points where it points, and no scope classified it.
+  , "      if (!prompting.table) {"
+  , "        prompting.shown.forEach((c) => entry(list, \"pe\", c));"
+  , "        return;"
+  , "      }"
   , "      const head = part(list, \"div\", \"pr ph\");"
   , "      part(head, \"div\", \"ps\", \"source\");"
   , "      part(head, \"div\", \"pc\", \"active\");"
@@ -3042,14 +3112,22 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      if (!prompting.narrow) part(row, \"span\", key ? \"pk\" : \"pk off\", key || \"·\");"
   , "      const word = part(row, \"span\", \"pw\");"
   , "      if (c.color) word.style.color = c.color;"
-  , "      if (!key) { word.textContent = c.label; return; }"
-  , "      part(word, \"span\", \"\", c.label.slice(0, c.cut));"
-  , "      part(word, \"b\", \"\", c.label[c.cut]);"
-  , "      part(word, \"span\", \"\", c.label.slice(c.cut + 1));"
+  , "      if (!key) word.textContent = c.label;"
+  , "      else {"
+  , "        part(word, \"span\", \"\", c.label.slice(0, c.cut));"
+  , "        part(word, \"b\", \"\", c.label[c.cut]);"
+  , "        part(word, \"span\", \"\", c.label.slice(c.cut + 1));"
+  , "      }"
+    -- Where the entry points, for a label that is a description of it.  Only
+    -- the link palette sets one; a keyword IS its own destination.
+  , "      if (c.hint) part(row, \"span\", \"pt\", c.hint);"
   , "    }"
   , "    function narrowTo(text) {"
   , "      const want = text.trim().toLowerCase();"
-  , "      prompting.shown = prompting.choices.filter((c) => c.label.toLowerCase().includes(want));"
+    -- Over what an entry SHOWS, both parts of it: a reader who remembers the
+    -- host and not the wording has only the aside to type.
+  , "      prompting.shown = prompting.choices.filter((c) =>"
+  , "        `${c.label} ${c.hint || \"\"}`.toLowerCase().includes(want));"
   , "      prompting.at = 0;"
   , "      drawChoices();"
   , "    }"
@@ -3104,6 +3182,26 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    const keywordSources = (ids) =>"
   , "      getJSON(\"/keywords?\""
   , "        + ids.map((i) => \"ids=\" + encodeURIComponent(i)).join(\"&\"));"
+    -- Where a row points, out of the server's reading of its subtree.  This
+    -- page holds no org parser, so the bracket grammar stays where the display
+    -- rule already lives — one link is `[[TARGET][DESC]]' shown as DESC, and a
+    -- bare URL is its own description.
+  , "    const linksOf = (id) => getJSON(`/links?id=${encodeURIComponent(id)}`);"
+    -- The answer as palette entries, built once whether or not a palette is
+    -- raised: the DESCRIPTION is the label, since that is what the row's own
+    -- text calls the place, and the target rides beside it muted and joins the
+    -- text `/' narrows over — a reader who remembers the host and not the
+    -- wording has only the one.
+  , "    const linkChoices = (links) => links.map((l) =>"
+  , "      ({ label: l.desc || l.target, target: l.target, hint: l.target }));"
+    -- One tab, and the log keeps what was followed: a link opened is the one
+    -- thing a key here does that leaves no trace on the page it was pressed on.
+    -- `noopener' because the opened page must not reach back into this one.
+  , "    function openLink(b, link) {"
+  , "      window.open(link.target, \"_blank\", \"noopener\");"
+  , "      said(b, link.label);"
+  , "      append(\"cmd\", \"info\", `link ${JSON.stringify(link.target)} opened`);"
+  , "    }"
     -- Settings.  One section per keyword layer, and a layer is one config file
     -- and one box holding its `#+TODO:' lines VERBATIM.  The line is the
     -- contract org itself reads, so it is what is edited: a chip UI here would
@@ -3357,20 +3455,37 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    // The one door that throws the mount away and builds a new one: a"
   , "    // `view-changed' close, and `g'.  Everything else that loses the socket"
   , "    // goes through `resync', which keeps the page it has."
-  , "    function remount() { stash(); start(); }"
+  , "    function remount(after) { stash(); start(after); }"
     -- `g': the view this tree configures, applied the way every other query is
     -- — written into the URL and asked of the server.  It goes through the
     -- mount because the chips are the renderer's and only a mount can be handed
     -- a query it did not commit itself; `start' then reads the URL this just
     -- wrote.  Dropping onclose first stops the reconnect timer opening a second
     -- socket behind this one.
-  , "    function applyDefault(b) {"
-  , "      said(b, DEFAULT_QUERY"
-  , "        ? `filter: ${JSON.stringify(DEFAULT_QUERY)}` : \"filter cleared\");"
+  , "    function applyView(b, q, landing) {"
+  , "      said(b, q ? `filter: ${JSON.stringify(q)}` : \"filter cleared\");"
   , "      if (socket) { socket.onclose = null; socket.close(); socket = null; }"
   , "      backoff = 1000;"
-  , "      remember(DEFAULT_QUERY);"
-  , "      remount();"
+  , "      remember(q);"
+  , "      remount(landing);"
+  , "    }"
+  , "    function applyDefault(b) { applyView(b, DEFAULT_QUERY); }"
+    -- `a' is the second canned view and the only one this page spells itself:
+    -- the active rows carrying a date, which is `planned' — the virtual key
+    -- over the two date cells, decidable by either side of the wire.  It is a
+    -- VIEW rather than a mode, so `g' is the way home and every other key means
+    -- what it always meant while it is applied.
+  , "    const AGENDA_QUERY = \"state:*active* -planned:none\";"
+    -- What `a' does once its rows are on screen.  The sort is the point of the
+    -- view — earliest first — and the view JSON already declares it, which a
+    -- remount re-reads; the call is what makes the order the agenda's own
+    -- rather than a coincidence of the default, and it is feature-detected
+    -- since an asset predating a programmatic sort has only its headers.  The
+    -- count is the server's answer to the query, which is the one number a
+    -- first page cannot give.
+  , "    function landedAgenda(b, total) {"
+  , "      if (sorts()) table.sortBy(\"scheduled\", true);"
+  , "      said(b, `agenda · ${total} row${total === 1 ? \"\" : \"s\"}`);"
   , "    }"
   , ""
   , "    // Keys.  The map is the JSON above — dispatch and echo read the one blob,"
@@ -3541,7 +3656,8 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      setState: (b) => overTargets(b, \"set state\", (ids, title) => {"
   , "        const mine = ask(title,"
   , "          (c) => fire(b, \"set-state\", ids, { keyword: c.keyword },"
-  , "                      c.keyword === null ? CLEAR : c.keyword));"
+  , "                      c.keyword === null ? CLEAR : c.keyword),"
+  , "          \"a letter sets it · / to search · ESC leaves\", true);"
   , "        keywordSources(ids).then((answer) => {"
   , "          if (prompting === mine) setChoices(answer.sources);"
   , "        }).catch((e) => {"
@@ -3554,6 +3670,27 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      capture: (b) =>"
   , "        askText(\"capture · a headline for the inbox\","
   , "                \"RET captures it · ESC leaves\", \"\", (c) => captureRow(b, c.text)),"
+    -- `o' follows the row rather than editing it, and how many links the row
+    -- holds decides the whole gesture: none is a refusal, one opens, several
+    -- ask which.  The count is the server's answer, so the palette can only go
+    -- up behind the request — which is why this one is raised late where the
+    -- state palette is raised on the press.
+  , "      openLinks: (b) => {"
+  , "        const id = focusedId();"
+  , "        if (!id) { said(b, \"no row\"); return; }"
+  , "        linksOf(id).then((a) => {"
+  , "          const links = linkChoices(a.links || []);"
+  , "          if (!links.length) { said(b, \"no links\"); return; }"
+  , "          if (links.length === 1) { openLink(b, links[0]); return; }"
+    -- The answer is what decides there is a palette at all, so this one goes up
+    -- behind the fetch — and by then the `o' that asked has been dispatched and
+    -- gone, which is why nothing is travelling and nothing is declined.
+  , "          ask(`open · ${links.length} links`, (c) => openLink(b, c),"
+  , "              \"a letter opens it · / to search · ESC leaves\", false);"
+  , "          offer(links);"
+  , "        }).catch(failed(b, \"open\"));"
+  , "      },"
+  , "      applyAgenda: (b) => applyView(b, AGENDA_QUERY, (total) => landedAgenda(b, total)),"
   , "      schedulePlan: (b) => planRows(b, \"SCHEDULED\"),"
   , "      deadlinePlan: (b) => planRows(b, \"DEADLINE\"),"
   , "      quitWindow: () => (editing ? leave()"
@@ -3731,7 +3868,11 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
       <> " `indexing … ${b.elapsed}s · the table opens when the walk lands`);"
   , "      setTimeout(resync, 1000);"
   , "    }"
-  , "    function start() {"
+    -- AFTER is what a canned view wants doing once its own rows are up, given
+    -- the server's match count.  An argument rather than a variable this arms
+    -- and disarms, so it belongs to the boot it was passed to and a boot that
+    -- never lands cannot leave one behind for the next.
+  , "    function start(after) {"
   , "      // A `?q=' in the address bar is a filtered view, and so is a bare"
   , "      // boot: the boot asks for whichever it is and `mount' opens the"
   , "      // filter showing it.  Every return through this door — a reload,"
@@ -3745,6 +3886,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      const narrow = asking(asked) + (asked ? \"&\" : \"?\");"
   , "      load(`${narrow}limit=${PAGE}`).then((a) => {"
   , "        mount(a.view);"
+  , "        if (after) after(a.total);"
   , "        listen();"
   , "        // The rest behind the painted table: n/p, sort and materialize all"
   , "        // want the whole answer, and the renderer holds it without the DOM."
@@ -4051,6 +4193,12 @@ page head' title body = T.unlines
       -- the badge hue the rest of the keyword wears.
   , "  .pw b{font-weight:700}"
   , "  .pm .pw{font-style:italic;color:var(--g-mute)}"
+  -- What an entry points AT, where its word is a description rather than the
+  -- destination: the link palette's second column, muted and truncated, since
+  -- a reader picking between two links reads the wording first and the host
+  -- only when the wording does not decide it.
+  , "  .pt{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;"
+  , "    white-space:nowrap;text-align:right;font-size:11px;color:var(--g-mute)}"
   -- The fallback's cursor row wears the page's selection, which in the light
   -- theme is a bright yellow — a badge hue written inline reads badly on it,
   -- and this is the one place a declaration has to beat one.

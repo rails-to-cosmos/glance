@@ -772,12 +772,48 @@ with both files untouched; a `../escape.org` target was refused after a reseed
 and wrote nothing; and `GET /headline` on the captured row showed the creation
 time in neither pane while the raw org kept it.
 
-**What is still staged, and it is now the whole of the list**: `TAB`
-(`org-cycle`), `o` / `!` (`org-glance-overview:open`), `a`
-(`org-glance-agenda`), `@` (`org-glance-overview:relations`). Each is
-recognized in full and says what will back it. `org-cycle` wants an outline the
-table does not have (rows are top entries); `open` and `relations` want the graph
-milestone (S6); `agenda` wants a second view rather than a command.
+**Open and agenda landed, and M4's key map is closed but for two (2026-08-02).**
+
+`o` / `!` (`org-glance-overview:open`) follow the row. `GET /links?id=ROW`
+answers `{links: [{target, desc}]}` out of the row's SUBTREE, by the DISPLAY
+rule the table already reads a cell with — `Glance.Query.linkAt` is the one
+parser, so what `/links` calls a link is what `displayText` shows for it — plus
+bare `http(s)`/`mailto:` URLs, which describe themselves. Server-side because
+the page holds no org parser and must not grow one. The ANSWER decides the
+gesture: none is an echo refusal, one opens `window.open(target, "_blank",
+"noopener")`, several raise the value palette's THIRD shape — a flat which-key
+list over the descriptions, `/` narrowing over description and target alike. It
+is raised LATE, behind the fetch, with `prompting.raising` cleared: the `o` that
+asked has been dispatched and gone, where `t` is still travelling when its
+palette goes up. This did not want the graph milestone after all — the links are
+in the entry, and S6 is about the edges BETWEEN entries, which is what `@`
+(`relations`) is still waiting for.
+
+`a` (`org-glance-agenda`) is a canned VIEW rather than a mode: `state:*active*
+-planned:none` applied through the door `g` uses, so the query is in the URL and
+in the renderer's chips, `DEL` strips a token off it, and `g` is the way home.
+There is no agenda state anywhere and no key that leaves it. `planned` is a new
+virtual filter key over the two date columns together — a row is planned when
+either holds anything — chosen so both halves of the wire can decide it off the
+same two cells, with no keyword set, no vocabulary and no clock. The sort
+arrives through `landed`, a one-shot thunk `start` takes before it fetches,
+called with the SERVER's match count, and insists on `sortBy("scheduled", true)`
+under a feature detection.
+
+The native window grew the other half of `o`: a `NewWindowAction` policy
+decision is refused and its URI handed to `gtk_show_uri_on_window`, since a
+`WebKitWebView` with nothing connected answers one by doing nothing at all. It
+compiles under the flag and joins the eyeball list — nothing here has opened the
+window.
+
+Suite: 954 → **1018 tests**.
+
+**What is still staged**: `TAB` (`org-cycle`) and `@`
+(`org-glance-overview:relations`). Each is recognized in full and says what will
+back it. `org-cycle` is deferred pending a FOLD MODEL: rows are top entries and
+the table has no outline to cycle, so what the key would mean has to be decided
+before it is written. `relations` is deferred to S6, the graph milestone — it is
+about the edges between entries, which nothing here holds yet.
 
 **Engine landed early (S8 core).** `Data.Org.Edit`, exposed by
 `glance-internal`: `applyEdits :: Text -> [Edit] -> Either EditError Text` over

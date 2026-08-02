@@ -81,6 +81,7 @@ module Glance.Query ( ConfigLayerFile (..)
                     , mergeKeywords
                     , noConfig
                     , orderedForView
+                    , orgLinks
                     , planningKeywords
                     , planningTimestamp
                     , readConfigLayers
@@ -92,6 +93,7 @@ module Glance.Query ( ConfigLayerFile (..)
                     , setPlanningEdits
                     , setStateEdits
                     , sortedForView
+                    , subtreeLinks
                     , subtreeText
                     , tagsOfCell
                     , todoLines
@@ -105,9 +107,10 @@ import Control.Exception (IOException, evaluate, try)
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Aeson.Text (encodeToLazyText)
 import Data.Aeson.Types (Pair)
+import Data.Char (isAlphaNum)
 import Data.Either (fromRight)
 import Data.List (foldl', sort, sortOn)
-import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing)
+import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, mapMaybe)
 import Data.Text (Text)
 import TextShow (showt)
 
@@ -136,7 +139,7 @@ import Data.Org.Config ( ConfigLayerFile (..), ConfigLayers (..), TodoKeywords (
                        , captureTargetOf, classify, configDirIn, declaredKeywords
                        , defaultCaptureFile, defaultFilter
                        , defaultFilterEdits, defaultFilterOf, isTodoPragma
-                       , keywordScopes
+                       , firstBy, keywordScopes
                        , loadConfigDirs, mergeKeywords, noConfig, readConfigLayers
                        , seedContext, todoLineEdits, todoLines, todoPragmas )
 import Data.Org.Walk ( Found (..), WalkOptions (..), beatsForId, defaultWalk
@@ -482,27 +485,99 @@ displayText = squashControls . showLinks
 -- @[[@ alone.
 showLinks :: Text -> Text
 showLinks s | not ("[[" `T.isInfixOf` s) = s   -- the common cell, scanned once
-            | otherwise                  = T.concat (go s)
+            | otherwise                  = T.concat (map (either id snd) (linkParts s))
+
+-- | S cut into the text between its bracket links and the links themselves, as
+-- @(target, shown)@, in order.  Text that does not close a link — an unmatched
+-- @[[@ — stays literal, the way the renderer's regex leaves one alone.
+--
+-- ONE scanner for the two questions asked of a bracket link: 'showLinks' keeps
+-- what each shows and 'orgLinks' keeps where each points, and a second pass
+-- would be a second grammar to keep in step with SCHEMA.md's link rule.
+linkParts :: Text -> [Either Text (Text, Text)]
+linkParts = go
   where
     go rest
-      | T.null after = [before]
-      | otherwise    = case linkAt (T.drop 2 after) of
-          Just (shown, more) -> before : shown : go more
-          Nothing            -> before : "[[" : go (T.drop 2 after)
+      | T.null after = [Left before]
+      | otherwise    = Left before : case linkAt (T.drop 2 after) of
+          Just (target, shown, more) -> Right (target, shown) : go more
+          Nothing                    -> Left "[[" : go (T.drop 2 after)
       where (before, after) = T.breakOn "[[" rest
 
--- | The link opening TEXT — which starts past its @[[@ — as it displays, with
--- whatever follows it.  'Nothing' when TEXT does not close one.
-linkAt :: Text -> Maybe (Text, Text)
+-- | The link opening TEXT — which starts past its @[[@ — as its target, as it
+-- displays, and whatever follows it.  'Nothing' when TEXT does not close one.
+linkAt :: Text -> Maybe (Text, Text, Text)
 linkAt text
   | T.null target || T.null rest = Nothing
   | otherwise = case T.uncons (T.drop 1 rest) of
-      Just (']', more) -> Just (target, more)                  -- [[TARGET]]
+      Just (']', more) -> Just (target, target, more)          -- [[TARGET]]
       Just ('[', more) | "]]" `T.isPrefixOf` after'            -- [[TARGET][DESC]]
-                       -> Just (if T.null desc then target else desc, T.drop 2 after')
+                       -> Just (target, if T.null desc then target else desc, T.drop 2 after')
         where (desc, after') = T.break (== ']') more
       _notALink        -> Nothing
   where (target, rest) = T.break (== ']') text
+
+-- Links
+
+-- | Every link R's subtree points at, as @(target, description)@.
+--
+-- Server-side because it is org text work: a page that extracted these would
+-- need the bracket grammar 'displayText' already holds, and would then hold a
+-- second copy of it.  The subtree rather than the cells, so a link in the body
+-- of an entry is reachable from the row that carries it.
+subtreeLinks :: HeadlineRecord -> [(Text, Text)]
+subtreeLinks = orgLinks . subtreeText
+
+-- | The links TEXT holds, in order of appearance, one per target.
+--
+-- Two forms, which is what org writes and what 'displayText' already reads: the
+-- bracket link, described by its @DESC@ where it has one and by its target
+-- where it does not ('linkAt'), and the plain URL, which is its own description.
+-- A target spelled twice keeps the FIRST description — the second is the same
+-- destination under another name, and a palette offering it twice would be
+-- offering one place two letters.
+-- A plain URL can only be in the text BETWEEN bracket links, which is what
+-- 'linkParts' hands over separately — so @[[https://…][x]]@ never also reports
+-- its own target as a bare one.
+orgLinks :: Text -> [(Text, Text)]
+orgLinks = firstBy fst . concatMap (either plainLinks pure) . linkParts
+
+-- | The schemes a bare URL is recognized by.  org's plain-link set is wider;
+-- these three are the ones a browser is asked to open, and a scheme this does
+-- not name stays ordinary text rather than becoming a link nothing can follow.
+linkSchemes :: [Text]
+linkSchemes = ["https://", "http://", "mailto:"]
+
+-- | The plain URLs S holds, each as its own description.  A URL cannot carry
+-- whitespace, so the words of S are the candidates and one word holds at most
+-- one link.
+plainLinks :: Text -> [(Text, Text)]
+plainLinks = mapMaybe urlIn . T.words
+
+-- | The plain URL WORD holds, if any: from the earliest scheme that opens at a
+-- non-word boundary — so @xhttp://a@ is not one — to the end of the word, with
+-- the punctuation a sentence leaves behind taken off the tail.  That last rule
+-- is what makes @see https://x.org.@ and @(https://x.org)@ point where they
+-- read as pointing.
+--
+-- Every scheme carries its separator, so a word with no @:@ in it can hold no
+-- link and is turned away by one cheap pass — which is nearly every word of
+-- nearly every subtree.
+urlIn :: Text -> Maybe (Text, Text)
+urlIn word
+  | not (T.any (== ':') word) = Nothing
+  | otherwise = case mapMaybe opensAt linkSchemes of
+      []  -> Nothing
+      ats -> let url = T.dropWhileEnd trailing (T.drop (minimum ats) word)
+             in if T.null url then Nothing else Just (url, url)
+  where
+    opensAt scheme
+      | T.null after               = Nothing
+      | T.null before              = Just 0
+      | isAlphaNum (T.last before) = Nothing
+      | otherwise                  = Just (T.length before)
+      where (before, after) = T.breakOn scheme word
+    trailing c = c `elem` (".,;:!?'\"()[]{}<>" :: String)
 
 -- | S with every run of C0 control characters, and DEL, standing as one space
 -- — so a cell is one line and a multi-line one cannot be matched across the

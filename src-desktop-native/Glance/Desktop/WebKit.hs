@@ -22,8 +22,10 @@ module Glance.Desktop.WebKit (nativeAvailable, nativeWindow) where
 
 #ifdef NATIVE_WINDOW
 
-import Control.Exception (throwIO)
+import Control.Exception (SomeException, throwIO, try)
 import Control.Monad (unless, void)
+import Data.GI.Base (castTo)
+import Data.Text (Text)
 import Data.Word (Word32)
 import System.Posix.Signals (Handler (Catch), installHandler, sigINT)
 
@@ -75,11 +77,66 @@ nativeWindow title url = do
   WK.webViewSetBackgroundColor view rgba
   Gtk.containerAdd win view
   _ <- Gtk.onWidgetDestroy win Gtk.mainQuit
+  _ <- WK.onWebViewDecidePolicy view (elsewhere win)
   Gtk.widgetShowAll win
   WK.webViewLoadUri view (T.pack url)
   previous <- installHandler sigINT (Catch quitLoop) Nothing
   Gtk.main
   void (installHandler sigINT previous Nothing)
+
+-- | A link the page asked for a NEW WINDOW for goes to the system browser, and
+-- this window keeps showing the table.
+--
+-- The shell's @o@ opens what a row points at with @window.open(…, "_blank")@,
+-- and a link with @target="_blank"@ is the same request.  Both arrive here as a
+-- @WebKitPolicyDecision@ of type @NewWindowAction@, and a @WebKitWebView@ with
+-- nothing connected answers one by doing nothing at all — so following a link
+-- would work in a browser tab and silently fail in the window this build
+-- carries.  The decision is refused and the URI handed to the desktop's own
+-- default handler, which is what a reader means by opening a link: a glance
+-- window is the table, and a second one of these would be a browser with no
+-- address bar.
+--
+-- Every other decision type is left to WebKit ('False'), which is what keeps
+-- ordinary navigation — the page loading, the socket upgrading — untouched.
+--
+-- @gtk_show_uri_on_window@ can fail (no handler registered, a scheme nothing
+-- claims) and it fails by throwing.  A window failure has never taken this
+-- daemon down and this one does not either: the link is dropped and the table
+-- stays up.
+elsewhere :: Gtk.Window -> WK.PolicyDecision -> WK.PolicyDecisionType -> IO Bool
+elsewhere win decision kind
+  | kind /= WK.PolicyDecisionTypeNewWindowAction = pure False
+  | otherwise = do
+      uri <- navigationUri decision
+      WK.policyDecisionIgnore decision
+      maybe (pure ()) (systemOpen win) uri
+      pure True
+
+-- | Where a navigation decision is headed.  'Nothing' when the decision is not
+-- a navigation one after all, which the type above says it is — the cast is
+-- checked rather than assumed, since a null here would be a crash where the
+-- honest answer is to drop the link.
+navigationUri :: WK.PolicyDecision -> IO (Maybe Text)
+navigationUri decision = do
+  navigation <- castTo WK.NavigationPolicyDecision decision
+  case navigation of
+    Nothing  -> pure Nothing
+    Just nav -> do
+      action <- WK.navigationPolicyDecisionGetNavigationAction nav
+      request <- WK.navigationActionGetRequest action
+      Just <$> WK.uRIRequestGetUri request
+
+-- | Hand URI to whatever the desktop opens it with, and swallow the failure.
+-- The timestamp is @GDK_CURRENT_TIME@, which is what a caller with no event to
+-- date the request by passes.
+systemOpen :: Gtk.Window -> Text -> IO ()
+systemOpen win uri = do
+  outcome <- try (Gtk.showUriOnWindow (Just win) uri (fromIntegral Gdk.CURRENT_TIME))
+  case outcome of
+    Right () -> pure ()
+    Left err -> putStrLn ("  window:  could not open " <> T.unpack uri
+                            <> ": " <> show (err :: SomeException))
 
 -- | Ask the GTK loop to stop, from whichever thread calls this.  @g_idle_add@
 -- is the thread-safe door into a running loop, and a signal handler runs on a

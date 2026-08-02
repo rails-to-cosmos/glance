@@ -295,6 +295,13 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   waiting for a socket that is not coming. `--dry-run` prints `native window`
   where it prints the browser command, by replacing that one line of
   `dryRunLines` rather than by writing three of its own.
+- A NEW WINDOW the page asks for goes to the system browser and this one stays
+  the table: `window.open(…, "_blank")` and a `target="_blank"` anchor both reach
+  `Glance.Desktop.WebKit` as a `NewWindowAction` policy decision, which an
+  unconnected `WebKitWebView` answers by doing nothing. `elsewhere` ignores the
+  decision and hands the URI to `gtk_show_uri_on_window`; every other decision
+  type is left to WebKit. The downcast is CHECKED (`castTo`) and a URI that will
+  not open is printed and dropped, like every other window failure here.
 - The flag is manual and default False, and the unflagged build resolves no
   haskell-gi: `Glance.Desktop.WebKit` answers `nativeAvailable = False` and
   nothing else in the program asks about the flag. `Glance.Desktop.Native` holds
@@ -467,6 +474,16 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `?ids=a&ids=b` = `?ids=a,b`; the repeated form is what an id CONTAINING a
   comma owes (the fallback row id is `path#ordinal`, and the split runs after
   percent-decoding), and it is what the shell writes.
+- `GET /links?id=ROW` is where a row points: `{links: [{target, desc}]}`, out of
+  the row's SUBTREE, in order of appearance and one entry per target (first desc
+  kept). The rule is the DISPLAY rule — `Glance.Query.linkAt` is the parser
+  `displayText` reads a cell with, so a bracket link is described by its `DESC`
+  and by its target where it has none — plus bare `http(s)`/`mailto:` URLs,
+  which describe themselves: a WORD, opening at a non-word boundary, with
+  trailing `.,;:!?'"()[]{}<>` off the tail. One left-to-right pass over the
+  bracket links, so `[[https://x][y]]` never also reports its target as a bare
+  URL. Server-side because the page holds no org parser and must not grow one.
+  404 on an unknown id, 400 with none, 503 while indexing, 405 on POST.
 - `POST /headline` caps the body at 1 MiB and answers 413 past it. The cap is
   checked before the id lookup, so 413 outranks 404.
 - `?limit=` is capped at 20000 and a larger one is a 400; no `limit` serves the
@@ -507,6 +524,16 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `key:` narrows nothing. The virtual keys are the store's org tags
   (`storeTags`, kept per tag beside the rows): `TAG:text` is tagged whole-TAG and
   matching text, empty text being presence; a column shadows a tag of its name.
+  `planned` is the one virtual key that is neither a column nor a tag: a row is
+  planned when its `scheduled` OR `deadline` cell holds anything, so
+  `planned:none` is neither and `-planned:none` is the agenda's half. It resolves
+  ahead of the vocabulary (so it shadows a tag of that name), takes a date PREFIX
+  asked of both cells at once, and is single-valued like the columns it stands
+  over. Renderer-decidable off the same two cells — no keyword set, no
+  vocabulary, no clock. The renderer's half landed in table-view alongside;
+  the vendored `assets/table-view.js` predates it and `make sync-renderer`
+  closes the gap, which costs nothing meanwhile — `onFilter` means the renderer
+  narrows nothing.
   The tags column's key is `tag`, singular (header stays `Tags`). A predicate
   reads one `\x1f` field of `hrSearch`, so per-cell matching and free text agree
   by construction.
@@ -527,7 +554,11 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
     An asset predating the field still samples.
   - Date-ness is likewise asymmetric: two hardcoded names here, sampled
     date-shape there. A page with under two dated rows makes the renderer
-    substring-match `scheduled:` where the server prefix-matches it.
+    substring-match `scheduled:` where the server prefix-matches it — and, since
+    `planned` reads WHICH columns are dates, the same page answers `planned:` on
+    the renderer's side over no columns at all, so `planned:none` is every row
+    there and `-planned:none` is none of them. The predicate itself is
+    term-for-term; the column set under it is not.
   - `state:*active*`/`state:*inactive*` are producer-only in their KEYWORD half
     alone, blessed by SCHEMA.md, and are the canonical spelling (org-glance's
     own, and what the default view boots on). The renderer has no group logic
@@ -686,8 +717,9 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   Movement carries BOTH spellings — `n`/`p` and `j`/`k` step a row, `f`/`b` and
   `l`/`h` step a cell — which costs a row each where a profile cost a selector, a
   stored choice, a URL parameter and a key line that had to be rewritten. Ends
-  are `<` and `>`, plus vi's `G` beside `>`. `g` is `apply-default-filter`, `,`
-  is `customize`, `o` and `!` are the open stub, `M` is `mark-all`, `d` is
+  are `<` and `>`, plus vi's `G` beside `>`. `g` is `apply-default-filter`, `a`
+  is `org-glance-agenda`, `,`
+  is `customize`, `o` and `!` are `org-glance-overview:open`, `M` is `mark-all`, `d` is
   `archive-flag` and `D` is `org-glance-overview:delete` (both over FLAGS, never
   marks). No sequence is bound
   twice or opens a longer one. Sequences and command names are org-glance's where
@@ -708,7 +740,9 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   Auto-repeat is movement's — a held `n` crosses the table — so the keys that
   must run once per press are named by COMMAND in `ONCE` (`filter-drop-token`,
   `unmark-all`, `mark-all`, `archive-flag`, `org-glance-overview:delete`), which
-  holds under both spellings of a command. `archive-flag` needs it most: a repeat
+  holds under both spellings of a command, plus `org-glance-overview:open` and
+  `org-glance-agenda`, which write nothing and are ruinous held down — a tab per
+  repeat, a remount per repeat. `archive-flag` needs it most: a repeat
   that survived would flag a row and archive it from ONE press, which is the
   confirmation the two-press shape exists to be.
 - Six keys write without a sheet, all `POST /command`, and WHICH ROWS is per
@@ -778,6 +812,29 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   dispatch, and `t` is both the opener and a letter), and `e.repeat` stops a HELD
   `t` committing through what it opened — `ONCE` cannot reach it, since it
   governs dispatch rows and the repeat lands while every row is dead.
+- `o`/`!` (`org-glance-overview:open`) FOLLOW the row, and the ANSWER decides the
+  gesture: `GET /links?id=` for the row at point, then no links is an echo
+  refusal, ONE is `window.open(target, "_blank", "noopener")`, and SEVERAL raise
+  the palette. Every open writes a `cmd` line naming the target. The link palette
+  is the value palette's third shape and is raised LATE — the answer decides
+  whether there IS a palette, so `askLinks` puts it up behind the fetch and
+  clears `prompting.raising`: the `o` that asked has been dispatched and gone,
+  and declining a press would eat the reader's first real key. It draws FLAT
+  (`drawChoices` branches on `prompting.table`), an entry's label being the
+  link's DESCRIPTION with the target beside it muted (`.pt`), and `/` narrows
+  over both through the entry's `hay`.
+- `a` (`org-glance-agenda`) is a canned VIEW, not a mode: `state:*active*
+  -planned:none` through `applyView`, the door `g` uses — URL, socket dropped,
+  remount — so the query is the renderer's chips and `DEL` strips it like any
+  other. No agenda state anywhere; `g` is the way home. The sort arrives through
+  `landed`, a one-shot thunk `start` TAKES before it fetches (so a boot that
+  never lands cannot leave it armed), called with the SERVER's match count, which
+  is the one number the first page cannot give. It insists on
+  `sortBy("scheduled", true)`, feature-detected — the view already declares that
+  sort and a remount re-reads it, so the call makes the order the agenda's own
+  rather than a coincidence of the default. `sortBy` landed in table-view
+  alongside; the vendored asset predates it and the detection is what carries
+  that.
 - Letters are `whichKeys(labels)`: over the labels flattened in DRAW order —
   each source row's active cell then its inactive one, `*clear*` last — each
   entry
@@ -1006,7 +1063,8 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `Glance.Web.Store`, `Glance.Web.Watch`.
 - `glance-desktop-native` exposes `Glance.Desktop.WebKit` alone and is the ONLY
   stanza the `native-window` flag reaches: `if flag(native-window)` adds
-  `-DNATIVE_WINDOW` and gi-gdk3/gi-glib/gi-gtk3/gi-webkit2/text/unix there and
+  `-DNATIVE_WINDOW` and
+  gi-gdk3/gi-glib/gi-gtk3/gi-webkit2/haskell-gi-base/text/unix there and
   nowhere else. Unflagged it builds on `base` in one module, so every other
   component is byte-identical either way and CI never needs GTK. Flagged, the
   solver pulls ~28 packages, each generated from the machine's typelibs.

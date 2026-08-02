@@ -37,6 +37,9 @@
 //   bare          the mounted handle loses its mark calls, the way an older
 //                 table-view.js never had them
 //   pageless      and its pager calls, the way one older still never had those
+//   sortless      and its programmatic sort, which the agenda asks for
+//   onelink       the row `o' names points at exactly one place
+//   nolinks       and at none at all — three is the default, which is a palette
 //   rows:N        the store holds N rows rather than the three at the top
 //   paged:N       the renderer shows N of them a page, so there are pages to
 //                 turn and ends of a page to reach
@@ -115,6 +118,18 @@ let sources = [
 // rows it resolved the palette for.  `stalling' holds one out forever.
 const resolved = [];
 let stalling = false;
+// What /links answers for the row `o' names.  Canned like the layers and the
+// resolution above: the extraction is the server's and TestQuery is where the
+// rule is tested — what the page owes is the gesture over whatever comes back,
+// which is why `onelink' and `nolinks' are acts.
+let links = [
+  { target: "https://one.example/a", desc: "First reference" },
+  { target: "https://two.example/b", desc: "Second reference" },
+  { target: "mailto:t@example.org", desc: "mailto:t@example.org" },
+];
+// Every /links URL asked for, and every tab the page opened.
+const linked = [];
+const opened = [];
 // The default view `system.org' names, which `g' applies and the settings sheet
 // edits beside that layer's cycle.
 let viewQuery = "state:*active*";
@@ -176,6 +191,11 @@ globalThis.fetch = (url, init) => {
     return refusing ? answer(400, { error: "GET /keywords?ids=<row id>" })
                     : answer(200, { sources, unknown: [] });
   }
+  if (String(url).startsWith("/links?id=")) {
+    linked.push(url);
+    return refusing ? answer(404, { error: "no headline with id r1" })
+                    : answer(200, { links });
+  }
   if (String(url) === "/config") {
     if ((init || {}).method !== "POST")
       return answer(200, { layers, filter: viewQuery, capture: captureLine,
@@ -227,6 +247,9 @@ let cursor = 0, marksOn = false, hintsOn = true, marks = new Set(), flags = new 
 // is 0 for a set with no pages; `cursor' indexes the page rather than the set,
 // which is the same thing while there is one page.
 let selCol = null, pageAt = 0, pageSize = 0;
+// The last programmatic sort asked of the handle, which is the whole of what
+// the agenda's own ordering can be observed to have done.
+let sorted = null;
 /** The rows on show: one page's worth, or the whole set when there are none. */
 const onPage = () =>
   (pageSize ? rows.slice(pageAt * pageSize, (pageAt + 1) * pageSize) : rows);
@@ -248,9 +271,9 @@ const pageTo = (to, first) => {
 let flagHelp = "";
 /** The live handle, so `bare' can take calls off the one the shell is holding. */
 let handle = null;
-/** Set by `bare' and `pageless': this asset never had those calls, remounts
- * included. */
-let markless = false, pagerless = false;
+/** Set by `bare', `pageless' and `sortless': this asset never had those calls,
+ * remounts included. */
+let markless = false, pagerless = false, sortnone = false;
 globalThis.TableView = {
   mount: (_el, _view, options) => {
     mounts += 1;
@@ -325,9 +348,14 @@ globalThis.TableView = {
       // What the renderer's palette does: the overlay goes up and its field
       // takes focus, which is the whole of what the shell can see of it.
       openFilter: () => { raises += 1; field("filter").focus(); },
+      // The programmatic sort, which is what the agenda asks for once its rows
+      // are up.  Recorded rather than performed: the ORDER is the renderer's
+      // and TableView's own suite is where it is tested.
+      sortBy: (column, ascending) => { sorted = { column, ascending }; },
     };
     if (markless) strip(MARK_CALLS);
     if (pagerless) strip(PAGE_CALLS);
+    if (sortnone) strip(SORT_CALLS);
     return handle;
   },
   parseQuery: () => [],
@@ -338,7 +366,16 @@ const MARK_CALLS = [ "toggleMark", "getMarked", "clearMarks", "markedCount"
                    , "markAll", "flagRow", "unflagRow", "getFlagged", "clearFlags" ];
 /** And the pager's, which an asset that old has none of either. */
 const PAGE_CALLS = ["nextPage", "previousPage", "pageInfo"];
+/** And the programmatic sort, which the agenda asks for. */
+const SORT_CALLS = ["sortBy"];
 const strip = (names) => { for (const name of names) delete handle[name]; };
+// The one thing a key here does that leaves nothing on the page: the tab `o'
+// opens.  Recorded whole — the target, the tab name and the features — since
+// `noopener' is half of what makes following a link safe.
+globalThis.open = (url, target, features) => {
+  opened.push({ url, target, features });
+  return null;   // what a browser answers for a `noopener' window
+};
 globalThis.localStorage = { getItem: () => null, setItem: () => {} };
 globalThis.matchMedia = () => ({ matches: false, addEventListener: () => {} });
 
@@ -651,6 +688,14 @@ const ACTIONS = {
   // And one that never had paging, which is what leaves the buffer-end keys
   // their within-page half and nothing to climb with.
   pageless: () => { pagerless = true; strip(PAGE_CALLS); },
+  // And one with no programmatic sort, which is what leaves the agenda with
+  // the order the view declares and nothing to insist on it.
+  sortless: () => { sortnone = true; strip(SORT_CALLS); },
+  // What the row `o' names points at: one link, or none at all.  The gesture
+  // is different for each — one opens without asking, none refuses — and the
+  // three-link default is what raises the palette.
+  onelink: () => { links = links.slice(0, 1); },
+  nolinks: () => { links = []; },
   // A store with pages in it: N rows in place of the three at the top, and the
   // renderer showing SIZE of them at a time.  Acts rather than argv, so every
   // script that wants neither reads exactly as it did.
@@ -725,6 +770,9 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     prompt: field("prompt").className, phead: field("phead").textContent,
     pmode: field("pbox").className, plist: paletteRows(), resolved,
     pfoot: field("pfoot").textContent, assigned, commands,
+    // Following a link: which rows were asked about, which tabs were opened,
+    // and the sort the agenda insisted on.
+    linked, opened, sorted,
     // Which keys the dispatch took off the browser, in press order.
     prevented,
     // The settings sheet: whether it is up, the one word it wears, the lines

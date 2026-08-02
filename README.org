@@ -111,7 +111,9 @@ is the facet. Two predicates on one key combine by what the field holds: one
 value means either of them (=state:TODO state:DONE=, since no row is both),
 a list means all of them (=tag:web tag:glance= carries both, the way a label
 filter reads). =-token= negates, ="two words"= quotes, =key:none= asks for an
-empty cell, =scheduled:2026-08= is the month, and =state:*active*= /
+empty cell, =scheduled:2026-08= is the month, =planned:= asks about both date
+columns at once (=planned:none= is neither, =planned:2026-08= is either falling
+in that month), and =state:*active*= /
 =state:*inactive*= are the keyword groups your =#+TODO:= lines declare (=active=
 and =inactive= without the stars mean the same thing). A query
 with no predicate in it is the substring search it always was. The applied query
@@ -440,6 +442,38 @@ in the vocabulary whether or not the default is hiding its rows, which is what
 makes it reachable at all: the filter is parsed against every tag in the tree,
 and only the rows are narrowed.
 
+*=o= follows the row.* An org entry that points somewhere — a bracket link on
+the title, a bare URL in the body, a reference under a child — is a row you can
+leave from. =o= (or =!=, org-glance's other spelling) asks the server what this
+row points at and then does the obvious thing: nothing to follow is a refusal
+that says so, *one* link opens in a new tab, and *several* raise the same
+palette =t= uses, one letter each, over the descriptions the entry itself
+wrote. =/= there narrows over the descriptions *and* the targets, since you may
+remember the host and not the wording. Every open writes a line into the log
+naming what was followed.
+
+Finding the links is the server's job, not the page's. The rule is the one the
+table already reads a cell with — =[[TARGET][DESC]]= shows =DESC=, =[[TARGET]]=
+shows the target — plus bare =http=, =https= and =mailto:= URLs, which describe
+themselves and stop before the punctuation a sentence leaves behind. Order of
+appearance, one entry per target. The browser holds no org parser and this is
+why it does not need one.
+
+#+begin_src sh
+curl -s 'localhost:7777/links?id=ship-table-view'
+# → {"links": [{"target": "https://…", "desc": "the table view"}]}
+#+end_src
+
+*=a= is the agenda, and it is a view rather than a mode.* It applies
+=state:*active* -planned:none= — your live work, narrowed to the entries
+carrying a date — and sorts it by schedule, earliest first. There is nothing to
+leave: the query is in the URL and in the filter chips like any other, =DEL=
+strips a token off it, and =g= puts the default view back. =planned= is a filter
+key of its own, so the halves are yours to recombine: =planned:none= is
+everything nobody has put a day on, =planned:2026-08= is a month's worth of
+schedules and deadlines together, and =-planned:none deadline:2026-08= narrows
+to the ones with a due date in it.
+
 *Keys.* The page carries org-glance's =overview-mode= map, under org-glance's
 own command names, and echoes what it did in a pill in the bottom corner — the
 pending prefix while one is open (=C-c -=), the command and its help line on
@@ -466,6 +500,8 @@ parameter and a key line that had to be rewritten whenever it moved.
 | =/=         | =filter-rows=                     | summons the filter palette                    |
 | =DEL=       | =filter-drop-token=               | drops the filter's last token                 |
 | =g=         | =apply-default-filter=            | the view this tree opens on                   |
+| =a=         | =org-glance-agenda=               | the active rows carrying a date               |
+| =o= =!=     | =org-glance-overview:open=        | follows this row's link                       |
 | =m=         | =mark-toggle=                     | marks this row and steps down                 |
 | =u=         | =unmark=                          | clears this row's flag, else its mark         |
 | =U=         | =unmark-all=                      | clears every mark and every flag              |
@@ -479,10 +515,8 @@ parameter and a key line that had to be rewritten whenever it moved.
 | =C-x C-s=   | =save-buffer=                     | syncs the sheet; again to overwrite           |
 | =C-c '=     | =org-edit-special=                | sheet as raw org, or as body + properties     |
 | =ESC=       | =keyboard-quit=                   | closes the sheet, syncing it first            |
-| =TAB=       | =org-cycle=                       | staged — daemon commands (M4)                 |
-| =o= =!=     | =org-glance-overview:open=        | staged                                        |
-| =a=         | =org-glance-agenda=               | staged                                        |
-| =@=         | =org-glance-overview:relations=   | staged                                        |
+| =TAB=       | =org-cycle=                       | staged — wants a fold model                   |
+| =@=         | =org-glance-overview:relations=   | staged — wants the graph (S6)                 |
 | =C-c C-t=   | =org-glance-overview:todo=        | the org spelling of =t=                       |
 | =C-c C-s=   | =org-glance-overview:schedule=    | a date over the marked rows                   |
 | =C-c C-d=   | =org-glance-overview:deadline=    | the same, as a deadline                       |

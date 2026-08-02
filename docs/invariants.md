@@ -1430,6 +1430,21 @@ on.
   the old vocabulary produced. Evidence: `TestFilter` (tokens, predicates,
   virtual keys, shape, degenerate parity with `matchesSearch`), `TestServe`
   "GET /headlines filter and paging". **test**
+- **`planned` is a virtual key over the two date columns, and both sides can
+  decide it.** A row is planned when its `scheduled` OR its `deadline` cell
+  holds anything, so `planned:none` is an entry nobody has put a day on and
+  `-planned:none` is the agenda's half of its query. It is neither a column —
+  nothing renders a `planned` cell — nor a tag, so it is resolved ahead of the
+  vocabulary and shadows an org tag of that name the way a column does; a
+  predicate on it parses with no rows loaded at all, where a tag key needs the
+  store's `stTags`. Its value is the date prefix `scheduled:` and `deadline:`
+  each take, asked of both cells at once (`planned:2026-08` is either date in
+  that month), and it is SINGLE-VALUED like the columns it stands over, so
+  `planned:X planned:Y` is either. That is the whole rule, and it is stated this
+  way because the renderer has to answer it identically off the same two cells:
+  no keyword set, no vocabulary, no clock. `Glance.Web.Filter.plannedKey`,
+  `TestFilter` "Planned". **test** (this half; the renderer's is
+  table-view's)
 - **There is no schema revision mechanism, so parity is discipline plus one
   tripwire.** Nothing versions the agreement between this producer and
   `table-view.js`: no capability handshake, no schema version in the view
@@ -1476,7 +1491,12 @@ on.
   date shape. A loaded set with under two dated rows makes the renderer treat
   `scheduled` as text, so `scheduled:10:00` matches `2026-08-15 10:00` there and
   nothing here; conversely any other column whose sample looks dated gets
-  renderer-side prefix matching that the server never applies. **none**
+  renderer-side prefix matching that the server never applies. `planned` inherits
+  the whole of it, since what it reads IS the date-column set: on such a page the
+  renderer finds no date column, so `planned:none` is every row there and
+  `-planned:none` is none of them, while the server answers off `scheduled` and
+  `deadline` as always. The predicate is term for term; the column set under it
+  is what differs. **none**
 - **`state:*active*` / `state:*inactive*` are producer-only in their KEYWORD
   half, and discoverable.** SCHEMA.md blesses producer meta-values, and the
   server resolves these two against the record's own `#+TODO:` sets — plus one
@@ -1595,6 +1615,26 @@ on.
   JSON on those two and as plain text elsewhere, so a client parsing a refusal
   gets the shape the route always uses. An upgrade aimed at any path but `/ws` is rejected rather
   than routed. **test** (`TestServe`)
+- **`GET /links?id=ROW` is where a row points, and the rule is the DISPLAY
+  rule.** `{links: [{target, desc}]}`, extracted from the row's SUBTREE in order
+  of appearance and one entry per target. Two forms, which is what org writes:
+  the bracket link, described by its `DESC` and by its target where it has none
+  — `Glance.Query.linkAt`, the very parser `displayText` reads a cell with, so
+  what `/links` calls a link is what the table shows for it — and the plain
+  `http(s)`/`mailto:` URL, which is its own description. A plain URL is a WORD
+  (a URL carries no whitespace), it must open at a non-word boundary so
+  `xhttp://a` is not one, and the sentence punctuation `.,;:!?'"()[]{}<>` comes
+  off its tail so `(https://x.org)` points where it reads as pointing. The scan
+  is one left-to-right pass over the bracket links, so a `[[https://x][y]]`
+  never also reports its own target as a bare URL. A target spelled twice keeps
+  the FIRST description — one destination, one letter in the palette. It is
+  SERVER-side because it is org text work: the page holds no org parser and must
+  not grow one, and a JS copy of the bracket grammar would be a second grammar
+  to keep in step with SCHEMA.md's link rule. The SUBTREE rather than the cells,
+  since an entry keeps its references in its body. A read: 404 on an id the
+  store has no row for and 400 with no id, exactly as materialize, 503 while
+  indexing, 405 on POST. Evidence: `TestQuery` "Links" (the rule),
+  `TestServe` "GET /links" (the route). **test**
 - **`POST /headline` caps the body at 1 MiB, and the cap outranks the lookup.**
   The body is counted chunk-wise and a larger one is 413. Because the cap is
   checked before the id is resolved, an oversized POST to an unknown id is a 413
@@ -1663,7 +1703,8 @@ on.
   two rows apiece: `n`/`p` and `j`/`k` both step a row, `f`/`b` and `l`/`h` both
   step a cell, and both spellings are live at once because a table has no text
   field to compete with. The ends are `<` and `>`, with vi's `G` beside `>`; `g`
-  is `apply-default-filter`, `,` is `customize`, `o` and `!` are the open stub,
+  is `apply-default-filter`, `a` is `org-glance-agenda`, `,` is `customize`, `o`
+  and `!` are `org-glance-overview:open`,
   `M` is `mark-all`, `d` is `archive-flag` and `D` is
   `org-glance-overview:delete`. No sequence is bound twice, and no complete
   sequence opens a longer one (which would leave the longer one unreachable —
@@ -1686,10 +1727,13 @@ on.
   `kbHelp` the echo widget reads when the command name does not say enough.
   Auto-repeat belongs to movement, so the keys that must run once per press are
   named by COMMAND in `ONCE` — `filter-drop-token`, `unmark-all`, `mark-all`,
-  `archive-flag`, `org-glance-overview:delete` — which holds under both spellings
+  `archive-flag`, `org-glance-overview:delete`, `org-glance-overview:open`,
+  `org-glance-agenda` — which holds under both spellings
   of a command and takes the repeat off nothing else. The three writes are there
   for a different reason than the token strip: a held key must not be a hundred
-  `/command` requests. `archive-flag` needs it most of all, since a repeat that
+  `/command` requests. The last two write nothing and are on the list for the
+  same shape of reason: a leaned-on `o` is a browser tab per repeat, and a
+  leaned-on `a` a remount per repeat. `archive-flag` needs it most of all, since a repeat that
   survived would flag a row and archive it from ONE press, which is exactly the
   confirmation the two-press shape exists to be. `m` and `u` stay off the list on
   purpose: both advance, so a held one walks a column laying marks down rather
@@ -2119,6 +2163,49 @@ on.
   table cannot draw
   for itself — `a letter sets it · / to search · ESC leaves`, and the fallback's
   own line in its own mode. Evidence: `TestServe` "Shell which-key". **test**
+- **`o` follows the row, and the ANSWER decides the gesture.** `o` (and `!`,
+  org-glance's other spelling) fetches `GET /links?id=` for the row at point and
+  then does one of three things: no links echoes
+  `o → org-glance-overview:open (no links)` and stops, ONE opens with
+  `window.open(target, "_blank", "noopener")`, and SEVERAL raise the palette. So
+  a reader never confirms a choice there was only one of, and never guesses which
+  of five references a key would take. Every open writes a `cmd` line naming the
+  target, which is the only trace a followed link leaves on the page it was
+  pressed from. `noopener` is not decoration: the opened page must not reach back
+  into this one. The command is on `ONCE`, since a leaned-on `o` is a tab per
+  repeat. Evidence: `TestServe` "Shell open". **test**
+- **The link palette is the value palette's third shape, and it is raised LATE.**
+  Same overlay, same band, same `whichKeys` pool, same `/` fallback, same `ESC`
+  through `cancel` — what differs is two things, and both follow from WHEN it
+  goes up. The state palette is raised synchronously on the keydown because the
+  answer cannot change whether there is a palette; the link palette cannot be,
+  because none and one are answered without one at all. So `askLinks` raises it
+  behind the fetch and clears `prompting.raising`: the `o` that asked has been
+  dispatched and gone, nothing is travelling, and declining a press would eat the
+  reader's first real key. And it draws FLAT rather than as a table — one row
+  points where it points and no scope classified it — which is `drawChoices`
+  branching on `prompting.table` rather than a fourth renderer. An entry's label
+  is the link's DESCRIPTION, since that is what the row's own text calls the
+  place, with the target beside it muted (`.pt`); `/` narrows over BOTH, through
+  the entry's `hay`, because a reader who remembers the host and not the wording
+  has only the one. Evidence: `TestServe` "Shell open". **test**
+- **`a` is a canned VIEW, not a mode.** `org-glance-agenda` applies
+  `state:*active* -planned:none` through the door `g` uses — `applyView` writes
+  it into the URL, drops the socket, and remounts, so the query is the renderer's
+  chips and a reader can read it, edit it with `DEL`, or link it. There is no
+  agenda state anywhere: no flag saying it is on, no key that leaves it, and
+  every other key means while it is applied exactly what it always meant. `g` is
+  the way home. The one thing the default view does not want is the sort, and
+  that arrives through `landed` — a one-shot thunk `start` TAKES before it
+  fetches, so a boot that never lands cannot leave it armed for the next one —
+  called with the server's own match count, which is the one number the first
+  page cannot give. It insists on `sortBy("scheduled", true)`, feature-detected:
+  the view already declares that sort and a remount re-reads it, so the call is
+  what makes the order the agenda's own rather than a coincidence of the default,
+  and an asset predating a programmatic sort still gets the view — which the
+  vendored `assets/table-view.js` does, `sortBy` having landed in table-view
+  beside this and not yet been synced. Evidence:
+  `TestServe` "Shell agenda". **test**
 - **The materialize sheet has no buttons, and closing it is the save.** Dirty is
   either pane against what the file holds as far as the page knows — the
   materialized original, then whatever the last 200 wrote — and it decides
@@ -2384,6 +2471,24 @@ on.
   interruptible again. **test** (the close rules) / **none** (the signal
   handler, which needs an open window; a flagged build alone reaches nothing
   here)
+- **A new window goes to the system browser; this one stays the table.** The
+  shell's `o` follows a link with `window.open(…, "_blank")`, and a
+  `target="_blank"` anchor is the same request. Both arrive at
+  `Glance.Desktop.WebKit` as a `WebKitPolicyDecision` of type
+  `NewWindowAction`, and a `WebKitWebView` with nothing connected answers one by
+  doing NOTHING — so following a link would work in a borrowed browser tab and
+  silently fail in the window this build carries, which is the one place a
+  reader cannot tell a missing feature from a broken one. `elsewhere` refuses
+  the decision (`policyDecisionIgnore`) and hands the URI to
+  `gtk_show_uri_on_window`, the desktop's own default handler: a glance window
+  is the table, and a second chrome-less one would be a browser with no address
+  bar. Every other decision type is left to WebKit, so ordinary navigation and
+  the socket upgrade are untouched. The downcast to
+  `NavigationPolicyDecision` is CHECKED (`castTo`, not the unsafe one) and a URI
+  that fails to open is printed and dropped — a window failure has never taken
+  this daemon down and a link does not either. That costs one
+  dependency in the flagged stanza, `haskell-gi-base`, which every `gi-*`
+  package already pulls. **none** (compiles; nothing has opened the window)
 - **The bindings are vendored, and the patch is six lines across two packages.**
   Every Hackage `gi-webkit2` binds WebKit2 **4.0** — `pkgconfig webkit2gtk-4.0`,
   `gi-javascriptcore4` on `javascriptcoregtk-4.0`, `gi-soup2` on `libsoup-2.4`
@@ -2428,6 +2533,9 @@ on.
   2 exists), the black-before-first-paint, closing the window stopping the
   daemon, `Ctrl-C` reaching `gtk_main` through the SIGINT handler, and
   `gtk_init_check` refusing a missing display without taking the daemon with it.
+  The new-window policy handler joins the list at the same standing: `o` on a
+  row with a link should raise the system browser and leave this window on the
+  table, and nothing here has watched it do so.
   That list is the eyeball list, and it now starts at the keys. **none**
 
 ## Build

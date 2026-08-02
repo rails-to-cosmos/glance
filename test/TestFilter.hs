@@ -19,7 +19,8 @@ import qualified Data.Text as T
 import Glance.Query ( HeadlineRecord (..), QueryResult (qrRecords), displayText
                     , loadDir, matchesSearch, tagsOfCell, viewJSON )
 import Glance.Web.Filter ( Term (..), Token (..), archiveKey, cellAt, filterKeys
-                         , matchesFilter, namesArchive, parseFilter, scanQuery )
+                         , matchesFilter, namesArchive, parseFilter, plannedKey
+                         , scanQuery )
 
 -- Fixtures
 --
@@ -63,8 +64,66 @@ matches q rows = assertEqual (T.unpack q) rows =<< matching q
 
 spec :: TestTree
 spec = testGroup "Filter"
-  [ tokenSpec, predicateSpec, virtualSpec, archiveSpec, shapeSpec, degenerateSpec
+  [ tokenSpec, predicateSpec, virtualSpec, plannedSpec, archiveSpec, shapeSpec
+  , degenerateSpec
   , layoutSpec ]
+
+-- | @planned@: the virtual key over the two date columns together.
+--
+-- Decidable from a row's own cells, which is what makes it a key both sides of
+-- the wire can carry — no keyword set, no vocabulary and no clock.  The
+-- fixture has one row with both dates, one with a schedule, one with a
+-- deadline, one with a @CLOSED:@ stamp and no column at all, and two with
+-- nothing, so every branch has a row of its own.
+plannedSpec :: TestTree
+plannedSpec = testGroup "Planned"
+  [ testCase "the key is spelled once, and it is not a column" $ do
+      assertEqual "the key" "planned" plannedKey
+      assertBool "and no column carries it" (plannedKey `notElem` filterKeys)
+      -- Known without a vocabulary, where a tag key is not: it stands over the
+      -- columns rather than over the tree's tags.
+      assertEqual "a predicate with nothing loaded"
+                  [Term False (Just "planned") "none"] (parseFilter [] "planned:none")
+
+  , testCase "a row is planned when either date cell holds anything" $ do
+      matches "-planned:none" [Ship, Privet, Reply]
+      -- Ship carries both, Privet a schedule, Reply a deadline.  Drop's
+      -- `CLOSED:' is neither column, so it is not a plan.
+      matches "planned:none" [Plain, Drop, Schema]
+
+  , testCase "and neither date column alone answers the same question" $ do
+      matches "-scheduled:none" [Ship, Privet]
+      matches "-deadline:none" [Ship, Reply]
+
+  , testCase "a value is the date prefix, asked of both cells at once" $ do
+      matches "planned:2026-08" [Ship, Privet, Reply]
+      -- The month a schedule falls in, and the month a deadline falls in.
+      matches "planned:2026-08-0" [Ship, Privet]
+      matches "planned:2026-08-10" [Reply]
+      -- Prefix, like the columns it stands over: no substring out of the middle.
+      matches "planned:03" []
+
+  , testCase "an empty value narrows nothing, as every key's does" $ do
+      every <- matching ""
+      matches "planned:" every
+
+  , testCase "two of them are either, the way the date columns are" $
+      matches "planned:2026-08-03 planned:2026-08-10" [Privet, Reply]
+
+  , testCase "negation composes with everything else" $ do
+      -- The agenda's own query: the active rows carrying a date.
+      matches "state:*active* -planned:none" [Ship, Privet, Reply]
+      matches "state:*inactive* -planned:none" []
+      matches "-planned:2026-08" [Plain, Drop, Schema]
+
+  , testCase "a column of that name would shadow it, and no column has one" $
+      -- The rule is stated the way the tag rule is: a key resolves once, and
+      -- `planned' is looked up ahead of the vocabulary, so a tree tagged
+      -- `:planned:' does not take the key away.
+      assertEqual "the virtual key wins over a tag spelled alike"
+                  [Term False (Just "planned") "none"]
+                  (parseFilter ["planned"] "planned:none")
+  ]
 
 -- | Which queries turn the served view's archive exclusion off
 -- ('Glance.Web.Filter.namesArchive').  The exclusion itself is

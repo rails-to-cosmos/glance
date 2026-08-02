@@ -29,8 +29,10 @@ import Glance.Query ( HeadlineParts (..), HeadlineRecord (..), LoadFailure (..)
                     , captureEdits, captureStamp, defaultWalk
                     , displayText, headlineParts, hiddenProperties, loadDir
                     , loadDirFilesSerially, loadDirFilesWith, loadFile, matchesSearch
+                    , orgLinks
                     , planningTimestamp, readsAsTimestamp, recomposedSubtree
-                    , setPlanningEdits, setStateEdits, subtreeText, viewJSON )
+                    , setPlanningEdits, setStateEdits, subtreeLinks, subtreeText
+                    , viewJSON )
 
 -- Fixtures
 
@@ -101,7 +103,83 @@ maybeBoolAt key v = assertFailure ("expected an object with " <> show key
 spec :: TestTree
 spec = testGroup "Query"
   [ loadSpec, walkSpec, levelSpec, blankSpec, parallelSpec, cellSpec, searchSpec
+  , linkSpec
   , viewSpec, schemaSpec, commandSpec, lensSpec ]
+
+-- | Where a row points: what @GET \/links@ serves, as the pure function under
+-- it.
+--
+-- The rule is the DISPLAY rule, so the two halves are stated together — what
+-- 'displayText' shows for a link is what a link's description is here, and the
+-- one parser answers both.  Everything else is the plain-URL half, which the
+-- display rule never had to have an opinion about.
+linkSpec :: TestTree
+linkSpec = testGroup "Links"
+  [ testCase "a bracket link is its target and what it shows" $ do
+      assertEqual "described" [("https://x/y", "table-view")]
+                  (orgLinks "[[https://x/y][table-view]]")
+      -- The two spellings with no description of their own fall back to the
+      -- target, which is exactly what the table shows for them.
+      assertEqual "bare" [("https://x/y", "https://x/y")] (orgLinks "[[https://x/y]]")
+      assertEqual "empty description" [("file:a.org", "file:a.org")]
+                  (orgLinks "[[file:a.org][]]")
+
+  , testCase "the description is what displayText would show" $ do
+      let one = "[[https://x/y][table-view]]"
+      assertEqual "one parser, two questions" (displayText one) (snd (head (orgLinks one)))
+
+  , testCase "several links come back in the order they are written" $
+      assertEqual "in order" [("file:R.md", "readme"), ("file:N.org", "notes")]
+                  (orgLinks "see [[file:R.md][readme]] and [[file:N.org][notes]].")
+
+  , testCase "a bare URL is its own description" $ do
+      assertEqual "https" [("https://x.org/a", "https://x.org/a")]
+                  (orgLinks "read https://x.org/a today")
+      assertEqual "http" [("http://x.org", "http://x.org")] (orgLinks "http://x.org")
+      assertEqual "mailto" [("mailto:t@x.org", "mailto:t@x.org")]
+                  (orgLinks "write to mailto:t@x.org")
+
+  , testCase "and the punctuation a sentence leaves behind is not part of it" $ do
+      assertEqual "full stop" [("https://x.org/a", "https://x.org/a")]
+                  (orgLinks "see https://x.org/a.")
+      assertEqual "parens" [("https://x.org/a", "https://x.org/a")]
+                  (orgLinks "(https://x.org/a)")
+      assertEqual "angles" [("https://x.org/a", "https://x.org/a")]
+                  (orgLinks "<https://x.org/a>")
+
+  , testCase "a scheme inside a word is not a link" $ do
+      assertEqual "glued" [] (orgLinks "xhttps://x.org")
+      assertEqual "no scheme at all" [] (orgLinks "x.org and ftp://x.org")
+
+  , testCase "a bracket link's own target is not also a bare URL" $
+      assertEqual "counted once" [("https://x.org/a", "the page")]
+                  (orgLinks "[[https://x.org/a][the page]]")
+
+  , testCase "text that never closes a link holds no link" $ do
+      assertEqual "unclosed" [] (orgLinks "[[oops")
+      assertEqual "not a link" [] (orgLinks "[[a]x]")
+      -- And the scan carries on past it: an unclosed `[[' is two characters
+      -- skipped rather than the end of the text.
+      assertEqual "and the one after it survives"
+                  [("https://x.org", "https://x.org")] (orgLinks "[[oops https://x.org")
+
+  , testCase "one entry per target, keeping the first description" $
+      assertEqual "deduped" [("https://x.org", "first")]
+                  (orgLinks "[[https://x.org][first]] and [[https://x.org][second]]")
+
+  , testCase "a row with nothing to follow has no links" $
+      assertEqual "none" [] (orgLinks "* TODO plain headline\nwith a body\n")
+
+  , testCase "the subtree is what is read, body and children included" $
+      withRecordsOf (T.unlines
+        [ "* parent [[https://a.example][A]]"
+        , "body [[https://b.example][B]]"
+        , "** child https://c.example" ]) $ \recs ->
+        assertEqual "the whole extent"
+          [[ ("https://a.example", "A"), ("https://b.example", "B")
+           , ("https://c.example", "https://c.example") ]]
+          (map subtreeLinks recs)
+  ]
 
 -- | The subtree lens: a subtree split into the parts a client edits and the
 -- parts the server keeps, and put back.

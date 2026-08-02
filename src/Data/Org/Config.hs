@@ -38,6 +38,7 @@ module Data.Org.Config ( ConfigLayerFile (..)
                        , defaultFilter
                        , defaultFilterEdits
                        , defaultFilterOf
+                       , firstBy
                        , isCaptureTargetPragma
                        , isDefaultFilterPragma
                        , isTodoPragma
@@ -111,9 +112,10 @@ firstSeen :: Ord a => [a] -> [a]
 firstSeen = firstBy id
 
 -- | XS with the first entry under each KEY kept and every later one dropped.
--- Two callers want the same fold under different keys: the keyword merge
--- deduplicates by the word itself, and the tag layers by the tag, where a
--- second config directory naming a tag the first already configured loses it.
+-- Three callers want the same fold under different keys: the keyword merge
+-- deduplicates by the word itself, the tag layers by the tag, where a second
+-- config directory naming a tag the first already configured loses it, and
+-- 'Glance.Query.orgLinks' by a link's target.
 firstBy :: Ord k => (a -> k) -> [a] -> [a]
 firstBy key = go Set.empty
   where go _ [] = []

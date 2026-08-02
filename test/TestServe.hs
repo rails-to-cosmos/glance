@@ -6,7 +6,7 @@
 module TestServe (spec) where
 
 import Control.Monad (filterM, (<=<))
-import Data.Aeson ( FromJSON, Value (Bool, Number, Object, String)
+import Data.Aeson ( FromJSON, Value (Bool, Null, Number, Object, String)
                   , eitherDecode, encode, object, parseJSON, (.=) )
 import Data.Aeson.Types (parseEither)
 import Data.ByteString (ByteString)
@@ -317,11 +317,12 @@ spec = withResource (body <$> get assetsDir "/") (const (pure ())) $ \shell ->
     [ headlineSpec, bannerSpec, statsSpec, cacheSpec, gzipSpec, querySpec
     , orderSpec, archiveViewSpec
     , bootstrapSpec, materializeSpec, commitSpec, commandSpec, planningSpec, captureSpec
-    , configSpec, keywordsSpec, indexingSpec
+    , configSpec, keywordsSpec, linksSpec, indexingSpec
     , pageSpec shell, keymapSpec shell
     , glueSpec shell, bootSpec shell, liveSpec shell, paletteSpec shell
     , moveSpec shell, markSpec shell
-    , commandKeySpec shell, promptKeySpec shell, whichKeySpec shell, logSpec shell
+    , commandKeySpec shell, promptKeySpec shell, whichKeySpec shell
+    , openKeySpec shell, agendaSpec shell, logSpec shell
     , sheetSpec shell
     , settingsSpec shell
     , touchSpec shell
@@ -1055,6 +1056,183 @@ plannedOf = traverse one <=< argsOf
 lastLog :: Value -> IO (Maybe T.Text)
 lastLog answer = fmap (message . cut) . listToMaybe . reverse <$> logOf answer
 
+-- | @o@: what the row points at, followed.
+--
+-- The gesture is decided by the ANSWER — none refuses, one opens without
+-- asking, several raise the palette — so every case here runs the fetch and
+-- reads what came of it.  Which links a subtree holds is @TestQuery@'s
+-- ("Links") and the route's shape is @linksSpec@'s; this is the keystroke.
+openKeySpec :: IO T.Text -> TestTree
+openKeySpec shell = testGroup "Shell open"
+  [ testCase "o asks about the row at point" $
+      bootOf shell "" 500 "o" "" $
+        assertEqual "one request, naming the row" ["/links?id=r1"] <=< textsAt "linked"
+
+  , testCase "! is the same command, and reaches it the same way" $
+      bootOf shell "" 500 "!" "" $ \answer -> do
+        assertEqual "the same request" ["/links?id=r1"] =<< textsAt "linked" answer
+        -- Raising a palette is not a landing, so the pill still carries what
+        -- `run\' says of the row — the command and its help — the way it does
+        -- while the state palette is up.  The landing is the letter.
+        assertEqual "under the same name"
+                    "! → org-glance-overview:open · follow this row\'s link; several raise the palette"
+          =<< textAt "echo" answer
+
+  , testCase "one link opens without asking" $
+      bootOf shell "" 500 "" "onelink press:o" $ \answer -> do
+        assertEqual "the tab, with the opener cut"
+                    [("https://one.example/a", "_blank", "noopener")] =<< openedOf answer
+        assertEqual "no palette went up" "" =<< textAt "prompt" answer
+        assertEqual "the pill names the command and what it opened"
+                    "o → org-glance-overview:open (First reference)"
+          =<< textAt "echo" answer
+        assertEqual "and the log names the target"
+                    (Just "link \"https://one.example/a\" opened") =<< lastLog answer
+
+  , testCase "no link at all is a refusal that names the command" $
+      bootOf shell "" 500 "" "nolinks press:o" $ \answer -> do
+        assertEqual "nothing opened" [] =<< openedOf answer
+        assertEqual "no palette either" "" =<< textAt "prompt" answer
+        assertEqual "and the pill says why"
+                    "o → org-glance-overview:open (no links)" =<< textAt "echo" answer
+
+    -- Several is the palette: a FLAT list under which-key letters, each entry
+    -- described the way the row's own text describes it, with the target beside
+    -- it.  No source table — one row points where it points and no scope
+    -- classified it — so the layout is the fallback's shape with the letters on.
+  , testCase "several raise the palette, one letter each" $
+      bootOf shell "" 500 "o" "" $ \answer -> do
+        assertEqual "raised" "on" =<< textAt "prompt" answer
+        assertEqual "titled by the count" "open · 3 links" =<< textAt "phead" answer
+        assertEqual "the entries, in the order the subtree writes them"
+          [ ("pe", "", ["f [F]irst reference"],  [])
+          , ("pe", "", ["s [S]econd reference"], [])
+          , ("pe", "", ["m [m]ailto:t@example.org"], []) ] =<< paletteOf answer
+        assertEqual "and the foot says a letter opens rather than sets"
+                    "a letter opens it · / to search · ESC leaves"
+          =<< textAt "pfoot" answer
+
+    -- The press that raised THIS palette has been dispatched and gone by the
+    -- time the answer lands, where `t' is still travelling when its palette
+    -- goes up.  So nothing is declined here, and the first letter commits.
+  , testCase "a letter opens its link and closes the palette" $
+      bootOf shell "" 500 "o" "press:s" $ \answer -> do
+        assertEqual "the second one" [("https://two.example/b", "_blank", "noopener")]
+          =<< openedOf answer
+        assertEqual "the overlay is down" "" =<< textAt "prompt" answer
+        assertEqual "the pill names it by its description"
+                    "o → org-glance-overview:open (Second reference)"
+          =<< textAt "echo" answer
+
+  , testCase "ESC leaves it having opened nothing" $
+      bootOf shell "" 500 "o" "press:Escape" $ \answer -> do
+        assertEqual "nothing opened" [] =<< openedOf answer
+        assertEqual "the overlay is down" "" =<< textAt "prompt" answer
+
+    -- `/' is the established completing-read, and it narrows over the target as
+    -- well as the description: a reader who remembers the host and not the
+    -- wording has only the one.
+  , testCase "/ narrows over the descriptions and the targets alike" $ do
+      bootOf shell "" 500 "o" "press:/ type:second" $
+        assertEqual "by description"
+          [("pe pat", "", ["Second reference"], [])] <=< paletteOf
+      bootOf shell "" 500 "o" "press:/ type:one.example" $
+        assertEqual "by target, which no description spells"
+          [("pe pat", "", ["First reference"], [])] <=< paletteOf
+      bootOf shell "" 500 "o" "press:/ type:second press:Enter" $
+        assertEqual "and RET opens what is left"
+          [("https://two.example/b", "_blank", "noopener")] <=< openedOf
+
+    -- A held key must not be a browser tab per repeat, which is why the command
+    -- is on the ONCE list beside the writes.
+  , testCase "a held o asks once" $
+      bootOf shell "" 500 "o" "repeat:o repeat:o repeat:o" $
+        assertEqual "one request" ["/links?id=r1"] <=< textsAt "linked"
+
+  , testCase "a refused answer is one cmd error line and no palette" $
+      bootOf shell "" 500 "" "refuse press:o" $ \answer -> do
+        assertEqual "nothing opened" [] =<< openedOf answer
+        assertEqual "no palette" "" =<< textAt "prompt" answer
+        assertEqual "and the log carries the server's own words"
+                    (Just "open failed: no headline with id r1") =<< lastLog answer
+  ]
+
+-- | Every tab the page opened: the URL, the target name and the window features
+-- — @noopener@ being half of what makes following a link safe.
+openedOf :: Value -> IO [(T.Text, T.Text, T.Text)]
+openedOf answer = traverse one =<< listAt "opened" answer
+  where one v = (,,) <$> textAt "url" v <*> textAt "target" v <*> textAt "features" v
+
+-- | @a@: the agenda, which is a canned VIEW rather than a mode.
+--
+-- One query through the door @g@ uses — into the URL, asked of the server,
+-- mounted as the renderer's chips — plus the one thing the default view does
+-- not want, which is the scheduled sort insisted on once the rows are up.
+agendaSpec :: IO T.Text -> TestTree
+agendaSpec shell = testGroup "Shell agenda"
+  [ testCase "applies its query the way g applies the tree's default" $
+      bootOf shell "?q=" 500 "a" "" $ \answer -> do
+        assertEqual "the boot's two, then the remount's"
+          [ "/headlines?limit=100", "/headlines"
+          , "/headlines?q=state%3A*active*%20-planned%3Anone&limit=100"
+          , "/headlines?q=state%3A*active*%20-planned%3Anone" ]
+          =<< textsAt "asked" answer
+        assertEqual "and the URL it settles on is that query"
+                    "?q=state%3A*active*+-planned%3Anone" =<< textAt "url" answer
+
+  , testCase "the rows land in scheduled order, earliest first" $
+      bootOf shell "?q=" 500 "a" "" $
+        assertEqual "the sort the view is for"
+                    (Just ("scheduled", True)) <=< sortOf
+
+  , testCase "and the pill names the command and the count the server answered" $
+      bootOf shell "?q=" 3 "a" "" $
+        assertEqual "counted by the server, not by the page it painted"
+                    "a → org-glance-agenda (agenda · 3 rows)" <=< textAt "echo"
+
+  , testCase "one row is one row" $
+      bootOf shell "?q=" 1 "a" "" $
+        assertEqual "singular" "a → org-glance-agenda (agenda · 1 row)" <=< textAt "echo"
+
+    -- An asset with no programmatic sort keeps the order the view declares,
+    -- which is already this one; the key says what it did either way rather
+    -- than throwing on a call that is not there.
+  , testCase "an asset without a programmatic sort still applies the view" $
+      bootOf shell "?q=" 500 "" "sortless press:a" $ \answer -> do
+        assertEqual "no sort was asked for" Nothing =<< sortOf answer
+        assertEqual "the query still went"
+                    "?q=state%3A*active*+-planned%3Anone" =<< textAt "url" answer
+
+    -- `g' is the way home, and it is the way home from here like anywhere else.
+  , testCase "g returns to the tree's default view" $
+      bootOf shell "?q=" 500 "a g" "" $
+        assertEqual "the last query asked for is the default's"
+                    "?q=state%3A*active*" <=< textAt "url"
+
+    -- The landing is armed for ONE boot: a second remount that nobody asked an
+    -- agenda of must not re-sort and must not echo a count.
+  , testCase "the landing is spent by the boot it was armed for" $
+      bootOf shell "?q=" 500 "a" "close:view-changed" $
+        assertEqual "the remount behind the close echoed no agenda"
+                    "a → org-glance-agenda (agenda · 500 rows)" <=< textAt "echo"
+
+  , testCase "a held a remounts once" $
+      bootOf shell "?q=" 500 "a" "repeat:a repeat:a repeat:a" $
+        assertEqual "one remount, so one pair of fetches"
+          [ "/headlines?limit=100", "/headlines"
+          , "/headlines?q=state%3A*active*%20-planned%3Anone&limit=100"
+          , "/headlines?q=state%3A*active*%20-planned%3Anone" ] <=< textsAt "asked"
+  ]
+
+-- | The sort the agenda asked the renderer for, if any.  Through `field', so a
+-- harness that stopped reporting the call at all fails loudly rather than
+-- reading as a page that asked for none.
+sortOf :: Value -> IO (Maybe (T.Text, Bool))
+sortOf answer = field "sorted" answer >>= said
+  where said Null     = pure Nothing
+        said sorted   = Just <$> ((,) <$> textAt "column" sorted
+                                      <*> boolAt "ascending" sorted)
+
 -- | The which-key letters: the assignment, driven as the pure function it is,
 -- and the list it draws.  The letters are what a reader learns by heart, so
 -- what is pinned is that one cycle always yields the same ones — the rule is
@@ -1767,6 +1945,18 @@ bootOf shell search total keys acts check = do
                  (eitherDecode (BL.fromStrict (TE.encodeUtf8 (T.pack out))))
         _failed -> assertFailure ("the boot harness said: " <> err)
 
+-- | The commands a held key delivers once, as the map declares them.  Named
+-- rather than spelled twice: two cases read the list, one for the dispatch that
+-- honours it and one for the rule that every entry is a bound command.
+--
+-- The first five write or destroy; the last two do neither and are here because
+-- a leaned-on key is ruinous either way — `o' is a browser tab per repeat and
+-- `a' a remount per repeat.
+onceNames :: [T.Text]
+onceNames = [ "filter-drop-token", "unmark-all", "mark-all"
+            , "archive-flag", "org-glance-overview:delete"
+            , "org-glance-overview:open", "org-glance-agenda" ]
+
 -- | The browser the boot runs in, stubbed down to what it touches.
 harness :: FilePath
 harness = "test/fixtures/shell-harness.js"
@@ -1908,7 +2098,7 @@ shellGlue =
       -- Folded into each entry once and IN PLACE, so the table's cells and the
       -- flat list hold the same objects and the drawing and the dispatch read
       -- one field rather than agreeing on a parallel array's indices.
-      , "        flat[i].key = letterAt(flat[i].label, cut);"
+      , "        list[i].key = letterAt(list[i].label, cut);"
       -- A badge hue is written inline, so it has to be told to give way under
       -- the fallback's cursor row — `--g-sel' is a bright yellow in the light
       -- theme, and this is the one declaration on the page that outranks one.
@@ -1996,7 +2186,7 @@ shellGlue =
   -- so a file that moved underneath opens the conflict flow instead of being
   -- overwritten by the restore.
   , glue "a real remount carries the sheet and the palette across it"
-      [ "function remount() { stash(); start(); }"
+      [ "function remount(after) { stash(); start(after); }"
       , "function stash() {"
       , "sheet: editing && dirty()"
       , "? { id: editing.id, raw, text: el(\"mtext\").value, props: props(),"
@@ -2203,11 +2393,44 @@ shellGlue =
   , Glue "the default view is the tree's, and `g' applies it"
       [ "const DEFAULT_QUERY = "
       , "const bootQuery = () => (params().has(\"q\") ? urlQuery() : DEFAULT_QUERY);"
-      , "function applyDefault(b) {"
-      , "remember(DEFAULT_QUERY);"
+      , "function applyDefault(b) { applyView(b, DEFAULT_QUERY); }"
+      , "remember(q);"
       , "remount();" ]
       -- `g' replaced the refresh key outright: one door through the mount.
       [ "function refresh()", "refreshing …", "org-glance-overview:refresh" ]
+
+  -- The second canned view, applied through the same door and differing in one
+  -- thing: it has something to do once its rows are up.
+  , Glue "`a' is the agenda query through the same door, plus its own sort"
+      [ "const AGENDA_QUERY = \"state:*active* -planned:none\";"
+      , "applyAgenda: (b) => applyView(b, AGENDA_QUERY, (total) => landedAgenda(b, total)),"
+      , "if (sorts()) table.sortBy(\"scheduled\", true);"
+      , "said(b, `agenda · ${total} row${total === 1 ? \"\" : \"s\"}`);"
+      -- The landing is an ARGUMENT of the boot it belongs to, so a boot that
+      -- never lands cannot leave one behind for the next.
+      , "function start(after) {"
+      , "if (after) after(a.total);" ]
+      -- A view rather than a mode: no state saying the agenda is on, no second
+      -- sort order to keep in step with the view's own, and no variable this
+      -- arms and disarms by hand.
+      [ "agendaMode", "let agenda =", "sortKeys", "let landed" ]
+
+  -- `o' follows the row.  The extraction is the server's — the page holds no
+  -- org parser — and how many links come back decides the whole gesture.
+  , Glue "`o' follows the row's links, and the server is what finds them"
+      [ "const linksOf = (id) => getJSON(`/links?id=${encodeURIComponent(id)}`);"
+      , "if (!links.length) { said(b, \"no links\"); return; }"
+      , "if (links.length === 1) { openLink(b, links[0]); return; }"
+      , "ask(`open · ${links.length} links`, (c) => openLink(b, c),"
+      , "window.open(link.target, \"_blank\", \"noopener\");"
+      , "append(\"cmd\", \"info\", `link ${JSON.stringify(link.target)} opened`);"
+      -- The palette is raised behind the answer, so nothing is travelling.
+      , "prompting.raising = false;"
+      , "a letter opens it · / to search · ESC leaves"
+      -- `/' narrows over the description AND the target.
+      , "`${c.label} ${c.hint || \"\"}`.toLowerCase().includes(want)" ]
+      -- No bracket grammar here: `[[T][D]]' is read where `displayText' is.
+      [ "\\\\[\\\\[", "showLinks", "linkAt" ]
 
   , glue "a binding with no handler names what it is waiting for"
       [ "arrives with daemon commands (M4)" ]
@@ -4095,6 +4318,70 @@ keywordsSpec = testGroup "GET /keywords"
           =<< sourcesOf =<< getFrom a "/keywords?ids=only"
   ]
 
+-- | @GET \/links@: where one row points.
+--
+-- The extraction rule is @TestQuery@'s ("Links"), which drives the pure
+-- function; what belongs here is the route — the id it takes, the shape it
+-- answers in, and the two refusals it shares with materialize.
+linksSpec :: TestTree
+linksSpec = testGroup "GET /links"
+  [ testCase "is the row's links, in the order its subtree writes them" $
+      withLinkTree $ \a -> do
+        r <- getFrom a "/links?id=linked"
+        assertEqual "status" 200 (status r)
+        assertEqual "target and description"
+          [ ["https://x.example/a", "the first"]
+          , ["https://y.example/b", "https://y.example/b"]
+          , ["https://z.example/c", "https://z.example/c"] ]
+          =<< linksOf r
+
+  , testCase "an id the store has no row for is a 404, like materialize" $
+      withLinkTree $ \a -> do
+        r <- getFrom a "/links?id=nosuch"
+        assertEqual "status" 404 (status r)
+        assertContains "hint" "no headline with id" (body r)
+
+  , testCase "no id at all says what the route wants" $
+      withLinkTree $ \a -> do
+        r <- getFrom a "/links"
+        assertEqual "status" 400 (status r)
+        assertEqual "naming the parameter" "GET /links?id=<row id>"
+          =<< textAt "error" =<< decoded r
+
+  , testCase "a row with nothing to follow answers with an empty list" $
+      withLinkTree $ \a ->
+        assertEqual "no links" [] =<< linksOf =<< getFrom a "/links?id=bare"
+
+  , testCase "and it is a read: POST is a 405" $ do
+      r <- withLinkTree (\a -> postTo a "/links?id=linked" "{}")
+      assertEqual "status" 405 (status r)
+  ]
+
+-- | The answer's links as @[target, desc]@ pairs.
+linksOf :: SResponse -> IO [[T.Text]]
+linksOf r = traverse one =<< listAt "links" =<< decoded r
+  where one v = sequence [textAt "target" v, textAt "desc" v]
+
+-- | A tree with one row worth following and one with nothing in it: a bracket
+-- link on the title, a bare URL in the body, and one more under a child, so
+-- the route's answer shows it read the SUBTREE.
+withLinkTree :: (Application -> IO a) -> IO a
+withLinkTree k = withTempDir $ \dir -> do
+  _ <- orgFile dir "a.org" (T.unlines
+         [ "* one [[https://x.example/a][the first]]"
+         , ":PROPERTIES:"
+         , ":ORG_GLANCE_ID: linked"
+         , ":END:"
+         , "see https://y.example/b for the rest"
+         , "** a child https://z.example/c"
+         , "* two"
+         , ":PROPERTIES:"
+         , ":ORG_GLANCE_ID: bare"
+         , ":END:"
+         , "nothing to follow here" ])
+  (a, _hub) <- serverOver dir
+  k a
+
 -- | Each source the answer names, with the keywords it is the nearest to
 -- declare.
 sourcesOf :: SResponse -> IO [(T.Text, [T.Text], [T.Text])]
@@ -4290,9 +4577,7 @@ pageSpec shell = testGroup "GET /"
             , "if (!(e.repeat && MAPS.once.indexOf(hit.command) !== -1)) run(hit);" ]
       -- `D' is on the list for a different reason than the other two: it
       -- writes files, so a held key must not be a hundred /command requests.
-      onceOf b >>= assertEqual "the commands auto-repeat is off for"
-                     [ "filter-drop-token", "unmark-all", "mark-all"
-        , "archive-flag", "org-glance-overview:delete" ]
+      onceOf b >>= assertEqual "the commands auto-repeat is off for" onceNames
       -- The guard is per command, so it cannot take auto-repeat off movement.
       assertBool "the repeat guard is blanket rather than per command"
                  (not ("if (e.repeat) return" `T.isInfixOf` b))
@@ -4375,6 +4660,9 @@ pageSpec shell = testGroup "GET /"
         -- `<' for a within-page key and never finds out that it climbs.
         , (["first-row", "last-row"], "first/last row, again = page up/down")
         , (["org-glance-overview:materialize"], "materialize")
+        -- What a row points AT, beside what it IS: `RET' opens the entry and
+        -- `o' follows it out.
+        , (["org-glance-overview:open"], "open link")
         -- Four keys, one word: the line says `m/u/U/M mark' the way it says
         -- `n/p rows', since the group is one idea.
         , (["mark-toggle", "unmark", "unmark-all", "mark-all"], "mark")
@@ -4392,6 +4680,9 @@ pageSpec shell = testGroup "GET /"
         , (["archive-flag", "org-glance-overview:delete"], "archive flagged")
         , (["filter-rows"], "filter")
         , (["apply-default-filter"], "default view")
+        -- The second canned view, next to the one `g' applies: both are a
+        -- query, and the line says so by putting them together.
+        , (["org-glance-agenda"], "agenda")
         , (["filter-drop-token"], "drop token")
         , (["customize"], "settings")
         , (["quit-window"], "quit")
@@ -4474,9 +4765,14 @@ expectedRows =
        Just "mark every row loaded")
   , (["q"],          "q",       "quit-window",                     Just "quitWindow",     "table", Nothing)
   , (["TAB"],        "TAB",     "org-cycle",                       Nothing,               "table", Nothing)
-  , (["o"],          "o",       "org-glance-overview:open",        Nothing,               "table", Nothing)
-  , (["!"],          "!",       "org-glance-overview:open",        Nothing,               "table", Nothing)
-  , (["a"],          "a",       "org-glance-agenda",               Nothing,               "table", Nothing)
+  -- Where the row points, out of its own subtree.  Two spellings of one
+  -- command, so one help line.
+  , (["o"],          "o",       "org-glance-overview:open",        Just "openLinks",      "table", openHelp)
+  , (["!"],          "!",       "org-glance-overview:open",        Just "openLinks",      "table", openHelp)
+  -- A canned VIEW rather than a mode: one query, applied the way `g' applies
+  -- the tree's default.
+  , (["a"],          "a",       "org-glance-agenda",               Just "applyAgenda",    "table",
+       Just "the active rows carrying a date, earliest first")
   , (["@"],          "@",       "org-glance-overview:relations",   Nothing,               "table", Nothing)
   -- The one write that names no row: it makes one, in the file the tree's own
   -- @#+GLANCE_CAPTURE_TARGET:@ names.
@@ -4516,6 +4812,7 @@ expectedRows =
         topHelp   = Just "first row, again = page up"
         endHelp   = Just "last row, again = page down"
         planHelp  = Just "a date over the marked rows, or the row at point; empty clears it"
+        openHelp  = Just "follow this row's link; several raise the palette"
 
 -- | The keymap blob out of SHELL, parsed.  Everything the dispatch reads is in
 -- here, so the assertions below are over data rather than over the spelling of
@@ -4655,9 +4952,7 @@ keymapSpec shell = testGroup "Shell keymap"
       -- `d' most of all: a held key that survived here would flag a row and
       -- archive it from ONE press, which is the confirmation the two-press
       -- shape exists to be.
-      onceOf b >>= assertEqual "once"
-        [ "filter-drop-token", "unmark-all", "mark-all"
-        , "archive-flag", "org-glance-overview:delete" ]
+      onceOf b >>= assertEqual "once" onceNames
       rows <- keymapOf b
       once <- onceOf b
       assertEqual "a command is on the once list and unbound" []
