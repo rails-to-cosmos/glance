@@ -498,7 +498,8 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   case-insensitive plus the `*active*`/`*inactive*` meta values (`starless`
   strips one matched asterisk pair before those two comparisons and nowhere
   else, so `state:active` is an alias and `state:*TODO*` is a literal that
-  matches nothing), `priority` is exact
+  matches nothing; and `*active*` ORs in the EMPTY cell, where `*inactive*`
+  does not), `priority` is exact
   equality, `scheduled`/`deadline` are prefix, everything else is substring.
   `key:none` is the empty cell on the COLUMN keys only — `tag:none` is untagged,
   since `tag` is a column — and has no branch for a virtual key, where
@@ -527,11 +528,20 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   - Date-ness is likewise asymmetric: two hardcoded names here, sampled
     date-shape there. A page with under two dated rows makes the renderer
     substring-match `scheduled:` where the server prefix-matches it.
-  - `state:*active*`/`state:*inactive*` are producer-only, blessed by
-    SCHEMA.md, and are the canonical spelling (org-glance's own, and what the
-    default view boots on). The renderer has no group logic and matches them as
-    literal badge text; the `state` column now ships them as `values` beside
-    its `badges`, so its autocomplete can at least offer them. Each badge also
+  - `state:*active*`/`state:*inactive*` are producer-only in their KEYWORD half
+    alone, blessed by SCHEMA.md, and are the canonical spelling (org-glance's
+    own, and what the default view boots on). The renderer has no group logic
+    and matches them as literal badge text, EXCEPT for the starred `*active*`'s
+    empty-cell term, which names no keyword: SCHEMA now puts the empty cell in
+    the active group and `tokenTest` answers that half, so a locally-filtered
+    `state:*active*` finds the stateless rows where it used to find nothing —
+    still a subset of what the server answers, so the skew's direction is
+    unmoved. `*inactive*` has no such term and stays a literal, and so does the
+    bare `state:active`, since `starless` is this producer's alone.
+    The `state` column ships the two as `values` beside
+    its `badges`, so its autocomplete can at least offer them — dimmed and
+    uncounted, since those counts are per cell value and a fraction of the
+    server's answer is no better a number than zero. Each badge also
     names its `group` (`active`/`inactive`) — order cannot say where a `#+TODO:`
     bar fell and the hues are not a contract. Additive; a renderer ignores the
     field. The value palette reads the badges for their HUES alone; its own
@@ -805,6 +815,13 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   own — never a literal keyword and never a cell value. The family:
   `*active*`/`*inactive*` (filter group metas, producer-evaluated) and `*clear*`
   (the state palette's take-the-keyword-off entry, committed as a null keyword).
+  `*active*` is the file's active keywords PLUS the EMPTY state cell — a
+  stateless entry is live work, and the default view is what would otherwise
+  hide it — while `*inactive*` is stated keywords alone, so the two do not
+  partition the column, `-state:*active*` drops the empty cell, and `state:none`
+  stays the explicit spelling and is now a subset of `*active*`. The empty half
+  is read off the CELL, which is what `none` reads and the one term the renderer
+  can answer for itself.
   A future meta joins by wearing the stars. The enforcing edge is
   `setStateEdits`, which refuses any word a file's `#+TODO:` does not declare, and
   `keywordTextP` (letters and underscores) makes a starred word undeclarable, so

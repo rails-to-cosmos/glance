@@ -39,7 +39,8 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 
 import Data.Org.Edit (snapDigest, snapshotOf)
-import Glance.Query (QueryResult (qrRecords), loadDir, loadFile, viewJSON)
+import Glance.Query ( QueryResult (qrRecords), builtinFilter, loadDir, loadFile
+                    , viewJSON )
 import Glance.Web ( ServeOptions (..), application, bannerLines, bootstrapWanted
                   , defaultPort, viewTitleFor )
 import Glance.Web.Store ( Hub, applyFile, finishLoading, loadStore, newHub
@@ -2728,13 +2729,38 @@ querySpec = testGroup "GET /headlines filter and paging"
         =<< total "/headlines?q=-state:DONE"
       assertEqual "a tag string stays text" (Just "2") =<< total "/headlines?q=:web:"
 
+    -- The default view over a tree holding one of each: the boot query is
+    -- `state:*active*' and the row it exists to show is the one nobody has put
+    -- a keyword on, which the active group takes along with the keywords it
+    -- names.  TestFilter states the rule; what this asserts is the rule
+    -- arriving through the route the shell actually boots on.
+  , testCase "the default view carries the entry nobody stated" $
+      withTempDir $ \dir -> do
+        _ <- orgFile dir "notes.org" (T.unlines
+               [ "* TODO Ship it", "* DONE Shipped", "* Jotted and never stated" ])
+        (a, _hub) <- serverOver dir
+        let titles path = fmap sort . mapM (textAt "title" <=< field "cells")
+                            =<< rowsOf =<< getFrom a path
+        assertEqual "which query the shell boots on" "state:*active*" builtinFilter
+        assertEqual "the active group takes the stateless entry with the keyword"
+                    ["Jotted and never stated", "Ship it"]
+          =<< titles "/headlines?q=state%3A*active*"
+        assertEqual "the inactive group leaves it behind" ["Shipped"]
+          =<< titles "/headlines?q=state%3A*inactive*"
+        assertEqual "none is that one entry, asked for by name"
+                    ["Jotted and never stated"] =<< titles "/headlines?q=state%3Anone"
+        assertEqual "so negating the default view drops it too" ["Shipped"]
+          =<< titles "/headlines?q=-state%3A*active*"
+
   , testCase "a filtered OR query pages out of the view's own sort" $ do
       a <- app assetsDir
       whole <- rowsOf =<< getFrom a "/headlines?q=state:active"
       one <- getFrom a "/headlines?q=state:active&limit=2&offset=0"
       two <- getFrom a "/headlines?q=state:active&limit=2&offset=2"
-      assertEqual "the union" 3 (length whole)
-      assertEqual "the total is the match count, not the page" (Just "3")
+      -- Three keywords in the file's active set, plus the stateless row the
+      -- group takes with them (TestFilter, "the stateless row is active").
+      assertEqual "the union" 4 (length whole)
+      assertEqual "the total is the match count, not the page" (Just "4")
                   (header "X-Glance-Total" one)
       let sorted = map rowId (sortOn scheduledOf whole)
       assertEqual "page one" (take 2 sorted) . map rowId =<< rowsOf one

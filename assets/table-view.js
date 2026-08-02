@@ -614,6 +614,12 @@
   const META = /^\*.+\*$/;
 
   /**
+   * The one meta this renderer can partly answer: SCHEMA puts the EMPTY cell in
+   * the active group, and an empty cell needs no keyword set to recognise.
+   */
+  const ACTIVE_META = "*active*";
+
+  /**
    * The values a column offers for completion: its declared `values' in their
    * own order, then any badge value they did not already name.  Merged rather
    * than shadowed — a producer adding meta-values to a badge column would
@@ -1436,10 +1442,19 @@
       // Asking for an empty cell is what `none' is for.
       if (!v) return () => true;
       if (v === "none") return (r) => rowText(r).cells[i] === "";
-      // A producer meta (`state:*active*') is matched literally here and so
-      // matches nothing: only the producer knows which keywords it stands for,
-      // and a view that declares metas is expected to filter through `onFilter'.
-      if (col.type === "badge") return (r) => rowText(r).cells[i] === v;
+      // A producer meta names a set only the producer can enumerate, so it is
+      // matched literally here and finds nothing, and a view that declares
+      // metas is expected to filter through `onFilter'. `*active*' has one term
+      // that names no keyword and so survives the crossing: SCHEMA puts the
+      // EMPTY cell in the active group — an unstated row is live work — and an
+      // empty cell needs no keyword set to recognise. That half is what is
+      // answered here; the keyword half is what drops out, leaving an answer
+      // the producer's own can only widen. `*inactive*' has no such term, an
+      // empty cell not being done, and stays the literal it was.
+      if (col.type === "badge")
+        return v === ACTIVE_META
+          ? (r) => rowText(r).cells[i] === ""
+          : (r) => rowText(r).cells[i] === v;
       if (dateColumn(i)) return (r) => rowText(r).cells[i].startsWith(v);
       return (r) => rowText(r).cells[i].includes(v);
     }
@@ -2753,10 +2768,13 @@
         // happened to sort first.
         //
         // A producer meta stands apart from the concrete values beside it:
-        // dimmed and italic, and with no count. Counting it locally would
-        // print 0 — no cell holds the literal `*active*' — and a 0 beside a
-        // value that in fact matches many rows is worse than no number.
-        // What it means is the producer's to say; see `predicate'.
+        // dimmed and italic, and with no count. These counts are per cell
+        // VALUE, and no cell holds the literal `*active*', so counting one here
+        // would print 0 — or, once `tokenTest' answers the empty half of
+        // `*active*', the stateless rows alone, which is a fraction of what the
+        // producer will match. Either number beside a value that in fact
+        // matches many rows is worse than no number. What it means is the
+        // producer's to say; see `tokenTest'.
         const meta = META.test(String(v));
         out.push({ text: String(v), count: meta ? -1 : dom.counts.get(lower) || 0,
                    full: false, dim: meta, pick: false });

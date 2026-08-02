@@ -243,19 +243,32 @@ predicateSpec = testGroup "Predicates"
       matches "state:TOD" []
 
   , testCase "state:active and state:inactive are the file's keyword groups" $ do
-      -- #+TODO: NEXT WAITING | CANCELLED, over the seeded TODO/DONE.
-      matches "state:active" [Ship, Privet, Reply]
+      -- #+TODO: NEXT WAITING | CANCELLED, over the seeded TODO/DONE.  The
+      -- stateless row rides with the active ones; see below.
+      matches "state:active" [Ship, Privet, Reply, Plain]
       matches "state:inactive" [Drop, Schema]
-      -- A headline with no keyword is in neither group.
+
+  , testCase "the stateless row is active, and it is not inactive" $ do
+      -- No scope classifies a headline that carries no keyword, so it is in
+      -- neither group — and `*active*' takes it anyway, since an entry nobody
+      -- has stated is live work and the default view is what would otherwise
+      -- hide it.  `*inactive*' does not: an entry nobody marked done is not
+      -- done, so the two groups do not partition the column.
       matches "state:none" [Plain]
+      matches "state:*active*" [Ship, Privet, Reply, Plain]
+      matches "state:*inactive*" [Drop, Schema]
+      -- Which makes `none' a subset of `*active*' rather than a third group,
+      -- and makes the negation drop the empty cell along with the keywords.
+      matches "-state:*active*" [Drop, Schema]
+      matches "-state:*inactive*" [Ship, Privet, Reply, Plain]
 
   , testCase "and answer to org-glance's starred spelling of the same groups" $ do
       -- `*active*' is what org-glance calls the group and what the view offers
       -- for completion, so it is the canonical spelling; the bare one above
       -- stays an alias.
-      matches "state:*active*" [Ship, Privet, Reply]
+      matches "state:*active*" [Ship, Privet, Reply, Plain]
       matches "state:*inactive*" [Drop, Schema]
-      matches "state:*ACTIVE*" [Ship, Privet, Reply]
+      matches "state:*ACTIVE*" [Ship, Privet, Reply, Plain]
       -- Stars are not a glob: they come off these two values and nothing else,
       -- so a starred keyword is the literal badge text, which no cell holds.
       matches "state:*TODO*" []
@@ -362,7 +375,7 @@ shapeSpec = testGroup "Shape"
 
   , testCase "a negated free-text token drops the rows holding it" $ do
       matches "-the" [Privet, Plain]
-      matches "state:active -the" [Privet]
+      matches "state:active -the" [Privet, Plain]
 
   , testCase "an empty query is every row" $ do
       every <- matching ""

@@ -1404,7 +1404,8 @@ on.
   `contact:x contact:y` is tagged `contact` and matching both texts. Dispatch is
   on the KEY NAME, never on the column's declared `kind` — `Glance.Web.Filter`
   does not import it. `state` is whole-value case-insensitive plus this
-  producer's `state:*active*`/`state:*inactive*` meta values, `priority` is exact
+  producer's `state:*active*`/`state:*inactive*` meta values — `*active*` ORing
+  in the EMPTY cell, where `*inactive*` does not — `priority` is exact
   equality, `scheduled`/`deadline` are prefix, everything else is substring; so
   a column declared `badge` but named something else is matched as text, and the
   `priority` column, declared `text`, is matched exactly. That last pair agrees
@@ -1476,9 +1477,19 @@ on.
   `scheduled` as text, so `scheduled:10:00` matches `2026-08-15 10:00` there and
   nothing here; conversely any other column whose sample looks dated gets
   renderer-side prefix matching that the server never applies. **none**
-- **`state:*active*` / `state:*inactive*` are producer-only, and now
-  discoverable.** SCHEMA.md blesses producer meta-values, and the server
-  resolves these two against the record's own `#+TODO:` sets. The starred form
+- **`state:*active*` / `state:*inactive*` are producer-only in their KEYWORD
+  half, and discoverable.** SCHEMA.md blesses producer meta-values, and the
+  server resolves these two against the record's own `#+TODO:` sets — plus one
+  term that needs no set at all: `*active*` also matches the EMPTY state cell.
+  A stateless entry is live work, and the default view is exactly what would
+  otherwise hide it, so the group has to take it; `*inactive*` does not, since
+  an entry nobody marked done is not done. The two therefore do NOT partition
+  the column: `-state:*active*` drops the empty cell along with the active
+  keywords, and `state:none` — unchanged, and still the only way to ask for the
+  empty cell alone — is now a subset of `*active*` rather than a third group.
+  The empty half is spelled over the CELL rather than over `hrActive`, which is
+  what makes it the same predicate `none` reads and the one term a renderer can
+  decide for itself. The starred form
   is the canonical spelling — it is what org-glance calls the groups, and what
   the default view boots on — and the bare `state:active` stays an alias: the
   stars come off in `starless` before the two comparisons and NOWHERE else, so
@@ -1489,8 +1500,14 @@ on.
   for meta-values, and the reason the starred spelling is the canonical one: it
   cannot be mistaken for a keyword. The renderer still has no group logic of its
   own, so a locally-filtered table matches these as literal badge text and finds
-  nothing; that half of the asymmetry is intended, since the server knows the
-  keyword sets and the renderer does not. The same split rides on each badge as
+  nothing — except for the starred `*active*`'s empty-cell term, which
+  `tokenTest` answers, so a local `state:*active*` finds the stateless rows and
+  remains a subset of the server's answer. The bare `state:active` gets no such
+  half, `starless` being this producer's alone.
+  The rest of that asymmetry is intended, since the server
+  knows the keyword sets and the renderer does not; the autocomplete still shows
+  a meta dimmed and uncounted, its counts being per cell value and a fraction of
+  the server's answer being no better a number than zero. The same split rides on each badge as
   a `group` field (`active` / `inactive`) — the bar in a `#+TODO:` line is not
   recoverable from palette order, the hues are not a contract, and the shell's
   value palette rules its hairlines on it. Additive: a renderer with no use for
@@ -1502,8 +1519,11 @@ on.
   entries and describe no outline); this one owes the same row, one repo over.
   Evidence:
   `TestFilter` "and answer to org-glance's starred spelling of the same
-  groups", `TestQuery` "and the two group values a filter can name" plus the
-  `sample-view.json` golden. **test** (the producer's half) / **none** (SCHEMA's)
+  groups" and "the stateless row is active, and it is not inactive", `TestServe`
+  "the default view carries the entry nobody stated", `TestQuery` "and the two
+  group values a filter can name" plus the `sample-view.json` golden; over the
+  wall, `fixtures/parity/filter-query.json`'s four meta cases and the driver's
+  "== producer meta-values". **test** (the producer's half) / **none** (SCHEMA's)
 - **The two vocabularies have different scopes.** The server parses against
   `storeTags` — every tag in the tree, folded per file — so a predicate is a
   predicate whether or not any matching row is loaded. The renderer's
@@ -1727,7 +1747,11 @@ on.
   semantics of its own — never a literal keyword, never a cell value a file could
   hold. The family today: `state:*active*` and `state:*inactive*`, the filter's
   group metas, evaluated by the producer; and `*clear*`, the state palette's
-  entry that takes a keyword off, committed as a null keyword. A future meta
+  entry that takes a keyword off, committed as a null keyword. The two group
+  metas are asymmetric over the row that carries no keyword: `*active*` takes it
+  (a stateless entry is live work) and `*inactive*` does not, so they name two
+  overlapping sets rather than a partition, `-state:*active*` drops the empty
+  cell, and `state:none` stays the explicit spelling for that cell alone. A future meta
   joins the family by wearing the stars. The convention is ENFORCED from two
   sides rather than by a rule of its own: `setStateEdits` refuses any word the
   row's file does not declare in `#+TODO:`, and `Data.Org.Parser.keywordTextP`

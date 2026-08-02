@@ -267,12 +267,21 @@ keyTest key (Col i) value
     -- resolved at LOAD, per row, by the nearest scope that classifies the
     -- keyword — the row's file, then its tags' configs, then the system layer,
     -- then org's TODO/DONE ('Data.Org.Config.classify') — and arrives here as
-    -- 'hrActive'.  A row with no keyword is 'Nothing' and is in neither group,
-    -- which is why both tests are against a `Just'.  Each answers to two
-    -- spellings — org-glance writes the groups `*active*' and `*inactive*', and
-    -- the view offers those ('Glance.Query.stateValues') — so the stars come
-    -- off before the comparison and `state:active' stays the alias it was.
-    state r | meta == "active"   = hrActive r == Just True
+    -- 'hrActive'.  Each answers to two spellings — org-glance writes the groups
+    -- `*active*' and `*inactive*', and the view offers those
+    -- ('Glance.Query.stateValues') — so the stars come off before the
+    -- comparison and `state:active' stays the alias it was.
+    --
+    -- The groups are ASYMMETRIC over the row no scope classifies, whose
+    -- 'hrActive' is 'Nothing': `*active*' takes it, a stateless entry being
+    -- live work the default view would otherwise hide, and `*inactive*' does
+    -- not, an entry nobody marked done not being done.  So the two do not
+    -- partition the column, `-state:*active*' drops the empty cell, and
+    -- `state:none' — still the only way to ask for that cell alone — is a
+    -- subset of `*active*'.  The empty half is spelled over the CELL rather
+    -- than over 'hrActive': it is the predicate `none' reads, and it is the one
+    -- half a renderer can answer without knowing a keyword set.
+    state r | meta == "active"   = hrActive r == Just True || T.null (cell r)
             | meta == "inactive" = hrActive r == Just False
             | otherwise          = cell r == value      -- badge: whole value
     meta = starless value
