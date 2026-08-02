@@ -403,9 +403,8 @@ safeName name = not (T.null name)
 -- filter and an encode instead of a directory walk.
 --
 -- @q@ is SCHEMA.md's filter query — field predicates over the view's own
--- columns and over every org tag the store carries, free text, negation, and
--- same-key predicates combining by the field's arity, a single-valued one
--- ORing and a multi-valued one ANDing ('Glance.Web.Filter') — @limit@ a page
+-- columns, free text, negation, and one combination rule: tokens AND,
+-- a value's @|@-alternatives OR ('Glance.Web.Filter') — @limit@ a page
 -- size, absent meaning the whole set,
 -- which is what every client before this asked for, and @offset@ where the page
 -- starts.  Filtering happens before paging, so @X-Glance-Total@ is the match

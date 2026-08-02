@@ -539,9 +539,21 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   predicate only for a column key, `planned` or `ref`, so `:work:`, `=code=` and
   `course:x` stay text; a token opening with `"` is free text; `-` negates. One
   resolution decides both halves of that (`fieldOf` answering `Nothing`), so the
-  grammar and the matcher cannot disagree about a token. Same-key predicates
-  combine by field arity — single-valued OR (`state:`), multi-valued AND (the
-  `tag` column and `ref`) — and everything else ANDs. `Glance.Web.Filter` dispatches on the KEY NAME, never on
+  grammar and the matcher cannot disagree about a token. COMBINATION IS ONE
+  RULE: TOKENS AND, ALTERNATIVES OR. Every token narrows, whether or not another
+  names its key — `state:TODO state:DONE` asks a one-value cell for two values,
+  which is no row, and `tag:a tag:b`/`ref:a ref:b` carry or point at both. A row
+  matching EITHER is the one token `state:TODO|DONE`: a predicate's VALUE splits
+  on `|` (`alternatives`) and each alternative is read as that key's own value,
+  the results OR'd, uniform over every key and value kind (metas included,
+  `state:*active*|DONE`). A negation covers the whole token, so `-tag:a|b`
+  carries neither. Empty alternatives are DROPPED (`a|` is `a`), and a value left
+  with none narrows nothing, which is the `key:` rule — one answer for `key:`,
+  `key:|` and `key:||`. The bar is a PREDICATE's: free text is the text it
+  spells, bar and all, and a predicate's value has had its quotes taken out by
+  the scanner, so a literal bar is free text's alone. `namesArchive` reads the
+  alternatives too, so `tag:*archive*|web` still turns the exclusion off.
+  `Glance.Web.Filter` dispatches on the KEY NAME, never on
   the column's declared `kind` — it does not import it: `state` is whole-value
   case-insensitive plus the `*active*`/`*inactive*` meta values (matched in
   their STARRED spelling alone, so `state:active` is the literal keyword
@@ -561,7 +573,7 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `planned` is one of the two keys that are not columns: a row is planned when
   its `scheduled` OR `deadline` cell holds anything, so `planned:*empty*` is
   neither and `-planned:*empty*` is the agenda's half. It takes a date PREFIX asked
-  of both cells at once, and is single-valued like the columns it stands over. Renderer-decidable off the same two cells — no keyword set, no
+  of both cells at once. Renderer-decidable off the same two cells — no keyword set, no
   vocabulary, no clock. The renderer's half is in the vendored
   `assets/table-view.js` (synced 2026-08-02, at table-view's starred-meta cut),
   and a skew there costs nothing anyway — `onFilter` means the renderer narrows
@@ -575,7 +587,7 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   (org-glance's materialize footer writes a self-link, and a referrer list
   holding the row you came from holds one useless entry). An id no row claims
   matches nothing and does not 400 — it is a filter, so a stale `ref:` in a
-  bookmarked URL opens an empty view. Multi-valued, so `ref:a ref:b` ANDs. Its
+  bookmarked URL opens an empty view. Its
   value is the ONE predicate value not folded: a row id is exact-string, and
   ~/sync carries ids spelled `Password-…`/`Pets-…` that a fold would put beyond
   reach. `FilterEnv` is what carries the store to the matcher, and `ref:` is now
@@ -627,12 +639,15 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
     compares `hrSearch` against its own hardcoded list, so it catches
     `recordOf` drifting from the test, not from `viewColumns`. Reorder
     `viewColumns` alone and every predicate reads the wrong field, green.
-  - Arity is chosen by NAME here (`tagsColumn` = the index of `tag`) and
-    DECLARED to the renderer: the `tag` column emits `"multi": true`, which
-    beats its sampling (`multiColumn` over ≤40 non-empty cells, needing ≥2
-    tag-shaped and none contrary — fewer than two tagged rows loaded, or one
-    cell holding a stray colon, and it found no multi-valued column at all).
-    An asset predating the field still samples.
+  - Which column holds a LIST is chosen by NAME here (`tagsColumn` = the index
+    of `tag`) and DECLARED to the renderer: the `tag` column emits
+    `"multi": true`, which beats its sampling (`multiColumn` over ≤40 non-empty
+    cells, needing ≥2 tag-shaped and none contrary — fewer than two tagged rows
+    loaded, or one cell holding a stray colon, and it found no multi-valued
+    column at all). What rides on it shrank when the arity rule died: the
+    whole-tag meta (`tag:*archive*`), the chip rendering and the value domain,
+    where the combination of two `tag:` tokens once did too. An asset predating
+    the field still samples.
   - Date-ness is likewise asymmetric: two hardcoded names here, sampled
     date-shape there. A page with under two dated rows makes the renderer
     substring-match `scheduled:` where the server prefix-matches it — and, since

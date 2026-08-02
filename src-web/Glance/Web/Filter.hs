@@ -29,14 +29,22 @@
 -- the wire and the whole store's on the other, so one token was a predicate
 -- here and free text there.
 --
--- Same-key predicates combine by the field's arity: a single-valued one ORs
--- (@state:TODO state:DONE tanik@ is either state and the text — ANDing a badge
--- with itself is always empty), a multi-valued one ANDs (@tag:a tag:b@ is a
--- row carrying both).  Distinct keys and free text AND; negations AND
--- regardless.
+-- Combination is ONE rule: TOKENS AND, ALTERNATIVES OR.  Every token narrows,
+-- whether or not another token names its key, so @state:TODO state:DONE@ is a
+-- row in both states — which for a cell holding one value is no row — and
+-- @tag:a tag:b@ is a row carrying both.  A row in EITHER state is the one token
+-- @state:TODO|DONE@: a predicate's VALUE splits on @|@ and each alternative is
+-- read as that key's own value, the results OR'd ('alternatives').  A negation
+-- covers the whole token, so @-tag:a|b@ is a row carrying neither.
 --
--- Two rules are uniform across the column types: @key:@ with nothing after it
--- narrows nothing, and a predicate's value may be quoted (@tag:"two words"@).
+-- Alternation is a PREDICATE's rule.  A free-text token is the text it spells,
+-- bar and all, and a token opening with a quote is free text whatever it
+-- spells; a predicate's value has had its quotes taken out by the scanner, so a
+-- bar inside one is always the operator and a literal bar is free text's alone.
+--
+-- Two rules are uniform across the column types: a predicate with no
+-- alternative left narrows nothing (@key:@, and @key:|@ with it), and a
+-- predicate's value may be quoted (@tag:"two words"@).
 --
 -- A value between asterisks is a META — a value with semantics of its own,
 -- never cell text — and a bare word is never one, so every word a cell can hold
@@ -53,6 +61,7 @@
 module Glance.Web.Filter ( FilterEnv (..)
                          , Term (..)
                          , Token (..)
+                         , alternatives
                          , archiveKey
                          , archiveMeta
                          , cellAt
@@ -70,8 +79,8 @@ module Glance.Web.Filter ( FilterEnv (..)
                          , tagsKey
                          ) where
 
-import Data.List (elemIndex, find, nub)
-import Data.Maybe (fromMaybe, isJust, isNothing, mapMaybe)
+import Data.List (elemIndex, find)
+import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import Data.Text (Text)
 
 import qualified Data.Text as T
@@ -196,7 +205,8 @@ parseFilter = map resolve . scanQuery
 
 -- | The tags column's key, singular where its header is plural.  Spelled once:
 -- it is the column an archive query names ('namesArchive') and the one field of
--- this view that holds a list ('multiValued').
+-- this view whose cell holds a list, which is what the whole-tag meta reads
+-- ('cellValues').
 tagsKey :: Text
 tagsKey = "tag"
 
@@ -246,12 +256,29 @@ metaOf value = do
 -- that uses the word for something of its own keeps it filterable; and there is
 -- no prefix question to answer, a meta being matched whole by construction.
 --
+-- An ALTERNATIVE counts as naming it: @tag:*archive*|web@ asks for the archived
+-- rows as much as @tag:*archive*@ does, so the value is read through
+-- 'alternatives' rather than whole.
+--
 -- VOCABULARY is the tree's tags, and the word only counts where the tree
 -- carries one — sound, since with nothing archived there is nothing to hide.
 namesArchive :: [Text] -> Text -> Bool
 namesArchive vocabulary q =
   archiveKey `elem` vocabulary && any names (parseFilter q)
-  where names t = tmKey t == Just tagsKey && T.toLower (tmValue t) == archiveMeta
+  where names t = tmKey t == Just tagsKey
+                    && archiveMeta `elem` alternatives (T.toLower (tmValue t))
+
+-- | VALUE's alternatives — @A|B@ is either, each read as that key's own value.
+-- An EMPTY alternative is dropped, so @a|@ is @a@ and @a||b@ is @a|b@;
+-- a value spelled with bars alone is left with none, and a predicate with no
+-- alternative has nothing to narrow by, which is the @key:@ rule.  One answer
+-- for the whole half-typed family: @key:@, @key:|@, @key:||@.
+--
+-- The split runs over the value the scanner produced, whose quotes are already
+-- gone, so a bar inside a predicate is always the operator.  A literal one is
+-- free text's — @\"a|b\"@ and the bare @a|b@ are the text they spell.
+alternatives :: Text -> [Text]
+alternatives = filter (not . T.null) . T.splitOn "|"
 
 -- | BODY at its first @:@ or @=@, when the separator has a key ahead of it and
 -- is there at all.  A body opening with the separator has none, which is what
@@ -311,10 +338,9 @@ matchesFilter env q = case compile env (parseFilter q) of
 
 -- | What a predicate's key turned out to name: a column, at its field of the
 -- search text, the two date columns together ('plannedKey'), or the link graph
--- ('refKey').  Resolved once per term, so the arity and the test read one
--- answer rather than looking the key up again for each.
+-- ('refKey').  Resolved once per term, so the grammar's question — is this a
+-- key — and the matcher's read one answer.
 data Field = Col !Int | Planned | Ref
-  deriving (Eq)
 
 -- | KEY as the field it names, or 'Nothing' where it names none — which is the
 -- test 'parseFilter' makes, so a token is a predicate exactly where there is a
@@ -324,40 +350,16 @@ fieldOf key | key == plannedKey = Just Planned
             | key == refKey     = Just Ref
             | otherwise         = Col <$> elemIndex key filterKeys
 
--- | Does FIELD hold a list of values rather than one?  The @tag@ column does;
--- the rest of this view holds one value per cell.  This is the split SCHEMA.md
--- makes: @state:TODO state:DONE@ has to be either state, since a row with both
--- does not exist, while @tag:a tag:b@ is a row carrying both, the way a label
--- filter reads.
---
--- @planned@ reads one of two dates, so it ORs like the date columns it stands
--- over: @planned:2026-08 planned:2026-09@ is either month.  @ref@ reads a LIST
--- — the targets a subtree points at — so it ANDs like the tags do, and
--- @ref:a ref:b@ is a row referring to both.
-multiValued :: Field -> Bool
-multiValued Ref     = True
-multiValued Planned = False
-multiValued (Col i) = i == tagsColumn
-
--- | TERMS as the tests a row must all pass.  Positive predicates sharing a key
--- collapse into one test, and which one depends on the field's arity
--- ('multiValued'): a cell holding one value can only be one of them, so they
--- OR, while a cell holding a list can hold all of them, so they AND.  A
--- negation and a free-text token each stand on their own, so
--- @-state:TODO -state:DONE@ is neither rather than either.
+-- | TERMS as the tests a row must all pass.  One rule, so there is nothing to
+-- group: every token narrows, and two tokens naming one key are read as the AND
+-- they are written as — @tag:a tag:b@ carries both, @ref:a ref:b@ points at
+-- both, and @state:TODO state:DONE@ asks a cell holding one value to hold two,
+-- which is no row.  What ORs is a value's alternatives, inside one token
+-- ('predTest'), and a negation is that token's whole answer inverted.
 compile :: FilterEnv -> [Term] -> [HeadlineRecord -> Bool]
-compile env terms = singles <> groups
-  where
-    singles = [ inverted t | t <- terms, tmNegated t || isNothing (tmKey t) ]
-    inverted t | tmNegated t = not . termTest env t
-               | otherwise   = termTest env t
-    keyed   = [ (key, field, keyTest env key field (valueFor field t))
-              | t <- terms, not (tmNegated t), Just key <- [tmKey t]
-              , Just field <- [fieldOf key] ]
-    groups  = [ joining field [ test | (k, _field, test) <- keyed, k == key ]
-              | (key, field) <- nub [ (k, f) | (k, f, _test) <- keyed ] ]
-    joining field | multiValued field = \tests r -> all ($ r) tests
-                  | otherwise         = \tests r -> any ($ r) tests
+compile env = map inverted
+  where inverted t | tmNegated t = not . termTest env t
+                   | otherwise   = termTest env t
 
 -- | T's value as FIELD reads it.  Every field but 'Ref' folds it the way the
 -- haystack was folded at load, so only the value ever needs folding; 'Ref'
@@ -371,14 +373,24 @@ valueFor _   = T.toLower . tmValue
 folded :: Term -> Text
 folded = T.toLower . tmValue
 
--- | T as a row test, its negation aside — 'compile' applies that, since where a
--- term lands in the AND\/OR shape depends on it.  Kept for the one list that
--- mixes the two kinds: the negations and the free text, which stand alone.
+-- | T as a row test, its negation aside — 'compile' applies that.
 termTest :: FilterEnv -> Term -> HeadlineRecord -> Bool
 termTest env t = fromMaybe (freeTest (folded t)) $ do
   key   <- tmKey t
   field <- fieldOf key
-  pure (keyTest env key field (valueFor field t))
+  pure (predTest env key field (valueFor field t))
+
+-- | @KEY:VALUE@ as a row test: VALUE's alternatives, each read as KEY's own
+-- single value ('keyTest'), and a row passes on ANY of them.  With no
+-- alternative left the predicate narrows nothing, which is what @key:@ means.
+--
+-- The alternatives' tests are built here, before the rows are walked, so an
+-- alternation costs its alternatives once per request rather than once per row.
+predTest :: FilterEnv -> Text -> Field -> Text -> HeadlineRecord -> Bool
+predTest env key field value = case map (keyTest env key field) (alternatives value) of
+  []     -> const True
+  [test] -> test
+  tests  -> \r -> any ($ r) tests
 
 -- | VALUE as free text: a substring of the row as it displays, an empty value
 -- matching every row.
@@ -386,9 +398,11 @@ freeTest :: Text -> HeadlineRecord -> Bool
 freeTest value | T.null value = const True
                | otherwise    = T.isInfixOf value . hrSearch
 
--- | @KEY:VALUE@ as a row test, FIELD being what KEY resolved to.  KEY is passed
--- beside it because a column's semantics are its own — a badge is whole-value,
--- a date is a prefix — and the field is only where the cell is.
+-- | @KEY:VALUE@ as a row test for ONE alternative, FIELD being what KEY
+-- resolved to.  KEY is passed beside it because a column's semantics are its
+-- own — a badge is whole-value, a date is a prefix — and the field is only
+-- where the cell is.  VALUE is folded ('valueFor') and NON-EMPTY: 'predTest'
+-- dropped the empty alternatives before this ran.
 keyTest :: FilterEnv -> Text -> Field -> Text -> HeadlineRecord -> Bool
 -- @ref@ over the link targets a subtree carries ('Glance.Query.hrLinks'),
 -- matched against how a link may spell the row named ('refSpellings').
@@ -402,22 +416,17 @@ keyTest :: FilterEnv -> Text -> Field -> Text -> HeadlineRecord -> Bool
 -- org-glance's own materialize footer writes — would otherwise be the one row
 -- every drill-down was guaranteed to find, and a list of references that always
 -- holds the row you came from is a list with one useless entry in it.
-keyTest env _key Ref value
-  | T.null value = const True                             -- half-typed: narrows nothing
-  | otherwise    = case feRef env value of
-      Nothing  -> const False
-      Just row -> \r -> hrId r /= rrId row
-                        && any (`elem` hrLinks r) (rrTargets row)
+keyTest env _key Ref value = case feRef env value of
+  Nothing  -> const False
+  Just row -> \r -> hrId r /= rrId row && any (`elem` hrLinks r) (rrTargets row)
 -- @planned@ over its two cells: unplanned is neither of them holding anything,
 -- and a value is the date prefix @scheduled:@ and @deadline:@ each take, asked
 -- of both at once.  A cell that prefix-matches is a cell with something in it,
 -- so a value never needs the presence test spelled beside it.
 keyTest _env _key Planned value
-  | T.null value        = const True                    -- half-typed: narrows nothing
   | value == emptyMeta  = \r -> all (T.null . ($ r)) dateCells
   | otherwise           = \r -> any (T.isPrefixOf value . ($ r)) dateCells
 keyTest _env key (Col i) value
-  | T.null value        = const True                    -- half-typed: narrows nothing
   | value == emptyMeta  = T.null . cell
   | Just word <- tagMeta = \r -> word `elem` cellValues (cell r)
   | key == "state"      = state

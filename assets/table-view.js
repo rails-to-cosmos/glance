@@ -63,8 +63,8 @@
  *   win over the palette, materialize sheets included.
  * - Which column is multi-valued is resolved once and read everywhere: a
  *   column declaring `multi: true' settles it, and only when none does is it
- *   guessed from cell shape. The comparator, that column's value domain and the
- *   filter's AND/OR rule all read that one verdict.
+ *   guessed from cell shape. The comparator, that column's value domain, its
+ *   chip rendering and the whole-entry meta all read that one verdict.
  * - The chrome — bar, title, filter chips, filter input, table skeleton, hint —
  *   is built once at mount. Updates touch only the row window, the hint line,
  *   the sort arrows and the chips, so the filter input keeps focus and caret
@@ -194,16 +194,21 @@
  *   rows given are the rows shown — no local narrowing.
  * - The filter box speaks SCHEMA.md's query micro-syntax: `key:value' field
  *   predicates (only where `key' names a column, so `:work:' stays org text),
- *   `"quoted text"', `-negation', everything else free text. Predicates
- *   sharing a key group by the field's arity: a single-valued one ORs (a row
- *   has one state), a multi-valued one ANDs (a row carries several tags, so
- *   `tag:a tag:b' is a row with both). Distinct keys, free text and negations
- *   AND. A column counts as multi-valued when its cells hold delimited lists —
- *   decided by their shape, never by the column's name.
+ *   `"quoted text"', `-negation', everything else free text.
  *   `TableView.parseQuery' is the tokenizer, exported so a consumer can
  *   highlight the box and a producer can implement the same grammar. Filtering
  *   locally applies the parsed query; with `onFilter' the raw text goes to the
  *   producer and the grammar is its business.
+ * - COMBINATION IS ONE RULE: TOKENS AND, ALTERNATIVES OR. Every token narrows,
+ *   whether or not another token names its key, so `state:TODO state:DONE' is a
+ *   row in both states — which for a cell holding one value is no row — and
+ *   `tag:a tag:b' is a row carrying both. A row matching EITHER is the one
+ *   token `state:TODO|DONE': a predicate's VALUE splits on `|' and each
+ *   alternative is read as that key's own value, the results OR'd. Empty
+ *   alternatives drop (`a|' is `a'), and a value left with none narrows
+ *   nothing, which is the `key:' rule. A negation covers the whole token, so
+ *   `-tag:a|b' carries neither. Alternation is a PREDICATE's rule: a free-text
+ *   token is the text it spells, bar and all.
  * - The keys are the view's own: its columns, and `planned' (SCHEMA's one
  *   reserved key, over the date columns together). An org TAG is not one —
  *   `tag:course' is the one spelling, and `course:text' is the two tokens
@@ -218,7 +223,10 @@
  *   prefix hits first. Exact beats fuzzy throughout. After `key:' comes that
  *   column's value domain (`values', else the badge palette, else the distinct
  *   cell values), each with the number of rows behind it and the value typed in
- *   full at its head; `planned' has no domain to offer.
+ *   full at its head; `planned' has no domain to offer. A `|' RE-OPENS that
+ *   domain: `state:TODO|' asks for the values again, the prefix is what follows
+ *   the last bar, and the offer lands after it — so an alternation is completed
+ *   one alternative at a time and stays ONE token.
  *   Arrows — and C-n/C-p, which both editors' users reach for here — move it,
  *   Esc dismisses, and a click accepts without taking focus. Tab completes and
  *   stays, at either stage. Enter is stage-aware: completing a key leaves the
@@ -580,6 +588,23 @@
     const a = s.indexOf(":"), b = s.indexOf("=");
     return a === -1 ? b : (b === -1 ? a : Math.min(a, b));
   }
+
+  /** The alternation bar: what a predicate's VALUE splits on. */
+  const ALT = "|";
+
+  /**
+   * VALUE's alternatives — `A|B' is either, each read as that key's own value.
+   * An EMPTY alternative is dropped, so `a|' is `a' and `a||b' is `a|b';
+   * a value that is bars alone is left with none, and a predicate with no
+   * alternative has nothing to narrow by, which is the `key:' rule. One answer
+   * for the whole half-typed family: `key:', `key:|', `key:||'.
+   *
+   * The split runs over the value the scanner produced, whose quotes are
+   * already gone, so a bar inside a predicate is always the operator. A literal
+   * one is free text's — `"a|b"' and the bare `a|b' are the text they spell.
+   * @param {string} value  @returns {string[]}
+   */
+  const alternatives = (value) => value.split(ALT).filter((v) => v !== "");
 
   /**
    * Split Q into raw tokens: quotes removed, a leading `-' taken off, and the
@@ -1339,7 +1364,7 @@
     // a syntax, separated by middots so they read as examples and not as one
     // query someone is meant to complete. Keys are taught by the legend and
     // the list, so they stay out of it.
-    input.placeholder = `tag:book · state:active · -word · "some phrase"`;
+    input.placeholder = `tag:book · state:TODO|DONE · -word · "some phrase"`;
     // The box and its suggestion list travel together, so the list can be
     // positioned against the box and nothing else.
     const chipsEl = document.createElement("div");
@@ -1570,19 +1595,42 @@
     let dateAt;
 
     /**
-     * TOK as a row test, negation aside — `queryMatcher' applies that, since
-     * where a token lands in the AND/OR shape depends on it. Free text is a
-     * substring of the whole row; a field predicate reads one cell, by SCHEMA's
-     * semantics for that column's type.
+     * TOK as a row test, negation aside — `queryMatcher' applies that. Free
+     * text is a substring of the whole row, bar and all: alternation is a
+     * PREDICATE's rule. A predicate's value splits into its alternatives and
+     * the row passes on ANY of them, each read as that key's own single value
+     * (`valueTest'); with no alternative left there is nothing to narrow by.
+     *
+     * The alternatives' tests are built here, once per query, rather than per
+     * row — the same reason the whole matcher is compiled ahead of the walk.
      * @param {Token} tok  @returns {(r: Row) => boolean}
      */
     function tokenTest(tok) {
-      const v = tok.value.toLowerCase();
-      if (tok.key === null)
+      if (tok.key === null) {
         // The cached joined string, which is the hot path and the reason the
         // pure-free-text query costs exactly what it did before.
+        const v = tok.value.toLowerCase();
         return v ? (r) => rowText(r).search.includes(v) : () => true;
-      const col = colByKey(tok.key);
+      }
+      const key = tok.key;
+      const alts = alternatives(tok.value.toLowerCase());
+      if (!alts.length) return () => true;         // half-typed: narrows nothing
+      if (alts.length === 1) return valueTest(key, alts[0]);
+      const tests = alts.map((v) => valueTest(key, v));
+      return (r) => {
+        for (const t of tests) if (t(r)) return true;
+        return false;
+      };
+    }
+
+    /**
+     * `KEY:V' as a row test for ONE alternative, by SCHEMA's semantics for that
+     * column's type: a field predicate reads one cell. V is lowercased and
+     * non-empty — `tokenTest' dropped the empty alternatives before this ran.
+     * @param {string} key  @param {string} v  @returns {(r: Row) => boolean}
+     */
+    function valueTest(key, v) {
+      const col = colByKey(key);
       // The date columns as one field. `*empty*' is the row nobody put a day
       // on; a value is the same prefix a date column takes, asked of every one
       // of them, and a cell that prefix-matches is a cell with something in it,
@@ -1591,21 +1639,17 @@
       // The only key `queryKeys' names that is not a column, so past this the
       // token's key IS one — `parseQuery' resolves against that list, and
       // anything else arrived as free text and left at the top.
-      if (tok.key === PLANNED_KEY && !col) {
-        if (!v) return () => true;               // half-typed: narrows nothing
+      if (key === PLANNED_KEY && !col) {
         const dates = dateColumns();
         if (v === EMPTY_META) return (r) => dates.every((i) => !rowText(r).cells[i]);
         return (r) => dates.some((i) => rowText(r).cells[i].startsWith(v));
       }
       if (!col) return () => true;               // no such key: narrows nothing
       const i = columns().indexOf(col);
-      // `key:' with nothing after it yet — the half-typed state the suggestion
-      // list exists to serve — narrows nothing, whatever the column's type.
       // Asking for an empty cell is what `*empty*' is for, on every key: it is
       // the uniform meta, so it is answered before any column's own reading and
       // before a producer's. The bare word `none' this was once spelled as is
       // ordinary text now, and a cell reading `none' is found by `key:none'.
-      if (!v) return () => true;
       if (v === EMPTY_META) return (r) => rowText(r).cells[i] === "";
       // A starred word on a MULTI-valued column is that WHOLE entry, where the
       // bare word is a substring of the delimited cell: `tag:*book*' is the tag
@@ -1638,48 +1682,21 @@
      * Q compiled to a row test, or null when it filters nothing. Built once per
      * filter change and reused for every row.
      *
-     * SCHEMA's shape: predicates sharing one key OR together — `state:TODO
-     * state:DONE' is either — while distinct keys and free text AND, and a
-     * negation ANDs whatever it is. So the positive predicates group by key,
-     * each group passes on any member, and everything else stands on its own.
+     * SCHEMA's shape is ONE rule: TOKENS AND, ALTERNATIVES OR. Every token
+     * narrows, whether or not another names its key, so there is no grouping
+     * and no arity here — each token is its own test, negated or not, and a row
+     * has to pass all of them. `state:TODO state:DONE' is therefore a row in
+     * both states, which is none; a row in either is the one token
+     * `state:TODO|DONE', and the OR lives inside `tokenTest'.
      * @param {string} q  @returns {((r: Row) => boolean)|null}
      */
-    /** Does KEY name a field a row may hold several of at once? */
-    function manyValued(key) {
-      const col = colByKey(key);
-      // `planned' stands over the date columns, which are single-valued, so it
-      // ORs its repeats the way they do: `planned:A planned:B' is either. It is
-      // the one key with no column behind it, so a column is the whole question.
-      return !!col && columns().indexOf(col) === multiColumn();
-    }
-
     function queryMatcher(q) {
-      /** @type {Map<string, ((r: Row) => boolean)[]>} */
-      const groups = new Map();
       /** @type {((r: Row) => boolean)[]} */
       const musts = [];
       for (const tok of parseQuery(q, queryKeys())) {
         const test = tokenTest(tok);
-        if (tok.negated) musts.push((r) => !test(r));
-        else if (tok.key === null) musts.push(test);
-        else {
-          const g = groups.get(tok.key);
-          if (g) g.push(test); else groups.set(tok.key, [test]);
-        }
+        musts.push(tok.negated ? (r) => !test(r) : test);
       }
-      // SCHEMA splits same-key grouping by arity. A single-valued field can
-      // only hold one of them, so repeating it means either (`state:TODO
-      // state:DONE'). A multi-valued one can hold both, so repeating it means
-      // both — GitHub's label semantics, and org's, `tag:a tag:b' being a row
-      // carrying each.
-      for (const [key, g] of groups)
-        musts.push(g.length === 1 ? g[0] : manyValued(key) ? (r) => {
-          for (const t of g) if (!t(r)) return false;
-          return true;
-        } : (r) => {
-          for (const t of g) if (t(r)) return true;
-          return false;
-        });
       if (!musts.length) return null;
       if (musts.length === 1) return musts[0];
       return (r) => {
@@ -2919,7 +2936,11 @@
         // several columns at once, which is no domain to enumerate. It is the
         // one key with no column behind it, so every other one has a domain.
         const col = colByKey(t.key);
-        return col ? { stage: "value", tok: t, col, prefix: t.value } : null;
+        // A `|' RE-OPENS the domain: the prefix is what follows the LAST bar,
+        // so `state:TODO|d' is asking for the values again and completes the
+        // alternative being typed rather than the whole value.
+        return col ? { stage: "value", tok: t, col,
+                       prefix: t.value.slice(t.value.lastIndexOf(ALT) + 1) } : null;
       }
       if (!t.value || splitAt(t.value) !== -1) return null;
       return { stage: "key", tok: t, col: null, prefix: t.value };
@@ -3182,11 +3203,19 @@
      * box alone. A key lands as `key:' with the caret against the colon, ready
      * for the value; a value lands with a trailing space, ready for the next
      * token. Focus stays in the box either way.
+     *
+     * A value keeps everything through the token's LAST bar, so completing
+     * inside an alternation appends one more alternative and the token stays
+     * one token. The bar is looked for in the RAW text rather than in the
+     * token's value, which has had its quotes taken out and no longer lines up
+     * with the box.
      */
     function acceptAc(item) {
       if (!ac) return;
       const v = input.value, t = ac.tok;
-      const head = ac.stage === "key" ? (t.negated ? "-" : "") : v.slice(t.start, t.sep + 1);
+      const bar = v.lastIndexOf(ALT, t.end - 1);
+      const head = ac.stage === "key" ? (t.negated ? "-" : "")
+                                      : v.slice(t.start, Math.max(t.sep + 1, bar + 1));
       const ins = head + item.text + (item.full || ac.stage === "value" ? " " : "");
       input.value = v.slice(0, t.start) + ins + v.slice(t.end);
       const caret = t.start + ins.length;

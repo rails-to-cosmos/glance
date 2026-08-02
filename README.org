@@ -101,23 +101,30 @@ separate entries revalidating against their own tags. Responses are gzipped
 =/= raises a palette over the table, the way a minibuffer opens, and an
 unfiltered table carries no filter chrome at all. It speaks
 [[file:../table-view/SCHEMA.md][SCHEMA.md]]'s micro-syntax and the server parses
-it: =state:TODO state:DONE tanik= is either state and the text, because
-distinct keys and free text AND. A =key:value=
+it: =state:TODO|DONE tanik= is either state and the text. A =key:value=
 is a predicate only when =key= names a column — =state=, =priority=, =title=,
 =tag=, =scheduled=, =deadline= — so =:work:= and ==code== stay the org text
 they are, and so does an org tag: =tag:contact tanik= is "tagged =contact= and
 matching =tanik=", two tokens because the predicate reads the tags cell and the
-free text reads the row. Two predicates on one key combine by what the field holds: one
-value means either of them (=state:TODO state:DONE=, since no row is both),
-a list means all of them (=tag:web tag:glance= carries both, the way a label
-filter reads). =-token= negates, ="two words"= quotes, =key:*empty*= asks for an
-empty cell, =scheduled:2026-08= is the month, =planned:= asks about both date
-columns at once (=planned:*empty*= is neither, =planned:2026-08= is either
-falling in that month), and =state:*active*= /
+free text reads the row. =-token= negates, ="two words"= quotes, =key:*empty*=
+asks for an empty cell, =scheduled:2026-08= is the month, =planned:= asks about
+both date columns at once (=planned:*empty*= is neither, =planned:2026-08= is
+either falling in that month), and =state:*active*= /
 =state:*inactive*= are the keyword groups your =#+TODO:= lines declare. A query
 with no predicate in it is the substring search it always was. The applied query
 rides in the URL, so a filtered view is a link; =DEL= over the table takes the
 last token back off.
+
+*Combination is one rule: tokens AND, alternatives OR.* Every token narrows,
+whether or not another one names its key — =tag:web tag:glance= carries both,
+and =state:TODO state:DONE= asks one cell for two values, which is no row. A row
+in *either* state is the one token =state:TODO|DONE=: a predicate's value splits
+on =|= and each alternative is read as that key's own value, so
+=tag:work|home= carries either, =scheduled:2026-08|2026-09= is either month, and
+a meta joins them like any value (=state:*active*|DONE=). A negation covers the
+whole token, so =-tag:work|home= carries neither. An empty alternative is
+dropped (=a|= is =a=), a value left with none narrows nothing the way =key:= does,
+and the bar is a predicate's — free text is the text it spells, bar and all.
 
 *A value between asterisks is a meta*, and a bare word never is — so every word
 your files can hold stays reachable as itself: =state:none= finds a keyword
@@ -134,7 +141,8 @@ forms, which resolve against the target's title. =org-glance-overview:= and
 =org-glance-state:= do not — they name a tag and a keyword, and over =~/sync=
 not one of their targets is a row id. A row is never its own reference; an id
 nothing claims matches nothing rather than failing, so a stale link opens an
-empty table; and =ref:a ref:b= is a row pointing at both. It is the one value
+empty table; =ref:a ref:b= is a row pointing at both and =ref:a|b= one pointing
+at either. It is the one value
 the filter does not case-fold, a row id being an exact string. =@= over the
 table is this key with a breadcrumb attached — see the keys below.
 

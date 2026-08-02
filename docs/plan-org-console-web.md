@@ -1238,7 +1238,8 @@ id-resolved rows (`FilterEnv`/`storeEnv`, exact-string like `resolveIds`) and
 matched over `refSpellings` of the target — its `ORG_GLANCE_ID` and its title,
 which is what the two bracket-title forms resolve against. A row is not its own
 reference; an unknown id matches nothing and does NOT 400, since this is a filter
-rather than a command; multi-valued, so `ref:a ref:b` ANDs; and its value is the
+rather than a command; `ref:a ref:b` points at both and `ref:a|b` at either, the
+way every key combines; and its value is the
 one predicate value that is not case-folded, a row id being exact-string. The
 renderer has no branch for the key and reads it as free text, which is NARROWER —
 the tripwire's blessed skew direction — and no locally-filtered path applies a

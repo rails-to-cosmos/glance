@@ -1566,11 +1566,8 @@ on.
   one by accident; a token that *opens* with a quote is free text; a leading `-`
   negates. One resolution answers both "is this a key" and "what does it read"
   (`fieldOf`, `Nothing` where it names none), so the grammar and the matcher
-  cannot disagree about a token. Distinct keys and free text AND, and
-  negations AND regardless. Predicates sharing one key combine
-  by the field's arity: single-valued fields OR, since a badge cell ANDed with
-  itself is always empty, and multi-valued ones AND — the `tag` column and
-  `ref`, where `tag:a tag:b` is a row carrying both. Dispatch is
+  cannot disagree about a token. COMBINATION IS ONE RULE: TOKENS AND,
+  ALTERNATIVES OR (its own entry below). Dispatch is
   on the KEY NAME, never on the column's declared `kind` — `Glance.Web.Filter`
   does not import it. `state` is whole-value case-insensitive plus this
   producer's `state:*active*`/`state:*inactive*` meta values — `*active*` ORing
@@ -1580,7 +1577,8 @@ on.
   `priority` column, declared `text`, is matched exactly. That last pair agrees
   with the renderer only because the cell is one character long, where a
   substring test and an equality test cannot differ. Then three uniform rules:
-  `key:` narrows nothing, a value may be quoted, and `key:*empty*` is the empty
+  a predicate with no alternative left narrows nothing (`key:`, `key:|`), a
+  value may be quoted, and `key:*empty*` is the empty
   cell — `tag:*empty*` is untagged. The tags column's key is
   `tag`, singular, so the key a filter names and the tags it names read alike
   (`tag:travel`); the header stays `Tags` and `hrSearch`'s field order is
@@ -1589,6 +1587,39 @@ on.
   per-cell matching and free text agree by construction. Evidence: `TestFilter`
   (tokens, predicates, tags, shape, degenerate parity with `matchesSearch`),
   `TestServe` "GET /headlines filter and paging". **test**
+- **COMBINATION IS ONE RULE: TOKENS AND, ALTERNATIVES OR.** Every token narrows,
+  whether or not another token names its key. `state:TODO state:DONE` asks a
+  cell holding one value to hold two, which is no row; `tag:a tag:b` is a row
+  carrying both and `ref:a ref:b` a row pointing at both; and a negation narrows
+  the same way, so `-a -b` is neither. A row matching EITHER value is the one
+  token `state:TODO|DONE`: a predicate's VALUE splits on `|` (`alternatives`)
+  and each alternative is read as that key's own value, the results OR'd. The
+  bar is uniform over every key and every kind of value — a badge stays
+  whole-value per alternative (`state:TOD|DON` is nothing), a date stays a
+  prefix, `planned` reads both its cells per alternative, `ref` resolves each id,
+  and a starred meta alternates like any other value (`state:*active*|DONE`,
+  `tag:*web*|*archive*`). A negation covers the WHOLE token, so `-tag:a|b`
+  carries neither — which De Morgan makes the two negations too. EMPTY
+  ALTERNATIVES ARE DROPPED: `a|` is `a`, `|a` is `a`, `a||b` is `a|b`, and a
+  value spelled with bars alone is left with none — a predicate with no
+  alternative narrows nothing, which is one answer for `key:`, `key:|` and
+  `key:||` alike. The bar is a PREDICATE's: a free-text token is the text it
+  spells, bar and all, and a token opening with a quote is free text whatever it
+  spells. A predicate's value has had its quotes taken out by the scanner
+  (`scanQuery` records that the token opened with one, never where the rest sat),
+  so a bar inside a predicate is always the operator and a literal bar is free
+  text's alone — the one thing the grammar cannot spell as a predicate value.
+  `namesArchive` reads the alternatives too, so `tag:*archive*|web` turns the
+  archive exclusion off the way `tag:*archive*` does. BREAKING against what came
+  before: same-key repeats used to OR when the field was single-valued, so
+  `state:TODO state:DONE` answered either state and now answers none; the
+  replacement idiom is `state:TODO|DONE`. What that bought is the arity rule's
+  death — `multiValued`/`manyValued` are gone from both sides, `compile` is
+  `map inverted` over the terms with no grouping in it, and `multi: true` is
+  left saying only what its name says (the cells hold a list), which the
+  whole-tag meta and the renderer's chips read. Evidence: `TestFilter`
+  "Alternation" and "Shape", `fixtures/parity/filter-query.json`'s alternation
+  cases, the driver's `filterQuery`. **test**
 - **AN ORG TAG NAMES NO KEY, and the one spelling is `tag:`.** `course:text` is
   free text, colon and all; `tag:course text` is what it meant, the predicate
   reading the tags cell and the free text reading the row, so nothing
@@ -1614,8 +1645,9 @@ on.
   cell, so it is a key with no column behind it; a tree tagged `:planned:`
   cannot take it, there being no tag keys to take it with. Its value is the date prefix `scheduled:` and `deadline:`
   each take, asked of both cells at once (`planned:2026-08` is either date in
-  that month), and it is SINGLE-VALUED like the columns it stands over, so
-  `planned:X planned:Y` is either. That is the whole rule, and it is stated this
+  that month), and it obeys the one combination rule like every key:
+  `planned:X|Y` is either, `planned:X planned:Y` is a row whose two date cells
+  meet both. That is the whole rule, and it is stated this
   way because the renderer has to answer it identically off the same two cells:
   no keyword set, no vocabulary, no clock. `Glance.Web.Filter.plannedKey`,
   `TestFilter` "Planned". **test** (this half; the renderer's is
@@ -1633,7 +1665,8 @@ on.
   self-link, and a referrer list holding the row you came from holds one
   useless entry. An id no row claims matches nothing and does NOT 400 — this is
   a filter rather than a command, so a stale `ref:` in a bookmarked URL opens an
-  empty view. Multi-valued, so `ref:a ref:b` is a row pointing at both. And its
+  empty view. `ref:a ref:b` is a row pointing at both, the way every repeated key
+  narrows, and `ref:a|b` is a row pointing at either. And its
   value is the ONE predicate value that is not case-folded, since a row id is
   exact-string: ~/sync carries ids spelled `Password-…` and `Pets-…` that a fold
   would put beyond reach. Evidence: `TestFilter` "References". **test**
@@ -1661,20 +1694,25 @@ on.
   together: `viewColumns`, `recordOf`'s `searchTextOf` list, `Filter.dateKeys`,
   `Filter.keyTest`'s name switch with `tagsColumn`, and the test's own list.
   **none** (the guard exists and does not guard this)
-- **Arity is chosen by NAME here and declared to the renderer.** The server's
-  multi-valued column is `tagsColumn`, the index of the key literally named
+- **Which column holds a LIST is chosen by NAME here and declared to the
+  renderer.** The server's multi-valued column is `tagsColumn`, the index of the
+  key literally named
   `tag`, and the `tag` column now emits `"multi": true` — SCHEMA's declaration,
   which the renderer prefers over its own sampling. That sampling is what the
   declaration exists to retire: `multiColumn` reads up to 40 non-empty cells and
   needs at least two shaped like `:a:b:` with none contrary, returning the FIRST
   column in view order that qualifies, so a page with fewer than two tagged rows
-  found no multi-valued column at all (`tag:a tag:b` ORing where the server
-  always ANDs), one cell holding an unrelated colon — a `10:30`, a URL —
+  found no multi-valued column at all, one cell holding an unrelated colon — a
+  `10:30`, a URL —
   disqualified the column outright, and a column earlier in view order whose
-  cells happened to look tag-shaped stole both the arity and the vocabulary.
+  cells happened to look tag-shaped stole both the verdict and the vocabulary.
   The verdict was re-derived on every row-set change, so it could flip between
-  two pages of one session. What remains is the version skew this whole section
-  is about: an asset predating the field still samples.
+  two pages of one session. What rides on it shrank when the arity rule died: the
+  whole-tag meta (`tag:*archive*`), the chip rendering and the value domain,
+  where the combination of two `tag:` tokens once did too — a page that found no
+  multi column used to answer `tag:a tag:b` as an OR where the server ANDed, and
+  now both sides AND whatever the verdict says. What remains is the version skew
+  this whole section is about: an asset predating the field still samples.
   Evidence: `TestQuery` "the multi-valued column says so, and it is the only
   one", plus the golden. **test**
 - **Date-ness is asymmetric the same way.** The server prefix-matches exactly

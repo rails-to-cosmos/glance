@@ -19,8 +19,8 @@ import qualified Data.Text as T
 import Glance.Query ( HeadlineRecord (..), QueryResult (qrRecords), displayText
                     , loadDir, matchesSearch, refTargetOf, refTargets, tagsOfCell
                     , viewJSON )
-import Glance.Web.Filter ( Term (..), Token (..), archiveKey, archiveMeta
-                         , cellAt, emptyEnv, emptyMeta, filterKeys
+import Glance.Web.Filter ( Term (..), Token (..), alternatives, archiveKey
+                         , archiveMeta, cellAt, emptyEnv, emptyMeta, filterKeys
                          , matchesFilter, metaOf, namesArchive, parseFilter
                          , plannedKey, refKey, scanQuery, storeEnv, tagsKey )
 
@@ -68,7 +68,7 @@ matches q rows = assertEqual (T.unpack q) rows =<< matching q
 spec :: TestTree
 spec = testGroup "Filter"
   [ tokenSpec, predicateSpec, tagsSpec, plannedSpec, archiveSpec, metaSpec
-  , shapeSpec
+  , shapeSpec, alternationSpec
   , degenerateSpec
   , targetSpec, refSpec
   , layoutSpec ]
@@ -234,14 +234,14 @@ refSpec = testGroup "References"
       assertBool "the referrer is gone" ("By id" `notElem` hit)
       assertBool "and the target is still here" ("Target" `elem` hit)
 
-  , testCase "two refs AND, the way a list-valued key does" $
-      -- `ref' reads a LIST — the targets a subtree points at — so naming two is
-      -- a row pointing at both, and no row here points at both targets.
+  , testCase "two refs AND like any two tokens, and either is one token" $
+      -- Every token narrows, so naming two is a row pointing at both — which no
+      -- row here does — and the union is the alternation.
       withRefTree $ \records -> do
         rid <- idOf "Second" records
-        assertEqual "both" []
-          [ hrTitle r | r <- records
-          , matchesFilter (storeEnv records) ("ref:alpha ref:" <> rid) r ]
+        let hit q = [ hrTitle r | r <- records, matchesFilter (storeEnv records) q r ]
+        assertEqual "both" [] (hit ("ref:alpha ref:" <> rid))
+        assertEqual "either" ["By id", "By title"] (hit ("ref:alpha|" <> rid))
 
   , testCase "without a store behind it a ref resolves to nothing" $ do
       -- `emptyEnv' is what a caller holding no rows answers with: the term
@@ -290,8 +290,13 @@ plannedSpec = testGroup "Planned"
       every <- matching ""
       matches "planned:" every
 
-  , testCase "two of them are either, the way the date columns are" $
-      matches "planned:2026-08-03 planned:2026-08-10" [Privet, Reply]
+  , testCase "two of them AND like any two tokens, and either is one token" $ do
+      -- Privet's schedule and Reply's deadline, which no row carries both of.
+      matches "planned:2026-08-03 planned:2026-08-10" []
+      matches "planned:2026-08-03|2026-08-10" [Privet, Reply]
+      -- Ship carries a schedule AND a deadline, so it is the row two tokens
+      -- can answer — the key reads both cells, and a row may fill each.
+      matches "planned:2026-08-01 planned:2026-08-05" [Ship]
 
   , testCase "negation composes with everything else" $ do
       -- The agenda's own query: the active rows carrying a date.
@@ -321,7 +326,10 @@ archiveSpec = testGroup "Archive key"
       mapM_ (\q -> assertBool (show q <> " did not read as naming the tag")
                              (namesArchive [archiveKey] q))
             [ "tag:*archive*", "-tag:*archive*", "state:DONE tag:*archive*"
-            , "tag=*archive*", "tag:\"*archive*\"", "tag:*ARCHIVE*" ]
+            , "tag=*archive*", "tag:\"*archive*\"", "tag:*ARCHIVE*"
+            -- An ALTERNATIVE names it too: the reader has asked for archived
+            -- rows, and the exclusion would answer a different question.
+            , "tag:*archive*|web", "tag:web|*archive*", "-tag:web|*archive*" ]
 
   , testCase "and a query that says nothing about it does not" $
       mapM_ (\q -> assertBool (show q <> " read as naming the tag")
@@ -399,9 +407,12 @@ metaSpec = testGroup "Starred metas"
                   ["Not filed", "A state spelled like the tag", "Nothing stated"]
         =<< metaMatching "-tag:*archive*"
 
-  , testCase "and two of them AND, the column being multi-valued" $ do
+  , testCase "and two of them AND, the way two tokens do" $ do
       assertEqual "both tags" ["Filed away"] =<< metaMatching "tag:*web* tag:*archive*"
       assertEqual "one it lacks" [] =<< metaMatching "tag:*none* tag:*archive*"
+      -- Either of them is the one token, metas alternating like any values.
+      assertEqual "either tag" ["Filed away", "A state spelled like the tag"]
+        =<< metaMatching "tag:*none*|*archive*"
 
   , testCase "what a meta IS: one matched pair with a word inside it" $
       -- The rule every branch above reads, spelled once ('metaOf'): the stars
@@ -650,22 +661,27 @@ predicateSpec = testGroup "Predicates"
 
 -- AND/OR shape
 
--- | Same-key predicates OR, everything else ANDs — the faceted-filter reading
--- SCHEMA.md pins, and the reason a second @state:@ widens a query rather than
--- emptying it.
+-- | One combination rule: TOKENS AND, ALTERNATIVES OR ('alternationSpec' is the
+-- OR half).  Every token narrows, whether or not another token names its key,
+-- so a second @state:@ empties a query where it once widened one.
 shapeSpec :: TestTree
 shapeSpec = testGroup "Shape"
-  [ testCase "predicates sharing a single-valued key are either of them" $ do
+  [ testCase "every token narrows, whether or not another names its key" $ do
       matches "state:TODO" [Privet]
       matches "state:DONE" [Schema]
-      matches "state:TODO state:DONE" [Privet, Schema]
-      matches "state:TODO state:DONE state:NEXT" [Ship, Privet, Schema]
-      -- Which is the only reading that answers anything: one cell, one value.
-      matches "priority:a priority:c" [Ship, Drop]
+      -- A cell holding ONE value cannot hold two, so this is no row at all.
+      -- The either it used to mean is one token now: `state:TODO|DONE'.
+      matches "state:TODO state:DONE" []
+      matches "state:TODO state:DONE state:NEXT" []
+      matches "priority:a priority:c" []
+      -- The same value twice is that value, which is what makes this a rule
+      -- about tokens rather than a rule about two DIFFERENT values.
+      matches "state:TODO state:TODO" [Privet]
 
-  , testCase "predicates sharing a multi-valued key are all of them" $ do
-      -- The tags cell is a list, so two of them intersect where two states
-      -- unite.  A union here would answer [Ship, Schema].
+  , testCase "and a cell holding a list can meet all of them" $ do
+      -- The tags cell is a list, so two tokens intersect where two states
+      -- cannot.  The answer is the one it always had, under a rule the state
+      -- column now obeys too.
       matches "tag:web" [Ship, Schema]
       matches "tag:glance" [Ship]
       matches "tag:web tag:glance" [Ship]
@@ -676,15 +692,15 @@ shapeSpec = testGroup "Shape"
       assertBool "the intersection is no bigger than either side"
                  (length both <= min (length web) (length glance))
 
-  , testCase "the two arities meet in one query" $ do
-      matches "state:TODO state:DONE tag:web" [Schema]
-      matches "state:NEXT state:DONE tag:web tag:glance" [Ship]
-      matches "state:NEXT state:DONE tag:web tag:cleanup" []
+  , testCase "an alternation and a token meet in one query" $ do
+      matches "state:TODO|DONE tag:web" [Schema]
+      matches "state:NEXT|DONE tag:web tag:glance" [Ship]
+      matches "state:NEXT|DONE tag:web tag:cleanup" []
 
   , testCase "distinct keys and free text and together" $ do
       matches "state:*active* scheduled:2026-08" [Ship, Privet]
       matches "state:*active* scheduled:2026-08 ship" [Ship]
-      matches "state:TODO state:DONE schema" [Schema]
+      matches "state:TODO|DONE schema" [Schema]
 
   , testCase "negations and regardless, so two of them are neither" $ do
       matches "-state:TODO -state:DONE" [Ship, Reply, Plain, Drop]
@@ -711,6 +727,66 @@ shapeSpec = testGroup "Shape"
       every <- matching ""
       assertEqual "the whole fixture" 6 (length every)
       matches "   " every
+  ]
+
+-- Alternation
+
+-- | @key:A|B@ — the OR half of the one combination rule.  A predicate's VALUE
+-- splits on @|@ and each alternative is read as that key's own value, so the
+-- bar means the same thing on every key and every kind of value.
+alternationSpec :: TestTree
+alternationSpec = testGroup "Alternation"
+  [ testCase "what a value splits into, and what an empty alternative costs" $
+      mapM_ (\(value, want) -> assertEqual (T.unpack value) want (alternatives value))
+            -- An empty alternative is dropped, so every half-typed form is the
+            -- value without it.
+            [ ("a|b", ["a", "b"]), ("a", ["a"])
+            , ("a|", ["a"]), ("|a", ["a"]), ("a||b", ["a", "b"])
+            -- And a value that is bars alone is left with none, which is the
+            -- `key:' rule: a predicate with nothing to narrow by.
+            , ("", []), ("|", []), ("||", []) ]
+
+  , testCase "each alternative is read as that key's own value" $ do
+      -- A badge is whole-value, a priority is exact, a title and a tag are
+      -- substrings of their cell.
+      matches "state:TODO|DONE" [Privet, Schema]
+      matches "priority:A|C" [Ship, Drop]
+      matches "title:ship|schema" [Ship, Schema]
+      matches "tag:glance|unicode" [Ship, Privet]
+      -- A date is a prefix, on its column and over both columns at once.
+      matches "scheduled:2026-08-01|2026-08-03" [Ship, Privet]
+      matches "planned:2026-08-03|2026-08-10" [Privet, Reply]
+      -- The semantics stay the key's: a badge is no substring, not even as one
+      -- alternative of two.
+      matches "state:TOD|DON" []
+
+  , testCase "a meta joins the alternatives like any other value" $ do
+      matches "state:*empty*|DONE" [Plain, Schema]
+      matches "state:*active*|DONE" [Ship, Privet, Reply, Plain, Schema]
+      matches "tag:*empty*|glance" [Ship, Reply, Plain]
+
+  , testCase "a negation covers the whole token" $ do
+      matches "-state:TODO|DONE" [Ship, Reply, Plain, Drop]
+      -- Neither alternative — which De Morgan makes the two negations too, and
+      -- that agreement is the reading worth pinning.
+      matches "-tag:web|glance" [Privet, Reply, Plain, Drop]
+      matches "-tag:web -tag:glance" [Privet, Reply, Plain, Drop]
+
+  , testCase "an empty alternative narrows nothing and costs nothing" $ do
+      matches "state:TODO|" [Privet]
+      matches "state:|TODO" [Privet]
+      matches "state:TODO||DONE" [Privet, Schema]
+      every <- matching ""
+      matches "state:|" every
+      matches "state:||" every
+      matches "tag:||" every
+
+  , testCase "the bar is a predicate's, so free text is the text it spells" $ do
+      -- No row's display text holds a bar, so both free-text spellings are
+      -- empty where the predicate beside them answers two rows.
+      matches "title:ship|schema" [Ship, Schema]
+      matches "ship|schema" []
+      matches "\"ship|schema\"" []
   ]
 
 -- Degenerate case

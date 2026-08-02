@@ -1154,10 +1154,11 @@ schemaSpec = testGroup "Schema conformance"
 
   , testCase "the multi-valued column says so, and it is the only one"
       $ withView $ \v -> do
-      -- Declared rather than sampled: the renderer decides arity from up to 40
-      -- non-empty cells, and a page with fewer than two tagged rows finds no
-      -- multi-valued column at all — where `tag:a tag:b' would OR while this
-      -- producer ANDs.  The declaration is what settles it.
+      -- Declared rather than sampled: the renderer decides which column holds a
+      -- LIST from up to 40 non-empty cells, and a page with fewer than two
+      -- tagged rows finds none at all — where `tag:*archive*' would be a
+      -- literal matching nothing while this producer reads it as the whole tag.
+      -- The declaration is what settles it.
       cols <- listAt "columns" v
       keys <- mapM (textAt "key") cols
       multi <- mapM (maybeBoolAt "multi") cols

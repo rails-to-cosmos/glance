@@ -1980,7 +1980,7 @@ filterKeys = [ key | (key, _header, _kind, _cell) <- viewColumns ]
 -- | 'viewColumns' as SCHEMA.md's Column objects, PALETTE giving the state
 -- badges.  Every column sorts, so @sortable@ rides on the column itself
 -- ('column'); what a kind adds past that is the priority letters, the badge
--- list and the tags column's arity.
+-- list and the tags column's @multi@ declaration.
 columns :: TodoKeywords -> [Value]
 columns palette =
   [ column key header kind (extra key) | (key, header, kind, _cell) <- viewColumns ]
@@ -1988,10 +1988,11 @@ columns palette =
     extra key = case key of
       "state"    -> [ "badges" .= badges palette, "values" .= stateValues ]
       "priority" -> [ "values" .= (["A", "B", "C"] :: [Text]) ]
-      -- Declared rather than left to be sampled: the renderer decides a
-      -- column's arity from up to 40 non-empty cells, so a page with fewer
-      -- than two tagged rows finds no multi-valued column at all and ORs
-      -- @tag:a tag:b@ where this producer ANDs it.  The declaration wins there.
+      -- Declared rather than left to be sampled: the renderer decides which
+      -- column holds a LIST from up to 40 non-empty cells, so a page with fewer
+      -- than two tagged rows finds none at all — and then @tag:*archive*@ is
+      -- the literal it matches nothing with, where this producer reads it as
+      -- the whole tag.  The declaration wins there.
       "tag"      -> [ "multi" .= True, "values" .= tagValues ]
       _          -> []
 

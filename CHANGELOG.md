@@ -79,6 +79,33 @@ section groups a feature arc, and its date is that arc's last commit.
   bright, being where a reader finds out why.
 
 ### Changed
+- **BREAKING: combination is one rule — TOKENS AND, ALTERNATIVES OR.** Every
+  `?q=` token narrows, whether or not another token names its key. `tag:a tag:b`
+  is a row carrying both and `ref:a ref:b` one pointing at both, as before;
+  `state:TODO state:DONE` now asks a cell holding one value to hold two, which is
+  no row, **where it used to answer either state**. The replacement idiom is the
+  new alternation: `state:TODO|DONE`. A predicate's VALUE splits on `|`
+  (`Glance.Web.Filter.alternatives`) and each alternative is read as that key's
+  own value, the results OR'd — uniform over every key and every kind of value,
+  so `tag:work|home` carries either, `scheduled:2026-08|2026-09` is either month,
+  `planned:A|B` is either date cell prefix-matching either, `ref:a|b` points at
+  either, and a starred meta alternates like any other value
+  (`state:*active*|DONE`, `tag:*web*|*archive*`). A negation covers the whole
+  token, so `-tag:a|b` carries neither. **A saved URL or bookmark spelling a
+  same-key OR now answers nothing; rewrite it with `|`.**
+  Empty alternatives are DROPPED — `a|` is `a`, `|a` is `a`, `a||b` is `a|b` —
+  and a value spelled with bars alone is left with none, which narrows nothing:
+  one answer for `key:`, `key:|` and `key:||`. The bar is a PREDICATE's: free
+  text is the text it spells, bar and all, and a predicate's value has had its
+  quotes taken out by the scanner, so a literal bar is free text's alone.
+  `namesArchive` reads the alternatives too, so `tag:*archive*|web` lifts the
+  archive exclusion the way `tag:*archive*` does.
+  What it buys is the arity rule's death: `multiValued` is gone, `compile` is
+  `map inverted` over the terms with no grouping in it, and the `multi: true` the
+  view declares is left saying only what its name says — the cells hold a list,
+  which the whole-tag meta and the renderer's chips read. Parity is kept term for
+  term (`table-view.js`'s `queryMatcher`/`tokenTest`), and the shared
+  `fixtures/parity/filter-query.json` gains the alternation cases.
 - **BREAKING: the empty cell is `key:*empty*`, and `key:none` is a literal
   value.** The bare word reserved a spelling a cell can hold, and that was
   exactly its cost: a state keyword `NONE`, a tag `none`, a title reading `none`
