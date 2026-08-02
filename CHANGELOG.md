@@ -17,15 +17,31 @@ section groups a feature arc, and its date is that arc's last commit.
   normalize-up rule — a tag every row carries comes off all of them, one only
   some of them carry goes on to the rows that lack it, and a partial entry wears
   its count. The palette stays open across commits and refreshes from what the
-  write answered; `/` finds a tag the tree already holds and `+` creates one it
-  does not.
+  write answered. `/` and `+` are two doors into one field, completing over the
+  tags the set can still be given — the tree's vocabulary less what every target
+  already carries — and taking a tag nobody has used yet as typed; `ESC` there
+  steps back to the letters.
 - `POST /command` takes `add-tag {tag}` and `remove-tag {tag}`, batched per file
   and answered per id like every other command; a tag the org parser would not
   read back refuses the whole request.
 - `GET /tags?ids=…` reports what the named rows are tagged with and the whole
   store's tag vocabulary.
+- `d`, `D` and `u` delete from the materialize sheet's property panel, the way
+  they archive a row in the table: `d` flags, a second `d` or `D` deletes every
+  flagged row, `u` unflags, and a held key counts as one press. A property is
+  dropped and one of org's three planning rows has its entry cleared instead.
+- The arrows step a cell as well as a row: `<left>`/`<right>` are
+  `previous-column`/`next-column` beside `b`/`h` and `f`/`l`, and the key line
+  is unchanged — an arrow rides behind its letters the way `<up>`/`<down>`
+  always have.
 
 ### Changed
+- Whichever pane of the materialize sheet holds the keys says so on its own
+  frame, so crossing with `TAB` moves one mark rather than losing it.
+- The property panel is a table-view mount, so the renderer draws every list on
+  the page: the rows, the stripe, the cursor and the flag wash are its own, and
+  the panel keeps the model alone. The sheet's edit fields now sit over the row
+  they belong to rather than inside it.
 - `@` asks before it applies: a row nothing refers to leaves the table, the
   filter and the trail exactly where they were, with one log line saying so.
 - `@` out of an empty filter leaves no crumb — "all rows" already is the empty

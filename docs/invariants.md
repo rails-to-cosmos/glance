@@ -1891,7 +1891,11 @@ on.
   line that had to be rewritten whenever the profile moved. What replaced them is
   two rows apiece: `n`/`p` and `j`/`k` both step a row, `f`/`b` and `l`/`h` both
   step a cell, and both spellings are live at once because a table has no text
-  field to compete with. The ends are `<` and `>`, with vi's `G` beside `>`; `g`
+  field to compete with. The ARROWS ride both axes beside them — `<up>`/`<down>`
+  a row, `<left>`/`<right>` a cell — and they ride SILENTLY: `hints` shows a
+  command's FIRST binding, so the key line reads `n/p rows · f/b cells` and has
+  never named an arrow. Same handler either way, so an arrow walking off the
+  last cell lands in the whole-row look rather than meeting a wall. The ends are `<` and `>`, with vi's `G` beside `>`; `g`
   is `apply-default-filter`, `a` is `org-glance-agenda`, `,` is `customize`, `o`
   and `!` are `org-glance-overview:open`, `@` is
   `org-glance-overview:relations`,
@@ -2105,8 +2109,12 @@ on.
   palette is the renderer's); may not reach rows by `tr.click()`,
   `scrollIntoView` or `rowEls(` (the DOM-walking path is gone); and may not keep
   a column of its own under any of the names that path used. What it does touch
-  is `.tv-root`'s font, `.tv-chips`/`.tv-chip` under a coarse pointer, and the
-  selected-row read kept as the legacy-asset fallback. **test**
+  is `.tv-root`'s font, `.tv-chips`/`.tv-chip` under a coarse pointer, the
+  selected-row read kept as the legacy-asset fallback, and — for the property
+  panel — `.tv-box`'s chrome and one row's box. A SECOND list guards a different
+  thing and is worth not conflating with this one: `.prow`, `pcur`, `drawRow`
+  and `addRow(` are this page's OWN deleted identifiers, forbidden so the panel
+  the mount replaced cannot come back beside it. **test**
 - **Every optional renderer capability is feature-detected before use.**
   `parseQuery`, `stripLastToken` together with `getQuery`, `selectStep`,
   `nextPage` together with `pageInfo`, `getSelection`, `openFilter`, plus
@@ -2357,21 +2365,37 @@ on.
   only mutation that grows the list, and it grows it at the end. Evidence:
   `TestServe` "Shell glue", "the tag union is first-seen, and the refresh is the
   answer". **test**
-- **Two fields, and both only ADD.** `/` FINDS a tag the tree already holds and
-  `+` CREATES one it does not; a letter is the only toggle, so neither field can
-  take a tag off. `/` swaps the offered list for `prompting.wider` — a THUNK, not
-  a list, so it is current after a commit moved what the set holds — which is the
-  set's tags first and then the rest of `GET /tags`' `vocabulary`, the whole
-  store's rather than the rows on screen. `RET` there takes the highlighted entry
-  or, failing that, the typed line (`freely`, guarded by `prompting.free`), so a
-  tag the tree has never held is committable — a first use has to start
-  somewhere. `+` is the property panel's convention and a field with NO list at
-  all: nothing narrows, nothing is picked, the line as typed is the tag, and its
-  `ESC` steps BACK to the letters where `/`'s closes the palette. `+` can never
-  collide with an entry, since `whichKeys` hands out `a`–`z` alone. Both fields
-  return to letter mode on commit, with the list restored WHOLE — a narrowing
-  left standing would put the reader back among the letters with most of them
-  missing. Evidence: `TestServe` "Shell tags". **test**
+- **ONE FIELD, TWO DOORS, and it only ADDS.** `/` and `+` raise the same field
+  — the way `d` on an already-flagged row calls `D`'s handler rather than a
+  second one — and a letter stays the only toggle, so nothing typed can take a
+  tag off. They were two modes: `/` FOUND a tag the tree already held and `+`
+  CREATED one it did not, which asked a reader to know which of those they were
+  about to do before they had typed a character, and gave one `ESC` two
+  meanings.
+
+  WHAT IT COMPLETES OVER is the ADDABLE vocabulary — `prompting.wider`, a THUNK
+  rather than a list so it is current after a commit moved what the set holds.
+  That is `GET /tags`' `vocabulary`, the whole store's rather than the rows on
+  screen, LESS every tag all the targets already carry: adding one of those
+  writes nothing, so offering it is offering a no-op. A tag only SOME of them
+  carry STAYS, wearing its `3/5`, because adding it is the normalize-up half of
+  the letter's own rule and does move rows. The set's partial tags lead and the
+  rest of the tree follows.
+
+  `RET` takes the highlighted entry or, where nothing matched, the line as typed
+  (`freely`), so a tag the tree has never held is committable — a first use has
+  to start somewhere, and the charset wall that refuses a name org could not
+  read is the SERVER's rather than a second guess here. `ESC` steps BACK to the
+  letters from either door and a second `ESC` closes, which is `cancel` reading
+  `prompting.narrow && prompting.sticky` — a palette with letters behind it has
+  somewhere to go back to and an `askText` prompt has not. Coming back
+  re-derives the letter list through `prompting.letters`, a thunk beside
+  `wider`: the field REPLACED `choices` with what it completes over, so
+  restoring `shown` from `choices` would put the reader back among the wrong
+  list. `+` can never collide with an entry, since `whichKeys` hands out `a`–`z`
+  alone. Evidence: `TestServe` "Shell tags" — the addable list, a partial tag
+  still offered, `+` as the second door, `RET` on a novel line, and the ESC
+  ladder from either door. **test**
 - **A tag is FOLDED at commit, because presence is.** `/tags` reports what
   `tagsOfCell` reads and `tagged` matches the same way, so a palette that wrote
   `Work` would go on showing `work` and offering to add it again. Adding a tag
@@ -2553,7 +2577,8 @@ on.
   `tabindex`. `+` adds an empty property at the end and opens it: the add
   affordance is a KEY, which is what keyboard-first means here, and it replaced a
   row that was always empty and had to be filtered back out of everything the
-  panel said. A row whose key is emptied is a property deleted.
+  panel said. `d`/`D` delete one, and a row whose key is emptied is a property
+  deleted the other way.
   `ORG_GLANCE_ID` is in NEITHER pane: it is the row id the table keys its updates
   off, the server keeps it out of what it hands over and puts it back verbatim
   (`hiddenProperties`), so there is nothing here to warn about and no note to
@@ -2578,45 +2603,170 @@ on.
   `TestServe` "Shell sheet" (the node harness: two panes, growth, deletion, the
   identity note, both toggle directions, the dirty refusal, the remount) and "the
   sheet is a body pane and a property panel". **test**
-- **The property panel is modal: nav moves over read-only rows, `RET` opens one
-  for editing, and `TAB` crosses the panes.** The keys are a second document
-  listener behind the dispatch, the way the value palette's are and safe for the
-  same reason: while the panel holds the keys `typing()` is true, so every
-  `table` row is dead and nothing here takes a key the map wanted. In NAV the
-  rows are read-only text — spans, not fields, with nothing focusable in them —
-  and one wears the cursor (`pcur`, class `pat`, painted only under
-  `#mprops.on`). That is what pays for the movement being plain letters: `n`/`p`
-  and `j`/`k` are both bound, unconditionally and under either profile, because
-  a row with no field in it leaves every printable key free and satisfying both
-  editors at once costs nothing; the arrows need no profile at all. Entering the
-  panel BLURS the textarea and raises `pnav`, and `typing()` counts `pnav` as a
-  focus of its own — without that, nothing is focused and the table's own
-  letters move rows under the open sheet. `RET` opens the row at point: its
-  cells become fields, the value taking the focus because editing a property
-  that is there is almost always editing its value, and the key taking it where
-  there is none yet. A planning row opens its VALUE whatever it holds, having no
-  editable key. Inside an open row `TAB` is the hop between its two fields and the
-  pane crossing is suspended, since one row and two fields leave it nothing else
-  to mean. `RET` commits — the row takes the text its fields hold — and `ESC`
-  cancels, putting back the text the row was opened on. A row HOLDS its committed text and `props()` reads that rather than
-  the fields, so an edit nobody committed is not dirty and cannot be written;
-  the commit is the thing that means yes. `ESC` runs through the keymap's
-  `cancel`, which tries the open row before the sheet, so the sheet's own ladder
-  only ever sees the key from nav. `TAB`/`S-TAB` is one toggle rather than a
-  direction each — there are two stops, so a direction says nothing — between
-  the body and the panel's cursor, which is where it was left; `shut` clears
-  `pnav` and `pedit`, so the next sheet opens read-only at its top.
-  `preventDefault` fires exactly where one of those bindings does, and only over
-  an open subtree sheet — raw mode has one pane and nothing to cross to, so `TAB`
-  is the browser's there, and the settings sheet keeps native tabbing. The
-  planning rows are the same two modes over the same kind of row and belong in
-  this list rather than a second one. Evidence: `TestServe` "Shell sheet" (the
-  crossing and its remembered cursor, `S-TAB` parity, nav movement on all three
-  pairs with the table's own row staying put under it, `RET` opening value-first,
-  `+` adding and opening a row, `TAB` hopping the open row, the commit, `ESC`
-  restoring the row and the next one closing the sheet, an open row not counting
-  as an edit, an emptied planning row taking its entry off, raw mode leaving
-  `TAB` alone, and the reset on close). **test**
+- **The property panel IS a table-view mount, and that is what makes the
+  renderer this page's one list widget.** A second `TableView.mount` into
+  `#mptable` inside `#mprops`, over two columns — `key` and `value` — and the
+  drawer is the rows: the three planning entries first, in org's order, then the
+  properties in file order. What that buys is one implementation of everything a
+  list does. The row element, the stripe, the cursor and its class, the movement
+  that repainted them and the wash a flagged row wears were this page's own
+  before and are the renderer's now; `.prow`, `pcur`, `drawRow` and `addRow` are
+  gone, and the suite forbids each name coming back.
+
+  TWO OF THE MOUNT OPTIONS CARRY A RULE; the rest are configuration and are
+  spelled at the call. No `pageSize`, so the whole drawer is one page and no
+  cursor can walk off the end of one — the panel binds no page keys, so a
+  paged panel would have rows a reader could not reach. And `marks: true`,
+  which is a PRICE rather than a choice: `isFlagged` is `marks &&
+  flagged.has(id)` in the renderer as landed, and `hintHTML` returns before its
+  flag segment without it, so the wash, the count and `flagHelp` are all gated
+  on the mark column. Nothing in the panel reads a mark.
+
+  THE PRICE IS LIVE, and this page pays it in CSS. The mark cell is clickable
+  in the renderer (`onBox`), so left alone the panel would carry an affordance
+  that toggles a set nothing reads and nothing clears. `#mptable .tv-table
+  td.tv-box` therefore loses its `[ ]` glyph, its pointer and its hit-testing,
+  and the click falls through to the row. The gutter itself STAYS: the flag's
+  second channel is an inset edge the renderer draws on that very cell, which
+  is what keeps a flagged row readable under the cursor, so hiding the column
+  would blank the flag at the moment it is laid down. The option that retires
+  all of this is a `flags:` gate of its own in table-view, which is a sibling-repo
+  change plus a `make sync-renderer`. **test** (the options) / **none** (the
+  three declarations, which no test renders)
+
+  MODEL AND VIEW, and the split is the thing to keep. `prows` is the model — a
+  key, a value and whether org owns the key — and the mount is a VIEW of it:
+  `repaint()` is the one door, `props()` and `planning()` read the model, and a
+  flush sends what the model holds. The cursor, the flags and the scrolling are
+  the renderer's and this page keeps no copy of any of them: `patAt()` asks
+  `getSelection()`, movement is `selectStep(±1)`, `pflags()` asks `getFlagged()`.
+  A row's id is stable for the life of the sheet — `PLN:<KEYWORD>` for the three
+  fixed rows, `P<n>` handed out once per property — so a flag and a selection
+  both survive any number of edits above them, which an index would not.
+
+  Mounted ONCE and re-set per sheet. A mount per sheet would leave a theme
+  listener and a mutation observer behind each time a reader opened one, so
+  `mounted()` is memoized and a new drawer is one `setRows` — which also keeps
+  the panel standing across a remount that rebuilds the table. Evidence:
+  `TestServe` "the panel is a table-view mount of its own", "the panel is
+  mounted once and re-set per sheet". **test**
+- **The property panel is modal: nav moves over the mount's rows, `RET` opens
+  one in the edit overlay, and `TAB` crosses the panes.** The keys are a second
+  document listener behind the dispatch, the way the value palette's are and
+  safe for the same reason: while the panel holds the keys `typing()` is true,
+  so every `table` row is dead and nothing here takes a key the map wanted —
+  which is what lets `d` flag a property rather than an org row. In NAV nothing
+  is focusable, and that is what pays for the movement being plain letters:
+  `n`/`p` and `j`/`k` are both bound, unconditionally and under either profile,
+  because a row with no field in it leaves every printable key free and
+  satisfying both editors at once costs nothing; the arrows need no profile at
+  all. Entering the panel BLURS the textarea and raises `pnav`, and `typing()`
+  counts `pnav` as a focus of its own — without that, nothing is focused and the
+  table's own letters move rows under the open sheet.
+
+  `RET` opens the row at point into the EDIT OVERLAY: `#pedit`, ONE pair of
+  fields laid over the selected row. It has to be an overlay rather than fields
+  inside the row, because the mount owns its rows and rewrites them as it
+  scrolls — an edit living in a `td` would be thrown away by the next frame. The
+  value takes the focus, since editing a property that is there is almost always
+  editing its value, and the key takes it where there is none yet; a planning
+  row's key field is `readonly`, org owning that half of it. Inside an open row
+  `TAB` is the hop between the two fields and the pane crossing is suspended,
+  since one row and two fields leave it nothing else to mean. `RET` commits —
+  the MODEL takes the text the fields hold and the mount is re-set — and `ESC`
+  cancels, leaving the row the text it was opened on. A row HOLDS its committed
+  text and `props()` reads that rather than the fields, so an edit nobody
+  committed is not dirty and cannot be written; the commit is the thing that
+  means yes. `ESC` runs through the keymap's `cancel`, which tries the open row
+  before the sheet, so the sheet's own ladder only ever sees the key from nav.
+  `TAB`/`S-TAB` is one toggle rather than a direction each — there are two
+  stops, so a direction says nothing — between the body and the panel's cursor,
+  which is where it was left; `shut` clears `pnav` and closes the overlay, so
+  the next sheet opens read-only at its top. `preventDefault` fires exactly
+  where one of those bindings does, and only over an open subtree sheet — raw
+  mode has one pane and nothing to cross to, so `TAB` is the browser's there,
+  and the settings sheet keeps native tabbing. The planning rows are the same
+  two modes over the same kind of row and belong in this list rather than a
+  second one. Evidence: `TestServe` "Shell sheet" (the crossing and its
+  remembered cursor, `S-TAB` parity, nav movement on all three pairs with the
+  table's own row staying put under it, `RET` opening value-first, `+` adding
+  and opening a row, `TAB` hopping the open row, the commit, `ESC` restoring the
+  row and the next one closing the sheet, an open row not counting as an edit,
+  an emptied planning row taking its entry off, the overlay following the
+  cursor, raw mode leaving `TAB` alone, and the reset on close). **test**
+- **Deleting from the panel is the TABLE's gesture, over the same renderer
+  flags — one gesture, deliberately spelled twice.** `d` flags the row
+  at point — the mount's `flagRow`, so the row wears `tv-flagged` and the count
+  rides in the mount's own hint line — echoing `d → delete-flag (d again
+  deletes)`. A second `d` on an already-flagged row IS `D`: it calls the same
+  handler, so it deletes EVERY flagged row rather than the one under it, which
+  is what makes the flag the confirmation and is why there is no prompt. `D`
+  without a flag takes the row at point. `u` takes a flag off and steps on, the
+  way it does over the table. `e.repeat` is guarded HERE rather than by the
+  dispatch's `ONCE` list, which governs dispatch rows and cannot reach a key
+  this listener owns — a held `d` that got through would flag a row and delete
+  it from one press, which is exactly the confirmation the two-press shape
+  exists to be.
+
+  WHAT "TAKEN" MEANS IS THE ROW'S, and the split is the one place this differs
+  from the table. A property is DROPPED from the model, which is the emptied key
+  spelled as a key press. A planning entry is CLEARED and its row stands: the
+  three are org's keys rather than the author's, an empty value is already how
+  an entry is absent, and clearing all three is still how the whole line comes
+  off. A deletion moves the model, so it is dirty like any commit and the way
+  out of the sheet is a write.
+
+  TWO SPELLINGS OF ONE GESTURE, and the second is the price of the panel's keys
+  living outside `keyBindings`. The table's `flagging`/`archiveFlag`/`archive`
+  and the panel's `pflag`/`pdelete` are the same five-step machine over
+  different handles; what is genuinely shared is factored (`can`, `flagsOn`),
+  and what is not is the ACT — a `POST /command` on one side, a move of the
+  panel's model on the other. Three consequences are live and none is caught by
+  a test: `ONCE` guards the table's repeat and a hand-written `e.repeat` guards
+  the panel's, which is one correctness rule with two homes; `said(b, …)` cannot
+  be reached without a binding row, so the panel hand-spells the `SEQ → command`
+  shape the rebinding config will address; and the panel writes no `noted()`
+  line to the event strip where the table writes one per row. The fix that
+  retires all three is routing the panel's keys through the blob's existing
+  `modal` scope, which the value palette's second listener would want too.
+
+  Nothing hidden is rowed, so nothing hidden is flaggable — `hiddenProperties`
+  and the logbook never reach `prows`, and the identity property is the case
+  that matters, since a gesture that deleted it would break the row id every
+  update is keyed off. Evidence: `TestServe` "d flags the row at point rather
+  than deleting it", "d again deletes the flagged property, and D is that press
+  alone", "deleting a planning row clears the entry and keeps the row", "u takes
+  a flag off and steps on", "a held d flags once and never deletes what it
+  flagged", "a deletion is an edit, and a cancelled one is not", "nothing hidden
+  is rowed, so nothing hidden is flaggable". **test**
+- **One geometry read, through the handle's published root, and it is the whole
+  of what this page takes out of the mount's DOM.** `place()` asks `pmount.el`
+  — a documented `Handle` field — for `tbody tr.tv-sel`, reads its box and puts
+  the overlay at that offset with that height. Nothing about the row's CONTENT
+  is read; the model already holds it. It re-runs on everything that can move
+  that box: the mount's own scroll, caught in the CAPTURE phase so the scroller
+  element is never named, and the window resizing, since the panes wrap rather
+  than querying a width. It runs one frame after `openRow` (`soon`), because the
+  renderer stamps `tv-sel` on a frame of its own — a synchronous read after `+`
+  would measure the row the cursor was on before the add.
+
+  WHAT IT CANNOT DO, stated because the alternative is believing it does.
+  `Handle` publishes no COLUMN geometry, so the overlay's `40%`/`50%` split is a
+  guess over columns the renderer measures from content: the fields sit on the
+  right ROW and only approximately over the right cells. A selected row outside
+  the rendered window has no element, and `place()` then leaves the overlay
+  where it was rather than hiding it — reachable only in a drawer long enough to
+  scroll, which is why it is a known limit rather than a bug. And the mount is
+  built and re-set inside a `display:none` sheet (`fill` runs before `#modal.on`),
+  which works because the renderer falls back to a screenful when
+  `scroll.clientHeight` is 0. The fixed alternative — an edit strip at the foot
+  of the panel, or reusing `askText` — needs no geometry at all and was declined
+  for the in-place feel; a column-geometry accessor upstream would retire the
+  guess. This is the one strand of the DOM-walking path that came back, and it
+  came back for a position rather than for a row. **test** (the behaviour,
+  without geometry: the suite's node harness answers the selector with nothing,
+  so every panel case passes with the overlay unplaced) / **none** (the geometry
+  itself, which no test measures)
 - **The whole page wears danneskjold, through one `--g-*` palette.** Surface,
   text, muted text, border, selection, warn and bad are declared once and
   re-declared per theme, and every `var()` on the page reads one of them, the

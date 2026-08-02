@@ -275,154 +275,193 @@ globalThis.WebSocket = function () {
   socket = this;
   this.close = () => { socket = null; };
 };
-// The renderer owns the applied query: it takes it at mount as chips and hands
-// it back, and a strip takes the last token off it.  Enough of that here for
-// the shell's own half of the round trip to be exercised.
-let held = "";
-let mounts = 0, sets = 0, raises = 0;
-// The renderer's own state, which the shell keeps no copy of: where the cursor
-// is, whether it was asked for marks, and which ids carry one.
-let cursor = 0, marksOn = false, hintsOn = true, marks = new Set(), flags = new Set();
-// The other two halves of that state: which column the cursor sits in, and
-// which page the renderer is showing.  `pageAt' counts from zero and `pageSize'
-// is 0 for a set with no pages; `cursor' indexes the page rather than the set,
-// which is the same thing while there is one page.
-let selCol = null, pageAt = 0, pageSize = 0;
-// The last programmatic sort asked of the handle, which is the whole of what
-// the agenda's own ordering can be observed to have done.
+// TWO MOUNTS.  The page builds the table in `#app' and the property panel in
+// the sheet, so everything a renderer holds PER MOUNT is held per instance here
+// rather than once for the page: the cursor and its column, the page, the marks,
+// the flags, the applied query and the crumb trail.  A remount replaces the
+// table's instance and leaves the panel's standing, which is what the shell
+// relies on when it puts a sheet back up.
+//
+// The two differ in ONE thing, and it is the rows.  The table's are the STORE's
+// — its `setRows' is a count and the rows it shows are `rows' above, which is
+// what lets an act move the store and the table follow.  The panel's are the
+// shell's own model and arrive through `setRows', so that instance keeps what it
+// is handed.
+let mounts = 0, sets = 0, raises = 0, pmounts = 0, psets = 0;
+// The last programmatic sort asked of a handle, which is the whole of what the
+// agenda's own ordering can be observed to have done.
 let sorted = null;
-/** The rows on show: one page's worth, or the whole set when there are none. */
-const onPage = () =>
-  (pageSize ? rows.slice(pageAt * pageSize, (pageAt + 1) * pageSize) : rows);
-const pageMax = () => (pageSize ? Math.max(1, Math.ceil(rows.length / pageSize)) : 1);
-/**
- * Turn to page TO, counting from zero, landing the cursor on the end it
- * arrives at — FIRST says which.  The column rides across untouched, which is
- * what lets the shell read it back rather than carry it.  False when there is
- * no such page, which is how a stop at either end is told from a turn.
- */
-const pageTo = (to, first) => {
-  const at = Math.max(0, Math.min(pageMax() - 1, to));
-  if (at === pageAt) return false;
-  pageAt = at;
-  cursor = first ? 0 : Math.max(0, onPage().length - 1);
-  return true;
-};
-// The hint a flagged row wears, which the renderer draws and the shell names.
-let flagHelp = "";
-/** The live handle, so `bare' can take calls off the one the shell is holding. */
-let handle = null;
-/** The crumb trail, which is renderer state like the marks: it survives a
- * `setRows' and goes with the mount that drew it. */
-let crumbs = [];
+/** The live table instance and the live panel instance.  The table starts as a
+ * standing empty one so a boot that never got to mount — the indexing poll, an
+ * offline daemon — still answers about a table rather than throwing. */
+let main = null, pan = null;
 /** COL as a real column index, or null for the whole-row look — which is what a
  * column outside the table IS.  The real one's `cellCol', mirrored here because
  * the shell's cell movement hands the index one past an end straight back. */
-const cellCol = (col) => {
+const cellCol = (cols, col) => {
   if (col === null || col === undefined) return null;
   const at = Math.trunc(col);
-  return at >= 0 && at < columns.length ? at : null;
+  return at >= 0 && at < cols.length ? at : null;
 };
 /** Set by `bare', `pageless', `sortless' and `crumbless': this asset never had
  * those calls, remounts included. */
 let markless = false, pagerless = false, sortnone = false, crumbless = false;
-globalThis.TableView = {
-  mount: (_el, _view, options) => {
-    mounts += 1;
-    held = (options || {}).initialQuery || "";
-    marksOn = (options || {}).marks === true;
-    hintsOn = (options || {}).actionHints !== false;
-    flagHelp = (options || {}).flagHelp || "";
+/**
+ * One mount, with its own everything.  OWN is the row list it keeps for itself,
+ * or null for the instance whose rows are the store's.
+ */
+const makeMount = (host, view, options, own) => {
+  const o = options || {};
+  const m = {
+    own,
+    // The columns the SHELL declared, per instance, rather than a second copy
+    // spelled here: a column added to either mount reaches the stub for free,
+    // where a hardcoded pair would silently go on agreeing.  The table's mount
+    // is handed the store's view, so `recolumn' reaches it through a remount.
+    cols: (view || {}).columns || [],
+    held: o.initialQuery || "",
+    marksOn: o.marks === true,
+    hintsOn: o.actionHints !== false,
+    flagHelp: o.flagHelp || "",
     // The page size is the mount's, the way the real one takes it, so a script
     // that never asks for pages gets the one the shell always requests.
-    pageSize = (options || {}).pageSize || 0;
-    cursor = 0;
-    selCol = null;
-    pageAt = 0;
-    marks = new Set();
-    flags = new Set();
-    handle = {
-      setRows: () => { sets += 1; },
-      getQuery: () => held,
-      stripLastToken: () => {
-        if (!held) return false;
-        held = held.split(/\s+/).slice(0, -1).join(" ");
-        return true;
-      },
-      // The selection is the renderer's, both halves of it, and the shell reads
-      // the row id back out of here to materialize one.
-      getSelection: () => ({ id: onPage().length ? onPage()[cursor].id : null, col: selCol }),
-      getVisible: () => onPage(),
-      // Clamped, never wrapped, and false at the end — which is what tells the
-      // shell that a mark on the last row has nowhere to walk to.
-      selectStep: (step) => {
-        if (cursor + step < 0 || cursor + step >= onPage().length) return false;
-        cursor += step;
-        return true;
-      },
-      // A row of the page in hand, and the column to land in.  Null is a
-      // WHOLE-ROW selection, and so is a column index OUTSIDE the table — the
-      // real one's `cellCol' reads both the same way, which is what makes
-      // walking off the last cell a landing rather than a wall.  False for a row
-      // this page is not showing; the row is what the bool answers about.
-      select: (id, col) => {
-        const at = onPage().findIndex((r) => r.id === id);
-        if (at === -1) return false;
-        cursor = at;
-        selCol = cellCol(col);
-        return true;
-      },
-      // The pager, landing the cursor on the end it arrives at — the new page's
-      // first row going forward, its last coming back.
-      nextPage: () => pageTo(pageAt + 1, true),
-      previousPage: () => pageTo(pageAt - 1, false),
-      pageInfo: () => {
-        const size = pageSize || rows.length;
-        return { page: pageAt + 1, pages: pageMax(),
-                 from: rows.length ? pageAt * size + 1 : 0,
-                 to: Math.min(rows.length, (pageAt + 1) * size), total: rows.length };
-      },
-      // Marks are the renderer's, keyed by id.
-      toggleMark: (id) => {
-        const on = !marks.has(id);
-        if (on) marks.add(id); else marks.delete(id);
-        return on;
-      },
-      getMarked: () => [...marks],
-      clearMarks: () => marks.clear(),
-      markedCount: () => marks.size,
-      markAll: () => { for (const r of rows) marks.add(r.id); },
-      // Archive flags, keyed by id the way marks are: `d' puts one on and a
-      // second `d' on the same row is what archives it.
-      flagRow: (id) => flags.add(id),
-      unflagRow: (id) => flags.delete(id),
-      getFlagged: () => [...flags],
-      clearFlags: () => flags.clear(),
-      // What the renderer's palette does: the overlay goes up and its field
-      // takes focus, which is the whole of what the shell can see of it.
-      openFilter: () => { raises += 1; field("filter").focus(); },
-      // The programmatic sort, which is what the agenda asks for once its rows
-      // are up.  Recorded rather than performed: the ORDER is the renderer's
-      // and TableView's own suite is where it is tested.
-      sortBy: (column, ascending) => { sorted = { column, ascending }; },
-      // The drill-down trail.  `popCrumb' pops and RETURNS — it never applies —
-      // because whoever owns the fetching owns what a query means, which is the
-      // whole reason the shell has a ladder to walk rather than the renderer.
-      // `getCrumbs' answers with copies, so a reader cannot move the strip.
-      setCrumbs: (list) => {
-        crumbs = (Array.isArray(list) ? list : [])
-          .filter((c) => c && typeof c === "object")
-          .map((c) => ({ label: String(c.label || ""), query: String(c.query || "") }));
-      },
-      getCrumbs: () => crumbs.map((c) => ({ label: c.label, query: c.query })),
-      pushCrumb: (c) => { handle.setCrumbs(crumbs.concat([c])); return crumbs.length; },
-      popCrumb: () => (crumbs.length ? crumbs.pop() : null),
-    };
-    if (markless) strip(MARK_CALLS);
-    if (pagerless) strip(PAGE_CALLS);
-    if (sortnone) strip(SORT_CALLS);
-    if (crumbless) strip(CRUMB_CALLS);
-    return handle;
+    pageSize: o.pageSize || 0,
+    cursor: 0, selCol: null, pageAt: 0,
+    marks: new Set(), flags: new Set(), crumbs: [],
+  };
+  /** Every row this mount holds: its own, or the store's. */
+  const all = () => (m.own ? m.own : rows);
+  /** The rows on show: one page's worth, or the whole set when there are none. */
+  const onPage = () =>
+    (m.pageSize ? all().slice(m.pageAt * m.pageSize, (m.pageAt + 1) * m.pageSize) : all());
+  const pageMax = () =>
+    (m.pageSize ? Math.max(1, Math.ceil(all().length / m.pageSize)) : 1);
+  /**
+   * Turn to page TO, counting from zero, landing the cursor on the end it
+   * arrives at — FIRST says which.  The column rides across untouched, which is
+   * what lets the shell read it back rather than carry it.  False when there is
+   * no such page, which is how a stop at either end is told from a turn.
+   */
+  const pageTo = (to, first) => {
+    const at = Math.max(0, Math.min(pageMax() - 1, to));
+    if (at === m.pageAt) return false;
+    m.pageAt = at;
+    m.cursor = first ? 0 : Math.max(0, onPage().length - 1);
+    return true;
+  };
+  m.onPage = onPage;
+  m.handle = {
+    // The root the mount drew into, which the real handle publishes and the
+    // sheet's edit overlay reads a row's box through.  Nothing here has a
+    // layout, so the query finds no row and the overlay stays where it was —
+    // the geometry is the one thing this harness cannot stand in for.
+    el: host || { querySelector: () => null },
+    // The table's `setRows' is a count: its rows are the store's and an act is
+    // what moves them.  The panel's are the shell's model, and the whole of what
+    // the panel shows, so that instance keeps them — and CLAMPS its cursor the
+    // way the real one does when rows go away under it.
+    setRows: (list) => {
+      if (m.own) {
+        m.own = (list || []).slice();
+        m.cursor = Math.max(0, Math.min(m.cursor, m.own.length - 1));
+        psets += 1;
+      } else sets += 1;
+    },
+    getQuery: () => m.held,
+    stripLastToken: () => {
+      if (!m.held) return false;
+      m.held = m.held.split(/\s+/).slice(0, -1).join(" ");
+      return true;
+    },
+    // The selection is the renderer's, both halves of it, and the shell reads
+    // the row id back out of here to materialize one.
+    getSelection: () => {
+      const on = onPage();
+      return { id: on.length ? on[m.cursor].id : null, col: m.selCol };
+    },
+    getVisible: () => onPage(),
+    // Clamped, never wrapped, and false at the end — which is what tells the
+    // shell that a mark on the last row has nowhere to walk to.
+    selectStep: (step) => {
+      if (m.cursor + step < 0 || m.cursor + step >= onPage().length) return false;
+      m.cursor += step;
+      return true;
+    },
+    // A row of the page in hand, and the column to land in.  Null is a
+    // WHOLE-ROW selection, and so is a column index OUTSIDE the table — the
+    // real one's `cellCol' reads both the same way, which is what makes
+    // walking off the last cell a landing rather than a wall.  False for a row
+    // this page is not showing; the row is what the bool answers about.
+    select: (id, col) => {
+      const at = onPage().findIndex((r) => r.id === id);
+      if (at === -1) return false;
+      m.cursor = at;
+      m.selCol = cellCol(m.cols, col);
+      return true;
+    },
+    // The pager, landing the cursor on the end it arrives at — the new page's
+    // first row going forward, its last coming back.
+    nextPage: () => pageTo(m.pageAt + 1, true),
+    previousPage: () => pageTo(m.pageAt - 1, false),
+    pageInfo: () => {
+      const size = m.pageSize || all().length;
+      return { page: m.pageAt + 1, pages: pageMax(),
+               from: all().length ? m.pageAt * size + 1 : 0,
+               to: Math.min(all().length, (m.pageAt + 1) * size), total: all().length };
+    },
+    // Marks are the renderer's, keyed by id.
+    toggleMark: (id) => {
+      const on = !m.marks.has(id);
+      if (on) m.marks.add(id); else m.marks.delete(id);
+      return on;
+    },
+    getMarked: () => [...m.marks],
+    clearMarks: () => m.marks.clear(),
+    markedCount: () => m.marks.size,
+    markAll: () => { for (const r of all()) m.marks.add(r.id); },
+    // Archive flags, keyed by id the way marks are: `d' puts one on and a
+    // second `d' on the same row is what archives it.
+    flagRow: (id) => m.flags.add(id),
+    unflagRow: (id) => m.flags.delete(id),
+    getFlagged: () => [...m.flags],
+    clearFlags: () => m.flags.clear(),
+    // What the renderer's palette does: the overlay goes up and its field
+    // takes focus, which is the whole of what the shell can see of it.
+    openFilter: () => { raises += 1; field("filter").focus(); },
+    // The programmatic sort, which is what the agenda asks for once its rows
+    // are up.  Recorded rather than performed: the ORDER is the renderer's
+    // and TableView's own suite is where it is tested.
+    sortBy: (column, ascending) => { sorted = { column, ascending }; },
+    // The drill-down trail.  `popCrumb' pops and RETURNS — it never applies —
+    // because whoever owns the fetching owns what a query means, which is the
+    // whole reason the shell has a ladder to walk rather than the renderer.
+    // `getCrumbs' answers with copies, so a reader cannot move the strip.
+    setCrumbs: (list) => {
+      m.crumbs = (Array.isArray(list) ? list : [])
+        .filter((c) => c && typeof c === "object")
+        .map((c) => ({ label: String(c.label || ""), query: String(c.query || "") }));
+    },
+    getCrumbs: () => m.crumbs.map((c) => ({ label: c.label, query: c.query })),
+    pushCrumb: (c) => { m.handle.setCrumbs(m.crumbs.concat([c])); return m.crumbs.length; },
+    popCrumb: () => (m.crumbs.length ? m.crumbs.pop() : null),
+  };
+  return m;
+};
+main = makeMount(null, null, {}, null);
+globalThis.TableView = {
+  // WHICH mount this is, by the element it was given: the sheet's panel hosts
+  // itself in `#mptable' and the table in `#app'.  Told apart by the host
+  // rather than by call order, since a remount builds a second table long after
+  // the panel went up.
+  mount: (host, view, options) => {
+    const panel = host === field("mptable");
+    const inst = makeMount(host, view, options, panel ? [] : null);
+    if (panel) { pmounts += 1; pan = inst; } else { mounts += 1; main = inst; }
+    if (markless) strip(inst.handle, MARK_CALLS);
+    if (pagerless) strip(inst.handle, PAGE_CALLS);
+    if (sortnone) strip(inst.handle, SORT_CALLS);
+    if (crumbless) strip(inst.handle, CRUMB_CALLS);
+    return inst.handle;
   },
   parseQuery: () => [],
   displayText: (s) => String(s || ""),
@@ -436,7 +475,11 @@ const PAGE_CALLS = ["nextPage", "previousPage", "pageInfo"];
 const SORT_CALLS = ["sortBy"];
 /** And the crumb trail, which `@' needs before it will drill at all. */
 const CRUMB_CALLS = ["setCrumbs", "getCrumbs", "pushCrumb", "popCrumb"];
-const strip = (names) => { for (const name of names) delete handle[name]; };
+const strip = (h, names) => { for (const name of names) delete h[name]; };
+/** An older asset is one asset: both mounts lose the calls it never had. */
+const stripLive = (names) => {
+  for (const inst of [main, pan]) if (inst) strip(inst.handle, names);
+};
 // The one thing a key here does that leaves nothing on the page: the tab `o'
 // opens.  Recorded whole — the target, the tab name and the features — since
 // `noopener' is half of what makes following a link safe.
@@ -472,7 +515,7 @@ const fields = {};
 // The tag matters: `typing()' reads it off `document.activeElement' to decide
 // whether a key belongs to the table or to whatever has focus.
 const TAGS = { mtext: "textarea", filter: "input", pinput: "input",
-               themesel: "select" };
+               pkey: "input", pval: "input", themesel: "select" };
 /** A stand-in element, enough of one for the page to build its own chrome in. */
 const make = (tag) => {
   const e = {
@@ -489,6 +532,10 @@ const make = (tag) => {
     addEventListener(type, fn) { (this.on[type] = this.on[type] || []).push(fn); },
     fire(type, event) { for (const fn of this.on[type] || []) fn(event); },
     appendChild(child) { this.children.push(child); return child; },
+    // Nothing here has a layout or a real tree, so a selector finds nothing —
+    // which is the honest answer, and the one every geometry read is written to
+    // survive.
+    querySelector: () => null,
     // What the log's ring drops the oldest line with.
     removeChild(child) {
       const at = this.children.indexOf(child);
@@ -508,6 +555,10 @@ const make = (tag) => {
 };
 const field = (id) => (fields[id] = fields[id] || make(TAGS[id] || "div"));
 const STATEFUL = [ "mtext", "mnote", "mfile", "modal", "mprops", "mlog", "sheet"
+                 // The property panel is a MOUNT: `mptable' is the element it
+                 // is given, which is how the stub tells the two apart, and the
+                 // three below are the edit overlay laid over the row at point.
+                 , "mptable", "pedit", "pkey", "pval"
                  // The value palette: its list is a tree of key tokens and
                  // underlined words, so it has to hold one.
                  , "echo", "prompt", "phead", "pinput", "pbox", "plist", "pfoot"
@@ -573,37 +624,58 @@ const typeInto = (id, which, arg) => {
   const row = field(id).children[Number(arg.slice(0, at))];
   if (!row) throw new Error(`no ${id} row ${arg}`);
   const box = row.children[which];
-  // A property row is read-only text until it is opened, so typing into a
-  // closed one is a script that means nothing: say so rather than write into a
-  // cell nobody can see.
+  // A row is read-only text until it is opened, so typing into a closed one is
+  // a script that means nothing: say so rather than write into a cell nobody
+  // can see.
   if (box.tagName !== "INPUT" && box.tagName !== "TEXTAREA")
     throw new Error(`${id} row ${arg} is not open for editing`);
-  box.value = arg.slice(at + 1);
+  typed(box, arg.slice(at + 1));
+};
+/** TEXT typed into BOX, event and all — which is what a reader does to a field
+ * and what the widgets narrowing on one are listening for. */
+const typed = (box, text) => {
+  box.value = text;
   box.fire("input", { target: box });
 };
 /**
- * The property panel as it stands: a [key, value] pair per row it is showing.
- * A closed row shows text and an open one holds fields, and the pair reads the
- * same either way — which is what makes one assertion cover both modes.
+ * Type into the property panel's edit overlay: ARG is `INDEX=TEXT', INDEX being
+ * the row the script means.  A closed panel has no fields, and an overlay open
+ * over another row is a script that means nothing on a real page — say so
+ * rather than write where no reader could have.
  */
-const shown = (e) => (e.tagName === "INPUT" ? e.value : e.textContent);
+const typeOver = (which, arg) => {
+  const at = arg.indexOf("=");
+  if (field("pedit").className !== "on")
+    throw new Error(`no panel row is open for editing: ${which}:${arg}`);
+  // The overlay opens over the row at point and no key can move the cursor
+  // under it, so the panel's own cursor IS which row is being edited.
+  if (String(patAt()) !== arg.slice(0, at))
+    throw new Error(`panel row ${patAt()} is open, not ${arg}`);
+  typed(field(which), arg.slice(at + 1));
+};
+/**
+ * The property panel as it stands: a [key, value] pair per row it is showing.
+ * Read off the MOUNT rather than off any DOM, because the panel is one — the
+ * shell hands it a row list and that list is the whole of what the panel shows.
+ * An open row is not in it: the overlay holds the edit and the model holds the
+ * committed text, which is what makes a commit the only thing that means yes.
+ */
 const panel = () =>
-  field("mprops").children.map((row) => [shown(row.children[0]), shown(row.children[1])]);
-/** Which row wears the panel's cursor, and -1 when none does. */
-const patAt = () => field("mprops").children
-  .findIndex((row) => row.className.split(" ").indexOf("pat") !== -1);
+  (pan ? pan.own.map((r) => [r.cells.key, r.cells.value]) : []);
+/** Which row wears the panel's cursor, and -1 when there is no panel yet. */
+const patAt = () => (pan && pan.own.length ? pan.cursor : -1);
 /**
  * Which field of the sheet has the focus, named the way an act names one:
- * `mtext' for the body pane, and the panel's own class over the row index for a
- * panel field (`pkey:1', `pval:1').  A focus call moves nothing else, so this
- * is the whole of what the sheet's navigation can be observed to have done.
+ * `mtext' for the body pane, and which of the overlay's two fields it is over
+ * the row at point (`pkey:1', `pval:1') — the fields being one pair laid over
+ * whichever row the panel's cursor is on.
  */
 const focused = () => {
   if (!active) return "";
   if (active === field("mtext")) return "mtext";
-  const at = field("mprops").children
-    .findIndex((row) => row.children.indexOf(active) !== -1);
-  return at === -1 ? "" : `${active.className}:${at}`;
+  const which = active === field("pkey") ? "pkey"
+    : active === field("pval") ? "pval" : "";
+  return which ? `${which}:${patAt()}` : "";
 };
 /** Everything under E with CLS, by class the way `patAt' reads the property
  * panel: the producer labels each part, so one added later cannot be mistaken
@@ -747,11 +819,12 @@ const ACTIONS = {
     box.value = text;
     box.fire("input", { target: box });
   },
-  // Typing into the property panel: `pkey:1=EFFORT' is the key field of row 1,
-  // `pval:1=0:45' its value.  The `input' event is the whole point — the panel
-  // grows its next empty row on one.
-  pkey: (arg) => typeInto("mprops", 0, arg),
-  pval: (arg) => typeInto("mprops", 1, arg),
+  // Typing into the property panel: `pkey:1=EFFORT' is the key field over row 1,
+  // `pval:1=0:45' its value.  The panel's rows are the mount's and the edit is
+  // ONE overlay laid over the row at point, so the index says which row the
+  // script MEANT and is checked rather than looked up.
+  pkey: (arg) => typeOver("pkey", arg),
+  pval: (arg) => typeOver("pval", arg),
   // And into the settings sheet: `ctext:0=#+TODO: A | B' is the box of layer 0,
   // which is the file's `#+TODO:' lines as the sheet edits them.
   ctext: (arg) => typeInto("clayers", 1, arg),
@@ -775,17 +848,17 @@ const ACTIONS = {
   // which is the shape the shell's feature detection is written against. It
   // sticks, so a remount later in the same script does not hand them back and
   // quietly turn the fallback case into the ordinary one.
-  bare: () => { markless = true; strip(MARK_CALLS); },
+  bare: () => { markless = true; stripLive(MARK_CALLS); },
   // And one that never had paging, which is what leaves the buffer-end keys
   // their within-page half and nothing to climb with.
-  pageless: () => { pagerless = true; strip(PAGE_CALLS); },
+  pageless: () => { pagerless = true; stripLive(PAGE_CALLS); },
   // And one with no programmatic sort, which is what leaves the agenda with
   // the order the view declares and nothing to insist on it.
-  sortless: () => { sortnone = true; strip(SORT_CALLS); },
+  sortless: () => { sortnone = true; stripLive(SORT_CALLS); },
   // And one with no crumb trail, which is what leaves `@' nowhere to leave a
   // step behind: the drill is refused outright rather than applying a view a
   // reader would have no way back out of.
-  crumbless: () => { crumbless = true; strip(CRUMB_CALLS); },
+  crumbless: () => { crumbless = true; stripLive(CRUMB_CALLS); },
   // What the row `o' names points at: one link, or none at all.  The gesture
   // is different for each — one opens without asking, none refuses — and the
   // three-link default is what raises the palette.
@@ -800,10 +873,10 @@ const ACTIONS = {
   rows: (n) => {
     rows = Array.from({ length: Number(n) }, (_x, i) =>
       ({ id: `r${i + 1}`, cells: { state: "TODO", title: `row ${i + 1}`, tag: ":web:" } }));
-    cursor = 0;
-    pageAt = 0;
+    main.cursor = 0;
+    main.pageAt = 0;
   },
-  paged: (n) => { pageSize = Number(n); cursor = 0; pageAt = 0; },
+  paged: (n) => { main.pageSize = Number(n); main.cursor = 0; main.pageAt = 0; },
   // N distinct lines through the page's own `append': the glue is eval'd into
   // this scope, so its functions are reachable from here.  The ring holds five
   // hundred and nothing a key presses writes them faster than one at a time, so
@@ -845,6 +918,13 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     // every POST the syncs sent.
     props: panel(), pat: patAt(), pnav: field("mprops").className === "on",
     focus: focused(),
+    // The panel is a mount of its own: how many times it was built, how many
+    // times the shell re-set its rows, and which of them carry a delete flag.
+    pmounts, psets, pflagged: pan ? [...pan.flags] : [],
+    // And the options it was mounted with, which is where the deletion gesture
+    // gets its wash and its hint from.
+    pmarks: pan ? pan.marksOn : null, phints: pan ? pan.hintsOn : null,
+    pflagHelp: pan ? pan.flagHelp : "", ppage: pan ? pan.pageSize : null,
     // What holds the keyboard, as its tag — empty for nothing, which is the
     // state the table's own keys are live in.
     holding: active ? active.tagName : "",
@@ -853,11 +933,13 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     shape: field("sheet").className, writes,
     // The renderer's side of marking, and the last thing the echo pill said —
     // which is where a key that could not do what it was asked reports it.
-    marksOn, hintsOn, flagHelp, marked: [...marks], flagged: [...flags], cursor,
+    marksOn: main.marksOn, hintsOn: main.hintsOn, flagHelp: main.flagHelp,
+    marked: [...main.marks], flagged: [...main.flags], cursor: main.cursor,
     // Where the cursor is in terms a page-local index cannot give: the row it
     // sits on, the column it is in, and the page it is reading.
-    selected: onPage().length ? onPage()[cursor].id : null, col: selCol,
-    page: pageAt + 1,
+    selected: main.onPage().length ? main.onPage()[main.cursor].id : null,
+    col: main.selCol,
+    page: main.pageAt + 1,
     echo: field("echo").textContent,
     // The event strip, which is append-only: what is here is everything the
     // page has said since it booted, oldest first.
@@ -874,7 +956,7 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     // The drill-down trail as the strip would draw it, labels alone — the
     // queries behind them are the shell's business and the URL already carries
     // them.
-    crumbs: crumbs.map((c) => c.label),
+    crumbs: main.crumbs.map((c) => c.label),
     // Which keys the dispatch took off the browser, in press order.
     prevented,
     // The settings sheet: whether it is up, the one word it wears, the lines

@@ -211,24 +211,33 @@
  *   whole-tag (`con:' is not `:contact:'), an empty value is presence alone, and
  *   a column of the same name shadows the tag.
  * - A suggestion list under the box completes it. A bare word offers, in order:
- *   the column keys it opens; the columns whose declared domain holds it as a
- *   value (`TODO' → `state:TODO'); and, only when nothing exact was found, up
- *   to five tags whose rows merely contain it, dimmed. Exact beats fuzzy and
- *   fuzzy never crowds — a scoped count is a substring count and must not dress
- *   like a value match. After `key:' comes that column's value domain
- *   (`values', else the badge palette, else the distinct cell values), each
- *   with the number of rows behind it; a virtual key has no domain to offer.
+ *   the value it already SPELLS, where a column holds one (`book' →
+ *   `tag:book'); the column keys it opens; the columns whose declared domain
+ *   holds it as a value by prefix (`TOD' → `state:TODO'); and, only when
+ *   nothing exact was found, up to five tags whose rows merely contain it,
+ *   dimmed. Exact beats fuzzy and fuzzy never crowds — a scoped count is a
+ *   substring count and must not dress like a value match. After `key:' comes
+ *   that column's value domain (`values', else the badge palette, else the
+ *   distinct cell values), each with the number of rows behind it and the value
+ *   typed in full at its head; a virtual key has no domain to offer.
  *   Arrows — and C-n/C-p, which both editors' users reach for here — move it,
  *   Esc dismisses, and a click accepts without taking focus. Tab completes and
  *   stays, at either stage. Enter is stage-aware: completing a key leaves the
  *   caret past the colon with that key's values already listed, since `tag:'
  *   is half a predicate and the values are the next thing to choose; only a
- *   finished token sends it on to commit and hand over. Nothing at the value
- *   stage starts highlighted, so Enter with `tag:' typed and no value chosen
- *   commits the presence predicate that was written rather than whichever
- *   value happened to sort first.
- *   Only a column completion starts highlighted, so Enter still commits the
- *   word as typed and an arrow is how you step into the offers.
+ *   finished token sends it on to commit and hand over.
+ * - ROW ONE IS ALWAYS THE CHOICE. An open list means Enter takes its first
+ *   offer, so the common case costs no arrow; the ordering above is the whole
+ *   of what that key means. The literal is reached through the grammar rather
+ *   than through a second meaning for Enter: a quoted token asks for no
+ *   suggestions at all (`"boo"' is free text), Esc puts the list away before
+ *   Enter commits what is written, and a word nothing completes has no list to
+ *   begin with.
+ * - A STARRED META COMPLETES STAR-FREE. The asterisks of `*active*' are reading
+ *   notation — the mark that says the producer decides this one — so completion
+ *   matches through them: `act' and `active' both reach `*active*', at the value
+ *   stage and as a bare word, and the starred spelling still answers to itself.
+ *   Display and commit wear the stars; only the matching ignores them.
  * - `palette: true' makes the filter a thing you summon. The page keeps the
  *   chip row and nothing else — an unfiltered table carries no filter chrome at
  *   all — and `openFilter()' raises a centred overlay holding the control, the
@@ -359,6 +368,7 @@
  *             previousPage: () => boolean,
  *             pageInfo: () => { page: number, pages: number,
  *                               from: number, to: number, total: number },
+ *             sortBy: (column: string, ascending: boolean) => void,
  *             toggleMark: (id: string) => boolean,
  *             markAll: () => number,
  *             flagRow: (id: string) => boolean,
@@ -644,6 +654,18 @@
   const META = /^\*.+\*$/;
 
   /**
+   * A meta without its stars. They are READING notation — the mark that says
+   * "the producer decides this one" — so completion matches through them and
+   * `act' reaches `*active*'. What is drawn and what is inserted keep them, and
+   * the starred spelling still answers to itself.
+   */
+  const starless = (v) => (META.test(v) ? v.slice(1, -1) : v);
+  /** Does the lowercased value LOWER open with P, stars either way? */
+  const opensWith = (lower, p) => lower.startsWith(p) || starless(lower).startsWith(p);
+  /** Is LOWER what P spells, stars either way? */
+  const spells = (lower, p) => lower === p || starless(lower) === p;
+
+  /**
    * The one meta this renderer can partly answer: SCHEMA puts the EMPTY cell in
    * the active group, and an empty cell needs no keyword set to recognise.
    */
@@ -815,32 +837,31 @@
 .tv-pal .tv-chip{color:var(--tv-fg);
   background:color-mix(in srgb,var(--tv-frost) var(--tv-chip-wash),transparent);
   border-color:color-mix(in srgb,var(--tv-frost) var(--tv-chip-edge),transparent)}
-.tv-pal .tv-chip:hover{border-color:var(--tv-accent);color:var(--tv-accent)}
+.tv-pal .tv-chip:not(.tv-chip-muted):hover{border-color:var(--tv-accent);color:var(--tv-accent)}
 .tv-chips{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
 .tv-chip{display:inline-flex;align-items:center;gap:5px;padding:1px 4px 1px 8px;
   border-radius:999px;font-size:12px;cursor:pointer;color:var(--tv-fg);
   border:1px solid var(--tv-border);background:var(--tv-alt)}
-.tv-chip:hover{border-color:var(--tv-accent);color:var(--tv-accent)}
-/* A crumb: where the reader came FROM. It keeps the chip's shape, so the strip
-   reads as one row, and gives up everything that makes a chip actionable — the
-   muted ink instead of the foreground, the page's own ground instead of the
-   chip panel's, a dashed hairline, no remove mark and no hover. The dash is a
-   second channel, the way the flagged row's left edge is: two washes alone
-   would leave a colour to carry the whole difference. The right padding goes
-   back to the left's — the remove mark is what a live chip is lopsided for.
-   The edge is respelled as the plain hairline because the palette's chip rule
-   tints one with frost, which is the APPLIED filter's identity and no part of
-   what a crumb says.
+.tv-chip:not(.tv-chip-muted):hover{border-color:var(--tv-accent);color:var(--tv-accent)}
+/* A crumb: where the reader came FROM. Same silhouette and same edge as the
+   live chip beside it, so the strip reads as one row: the rule respells no
+   border at all, which leaves a crumb wearing whatever chip rule reaches it —
+   frost-tinted inside the palette, the plain hairline outside it. The right
+   padding goes back to the left's wherever the chip's padding is spelled, the
+   remove mark being what a live chip is lopsided for. Inertness is carried by
+   the cursor and by the hover rules declining to select a crumb, so hovering
+   one moves nothing.
 
-   The ink is the floor that binds, as everywhere else here. --tv-muted is the
-   tag ink and the ground is --tv-bg, which is what a transparent chip is drawn
-   on in every mode, so it clears 4.5:1 in both themes (light 5.1, dark 11.5)
-   while sitting quieter than a live chip's ink does on its own ground (19.9
-   and 15.4). Spelled with the row it lives in so it outranks the palette's own
-   chip rule, the one other place a chip's ground is set. */
+   Ink and ground are the whole difference: --tv-muted instead of the
+   foreground, the page's own ground instead of the chip panel's. The ink is
+   the floor that binds, as everywhere else here. --tv-muted is the tag ink and
+   the ground is --tv-bg, which is what a transparent chip is drawn on in every
+   mode, so it clears 4.5:1 in both themes (light 5.1, dark 11.5) while sitting
+   quieter than a live chip's ink does on its own ground (19.9 and 15.4).
+   Spelled with the row it lives in so it outranks the palette's own chip rule,
+   the one other place a chip's ground is set. */
 .tv-chips .tv-chip-muted{color:var(--tv-muted);background:transparent;
-  border-color:var(--tv-border);border-style:dashed;cursor:default;padding-right:8px}
-.tv-chips .tv-chip-muted:hover{border-color:var(--tv-border);color:var(--tv-muted)}
+  cursor:default;padding-right:8px}
 .tv-chip-x{font-style:normal;opacity:.55;padding:0 3px}
 .tv-chip:hover .tv-chip-x{opacity:1}
 /* The suggestion list hangs under the box, over the table. .tv-root clips with
@@ -969,6 +990,7 @@
   .tv-table td.tv-box{min-width:44px}
   .tv-ac-item{padding:12px 12px}
   .tv-chip{padding:13px 8px 13px 12px}
+  .tv-chips .tv-chip-muted{padding-right:12px}
   .tv-chip-x{opacity:1;padding:0 8px}
   .tv-filter,.tv-omni .tv-filter,.tv-panel .tv-filter{font-size:16px}
 }
@@ -2789,7 +2811,7 @@
     /**
      * @type {{stage: string, tok: Token,
      *         items: {text: string, count: number, full: boolean, dim: boolean,
-     *                  pick: boolean, tag?: string}[]}|null}
+     *                  tag?: string}[]}|null}
      */
     let ac = null;
     let acAt = 0;
@@ -2872,14 +2894,51 @@
      * behind it, and whether it finishes a token. A column completion does not
      * — it lands as `key:' with the value still to type, and carries no count
      * because it narrows nothing on its own.
+     *
+     * Row one is what Enter takes (`openAc'), so the ordering here is the whole
+     * of what that key means: WHAT THE WORD SPELLS IN FULL LEADS WHAT IT MERELY
+     * OPENS, at either stage.
      * @returns {{text: string, count: number, full: boolean, dim: boolean,
-     *             pick: boolean, tag?: string}[]}
+     *             tag?: string}[]}
      */
     function suggestFor(st) {
       const p = st.prefix.toLowerCase();
       const out = [];
       if (!st.col) {
-        // 1. The keys the word opens — the view's columns, then the keys the
+        // Values some column actually has, reached by prefix: `TOD' means
+        // `state:TODO' and `alberbl' means `tags:alberblanc'. Facts about the
+        // data rather than guesses about it — but only where a column has a
+        // domain worth enumerating: its declared `values', its badge palette,
+        // or the tag vocabulary. A free-text column has no such set, and
+        // offering one word of it is what the third tier is for.
+        const hits = [];
+        for (const c of columns()) {
+          if (!domainValues(c) && columns().indexOf(c) !== multiColumn()) continue;
+          const dom = domainOf(c);
+          for (const v of dom.list) {
+            const lower = String(v).toLowerCase();
+            if (!opensWith(lower, p)) continue;
+            const meta = META.test(String(v));
+            hits.push({ text: c.key + ":" + v,
+                        count: meta ? -1 : dom.counts.get(lower) || 0,
+                        whole: spells(lower, p), dim: meta });
+          }
+        }
+        // What was typed in full outranks what merely opens with it.
+        hits.sort((a, b) => (b.whole ? 1 : 0) - (a.whole ? 1 : 0)
+                         || b.count - a.count
+                         || (a.text < b.text ? -1 : 1));
+        const exact = hits.length > 0 && hits[0].whole;
+        // 1. The value the word already SPELLS, where a column holds one:
+        //    `book' is `tag:book'. It leads, because it is the one offer that
+        //    needs no more typing — ahead of the `book:' key beside it, which
+        //    asks for the same rows in a token still half written. Seeded
+        //    before the tiers below so their caps cannot crowd it out.
+        if (exact) {
+          const top = hits.shift();
+          out.push({ text: top.text, count: top.count, full: true, dim: top.dim });
+        }
+        // 2. The keys the word opens — the view's columns, then the keys the
         //    rows imply. Both are exact facts, so neither is dimmed; the
         //    columns come first because they are the view's own vocabulary,
         //    and a tag carries the count of the rows that hold it, a column
@@ -2887,9 +2946,11 @@
         //    it is the view's own vocabulary too, and having it in this list is
         //    also what keeps a tag spelled like it out of the tier below.
         const keys = namedKeys();
-        for (const k of keys) {
-          if (!k.toLowerCase().startsWith(p)) continue;
-          out.push({ text: k + ":", count: -1, full: false, dim: false, pick: true });
+        const opens = keys.filter((k) => k.toLowerCase().startsWith(p));
+        // A key the word spells in full leads the ones it only opens.
+        for (const k of opens.filter((k) => k.toLowerCase() === p)
+                             .concat(opens.filter((k) => k.toLowerCase() !== p))) {
+          out.push({ text: k + ":", count: -1, full: false, dim: false });
           if (out.length === AC_MAX) break;
         }
         const held = tagVocab().ids;
@@ -2897,40 +2958,14 @@
           if (out.length === AC_MAX) break;
           const rows = held.get(tag);
           if (!rows || keys.indexOf(tag) !== -1 || !tag.startsWith(p)) continue;
-          out.push({ text: tag + ":", count: rows.size, full: false, dim: false,
-                     pick: false, tag });
+          out.push({ text: tag + ":", count: rows.size, full: false, dim: false, tag });
         }
-        // 2. Values some column actually has, reached by prefix: `TOD' means
-        //    `state:TODO' and `alberbl' means `tags:alberblanc'. Facts about
-        //    the data rather than guesses about it — but only where a column
-        //    has a domain worth enumerating: its declared `values', its badge
-        //    palette, or the tag vocabulary. A free-text column has no such
-        //    set, and offering one word of it is what the third tier is for.
-        let exact = 0;
-        const hits = [];
-        for (const c of columns()) {
-          if (!domainValues(c) && columns().indexOf(c) !== multiColumn()) continue;
-          const dom = domainOf(c);
-          for (const v of dom.list) {
-            const lower = String(v).toLowerCase();
-            if (!lower.startsWith(p)) continue;
-            if (lower === p) exact++;
-            const meta = META.test(String(v));
-            hits.push({ text: c.key + ":" + v,
-                        count: meta ? -1 : dom.counts.get(lower) || 0,
-                        whole: lower === p, full: true, dim: meta, pick: false });
-          }
-        }
-        // What was typed in full outranks what merely opens with it.
-        hits.sort((a, b) => (b.whole ? 1 : 0) - (a.whole ? 1 : 0)
-                         || b.count - a.count
-                         || (a.text < b.text ? -1 : 1));
+        // 3. The values it merely opens, in the order the sort left them.
         for (const hit of hits) {
           if (out.length === AC_MAX) break;
-          out.push({ text: hit.text, count: hit.count, full: true,
-                     dim: hit.dim, pick: false });
+          out.push({ text: hit.text, count: hit.count, full: true, dim: hit.dim });
         }
-        // 3. Words the rows finish for it, scoped to the tag they were found
+        // 4. Words the rows finish for it, scoped to the tag they were found
         //    under. Only an EXACT value match makes these redundant — a value
         //    merely opening with what was typed is a guess of the same kind, so
         //    the two stand together. They are dimmed either way: a scoped count
@@ -2941,18 +2976,21 @@
           for (const hit of scopedCompletions(p).slice(0, SCOPED_MAX)) {
             if (out.length === AC_MAX) break;
             out.push({ text: hit.tag + ":" + hit.word, count: hit.count,
-                       full: true, dim: true, pick: false, tag: hit.tag });
+                       full: true, dim: true, tag: hit.tag });
           }
         return out;
       }
+      // The column's value domain, led by the value typed in FULL — the one
+      // offer that finishes the token as written. It is looked for past the
+      // twelve on offer, so a domain deep enough to bury it still leads with
+      // it, and the search stops once it is in hand and the list is full.
       const dom = domainOf(st.col);
+      /** @type {{text: string, count: number, full: boolean, dim: boolean}|null} */
+      let whole = null;
       for (const v of dom.list) {
+        if (whole && out.length >= AC_MAX) break;
         const lower = String(v).toLowerCase();
-        if (!lower.startsWith(p)) continue;
-        // Not preselected: with `tag:' typed and no value chosen, Enter has to
-        // mean the presence predicate the user wrote, not whichever value
-        // happened to sort first.
-        //
+        if (!opensWith(lower, p)) continue;
         // A producer meta stands apart from the concrete values beside it:
         // dimmed and italic, and with no count. These counts are per cell
         // VALUE, and no cell holds the literal `*active*', so counting one here
@@ -2962,9 +3000,14 @@
         // matches many rows is worse than no number. What it means is the
         // producer's to say; see `tokenTest'.
         const meta = META.test(String(v));
-        out.push({ text: String(v), count: meta ? -1 : dom.counts.get(lower) || 0,
-                   full: false, dim: meta, pick: false });
-        if (out.length === AC_MAX) break;
+        const item = { text: String(v), count: meta ? -1 : dom.counts.get(lower) || 0,
+                       full: false, dim: meta };
+        if (spells(lower, p)) { whole = item; continue; }
+        if (out.length < AC_MAX) out.push(item);
+      }
+      if (whole) {
+        out.unshift(whole);
+        if (out.length > AC_MAX) out.pop();
       }
       return out;
     }
@@ -3101,19 +3144,21 @@
       const items = suggestFor(st);
       if (!items.length) { closeAc(); return; }
       ac = { stage: st.stage, tok: st.tok, items };
-      // A column name is what the typist is visibly reaching for, so it starts
-      // highlighted and Enter takes it. Everything else is an offer beside what
-      // they typed — a tag name is very often the word they are actually
-      // searching for — so nothing starts highlighted, Enter commits the word
-      // as written, and an arrow key is how you step into the offers.
-      acAt = items[0] && items[0].pick ? 0 : -1;
+      // ROW ONE IS ALWAYS THE CHOICE. A list that has something to offer offers
+      // a best guess, so Enter takes it and the common case costs no arrow;
+      // `suggestFor' is what makes that honest, leading with what the word
+      // spells in full. The literal stays reachable through the grammar rather
+      // than through a second meaning for Enter: a quoted token asks for no
+      // suggestions at all, and Escape puts the list away before Enter commits
+      // what is written.
+      acAt = 0;
       renderAc();
     }
 
     function moveAc(step) {
       if (!ac) return;
       const n = ac.items.length;
-      acAt = acAt < 0 ? (step > 0 ? 0 : n - 1) : (acAt + step + n) % n;
+      acAt = (acAt + step + n) % n;
       renderAc();
     }
 
@@ -3178,7 +3223,7 @@
         // reserves them.
         const down = e.key === "ArrowDown" || (e.ctrlKey && e.key === "n");
         const up = e.key === "ArrowUp" || (e.ctrlKey && e.key === "p");
-        const accepts = (e.key === "Tab" || e.key === "Enter") && acAt >= 0;
+        const accepts = e.key === "Tab" || e.key === "Enter";
         if (down || up || accepts || e.key === "Escape") {
           e.preventDefault();
           e.stopPropagation();
@@ -3198,8 +3243,7 @@
           if (e.key === "Tab" || !finished) return;
           closeAc();
         }
-        // Nothing highlighted: the keys fall through to what they mean with no
-        // list at all, so a typed word is still committed by Enter.
+        // Every other key falls through to what it means with no list at all.
       }
       // Backspace walks the query down, and how far depends on where the box
       // is. On the page it is the last rung of the ladder Enter ends on: the

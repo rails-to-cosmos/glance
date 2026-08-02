@@ -253,6 +253,22 @@ decodedAt key v = do
 pairsAt :: T.Text -> Value -> IO [[T.Text]]
 pairsAt = decodedAt
 
+-- | KEY of every @POST \/headline@ body the sheet sent, as pairs.  Six cases
+-- ask what a sync wrote into one of the two lists.
+wroteAt :: T.Text -> Value -> IO [[[T.Text]]]
+wroteAt key = traverse (pairsAt key) <=< listAt "writes"
+
+-- | The @SCHEDULED@ stamp the shell harness's fixture headline carries.
+sheetStamp :: T.Text
+sheetStamp = "<2026-08-01 Sat>"
+
+-- | What the sheet's property panel shows over that fixture: org's three
+-- planning rows with @SCHEDULED@ holding SCHED, then PROPS.  Fourteen cases
+-- assert some shape of this one drawer, so it is spelled once here.
+panelRows :: T.Text -> [[T.Text]] -> [[T.Text]]
+panelRows sched props =
+  [["SCHEDULED", sched], ["DEADLINE", ""], ["CLOSED", ""]] <> props
+
 -- | V's own field names.  An absent field is an answer here rather than a
 -- failure — @sort@ is the one the document order leaves out.
 fieldsOf :: Value -> IO [T.Text]
@@ -590,6 +606,26 @@ moveSpec shell = testGroup "Shell movement"
           assertEqual "the row" "r9" =<< textAt "selected" answer
           assertEqual "the page" 3 =<< intAt "page" answer
           assertEqual "the echo" "G → last-row" =<< textAt "echo" answer
+
+    -- The arrows walk BOTH axes, and silently: the key line shows a command's
+    -- first binding, so `<right>' sits behind `f' the way `<down>' has always
+    -- sat behind `n'.  Same handler, so walking off the last cell is the
+    -- LANDING it is for the letters — the renderer reads a column index outside
+    -- the table as no column at all — rather than a wall this page invents.
+  , testCase "the arrows step the column too, and land off the ends" $ do
+      bootOf shell "" 500 "" "press:ArrowRight" $ \answer -> do
+        assertEqual "the first column, from the whole-row look" 0 =<< intAt "col" answer
+        assertEqual "named by the header over it" "<right> → next-column (state)"
+          =<< textAt "echo" answer
+      bootOf shell "" 500 "" "press:ArrowRight press:ArrowRight" $
+        assertEqual "and the next one" 1 <=< intAt "col"
+      -- Two columns, so the third step walks off the end and lands.
+      bootOf shell "" 500 "" "press:ArrowRight press:ArrowRight press:ArrowRight" $ \answer -> do
+        assertEqual "off the cells" Null =<< field "col" answer
+        assertEqual "which the echo says is a landing"
+                    "<right> → next-column (row mode)" =<< textAt "echo" answer
+      bootOf shell "" 500 "" "press:ArrowLeft" $
+        assertEqual "and the other arrow lands on the first column too" 0 <=< intAt "col"
 
     -- The column is the renderer's across a turn, and this page hands it back
     -- rather than keeping one: `f' picks column 0 and it survives the climb.
@@ -1030,20 +1066,30 @@ tagKeySpec shell = testGroup "Shell tags"
                     ["headline \"one\" untagged :web:", "headline \"two\" untagged :web:"]
                     (drop (length lines' - 2) lines')
 
-    -- `/' reaches PAST the set: the letters are the union, the typing is the
-    -- tree's whole vocabulary, and RET on a tag none of the rows carries adds it
-    -- to all of them.  A tag the tree has never held is committable too, since a
-    -- first use has to start somewhere.
-  , testCase "/ narrows over the tree's vocabulary, not the set's tags" $
+    -- The field reaches PAST the set: the letters are the union, the field is
+    -- the tree's whole vocabulary LESS what every target already carries, and
+    -- RET on a tag none of the rows has adds it to all of them.  A tag the tree
+    -- has never held is committable too, since a first use has to start
+    -- somewhere.  `web' is on all three fixture rows, so adding it would be a
+    -- no-op and it is not offered.
+  , testCase "the field completes over what can be added, not over the set" $
       bootOf shell "" 500 ":" "press:/" $ \answer -> do
         assertEqual "the box says which mode it is in" "narrow" =<< textAt "pmode" answer
-        assertEqual "the set's tag first, then the rest of the store"
-          [ ("pe pat", "", ["web"],     [])
-          , ("pe",     "", ["archive"], [])
+        assertEqual "the tree's tags, less the one every row already has"
+          [ ("pe pat", "", ["archive"], [])
           , ("pe",     "", ["book"],    [])
           , ("pe",     "", ["work"],    []) ] =<< paletteOf answer
         assertEqual "and the foot names what RET does there"
-                    "RET adds it · C-n/C-p walks · ESC leaves" =<< textAt "pfoot" answer
+                    "RET adds it · C-n/C-p walks · ESC goes back" =<< textAt "pfoot" answer
+
+    -- A tag only SOME of the targets carry stays offered: adding it is the
+    -- normalize-up half of the letter's rule, which is a write rather than a
+    -- no-op.  `partly' leaves the third row without `web'.
+  , testCase "a tag some of the set carries is still addable, and says so" $
+      bootOf shell "" 500 "" "partly press:m press:m press:m press:: press:/" $
+        assertEqual "offered first, wearing the count that says who lacks it"
+          [ ("web", "2/3"), ("archive", ""), ("book", ""), ("work", "") ]
+          <=< paletteHints
 
   , testCase "RET there adds the narrowed tag to every row lacking it" $
       bootOf shell "" 500 "m m :" "press:/ type:work press:Enter" $ \answer -> do
@@ -1056,15 +1102,19 @@ tagKeySpec shell = testGroup "Shell tags"
         assertEqual "the typed line, folded" ["brandnew"] =<< tagsPosted answer
         assertEqual "over the row at point" [("add-tag", ["r1"])] =<< postedOf answer
 
-    -- `+' is the property panel's convention, and the other field: `/' FINDS a
-    -- tag the tree holds and `+' CREATES one it does not.  No list at all, so
-    -- nothing narrows and nothing is picked — the line as typed is the tag.
-  , testCase "+ opens a field of its own, with nothing in it to pick" $
+    -- `+' is the property panel's convention and the SECOND DOOR into that one
+    -- field — the way `d' on an already-flagged row is `D'.  It was a mode of
+    -- its own, which asked a reader to know whether the tag they were about to
+    -- type existed before they had typed it.
+  , testCase "+ is the second door into that same field" $
       bootOf shell "" 500 ":" "press:+" $ \answer -> do
         assertEqual "the field is up" "narrow" =<< textAt "pmode" answer
-        assertEqual "and no list under it" [] =<< paletteOf answer
-        assertEqual "the foot says what it is for and how to leave"
-                    "RET adds a tag of your own · ESC goes back"
+        assertEqual "completing over the same list"
+          [ ("pe pat", "", ["archive"], [])
+          , ("pe",     "", ["book"],    [])
+          , ("pe",     "", ["work"],    []) ] =<< paletteOf answer
+        assertEqual "under the same foot"
+                    "RET adds it · C-n/C-p walks · ESC goes back"
           =<< textAt "pfoot" answer
 
   , testCase "RET there adds the typed tag to every target and stays open" $
@@ -1078,10 +1128,11 @@ tagKeySpec shell = testGroup "Shell tags"
           [ ("pe", "", ["[w]eb"],      [])
           , ("pe", "", ["[b]randnew"], []) ] =<< paletteOf answer
 
-    -- ESC out of `+' is a step back rather than a door out: the field is a
-    -- detour off the letters, where `/' is a mode of the same question.
+    -- ESC out of the field is a step back rather than a door out, from EITHER
+    -- door: the field is a detour off the letters and the letters are where the
+    -- next op is pressed.  A second ESC is what closes the palette.
   , testCase "ESC from the field goes back to the letters, palette standing" $
-      bootOf shell "" 500 ":" "press:+ type:brandnew press:Escape" $ \answer -> do
+      bootOf shell "" 500 ":" "press:/ type:brandnew press:Escape" $ \answer -> do
         assertEqual "nothing was written" [] =<< postedOf answer
         assertEqual "the palette is still up" "on" =<< textAt "prompt" answer
         assertEqual "in letter mode" "" =<< textAt "pmode" answer
@@ -1140,11 +1191,16 @@ tagKeySpec shell = testGroup "Shell tags"
       bootOf shell "" 500 ":" "press:w repeat:w repeat:w" $
         assertEqual "one write" [("remove-tag", ["r1"])] <=< postedOf
 
-  , testCase "ESC leaves it from either mode, having written nothing" $
+    -- ESC is one key with one meaning per rung: out of the field it is a step
+    -- back to the letters, and out of the letters it is the door.  Two presses
+    -- from the field, one from where the palette opens.
+  , testCase "ESC leaves it a rung at a time, having written nothing" $
       mapM_ (\acts -> bootOf shell "" 500 ":" acts $ \answer -> do
                assertEqual (T.unpack acts <> ": no command went") [] =<< postedOf answer
                assertEqual "the overlay is down" "" =<< textAt "prompt" answer)
-            ["press:Escape", "press:/ press:Escape"]
+            [ "press:Escape"
+            , "press:/ press:Escape press:Escape"
+            , "press:+ press:Escape press:Escape" ]
 
     -- While it is up every `table' row is dead, so the letters are the
     -- palette's: `n' moves nothing and `d' flags nothing.
@@ -1892,8 +1948,7 @@ sheetSpec shell = testGroup "Shell sheet"
         -- The three planning rows first, in org's own order and empty where the
         -- headline has no entry, then the drawer in file order.
         assertEqual "the panel holds the planning rows and then the drawer"
-                    [ ["SCHEDULED", "<2026-08-01 Sat>"], ["DEADLINE", ""]
-                    , ["CLOSED", ""], ["EFFORT", "0:30"] ]
+                    (panelRows sheetStamp [["EFFORT", "0:30"]])
                     =<< pairsAt "props" answer
         -- Read-only, full width under the panes, and never sent back.  The
         -- drawer's INTERIOR alone: the widget being the drawer says what it is,
@@ -1980,8 +2035,7 @@ sheetSpec shell = testGroup "Shell sheet"
              "press:Tab press:n press:n press:n press:Enter pval:3=0:45 press:Enter" $
         \answer -> do
           assertEqual "the row took the text its field was holding"
-                      [ ["SCHEDULED", "<2026-08-01 Sat>"], ["DEADLINE", ""]
-                      , ["CLOSED", ""], ["EFFORT", "0:45"] ]
+                      (panelRows sheetStamp [["EFFORT", "0:45"]])
                       =<< pairsAt "props" answer
           assertEqual "the fields are gone" "" =<< textAt "focus" answer
           assertEqual "the panel still has the keys" True =<< boolAt "pnav" answer
@@ -1993,16 +2047,14 @@ sheetSpec shell = testGroup "Shell sheet"
   , testCase "+ adds a property at the end and opens it" $ do
       bootOf shell "" 500 "Enter" "press:Tab press:+" $ \answer -> do
         assertEqual "an empty row at the end"
-                    [ ["SCHEDULED", "<2026-08-01 Sat>"], ["DEADLINE", ""]
-                    , ["CLOSED", ""], ["EFFORT", "0:30"], ["", ""] ]
+                    (panelRows sheetStamp [["EFFORT", "0:30"], ["", ""]])
                     =<< pairsAt "props" answer
         assertEqual "with the cursor on it" 4 =<< intAt "pat" answer
         assertEqual "open at its key, which is the thing being typed"
                     "pkey:4" =<< textAt "focus" answer
       bootOf shell "" 500 "Enter" "press:Tab press:+ pkey:4=ADDED press:Enter" $ \answer -> do
         assertEqual "and committing it is a property"
-                    [ ["SCHEDULED", "<2026-08-01 Sat>"], ["DEADLINE", ""]
-                    , ["CLOSED", ""], ["EFFORT", "0:30"], ["ADDED", ""] ]
+                    (panelRows sheetStamp [["EFFORT", "0:30"], ["ADDED", ""]])
                     =<< pairsAt "props" answer
         assertEqual "with nothing grown under it" 4 =<< intAt "pat" answer
 
@@ -2012,8 +2064,7 @@ sheetSpec shell = testGroup "Shell sheet"
       bootOf shell "" 500 "Enter"
              "press:Tab press:n press:n press:n press:Enter pval:3=0:45 press:Escape" $ \answer -> do
         assertEqual "the value it was opened on"
-                    [ ["SCHEDULED", "<2026-08-01 Sat>"], ["DEADLINE", ""]
-                    , ["CLOSED", ""], ["EFFORT", "0:30"] ]
+                    (panelRows sheetStamp [["EFFORT", "0:30"]])
                     =<< pairsAt "props" answer
         assertEqual "the sheet is still up" "on" =<< textAt "modal" answer
         assertEqual "and back in nav" True =<< boolAt "pnav" answer
@@ -2035,10 +2086,10 @@ sheetSpec shell = testGroup "Shell sheet"
           -- planning rows are entries the headline has not got.
           assertEqual "carrying the drawer, edit and all"
                       [[["EFFORT", "0:45"]]]
-                      =<< traverse (pairsAt "properties") =<< listAt "writes" answer
+                      =<< wroteAt "properties" answer
           assertEqual "and the planning entries it has"
                       [[["SCHEDULED", "<2026-08-01 Sat>"]]]
-                      =<< traverse (pairsAt "planning") =<< listAt "writes" answer
+                      =<< wroteAt "planning" answer
           assertEqual "and it landed" "synced" =<< textAt "state" answer
 
     -- Emptying every planning row is how the line comes off, which the server
@@ -2047,7 +2098,7 @@ sheetSpec shell = testGroup "Shell sheet"
       bootOf shell "" 500 "Enter"
              "press:Tab press:Enter pval:0= press:Enter press:C-x press:C-s" $
         assertEqual "nothing left to write" [[]]
-                    <=< (traverse (pairsAt "planning") <=< listAt "writes")
+                    <=< wroteAt "planning"
 
     -- Emptying a key is how a property is deleted: there is no key to press for
     -- it, and none is owed — the row simply stops naming anything.
@@ -2056,7 +2107,7 @@ sheetSpec shell = testGroup "Shell sheet"
              ("press:Tab press:n press:n press:n press:Enter pkey:3="
                 <> " press:Enter press:C-x press:C-s") $
         assertEqual "the drawer the write asks for" [[]]
-                    <=< (traverse (pairsAt "properties") <=< listAt "writes")
+                    <=< wroteAt "properties"
 
     -- C-c ' is org's `edit-special' rhyme.  It re-materializes rather than
     -- converting anything locally, which is what keeps an org parser out of
@@ -2113,8 +2164,7 @@ sheetSpec shell = testGroup "Shell sheet"
         \answer -> do
           assertEqual "mounted twice" 2 =<< intAt "mounts" answer
           assertEqual "the panel is back, edit and all"
-                      [ ["SCHEDULED", "<2026-08-01 Sat>"], ["DEADLINE", ""]
-                      , ["CLOSED", ""], ["EFFORT", "0:45"] ]
+                      (panelRows sheetStamp [["EFFORT", "0:45"]])
                       =<< pairsAt "props" answer
           assertEqual "still dirty against the file, and still synced-looking"
                       "synced" =<< textAt "state" answer
@@ -2128,6 +2178,29 @@ sheetSpec shell = testGroup "Shell sheet"
         assertBool "nor the key off the browser"
           . notElem "Tab" =<< textsAt "prevented" answer
 
+    -- ONE FOCUS LANGUAGE, and the state it is drawn from is the panel's own
+    -- `on'.  The body pane takes a real focus and the panel holds the keys with
+    -- nothing focused at all, so the mark is the FRAME's on both sides — and it
+    -- has to leave when the keys do, whichever way they go.
+  , testCase "the pane holding the keys wears it, and only while it does" $ do
+      bootOf shell "" 500 "Enter" "" $ \answer -> do
+        assertEqual "the body pane opens with the keys" "mtext"
+          =<< textAt "focus" answer
+        assertEqual "so the panel's frame is unmarked" False =<< boolAt "pnav" answer
+      bootOf shell "" 500 "Enter" "press:Tab" $ \answer -> do
+        assertEqual "crossing marks the panel" True =<< boolAt "pnav" answer
+        assertEqual "and takes the focus off the textarea, so its own mark goes"
+                    "" =<< textAt "focus" answer
+      bootOf shell "" 500 "Enter" "press:Tab press:Tab" $ \answer -> do
+        assertEqual "crossing back unmarks it" False =<< boolAt "pnav" answer
+        assertEqual "and the body pane has it again" "mtext" =<< textAt "focus" answer
+      -- The leak this closes: the sheet used to clear the nav FLAG and leave
+      -- the class on, so a panel closed from nav stayed marked behind the
+      -- backdrop until the next materialize redrew it.
+      bootOf shell "" 500 "Enter" "press:Tab press:Escape" $ \answer -> do
+        assertEqual "the sheet is closed" "" =<< textAt "modal" answer
+        assertEqual "and the panel's mark went with it" False =<< boolAt "pnav" answer
+
     -- Where the cursor was left belongs to the sheet that was open: the next
     -- materialize is a fresh drawer, read-only and at the top of itself.
   , testCase "the panel opens at the top again when the sheet is reopened" $
@@ -2135,6 +2208,159 @@ sheetSpec shell = testGroup "Shell sheet"
         \answer -> do
           assertEqual "the cursor is back on the first row" 0 =<< intAt "pat" answer
           assertEqual "and the keys back in the body" False =<< boolAt "pnav" answer
+
+    -- THE PANEL IS A MOUNT, and this is what that buys: the rows the reader
+    -- moves over are the renderer's rows, the cursor is the renderer's
+    -- selection, and this page keeps no copy of either.  The mark column is the
+    -- price — the flag wash is gated on it — and the hint line is off, since the
+    -- key line under the table names every key once.
+  , testCase "the panel is a table-view mount of its own" $
+      bootOf shell "" 500 "Enter" "" $ \answer -> do
+        assertEqual "one panel mount" 1 =<< intAt "pmounts" answer
+        assertEqual "asked for marks, which is what the flag wash rides on"
+                    True =<< boolAt "pmarks" answer
+        assertEqual "and not for the renderer's own legend" False
+                    =<< boolAt "phints" answer
+        assertEqual "naming the two keys a flagged row answers to"
+                    "d/D delete · u unflag" =<< textAt "pflagHelp" answer
+        -- No page size: a drawer is short and every row of it is on screen, so
+        -- there is no page for a cursor to fall off the end of.
+        assertEqual "and for the whole list at once" 0 =<< intAt "ppage" answer
+
+    -- The table is rebuilt by a remount and the panel is not: it is a sibling of
+    -- `#app' like the sheet around it, so what a reopened sheet costs is one
+    -- `setRows' rather than a second mount with a second theme listener behind
+    -- it.
+  , testCase "the panel is mounted once and re-set per sheet" $
+      -- ESC closes the sheet and leaves the body pane focused, which is a focus
+      -- of its own as far as the map is concerned; the click that takes it off
+      -- is what puts the table's own keys back.
+      bootOf shell "" 500 "Enter"
+             ("press:Escape blur press:Enter press:Escape blur press:Enter"
+                <> " close:view-changed") $
+        \answer -> do
+          assertEqual "the table was rebuilt" 2 =<< intAt "mounts" answer
+          assertEqual "the panel never was" 1 =<< intAt "pmounts" answer
+          -- Three sheets opened, three drawers handed over: the mount is a view
+          -- of the model and a new model is one `setRows'.
+          assertEqual "and every drawer arrived through setRows" 3
+            =<< intAt "psets" answer
+
+    -- Deletion is the TABLE's gesture over the panel's rows, and the same
+    -- renderer state answers it: `d' lays a flag down and the row wears the
+    -- wash the mount draws for one.
+  , testCase "d flags the row at point rather than deleting it" $
+      bootOf shell "" 500 "Enter" "press:Tab press:n press:n press:n press:d" $
+        \answer -> do
+          assertEqual "the mount is holding the flag" ["P0"]
+                      =<< textsAt "pflagged" answer
+          assertEqual "and the drawer is untouched"
+                      (panelRows sheetStamp [["EFFORT", "0:30"]])
+                      =<< pairsAt "props" answer
+          assertEqual "the pill says what the second press will do"
+                      "d → delete-flag (d again deletes)" =<< textAt "echo" answer
+          -- The proof that `pnav' kills the table's own rows: `d' over the table
+          -- is `archive-flag', and a second one would post an archive.
+          assertEqual "and the table's own d never ran" ([] :: [Value])
+                      =<< listAt "commands" answer
+
+    -- `dd' is dired's, and the second press is `D': it takes EVERY flagged row
+    -- rather than the one under it, which is what makes the flag the
+    -- confirmation.
+  , testCase "d again deletes the flagged property, and D is that press alone" $ do
+      bootOf shell "" 500 "Enter"
+             "press:Tab press:n press:n press:n press:d press:d" $ \answer -> do
+        assertEqual "the property is off the panel"
+                    (panelRows sheetStamp [])
+                    =<< pairsAt "props" answer
+        assertEqual "the flag was spent with it" ([] :: [T.Text])
+                    =<< textsAt "pflagged" answer
+        assertEqual "and the pill named the set" "D → org-delete-property (1 flagged)"
+                    =<< textAt "echo" answer
+      bootOf shell "" 500 "Enter" "press:Tab press:n press:n press:n press:D" $
+        \answer -> do
+          assertEqual "D needs no flag: the row at point is the set"
+                      (panelRows sheetStamp [])
+                      =<< pairsAt "props" answer
+          assertEqual "and says so" "D → org-delete-property (row)"
+                      =<< textAt "echo" answer
+
+    -- The three planning rows are org's keys rather than the author's, so a
+    -- delete CLEARS the entry and the row stands — which is already how an entry
+    -- is absent, and how the whole line comes off.
+  , testCase "deleting a planning row clears the entry and keeps the row" $
+      bootOf shell "" 500 "Enter"
+             "press:Tab press:d press:d press:C-x press:C-s" $ \answer -> do
+        assertEqual "the row is still there, empty"
+                    (panelRows "" [["EFFORT", "0:30"]])
+                    =<< pairsAt "props" answer
+        assertEqual "and the write carries no planning entry" [[]]
+                    =<< wroteAt "planning" answer
+
+    -- `u' is the way back off a flag, and it walks on the way the table's does.
+  , testCase "u takes a flag off and steps on" $
+      bootOf shell "" 500 "Enter"
+             "press:Tab press:n press:n press:n press:d press:u press:D" $ \answer -> do
+        assertEqual "nothing was flagged when D ran" ([] :: [T.Text])
+                    =<< textsAt "pflagged" answer
+        -- `u' stepped off the last row and stayed, so `D' took the row at point:
+        -- the property, and not one of org's three.
+        assertEqual "so D took the row at point"
+                    (panelRows sheetStamp [])
+                    =<< pairsAt "props" answer
+
+    -- A held `d' would flag a row and delete it from ONE press, which is the
+    -- confirmation the two-press shape exists to be.  The dispatch's own ONCE
+    -- list cannot reach a key this listener owns, so the guard is the panel's.
+  , testCase "a held d flags once and never deletes what it flagged" $
+      bootOf shell "" 500 "Enter"
+             "press:Tab press:n press:n press:n press:d repeat:d repeat:d" $
+        \answer -> do
+        assertEqual "still flagged" ["P0"] =<< textsAt "pflagged" answer
+        assertEqual "and still there"
+                    (panelRows sheetStamp [["EFFORT", "0:30"]])
+                    =<< pairsAt "props" answer
+
+    -- A deletion moves the model, so the sheet is dirty and the way out is a
+    -- write — the same rule a committed edit answers to.
+  , testCase "a deletion is an edit, and a cancelled one is not" $ do
+      bootOf shell "" 500 "Enter"
+             "press:Tab press:n press:n press:n press:d press:d press:C-x press:C-s" $
+        \answer -> do
+          assertEqual "the drawer the write asks for" [[]]
+                      =<< wroteAt "properties" answer
+          assertEqual "and it landed" "synced" =<< textAt "state" answer
+      bootOf shell "" 500 "Enter" "press:Tab press:n press:n press:n press:d press:Escape" $
+        \answer -> do
+          assertEqual "a flag alone writes nothing" ([] :: [Value])
+                      =<< listAt "writes" answer
+          assertEqual "and the sheet closed without one" "" =<< textAt "modal" answer
+
+    -- ONE PAIR OF FIELDS, over whichever row is at point.  The mount rewrites
+    -- its own rows as it scrolls, so an edit cannot live inside one — it sits
+    -- over the panel and is anchored to the row the cursor is on, which is why
+    -- opening a second row moves the same overlay rather than growing another.
+  , testCase "the edit overlay is one pair of fields over the row at point" $
+      bootOf shell "" 500 "Enter"
+             ("press:Tab press:Enter press:Escape"
+                <> " press:n press:n press:n press:Enter pval:3=0:45 press:Enter") $
+        \answer -> do
+          assertEqual "the overlay went with the cursor"
+                      (panelRows sheetStamp [["EFFORT", "0:45"]])
+                      =<< pairsAt "props" answer
+          assertEqual "and closed behind it" "" =<< textAt "focus" answer
+
+    -- The hidden properties are not rowed, so they are not flaggable and no
+    -- gesture can reach them.  The identity is the case that matters: a key that
+    -- deleted it would break the row id every update is keyed off.
+  , testCase "nothing hidden is rowed, so nothing hidden is flaggable" $
+      bootOf shell "" 500 "Enter" "press:Tab press:n press:n press:n press:D" $
+        \answer -> do
+          rows <- pairsAt "props" answer
+          assertEqual "the identity was never a row"
+                      [] [ r | r <- rows, take 1 r == ["ORG_GLANCE_ID"] ]
+          assertEqual "and the only property there was the one that went"
+                      3 (length rows)
   ]
 
 -- | The settings sheet, driven through the keys a reader presses.  What is
@@ -2792,14 +3018,19 @@ shellGlue =
   -- same way.  Nothing here looks for a drawer in org text — there is no parser
   -- on this side, and C-c ' re-materializes rather than converting locally.
   , Glue "the sheet is a body pane and a property panel"
-      [ "<div id=\"mpanes\">", "<div id=\"mprops\"></div>"
+      [ "<div id=\"mpanes\">", "<div id=\"mprops\"><div id=\"mptable\"></div>"
       , "base = raw ? h.org : h.body;"
       , "drawProps(raw ? [] : h.properties || [], raw ? [] : h.planning || []);"
       , "{ body: el(\"mtext\").value, properties: props(), planning: planning() }"
-      -- The panel: a row is text until it is opened and fields while it is, `+'
-      -- adds one, and the emptied key deletes.
-      , "(prows[i].fixed ? \"prow pln\" : \"prow\") + (i === pcur ? \" pat\" : \"\"));"
-      , "const e = document.createElement(open ? \"input\" : \"span\");"
+      -- THE PANEL IS A MOUNT.  The renderer draws every list this page has, so
+      -- there is one implementation of a row, a cursor and a flag rather than
+      -- two — and the options say what the sheet asks of it.
+      , "pmount = TableView.mount(el(\"mptable\"), { columns: PCOLS, rows: [] }, {"
+      , "        flagHelp: \"d/D delete · u unflag\","
+      -- The model is this page's and the mount is a view of it: every change
+      -- goes back through `setRows'.
+      , "      m.setRows(prowsOf());"
+      , "prows.map((r) => ({ id: r.id, cells: { key: r.key, value: r.val } }));"
       , "function addProperty() {"
       , "else if (k === \"+\") addProperty();"
       -- Trimmed both sides, since the server hands them over trimmed: what the
@@ -2815,41 +3046,45 @@ shellGlue =
       -- The toggle re-reads rather than converting, and refuses a dirty sheet.
       , "if (dirty()) { said(b, \"sync first — C-x C-s\"); return; }"
       , "headline(h.id).then((fresh) => {"
-      -- The panel's own keys: TAB crosses the panes and hops an open row's two
+      -- The panel's own keys: TAB crosses the panes and hops the open row's two
       -- fields, nav movement is both spellings of the map's own letters and the
-      -- arrows, and RET opens a row and commits it.
+      -- arrows, and RET opens a row and commits it.  Movement is the MOUNT's
+      -- step, so the cursor a reader moves is the renderer's.
       , "const k = keyName(e), crossing = k === \"TAB\" || k === \"S-TAB\";"
+      , "const moveCur = (step) => can(pmount, \"selectStep\") && pmount.selectStep(step);"
       , "else if (k === \"<down>\" || k === \"n\" || k === \"j\") moveCur(1);"
       , "} else if (crossing) leavePanel();"
-      , "pnav = true; el(\"mprops\").className = \"on\"; el(\"mtext\").blur();"
+      , "const pnav = () => el(\"mprops\").className === \"on\";"
+      , "el(\"mprops\").className = \"on\"; el(\"mtext\").blur();"
       -- Nav holds the keys with nothing focused, so the map has to be told —
       -- the value palette's letter mode is the other thing that does.
-      , "return pnav || !!prompting"
+      , "return pnav() || !!prompting"
       -- The panel stacks under the text when there is no room beside it, which
       -- is a wrap rather than a second breakpoint to keep in step.
       , "#mpanes{flex:1;min-height:0;display:flex;flex-wrap:wrap;gap:10px}"
       , "#sheet.raw #mprops{display:none}"
+      -- The pane hosts the mount and positions the overlay, and that is the
+      -- whole of what it styles: `.tv-root' brings the frame and draws the rows.
+      , "#mprops{flex:1 1 240px;min-width:0;min-height:0;position:relative;"
+      , "#mptable .tv-root{flex:1;min-width:0;font-family:var(--dk-mono)}"
+      -- The open row's fields sit OVER the row, since the mount rewrites its own
+      -- rows as it scrolls, and they land on the text they replace.
+      , "#pedit{display:none;position:absolute;left:0;right:0;"
+      , "#pedit input{font:13px/1.5 var(--dk-mono);padding:5px 12px;"
       -- A planning row's key is org's rather than the author's, and says so.
-      , ".pln .pkey{color:var(--g-mute)}"
-      -- And the panel reads as the table does: the same cell padding, the same
-      -- stripe over the same ground, and the cursor row in the page's own
-      -- selection rather than a tint of its own.  `:nth-child' is honest here
-      -- where the renderer needs a stamped class — this list is not windowed.
-      , ".prow input,.prow span{font:12px/1.5 var(--dk-mono);padding:5px 12px;"
-      , "    display:flex;flex-direction:column}"
-      , "#mprops .prow:nth-child(even){background:var(--g-surface)}"
-      , "#mprops.on .pat{background:var(--g-sel);color:var(--g-fg)}"
-      -- One hairline, at the group edge, drawn by the first property row so a
-      -- drawer with none draws nothing.
-      , ".prow.pln + .prow:not(.pln){border-top:1px solid var(--g-border)}" ]
-      -- Field order is the DOM's: the fields are in the order the drawer writes
-      -- them and nothing reorders them.  And no parser: the page never goes
-      -- looking for a drawer in the text it holds.  Nor a row gap on either
-      -- box: the stripe is the separation, and a gap would leave gutters
-      -- through it.
+      , "#pkey[readonly]{color:var(--g-mute)}"
+      -- ONE FOCUS LANGUAGE: whichever pane holds the keys wears the accent on
+      -- its own frame.  Declared for both rather than left to the browser,
+      -- which can only dress the one that takes a real focus.
+      , "#mtext:focus{outline:none;border-color:var(--g-accent)}"
+      , "#mprops.on .tv-root{border-color:var(--g-accent)}" ]
+      -- No rows of this page's own: the row element, the stripe, the cursor
+      -- class and the movement that painted them are the renderer's now, and a
+      -- second spelling of any of them is the thing this replaced.  No tab index
+      -- either, and no parser — the page never goes looking for a drawer in the
+      -- text it holds.
       [ "tabindex", ":PROPERTIES:", ":END:"
-      , "#mprops{flex:1 1 240px;min-width:0;overflow-y:auto;\n    display:flex;flex-direction:column;gap"
-      , ".prow{display:flex;flex-wrap:wrap;gap" ]
+      , ".prow", "pcur", "drawRow", "addRow(" ]
 
   -- The author's Emacs theme in one set of custom properties: white on true
   -- black in the dark variant, black on white in the light one.  The hairline is
@@ -3122,7 +3357,7 @@ shellGlue =
   -- everywhere else.  All of them in the one block, which is where every rule
   -- a touch device gets lives — the panes stacking there included.
   , glue "a coarse pointer gets fields iOS will not zoom into"
-      [ "#mtext,#pinput,.prow input,.ctext,.cview{font-size:16px}}", "font:12px/1.5 var(--dk-mono)"
+      [ "#mtext,#pinput,#pedit input,.ctext,.cview{font-size:16px}}", "font:12px/1.5 var(--dk-mono)"
       , "#mpanes{flex-direction:column}" ]
 
   -- The keyboard-first exception, and the second one the page makes: `,'
@@ -5607,6 +5842,8 @@ expectedRows =
   , (["b"],          "b",       "previous-column",                 Just "previousColumn", "table", leftHelp)
   , (["l"],          "l",       "next-column",                     Just "nextColumn",     "table", rightHelp)
   , (["h"],          "h",       "previous-column",                 Just "previousColumn", "table", leftHelp)
+  , (["<right>"],    "<right>", "next-column",                     Just "nextColumn",     "table", rightHelp)
+  , (["<left>"],     "<left>",  "previous-column",                 Just "previousColumn", "table", leftHelp)
   , (["<"],          "<",       "first-row",                       Just "firstRow",       "table", topHelp)
   , ([">"],          ">",       "last-row",                        Just "lastRow",        "table", endHelp)
   , (["G"],          "G",       "last-row",                        Just "lastRow",        "table", endHelp)
@@ -5775,8 +6012,8 @@ keymapSpec shell = testGroup "Shell keymap"
       assertEqual "row movement has both spellings, the letter first"
         [["n"], ["j"], ["<down>"]]
         [ k | (k, _s, c, _h, _scope, _help) <- rows, c == "next-row" ]
-      assertEqual "cell movement has both spellings"
-        [["f"], ["l"]]
+      assertEqual "cell movement has all three, the letters first"
+        [["f"], ["l"], ["<right>"]]
         [ k | (k, _s, c, _h, _scope, _help) <- rows, c == "next-column" ]
 
   , testCase "the status corner carries the dot and the theme, in that order" $ do

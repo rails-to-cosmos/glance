@@ -709,8 +709,9 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   in both directions — and the column comes back out of `column()` rather than
   a local. An asset with no pager keeps the within-page half.
   Ids out of `getVisible()` handed to `select(id, col)` are all that is left of the
-  DOM-walking path, which is gone, as are the frame branches `bootstrap=off`
-  makes unreachable. The column is the renderer's selection, never a second
+  DOM-walking path over the TABLE, which is gone, as are the frame branches
+  `bootstrap=off` makes unreachable; the panel's edit overlay reads one row's
+  BOX and nothing else. The column is the renderer's selection, never a second
   copy here: `selectStep` carries it, and what the shell passes back is
   whatever `getSelection()` reports, so it survives a profile switch and clears
   when the selection does. Cell movement (`f`/`b`, `l`/`h`) walks OFF the cells
@@ -808,7 +809,12 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   the help. `seq` is derived in the blob (`T.unwords . kbKeys`), never stored.
   Movement carries BOTH spellings — `n`/`p` and `j`/`k` step a row, `f`/`b` and
   `l`/`h` step a cell — which costs a row each where a profile cost a selector, a
-  stored choice, a URL parameter and a key line that had to be rewritten. Ends
+  stored choice, a URL parameter and a key line that had to be rewritten. The
+  ARROWS ride both axes and SILENTLY: `<up>`/`<down>` step a row and
+  `<left>`/`<right>` a cell, each behind its letters, so the key line — which
+  shows a command's FIRST binding — still reads `n/p rows · f/b cells`. Same
+  handler, so an arrow walks off the last cell into the whole-row look the way
+  `f` does. Ends
   are `<` and `>`, plus vi's `G` beside `>`. `g` is `apply-default-filter`, `a`
   is `org-glance-agenda`, `,`
   is `customize`, `:` is `org-agenda-set-tags` — the AGENDA's own key for the
@@ -933,15 +939,21 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   files said BEFORE the write. Normalize-up makes the new state a function of
   what landed, so the palette folds the per-id results into the sets it holds and
   redraws off those; a refused row keeps the tags it had.
-  TWO FIELDS, and both only ADD — a letter is the only toggle. `/` FINDS
-  (`prompting.wider`, a thunk so it is current after a commit): the letter list
-  narrows to the set's tags first and then the rest of `vocabulary`, and RET
-  takes the entry or the typed line (`freely`, `prompting.free`). `+` CREATES —
-  the property panel's convention — a field with NO list at all, so nothing
-  narrows and nothing is picked, and its ESC steps BACK to the letters where
-  `/`'s closes. `+` claims no which-key letter because `whichKeys` hands out
-  `a`–`z` alone. A tag is FOLDED at commit, since presence is. Adding one every
-  target already has costs a line and no request.
+  ONE FIELD, TWO DOORS — `/` and `+` both raise it, the way `d` on an
+  already-flagged row IS `D`. It only ever ADDS; a letter is the only toggle.
+  What it COMPLETES over is the ADDABLE vocabulary (`prompting.wider`, a thunk
+  so it is current after a commit): the tree's whole `vocabulary` LESS the tags
+  every target already carries, since adding one of those is a no-op — a tag
+  only SOME of them carry stays offered and wears its `3/5`, adding it being the
+  normalize-up half of the letter's rule. The set's partial tags lead, then the
+  rest of the tree's. RET takes the highlighted entry or, where nothing matched,
+  the line as typed (`freely`) — so a tag the tree has never held is committable
+  and the charset wall that refuses garbage is the SERVER's. ESC steps BACK to
+  the letters from either door (`prompting.narrow && prompting.sticky`), and a
+  second ESC closes; `letterMode` re-derives the letter list through
+  `prompting.letters`, the field having replaced `choices` with what it
+  completes over. `+` claims no which-key letter because `whichKeys` hands out
+  `a`–`z` alone. A tag is FOLDED at commit, since presence is.
   Guards are the state palette's, one press each: `prompting.raising` declines
   the keydown that opened it and `e.repeat` stops a held letter committing
   through it. `:` stays OUT of `ONCE` for `t`'s reason — raising sets
@@ -1072,42 +1084,99 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - The sheet is two panes over one subtree and the cut is the SERVER's: textarea
   = `body`, panel = `properties`, a flush posts both back. The page holds no org
   parser and must not grow one. A panel row is key then value in file order (no
-  `tabindex` anywhere); the trailing empty row is the add affordance and grows
-  the next on commit; an emptied key deletes; `ORG_GLANCE_ID` is shown with a
-  line saying the row id is that value. `C-c '` (org's `org-edit-special`) swaps
+  `tabindex` anywhere); `+` adds one and `d`/`D` delete one; an emptied key
+  deletes too; the hidden properties are not rowed at all
+  (`Glance.Query.hiddenProperties`), so there is nothing to warn about and
+  nothing a gesture can reach. `C-c '` (org's `org-edit-special`) swaps
   two-pane and raw org by RE-MATERIALIZING — a dirty sheet is refused with `sync
   first — C-x C-s`, since a local conversion would need the parser this keeps
   out, and the re-read lands at `synced`. Stash and restore carry both panes and
   the shape. The sheet is four fifths of the window each way (`min(80vw,100%)` ×
   `min(80vh,100%)`); the panes wrap rather than querying a width, and the
   `pointer:coarse` block pins the column.
-- The property panel is MODAL, and its keys are a SECOND document listener
-  behind the dispatch, like the value palette's. NAV: rows are read-only text
-  (spans, nothing focusable), one wears the cursor (`pcur`, class `pat`, drawn
-  only under `#mprops.on`), and movement is `n`/`p`, `j`/`k` and the arrows —
-  both profiles' letters bound unconditionally, since a row with no field in it
-  leaves every printable key free. Entering the panel BLURS the textarea and
-  sets `pnav`, which `typing()` counts as a focus of its own; without that the
-  table's own letters would move rows under the sheet. EDIT: `RET` opens the row
-  at point (`pedit`), value focused first, key first where there is no key yet;
-  `+` adds an empty property at the end and opens it — the add affordance is a
-  KEY, where a row that is always empty was chrome every reader of the panel had
-  to filter back out; `TAB` hops the row's two fields and the pane crossing is
-  suspended; `RET` commits — the row takes its fields' text; `ESC` cancels
-  through the keymap's `cancel`, restoring what the row holds. A row HOLDS its
-  committed text and `props()` reads that, so an open edit is not dirty and only
-  a commit is. `TAB`/`S-TAB` is one two-stop toggle between the panes and the
-  cursor survives it; `shut` clears `pnav`/`pedit`. `preventDefault` fires only
-  where one of those bindings does, and only over an open subtree sheet: raw
-  mode has one pane so `TAB` is the browser's, and the settings sheet keeps
-  native tabbing. The three planning rows are FIXED rows at the head of this same
-  list — `SCHEDULED`, `DEADLINE`, `CLOSED` in org's order, key uncooked and
-  unopenable, value the timestamp text verbatim, empty meaning absent — so
-  clearing all three is how the planning line comes off. The logbook is a
-  read-only strip under both panes: full width, muted, out of Tab and out of
-  `dirty()`, showing the drawer's INTERIOR lines alone (the widget being the
-  drawer says what it is), and never sent — the server re-splices the whole
-  drawer, delimiters included.
+- THE PANEL IS A TABLE-VIEW MOUNT — the renderer is the app's ONE list widget.
+  A second `TableView.mount` in `#mptable` inside `#mprops`, columns `key |
+  value`, `palette: true` (no bar, no resident filter), no `pageSize` (a drawer
+  is short), `actionHints: false`, `flagHelp: "d/D delete · u unflag"`, and
+  `marks: true` — the mark column is the PRICE of the flags, `isFlagged` and
+  the hint's flag segment both being gated on `marks` in the renderer. Nothing
+  here reads a mark, and the price is LIVE, so this page's CSS takes the
+  checkbox off `#mptable .tv-table td.tv-box` (no glyph, no pointer, no
+  hit-testing) and KEEPS the gutter, which carries the flag's inset edge. Only
+  `pageSize` and `marks` carry rules; the rest is configuration. Mounted ONCE
+  and re-set per sheet, so opening a sheet costs one `setRows` rather than a
+  mount with a theme listener behind it.
+- MODEL AND VIEW. `prows` is the model — key, value, `fixed` — and the mount is
+  a view of it: `repaint()` is the one door and `props()`/`planning()` read the
+  model. The cursor is the renderer's selection (`patAt()` asks
+  `getSelection()`), movement is `selectStep(±1)`, the flags are the renderer's
+  set, and this page keeps no copy of any of them. Row ids are stable for the
+  sheet's life: `PLN:<KEYWORD>` for the three planning rows, `P<n>` handed out
+  once per property, so a flag and a selection survive an edit above them.
+- The panel is MODAL, and its keys are a SECOND document listener behind the
+  dispatch, like the value palette's. NAV: nothing is focusable, and movement is
+  `n`/`p`, `j`/`k` and the arrows — both profiles' letters bound
+  unconditionally, since a row with no field in it leaves every printable key
+  free. Entering the panel BLURS the textarea and sets `pnav`, which `typing()`
+  counts as a focus of its own; without that the table's own letters would move
+  rows under the sheet, and `d` would flag an org row rather than a property.
+  The panel's arrows are VERTICAL ONLY where the table's walk both axes: the
+  mount has two columns, but `RET` opens the WHOLE row and `TAB` crosses its two
+  fields, so a column selection would move a highlight and change nothing a
+  reader can act on.
+  EDIT: `RET` opens the row at point into the EDIT OVERLAY (`#pedit`, one pair
+  of fields laid over the selected row — the mount rewrites its own rows as it
+  scrolls, so an edit cannot live inside one), value focused first, key first
+  where there is no key yet, a planning key `readonly` because org owns it; `+`
+  adds an empty property at the end and opens it; `TAB` hops the two fields and
+  the pane crossing is suspended; `RET` commits into the MODEL and re-sets the
+  mount; `ESC` cancels through the keymap's `cancel`. A row HOLDS its committed
+  text, so an open edit is not dirty and only a commit is. `TAB`/`S-TAB` is one
+  two-stop toggle between the panes and the cursor survives it; `shut` clears
+  `pnav` and closes the overlay. `preventDefault` fires only where one of those
+  bindings does, and only over an open subtree sheet: raw mode has one pane so
+  `TAB` is the browser's, and the settings sheet keeps native tabbing.
+- DELETION IS THE TABLE'S GESTURE, over the same renderer flags — one gesture,
+  deliberately spelled twice, since the panel's keys live outside `keyBindings`.
+  `can`/`flagsOn` are shared; the ACT is not, and neither is `ONCE` (the panel
+  guards `e.repeat` by hand), `said` (no binding row, so the shape is
+  hand-spelled) or `noted` (the panel writes no log line). `d` flags the
+  row at point (`tv-flagged` wash, echo `d → delete-flag (d again deletes)`), a
+  second `d` on a flagged row IS `D` — the same handler, so it takes EVERY
+  flagged row — and `u` unflags and steps on. `e.repeat` is guarded HERE rather
+  than by the dispatch's `ONCE`, which cannot reach a key this listener owns.
+  What "taken" means is the row's: a property is DROPPED, which is the emptied
+  key spelled as a key press; a planning entry is CLEARED and its row stands,
+  since an empty value is already how an entry is absent. A deletion moves the
+  model, so it is dirty like any commit.
+- The three planning rows are FIXED rows at the head of the same list —
+  `SCHEDULED`, `DEADLINE`, `CLOSED` in org's order, key unopenable, value the
+  timestamp text verbatim, empty meaning absent — so clearing all three is how
+  the planning line comes off. The logbook is a read-only strip under both
+  panes: full width, muted, out of Tab and out of `dirty()`, showing the
+  drawer's INTERIOR lines alone (the widget being the drawer says what it is),
+  and never sent — the server re-splices the whole drawer, delimiters included.
+  Neither the logbook nor a hidden property is rowed, so neither is flaggable by
+  construction.
+- ONE FOCUS LANGUAGE ACROSS THE SHEET: whichever pane holds the keys wears the
+  accent on its own FRAME — `#mtext:focus{outline:none;border-color:var(--g-accent)}`
+  and `#mprops.on .tv-root{border-color:var(--g-accent)}` — and neither wears it
+  otherwise. Declared for both rather than left to the browser, which can only
+  dress the pane that takes a real focus: the panel holds the keys with nothing
+  focused at all, so a reader crossing with `TAB` would watch the mark vanish.
+  The panel's half is drawn from `#mprops.on`, the same state `pnav()` reads, so
+  it cannot leak past the keys — `shut` clears the class, which is the leak the
+  old mirrored `pnav` flag left behind a closed sheet.
+- The panel's geometry read is the ONE thing this page takes out of the mount's
+  DOM, and it goes through the handle's published root: `place()` asks
+  `pmount.el` for `tbody tr.tv-sel`, reads its box and puts the overlay there.
+  It re-runs on everything that moves that box — the mount's scroll through a
+  CAPTURE-phase listener on `#mprops` (so the scroller is never named) and a
+  window resize — and one frame after `openRow` (`soon`), since the renderer
+  stamps `tv-sel` on its own frame. Nothing about the row's content is read.
+  KNOWN LIMITS: `Handle` publishes no column geometry, so the `40%`/`50%` split
+  is a guess over content-measured columns; a selected row outside the rendered
+  window leaves the overlay where it was.
 - The whole page wears danneskjold, through one `--g-*` palette (surface, text,
   muted, border, selection, warn, bad) declared once and re-declared per theme.
   The sheet keeps exactly one variable of its own, `--dk-mono` (Hack first);

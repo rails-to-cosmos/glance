@@ -166,6 +166,14 @@ subtree's text — stars, body and every child, exactly as the file spells them 
 a *panel* beside it holding the headline's planning entries and its own property
 drawer, and the *logbook* along the bottom.
 
+*The panel is a table-view of its own* — the same renderer that draws the table,
+mounted a second time over two columns, =Key= and =Value=. A drawer is a list,
+and the app has one list widget: the rows, the stripe, the cursor and the wash a
+flagged row wears are all the renderer's, so there is one implementation of each
+rather than one for the table and another for the sheet. It carries a checkbox
+column it has no use for, which is the price of the delete flags — the renderer
+draws a flag only where it draws marks.
+
 The panel is one list of rows. The first three are fixed — =SCHEDULED=,
 =DEADLINE=, =CLOSED=, in org's order, empty where the headline has no entry —
 and hold the timestamp text verbatim; clearing all three is how the planning
@@ -175,20 +183,34 @@ its updates off, so the server keeps it and puts it back itself. The logbook
 strip is read-only, out of Tab and out of every write — it shows the drawer's
 lines and the server re-splices the drawer whole.
 
-*The panel is modal*, dired's shape rather than a form's. In *nav* the rows are
-read-only text with a cursor on one of them and nothing focusable at all, which
-is what leaves the plain letters free: =n= / =p= and =j= / =k= both move the
-cursor, and so do the arrows. =RET= opens the row at point, and only then are
-there fields to type into: the value takes the focus, and the key takes it where
-there is not one yet. A planning row opens its value alone — org owns that key.
-Inside an open row =TAB= hops between its two fields, =RET= commits it and goes
-back to nav, and =ESC= puts back the text the row was opened on. =+= adds an
-empty property at the end and opens it, which is the whole of the "add"
-affordance: a key, since there is nothing to press. Empty a key and that
-property is deleted on the next sync.
+*The panel is modal*, dired's shape rather than a form's. In *nav* nothing is
+focusable, which is what leaves the plain letters free: =n= / =p= and =j= / =k=
+both move the cursor, and so do the up and down arrows. Left and right do
+nothing here: the panel has two columns, but =RET= opens the whole row and =TAB=
+crosses its two fields, so there is nothing a column selection would decide. =RET= opens the row at point, and
+only then are there fields to type into: two of them, laid over the row itself,
+with the value taking the focus and the key taking it where there is not one
+yet. A planning row opens its value alone — org owns that key. Inside an open
+row =TAB= hops between the two fields, =RET= commits it and goes back to nav,
+and =ESC= puts back the text the row was opened on. =+= adds an empty property
+at the end and opens it, which is the whole of the "add" affordance: a key,
+since there is nothing to press.
+
+*Deleting is dired's =dd=*, the same gesture the table uses to archive a row.
+=d= flags the row at point — it turns red and the panel's status line says what
+answers a flag — and a second =d=, or =D=, deletes every flagged row. The flag
+is the confirmation, so there is no prompt, and a held =d= counts as one press.
+=u= takes a flag off. What "delete" means depends on the row: a property goes,
+and one of org's three planning rows has its entry *cleared* and stays where it
+is. Emptying a key deletes that property too, which is the same thing spelled by
+hand. Either way the sheet is dirty and the next sync writes it.
 
 =TAB= crosses between the panes — out of the text into the panel's cursor, out
-of nav back into the text — and the cursor is where you left it. There are two
+of nav back into the text — and the cursor is where you left it. Whichever pane
+holds the keys says so on its own frame, in the accent: one focus language for
+two panes that take focus differently, since the panel holds the keys with
+nothing focused at all and the browser's own ring can only ever dress the
+textarea. There are two
 stops, so =S-TAB= is that same toggle rather than a second walk. The crossing is
 suspended while a row is open, since inside one row =TAB= has the two fields to
 mean. The raw shape =C-c '= swaps to has one pane and nothing to cross to, so
@@ -423,10 +445,14 @@ so: =web 2/3= beside the word.
 Unlike the state palette, this one does not close after a commit — managing tags
 is several ops over one set. The list refreshes from what the write *answered*,
 so the count is level the moment it lands and the next letter means what it
-looks like. =/= finds a tag the tree already holds, completing over the whole
-store's vocabulary rather than the rows on screen; =+= creates one it does not,
-in a field of its own, and =ESC= there steps back to the letters rather than
-out. =ESC= from the letters closes.
+looks like. =/= and =+= are two doors into the same field. It completes over
+what the set can still be *given*: the whole store's vocabulary rather than the
+rows on screen, less every tag all the targets already carry, since adding one
+of those writes nothing — a tag only some of them carry stays on the list,
+wearing its count, because adding it is the levelling half of the rule. Type a
+name nobody has used yet and =RET= commits it as written; what org will not
+accept as a tag the server refuses, so there is no second guess here. =ESC=
+steps back to the letters from either door, and =ESC= from the letters closes.
 
 *=C-c C-s= and =C-c C-d= reschedule.* Both raise a one-line prompt — the value
 palette's overlay with a field in place of its list — titled with the keyword
@@ -640,7 +666,9 @@ the longer one unreachable.
 Horizontal movement selects a *cell*. =f= and =b= are org-glance's same-level
 keys one granularity down — where the overview walks headlines with them, a
 table walks the cells of a row — and =l= and =h= are the same two commands under
-vi's spelling. A row selection starts with no column and looks exactly as it always did;
+vi's spelling — and the left and right arrows are those same two commands
+again, riding behind the letters the way the up and down arrows ride behind
+=n= and =p=. A row selection starts with no column and looks exactly as it always did;
 the first horizontal key lands on the first column whichever direction asked
 for it, and from there =n=/=p= (=j=/=k=) carry that column down the table.
 Walking off either edge *leaves* the cells: the row goes back to the whole-row

@@ -1643,6 +1643,14 @@ keyBindings =
       `helps` nextColumnHelp
   , bind ["h"]          "previous-column"                 (Just "previousColumn") "table"
       `helps` previousColumnHelp
+  -- The arrows ride with the letters on BOTH axes, and silently: the key line
+  -- shows a command's FIRST binding, so `<down>' has always sat behind `n' and
+  -- these sit behind `f' and `b' the same way.  Same handler, so walking off
+  -- either end is the landing it is for the letters rather than a wall.
+  , bind ["<right>"]    "next-column"                     (Just "nextColumn")     "table"
+      `helps` nextColumnHelp
+  , bind ["<left>"]     "previous-column"                 (Just "previousColumn") "table"
+      `helps` previousColumnHelp
   -- The ends of the buffer, org-glance's own pair, plus vi's @G@ beside @>@.
   -- Progressive: the page's end row, then the previous or next page's, so the
   -- pair reaches the ends of the whole set without reaching for the brackets.
@@ -2066,7 +2074,13 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   -- both), so neither pane is derived here.
   , "      <div id=\"mpanes\">"
   , "        <textarea id=\"mtext\" spellcheck=\"false\"></textarea>"
-  , "        <div id=\"mprops\"></div>"
+  -- The panel is a table-view MOUNT, so the pane is the mount's host plus the
+  -- one thing a mount cannot hold: the edit overlay.  The renderer owns its
+  -- rows and rewrites them as it scrolls, so an open row's fields sit OVER the
+  -- table rather than inside it, anchored to the row the cursor is on.
+  , "        <div id=\"mprops\"><div id=\"mptable\"></div>"
+      <> "<div id=\"pedit\"><input id=\"pkey\" spellcheck=\"false\">"
+      <> "<input id=\"pval\" spellcheck=\"false\"></div></div>"
   , "      </div>"
   -- The logbook, read-only and full width under both panes.  It is the
   -- server's: shown so a reader can see what the row has been through, never
@@ -2156,6 +2170,21 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    }"
   , "    const dot = (name) => (document.getElementById(\"dot\").className = name);"
   , "    const el = (id) => document.getElementById(id);"
+    -- Does MOUNT carry the optional call NAME?  Every renderer capability this
+    -- page uses is detected before it is used, and there are TWO mounts now —
+    -- the table and the sheet's property panel — so the question is asked of a
+    -- handle rather than of the one this page used to have.
+  , "    const can = (mount, name) => !!mount && typeof mount[name] === \"function\";"
+    -- The archive/delete flags, which are the one capability both mounts want:
+    -- the table flags a row for archiving and the panel flags one for deleting,
+    -- and an asset predating either says so once.
+  , "    const flagsOn = (mount) => can(mount, \"flagRow\") && can(mount, \"getFlagged\");"
+    -- On the next frame, or now where there are no frames.  What the panel's
+    -- edit overlay waits for: the renderer stamps its selection in a frame of
+    -- its own, so a row selected in this tick has no marked element yet.
+  , "    const soon = (fn) =>"
+  , "      (typeof requestAnimationFrame === \"function\" ? requestAnimationFrame(fn)"
+  , "                                                    : setTimeout(fn, 0));"
   , "    let table = null, socket = null, backoff = 1000, editing = null;"
   , "    // The sheet's own state: the two panes as the file holds them as far as"
   , "    // this page knows, whether the drawer is a panel or spelled out in the"
@@ -2526,84 +2555,106 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    const dirty = () => editing !== null"
   , "      && (el(\"mtext\").value !== base"
   , "          || (!raw && edited() !== baseProps));"
-    -- The property panel.  A row is a key and a value — so the drawer is edited
-    -- as what it is rather than as text that happens to look like a drawer — and
-    -- the rows sit in the order the file writes them.
+    -- The property panel is a table-view MOUNT.  The renderer is this page's
+    -- ONE list widget: it draws the table, and a drawer is a list, so it draws
+    -- the drawer too — which is what leaves this page with no rows of its own to
+    -- style, no cursor of its own to move and no second answer to what a flagged
+    -- row looks like.
     --
-    -- It is MODAL, dired's shape rather than a form's.  In NAV the rows are
-    -- read-only text with a cursor on one of them and nothing focusable at all,
-    -- which is what leaves the plain letters free to be movement; RET opens the
-    -- row at point, and only then are there fields to type into.  A panel of
-    -- boxes would have taken n and j away and given a keystroke two meanings.
+    -- MODEL AND VIEW.  `prows' is the model — a key, a value, and whether org
+    -- owns the key — and the mount is a view of it, re-set on every change.
+    -- What a row HOLDS is its COMMITTED text; the open row's two fields are the
+    -- edit in progress and nothing else reads them, which is what makes a commit
+    -- the only thing that can make the sheet dirty.  The cursor, the flags and
+    -- the scrolling are the renderer's, so none of them is kept here.
     --
-    -- The rows are held in this array rather than read back out of the DOM: the
-    -- panel is this page's own chrome, and a selector over it would be a second
-    -- description of a structure written three lines above.  What a row HOLDS is
-    -- its committed text; the open row's two fields are the edit in progress and
-    -- nothing else reads them, which is what makes a commit the only thing that
-    -- can make the sheet dirty.
+    -- It stays MODAL, dired's shape rather than a form's: in NAV nothing is
+    -- focusable, which is what leaves the plain letters free to be movement, and
+    -- RET is what puts fields on screen.
     --
-    -- The planning entries are the same two modes over the same kind of row, so
-    -- they are rows in this list rather than a second one of their own — three
-    -- FIXED ones, in org's own order, ahead of the drawer's properties.  Fixed
-    -- means the key is org's and not the author's: RET opens the value alone,
-    -- and an empty value is the entry absent.
+    -- The planning entries are rows of this same list rather than a second one
+    -- of their own — three FIXED ones, in org's own order, ahead of the drawer's
+    -- properties.  Fixed means the key is org's and not the author's: RET opens
+    -- the value alone, an empty value is the entry absent, and a delete CLEARS
+    -- the entry where it would drop a property.
+    --
+    -- A row's ID is stable for the life of the sheet — the planning key, or `P'
+    -- and a number handed out once — so a flag, a selection and a deletion all
+    -- name the same row after any number of edits above it.
+    --
+    -- The identity property is in neither pane: `ORG_GLANCE_ID' is the row id
+    -- the table keys its updates off, and the server keeps it out of what it
+    -- hands over and puts it back verbatim afterwards
+    -- ('Glance.Query.hiddenProperties').  There is nothing here to warn about
+    -- and nothing to filter — and nothing rowed is nothing flaggable.
   , "    const PLANNING = " <> jsonList planningKeywords <> ";"
-  , "    let prows = [], pcur = 0, pedit = -1, pnav = false;"
+  , "    const PCOLS = [ { key: \"key\", header: \"Key\" },"
+  , "                    { key: \"value\", header: \"Value\" } ];"
+  , "    let pmount = null, prows = [], pseq = 0;"
+    -- Mounted once and kept: a mount per sheet would leave a theme listener
+    -- behind each time the reader opened one.  `setRows' is how a new drawer
+    -- arrives.
+  , "    function mounted() {"
+  , "      if (pmount) return pmount;"
+  , "      pmount = TableView.mount(el(\"mptable\"), { columns: PCOLS, rows: [] }, {"
+        -- No bar and no resident filter: five rows of a drawer are not something
+        -- a reader narrows, and the overlay this leaves behind is never raised.
+  , "        palette: true,"
+        -- The flag wash is gated on `marks' in the renderer, so the deletion
+        -- gesture costs the mark column.  Nothing here reads a mark.
+  , "        marks: true,"
+        -- The key line under the table already names every key, once.
+  , "        actionHints: false,"
+  , "        flagHelp: \"d/D delete · u unflag\","
+  , "      });"
+        -- The overlay is anchored to the row it opened over, so everything that
+        -- can move that row's box has to say so: the mount's own scrolling —
+        -- caught in the CAPTURE phase, which reaches it without this page
+        -- naming the element that scrolls — and the window resizing, since the
+        -- panes wrap rather than querying a width.
+  , "      el(\"mprops\").addEventListener(\"scroll\", place, true);"
+  , "      window.addEventListener(\"resize\", place);"
+  , "      return pmount;"
+  , "    }"
+  , "    const prowsOf = () =>"
+  , "      prows.map((r) => ({ id: r.id, cells: { key: r.key, value: r.val } }));"
+    -- Every change to the model ends here.  AT is the row to land the cursor on
+    -- and is left out where it should stay where it is.
+  , "    function repaint(at) {"
+  , "      const m = mounted();"
+  , "      m.setRows(prowsOf());"
+  , "      if (at) m.select(at);"
+  , "    }"
   , "    function drawProps(list, plan) {"
-  , "      el(\"mprops\").textContent = \"\";"
-  , "      el(\"mprops\").className = \"\";"
-  , "      prows = []; pcur = 0; pedit = -1; pnav = false;"
+  , "      mounted();"
+  , "      prows = []; pseq = 0;"
+  , "      shutEdit();"
+  , "      el(\"mprops\").className = \"\";   // and the panel gives the keys back"
   , "      const held = new Map(plan || []);"
-  , "      for (const key of PLANNING) addRow(key, held.get(key) || \"\", true);"
-  , "      for (const p of list) addRow(p[0], p[1], false);"
+  , "      for (const key of PLANNING)"
+  , "        prows.push({ id: `PLN:${key}`, key, val: held.get(key) || \"\", fixed: true });"
+  , "      for (const p of list)"
+  , "        prows.push({ id: `P${pseq++}`, key: p[0], val: p[1], fixed: false });"
+      -- A different drawer: these flags were about the last one.  `setRows'
+      -- deliberately keeps them, so taking them off is this page's to ask for.
+  , "      pmount.clearFlags();"
+  , "      repaint(prows[0].id);"
   , "    }"
-  , "    function addRow(key, value, fixed) {"
-  , "      const row = document.createElement(\"div\");"
-  , "      el(\"mprops\").appendChild(row);"
-  , "      prows.push({ key, val: value, row, fixed: !!fixed });"
-  , "      drawRow(prows.length - 1);"
-  , "    }"
-    -- The add-row affordance, and the whole of it: `+' puts an empty property
-    -- at the end of the drawer and opens it.  Keyboard-first means no button
-    -- here, and a KEY rather than a row that is always empty — the trailing row
-    -- was chrome that had to be filtered out of everything the panel says.  A
-    -- row whose key is emptied is still a property deleted.
+    -- Where the cursor is, in the model's terms.  The renderer's answer is the
+    -- one that decides; this page keeps no copy of it.
+  , "    const patAt = () =>"
+  , "      (can(pmount, \"getSelection\")"
+  , "        ? prows.findIndex((r) => r.id === pmount.getSelection().id) : -1);"
+    -- The add affordance, and the whole of it: `+' puts an empty property at the
+    -- end of the drawer and opens it.  Keyboard-first means the KEY is the offer,
+    -- where a row that is always empty was chrome every reader of the panel had
+    -- to filter back out.  A row whose key is emptied is still a property
+    -- deleted, which is what `d' spells as a key press.
   , "    function addProperty() {"
-  , "      const was = pcur;"
-  , "      addRow(\"\", \"\", false);"
-  , "      pcur = prows.length - 1;"
-  , "      cls(was); cls(pcur);"
+  , "      const id = `P${pseq++}`;"
+  , "      prows.push({ id, key: \"\", val: \"\", fixed: false });"
+  , "      repaint(id);"
   , "      openRow();"
-  , "    }"
-    -- One row, in whichever mode it is in.  The cells are spans until the row is
-    -- opened and fields while it is, which is the whole of the difference: an
-    -- empty span wears its hint through the stylesheet, so what the panel SAYS
-    -- an empty cell is stays out of what it holds.
-    --
-    -- The identity property is in neither mode, because it is in neither pane:
-    -- `ORG_GLANCE_ID' is the row id the table keys its updates off, and the
-    -- server keeps it out of what it hands over and puts it back verbatim
-    -- afterwards ('Glance.Query.hiddenProperties').  There is nothing for this
-    -- page to warn about and nothing for it to filter.
-  , "    const cls = (i) =>"
-  , "      (prows[i].row.className ="
-  , "        (prows[i].fixed ? \"prow pln\" : \"prow\") + (i === pcur ? \" pat\" : \"\"));"
-  , "    function drawRow(i) {"
-  , "      const r = prows[i], open = i === pedit;"
-  , "      r.row.textContent = \"\";"
-  , "      cls(i);"
-  , "      const k = cell(open && !r.fixed, \"pkey\", r.key, \"property\");"
-  , "      const v = cell(open, \"pval\", r.val, r.fixed ? \"<2026-08-01 Sat>\" : \"value\");"
-  , "      r.row.appendChild(k); r.row.appendChild(v);"
-  , "      return [k, v];"
-  , "    }"
-  , "    function cell(open, kind, value, hint) {"
-  , "      const e = document.createElement(open ? \"input\" : \"span\");"
-  , "      e.className = kind;"
-  , "      if (open) { e.value = value; e.placeholder = hint; e.spellcheck = false; }"
-  , "      else { e.textContent = value; e.dataset.hint = hint; }"
-  , "      return e;"
   , "    }"
     -- What the panel would write: every property row carrying a key, in the
     -- order they sit in.  A row whose key has been emptied is a deletion.  Both
@@ -2626,48 +2677,109 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- `typing()' counts it as a focus of its own so the table's keys stay dead
     -- under it; the mouse can undo it by clicking back into the text, which is
     -- what the focus listener is for.
+  , "    const pnav = () => el(\"mprops\").className === \"on\";"
   , "    function enterPanel() {"
-  , "      pnav = true; el(\"mprops\").className = \"on\"; el(\"mtext\").blur();"
+  , "      el(\"mprops\").className = \"on\"; el(\"mtext\").blur();"
   , "    }"
   , "    function leavePanel() {"
-  , "      pnav = false; el(\"mprops\").className = \"\"; el(\"mtext\").focus();"
+  , "      el(\"mprops\").className = \"\"; el(\"mtext\").focus();"
   , "    }"
-  , "    el(\"mtext\").addEventListener(\"focus\", () => pnav && leavePanel());"
-  , "    function moveCur(step) {"
-  , "      const at = pcur + step;"
-  , "      if (at < 0 || at >= prows.length) return;"
-  , "      const was = pcur; pcur = at; cls(was); cls(at);"
-  , "    }"
-    -- Opening a row: the value takes the focus, since editing an existing
-    -- property is almost always editing its value — except where there is no key
-    -- yet, which is the add-row, and there the key is the thing being typed.
+  , "    el(\"mtext\").addEventListener(\"focus\", () => pnav() && leavePanel());"
+    -- Movement is the mount's `selectStep', the same call the table's own `n'
+    -- and `p' make, so the cursor a reader moves here is the renderer's cursor
+    -- and there is nothing to keep in step with it.
+  , "    const moveCur = (step) => can(pmount, \"selectStep\") && pmount.selectStep(step);"
+    -- THE EDIT OVERLAY.  The renderer owns its rows and rewrites them as it
+    -- scrolls, so an edit cannot live inside one: the two fields sit OVER the
+    -- panel, anchored to the row the cursor is on.  The value takes the focus,
+    -- since editing an existing property is almost always editing its value —
+    -- except where there is no key yet, which is the add-row, and there the key
+    -- is the thing being typed.  A planning row's key is org's, so its field is
+    -- read-only text with a caret in it.
+  , "    const pediting = () => el(\"pedit\").className === \"on\";"
   , "    function openRow() {"
-  , "      pedit = pcur;"
-  , "      const [k, v] = drawRow(pcur);"
-  , "      (prows[pcur].fixed || prows[pcur].key ? v : k).focus();"
+  , "      const at = patAt();"
+  , "      if (at === -1) return;"
+  , "      const r = prows[at];"
+  , "      el(\"pedit\").className = \"on\";"
+  , "      el(\"pkey\").value = r.key;"
+  , "      el(\"pval\").value = r.val;"
+  , "      el(\"pkey\").readOnly = r.fixed;"
+      -- The renderer stamps `tv-sel' on its own frame, so a row selected in
+      -- THIS tick has no marked element yet: `+' would measure the row the
+      -- cursor was on before it.  One frame later there is one.
+  , "      soon(place);"
+  , "      (r.fixed || r.key ? el(\"pval\") : el(\"pkey\")).focus();"
   , "    }"
-    -- Committing: the row takes the text its fields are holding and goes back
-    -- to being text.  This is the one thing that can make the sheet dirty from
-    -- the panel — an edit nobody committed was never in `props()'.  A fixed
-    -- row keeps its key, which is org's rather than the author's.
+  , "    function shutEdit() {"
+  , "      el(\"pedit\").className = \"\";"
+  , "      el(\"pkey\").blur(); el(\"pval\").blur();"
+  , "    }"
+    -- Where the overlay sits: over the row the renderer has selected.  Its
+    -- GEOMETRY is the only thing this page reads out of the mount's own DOM, and
+    -- it reads nothing about the row but where it is — a page with no layout
+    -- (the suite's) simply leaves the overlay where it was put.
+    -- The row's box, read through the handle's own `el' rather than by
+    -- querying the pane: the mount publishes its root, so the one geometry read
+    -- this page makes goes through a published door.
+  , "    function place() {"
+  , "      if (!pediting()) return;"
+  , "      const tr = pmount.el.querySelector(\"tbody tr.tv-sel\");"
+  , "      if (!tr) return;"
+  , "      const a = tr.getBoundingClientRect();"
+  , "      const b = el(\"mprops\").getBoundingClientRect();"
+  , "      el(\"pedit\").style.top = `${a.top - b.top}px`;"
+  , "      el(\"pedit\").style.height = `${a.height}px`;"
+  , "    }"
+    -- Committing: the row takes the text the fields are holding and the overlay
+    -- goes.  This is the one thing that can make the sheet dirty from the panel
+    -- — an edit nobody committed was never in `props()'.  A fixed row keeps its
+    -- key, which is org's rather than the author's.
   , "    function commitRow() {"
-  , "      const at = pedit, r = prows[at];"
-  , "      if (!r.fixed) r.key = r.row.children[0].value;"
-  , "      r.val = r.row.children[1].value;"
-  , "      pedit = -1;"
-  , "      drawRow(at);"
+  , "      const r = prows[patAt()];"
+  , "      if (!r.fixed) r.key = el(\"pkey\").value;"
+  , "      r.val = el(\"pval\").value;"
+  , "      shutEdit();"
+  , "      repaint();"
   , "    }"
-    -- ESC over an open row is the ROW's: the fields go and the text the row is
-    -- holding comes back, which is the text it was opened on.  The sheet's own
+    -- ESC over an open row is the ROW's: the overlay goes and the text the row
+    -- is holding stands, which is the text it was opened on.  The sheet's own
     -- ESC ladder therefore only ever sees the key from nav — that is why this
     -- runs from the keymap's `cancel' rather than from a listener of its own.
   , "    function cancelRow() {"
-  , "      const at = pedit; pedit = -1; drawRow(at);"
+  , "      shutEdit();"
   , "      echo(\"ESC → keyboard-quit (row unchanged)\");"
+  , "    }"
+    -- DELETION IS THE TABLE'S GESTURE, over the renderer's own flags: `d' flags
+    -- the row at point, `d' again — or `D' — takes every flagged row, and `u'
+    -- takes a flag off.  One implementation of the gesture in this page, since
+    -- the set, the wash and the count are all the mount's.
+    --
+    -- WHAT "taken" MEANS is the row's.  A property is dropped, which is the
+    -- emptied key spelled as a key press.  A planning entry is CLEARED and its
+    -- row stands: the three are org's keys rather than the author's, and an
+    -- empty value is already how an entry is absent.
+    -- IDS is the set the key worked out, HOW the word the pill calls it: a
+    -- caller that has already found the row and read the flags does not make
+    -- this look for them again.
+  , "    function pdelete(ids, how) {"
+  , "      const gone = new Set(ids);"
+  , "      const cleared = prows.filter((r) => gone.has(r.id) && r.fixed);"
+  , "      for (const r of cleared) r.val = \"\";"
+  , "      prows = prows.filter((r) => r.fixed || !gone.has(r.id));"
+  , "      pmount.clearFlags();"
+  , "      repaint();"
+      -- The command name is the BINDING's and the brackets carry what it did:
+      -- org has no one function for taking a planning entry off — it is
+      -- `org-schedule' or `org-deadline' under a prefix — so the line names the
+      -- keys it cleared rather than claiming a property function did it.
+  , "      const also = cleared.map((r) => r.key).join(\", \");"
+  , "      echo(`D → org-delete-property (${how}${also ? ` · ${also} cleared` : \"\"})`);"
   , "    }"
     -- The panel's own keys, behind the dispatch and for the reason the value
     -- palette's are: while the panel holds them `typing()' is true, so every
-    -- `table' row is dead and nothing here takes a key the map wanted.
+    -- `table' row is dead and nothing here takes a key the map wanted — `d'
+    -- flags a property rather than an org row, and `n' moves no table row.
     --
     -- TAB crosses the panes — out of the body into the panel's cursor, out of
     -- nav back into the body — and the cursor is where it was left.  Two stops,
@@ -2675,22 +2787,26 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- keys are movement: n/p and j/k both, unconditionally, because a row with
     -- no field in it leaves every printable key free and both spellings cost
     -- nothing to satisfy at once; the arrows are the pair that needs neither.
-    -- RET opens the row at point, and @+@ adds one at the end.
+    -- RET opens the row at point, @+@ adds one at the end, and @d@/@D@/@u@ are
+    -- the deletion gesture.
     --
     -- In edit TAB is the hop between the row's two fields — one row, two fields,
     -- and nothing else for it to mean — so the crossing is suspended for as long
     -- as a row is open.  RET commits.  Raw mode has one pane and nowhere to
     -- cross to, so TAB is the browser's there.
+    --
+    -- A HELD `d' must not flag a row and delete it from one press, which is the
+    -- confirmation the two-press shape exists to be — the dispatch's own ONCE
+    -- list cannot reach a key this listener owns, so the guard is spelled here.
   , "    document.addEventListener(\"keydown\", (e) => {"
   , "      if (!editing) return;"
   , "      const k = keyName(e), crossing = k === \"TAB\" || k === \"S-TAB\";"
-  , "      if (pedit !== -1) {"
-  , "        const two = prows[pedit].row.children;"
+  , "      if (pediting()) {"
   , "        if (crossing)"
-  , "          (document.activeElement === two[0] ? two[1] : two[0]).focus();"
+  , "          (document.activeElement === el(\"pkey\") ? el(\"pval\") : el(\"pkey\")).focus();"
   , "        else if (k === \"RET\") commitRow();"
   , "        else return;   // ESC is the keymap's, and puts the row back"
-  , "      } else if (!pnav) {"
+  , "      } else if (!pnav()) {"
   , "        if (raw || !crossing || document.activeElement !== el(\"mtext\")) return;"
   , "        enterPanel();"
   , "      } else if (crossing) leavePanel();"
@@ -2698,9 +2814,38 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      else if (k === \"+\") addProperty();"
   , "      else if (k === \"<down>\" || k === \"n\" || k === \"j\") moveCur(1);"
   , "      else if (k === \"<up>\" || k === \"p\" || k === \"k\") moveCur(-1);"
+    -- The panel's arrows are VERTICAL ONLY, where the table's walk both axes.
+    -- The mount has two columns here, but a column selection would say nothing
+    -- about the edit: `RET' opens the WHOLE row — both fields, whichever cell a
+    -- cursor sat in — and `TAB' is what crosses between them.  So a horizontal
+    -- key would move a highlight and change nothing a reader can act on.
+  , "      else if (k === \"d\" || k === \"D\" || k === \"u\") { if (!e.repeat) pflag(k); }"
   , "      else return;"
   , "      e.preventDefault();"
   , "    });"
+    -- dired's `d', over the panel's rows: the first press flags the row at point
+    -- and a second `d' on an already-flagged row IS `D' — it calls the same
+    -- handler, so it deletes EVERY flagged row rather than the one under it.
+    -- `u' takes a flag off and walks on, the way it does over the table.
+  , "    function pflag(k) {"
+  , "      if (!flagsOn(pmount)) { echo(`${k} → this table-view.js has no delete flags`); return; }"
+  , "      const at = patAt();"
+  , "      if (at === -1) { echo(`${k} → org-delete-property (no row)`); return; }"
+  , "      const id = prows[at].id, flags = pmount.getFlagged();"
+  , "      if (k === \"D\" || (k === \"d\" && flags.indexOf(id) !== -1)) {"
+  , "        pdelete(flags.length ? flags : [id],"
+  , "                flags.length ? `${flags.length} flagged` : \"row\");"
+  , "        return;"
+  , "      }"
+  , "      if (k === \"u\") {"
+  , "        pmount.unflagRow(id);"
+  , "        echo(\"u → delete-unflag (flag cleared)\");"
+  , "        moveCur(1);"
+  , "        return;"
+  , "      }"
+  , "      pmount.flagRow(id);"
+  , "      echo(\"d → delete-flag (d again deletes)\");"
+  , "    }"
     -- What a flush sends: the subtree whole in raw mode, the two panes apart
     -- otherwise.  The server joins them, so this page never spells a drawer.
   , "    const asked = () => raw"
@@ -2723,7 +2868,8 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    const stuck = (why) => sync(\"error\", why && `${why} — C-x C-s retry · ESC discard`);"
   , "    function shut() {"
   , "      el(\"modal\").className = \"\"; editing = null; base = \"\"; baseProps = null;"
-  , "      pedit = -1; pnav = false;   // the keys go back to the table"
+  , "      shutEdit();"
+  , "      el(\"mprops\").className = \"\";   // and the keys go back to the table"
   , "    }"
   , "    // POST the sheet over the subtree, pinned to DIGEST.  A 200 carries"
   , "    // the file's new digest — the receipt chains, so the next flush needs no"
@@ -2928,8 +3074,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- on, and only the thing that draws the rows can do that.  An asset predating
     -- the calls says so rather than growing a shell-side set the next paint would
     -- lose.
-  , "    const flagging = () => !!table && typeof table.flagRow === \"function\""
-  , "      && typeof table.getFlagged === \"function\";"
+  , "    const flagging = () => flagsOn(table);"
   , "    const isFlagged = (id) => flagging() && table.getFlagged().indexOf(id) !== -1;"
     -- The log names a row the way the table does: by its title, out of the rows
     -- in hand — the page on screen, and the unfiltered baseline behind it.  A
@@ -3127,17 +3272,21 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        if (seen.indexOf(t) === -1) seen.push(t);"
   , "      return seen.map((tag) => {"
   , "        const on = rows.filter((r) => r.tags.indexOf(tag) !== -1).length;"
-  , "        return { label: tag, tag, hint: on === n ? \"\" : `${on}/${n}` };"
+  , "        return { label: tag, tag, on, of: n, hint: on === n ? \"\" : `${on}/${n}` };"
   , "      });"
   , "    }"
-    -- And what `/' narrows over: the set's tags first, then everything else the
-    -- TREE holds.  The rows a page is showing are a fraction of the store, so
-    -- the vocabulary is the server's answer rather than a scan of what is in
-    -- hand — and a tag in neither is still committable ('freely'), since a first
-    -- use has to start somewhere.
+    -- THE ADDABLE VOCABULARY, which is what the field completes over: every tag
+    -- this tree holds LESS the ones already on every target.  The field only
+    -- ever adds, so a tag the whole set carries is a no-op and is left out —
+    -- where one only SOME of them carry stays offered, since adding it is the
+    -- normalize-up half of the letter's rule.  The set's own partial tags lead,
+    -- then everything else the TREE holds: the rows a page is showing are a
+    -- fraction of the store, so the vocabulary is the server's answer rather
+    -- than a scan of what is in hand.  And a tag in NEITHER is still committable
+    -- (`freely'), since a first use has to start somewhere.
   , "    function tagVocabulary() {"
   , "      const have = tagChoices();"
-  , "      return have.concat(prompting.vocab"
+  , "      return have.filter((c) => c.on < c.of).concat(prompting.vocab"
   , "        .filter((t) => !have.some((c) => c.tag === t))"
   , "        .map((t) => ({ label: t, tag: t, hint: \"\" })));"
   , "    }"
@@ -3161,10 +3310,10 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    function tagCommit(b, c) {"
   , "      const tag = String(c.tag).toLowerCase();"
   , "      const has = (r) => r.tags.indexOf(tag) !== -1;"
-    -- Either field ADDS: `/' reaches a tag the set does not have and `+' one
-    -- the tree does not, and neither is a way to take one off.  A letter is the
+    -- The FIELD always adds — reaching a tag the set does not have is its whole
+    -- job, and so is writing one the tree has never held — and a letter is the
     -- only toggle.
-  , "      const byField = prompting.narrow || prompting.text;"
+  , "      const byField = prompting.narrow;"
   , "      const off = !byField && prompting.rows.every(has);"
   , "      const over = prompting.rows.filter((r) => (off ? has(r) : !has(r)));"
   , "      if (byField) letterMode();"
@@ -3186,9 +3335,10 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- A tag written for the first time joins the tree's vocabulary here, so `/'
     -- offers it before the watch has told this page anything.
   , "      if (!off && landed.size && p.vocab.indexOf(tag) === -1) p.vocab.push(tag);"
-    -- Whichever list the reader is standing in, through the thunk `narrowMode'
-    -- reaches it by: one place decides what `/' shows.
-  , "      offer(p.narrow ? p.wider() : tagChoices());"
+    -- Whichever list the reader is standing in, through that mode's own thunk:
+    -- one place decides what the letters show and one what the field completes
+    -- over, and a commit lands back in the list it came out of.
+  , "      offer(p.narrow ? p.wider() : p.letters());"
   , "    }"
   , "    function planRows(b, keyword) {"
   , "      overTargets(b, keyword.toLowerCase(), (ids, title) =>"
@@ -3334,38 +3484,26 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      mode(\"narrow\", foot);"
   , "      el(\"pinput\").focus();"
   , "    }"
-    -- The fallback, entered by `/': everything is reachable by typing, the
-    -- unbound entries included, and ESC closes the palette from here the way it
-    -- does from letter mode.  One door out, either mode.
+    -- THE FIELD, and `/' and `+' are two doors into it — one mode, the way `d'
+    -- on an already-flagged row IS `D' rather than a second handler.  They were
+    -- two: `/' FOUND a tag the tree held and `+' CREATED one it did not, which
+    -- asked a reader to know which of those they were about to do before they
+    -- had typed anything.  Completing over the addable vocabulary answers both
+    -- at once: what is there is offered, what is not is committed as written
+    -- (`freely'), and the charset wall that refuses garbage is the server's.
     --
-    -- `wider' is the list `/' offers where that is not the letter list, and the
-    -- tag palette is the one that has one: its letters are the SET's tags and
-    -- its typing is the whole tree's vocabulary, which is the only way to reach
-    -- a tag none of the targets carries.  A thunk rather than a list, so it is
+    -- `wider' is the list the field offers where that is not the letter list,
+    -- and the tag palette is the one that has one: its letters are the SET's
+    -- tags and its field is the whole tree's, which is the only way to reach a
+    -- tag none of the targets carries.  A thunk rather than a list, so it is
     -- current after a commit moved what the set holds.
-  , "    function narrowMode() {"
+  , "    function fieldMode() {"
   , "      prompting.narrow = true;"
+  , "      prompting.text = false;"
+  , "      el(\"pinput\").value = \"\";"
   , "      if (prompting.wider) offer(prompting.wider());"
   , "      mode(\"narrow\", prompting.narrowFoot"
   , "        || \"RET sets it · C-n/C-p walks · ESC leaves\");"
-  , "      el(\"pinput\").focus();"
-  , "    }"
-    -- `+' is the OTHER field, and the property panel's convention: `/' FINDS a
-    -- tag the tree already holds and `+' CREATES one it does not.  It is
-    -- `askText'\''s own mode — `text', no list, nothing to narrow and nothing to
-    -- pick — raised over a palette that stays, which is why `letterMode' can
-    -- take it back off.  Only a palette whose typing reaches past its list
-    -- (`wider') has one, which is this one.
-    --
-    -- ESC goes BACK to the letters rather than out, which is where it differs
-    -- from `/': `/' is a mode of the same question, and `+' is a detour off it.
-    -- `cancel' tells them apart by the palette being STICKY — an `askText'
-    -- prompt has nowhere to go back to.
-  , "    function createMode() {"
-  , "      prompting.text = true;"
-  , "      prompting.narrow = false;"
-  , "      el(\"pinput\").value = \"\";"
-  , "      mode(\"narrow\", \"RET adds a tag of your own · ESC goes back\");"
   , "      el(\"pinput\").focus();"
   , "    }"
     -- And back, which only a palette that STAYS ever needs: the tag palette
@@ -3374,9 +3512,11 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    function letterMode() {"
   , "      prompting.narrow = false;"
   , "      prompting.text = false;"
-    -- The list comes back WHOLE: a narrowing left standing would put the reader
-    -- back among the letters with most of them missing.
-  , "      prompting.shown = prompting.choices;"
+    -- The letters' OWN list comes back, re-derived: the field replaced
+    -- `choices' with what it completes over, and a narrowing left standing
+    -- would put the reader back among the letters with most of them missing.
+  , "      if (prompting.letters) offer(prompting.letters());"
+  , "      else prompting.shown = prompting.choices;"
   , "      prompting.at = 0;"
   , "      el(\"pinput\").value = \"\";"
   , "      el(\"pinput\").blur();"
@@ -4054,7 +4194,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    // underneath it."
   , "    const typing = () => {"
   , "      const a = document.activeElement;"
-  , "      return pnav || !!prompting"
+  , "      return pnav() || !!prompting"
   , "        || (!!a && (a.tagName === \"INPUT\" || a.tagName === \"TEXTAREA\""
   , "                     || a.tagName === \"SELECT\" || a.isContentEditable));"
   , "    };"
@@ -4151,8 +4291,9 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        mine.sticky = true;"
   , "        mine.rows = [];"
   , "        mine.vocab = [];"
+  , "        mine.letters = tagChoices;"
   , "        mine.wider = tagVocabulary;"
-  , "        mine.narrowFoot = \"RET adds it · C-n/C-p walks · ESC leaves\";"
+  , "        mine.narrowFoot = \"RET adds it · C-n/C-p walks · ESC goes back\";"
   , "        tagsOf(ids).then((answer) => {"
   , "          if (prompting !== mine) return;"
   , "          mine.rows = (answer.rows || []).map((r) =>"
@@ -4198,14 +4339,15 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- One key out of whichever overlay is up: the prompt first, since it is the
     -- one that can be raised over an open sheet.
   , "      cancel: () => {"
-    -- `+'\''s field is a detour off the letters of a palette that STAYS, and ESC
-    -- walks back up it; every other overlay this key reaches is one it closes,
-    -- an `askText' prompt included — that one has no letters behind it.
-  , "        if (prompting && prompting.text && prompting.sticky) letterMode();"
+    -- The field of a palette that STAYS is a detour off its letters, and ESC
+    -- walks back up it — from either door, since there is one field now.  Every
+    -- other overlay this key reaches is one it closes, an `askText' prompt
+    -- included: that one has no letters behind it, which is what `sticky' says.
+  , "        if (prompting && prompting.narrow && prompting.sticky) letterMode();"
   , "        else if (prompting) unask();"
     -- The panel's open row is a rung of its own, under the sheet's: while one
     -- is open ESC puts it back, and only from nav does the key reach the sheet.
-  , "        else if (pedit !== -1) cancelRow();"
+  , "        else if (pediting()) cancelRow();"
   , "        else if (editing) leave();"
   , "        else if (settings) leaveSettings();"
   , "        else if (typing()) document.activeElement.blur();"
@@ -4313,10 +4455,11 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- press to nobody, `typing()' having already killed the map's own DEL.
   , "      if (!prompting.narrow) {"
   , "        const hit = prompting.choices.find((c) => c.key === k);"
-  , "        if (k === \"/\") narrowMode();"
-    -- A mode key rather than an entry: `whichKeys' hands out a-z alone, so no
-    -- tag can ever have claimed this one.
-  , "        else if (k === \"+\" && prompting.wider) createMode();"
+  , "        if (k === \"/\") fieldMode();"
+    -- The second door into that same field, and a mode key rather than an
+    -- entry: `whichKeys' hands out a-z alone, so no tag can ever have claimed
+    -- this one.
+  , "        else if (k === \"+\" && prompting.wider) fieldMode();"
   , "        else if (!hit) return;"
   , "        else if (!e.repeat) takeChoice(hit);"
   , "        e.preventDefault();"
@@ -4611,63 +4754,71 @@ page head' title body = T.unlines
   , "    border-radius:4px;"
   , "    border:1px solid var(--g-border);background:transparent;color:inherit;resize:none}"
   , "  #mtext::selection{background:var(--g-sel);color:var(--g-fg)}"
-  -- The property panel: a row per property, the last one empty so there is
-  -- always somewhere to type the next.  They sit in file order because that is
-  -- the order they are in — nothing here sets a tab index, and the keys that
-  -- move over them and open one are the glue's.
-      -- Framed like the table and the log strip: one hairline and the shared
-      -- radius around the panel as a whole — the rows inside stay borderless.
-  , "  #mprops{flex:1 1 240px;min-width:0;overflow-y:auto;"
-  , "    border:1px solid var(--g-border);border-radius:8px;"
-  , "    display:flex;flex-direction:column}"
+  -- ONE FOCUS LANGUAGE ACROSS THE SHEET: whichever pane holds the keys says so
+  -- on its own FRAME, in the accent, and neither pane wears it otherwise.  The
+  -- panes are two different kinds of thing — a textarea takes a real focus, the
+  -- panel holds the keys with nothing focused at all — so the browser's own
+  -- ring can only ever dress one of them, and a reader crossing with TAB would
+  -- watch the mark disappear.  Declared here rather than left to the UA so the
+  -- two are the same treatment rather than two that resemble each other; the
+  -- ring goes with it, the border being the mark.
+  , "  #mtext:focus{outline:none;border-color:var(--g-accent)}"
+  -- The property panel: a table-view MOUNT and the overlay an open row wears.
+  -- The rows, the stripe, the cursor and the flag wash are the renderer's — the
+  -- whole reason the panel is a mount is that this page keeps no second answer
+  -- to any of them — so what is left here is the PANE: how much room it takes,
+  -- that it is the overlay's positioning parent, and that raw mode takes it off
+  -- the sheet.
+  --
+  -- No frame of its own: `.tv-root' brings the hairline and the shared radius,
+  -- which is the same frame the panel drew for itself before.
+  , "  #mprops{flex:1 1 240px;min-width:0;min-height:0;position:relative;"
+  , "    overflow:hidden;display:flex;flex-direction:column}"
+  , "  #mptable{flex:1;min-height:0;display:flex}"
+  -- The sheet's own face, the way `#app .tv-root' is the page's: one selector
+  -- step past the renderer's injected rule, and the sheet's monospace rather
+  -- than the page's, since both panes of a sheet read as one.
+  , "  #mptable .tv-root{flex:1;min-width:0;font-family:var(--dk-mono)}"
+  -- The panel's half of that language.  The frame is `.tv-root'\''s — the mount
+  -- brings it — and `#mprops.on' is the panel holding the keys, which is the
+  -- same state `pnav' reads.
+  , "  #mprops.on .tv-root{border-color:var(--g-accent)}"
+  -- The mark column is the renderer's PRICE for the flag wash — `isFlagged' is
+  -- gated on `marks' — and nothing in the panel reads a mark.  So the gutter is
+  -- left standing, since it carries the flag's second channel (an inset edge
+  -- the renderer draws on this cell, which is what keeps a flag readable under
+  -- the cursor), and its CHECKBOX comes off: no glyph, no pointer, and the
+  -- click falls through to the row.  Hiding the column outright would take that
+  -- edge with it at exactly the moment a reader lays a flag down.
+  , "  #mptable .tv-table td.tv-box::before{content:\"\"}"
+  , "  #mptable .tv-table td.tv-box{cursor:default;pointer-events:none}"
   , "  #sheet.raw #mprops{display:none}"
-  , "  .prow{display:flex;flex-wrap:wrap}"
-      -- Minimal chrome: a cell is bare text whichever mode it is in — the same
-      -- box either way, so opening a row moves nothing — and the border exists
-      -- only under the focused field so the keyboard's place stays visible.
-      --
-      -- The rhythm is the TABLE's, so a reader crossing from the rows to the
-      -- sheet meets one list style rather than two: `5px 12px' per cell is
-      -- `.tv-table td' exactly, and the row gap is gone with it — the stripe
-      -- below separates the rows now, the way it does under the table, and a
-      -- gap would leave gutters through it.
-  , "  .prow input,.prow span{font:12px/1.5 var(--dk-mono);padding:5px 12px;"
+  -- The open row's two fields, laid over the row they belong to.  Absolute
+  -- because the row underneath is virtualized: the mount rewrites its own rows
+  -- as it scrolls, so an edit that lived inside one would be thrown away by the
+  -- next frame.  `top' and `height' are the glue's, off the row's own box.
+  --
+  -- The rhythm is the table's, so the fields land on the text they replace:
+  -- `5px 12px' per cell is `.tv-table td' exactly, and the column split is the
+  -- renderer's two columns.  No z-index: it is a positioned LATER sibling of the
+  -- mount, so paint order puts it over the rows already, and the page's four
+  -- bands stay four.
+  , "  #pedit{display:none;position:absolute;left:0;right:0;"
+  , "    background:var(--g-sel)}"
+  , "  #pedit.on{display:flex;align-items:center}"
+      -- The mount's own cell metrics, so the fields land on the text they
+      -- replace: `.tv-table td' is `5px 12px' at the root's 13px/1.5, and a
+      -- coarse pointer stretches the row rather than the padding.
+  , "  #pedit input{font:13px/1.5 var(--dk-mono);padding:5px 12px;"
   , "    border:none;border-bottom:1px solid transparent;"
-  , "    background:transparent;color:inherit;min-width:0}"
-  , "  .prow span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}"
-  , "  .prow span:empty::after{content:attr(data-hint);color:var(--g-mute)}"
-  , "  .prow input:focus{outline:none;border-bottom-color:var(--g-border)}"
-      -- The zebra, the table's own: `--g-surface' already holds the renderer's
-      -- `--tv-alt' literal, so the stripe is the same tint over the same
-      -- ground, and even children are the renderer's odd 0-based indices.
-      --
-      -- `:nth-child' rather than the stamped class the renderer needs, because
-      -- the panel is a STATIC list — every row has an element, so the DOM index
-      -- is the real one, where the table's `tbody' holds a window and can only
-      -- count within it.  Nothing to keep in step in `cls' either.
-      --
-      -- The table draws a hairline under every row too; this panel does not.
-      -- Its cells are bare fields, and a rule under each one would read as an
-      -- input's underline rather than as a row edge — the stripe carries the
-      -- separation on its own.  The one hairline kept is the GROUP edge, where
-      -- org's planning keys give way to the author's properties, and it is
-      -- drawn by the first property row rather than the last planning one so a
-      -- drawer with no properties draws no edge.
-  , "  #mprops .prow:nth-child(even){background:var(--g-surface)}"
-  , "  .prow.pln + .prow:not(.pln){border-top:1px solid var(--g-border)}"
-      -- The row at point wears the page's own selection — `--g-sel', the same
-      -- token the textarea's and the value palette's do — and only while the
-      -- panel is the thing holding the keys.  It follows the stripe in source
-      -- order, which IS the precedence: the two rules weigh the same, so the
-      -- cursor wins by being second, the way the renderer's own does.
-  , "  #mprops.on .pat{background:var(--g-sel);color:var(--g-fg)}"
-  , "  .pkey{flex:1 1 40%}"
-  , "  .pval{flex:2 1 50%}"
-  , "  .prow input::selection{background:var(--g-sel);color:var(--g-fg)}"
-  -- The three planning rows: org's keys rather than the author's, so their key
-  -- cell is muted to say it is a label and not a field.  They sit above the
-  -- properties, which is where the file writes them.
-  , "  .pln .pkey{color:var(--g-mute)}"
+  , "    background:transparent;color:var(--g-fg);min-width:0}"
+  , "  #pedit input:focus{outline:none;border-bottom-color:var(--g-border)}"
+  , "  #pedit input::selection{background:var(--g-sel);color:var(--g-fg)}"
+  -- A planning key is org's rather than the author's, so its field is muted and
+  -- takes no typing — a label with a caret in it.
+  , "  #pkey{flex:1 1 40%}"
+  , "  #pkey[readonly]{color:var(--g-mute)}"
+  , "  #pval{flex:2 1 50%}"
   -- The logbook: full width under both panes, muted, read-only and out of the
   -- tab order — it is the server's, and there is nothing here to press.
       -- The same dress as the page's log strip: 12px muted on the surface
@@ -4809,7 +4960,7 @@ page head' title body = T.unlines
   , "    #gear{display:inline-block;font:inherit;font-family:var(--glance-mono);"
   , "      min-width:44px;min-height:44px;border-radius:4px;"
   , "      border:1px solid var(--g-border);background:var(--g-bg);color:inherit}"
-  , "    #mtext,#pinput,.prow input,.ctext,.cview{font-size:16px}}"
+  , "    #mtext,#pinput,#pedit input,.ctext,.cview{font-size:16px}}"
   , "</style>"
   -- The stored theme, applied before anything paints: a page that renders in
   -- the wrong one and corrects itself a frame later is a flash the selector
