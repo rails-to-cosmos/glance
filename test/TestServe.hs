@@ -1114,22 +1114,22 @@ whichKeySpec shell = testGroup "Shell which-key"
     -- it arrives, which is what makes the table the resolution rather than a
     -- rendering of it.
   , testCase "a set spanning two tags shows both tag sources" $
-      bootOf shell "" 500 "" "twotags press:t" $ \answer ->
+      bootOf shell "" 500 "" "twotags press:t" $
         assertEqual "book then film, then the built-in cycle"
           [ ("pr ph", "source",   ["active"],       ["inactive"])
           , ("pr",    "book",     ["r [R]EADING"],  ["e R[E]AD"])
           , ("pr",    "film",     ["w [W]ATCHING"], ["a W[A]TCHED"])
           , ("pr",    "built-in", ["t [T]ODO"],     ["d [D]ONE"])
-          , ("pr pm", "",         ["c *[c]lear*"],  []) ] =<< paletteOf answer
+          , ("pr pm", "",         ["c *[c]lear*"],  []) ] <=< paletteOf
 
     -- The hues are the producer's and travel on the state column; the
     -- resolution names keywords alone, so the palette goes and looks each one
     -- up.  A keyword no badge names carries none, and is drawn all the same.
   , testCase "each keyword wears its own badge colour, where there is one" $
-      bootOf shell "" 500 "C-c C-t" "" $ \answer ->
+      bootOf shell "" 500 "C-c C-t" "" $
         assertEqual "READING, TODO and DONE have badges; LATER and READ do not"
           [ ("[R]EADING", "#bb9af7"), ("[T]ODO", "#e0af68"), ("[D]ONE", "#73daca") ]
-          =<< paletteHues answer
+          <=< paletteHues
 
     -- The overlay goes up on the keypress and the answer fills it, so the guard
     -- that makes the raising press not a letter is unmoved and ESC works from
@@ -1160,10 +1160,10 @@ whichKeySpec shell = testGroup "Shell which-key"
           =<< textAt "pfoot" answer
 
   , testCase "typing there narrows to what matches" $
-      bootOf shell "" 500 "C-c C-t" "press:/ type:ead" $ \answer ->
+      bootOf shell "" 500 "C-c C-t" "press:/ type:ead" $
         assertEqual "the two book keywords hold it, nothing else does"
           [ ("pe pat", "", ["READING"], [])
-          , ("pe",     "", ["READ"],    []) ] =<< paletteOf answer
+          , ("pe",     "", ["READ"],    []) ] <=< paletteOf
 
     -- A resolution that does not arrive takes the overlay down rather than
     -- leaving a palette with nothing in it: there is no state to pick, and the
@@ -1314,7 +1314,7 @@ sheetSpec shell = testGroup "Shell sheet"
     -- on; only from nav does the key reach the sheet's own ladder.
   , testCase "ESC puts an open row back, and the next one closes the sheet" $ do
       bootOf shell "" 500 "Enter"
-             ("press:Tab press:n press:n press:n press:Enter pval:3=0:45 press:Escape") $ \answer -> do
+             "press:Tab press:n press:n press:n press:Enter pval:3=0:45 press:Escape" $ \answer -> do
         assertEqual "the value it was opened on"
                     [ ["SCHEDULED", "<2026-08-01 Sat>"], ["DEADLINE", ""]
                     , ["CLOSED", ""], ["EFFORT", "0:30"] ]
@@ -1491,8 +1491,8 @@ settingsSpec shell = testGroup "Shell settings"
           =<< textAt "servedCapture" answer
 
   , testCase "and it opens on what the server serves" $
-      bootOf shell "" 500 "," "ccap:0=notes/in.org press:C-x press:C-s" $ \answer ->
-        assertEqual "the field shows what was typed" "notes/in.org" =<< textAt "ccap" answer
+      bootOf shell "" 500 "," "ccap:0=notes/in.org press:C-x press:C-s" $
+        assertEqual "the field shows what was typed" "notes/in.org" <=< textAt "ccap"
 
     -- Two sheets over one page would leave `C-x C-s' and `ESC' guessing which
     -- one they meant.  `typing()' is not what keeps them apart, which is the

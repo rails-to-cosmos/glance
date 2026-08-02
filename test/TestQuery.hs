@@ -6,6 +6,7 @@ module TestQuery (spec) where
 import Control.Concurrent (getNumCapabilities, rtsSupportsBoundThreads)
 import Control.Monad (forM_, replicateM, (<=<))
 import Data.Aeson (Value (Bool, Object, String), eitherDecodeFileStrict')
+import Data.Either (fromRight)
 import Data.List (foldl', nub, sort)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -1364,7 +1365,7 @@ commandSpec = testGroup "Commands"
 
     , testCase "the text is stripped and is otherwise raw org" $
         assertContains "written as spelled" "* [#A] TODO ship :web:\n"
-          (either (const "") id (captured "" "  [#A] TODO ship :web:  "))
+          (fromRight "" (captured "" "  [#A] TODO ship :web:  "))
 
       -- The entry's lines end the way the target's own do, so a capture into a
       -- CRLF file leaves one rather than a file with two kinds of line in it.

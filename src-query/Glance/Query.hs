@@ -1506,7 +1506,7 @@ planningTimestamp today text
     asLocal :: Maybe Time.LocalTime
     asLocal = Time.parseTimeM True Time.defaultTimeLocale "%Y-%m-%d %k:%M" (T.unpack want)
     withTime at = stamped (Time.localDay at) (Just (spelled "%H:%M" at))
-    stamped day = orgStamp activeBrackets day
+    stamped = orgStamp activeBrackets
 
 -- | The brackets org writes a timestamp in: @\<…\>@ for one an agenda picks up,
 -- @[…]@ for one that is a record and nothing else.
