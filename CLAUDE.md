@@ -336,7 +336,8 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   rollback and the answer is per id (`{results: [{id, ok, digest | error}]}`, in
   the order the ids were named). Request-shape refusals are 400 with nothing
   written — a bad body, an unimplemented name, no ids, a keyword ANY named row's
-  file does not declare, and a `set-planning` date no parser reads, both of which
+  CHAIN does not declare (named with the row), and a `set-planning` date no
+  parser reads, both of which
   refuse the whole request rather than moving the rows they could. Per id: an
   unknown id, and a client digest the store no longer holds (per file, since a
   digest is). 413 outranks everything. `args` is read once into `Args`, and
@@ -458,14 +459,17 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - `GET /keywords?ids=A,B` is the state palette's source of truth:
   `{sources: [{source, active, inactive}], unknown: […]}`, one entry per SOURCE
   in precedence order over the ROWS named — `file`, then their tags in row
-  order, then `system`, then `builtin`, then `union` — with each keyword under
+  order, then `system`, then `builtin` — with each keyword under
   the NEAREST source that declares it and nowhere below it
   (`Glance.Query.keywordSources`, which is `classify` read forwards; the dedup
-  IS the classification rule). A source left empty is dropped. `union` is
-  `clSeed`, `classify`'s fifth scope, and it is what makes another tag's cycle
-  still settable on an untagged row. Several ids merge by source NAME, so a
+  IS the classification rule). A source left empty is dropped. FOUR sources and
+  no `union` row: the recognition seed is not a scope, so another tag's cycle is
+  neither shown nor settable on a row that does not carry the tag. Over ONE row
+  the answer IS `setStateEdits`' rule. Several ids merge by source NAME, so a
   keyword one row reaches by file and another by tag lands in the NEARER — the
-  table describes the SET rather than any one member of it. Four reserved names
+  table describes the SET rather than any one member of it, and a keyword only
+  part of the set reaches is offered and refused with a 400 naming the row.
+  Three reserved names
   are not taken
   out of the tag namespace: a tag called `system` keeps its tag rank and the
   table shows the name twice. Refusals follow `/command`'s: no ids is a 400, an
@@ -787,10 +791,13 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   the RESOLVER'S TRUTH: `GET /keywords?ids=…` answers with the classification
   chain behind those rows, and the palette draws it as a table — Source |
   Active | Inactive, one row per source in precedence order, `*clear*` spanning
-  a row of its own at the foot. The keywords are the server's, never the state
+  a row of its own at the foot — FOUR sources at most (`file`, tags, `system`,
+  `built-in`), no `union` row. The keywords are the server's, never the state
   column's `badges` (a superset that says nothing about where a keyword came
   from) and never its `values` (`*active*` is not a keyword); only the HUES are
-  read off the badges, by value. It
+  read off the badges, by value. What it shows IS what is settable — one chain
+  behind both — for a single row; over a marked set a keyword only part of the
+  set reaches is offered and refused. It
   is WHICH-KEY: every entry wears a letter and that letter commits on its own,
   since the palette IS the confirmation. No `RET` in letter mode, no confirm
   step; the drift lock is the safety. `/` falls back to the completing-read —
@@ -984,23 +991,38 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 
 - Recognition unions system + tag configs + file pragmas (superset — a
   keyword declared anywhere parses everywhere); classification is
-  nearest-scope: file > tags (first wins) > system > built-in > union.
+  nearest-scope: file > tags (first wins) > system > built-in. FOUR scopes:
+  the recognition union is NOT one of them, so a keyword only another tag's
+  config names is unclassified here (`classify`'s fallback, active), shown by no
+  palette and settable on no row that does not reach it.
   Config lives at `<root>/.org-glance/config/{system.org,tags/*.org}`,
   is never a row source, and a config change reseeds and reloads the
   world (debounced, view-changed follows). The chain is ONE list,
-  `Config.keywordScopes` (rank, name, keywords per scope), read two ways:
-  `classify` takes the first scope with an opinion, `Query.keywordSources`
-  reports what each claims. Org's built-in cycle is `builtinKeywords`, off
+  `Config.keywordScopes` (rank, name, keywords per scope), two readers and three
+  answers: `classify` takes the first scope with an opinion, `Query.keywordSources`
+  reports what each claims, and `Query.settableStates` — what `setStateEdits`
+  accepts — is THAT flattened rather than a third fold, so the offer and the
+  wall cannot come apart. Org's built-in cycle is `builtinKeywords`, off
   `defaultContext`, so the scope `classify` consults and the one a palette shows
   cannot hold different words. `GET /keywords` serves that chain per row, which
   is what the state palette draws.
+- SET-STATE LEGALITY IS THE ROW'S CHAIN, not its file's recognized set: a
+  keyword is settable only where the file's own `#+TODO:`, one of THAT row's
+  tags' configs, `system.org` or org's cycle declares it. Whole-request 400
+  naming the keyword and the row when any named row's chain lacks it, so a
+  marked set spanning tags is refused for the member it does not fit. The
+  palette is the truth — over one row what `/keywords` offers is exactly what a
+  write takes; over several the merge can offer a keyword part of the set
+  cannot take, and that is the 400.
 - `hrDeclared` is the file's OWN `#+TODO:` and is stored beside `hrKeywords`
   (the recognized union) because neither recovers the other: a file redeclaring
   a seeded keyword the other way adds nothing to the union it disagrees with.
   One value shared per file, like the rest.
 - `clSeed` is stored, not derived: `clTags` keeps the FIRST config of each tag
   across directories while the seed unions every entry read, shadowed ones
-  included.
+  included. Its only consumers are `seedContext` (the parse) and
+  `Store.storeKeywords` (the badge palette / config preview) — it is out of
+  `keywordScopes`, so nothing classifies or authorizes by it.
 - `system.org` carries two TREE-WIDE lines beside its cycle —
   `#+GLANCE_DEFAULT_FILTER:` and `#+GLANCE_CAPTURE_TARGET:` — read by one
   `lastPragmaValue` (last line wins), written by one `pragmaLineEdits` (replace

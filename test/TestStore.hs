@@ -27,7 +27,7 @@ import qualified Data.Text.IO as TIO
 import Glance.Query ( HeadlineRecord (hrDigest, hrFile, hrId, hrTitle), IdCollision (..)
                     , LoadFailure (..), QueryResult (..), TodoKeywords (..)
                     , WalkOptions (..), defaultWalk, loadDir, loadDirWith, loadFile
-                    , replaceSpans, rowJSON, setStateEdits, subtreeText )
+                    , noConfig, replaceSpans, rowJSON, setStateEdits, subtreeText )
 import Glance.Web.Store ( Frame (..), Store (stGen, stPrint), applyFile, bootstrapFrame
                         , clientCapacity, dropFile, frameJSON, loadStore
                         , loadStoreWith, newHub, nextFrame, publish, storeKeywords
@@ -572,7 +572,7 @@ diffSpec = testGroup "File diff"
       was <- case rowsUnder path store of
         [r] -> pure r
         rs  -> assertFailure ("expected one row under a.org, got " <> show (map hrId rs))
-      edits <- either (assertFailure . T.unpack) pure (setStateEdits Nothing was)
+      edits <- either (assertFailure . T.unpack) pure (setStateEdits noConfig Nothing was)
       _ <- either (assertFailure . show) pure
              =<< replaceSpans path (hrDigest was) edits
       left <- TIO.readFile path

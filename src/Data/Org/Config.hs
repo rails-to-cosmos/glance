@@ -19,10 +19,17 @@
 --
 -- CLASSIFICATION is NEAREST SCOPE ('classify').  Whether a recognized keyword
 -- is active or done-like is asked of the file's own @#+TODO:@ first, then of
--- the headline's tags in order, then of @system.org@, then of org's own
--- TODO\/DONE, and last of the union itself.  So @READING@ is active because
--- @book.org@ declares it before the bar, and a file that redeclares it after
--- one makes it done-like for its own headlines and nobody else's.
+-- the headline's tags in order, then of @system.org@, and last of org's own
+-- TODO\/DONE.  So @READING@ is active because @book.org@ declares it before the
+-- bar, and a file that redeclares it after one makes it done-like for its own
+-- headlines and nobody else's.
+--
+-- The union is NOT a scope.  A keyword only another tag's config names is
+-- recognized in this file — the whole point of the superset — and no scope this
+-- headline reaches has an opinion about it, so it classifies as the fallback and
+-- is settable on no row that does not reach it ('Glance.Query.setStateEdits').
+-- Recognition is what keeps the word out of a title; the chain is what a reader
+-- is offered and shown.
 module Data.Org.Config ( ConfigLayerFile (..)
                        , ConfigLayers (..)
                        , TodoKeywords (..)
@@ -346,6 +353,10 @@ lineSpans = go 0
 -- read, the shadowed ones included.  Recognition is a superset — a keyword a
 -- losing tag file names still parses as a state — and only classification
 -- picks a winner.
+--
+-- It feeds 'seedContext' and nothing else here: it is not a scope of
+-- 'keywordScopes', so no headline is classified by it and no row is settable to
+-- a word it alone reaches.
 data ConfigLayers = ConfigLayers
   { clSystem  :: !TodoKeywords            -- ^ @config\/system.org@'s sets; empty when there is no such file.
   , clTags    :: ![(Text, TodoKeywords)]  -- ^ @config\/tags\/TAG.org@'s sets, tag lowercased, in file-name order.
@@ -528,33 +539,38 @@ seedContext cfg = setTodo (Set.fromList (tkActive seed)) (Set.fromList (tkInacti
 -- | The scopes that answer for a headline carrying TAGS in a file whose own
 -- @#+TODO:@ lines declare FILEKW, NEAREST FIRST: the file's own declarations,
 -- then the headline's tags IN ORDER, then @system.org@, then org's built-in
--- TODO\/DONE, then the recognition union — which is what answers for a keyword
--- no scope above it claims, @READING@ on an untagged headline being the
--- ordinary case of that.  Each entry is its RANK, the name it answers under and
--- what it declares.
+-- TODO\/DONE.  Each entry is its RANK, the name it answers under and what it
+-- declares.
 --
--- ONE list, read two ways.  'classify' takes the first scope with an opinion
--- about a keyword; 'Glance.Query.keywordSources' reports what each scope
--- claims, so the palette a reader picks a state out of and the active-ness the
--- table shows it with describe one chain by construction.  The rank travels
--- beside the name because a tree may configure a tag called @system@: the two
--- entries stay apart and the tag keeps its own place in the order.
+-- FOUR scopes and no fifth.  The recognition union ('clSeed') is not one: it
+-- says which words PARSE as states under this root, which is a superset of what
+-- any one headline is configured for, and letting it close the chain made
+-- another tag's cycle both classified and settable on a headline that carries
+-- no such tag.  A keyword no scope here claims is recognized and unclassified,
+-- which is exactly what it is.
+--
+-- ONE list, two readers, three answers.  'classify' takes the first scope with
+-- an opinion about a keyword; 'Glance.Query.keywordSources' reports what each
+-- scope claims, and 'Glance.Query.settableStates' is THAT flattened rather than
+-- a third fold of this — so the active-ness the table shows, the palette a
+-- reader picks a state out of and the words a write is allowed describe one
+-- chain by construction.  The rank travels beside the name because
+-- a tree may configure a tag called @system@: the two entries stay apart and the
+-- tag keeps its own place in the order.
 keywordScopes :: ConfigLayers -> TodoKeywords -> [Text] -> [(Int, Text, TodoKeywords)]
 keywordScopes cfg fileKw tags =
   (0, fileSource, fileKw)
     : [ (1, tag, kw) | tag <- tags, Just kw <- [lookup tag (clTags cfg)] ]
    <> [ (2, systemSource,  clSystem cfg)
-      , (3, builtinSource, builtinKeywords)
-      , (4, unionSource,   clSeed cfg) ]
+      , (3, builtinSource, builtinKeywords) ]
 
--- | The names 'keywordScopes' gives the four scopes that are not tags.
+-- | The names 'keywordScopes' gives the three scopes that are not tags.
 -- Reserved by convention alone: a tag spelled like one of them is still a scope
 -- of its own, at its own rank.
-fileSource, systemSource, builtinSource, unionSource :: Text
+fileSource, systemSource, builtinSource :: Text
 fileSource    = "file"
 systemSource  = "system"
 builtinSource = "builtin"
-unionSource   = "union"
 
 -- | Org's own two states, which every parse recognizes whatever a tree
 -- configures.  Read off 'defaultContext' rather than spelled again, since that
@@ -569,8 +585,11 @@ builtinKeywords = TodoKeywords (Set.toAscList (todoActive defaultContext))
 -- @#+TODO:@ lines declare FILEKW?  The first scope of 'keywordScopes' with
 -- anything to say about it answers, and a farther one disagreeing is ignored.
 --
--- Total by construction: a keyword that parsed at all came from the union, the
--- file or the built-ins, so the final 'True' is unreachable and defensive.
+-- The final 'True' is REACHED, by exactly the keywords the recognition union
+-- put in reach of this file and no scope of this headline's claims — another
+-- tag's cycle on an untagged row.  Active is the honest default for one: a word
+-- nothing has called done-like is unfinished work, so it stays in the default
+-- view rather than disappearing out of it.
 classify :: ConfigLayers -> TodoKeywords -> [Text] -> Text -> Bool
 classify cfg fileKw tags keyword =
   fromMaybe True (asum [ says kw | (_rank, _source, kw) <- keywordScopes cfg fileKw tags ])

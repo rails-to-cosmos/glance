@@ -199,16 +199,23 @@ recognitionSpec = testGroup "Recognition"
       assertEqual "recognized and classified" [(Just "STARTED", Just True)] (states rows)
       assertEqual "title" ["refactor the walk"] (titles rows)
 
-  , testCase "recognition is the union of every layer, not the nearest one" $
+    -- Recognition reaches every file; classification does not follow it there.
+    -- ABANDONED and WATCHED parse as states in files that carry neither tag,
+    -- which is the whole point of the seed — and no scope those untagged rows
+    -- reach declares either, so both take the unclassified fallback.  What is
+    -- pinned here is the first half: the word is a STATE rather than the first
+    -- word of a title.
+  , testCase "recognition is the union of every layer, and classification is not" $
       withRows (Just "#+TODO: STARTED |\n")
                [("book.org", bookConfig), ("film.org", commentedConfig)]
                [ ("a.org", "* STARTED one\n")
                , ("b.org", "* ABANDONED two\n")
-               , ("c.org", "* WATCHED three\n") ] $ \rows ->
+               , ("c.org", "* WATCHED three\n") ] $ \rows -> do
       assertEqual "each layer's keyword reaches each file"
-                  [(Just "STARTED", Just True), (Just "ABANDONED", Just False)
-                  ,(Just "WATCHED", Just False)]
+                  [(Just "STARTED", Just True), (Just "ABANDONED", Just True)
+                  ,(Just "WATCHED", Just True)]
                   (states rows)
+      assertEqual "and none of them landed in a title" ["one", "two", "three"] (titles rows)
 
   , testCase "a file's own pragma still adds on top, and only below itself" $
       withRows Nothing [("book.org", bookConfig)]
@@ -271,11 +278,19 @@ classificationSpec = testGroup "Classification"
                     , (Just "READING", Just False) ]
                     (states rows)
 
-  , testCase "a keyword no scope here claims falls back to the union" $
+  , testCase "a keyword no scope here claims is recognized and unclassified" $
       -- ABANDONED is book.org's and this headline is not a book.  It is still
-      -- recognized, and the only thing that has ever classified it is the layer
-      -- that named it.
-      withRows Nothing [("book.org", bookConfig)] [("a.org", "* ABANDONED a plan\n")] $ \rows ->
+      -- recognized — the seed is what keeps it out of the title — and the layer
+      -- that named it is not a scope of this row, so nothing here calls it
+      -- done-like and it takes the fallback.
+      withRows Nothing [("book.org", bookConfig)] [("a.org", "* ABANDONED a plan\n")] $ \rows -> do
+      assertEqual "a state, and active by default"
+                  [(Just "ABANDONED", Just True)] (states rows)
+      assertEqual "the word did not land in the title" ["a plan"] (titles rows)
+
+  , testCase "and it is classified once the row carries the tag that names it" $
+      withRows Nothing [("book.org", bookConfig)]
+               [("a.org", "* ABANDONED a plan :book:\n")] $ \rows ->
       assertEqual "done-like, as book.org has it" [(Just "ABANDONED", Just False)] (states rows)
 
   , testCase "a row with no keyword is in neither group" $
@@ -297,7 +312,10 @@ classificationSpec = testGroup "Classification"
       assertEqual "then the tag" True (classify cfg noKeywords ["book"] "READING")
       assertEqual "then the system" False (classify cfg noKeywords [] "TODO")
       assertEqual "then the builtin" False (classify cfg noKeywords [] "DONE")
-      assertEqual "then the union" True (classify cfg noKeywords [] "READING")
+      -- And no fifth scope: the seed names READING and the chain stops at the
+      -- built-ins, so an untagged row takes the fallback rather than the layer
+      -- that happened to declare it.
+      assertEqual "the seed is not a scope" True (classify cfg noKeywords [] "READING")
       assertEqual "and a word nothing names is active" True (classify cfg noKeywords [] "NOPE")
   ]
 
@@ -738,9 +756,12 @@ paritySpec = testGroup "Parity"
                   [ map shape rs | (_p, Right rs) <- parallel ]
       -- And what the tree actually reads as, so the equality above is not two
       -- copies of a wrong answer.
+      -- c.org's ABANDONED is book.org's word on an untagged row: recognized
+      -- through the seed and claimed by no scope this headline reaches, so it
+      -- takes the unclassified fallback rather than book.org's opinion.
       let rows = concat [ rs | (_p, Right rs) <- parallel ]
       assertEqual "states"
                   [ (Just "STARTED", Just True), (Just "READING", Just True)
-                  , (Just "ABANDONED", Just False), (Just "LATER", Just True) ]
+                  , (Just "ABANDONED", Just True), (Just "LATER", Just True) ]
                   (states rows)
   ]

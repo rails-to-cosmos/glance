@@ -331,46 +331,74 @@ on.
   resolver, while parse-time `Todo.active` keeps its position-dependent
   snapshot semantics. The chain is ONE list — `keywordScopes`, an entry per
   scope carrying its rank, the name it answers under and what it declares —
-  read two ways: `classify` folds it for the first scope with an opinion,
-  `Glance.Query.keywordSources` reports what each one claims. Org's own cycle is
+  with two readers and three answers: `classify` folds it for the first scope
+  with an opinion, `Glance.Query.keywordSources` reports what each one claims,
+  and `Glance.Query.settableStates` — the words `setStateEdits` accepts — is
+  that second answer FLATTENED rather than a third fold. Org's own cycle is
   `builtinKeywords`, read off `defaultContext` rather than spelled at either
   reader, so the scope that classifies and the scope a palette shows cannot come
   to hold different words. Evidence: `src/Data/Org/Config.hs`, `TestConfig`.
-  Breaks: dropping the union re-scatters foreign-keyword headlines into
-  titles; flipping the precedence misclassifies file-local overrides.
+  Breaks: dropping the recognition seed re-scatters foreign-keyword headlines
+  into titles; flipping the precedence misclassifies file-local overrides.
   **test + corpus** (`scan` reports `config keywords`)
+- **The recognition union is NOT a scope, and that is the whole of what it is
+  not.** `clSeed` feeds `seedContext` and nothing else: it is absent from
+  `keywordScopes`, so no headline is classified by it, no `/keywords` answer has
+  a `union` row, and no row is settable to a word it alone reaches. It stayed a
+  scope until a reader noticed that another tag's cycle was offered on — and
+  written to — a row carrying no such tag, which is a keyword the file's own
+  configuration says nothing about. What the union answers is which words PARSE
+  as states under this root, which is a superset of what any one headline is
+  configured for; the chain answers both of the other two questions, and it is
+  one chain, so the palette and the wall cannot disagree. The cost, paid on
+  purpose: a keyword no scope of a row's claims takes `classify`'s fallback
+  (`True`, active) rather than the opinion of whichever layer happened to
+  declare it, so `ABANDONED` on an untagged row is a state, unclassified, and
+  stays in the default view. Evidence: `TestConfig` "recognition is the union of
+  every layer, and classification is not", "a keyword no scope here claims is
+  recognized and unclassified", "the resolver is the rule, and it is total".
+  Breaks: putting it back re-opens both of the above. **test**
 - **`GET /keywords` is `keywordScopes` read forwards, and the dedup IS the
   rule.**
   `?ids=A,B` answers `{sources: [{source, active, inactive}], unknown}`: one
   entry per SOURCE in precedence order over the rows named — `file`, then their
-  tags in row order, then `system`, then `builtin`, then `union` — with each
+  tags in row order, then `system`, then `builtin` — with each
   keyword under the NEAREST source that declares it and nowhere below it, and a
   source left with nothing dropped rather than shown empty. Each entry's own
   active/inactive split is that source's, so the answer classifies as well as
   enumerates: `READING` under `book` and `READ` under `book` rather than
-  `system` is `classify` saying which scope answered. `union` is `clSeed`,
-  `classify`'s fifth scope, and it is why another tag's cycle is still settable
-  on an untagged row. Everything reported IS settable on every row named — the
-  reserved sources are all in the parse seed or in `defaultContext` — so the
-  offer and `setStateEdits`' per-file refusal cannot disagree. EVERY `ids`/`id`
+  `system` is `classify` saying which scope answered. FOUR sources and no
+  `union` row: the recognition seed is not a scope, so a keyword only another
+  tag's config names is offered nowhere and settable nowhere it is not
+  configured. Over ONE row the offer IS `setStateEdits`' rule, `settableStates`
+  being this answer flattened; over SEVERAL the merge below can
+  offer a keyword part of the set cannot take, which is a whole-request 400
+  naming the row. EVERY `ids`/`id`
   occurrence is read, so `?ids=a&ids=b` says what `?ids=a,b` says — and the
   repeated form is what an id CONTAINING a comma owes, since the fallback row id
   is `path#ordinal` and the split runs after percent-decoding, which is why the
   shell writes one parameter per id and the comma form is left to a caller
   typing one out. Evidence:
   `Glance.Query.keywordSources`, `TestServe` "GET /keywords". **test**
-- **Several rows merge by source NAME, and the merge costs one property.** The
+- **Several rows merge by source NAME, and the merge costs two properties.** The
   marked set is one answer: the `file` entry is the union of those rows' files'
   own pragmas, and the tags are every tag any of them carries in first-seen
   order across the rows as given. So a keyword one row reaches through its file
   and another through a tag lands in the NEARER of the two, and rows whose tag
   ORDER disagrees are resolved by the merged order — the table describes the
-  SET rather than any one member of it. The four reserved names are not taken
+  SET rather than any one member of it. The second cost is new with the
+  tightening: a keyword only PART of the set reaches is offered for the set, and
+  committing it is a whole-request 400 naming the row it does not fit, since
+  legality is per row's own chain. Offering nothing but the intersection was the
+  alternative and is worse — a marked set spanning two tags would offer neither
+  tag's cycle, and the reader is better told which row refused. The three
+  reserved names are not taken
   out of the tag namespace: a tag called `system` keeps its TAG rank, so it
   still sits above the system layer, and the table shows the name twice with
   the precedence order to tell them apart. Evidence: `TestServe` "a keyword
   nearer in one row than another lands in the nearer source", "a tag spelled
-  like a reserved source keeps its own rank". **test**
+  like a reserved source keeps its own rank", "a marked set spanning tags is
+  refused for the row that cannot take it". **test**
 - **`hrDeclared` is stored because it is not recoverable, and forced because it
   is stored.** A record keeps the
   file's OWN `#+TODO:` sets beside the recognized union (`hrKeywords`): a file
@@ -979,11 +1007,13 @@ on.
   live run below. **test + live**
 - **Refusals split by whose mistake they are.** 400 with nothing written: a
   body that is not a command, a name nothing implements, no ids at all, and a
-  `set-state` keyword that ANY named row's file does not declare — that last
-  one refuses the WHOLE request deliberately, because half a state change over
-  a marked set is worse than none of one, and because `#+TODO:` legality is per
-  file so the alternative is a command that means different things to different
-  rows of one keystroke. 413 outranks all of it, the way it does on
+  `set-state` keyword that ANY named row's own chain does not declare — that
+  last one refuses the WHOLE request deliberately, because half a state change
+  over a marked set is worse than none of one, and because legality is per row
+  so the alternative is a command that means different things to different
+  rows of one keystroke. The refusal names the keyword AND the row, since with a
+  per-row rule the file alone no longer says which member of a set turned it
+  down. 413 outranks all of it, the way it does on
   `POST /headline`. Per id: an id the store has no row for (a marked set
   outliving its rows is ordinary), and a digest the client pinned that the store
   no longer holds — the same `stale` check the materialize commit makes, and
@@ -1020,16 +1050,29 @@ on.
   for one with a drawer is its `:END:`. Evidence: `TestQuery` "Commands", which
   splices with its own three-line oracle rather than through the engine and
   asserts the whole document each time. **test**
-- **Keyword legality is per file, and the group meta-values are not keywords.**
-  `setStateEdits` refuses anything outside `tkActive ++ tkInactive` of the
-  record's own `hrKeywords`, which is its file's `#+TODO:` line plus org's
-  TODO/DONE seed. The same word is a keyword in one document and the first word
-  of a title in the next, and writing one a file does not declare makes a
-  headline the parser reads differently than the writer meant.
+- **Keyword legality is the ROW's own chain, and the group meta-values are not
+  keywords.** `setStateEdits` refuses anything outside `settableStates` —
+  `keywordSources` for this one record, flattened: its file's own `#+TODO:`, the
+  configs of the tags THIS row carries, `system.org`, org's TODO/DONE. Derived
+  from the palette's own function rather than folding the chain a second time,
+  so "what a reader is offered is what a write takes" holds by construction and
+  the coupling runs both ways — a change to what the palette SHOWS a row is a
+  change to what that row may be set to. The bar
+  used to be the file's recognized set (`hrKeywords`), which is the parse seed
+  and so the whole tree's vocabulary, and it let a `film` keyword be written
+  onto an untagged row and onto a `book` one. Recognition stays the superset it
+  was — the same word is a keyword in one document and the first word of a title
+  in the next, and the seed is what keeps it out of the title — while
+  settability is the narrower question of what a row is CONFIGURED to be. The
+  rule reads off one chain with the palette, so what `GET /keywords` offers for
+  a row is exactly what a write for that row takes.
   `state:*active*`/`state:*inactive*` are filter vocabulary the state column
   ships beside its badges and are in no keyword set, so they are refused here
-  like any other word — which is why the shell's value palette offers `badges`
-  and never `values`. **test**
+  like any other word — which is why the shell's value palette offers the
+  resolution and never `values`. Evidence: `TestQuery` "another tag's keyword is
+  refused on a row that does not carry it", "everything the palette shows for a
+  row is settable on it", "each scope of the chain is settable on a row that
+  reaches it"; `TestServe` the same three over the route. **test**
 - **`args` is one record, and `.:!` is what tells absent from null.** The three
   commands that take arguments read into one `Args` — `keyword` (which is
   `set-state`'s state AND `set-planning`'s planning keyword, one field because
@@ -1797,8 +1840,8 @@ on.
   overlapping sets rather than a partition, `-state:*active*` drops the empty
   cell, and `state:none` stays the explicit spelling for that cell alone. A future meta
   joins the family by wearing the stars. The convention is ENFORCED from two
-  sides rather than by a rule of its own: `setStateEdits` refuses any word the
-  row's file does not declare in `#+TODO:`, and `Data.Org.Parser.keywordTextP`
+  sides rather than by a rule of its own: `setStateEdits` refuses any word no
+  scope of the row's chain declares, and `Data.Org.Parser.keywordTextP`
   admits letters and underscores alone, so a starred word cannot be declared and
   therefore cannot be set — a guard against the group names inside `configEdits`
   would be unreachable code. `Glance.Web.Filter.starless` strips ONE matched
@@ -2159,7 +2202,7 @@ on.
   muted italic every starred meta wears, since no scope declares taking a
   keyword off. The source cell is the muted small lowercase a tag wears
   everywhere else on this page, whether it holds a tag or one of the reserved
-  labels (`file`, `system`, `built-in`, `union`). The foot names the keys the
+  labels (`file`, `system`, `built-in`). The foot names the keys the
   table cannot draw
   for itself — `a letter sets it · / to search · ESC leaves`, and the fallback's
   own line in its own mode. Evidence: `TestServe` "Shell which-key". **test**

@@ -24,12 +24,13 @@ import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified Data.Time as Time
 
-import Glance.Query ( HeadlineParts (..), HeadlineRecord (..), LoadFailure (..)
-                    , QueryResult (..), Span (..), archiveEdits, archived
+import Glance.Query ( ConfigLayers (..), HeadlineParts (..), HeadlineRecord (..)
+                    , LoadFailure (..)
+                    , QueryResult (..), Span (..), TodoKeywords (..), archiveEdits, archived
                     , captureEdits, captureStamp, defaultWalk
-                    , displayText, headlineParts, hiddenProperties, loadDir
+                    , displayText, headlineParts, hiddenProperties, keywordSources, loadDir
                     , loadDirFilesSerially, loadDirFilesWith, loadFile, matchesSearch
-                    , orgLinks
+                    , noConfig, orgLinks
                     , planningTimestamp, readsAsTimestamp, recomposedSubtree
                     , setPlanningEdits, setStateEdits, subtreeLinks, subtreeText
                     , viewJSON )
@@ -1180,11 +1181,39 @@ withRecord doc k = withTempDirNamed "command" $ \dir -> do
         one rs  = assertFailure ("expected one headline, got " <> show (length rs))
 
 -- | WHAT: DOC with @set-state KEYWORD@ applied to its one headline is WANTED.
+-- Under 'noConfig', so the chain the legality check reads is the file's own
+-- @#+TODO:@ over org's built-in cycle and nothing else.
 setStateIs :: String -> Text -> Maybe Text -> Text -> Assertion
 setStateIs what doc keyword wanted = withRecord doc $ \r ->
-  case setStateEdits keyword r of
+  case setStateEdits noConfig keyword r of
     Left why    -> assertFailure (what <> ": refused: " <> T.unpack why)
     Right edits -> assertEqual what wanted (splice doc edits)
+
+-- | @set-state KEYWORD@ on R under 'layered' is refused, and the refusal spells
+-- the keyword it turned down, the row it turned it down for, and every word of
+-- WORDS — enough of the chain to say what the row could have taken instead.
+refusalNames :: HeadlineRecord -> Text -> [Text] -> Assertion
+refusalNames r keyword words' = case setStateEdits layered (Just keyword) r of
+  Right edits -> assertFailure ("expected a refusal, got " <> show edits)
+  Left why    -> mapM_ (\w -> assertContains "names" w why) (keyword : hrId r : words')
+
+-- | @set-state@ on R under 'layered' takes each of WORDS.  The accepting half
+-- of 'refusalNames', and the keyword is its own label.
+accepts :: HeadlineRecord -> [Text] -> Assertion
+accepts r = mapM_ (\w -> either (assertFailure . ((T.unpack w <> ": ") <>) . T.unpack)
+                                (const (pure ()))
+                                (setStateEdits layered (Just w) r))
+
+-- | A config with a cycle per tag and one in @system.org@, so the legality
+-- check has a chain longer than one file to be right about.
+layered :: ConfigLayers
+layered = noConfig
+  { clSystem = TodoKeywords ["STARTED"] []
+  , clTags   = [ ("book", TodoKeywords ["READING"] ["READ"])
+               , ("film", TodoKeywords ["WATCHING"] ["WATCHED"]) ]
+    -- Recognition unions both tags, which is exactly what no longer makes
+    -- either of them settable anywhere.
+  , clSeed   = TodoKeywords ["STARTED", "READING", "WATCHING"] ["READ", "WATCHED"] }
 
 -- | WHAT: DOC with @archive@ applied to its one headline is WANTED.
 archiveIs :: String -> Text -> Text -> Assertion
@@ -1234,28 +1263,56 @@ commandSpec = testGroup "Commands"
 
     , testCase "clearing a headline that has no keyword costs no edit" $
         withRecord "* Plain\n" $ \r ->
-          assertEqual "no edits" (Right []) (setStateEdits Nothing r)
+          assertEqual "no edits" (Right []) (setStateEdits noConfig Nothing r)
 
-      -- Per file, because `#+TODO:' is: the same word is a keyword in one
-      -- document and the first word of a title in the next.
-    , testCase "a keyword the file does not declare is refused, by name" $
+      -- Per CHAIN, and the file is its nearest scope: the same word is a
+      -- keyword in one document and the first word of a title in the next.
+    , testCase "a keyword the chain does not declare is refused, by name" $
         withRecord "* TODO Plain\n" $ \r ->
-          case setStateEdits (Just "WAITING") r of
-            Right edits -> assertFailure ("expected a refusal, got " <> show edits)
-            Left why -> do
-              assertBool ("names the keyword: " <> T.unpack why) ("WAITING" `T.isInfixOf` why)
-              assertBool ("names what is declared: " <> T.unpack why)
-                         ("TODO" `T.isInfixOf` why && "DONE" `T.isInfixOf` why)
+          refusalNames r "WAITING" ["TODO", "DONE"]
 
     , testCase "the same keyword is legal once the file declares it" $
         setStateIs "declared" (keyworded "* TODO Plain\n") (Just "WAITING")
                               (keyworded "* WAITING Plain\n")
 
+      -- Every rung of the chain is settable, which is the regression the
+      -- tightening had to leave standing: the file's own #+TODO:, its tag's
+      -- config, the system layer, org's own cycle.
+    , testCase "each scope of the chain is settable on a row that reaches it" $
+        withRecord (keyworded "* TODO Plain :book:\n") $ \r ->
+          accepts r ["NEXT", "READING", "STARTED", "DONE"]
+
+      -- The union's death, from the settability side: `film''s cycle parses
+      -- here — the seed carries it — and no scope this row reaches declares it,
+      -- so it is not a state this row may be put into.
+    , testCase "another tag's keyword is refused on a row that does not carry it" $
+        withRecord "* TODO Plain\n" $ \r ->
+          refusalNames r "WATCHING" ["STARTED"]
+
+    , testCase "and refused on a row carrying a different tag" $
+        withRecord "* TODO Plain :book:\n" $ \r ->
+          refusalNames r "WATCHING" ["READING"]
+
+      -- The offer and the wall are one chain, and since `settableStates' IS
+      -- `keywordSources' flattened they agree by construction — so this is the
+      -- regression guard for that derivation rather than a property test.
+    , testCase "everything the palette shows for a row is settable on it" $
+        withRecord (keyworded "* NEXT Plain :book:\n") $ \r -> do
+          let shown = [ w | (_source, kw) <- keywordSources layered [r]
+                          , w <- tkActive kw <> tkInactive kw ]
+          assertEqual "every rung of this row's chain is on offer"
+                      [ "NEXT", "WAITING", "CANCELLED"   -- the file's own
+                      , "READING", "READ"                -- its `book' tag's
+                      , "STARTED"                        -- system.org's
+                      , "TODO", "DONE" ]                 -- org's own
+                      shown
+          accepts r shown
+
       -- The state column ships these two as filter vocabulary beside its
       -- badges.  No file declares one, so no file can be put into one.
     , testCase "the state column's group meta-values are not keywords" $
         withRecord (keyworded "* NEXT Plain\n") $ \r ->
-          mapM_ (\meta -> case setStateEdits (Just meta) r of
+          mapM_ (\meta -> case setStateEdits noConfig (Just meta) r of
                    Right edits -> assertFailure (T.unpack meta <> ": " <> show edits)
                    Left _why   -> pure ())
                 ["*active*", "*inactive*", "active"]

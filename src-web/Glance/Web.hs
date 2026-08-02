@@ -747,12 +747,18 @@ again = "; materialize it again and re-apply the edit"
 --
 -- @{"sources": [{"source": …, "active": […], "inactive": […]}], "unknown": […]}@.
 -- One entry per SOURCE in precedence order — the rows' own files, then their
--- tags, then @system.org@, then org's built-in cycle, then the recognition
--- union — and a keyword appears under the NEAREST source that declares it and
--- nowhere below it ('Glance.Query.keywordSources', which is the whole of the
--- rule).  So the answer classifies as well as enumerates: it is
--- 'Data.Org.Config.classify' read forwards, and a palette drawing it shows a
--- reader why @READING@ is active here and done-with two directories over.
+-- tags, then @system.org@, then org's built-in cycle — and a keyword appears
+-- under the NEAREST source that declares it and nowhere below it
+-- ('Glance.Query.keywordSources', which is the whole of the rule).  So the
+-- answer classifies as well as enumerates: it is 'Data.Org.Config.classify' read
+-- forwards, and a palette drawing it shows a reader why @READING@ is active here
+-- and done-with two directories over.
+--
+-- FOUR sources and no union row.  What the recognition union adds is which
+-- words PARSE as states, which is neither what classifies a row nor what a row
+-- may be set to; the chain is both, and it is the chain
+-- 'Glance.Query.setStateEdits' checks a write against, so what this offers for
+-- one row is exactly what that accepts for it.
 --
 -- Resolved for the TARGET ROWS rather than for the tree, which is what makes it
 -- worth a request: the store's badge palette is the union of every file loaded,
@@ -1052,12 +1058,12 @@ rowlessCommand = "capture"
 -- which is what a client showing @archived (5)@ and a line per refusal needs.
 --
 -- Refusals split by whose mistake they are.  A body that is not a command, a
--- name nothing implements, no ids at all, and a keyword some named row's file
--- does not declare are all 400 with nothing written — the last one refuses the
--- WHOLE request deliberately, since half a state change over a marked set is
--- worse than none of one.  Per id: an id the store has no row for, and a file
--- whose digest moved.  A 200 is therefore "the command ran", never "every row
--- moved"; the results say which did.
+-- name nothing implements, no ids at all, and a keyword some named row's own
+-- classification chain does not declare are all 400 with nothing written — the
+-- last one refuses the WHOLE request deliberately, since half a state change
+-- over a marked set is worse than none of one.  Per id: an id the store has no
+-- row for, and a file whose digest moved.  A 200 is therefore "the command ran",
+-- never "every row moved"; the results say which did.
 --
 -- Nothing here touches the store, exactly as with @POST \/headline@: the write
 -- goes to the file, the watch re-reads it and streams the rows, so a browser
@@ -1171,7 +1177,7 @@ planCommand st stamp cmd = do
     -- One resolution for the whole set rather than one per id, which is what
     -- keeps a marked set of a hundred rows off a hundred passes of the store.
     (held, absent) = storeHeadlines (cmdIds cmd) st
-    withEdits r = (,) r <$> commandEdits stamp cmd r
+    withEdits r = (,) r <$> commandEdits (stConfig st) stamp cmd r
     missing = [ (rid, refused rid ("no headline with id " <> rid)) | rid <- absent ]
     stale rs = or [ pinned /= hrDigest r
                   | (r, _edits) <- rs, Just pinned <- [Map.lookup (hrId r) (cmdDigests cmd)] ]
@@ -1180,11 +1186,13 @@ planCommand st stamp cmd = do
 
 -- | The span edits CMD asks for on R, or why the request cannot be served at
 -- all.  Two of the three refuse, and a refusal is the WHOLE request's: a keyword
--- one named row's file does not declare, or a planning keyword no key sets,
--- stops the command rather than moving the rows it could have moved.
-commandEdits :: Maybe Text -> Command -> HeadlineRecord -> Either Text [(Span, Text)]
-commandEdits stamp cmd r = case cmdName cmd of
-  "set-state"    -> setStateEdits (join (agKeyword args)) r
+-- one named row's own chain does not declare, or a planning keyword no key sets,
+-- stops the command rather than moving the rows it could have moved.  CFG is the
+-- store's config, which is half of that chain.
+commandEdits :: ConfigLayers -> Maybe Text -> Command -> HeadlineRecord
+             -> Either Text [(Span, Text)]
+commandEdits cfg stamp cmd r = case cmdName cmd of
+  "set-state"    -> setStateEdits cfg (join (agKeyword args)) r
   -- The keyword is there: 'parseCommand' refuses a @set-planning@ without one,
   -- so the empty string is a case this cannot reach.
   "set-planning" -> setPlanningEdits (fromMaybe "" (join (agKeyword args))) stamp r
@@ -3008,7 +3016,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      };"
   , "      prompting.table = (sources || []).map((s) => ({"
     -- `built-in' is the one scope whose label is not the name it arrives under;
-    -- a tag is its own label, and `file', `system' and `union' read as they are.
+    -- a tag is its own label, and `file' and `system' read as they are.
   , "        source: s.source === \"builtin\" ? \"built-in\" : s.source,"
   , "        cells: [s.active || [], s.inactive || []].map((ws) => ws.map(held)),"
   , "      }));"
@@ -3148,8 +3156,8 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      { if (e.target === el(\"prompt\")) unask(); });"
     -- What C-c C-t offers: the states the SERVER says those rows may be set to,
     -- with the scope that declares each — the file's own `#+TODO:', its tags'
-    -- configs, `system.org', org's built-in cycle, the recognition union — plus
-    -- the entry that takes a keyword off.  Resolved per request because the
+    -- configs, `system.org', org's built-in cycle — plus the entry that takes a
+    -- keyword off.  Resolved per request because the
     -- answer is per ROW: the state column's badges are the union of every file
     -- loaded, which is a superset and says nothing about where a keyword came
     -- from.  The column's `values' are the filter's group meta-values

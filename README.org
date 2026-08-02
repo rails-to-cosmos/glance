@@ -317,12 +317,19 @@ mis-press cheap.
 =Inactive= — with one row per layer that has something to say about the rows you
 marked, in the order the resolver consults them: the file's own =#+TODO:= line,
 then each of its tags' configs, then =system.org=, then org's built-in
-=TODO=/=DONE=, then the union of everything configured anywhere. A keyword shows
+=TODO=/=DONE=. A keyword shows
 up under the *nearest* layer that declares it and nowhere below it, so the table
 is the classification rule made visible: if =READING= sits in the =book= row,
 =book.org= is what makes it active here, and a file that redeclares it takes it
 into the =file= row instead. Mark rows across two tags and both tags are rows of
 their own.
+
+The chain ends there, and what is *not* in it is the recognition union. A
+keyword any layer declares parses as a state in every file under the root — that
+is what keeps =STARTED= out of a title — but a =film= keyword is not something a
+=book= row, or an untagged one, is configured to be. So it is not on offer and
+not settable there, and a state no layer of a row's claims is shown as a state
+with nobody's opinion attached: unfinished, and in the default view.
 
 The letters are deterministic. Each entry claims the first letter of *its own
 spelling* that no entry above it took, reading the table left to right and top
@@ -339,10 +346,13 @@ completing-read: the table flattens, the letters go, a field appears, type to
 narrow, =C-n= / =C-p= or the arrows to walk, =RET= to commit. =ESC= leaves the
 palette from either mode.
 
-A keyword is legal per *file*, and the palette and the refusal come from the
-same place: a command naming a keyword that a row's own file does not declare is
-refused whole rather than applied to the rows whose files do. The resolution is
-its own endpoint if you want it directly:
+A keyword is legal per *row*, and the palette and the refusal come from the same
+place: what the table shows for a row is exactly what that row may be set to. A
+command naming a keyword some row's chain does not declare is refused whole,
+naming the keyword and the row, rather than applied to the rows that do declare
+it. Mark rows across two tags and the table shows both cycles — commit one of
+them and the rows under the other tag are what refuses. The resolution is its
+own endpoint if you want it directly:
 
 #+begin_src sh
 curl -s 'localhost:7777/keywords?ids=ROW-ID,OTHER-ID'

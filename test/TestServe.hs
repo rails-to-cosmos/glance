@@ -3581,17 +3581,57 @@ commandSpec = testGroup "POST /command"
                     [("nowhere", False), ("first", True)] =<< outcomesOf r
         assertContains "the real row still landed" ":one:ARCHIVE:" =<< document path
 
-    -- Legality is per file, and a set-state some named row would refuse is
-    -- refused whole: half a state change over a marked set is worse than none.
-  , testCase "a keyword one named file does not declare refuses the request" $
+    -- Legality is per ROW's chain, whose nearest scope is its file, and a
+    -- set-state some named row would refuse is refused whole: half a state
+    -- change over a marked set is worse than none.
+  , testCase "a keyword one named row's chain lacks refuses the request" $
       withCommandable $ \a _hub path other -> do
         before <- document path
         r <- postTo a "/command"
                (command "set-state" ["first", "third"] (keywordArg (Just "WAITING")))
         assertEqual "status" 400 (status r)
         assertContains "names the keyword" "WAITING" (body r)
+        assertContains "and the row it does not fit" "third" (body r)
         assertEqual "the first file is untouched" before =<< document path
         assertEqual "and so is the second" elsewhereOrg =<< document other
+
+    -- The union's death, from the write side.  `film''s cycle is RECOGNIZED in
+    -- every file under this root — that is what keeps the word out of a title —
+    -- and no scope an untagged row reaches declares it, so it is not a state
+    -- that row may be put into.  It used to pass, on the file's recognized set.
+  , testCase "another tag's keyword is refused on a row that does not reach it" $
+      withLayeredTree $ \a -> do
+        r <- postTo a "/command" (command "set-state" ["bare"] (keywordArg (Just "WATCHING")))
+        assertEqual "status" 400 (status r)
+        assertContains "names the keyword" "WATCHING" (body r)
+        assertContains "and the row" "bare" (body r)
+
+    -- Each row against ITS OWN chain, so a set spanning two tags is refused for
+    -- the member the keyword does not fit — and the member it does fit takes it
+    -- when asked on its own.  This is the cost of the palette merging several
+    -- rows into one table, stated as what a reader sees.
+  , testCase "a marked set spanning tags is refused for the row that cannot take it" $
+      withLayeredTree $ \a -> do
+        r <- postTo a "/command"
+               (command "set-state" ["tagged", "filmed"] (keywordArg (Just "READING")))
+        assertEqual "status" 400 (status r)
+        assertContains "names the row it does not fit" "filmed" (body r)
+        ok <- postTo a "/command" (command "set-state" ["tagged"] (keywordArg (Just "READING")))
+        assertEqual "and the one it fits, alone" 200 (status ok)
+        assertEqual "landed" [("tagged", True)] =<< outcomesOf ok
+
+    -- The regression the tightening had to leave standing: every rung of the
+    -- chain still writes.  A tree apiece, since two writes to one file drift in
+    -- a suite that runs no watch.
+  , testCase "each rung of the chain is settable on a row that reaches it" $
+      mapM_ (\(rid, keyword) -> withLayeredTree $ \a -> do
+               r <- postTo a "/command" (command "set-state" [rid] (keywordArg (Just keyword)))
+               assertEqual (T.unpack (rid <> " -> " <> keyword)) 200 (status r)
+               assertEqual "landed" [(rid, True)] =<< outcomesOf r)
+            [ ("filed", "READING")   -- the file's own #+TODO:
+            , ("tagged", "READING")  -- one of its tags' configs
+            , ("bare", "STARTED")    -- system.org
+            , ("bare", "TODO") ]     -- org's own cycle
 
   , testCase "the state column's group values are refused like any other word" $
       withCommandable $ \a _hub path _other -> do
@@ -4190,15 +4230,14 @@ keywordsSpec = testGroup "GET /keywords"
         -- READING is the file's, book's AND pile's; it belongs to the file
         -- alone, which leaves pile with nothing and so no row.  READ is book's
         -- and the system layer's, so it stays with the nearer of the two.
-        -- The union closes the chain: `film''s cycle is recognized here and no
-        -- scope this row reaches claims it, which is what makes it settable and
-        -- what makes the last row honest about where it came from.
-        assertEqual "file, then book, then the system layer, org's own, the union"
+        -- The chain ENDS at the built-ins: `film''s cycle is recognized here,
+        -- since recognition is a superset, and no scope this row reaches claims
+        -- it — so it is neither shown nor settable.
+        assertEqual "file, then book, then the system layer, then org's own"
           [ ("file",    ["READING"],   [])
           , ("book",    [],            ["READ"])
           , ("system",  ["STARTED"],   [])
-          , ("builtin", ["TODO"],      ["DONE"])
-          , ("union",   ["WATCHING"],  ["WATCHED"]) ] =<< sourcesOf r
+          , ("builtin", ["TODO"],      ["DONE"]) ] =<< sourcesOf r
         assertEqual "and nothing was asked for that is not there" [] =<< textsAt "unknown"
           =<< decoded r
 
@@ -4209,19 +4248,17 @@ keywordsSpec = testGroup "GET /keywords"
         assertEqual "book, and no pile row at all"
           [ ("book",    ["READING"],  ["READ"])
           , ("system",  ["STARTED"],  [])
-          , ("builtin", ["TODO"],     ["DONE"])
-          , ("union",   ["WATCHING"], ["WATCHED"]) ]
+          , ("builtin", ["TODO"],     ["DONE"]) ]
           =<< sourcesOf =<< getFrom a "/keywords?ids=tagged"
 
-  , testCase "a row no scope speaks for falls through to the recognition union" $
+  , testCase "a row no scope speaks for is offered the system layer and org's own" $
       withLayeredTree $ \a ->
-        -- Untagged, in a file that declares nothing: every tag's cycle is still
-        -- settable here and the union is the only thing that ever classified
-        -- it, which is exactly what the last row of the chain says.
-        assertEqual "the system layer, org's own, then everything else"
-          [ ("system",  ["STARTED"],            ["READ"])
-          , ("builtin", ["TODO"],               ["DONE"])
-          , ("union",   ["READING", "WATCHING"], ["WATCHED"]) ]
+        -- Untagged, in a file that declares nothing: the tags' cycles parse
+        -- here and no scope this row reaches names one, so the palette stops
+        -- where the chain does and neither READING nor WATCHING is on offer.
+        assertEqual "the system layer and org's own, and nothing under them"
+          [ ("system",  ["STARTED"], ["READ"])
+          , ("builtin", ["TODO"],    ["DONE"]) ]
           =<< sourcesOf =<< getFrom a "/keywords?ids=bare"
 
     -- The marked set: one answer over every row it holds, and a tag any of them
@@ -4245,8 +4282,7 @@ keywordsSpec = testGroup "GET /keywords"
           [ ("file",    ["READING"],  [])
           , ("book",    [],           ["READ"])
           , ("system",  ["STARTED"],  [])
-          , ("builtin", ["TODO"],     ["DONE"])
-          , ("union",   ["WATCHING"], ["WATCHED"]) ]
+          , ("builtin", ["TODO"],     ["DONE"]) ]
           =<< sourcesOf =<< getFrom a "/keywords?ids=tagged,filed"
 
     -- The command route's convention: an id the store has no row for is named
@@ -4260,8 +4296,7 @@ keywordsSpec = testGroup "GET /keywords"
         assertEqual "resolved for the one that is not"
           [ ("book",    ["READING"],  ["READ"])
           , ("system",  ["STARTED"],  [])
-          , ("builtin", ["TODO"],     ["DONE"])
-          , ("union",   ["WATCHING"], ["WATCHED"]) ] =<< sourcesOf r
+          , ("builtin", ["TODO"],     ["DONE"]) ] =<< sourcesOf r
 
   , testCase "every id unknown resolves nothing and still says which" $
       withLayeredTree $ \a -> do
@@ -4287,8 +4322,7 @@ keywordsSpec = testGroup "GET /keywords"
         assertEqual "the singular spelling answers for one"
           [ ("book",    ["READING"],  ["READ"])
           , ("system",  ["STARTED"],  [])
-          , ("builtin", ["TODO"],     ["DONE"])
-          , ("union",   ["WATCHING"], ["WATCHED"]) ]
+          , ("builtin", ["TODO"],     ["DONE"]) ]
           =<< sourcesOf =<< getFrom a "/keywords?id=tagged"
         r <- getFrom a "/keywords"
         assertEqual "status" 400 (status r)

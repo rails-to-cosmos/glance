@@ -1375,10 +1375,13 @@ archived r = T.toLower archiveTag `elem` tagsOfCell (hrTags r)
 -- two, so the table describes the set rather than any one member of it.  Rows
 -- whose tag ORDER disagrees are resolved the same way, by the merged order.
 --
--- Everything reported is settable on every row named: the reserved scopes are
--- all in the parse seed or in org's own cycle, and a file's own declarations
--- are its own, so 'setStateEdits' accepts each of them for the rows it came
--- from.
+-- Over ONE row this IS what 'setStateEdits' accepts: 'settableStates' is this
+-- function flattened, so the offer and the wall cannot come apart.  Over
+-- SEVERAL the merge outruns that — a keyword only one row's file or one row's
+-- tag declares is offered for the set, and committing it refuses the whole
+-- request rather than moving the rows it would have fitted.  That is the
+-- merge's cost stated as what a reader sees: the table describes the set, and a
+-- keyword belonging to part of it is a refusal naming the row it does not fit.
 keywordSources :: ConfigLayers -> [HeadlineRecord] -> [(Text, TodoKeywords)]
 keywordSources cfg rows = nearest Set.empty (sortOn fst chain)
   where
@@ -1413,26 +1416,43 @@ keywordSources cfg rows = nearest Set.empty (sortOn fst chain)
 -- keeps the newline that ends it.  A headline with no keyword asked to drop one
 -- costs no edit.
 --
--- KEYWORD is refused unless R's own parse recognized it ('hrKeywords'): the
--- file's @#+TODO:@ lines, the config layers' keywords and org's TODO\/DONE.
--- The bar is recognition rather than declaration because that is what the
--- parser reads back — writing a word this file would parse as the first word of
--- a title makes a headline the reader sees differently than the writer meant,
--- and the config layer is precisely the thing that stops a word being that.
--- The state column's group meta-values (@*active*@, @*inactive*@) are in no
--- keyword set, so they are refused here like any other word that is not one.
-setStateEdits :: Maybe Text -> HeadlineRecord -> Either Text [(Span, Text)]
-setStateEdits Nothing r = Right [ (Span (spanStart sp) (spanEnd sp + trailing sp), "")
-                                | Just sp <- [hsTodo (headlineSpans r)] ]
+-- KEYWORD is refused unless R's OWN CHAIN declares it ('settableStates'): the
+-- file's @#+TODO:@ lines, the configs of the tags THIS row carries,
+-- @system.org@, org's TODO\/DONE.  The bar is the chain rather than the parse's
+-- recognized set ('hrKeywords') because the chain is what a reader is shown: the
+-- palette draws 'keywordSources' and a state it does not offer is one this row
+-- has no configuration for.  Recognition stays a superset — a word another tag's
+-- cycle names still parses as a state here rather than as the first word of a
+-- title — and settability is the narrower question of what this row is
+-- configured to be.  The state column's group meta-values (@*active*@,
+-- @*inactive*@) are in no keyword set, so they are refused here like any other
+-- word that is not one.
+setStateEdits :: ConfigLayers -> Maybe Text -> HeadlineRecord -> Either Text [(Span, Text)]
+setStateEdits _cfg Nothing r = Right [ (Span (spanStart sp) (spanEnd sp + trailing sp), "")
+                                     | Just sp <- [hsTodo (headlineSpans r)] ]
   where trailing sp = T.length (T.takeWhile horizontal (T.drop (spanEnd sp) (hrDoc r)))
-setStateEdits (Just keyword) r
-  | keyword `notElem` declared = Left (keyword <> " is not a TODO keyword of " <> T.pack (hrFile r)
-                                        <> "; it declares " <> T.intercalate ", " declared)
+setStateEdits cfg (Just keyword) r
+  | keyword `notElem` settable =
+      Left (keyword <> " is not a TODO keyword for " <> hrId r <> " in " <> T.pack (hrFile r)
+              <> "; that row may be set to " <> T.intercalate ", " settable)
   | otherwise = Right [placed (hsTodo hs)]
   where hs = headlineSpans r
-        declared = tkActive (hrKeywords r) <> tkInactive (hrKeywords r)
+        settable = settableStates cfg r
         placed (Just sp) = (sp, keyword)
         placed Nothing   = (insertAt (spanEnd (hsStars hs)), " " <> keyword)
+
+-- | The states R may be set to: 'keywordSources' for that one row, flattened.
+--
+-- Derived from the palette's own function rather than folding
+-- 'Data.Org.Config.keywordScopes' a second time, so "what a reader is offered
+-- is what a write takes" holds by construction instead of by agreement between
+-- two dedups.  For ONE row the layout loses nothing: an empty source carries no
+-- word, and the per-source split is where a word sits rather than whether it is
+-- there.  The coupling runs the other way too, and is the point — a change to
+-- what the palette SHOWS a row is a change to what that row may be set to.
+settableStates :: ConfigLayers -> HeadlineRecord -> [Text]
+settableStates cfg r =
+  [ word | (_source, kw) <- keywordSources cfg [r], word <- tkActive kw <> tkInactive kw ]
 
 -- | The span edits @archive@ makes to R: 'archiveTag' added to its tag list.  A
 -- row already carrying it costs no edit at all, which is what makes the command
