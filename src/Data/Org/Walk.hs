@@ -30,6 +30,7 @@ module Data.Org.Walk ( Found (..)
                      , isConfig
                      , isDerived
                      , isDocument
+                     , isWalked
                      , isOrg
                      , isSidecar
                      , mapFilesConcurrently
@@ -224,6 +225,10 @@ visit opts dir acc name = do
                  Right st | isDirectory st -> pure $! fromMaybe acc declined
                  _missingOrFile            -> pure $! file
            | otherwise = pure acc
+    -- 'isWalked' is this same conjunction for a caller holding only a path.
+    -- It is not called HERE because the three predicates are already in hand:
+    -- asking again would scan the path three more times per entry, which is the
+    -- cost docs/invariants.md declines to pay for sharing one of them.
     file = if document && not (config || derived) then keepFile path acc else acc
 
 keepFile :: FilePath -> Found -> Found
@@ -289,6 +294,22 @@ mapFilesConcurrently act paths = case paths of
                                      go ((i, y) : acc)
     pop []            = ([], Nothing)
     pop (item : more) = (more, Just item)
+
+-- | Would the walk collect PATH — a document that is neither org-glance's
+-- config nor one of its derived mirrors?
+--
+-- 'visit''s own conjunction, for a caller that holds a path and nothing else.
+-- The one difference is the option: @--include-derived@ widens the walk and
+-- cannot widen this, since a caller asking of a bare path has no options to
+-- consult, so the answer here is the strict one.
+--
+-- Written down because ALL THREE predicates matter and stopping at 'isDocument'
+-- gets it wrong in a way nothing reports: @.org-glance\/config\/x.org@ and
+-- @.org-glance\/overviews\/x.org@ are org files the walk never collects, so a
+-- caller that wrote to one would be writing where no row ever comes from
+-- ('Data.Org.Config.captureTargetIn' is that caller).
+isWalked :: FilePath -> Bool
+isWalked path = isDocument path && not (isConfig path || isDerived path)
 
 -- | Is PATH a file this walk reads?  An @.org@ name that is not one of Emacs's
 -- sidecars.  The watch asks this same question of an inotify event, through the

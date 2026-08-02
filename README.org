@@ -241,10 +241,13 @@ field, with nothing written.
 second sheet over the table, one section per keyword layer: =system.org= for the
 whole tree, then a section per =tags/TAG.org=, then a read-only preview of the
 union they add up to. The system section carries one field more — the *default
-view*, the query =g= applies and the query a bare page opens on. It is the
-=#+GLANCE_DEFAULT_FILTER:= line of that same file, so it rides in that section's
-own write: one file, one digest, one splice. Empty it and the tree goes back to
-the built-in =state:*active*=. Each editable section is one box holding that file's =#+TODO:= lines
+view*, the query =g= applies and the query a bare page opens on — and one more
+after it, the *capture target*, the file =+= writes into. They are the
+=#+GLANCE_DEFAULT_FILTER:= and =#+GLANCE_CAPTURE_TARGET:= lines of that same
+file, so both ride in that section's own write: one file, one digest, one
+splice. Empty the first and the tree goes back to the built-in
+=state:*active*=; empty the second and it goes back to =inbox.org= at the root.
+Each editable section is one box holding that file's =#+TODO:= lines
 *verbatim* — the config files are org and that line is the contract, so what you
 edit is the line rather than a chip UI over a guess at what it means. A tree
 that has never had a =system.org= still lists it, marked =not created yet=: type
@@ -289,10 +292,12 @@ that stops parsing keeps the rows it had — including one saved from the browse
 with a typo in it, which is the same deal any editor offers. Restart the daemon
 and the tab re-fetches and re-mounts on its own, backing off from 1 s to 30 s.
 
-*Two keys write without opening anything.* =D= archives and =t= sets a state,
-and both run over the *marked set* when there is one and over the row at point
-when there is not — dired's rule, and org-glance's. Mark a run of rows with =m=,
-press =D=, and the pill says =D → archived (5)=. There is no
+*Six keys write without opening anything.* =D= archives, =t= sets a state,
+=C-c C-s= and =C-c C-d= set a schedule and a deadline, and =+= captures. The
+four that edit rows run over the *marked set* when there is one and over the row
+at point when there is not — dired's rule, and org-glance's; =+= names no row at
+all, because it makes one. Mark a run of rows with =m=, press =D=, and the pill
+says =D → archived (5)=. There is no
 confirmation: the page sends row ids and a name, the server works out which
 characters to move, and the rows come back over the socket a moment later
 because the file watch is still the only thing that updates the table. What
@@ -322,8 +327,8 @@ mode.
 
 A keyword is legal per *file*: the palette offers the union of every =#+TODO:=
 line loaded, and a command naming one that a row's own file does not declare is
-refused whole rather than applied to the rows whose files do. The same two
-commands from a shell:
+refused whole rather than applied to the rows whose files do. The same commands
+from a shell:
 
 #+begin_src sh
 curl -s -X POST -H 'content-type: application/json' localhost:7777/command \
@@ -335,7 +340,63 @@ curl -s -X POST -H 'content-type: application/json' localhost:7777/command \
 Rows are grouped by the file they live in and each file is written *once*, so a
 marked set spanning three files is three atomic writes rather than one per row.
 The answer is per id — =[{"id": …, "ok": true, "digest": …}]=, or an =error=
-where a file had moved — in the order you named them.
+where a file had moved — in the order you named them. =set-planning= below
+answers the same way; =capture=, which names no rows, has its own shape.
+
+*=C-c C-s= and =C-c C-d= reschedule.* Both raise a one-line prompt — the value
+palette's overlay with a field in place of its list — titled with the keyword
+and how many rows it will run over. Type a date, =RET=, done; type nothing and
+=RET= takes the entry off, and when it was the last one on the line the line
+goes with it. The two chords are the org spellings, and unlike =C-c C-t= they
+*reach the page*: =Ctrl+S= and =Ctrl+D= are page default actions the browser
+lets a page claim, where =Ctrl+T= is the browser's own.
+
+The server parses the date, once for the whole request, so a marked set cannot
+straddle midnight:
+
+| you type                | it writes                  |
+|-------------------------+----------------------------|
+| =2026-08-05=            | =<2026-08-05 Wed>=         |
+| =2026-08-05 09:30=      | =<2026-08-05 Wed 09:30>=   |
+| =today= / =tomorrow=    | today's date / the next    |
+| =+3d= / =+2w= / =+1m=   | that far out from today    |
+| =<2026-08-05 Wed +1w>=  | exactly that, kept verbatim |
+
+The weekday is *computed* rather than typed — the one thing a reader cannot be
+asked to get right — except in org's own bracketed form, where the value is
+yours and the only bar is that it reparses. Anything else is a 400 naming what
+you typed, and no row moves: half a reschedule over a marked set is worse than
+none of one.
+
+#+begin_src sh
+curl -s -X POST -H 'content-type: application/json' localhost:7777/command \
+     -d '{"name": "set-planning", "ids": ["ROW-ID"],
+          "args": {"keyword": "SCHEDULED", "date": "+3d"}}'
+#+end_src
+
+*=+= captures.* One line of raw org into the tree's inbox: type
+=TODO Buy milk :errands:= and that is a keyword, a title and a tag, exactly as
+org reads them. The entry is appended at the end of the target with a drawer
+holding =:ORG_GLANCE_CREATION_TIME: [2026-08-02 Sun 01:30]= — org-glance's own
+property, in org's inactive form, on the server's clock — and the row arrives in
+the table a moment later over the same file watch every other write goes
+through. The creation time is the server's, so the sheet never offers it for
+editing and a sync that never mentioned it puts it back untouched, exactly as it
+does the row id.
+
+Where it lands is =#+GLANCE_CAPTURE_TARGET:= in =system.org=, resolved against
+the served root; with no line anywhere it is =<root>/inbox.org=, and a target
+that is not there yet is *created*, directories and all, under the same lock
+every other write uses. A target outside the tree — an absolute path, one
+climbing out through =..=, or a name the walk would not read — is refused when
+the config is read rather than when you press =+=: the startup banner says where
+captures will go, and a misconfigured tree says so there.
+
+#+begin_src sh
+curl -s -X POST -H 'content-type: application/json' localhost:7777/command \
+     -d '{"name": "capture", "args": {"text": "TODO Buy milk :errands:"}}'
+# → {"ok": true, "file": "…/inbox.org", "digest": …}
+#+end_src
 
 *=D= archives; it never deletes.* The tag org uses goes on the headline
 (=:web:glance:= becomes =:web:glance:ARCHIVE:=, and a headline with no tags gets
@@ -391,6 +452,7 @@ parameter and a key line that had to be rewritten whenever it moved.
 | =d=         | =archive-flag=                    | flags this row; =d= again archives it          |
 | =D=         | =org-glance-overview:delete=      | archives the flagged rows, or the one at point |
 | =t=         | =org-glance-overview:todo=        | the state palette, over the marked rows        |
+| =+=         | =org-glance-overview:capture=     | one line of org into the inbox                |
 | =,=         | =customize=                       | the keyword cycles and the default view       |
 | =q=         | =quit-window=                     | closes the sheet; never the tab               |
 | =C-x C-s=   | =save-buffer=                     | syncs the sheet; again to overwrite           |
@@ -400,10 +462,9 @@ parameter and a key line that had to be rewritten whenever it moved.
 | =o= =!=     | =org-glance-overview:open=        | staged                                        |
 | =a=         | =org-glance-agenda=               | staged                                        |
 | =@=         | =org-glance-overview:relations=   | staged                                        |
-| =+=         | =org-glance-overview:capture=     | staged                                        |
 | =C-c C-t=   | =org-glance-overview:todo=        | the org spelling of =t=                       |
-| =C-c C-s=   | =org-glance-overview:schedule=    | staged                                        |
-| =C-c C-d=   | =org-glance-overview:deadline=    | staged                                        |
+| =C-c C-s=   | =org-glance-overview:schedule=    | a date over the marked rows                   |
+| =C-c C-d=   | =org-glance-overview:deadline=    | the same, as a deadline                       |
 
 *One of those does not survive the browser.* =C-c C-t= is bound, dispatched and
 claimed by the page — and in Chromium the second chord never arrives, because
@@ -413,6 +474,11 @@ half is correct and tested; there is nothing a page can do about the other half,
 which is why the same command answers to a plain =t=. The chord stays bound for
 browsers that deliver it — and for the native window (=-f native-window=), which
 has no chrome to bind =Ctrl+T= to and delivers it like any other key.
+
+The other three chords are fine. =C-x C-s=, =C-c C-s= and =C-c C-d= end on keys
+the browser treats as *page default actions* — save, save, bookmark — which a
+page is allowed to claim, so =preventDefault()= reaches them and the sequence
+completes. It is =Ctrl+T=, =Ctrl+N= and =Ctrl+W= that never arrive.
 
 No sequence is bound twice, and none opens a longer one — which is why =gg= and
 =dd= are not in the map: a complete sequence that also opens a longer one leaves

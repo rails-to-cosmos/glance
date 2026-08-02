@@ -32,7 +32,8 @@
 //                 `/' has to have put the palette in that mode first
 //   assign:A,B,C  the which-key assignment run over that cycle, as the pure
 //                 function it is
-//   refuse        the next /command answers that every row was refused
+//   refuse        the next /command refuses — every row it named, or the
+//                 capture whole, which names none
 //   bare          the mounted handle loses its mark calls, the way an older
 //                 table-view.js never had them
 //   pageless      and its pager calls, the way one older still never had those
@@ -101,6 +102,11 @@ let configTick = 1;
 // The default view `system.org' names, which `g' applies and the settings sheet
 // edits beside that layer's cycle.
 let viewQuery = "state:*active*";
+// And the capture target it names, which is the other line of that file the
+// sheet edits — plus the path the server resolves it to, which is what a
+// capture reports back and the log names.
+let captureLine = "";
+const captureTarget = "/o/inbox.org";
 
 globalThis.location = { search, protocol: "http:", host: "h", pathname: "/" };
 globalThis.history = {
@@ -133,6 +139,12 @@ globalThis.fetch = (url, init) => {
   if (String(url) === "/command") {
     const sent = JSON.parse((init || {}).body || "{}");
     commands.push(sent);
+    // Capture names no row, so it answers in its own shape: the file the
+    // server picked and the digest that file carries now.
+    if (sent.name === "capture")
+      return refusing
+        ? answer(400, { error: "#+GLANCE_CAPTURE_TARGET: /x.org is an absolute path" })
+        : answer(200, { ok: true, file: captureTarget, digest: "d1" });
     return answer(200, {
       results: (sent.ids || []).map((id) =>
         refusing ? { id, ok: false, error: "a.org changed on disk" }
@@ -141,7 +153,7 @@ globalThis.fetch = (url, init) => {
   }
   if (String(url) === "/config") {
     if ((init || {}).method !== "POST")
-      return answer(200, { layers, filter: viewQuery,
+      return answer(200, { layers, filter: viewQuery, capture: captureLine,
                            keywords: { active: ["TODO"], inactive: ["DONE"] } });
     const sent = JSON.parse((init || {}).body || "{}");
     configWrites.push(sent);
@@ -152,9 +164,11 @@ globalThis.fetch = (url, init) => {
       return answer(409, { reason: "drift", digest: (layer || {}).digest || "",
                            error: "the config file changed on disk since it was read" });
     layer.lines = (sent.lines || []).filter(Boolean);
-    // The default view is a line of the same file, so it rides in the same
-    // write and under the same digest — never a second request.
+    // The default view and the capture target are lines of the same file, so
+    // both ride in the same write under the same digest — never a second
+    // request, which a second digest would refuse anyway.
     if (sent.filter !== undefined) viewQuery = sent.filter;
+    if (sent.capture !== undefined) captureLine = sent.capture;
     layer.digest = `c${(configTick += 1)}`;
     return answer(200, { path: sent.path, digest: layer.digest });
   }
@@ -552,8 +566,10 @@ const ACTIONS = {
   // And into the settings sheet: `ctext:0=#+TODO: A | B' is the box of layer 0,
   // which is the file's `#+TODO:' lines as the sheet edits them.
   ctext: (arg) => typeInto("clayers", 1, arg),
-  // And the default view, which is the system layer's third child.
+  // And the default view, which is the system layer's third child, and the
+  // capture target, which is its fourth.
   cview: (arg) => typeInto("clayers", 2, arg),
+  ccap: (arg) => typeInto("clayers", 3, arg),
   // Every config layer moves out from under the sheet, which is the drift a
   // second writer causes.
   cmoved: () => { for (const l of layers) l.digest = "gone"; },
@@ -650,9 +666,10 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     // each layer is showing, the union it previews, and every write it sent.
     settings: field("config").className, cstate: field("cnote").className,
     cshown: field("clayers").children.map((row) => row.children[1].value),
-    // What the default-view field is showing, and what the server holds now.
+    // What the two tree-wide fields are showing, and what the server holds now.
     cview: ((field("clayers").children[0] || { children: [] }).children[2] || {}).value,
-    served: viewQuery,
+    ccap: ((field("clayers").children[0] || { children: [] }).children[3] || {}).value,
+    served: viewQuery, servedCapture: captureLine,
     ceff: field("ceff").textContent, configWrites,
   });
   // Exit on the write's own callback: a keystroke leaves the echo pill's timer

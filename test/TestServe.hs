@@ -20,9 +20,9 @@ import Network.Wai (Application, defaultRequest, requestHeaders, requestMethod)
 import Network.Wai.Test ( SRequest (SRequest)
                         , SResponse (simpleBody, simpleHeaders, simpleStatus)
                         , request, runSession, setPath, srequest )
-import System.Directory (createDirectoryIfMissing, findExecutable)
+import System.Directory (createDirectoryIfMissing, doesFileExist, findExecutable)
 import System.Exit (ExitCode (ExitSuccess))
-import System.FilePath ((</>))
+import System.FilePath (takeDirectory, (</>))
 import System.Process (readProcessWithExitCode)
 import Test.Tasty (TestTree, testGroup, withResource)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
@@ -315,11 +315,13 @@ spec = withResource (body <$> get assetsDir "/") (const (pure ())) $ \shell ->
   testGroup "Serve"
     [ headlineSpec, bannerSpec, statsSpec, cacheSpec, gzipSpec, querySpec
     , orderSpec, archiveViewSpec
-    , bootstrapSpec, materializeSpec, commitSpec, commandSpec, configSpec, indexingSpec
+    , bootstrapSpec, materializeSpec, commitSpec, commandSpec, planningSpec, captureSpec
+    , configSpec, indexingSpec
     , pageSpec shell, keymapSpec shell
     , glueSpec shell, bootSpec shell, liveSpec shell, paletteSpec shell
     , moveSpec shell, markSpec shell
-    , commandKeySpec shell, whichKeySpec shell, logSpec shell, sheetSpec shell
+    , commandKeySpec shell, promptKeySpec shell, whichKeySpec shell, logSpec shell
+    , sheetSpec shell
     , settingsSpec shell
     , touchSpec shell
     , shellFontSpec shell, assetSpec, embeddedSpec, errorSpec ]
@@ -941,6 +943,117 @@ commandKeySpec shell = testGroup "Shell commands"
           =<< textAt "phead" answer
   ]
 
+-- | The two keys that collect a LINE rather than pick from a list: @+@ and the
+-- reschedule chords.  They raise the same overlay the value palette does, in
+-- its text mode — no list, no letters, RET commits what was typed.
+--
+-- What is pinned here is the page's half: which body each key posts, that both
+-- chords are claimed off the browser, and that the log names what landed.  The
+-- date grammar is the server's and is @TestQuery@'s subject.
+promptKeySpec :: IO T.Text -> TestTree
+promptKeySpec shell = testGroup "Shell capture and reschedule"
+  [ testCase "+ raises a line to type and RET captures it" $
+      bootOf shell "" 500 "+" "type:milk press:Enter" $ \answer -> do
+        assertEqual "the palette said what it is for" "capture · a headline for the inbox"
+          =<< textAt "phead" answer
+        assertEqual "one capture, naming no rows" ["capture"] =<< namesOf answer
+        assertEqual "carrying the line as typed" ["milk"] =<< capturedOf answer
+        assertEqual "the pill names the file it landed in"
+                    "+ → org-glance-overview:capture (captured · /o/inbox.org)"
+          =<< textAt "echo" answer
+        assertEqual "and the log names the headline"
+                    (Just "headline \"milk\" captured into /o/inbox.org")
+          =<< lastLog answer
+        assertEqual "the overlay is down" "" =<< textAt "prompt" answer
+
+    -- The palette is up with a field in it, so `typing()' is true: every table
+    -- row is dead and the keys are the field's.
+  , testCase "and ESC leaves it having written nothing" $
+      bootOf shell "" 500 "+" "type:milk press:Escape" $ \answer -> do
+        assertEqual "no command went" [] =<< namesOf answer
+        assertEqual "the overlay is down" "" =<< textAt "prompt" answer
+
+  , testCase "an empty line captures nothing and says so" $
+      bootOf shell "" 500 "+" "press:Enter" $ \answer -> do
+        assertEqual "no command went" [] =<< namesOf answer
+        assertEqual "the pill says why"
+                    "+ → org-glance-overview:capture (nothing to capture)"
+          =<< textAt "echo" answer
+
+  , testCase "a refused capture is one cmd error line" $
+      bootOf shell "" 500 "" "refuse press:+ type:milk press:Enter" $ \answer -> do
+        assertEqual "the command still went" ["capture"] =<< namesOf answer
+        assertEqual "and the log carries the server's own words"
+                    (Just "capture failed: #+GLANCE_CAPTURE_TARGET: /x.org is an absolute path")
+          =<< lastLog answer
+
+    -- The chords survive the browser where `C-c C-t' does not, and what the
+    -- page owes is the same: both halves claimed off it.
+  , testCase "both reschedule chords are claimed, and name the keyword" $
+      mapM_ (\(keys, chord, keyword) ->
+               bootOf shell "" 500 keys "" $ \answer -> do
+                 assertEqual (T.unpack keys <> ": the palette is up") "on"
+                   =<< textAt "prompt" answer
+                 assertEqual "titled by the keyword and the rows it runs over"
+                             (keyword <> " · 1 row") =<< textAt "phead" answer
+                 assertEqual "neither chord was left to the browser"
+                             ["C-c", chord] =<< textsAt "prevented" answer)
+            [("C-c C-s", "C-s", "scheduled"), ("C-c C-d", "C-d", "deadline")]
+
+  , testCase "a date goes to the server as the text that was typed" $
+      bootOf shell "" 500 "C-c C-s" "type:+3d press:Enter" $ \answer -> do
+        assertEqual "one command, over the row at point"
+                    [("set-planning", ["r1"])] =<< postedOf answer
+        assertEqual "with the keyword and the date beside it"
+                    [("SCHEDULED", Just "+3d")] =<< plannedOf answer
+        assertEqual "the pill names what was asked for"
+                    "C-c C-s → org-glance-overview:schedule (+3d · 1)"
+          =<< textAt "echo" answer
+        assertEqual "and the log names the row"
+                    (Just "headline \"one\" scheduled +3d") =<< lastLog answer
+
+    -- An empty line is the clear: the entry comes off, and the server drops the
+    -- line with it when it was the last one.
+  , testCase "an empty line clears the entry" $
+      bootOf shell "" 500 "C-c C-d" "press:Enter" $ \answer -> do
+        assertEqual "a null date" [("DEADLINE", Nothing)] =<< plannedOf answer
+        assertEqual "the pill says which" "C-c C-d → org-glance-overview:deadline (cleared · 1)"
+          =<< textAt "echo" answer
+        assertEqual "and so does the log"
+                    (Just "headline \"one\" deadline cleared") =<< lastLog answer
+
+    -- The marked set, like every other command that names rows.
+  , testCase "over a marked set it names the whole set" $
+      bootOf shell "" 500 "m m C-c C-s" "type:today press:Enter" $ \answer -> do
+        assertEqual "the marked pair" [("set-planning", ["r1", "r2"])] =<< postedOf answer
+        assertEqual "and the title counts them" "scheduled · 2 rows"
+          =<< textAt "phead" answer
+  ]
+
+-- | The command names the page posted, in order — what a capture is read by,
+-- since it names no rows for 'postedOf' to report.
+namesOf :: Value -> IO [T.Text]
+namesOf answer = traverse (textAt "name") =<< listAt "commands" answer
+
+-- | The @args@ object of each posted command, which the three readers below cut
+-- their own field out of.
+argsOf :: Value -> IO [Value]
+argsOf answer = traverse (field "args") =<< listAt "commands" answer
+
+-- | The line each posted capture carried.
+capturedOf :: Value -> IO [T.Text]
+capturedOf = traverse (textAt "text") <=< argsOf
+
+-- | The keyword and date each posted @set-planning@ carried.
+plannedOf :: Value -> IO [(T.Text, Maybe T.Text)]
+plannedOf = traverse one <=< argsOf
+  where one v = (,) <$> textAt "keyword" v <*> maybeTextAt "date" v
+
+-- | The message on the last line of the event strip, or 'Nothing' where it has
+-- none.
+lastLog :: Value -> IO (Maybe T.Text)
+lastLog answer = fmap (message . cut) . listToMaybe . reverse <$> logOf answer
+
 -- | The which-key letters: the assignment, driven as the pure function it is,
 -- and the list it draws.  The letters are what a reader learns by heart, so
 -- what is pinned is that one cycle always yields the same ones — the rule is
@@ -1311,6 +1424,20 @@ settingsSpec shell = testGroup "Shell settings"
         assertEqual "no write" ([] :: [Value]) =<< listAt "configWrites" answer
         assertEqual "the sheet is down" "" =<< textAt "settings" answer
 
+    -- The system layer carries two tree-wide fields beside its cycle, and both
+    -- ride in that layer's own write: one file, one digest, one splice.
+  , testCase "the capture target is a field of the system layer, and rides its write" $
+      bootOf shell "" 500 "," "ccap:0=notes/in.org press:Escape" $ \answer -> do
+        writes <- listAt "configWrites" answer
+        assertEqual "one write, for the layer that moved" 1 (length writes)
+        assertEqual "carrying the target" "notes/in.org" =<< textAt "capture" (head writes)
+        assertEqual "and the server holds it now" "notes/in.org"
+          =<< textAt "servedCapture" answer
+
+  , testCase "and it opens on what the server serves" $
+      bootOf shell "" 500 "," "ccap:0=notes/in.org press:C-x press:C-s" $ \answer ->
+        assertEqual "the field shows what was typed" "notes/in.org" =<< textAt "ccap" answer
+
     -- Two sheets over one page would leave `C-x C-s' and `ESC' guessing which
     -- one they meant.  `typing()' is not what keeps them apart, which is the
     -- point of the case: a click on the open sheet's own header blurs its
@@ -1521,8 +1648,7 @@ postedOf answer = traverse one =<< listAt "commands" answer
 
 -- | The keyword each posted command carried, for the @set-state@ cases.
 keywordsOf :: Value -> IO [Maybe T.Text]
-keywordsOf answer =
-  traverse (maybeTextAt "keyword" <=< field "args") =<< listAt "commands" answer
+keywordsOf = traverse (maybeTextAt "keyword") <=< argsOf
 
 -- | The value palette as it is drawn: per row, its classes, the key token it
 -- claimed, its word with the bolded letter bracketed where it sits, and the
@@ -3216,6 +3342,219 @@ commandSpec = testGroup "POST /command"
         assertContains "hint" "/command takes POST" (body r)
   ]
 
+-- | @set-planning@: the reschedule keys' half of the command route.  What is
+-- pinned here is the request's shape and the whole-request refusal; the span
+-- math itself is @TestQuery@'s "set-planning" group and is not restated.
+planningSpec :: TestTree
+planningSpec = testGroup "POST /command set-planning"
+  [ testCase "a date lands as an active timestamp with the weekday computed" $
+      withCommandable $ \a _hub path _other -> do
+        before <- document path
+        r <- postTo a "/command"
+               (command "set-planning" ["first"] (planningArg "SCHEDULED" (Just "2026-08-05")))
+        assertEqual "status" 200 (status r)
+        assertEqual "the row landed" [("first", True)] =<< outcomesOf r
+        assertEqual "the line went under the title line, and nothing else moved"
+                    (T.replace "* NEXT First :one:\n"
+                               "* NEXT First :one:\nSCHEDULED: <2026-08-05 Wed>\n" before)
+          =<< document path
+
+  , testCase "and a null date takes the entry and its line off" $
+      withCommandable $ \a hub path _other -> do
+        _ <- postTo a "/command"
+               (command "set-planning" ["first"] (planningArg "DEADLINE" (Just "2026-08-05")))
+        watchStep hub path
+        before <- document path
+        assertContains "there is a line to take off" "DEADLINE: <2026-08-05 Wed>" before
+        r <- postTo a "/command"
+               (command "set-planning" ["first"] (planningArg "DEADLINE" Nothing))
+        assertEqual "status" 200 (status r)
+        assertEqual "the file is what it was before the first command"
+                    (T.replace "DEADLINE: <2026-08-05 Wed>\n" "" before) =<< document path
+
+    -- Two files, two writes, one date: the clock is read once for the request,
+    -- so a marked set cannot land on two days.
+  , testCase "over rows in two files, each file is its own write" $
+      withCommandable $ \a _hub path other -> do
+        r <- postTo a "/command"
+               (command "set-planning" ["first", "third"] (planningArg "SCHEDULED" (Just "today")))
+        assertEqual "status" 200 (status r)
+        assertEqual "both rows" [("first", True), ("third", True)] =<< outcomesOf r
+        assertEqual "two files, two digests" 2 . length . nub =<< digestsOf r
+        here <- document path
+        there <- document other
+        let dayOf = T.takeWhile (/= '\n') . T.drop 1 . T.dropWhile (/= '<')
+        assertEqual "and the same day in both" (dayOf here) (dayOf there)
+
+    -- The whole request, the way an undeclared keyword refuses one: half a
+    -- reschedule over a marked set is worse than none of one.
+  , testCase "a date no parser reads refuses the request, naming it" $
+      withCommandable $ \a _hub path other -> do
+        before <- document path
+        r <- postTo a "/command"
+               (command "set-planning" ["first", "third"]
+                        (planningArg "SCHEDULED" (Just "next tuesday")))
+        assertEqual "status" 400 (status r)
+        assertContains "names the input" "next tuesday" (body r)
+        assertEqual "the first file is untouched" before =<< document path
+        assertEqual "and so is the second" elsewhereOrg =<< document other
+
+  , testCase "and so does a keyword no key sets" $
+      withCommandable $ \a _hub path _other -> do
+        before <- document path
+        r <- postTo a "/command"
+               (command "set-planning" ["first"] (planningArg "CLOSED" (Just "2026-08-05")))
+        assertEqual "status" 400 (status r)
+        assertContains "names the keyword" "CLOSED" (body r)
+        assertEqual "nothing written" before =<< document path
+
+    -- Absent is not null: one says nothing about the entry and the other asks
+    -- for it to come off, and a client that forgot the field is told so.
+  , testCase "a request with no date at all is a 400" $
+      withCommandable $ \a _hub _path _other -> do
+        r <- postTo a "/command"
+               (command "set-planning" ["first"] (object ["keyword" .= ("SCHEDULED" :: T.Text)]))
+        assertEqual "status" 400 (status r)
+        assertContains "asks for one" "date" (body r)
+
+  , testCase "and one with no keyword either" $
+      withCommandable $ \a _hub _path _other -> do
+        r <- postTo a "/command"
+               (command "set-planning" ["first"] (object ["date" .= ("today" :: T.Text)]))
+        assertEqual "status" 400 (status r)
+        assertContains "asks for one" "keyword" (body r)
+  ]
+
+-- | @capture@: the one command that names no row, and the one write whose
+-- target comes out of the config rather than out of the request.
+captureSpec :: TestTree
+captureSpec = testGroup "POST /command capture"
+  [ -- The target may not exist: the empty digest is the pin for that, so the
+    -- first capture into a tree creates the file and the entry is the whole of
+    -- it.
+    testCase "creates the target and the entry is the whole file" $
+      withCaptureTree Nothing $ \a _hub dir -> do
+        r <- postTo a "/command" (capture "TODO Buy milk :errands:")
+        assertEqual "status" 200 (status r)
+        v <- decoded r
+        assertEqual "it says where it wrote" (T.pack (dir </> "inbox.org"))
+          =<< textAt "file" v
+        assertEqual "and that it did" True =<< boolAt "ok" v
+        written <- document (dir </> "inbox.org")
+        assertEqual "the entry, with its creation time in a drawer"
+                    [ "* TODO Buy milk :errands:", ":PROPERTIES:", ":END:" ]
+                    [ l | l <- T.lines written
+                        , not (":ORG_GLANCE_CREATION_TIME:" `T.isPrefixOf` l) ]
+        assertContains "the stamp is the property's" ":ORG_GLANCE_CREATION_TIME: [" written
+        onDisk <- digestOnDisk (dir </> "inbox.org")
+        assertEqual "and the digest it reports is the file's" onDisk =<< textAt "digest" v
+
+    -- The stamp is org's inactive form, to the minute, in the server's zone.
+  , testCase "the creation time reparses as org's own inactive timestamp" $
+      withCaptureTree Nothing $ \a _hub dir -> do
+        _ <- postTo a "/command" (capture "read the docs")
+        written <- document (dir </> "inbox.org")
+        stamp <- maybe (assertFailure ("no stamp in " <> show written)) pure
+                       (between ":ORG_GLANCE_CREATION_TIME: " "\n" written)
+        assertBool ("inactive and bracketed: " <> show stamp)
+                   ("[" `T.isPrefixOf` stamp && "]" `T.isSuffixOf` stamp)
+        assertEqual "and the shape org writes" (T.length "[2026-08-01 Sat 09:30]")
+                    (T.length stamp)
+
+    -- Appended, so a file that already holds work keeps every byte of it.
+  , testCase "a second capture appends and moves no byte of the first" $
+      withCaptureTree Nothing $ \a _hub dir -> do
+        _ <- postTo a "/command" (capture "first thing")
+        before <- document (dir </> "inbox.org")
+        _ <- postTo a "/command" (capture "second thing")
+        after <- document (dir </> "inbox.org")
+        assertBool ("appended: " <> show after) (before `T.isPrefixOf` after)
+        assertContains "and the second entry is there" "* second thing" after
+
+  , testCase "the tree's own target is where it goes" $
+      withCaptureTree (Just "notes/in.org") $ \a _hub dir -> do
+        r <- postTo a "/command" (capture "a note")
+        assertEqual "status" 200 (status r)
+        assertEqual "the configured file" (T.pack (dir </> "notes/in.org"))
+          =<< textAt "file" =<< decoded r
+        assertContains "written there" "* a note" =<< document (dir </> "notes/in.org")
+
+    -- Refused where the config is read, so a misconfigured tree says so rather
+    -- than writing outside itself.
+  , testCase "a target outside the served root is refused, and writes nothing" $
+      mapM_ (\target -> withCaptureTree (Just target) $ \a _hub dir -> do
+               r <- postTo a "/command" (capture "a note")
+               assertEqual (T.unpack target <> ": status") 400 (status r)
+               assertContains (T.unpack target) "GLANCE_CAPTURE_TARGET" (body r)
+               there <- doesFileExist (dir </> "inbox.org")
+               assertBool "and no inbox was written instead" (not there))
+            ["/tmp/glance-escape.org", "../escape.org", "inbox.txt"]
+
+    -- The watch is the one thing that updates rows, here as everywhere.
+  , testCase "the row arrives over the watch, not out of the route" $
+      withCaptureTree Nothing $ \a hub dir -> do
+        _ <- postTo a "/command" (capture "TODO Buy milk")
+        assertEqual "the store has not moved" 1 . length =<< rowsOf =<< getFrom a "/headlines"
+        watchStep hub (dir </> "inbox.org")
+        rows <- rowsOf =<< getFrom a "/headlines"
+        assertEqual "and now it has" 2 (length rows)
+        assertBool ("the captured row is in it: " <> show rows)
+                   (any (("Buy milk" `T.isInfixOf`) . T.pack . show) rows)
+
+    -- The entry a capture promises is ONE headline, so the two ways of making
+    -- it something else are 400 with nothing written.
+  , testCase "an empty line and a multi-line one are refused" $
+      withCaptureTree Nothing $ \a _hub dir ->
+        mapM_ (\(what, text') -> do
+                 r <- postTo a "/command" (capture text')
+                 assertEqual (what <> ": status") 400 (status r)
+                 there <- doesFileExist (dir </> "inbox.org")
+                 assertBool (what <> ": wrote a file anyway") (not there))
+              [("empty", ""), ("blank", "   "), ("two lines", "one\n* two")]
+
+  , testCase "and a body with no text at all says what one is" $
+      withCaptureTree Nothing $ \a _hub _dir -> do
+        r <- postTo a "/command"
+               (encode (object ["name" .= ("capture" :: T.Text), "args" .= object []]))
+        assertEqual "status" 400 (status r)
+        assertContains "names the field" "text" (body r)
+
+    -- It is the one command that needs none, so the rule that every other one
+    -- names rows must not reach it.
+  , testCase "it names no rows, and is not refused for that" $
+      withCaptureTree Nothing $ \a _hub _dir -> do
+        r <- postTo a "/command" (capture "no ids here")
+        assertEqual "status" 200 (status r)
+  ]
+
+-- | A capture as the shell sends one: no ids at all, and one line of org.
+capture :: T.Text -> BL.ByteString
+capture text' = encode (object [ "name" .= ("capture" :: T.Text)
+                               , "args" .= object ["text" .= text'] ])
+
+-- | @set-planning@'s arguments: which keyword, and the date text or the null
+-- that takes the entry off.
+planningArg :: T.Text -> Maybe T.Text -> Value
+planningArg keyword date = object ["keyword" .= keyword, "date" .= date]
+
+-- | Run K over a server holding one document and, where TARGET names one, a
+-- system config naming it as the capture target.  The hub comes with it, since
+-- what a capture leaves for the WATCH is half of what there is to check.
+withCaptureTree :: Maybe T.Text -> (Application -> Hub -> FilePath -> Assertion) -> Assertion
+withCaptureTree target k = withTempDir $ \dir -> do
+  _ <- orgFile dir "notes.org" "* TODO Already here\n"
+  mapM_ (writeSystemConfig dir) target
+  (a, hub) <- serverOver dir
+  k a hub dir
+
+-- | DIR's system layer, naming TARGET as the tree's capture target.  The path
+-- is 'systemAt''s, so no case here spells the config layout a second time.
+writeSystemConfig :: FilePath -> T.Text -> IO ()
+writeSystemConfig dir target = do
+  createDirectoryIfMissing True (takeDirectory path)
+  TIO.writeFile path ("#+GLANCE_CAPTURE_TARGET: " <> target <> "\n")
+  where path = T.unpack (systemAt dir)
+
 -- | The keyword layers, read and written.  @GET@ lists every config file the
 -- served tree has — plus the @system.org@ it could have — and @POST@ puts one
 -- layer's @#+TODO:@ block back, through the same engine, the same lock and the
@@ -3288,6 +3627,44 @@ configSpec = testGroup "GET and POST /config"
         after <- document (T.unpack (tagAt dir "book"))
         assertBool ("nothing was written: " <> show after)
                    (not ("GLANCE_DEFAULT_FILTER" `T.isInfixOf` after))
+
+    -- The capture target is the second tree-wide line of the same file, and it
+    -- travels the same way: read off the layers, written in their write.
+  , testCase "the capture target rides beside the layers too" $
+      withConfigTree $ \a _dir ->
+        assertEqual "with no line anywhere, nothing" ""
+          =<< textAt "capture" =<< decoded =<< getFrom a "/config"
+
+  , testCase "and it is written in the system layer's own write" $
+      withConfigTree $ \a dir -> do
+        digest <- textAt "digest" . head =<< listAt "layers" =<< decoded =<< getFrom a "/config"
+        r <- postTo a "/config" (captureBody (systemAt dir) [] (Just "notes/in.org") digest)
+        assertEqual "status" 200 (status r)
+        assertContains "the line is in the file" "#+GLANCE_CAPTURE_TARGET: notes/in.org"
+          =<< document (T.unpack (systemAt dir))
+        assertEqual "and the next read says so" "notes/in.org"
+          =<< textAt "capture" =<< decoded =<< getFrom a "/config"
+
+  , testCase "an emptied capture target takes the line away" $
+      withConfigTree $ \a dir -> do
+        digest <- textAt "digest" . head =<< listAt "layers" =<< decoded =<< getFrom a "/config"
+        _ <- postTo a "/config" (captureBody (systemAt dir) [] (Just "notes/in.org") digest)
+        fresh <- textAt "digest" . head =<< listAt "layers" =<< decoded =<< getFrom a "/config"
+        r <- postTo a "/config" (captureBody (systemAt dir) [] (Just "") fresh)
+        assertEqual "status" 200 (status r)
+        after <- document (T.unpack (systemAt dir))
+        assertBool ("the line is gone: " <> show after)
+                   (not ("GLANCE_CAPTURE_TARGET" `T.isInfixOf` after))
+
+  , testCase "a tag layer cannot set it either" $
+      withConfigTree $ \a dir -> do
+        digest <- digestOnDisk (T.unpack (tagAt dir "book"))
+        r <- postTo a "/config"
+               (captureBody (tagAt dir "book") ["#+TODO: TODO | DONE"] (Just "in.org") digest)
+        assertEqual "status" 200 (status r)
+        after <- document (T.unpack (tagAt dir "book"))
+        assertBool ("nothing was written: " <> show after)
+                   (not ("GLANCE_CAPTURE_TARGET" `T.isInfixOf` after))
 
     -- The page carries it as DEFAULT_QUERY, read off the store at request time.
     -- The store is the read model for everything else the page shows, and the
@@ -3457,14 +3834,23 @@ tagAt dir tag = T.pack (dir </> ".org-glance" </> "config" </> "tags" </> tag <>
 -- | A layer write: which file, the lines to put in it, and the digest it was
 -- read with.
 configBody :: T.Text -> [T.Text] -> T.Text -> BL.ByteString
-configBody path lines' = viewBody path lines' Nothing
+configBody path lines' = layerBody path lines' Nothing Nothing
 
--- | 'configBody', also setting the default view.  Absent leaves the line alone;
--- the two ride in one request because they are lines of one file.
+-- | 'configBody', also setting the default view.
 viewBody :: T.Text -> [T.Text] -> Maybe T.Text -> T.Text -> BL.ByteString
-viewBody path lines' want digest = encode (object
+viewBody path lines' want = layerBody path lines' want Nothing
+
+-- | 'configBody', also setting the capture target.
+captureBody :: T.Text -> [T.Text] -> Maybe T.Text -> T.Text -> BL.ByteString
+captureBody path lines' = layerBody path lines' Nothing
+
+-- | A layer write over all three of its lines.  Absent leaves a line alone; the
+-- three ride in one request because they are lines of one file.
+layerBody :: T.Text -> [T.Text] -> Maybe T.Text -> Maybe T.Text -> T.Text -> BL.ByteString
+layerBody path lines' want target digest = encode (object
   ([ "path" .= path, "lines" .= lines', "digest" .= digest ]
-     <> [ "filter" .= f | Just f <- [want] ]))
+     <> [ "filter" .= f | Just f <- [want] ]
+     <> [ "capture" .= c | Just c <- [target] ]))
 
 -- | Archived rows are out of the view unless the query asks for them.  @D@
 -- archives rather than deletes, so this is what keeps the default table from
@@ -3679,9 +4065,14 @@ pageSpec shell = testGroup "GET /"
         -- Four keys, one word: the line says `m/u/U/M mark' the way it says
         -- `n/p rows', since the group is one idea.
         , (["mark-toggle", "unmark", "unmark-all", "mark-all"], "mark")
-        -- The two structured commands, beside the keys that choose what they
-        -- run over.
+        -- The structured commands, beside the keys that choose what they run
+        -- over.
         , (["org-glance-overview:todo"], "state")
+        , (["org-glance-overview:schedule", "org-glance-overview:deadline"]
+          , "schedule/deadline")
+        -- The one that names no row, so it is beside the others rather than
+        -- among the keys that pick a set.
+        , (["org-glance-overview:capture"], "capture")
         -- `state' runs over the MARKED set; archiving runs over the FLAGGED
         -- one, and reads as the two steps it is.
         , (["archive-flag"], "flag for archive")
@@ -3774,7 +4165,10 @@ expectedRows =
   , (["!"],          "!",       "org-glance-overview:open",        Nothing,               "table", Nothing)
   , (["a"],          "a",       "org-glance-agenda",               Nothing,               "table", Nothing)
   , (["@"],          "@",       "org-glance-overview:relations",   Nothing,               "table", Nothing)
-  , (["+"],          "+",       "org-glance-overview:capture",     Nothing,               "table", Nothing)
+  -- The one write that names no row: it makes one, in the file the tree's own
+  -- @#+GLANCE_CAPTURE_TARGET:@ names.
+  , (["+"],          "+",       "org-glance-overview:capture",     Just "capture",        "table",
+       Just "a headline for the inbox, typed as org")
   -- dired's flag, in two presses: the first marks the row for archiving and the
   -- second does it.  Plain @d@ is never a write on its own.
   , (["d"],          "d",       "archive-flag",                    Just "archiveFlag",    "table",
@@ -3787,8 +4181,12 @@ expectedRows =
        Just "set the state of the marked rows, or the row at point")
   , (["C-c", "C-t"], "C-c C-t", "org-glance-overview:todo",        Just "setState",       "table",
        Just "the org spelling, where the browser lets it through")
-  , (["C-c", "C-s"], "C-c C-s", "org-glance-overview:schedule",    Nothing,               "table", Nothing)
-  , (["C-c", "C-d"], "C-c C-d", "org-glance-overview:deadline",    Nothing,               "table", Nothing)
+  -- Both of these survive the browser where @C-c C-t@ does not: @Ctrl+S@ and
+  -- @Ctrl+D@ are page default actions rather than chrome shortcuts.
+  , (["C-c", "C-s"], "C-c C-s", "org-glance-overview:schedule",    Just "schedulePlan",   "table",
+       planHelp)
+  , (["C-c", "C-d"], "C-c C-d", "org-glance-overview:deadline",    Just "deadlinePlan",   "table",
+       planHelp)
   -- Emacs's own name, since org-glance has no settings command and inventing
   -- one would put a name in this table that no map anywhere carries.
   , ([","],          ",",       "customize",                       Just "openSettings",   "table",
@@ -3804,6 +4202,7 @@ expectedRows =
         leftHelp  = Just "the cell to the left; from a whole row, the first column"
         topHelp   = Just "first row, again = page up"
         endHelp   = Just "last row, again = page down"
+        planHelp  = Just "a date over the marked rows, or the row at point; empty clears it"
 
 -- | The keymap blob out of SHELL, parsed.  Everything the dispatch reads is in
 -- here, so the assertions below are over data rather than over the spelling of

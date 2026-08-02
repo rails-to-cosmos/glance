@@ -31,6 +31,7 @@ module Data.Org.Edit ( Edit (..)
                      , applyEdits
                      , digestOf
                      , editFile
+                     , readDocument
                      , snapshotOf
                      , takeSnapshot
                      ) where
@@ -140,6 +141,28 @@ data EditIOError
 -- fails later, at the edit.
 takeSnapshot :: FilePath -> IO (Either EditIOError Snapshot)
 takeSnapshot path = fmap (Snapshot path . digestOf) <$> readBytes path
+
+-- | PATH's text and the digest of the bytes it was decoded from, or 'Nothing'
+-- where there is nothing readable there.
+--
+-- ONE read answers both, which is the point: a caller measuring offsets in the
+-- text and pinning its write to the digest needs them to describe the same
+-- bytes, and two reads do not promise that.  It lives beside 'takeSnapshot'
+-- because this is where the pin is defined — including the convention a caller
+-- reads 'Nothing' as, which 'currentText' spells as the empty digest and treats
+-- as "nothing is there, create it".
+--
+-- An unreadable file and an undecodable one answer alike.  That is safe rather
+-- than lossy for the creating caller: pinning the empty digest against a file
+-- that IS there makes 'editFile' re-read, digest what it finds, and refuse as
+-- 'Drift'.
+readDocument :: FilePath -> IO (Maybe (Text, Text))
+readDocument path = do
+  raw <- readBytes path
+  pure $ case raw of
+    Left _err    -> Nothing
+    Right bytes  -> either (const Nothing) (\doc -> Just (doc, digestOf bytes))
+                           (TE.decodeUtf8' bytes)
 
 -- | The snapshot PATH has while it holds DOC.  For the load path, which decoded
 -- the bytes it parsed and need not read them twice; equal to a 'takeSnapshot'

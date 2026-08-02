@@ -77,9 +77,9 @@ import Control.Concurrent (forkIO, killThread, newEmptyMVar, takeMVar, tryPutMVa
 import Control.Concurrent.STM (atomically, readTVarIO)
 import Control.Exception (SomeException, displayException, evaluate, finally, try)
 import Control.Monad (filterM, forever, join, unless, void, when)
-import Data.Aeson ( Value, eitherDecode', encode, object, toJSON, withObject
-                  , (.:), (.:?), (.=) )
-import Data.Aeson.Types (Pair, parseEither)
+import Data.Aeson ( Object, Value, eitherDecode', encode, object, toJSON, withObject
+                  , (.:), (.:!), (.:?), (.=) )
+import Data.Aeson.Types (Pair, Parser, parseEither)
 import Data.Bifunctor (first)
 import Data.FileEmbed (embedFile, makeRelativeToProject)
 import Data.List (find, nub)
@@ -110,6 +110,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Lazy.Encoding as TLE
 import qualified Data.Text.Read as TR
+import qualified Data.Time as Time
 import qualified Network.Wai.Handler.Warp as Warp
 import qualified Network.WebSockets as WS
 
@@ -119,17 +120,20 @@ import Glance.Query ( ConfigLayerFile (..), ConfigLayers (clDirs)
                     , IdCollision (..), QueryResult (..), Span (spanEnd, spanStart)
                     , TodoKeywords (..), ViewOrder (..), WalkOptions (..)
                     , WriteFailure (..), archiveEdits, archived, builtinFilter
-                    , configDirIn, configEdits, defaultFilter, defaultFilterOf
+                    , captureEdits, captureStamp, captureTargetIn, captureTargetOf
+                    , configDirIn, configEdits, currentDocument, defaultCaptureFile
+                    , defaultFilter, defaultFilterOf
                     , headlineParts, orderedForView, planningKeywords
-                    , readConfigLayers, readsAsTimestamp, recomposedSubtree
-                    , replaceSpans, setStateEdits, subtreeText, todoLines
-                    , viewJSONTextWith )
+                    , planningTimestamp, readConfigLayers, readsAsTimestamp
+                    , recomposedSubtree
+                    , replaceSpans, setPlanningEdits, setStateEdits, subtreeText
+                    , todoLines, viewJSONTextWith )
 import Glance.Web.Filter (archiveKey, matchesFilter, namesArchive)
 import Glance.Web.Store ( Client, Frame (ViewChanged), Hub, LoadState (..)
                         , Store (stConfig, stGen, stPrint), finishLoading, frameText
                         , hubLoad, hubStore, loadStoreWith, newLoadingHub, nextFrame
-                        , storeHeadline, storeKeywords, storeResult, storeTags
-                        , subscribe, unsubscribe )
+                        , storeDocument, storeHeadline, storeKeywords, storeResult
+                        , storeTags, subscribe, unsubscribe )
 import Glance.Web.Watch (watchOrgTree)
 
 -- Options
@@ -243,6 +247,11 @@ indexTree opts hub started = do
   putStrLn ("  loaded:  " <> show (length (qrRecords stats)) <> " rows from "
               <> show (qrFiles stats) <> " files in " <> seconds (loaded - started)
               <> collisionNote (qrIdCollisions stats))
+  -- Where `+' would write, said once at startup rather than discovered on the
+  -- first capture: a target this daemon will not write to is a misconfigured
+  -- tree, and the operator learns it here.
+  putStrLn ("  capture: " <> either (\why -> T.unpack why <> " — + is refused until it moves")
+                                    id (captureTargetIn (soDir opts) (stConfig store)))
   hFlush stdout
   watchOrgTree (walkFor opts) (soDir opts) hub
 
@@ -332,7 +341,7 @@ httpApp opts hub request respond = route >>= respond
              | otherwise            = pure (jsonError status405 "/headline takes GET and POST")
     -- @/command@ writes and only writes: there is nothing to read back, since
     -- the rows a command moved arrive over the socket like any other edit.
-    commandRoute | method == methodPost = runCommand hub request
+    commandRoute | method == methodPost = runCommand opts hub request
                  | otherwise            = pure (jsonError status405 "/command takes POST")
     -- @/config@ is the settings sheet's pair, and reads and writes like
     -- @/headline@: the layers with their digests, and one of them back.
@@ -638,12 +647,9 @@ commit hub (Just rid) request = do
   found <- storeHeadline rid <$> readTVarIO (hubStore hub)
   case prepare rid body found of
     Left refusal -> pure refusal
-    Right (r, digest, org) -> do
-      written <- replaceSpans (hrFile r) digest [(hrSubtree r, org)]
-      pure $ case written of
-        Right fresh              -> jsonResponse status200 ["digest" .= fresh]
-        Left (WriteDrift onDisk) -> conflict "drift" onDisk rewritten
-        Left (WriteRefused why)  -> jsonError status500 why
+    Right (r, digest, org) ->
+      answerWrite rewritten (\fresh -> ["digest" .= fresh])
+        <$> replaceSpans (hrFile r) digest [(hrSubtree r, org)]
 
 -- | What writing RID needs — the record, the digest to pin and the text to
 -- splice — or the response refusing to.  Every refusal but the write's own is
@@ -704,6 +710,23 @@ reparsed  = "the file was re-read since this subtree was materialized" <> again
 rewritten = "the file changed on disk since this subtree was materialized" <> again
 configMoved = "the config file changed on disk since it was read; open settings again"
 
+captureMoved :: FilePath -> Text
+captureMoved path =
+  T.pack path <> " changed on disk while the entry was being written; capture it again"
+
+-- | What a drift-locked write answers: the file's new digest with whatever else
+-- OK wants beside it, the 409 MOVED spells, or the 500 the engine's own refusal
+-- is.
+--
+-- Three routes write files and all three answer this way, so the sentence a
+-- moved file gets is the only thing any of them chooses — which is what keeps a
+-- client's handling of a refusal the same whichever route it asked.
+answerWrite :: Text -> (Text -> [Pair]) -> Either WriteFailure Text -> Response
+answerWrite moved ok written = case written of
+  Right fresh              -> jsonResponse status200 (ok fresh)
+  Left (WriteDrift onDisk) -> conflict "drift" onDisk moved
+  Left (WriteRefused why)  -> jsonError status500 why
+
 again :: Text
 again = "; materialize it again and re-apply the edit"
 
@@ -749,8 +772,13 @@ configView opts hub = do
           , "keywords" .= keywordsJSON (storeKeywords st)
           -- What the table opens on, and what a bare `g' applies: read off the
           -- files beside the lines, since it is a line of the same file and its
-          -- write rides in the same request.
+          -- write rides in the same request.  The capture target is the second
+          -- line of that kind and travels the same way.
           , "filter"   .= servedFilter layers
+          -- Empty rather than null where no layer names one: the fallback here
+          -- is a PATH this server computes rather than a value to show, and the
+          -- settings field's placeholder is what says so.
+          , "capture"  .= fromMaybe "" (systemLine captureTargetOf layers)
           ])
 
 -- | The default view LAYERS name, or the built-in where none does.  The system
@@ -762,9 +790,15 @@ configView opts hub = do
 -- line and fall back to 'builtinFilter', and a file that is not there names
 -- nothing either way.
 servedFilter :: [ConfigLayerFile] -> Text
-servedFilter layers =
-  fromMaybe builtinFilter
-    (listToMaybe [ f | l <- layers, Nothing <- [lfTag l], Just f <- [defaultFilterOf (lfText l)] ])
+servedFilter layers = fromMaybe builtinFilter (systemLine defaultFilterOf layers)
+
+-- | The value READ takes off the first SYSTEM layer that names one, or
+-- 'Nothing' where none does.  Both tree-wide settings are read this way, off
+-- the same bytes the digests were taken from, so what a settings sheet shows
+-- and what its write is pinned to describe one file.
+systemLine :: (Text -> Maybe Text) -> [ConfigLayerFile] -> Maybe Text
+systemLine reader layers =
+  listToMaybe [ v | l <- layers, Nothing <- [lfTag l], Just v <- [reader (lfText l)] ]
 
 layerJSON :: ConfigLayerFile -> Value
 layerJSON f = object
@@ -811,22 +845,21 @@ configWrite opts hub request = do
 -- | WANT written into one of DIRS' layers, or the refusal.  The lookup that
 -- decides which file is the read the edits are then measured in, so the two
 -- cannot be describing different bytes.
-writeLayer :: [FilePath] -> (Text, [Text], Maybe Text, Text) -> IO Response
-writeLayer dirs (path, asked, want, digest) = do
+writeLayer :: [FilePath] -> (Text, [Text], Maybe Text, Maybe Text, Text) -> IO Response
+writeLayer dirs (path, asked, want, target, digest) = do
   layers <- readConfigLayers dirs
   case find ((== path) . T.pack . lfPath) layers of
     Nothing -> pure (jsonError status400 (noSuchLayer path layers))
-    Just f  -> case configEdits (lfText f) asked (systemOnly f) of
+    Just f  -> case configEdits (lfText f) asked (systemOnly f want)
+                                (systemOnly f target) of
       Left why    -> pure (jsonError status400 why)
-      Right edits -> answer <$> replaceSpans (lfPath f) digest edits
+      Right edits -> answerWrite configMoved written
+                       <$> replaceSpans (lfPath f) digest edits
   where
-    -- The default view is the SYSTEM layer's line and no other's, so a tag
-    -- layer's write leaves it alone whatever the request said.
-    systemOnly f = maybe want (const Nothing) (lfTag f)
-    answer written = case written of
-      Right fresh              -> jsonResponse status200 ["path" .= path, "digest" .= fresh]
-      Left (WriteDrift onDisk) -> conflict "drift" onDisk configMoved
-      Left (WriteRefused why)  -> jsonError status500 why
+    -- Both tree-wide lines are the SYSTEM layer's and no other's, so a tag
+    -- layer's write leaves them alone whatever the request said.
+    systemOnly f v = maybe v (const Nothing) (lfTag f)
+    written fresh = ["path" .= path, "digest" .= fresh]
 
 noSuchLayer :: Text -> [ConfigLayerFile] -> Text
 noSuchLayer path layers =
@@ -837,17 +870,18 @@ noSuchLayer path layers =
 -- because a layer can spell its cycle over more than one @#+TODO:@ line, and a
 -- client editing them as text splits on its own newlines rather than asking
 -- this server to.
--- @filter@ is the default view the same file names, and it is optional: absent
--- leaves the @#+GLANCE_DEFAULT_FILTER:@ line exactly as it is, empty takes it
--- away, and anything else writes it.  It rides in this one request because it
--- is a line of the same file — two requests would be two writes under two
--- digests, the second of which the first had just invalidated.
-parseConfigWrite :: BL.ByteString -> Either Text (Text, [Text], Maybe Text, Text)
+-- @filter@ and @capture@ are the default view and the capture target the same
+-- file names, and both are optional: absent leaves that line exactly as it is,
+-- empty takes it away, and anything else writes it.  They ride in this one
+-- request because they are lines of the same file — three requests would be
+-- three writes under three digests, each of which the one before it had just
+-- invalidated.
+parseConfigWrite :: BL.ByteString -> Either Text (Text, [Text], Maybe Text, Maybe Text, Text)
 parseConfigWrite raw = first (("body: " <>) . T.pack) $ do
   value <- eitherDecode' raw
   parseEither (withObject "config write" shape) value
-  where shape o = (,,,) <$> o .: "path" <*> o .: "lines"
-                        <*> o .:? "filter" <*> o .: "digest"
+  where shape o = (,,,,) <$> o .: "path" <*> o .: "lines"
+                         <*> o .:? "filter" <*> o .:? "capture" <*> o .: "digest"
 
 -- Commands
 
@@ -855,9 +889,24 @@ parseConfigWrite raw = first (("body: " <>) . T.pack) $ do
 -- and any digests the client wants the write pinned to.
 data Command = Command
   { cmdName    :: !Text
-  , cmdIds     :: ![Text]                -- ^ in the order named, deduplicated.
-  , cmdArgs    :: !(Maybe (Maybe Text))  -- ^ @set-state@'s keyword: absent, present, or null.
-  , cmdDigests :: !(Map Text Text)       -- ^ id to the digest the client holds for its file.
+  , cmdIds     :: ![Text]           -- ^ in the order named, deduplicated; empty for @capture@.
+  , cmdArgs    :: !Args             -- ^ whatever @args@ carried.
+  , cmdDigests :: !(Map Text Text)  -- ^ id to the digest the client holds for its file.
+  }
+
+-- | The @args@ object, read once for every command that takes one.  Three
+-- fields between them, and a request naming one command leaves the rest absent:
+-- @keyword@ is @set-state@'s state and @set-planning@'s planning keyword — one
+-- field because the wire spells both that way — @date@ is the timestamp text,
+-- and @text@ is the line @capture@ writes.
+--
+-- The two nested 'Maybe's are the distinction the whole command layer turns on:
+-- ABSENT is a request that said nothing, which is a 400, and NULL is a request
+-- that asked for the value to come off.
+data Args = Args
+  { agKeyword :: !(Maybe (Maybe Text))
+  , agDate    :: !(Maybe (Maybe Text))
+  , agText    :: !(Maybe Text)
   }
 
 -- | One file's share of a command: the write it costs, and the ids it answers
@@ -870,9 +919,17 @@ data FilePlan = FilePlan
 
 -- | The commands this route implements, which is also the whole of what @args@
 -- can mean: @set-state@ takes @{"keyword": "DONE"}@ or @{"keyword": null}@,
--- @archive@ takes nothing.
+-- @set-planning@ takes @{"keyword": "SCHEDULED", "date": "+3d"}@ or a null
+-- date, @capture@ takes @{"text": "TODO Buy milk :errands:"}@, and @archive@
+-- takes nothing.
 commandNames :: [Text]
-commandNames = ["archive", "set-state"]
+commandNames = ["archive", "capture", "set-planning", "set-state"]
+
+-- | The one command that names no rows: it MAKES one.  Everything else here is
+-- an edit to headlines a client can point at, and this is the insertion the
+-- other three do not need.
+rowlessCommand :: Text
+rowlessCommand = "capture"
 
 -- | @POST \/command@ with body @{"name": …, "ids": […], "args": {…}}@: a
 -- structured write over the rows the client names.  @"id"@ is accepted for an
@@ -904,31 +961,84 @@ commandNames = ["archive", "set-state"]
 -- Nothing here touches the store, exactly as with @POST \/headline@: the write
 -- goes to the file, the watch re-reads it and streams the rows, so a browser
 -- command reaches every open tab by the path an editor's save takes.
-runCommand :: Hub -> Request -> IO Response
-runCommand hub request = do
+runCommand :: ServeOptions -> Hub -> Request -> IO Response
+runCommand opts hub request = do
   body <- takeBody bodyLimit request
   st <- readTVarIO (hubStore hub)
   -- The cap outranks every other refusal, the way it does on the other write
   -- route: this server declines to read a megabyte to find out what it says.
   case body of
     Nothing  -> pure (jsonError status413 tooBig)
-    -- Everything that can refuse the request is decided before a file is
-    -- opened, so what the plan hands back is either the 400 or the IO that
-    -- writes: one Left branch, and the ordering of the answer stays beside the
-    -- command that named the ids.
-    Just raw -> either (pure . jsonError status400) id (planned st raw)
+    Just raw -> case parseCommand raw of
+      Left why -> pure (jsonError status400 why)
+      Right cmd
+        | cmdName cmd == rowlessCommand -> captureInto opts st cmd
+        -- The clock is read ONCE per request, ahead of any row, so a marked set
+        -- crossing midnight cannot land on two days.  Everything that can refuse
+        -- is then decided before a file is opened, so what is left is either the
+        -- 400 or the IO that writes.
+        | otherwise -> do
+            stamp <- resolveDate cmd
+            either (pure . jsonError status400) id (stamp >>= \at -> overRows st at cmd)
   where
     tooBig = "body over " <> T.pack (show bodyLimit) <> " bytes"
-    planned st raw = do
-      cmd <- parseCommand raw
-      (plans, said) <- planCommand st cmd
-      pure $ do
-        written <- mapM writeOne plans
-        -- Answered in the order the client named the ids, so a caller can zip
-        -- the results against what it asked for.
-        let outcomes = said <> concat written
-        pure (jsonResponse status200
-                ["results" .= [ v | rid <- cmdIds cmd, Just v <- [lookup rid outcomes] ]])
+
+-- | CMD's rows written, as the IO that writes them or the 400 that stops it.
+-- STAMP is @set-planning@'s date already worked out, and is nothing to every
+-- other name.
+overRows :: Store -> Maybe Text -> Command -> Either Text (IO Response)
+overRows st stamp cmd = do
+  (plans, said) <- planCommand st stamp cmd
+  pure $ do
+    written <- mapM writeOne plans
+    -- Answered in the order the client named the ids, so a caller can zip the
+    -- results against what it asked for.
+    let outcomes = said <> concat written
+    pure (jsonResponse status200
+            ["results" .= [ v | rid <- cmdIds cmd, Just v <- [lookup rid outcomes] ]])
+
+-- | The timestamp CMD's rows are to carry: its date text rendered against the
+-- server's today ('Glance.Query.planningTimestamp'), 'Nothing' where the
+-- request asked for the entry to come off, and 'Nothing' for a command that has
+-- no date at all.
+--
+-- Worked out ONCE, before any row is planned, for two reasons: a marked set
+-- crossing midnight would otherwise land on two days, and a text no date parser
+-- reads is the WHOLE request's 400 the way an undeclared keyword is — half a
+-- reschedule over a marked set is worse than none of one.  The answer is handed
+-- on as a value rather than written back into 'Args', so @agDate@ means the text
+-- the client typed everywhere and at every point in the request.
+resolveDate :: Command -> IO (Either Text (Maybe Text))
+resolveDate cmd = case join (agDate (cmdArgs cmd)) of
+  Just text | cmdName cmd == "set-planning" -> do
+    today <- Time.localDay . Time.zonedTimeToLocalTime <$> Time.getZonedTime
+    pure (Just <$> planningTimestamp today text)
+  _nothingToResolve -> pure (Right Nothing)
+
+-- | @capture@: CMD's line appended to the tree's capture target as a top entry.
+--
+-- The target comes out of the config ('Glance.Query.captureTargetIn'), which is
+-- also where a target this daemon will not write to is refused — so a misspelled
+-- pragma is a 400 naming itself rather than a file written outside the tree.
+--
+-- The write is every other write: the document and the digest come off the STORE
+-- where it holds the file, since that is the text this server last read, and off
+-- a fresh read where it does not — a target that is not there yet reads as the
+-- empty document under the empty digest, which is what
+-- 'Data.Org.Edit.editFile' creates under.  Either way the offset and the lock
+-- describe one text.  Nothing here touches the store: the watch re-reads the
+-- file and streams the new row, exactly as it does for a capture out of Emacs.
+captureInto :: ServeOptions -> Store -> Command -> IO Response
+captureInto opts st cmd = case captureTargetIn (soDir opts) (stConfig st) of
+  Left why   -> pure (jsonError status400 why)
+  Right path -> do
+    (doc, digest) <- maybe (currentDocument path) pure (storeDocument path st)
+    now <- Time.getZonedTime
+    case captureEdits doc (captureStamp now) (fromMaybe "" (agText (cmdArgs cmd))) of
+      Left why    -> pure (jsonError status400 why)
+      Right edits -> answerWrite (captureMoved path) (landed path)
+                       <$> replaceSpans path digest edits
+  where landed path fresh = ["ok" .= True, "file" .= path, "digest" .= fresh]
 
 -- | PLAN's file written once, and what that came to for each of its ids.  Both
 -- outcomes are shared by the whole group, because the write is: the batch lands
@@ -948,8 +1058,8 @@ writeOne plan = report <$> replaceSpans (fpPath plan) (fpDigest plan) spliced
 -- rather than in the IO above: an id the store has no row for, and a digest the
 -- client pinned that the store no longer holds, which is the same @stale@ check
 -- @POST \/headline@ makes and is per file because a digest is per file.
-planCommand :: Store -> Command -> Either Text ([FilePlan], [(Text, Value)])
-planCommand st cmd = do
+planCommand :: Store -> Maybe Text -> Command -> Either Text ([FilePlan], [(Text, Value)])
+planCommand st stamp cmd = do
   rows <- mapM withEdits [ r | rid <- cmdIds cmd, Just r <- [storeHeadline rid st] ]
   let groups = groupOn (hrFile . fst) rows
   pure ( [ FilePlan path (hrDigest r0) [ (hrId r, edits) | (r, edits) <- rs ]
@@ -957,7 +1067,7 @@ planCommand st cmd = do
        , missing <> [ (hrId r, refused (hrId r) (staleWhy path))
                     | (path, rs) <- groups, stale rs, (r, _edits) <- rs ] )
   where
-    withEdits r = (,) r <$> commandEdits cmd r
+    withEdits r = (,) r <$> commandEdits stamp cmd r
     missing = [ (rid, refused rid ("no headline with id " <> rid))
               | rid <- cmdIds cmd, Nothing <- [storeHeadline rid st] ]
     stale rs = or [ pinned /= hrDigest r
@@ -966,13 +1076,17 @@ planCommand st cmd = do
                       <> " has been re-read since these rows were fetched; ask for them again"
 
 -- | The span edits CMD asks for on R, or why the request cannot be served at
--- all.  Only 'setStateEdits' refuses, and its refusal is the whole request's:
--- a keyword one named row's file does not declare stops the command rather than
--- moving the rows whose files do declare it.
-commandEdits :: Command -> HeadlineRecord -> Either Text [(Span, Text)]
-commandEdits cmd r
-  | cmdName cmd == "set-state" = setStateEdits (join (cmdArgs cmd)) r
-  | otherwise                  = Right (archiveEdits r)
+-- all.  Two of the three refuse, and a refusal is the WHOLE request's: a keyword
+-- one named row's file does not declare, or a planning keyword no key sets,
+-- stops the command rather than moving the rows it could have moved.
+commandEdits :: Maybe Text -> Command -> HeadlineRecord -> Either Text [(Span, Text)]
+commandEdits stamp cmd r = case cmdName cmd of
+  "set-state"    -> setStateEdits (join (agKeyword args)) r
+  -- The keyword is there: 'parseCommand' refuses a @set-planning@ without one,
+  -- so the empty string is a case this cannot reach.
+  "set-planning" -> setPlanningEdits (fromMaybe "" (join (agKeyword args))) stamp r
+  _archive       -> Right (archiveEdits r)
+  where args = cmdArgs cmd
 
 -- | One row's outcome: the file's new digest, so a caller can pin its next
 -- write without re-reading.
@@ -1000,20 +1114,32 @@ parseCommand raw =
       name <- o .: "name"
       one <- o .:? "id"
       several <- o .:? "ids"
-      args <- o .:? "args"
       digests <- o .:? "digests"
-      keyword <- traverse (withObject "args" (.:? "keyword")) args
+      -- @.:!@ rather than @.:?@ for the two nullable fields, and that is the
+      -- whole of how ABSENT is told from NULL: @.:?@ folds a null into an
+      -- absence, which would make @{"args": {}}@ an instruction to clear.
+      -- A request with no @args@ at all reads as an empty one, so there is no
+      -- second shape to carry.
+      a <- fromMaybe mempty <$> (o .:? "args" :: Parser (Maybe Object))
+      parsed <- Args <$> a .:! "keyword" <*> a .:! "date" <*> a .:? "text"
       pure (Command name (nub (maybe [] pure one <> fromMaybe [] several))
-                    keyword (fromMaybe Map.empty digests))
+                    parsed (fromMaybe Map.empty digests))
     checked cmd
       | cmdName cmd `notElem` commandNames =
           Left ("no such command: " <> cmdName cmd <> "; this server runs "
                   <> T.intercalate " and " commandNames)
-      | null (cmdIds cmd) =
+      | cmdName cmd /= rowlessCommand, null (cmdIds cmd) =
           Left "a command names rows: {\"ids\": [\"…\"]}, or {\"id\": \"…\"} for one"
-      | cmdName cmd == "set-state", Nothing <- cmdArgs cmd =
+      | cmdName cmd == "set-state", Nothing <- agKeyword args =
           Left "set-state wants args {\"keyword\": \"DONE\"}, or a null keyword to clear it"
+      | cmdName cmd == "set-planning", Nothing <- join (agKeyword args) =
+          Left "set-planning wants args {\"keyword\": \"SCHEDULED\", \"date\": \"+3d\"}"
+      | cmdName cmd == "set-planning", Nothing <- agDate args =
+          Left "set-planning wants a date, or a null one to take the entry off"
+      | cmdName cmd == rowlessCommand, Nothing <- agText args =
+          Left "capture wants args {\"text\": \"TODO Buy milk :errands:\"}"
       | otherwise = Right cmd
+      where args = cmdArgs cmd
 
 -- | The @id@ parameter of REQUEST, when it carries one with a value.
 queryId :: Request -> Maybe Text
@@ -1371,7 +1497,10 @@ keyBindings =
   , bind ["!"]          "org-glance-overview:open"        Nothing                 "table"
   , bind ["a"]          "org-glance-agenda"               Nothing                 "table"
   , bind ["@"]          "org-glance-overview:relations"   Nothing                 "table"
-  , bind ["+"]          "org-glance-overview:capture"     Nothing                 "table"
+  -- The one command that names no row: it writes a new entry into the tree's
+  -- capture target, which is a line of the system config.
+  , bind ["+"]          "org-glance-overview:capture"     (Just "capture")        "table"
+      `helps` "a headline for the inbox, typed as org"
   -- dired's flag, and dired's @dd@: the first press flags the row and the second
   -- archives every flagged row at once — @D@'s own job, reached through @D@'s own
   -- handler, so a lone flag is a set of one and the single-row flow is the
@@ -1388,8 +1517,13 @@ keyBindings =
       `helps` "set the state of the marked rows, or the row at point"
   , bind ["C-c", "C-t"] "org-glance-overview:todo"        (Just "setState")       "table"
       `helps` "the org spelling, where the browser lets it through"
-  , bind ["C-c", "C-s"] "org-glance-overview:schedule"    Nothing                 "table"
-  , bind ["C-c", "C-d"] "org-glance-overview:deadline"    Nothing                 "table"
+      -- Both chords survive the browser, where @C-c C-t@ does not: @Ctrl+S@ and
+      -- @Ctrl+D@ are page default actions rather than chrome shortcuts, so
+      -- @preventDefault@ on the completing chord is the whole of what they need.
+  , bind ["C-c", "C-s"] "org-glance-overview:schedule"    (Just "schedulePlan")   "table"
+      `helps` planningHelp
+  , bind ["C-c", "C-d"] "org-glance-overview:deadline"    (Just "deadlinePlan")   "table"
+      `helps` planningHelp
   , bind [","]          "customize"                       (Just "openSettings")   "table"
       `helps` "the keyword cycles and the default view, a config layer at a time"
   , bind ["C-x", "C-s"] "save-buffer"                     (Just "save")           "modal"
@@ -1414,6 +1548,11 @@ previousColumnHelp = "the cell to the left; from a whole row, the first column"
 firstRowHelp, lastRowHelp :: Text
 firstRowHelp = "first row, again = page up"
 lastRowHelp  = "last row, again = page down"
+
+-- | The reschedule help line, shared by the two keys: what they take differs by
+-- one word and what a reader has to know does not.
+planningHelp :: Text
+planningHelp = "a date over the marked rows, or the row at point; empty clears it"
 
 -- | Chords the browser needs more than this page does: never claimed as the key
 -- that abandons a prefix this map had entered, which is what leaves @C-x C-l@
@@ -1462,6 +1601,8 @@ keyHints =
   -- is named as the two steps it is — `d' puts a flag on, and either key takes
   -- the flagged rows off.
   , (["org-glance-overview:todo"],         "state")
+  , (["org-glance-overview:schedule", "org-glance-overview:deadline"], "schedule/deadline")
+  , (["org-glance-overview:capture"],      "capture")
   , (["archive-flag"],                     "flag for archive")
   , (["archive-flag", "org-glance-overview:delete"], "archive flagged")
   , (["filter-rows"],                      "filter")
@@ -2535,13 +2676,27 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- the count alone is the default, and a key that ran over a named set says
     -- which set it was — falling back to the bare count when nothing landed,
     -- since "row" over zero rows would be a lie.
-  , "    function fire(b, name, ids, args, verb, how) {"
+    -- The route, and the only place this page spells it: a body in, the answer
+    -- out, and the server's own words thrown where it refused.  Both writing
+    -- keys go through it — the one that names rows and the one that makes one —
+    -- so what a refusal looks like is decided once.
+  , "    const postCommand = (body) =>"
   , "      fetch(\"/command\", {"
   , "        method: \"POST\","
   , "        headers: { \"content-type\": \"application/json\" },"
-  , "        body: JSON.stringify({ name, ids, args }),"
+  , "        body: JSON.stringify(body),"
   , "      }).then((r) => r.json().then((answer) => {"
   , "        if (!r.ok) throw new Error(answer.error || r.status);"
+  , "        return answer;"
+  , "      }));"
+    -- And the one shape a failed write takes: the pill says what went wrong and
+    -- the strip keeps it, named by the command that was asked for.
+  , "    const failed = (b, name) => (e) => {"
+  , "      said(b, e.message);"
+  , "      append(\"cmd\", \"error\", `${name} failed: ${e.message}`);"
+  , "    };"
+  , "    function fire(b, name, ids, args, verb, how) {"
+  , "      postCommand({ name, ids, args }).then((answer) => {"
   , "        const results = answer.results || [];"
   , "        const bad = results.filter((x) => !x.ok);"
   , "        const landed = results.length - bad.length;"
@@ -2549,14 +2704,13 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- What one landed write did, per row.  The two names are the route's whole
     -- vocabulary, so the wording sits here rather than at each key that fires.
   , "        const what = name === \"archive\" ? \"archived\""
+  , "          : name === \"set-planning\""
+  , "            ? `${args.keyword.toLowerCase()} ${args.date || \"cleared\"}`"
   , "          : args.keyword ? `→ ${args.keyword}` : \"state cleared\";"
   , "        for (const x of results) if (x.ok) noted(x.id, what);"
   , "        if (bad.length)"
   , "          append(\"cmd\", \"error\", bad.map((x) => `${x.id}: ${x.error}`).join(\" · \"));"
-  , "      })).catch((e) => {"
-  , "        said(b, e.message);"
-  , "        append(\"cmd\", \"error\", `${name} failed: ${e.message}`);"
-  , "      });"
+  , "      }).catch(failed(b, name));"
   , "    }"
     -- Archiving: ONE implementation, reached by both keys.  The tag goes on, the
     -- headline stays, and the default view stops showing it.  It runs over the
@@ -2583,6 +2737,43 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      const id = focusedId();"
   , "      if (id) fire(b, \"archive\", [id], {}, \"archived\", (n) => (n ? \"row\" : n));"
   , "      else said(b, \"no row\");"
+  , "    }"
+    -- Capture: the one write that names no row, so it takes none of the
+    -- selection machinery above.  The line is raw org — `TODO Buy milk
+    -- :errands:' captures a keyword, a title and a tag — and the server decides
+    -- WHERE, out of the tree's own `#+GLANCE_CAPTURE_TARGET:'.  The row comes
+    -- back over the socket once the watch has read the file it was written to,
+    -- like every other write here.
+  , "    function captureRow(b, text) {"
+  , "      const typed = text.trim();"
+  , "      if (!typed) { said(b, \"nothing to capture\"); return; }"
+  , "      postCommand({ name: \"capture\", args: { text: typed } }).then((a) => {"
+  , "        said(b, `captured · ${a.file}`);"
+  , "        append(\"cmd\", \"info\","
+      <> " `headline ${JSON.stringify(typed)} captured into ${a.file}`);"
+  , "      }).catch(failed(b, \"capture\"));"
+  , "    }"
+    -- Reschedule: the same shape as the state palette, over the same rows —
+    -- marked set, else the row at point — with a line of text where that one has
+    -- a list.  The server parses the date (ISO, `+3d', `today', or org's own
+    -- bracketed form) and refuses anything else as the whole request, so an
+    -- unreadable line moves no row rather than some of them.  An EMPTY line
+    -- clears the entry, which is how the planning line comes off.
+    -- The rows a keyed write runs over, and the title that names them: the two
+    -- keys that ask something before writing count them the same way, so the
+    -- plural sits here rather than at each of them.
+  , "    function overTargets(b, label, k) {"
+  , "      const ids = targets();"
+  , "      if (!ids.length) { said(b, \"no row\"); return; }"
+  , "      k(ids, `${label} · ${ids.length} row${ids.length === 1 ? \"\" : \"s\"}`);"
+  , "    }"
+  , "    function planRows(b, keyword) {"
+  , "      overTargets(b, keyword.toLowerCase(), (ids, title) =>"
+  , "        askText(title, \"RET sets it · empty clears it · ESC leaves\", \"\", (c) => {"
+  , "          const date = c.text.trim();"
+  , "          fire(b, \"set-planning\", ids, { keyword, date: date || null },"
+  , "               date || \"cleared\");"
+  , "        }));"
   , "    }"
     -- The value palette: a prompt of this page's own, since the renderer's
     -- overlay belongs to the filter and this page may not reach into it.  ESC is
@@ -2642,6 +2833,23 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      el(\"pinput\").value = \"\";"
   , "      el(\"prompt\").className = \"on\";"
   , "      mode(\"\", \"a letter sets it · / to search · ESC leaves\");"
+  , "    }"
+    -- The same overlay with no list in it: one line of text, typed and
+    -- committed with RET.  It is the minibuffer the filter palette set the
+    -- pattern for, and it is this one rather than a widget of its own because
+    -- everything a prompt owes — the band it paints in, the blur on the way
+    -- out, ESC through the keymap's `cancel' — is already here.  `text' is what
+    -- the key listener reads to know there is nothing to narrow and nothing a
+    -- letter would commit.
+  , "    function askText(title, foot, initial, commit) {"
+    -- No list, so no `choices' and no cursor: `shown' is the one the drawing
+    -- reads, and it stays empty for the life of this prompt.
+  , "      prompting = { shown: [], commit, text: true, raising: true };"
+  , "      el(\"phead\").textContent = title;"
+  , "      el(\"pinput\").value = initial;"
+  , "      el(\"prompt\").className = \"on\";"
+  , "      mode(\"narrow\", foot);"
+  , "      el(\"pinput\").focus();"
   , "    }"
     -- The fallback, entered by `/' and never left: everything is reachable by
     -- typing, the unbound entries included, and ESC closes the palette from
@@ -2710,7 +2918,8 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      unask();"
   , "      act(chosen);"
   , "    }"
-  , "    el(\"pinput\").addEventListener(\"input\", (e) => prompting && narrowTo(e.target.value));"
+  , "    el(\"pinput\").addEventListener(\"input\", (e) =>"
+  , "      prompting && !prompting.text && narrowTo(e.target.value));"
   , "    el(\"prompt\").addEventListener(\"click\", (e) =>"
   , "      { if (e.target === el(\"prompt\")) unask(); });"
     -- What C-c C-t offers: the state column's badges, which are the keyword
@@ -2729,6 +2938,9 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- What the tree falls back to with no `#+GLANCE_DEFAULT_FILTER:' line, which
     -- is what the settings field says an empty box means.
   , "    const BUILTIN_QUERY = " <> jsonText builtinFilter <> ";"
+    -- And where a capture lands with no `#+GLANCE_CAPTURE_TARGET:' line, which
+    -- is what the settings field says an empty box means.
+  , "    const CAPTURE_DEFAULT = " <> jsonText (T.pack defaultCaptureFile) <> ";"
     -- The colour is the badge's own, so a keyword reads in the palette as it
     -- reads in the table; the group is the producer's, and it is what the
     -- hairlines are drawn on.
@@ -2775,7 +2987,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      }));"
   , "    function drawLayers(b) {"
   , "      el(\"clayers\").textContent = \"\";"
-  , "      crows = (b.layers || []).map((l) => layerRow(l, b.filter || \"\"));"
+  , "      crows = (b.layers || []).map((l) => layerRow(l, b.filter || \"\", b.capture || \"\"));"
   , "      const kw = b.keywords || {};"
   , "      el(\"ceff\").textContent ="
   , "        `${(kw.active || []).join(\" \")} | ${(kw.inactive || []).join(\" \")}`;"
@@ -2784,7 +2996,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- and a line for whatever the server said about the last write to it.  A
     -- layer with no digest is not a file yet — saying so is what makes creating
     -- the first one an edit rather than a mystery.
-  , "    function layerRow(layer, viewText) {"
+  , "    function layerRow(layer, viewText, captureText) {"
   , "      const row = document.createElement(\"div\");"
   , "      row.className = \"crow\";"
   , "      const lab = document.createElement(\"div\");"
@@ -2800,7 +3012,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      note.className = \"cerr\";"
   , "      row.appendChild(lab); row.appendChild(box);"
   , "      const r = { path: layer.path, digest: layer.digest, base: box.value,"
-  , "                  box, note, view: null, viewBase: null };"
+  , "                  box, note, view: null, viewBase: null, cap: null, capBase: null };"
     -- The default view is a LINE of `system.org' and of no other file, so its
     -- field sits under that layer and rides in that layer's write: one file,
     -- one digest, one splice.  Emptying it takes the line away, which is the
@@ -2813,6 +3025,16 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        view.value = r.viewBase = viewText;"
   , "        row.appendChild(view);"
   , "        r.view = view;"
+    -- And the capture target, the second tree-wide line of that file: where `+'
+    -- writes, relative to the served root.  Emptying it is the tree going back
+    -- to the default rather than to nowhere, which is what the placeholder says.
+  , "        const cap = document.createElement(\"input\");"
+  , "        cap.className = \"cview\";"
+  , "        cap.spellcheck = false;"
+  , "        cap.placeholder = `where + captures; empty is ${CAPTURE_DEFAULT}`;"
+  , "        cap.value = r.capBase = captureText;"
+  , "        row.appendChild(cap);"
+  , "        r.cap = cap;"
   , "      }"
   , "      row.appendChild(note);"
   , "      el(\"clayers\").appendChild(row);"
@@ -2827,7 +3049,8 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    };"
   , "    const cdirty = () => crows.some(cmoved);"
   , "    const cmoved = (r) => r.box.value !== r.base"
-  , "      || (r.view !== null && r.view.value !== r.viewBase);"
+  , "      || (r.view !== null && r.view.value !== r.viewBase)"
+  , "      || (r.cap !== null && r.cap.value !== r.capBase);"
     -- Every layer that moved, one POST each and each awaited.  A config file is
     -- its own write and its own lock, so one that drifted refuses on its own
     -- line while the rest land — there is no batch to roll back and none to
@@ -2841,17 +3064,20 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        // the write is in flight would otherwise be marked as the file's"
   , "        // and never written, and the sheet would close on it silently."
   , "        const sent = r.box.value, view = r.view && r.view.value;"
+  , "        const cap = r.cap && r.cap.value;"
   , "        const a = await fetch(\"/config\", {"
   , "          method: \"POST\","
   , "          headers: { \"content-type\": \"application/json\" },"
   , "          body: JSON.stringify({ path: r.path, lines: sent.split(\"\\n\"),"
   , "                                 ...(r.view ? { filter: view } : {}),"
+  , "                                 ...(r.cap ? { capture: cap } : {}),"
   , "                                 digest: r.digest }),"
   , "        }).then((x) => x.json().then((b) => ({ status: x.status, body: b })))"
   , "          .catch((e) => ({ status: 0, body: { error: e.message } }));"
   , "        if (a.status === 200) {"
   , "          r.digest = a.body.digest; r.base = sent; r.note.textContent = \"\";"
   , "          if (r.view) r.viewBase = view;"
+  , "          if (r.cap) r.capBase = cap;"
   , "        } else {"
   , "          ok = false;"
   , "          if (a.status === 409) clashed = true;"
@@ -3157,14 +3383,17 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      archiveRows: archive,"
     -- C-c C-t asks which state, over whatever the command would run on, and
     -- the server refuses a keyword the row's own file does not declare.
-  , "      setState: (b) => {"
-  , "        const ids = targets();"
-  , "        if (!ids.length) { said(b, \"no row\"); return; }"
-  , "        ask(`set state · ${ids.length} row${ids.length === 1 ? \"\" : \"s\"}`,"
-  , "            stateChoices(),"
+  , "      setState: (b) => overTargets(b, \"set state\", (ids, title) =>"
+  , "        ask(title, stateChoices(),"
   , "            (c) => fire(b, \"set-state\", ids, { keyword: c.keyword },"
-  , "                        c.keyword === null ? CLEAR : c.keyword));"
-  , "      },"
+  , "                        c.keyword === null ? CLEAR : c.keyword))),"
+    -- `+' is the minibuffer and nothing else: what it collects goes straight to
+    -- the server, which knows the file.
+  , "      capture: (b) =>"
+  , "        askText(\"capture · a headline for the inbox\","
+  , "                \"RET captures it · ESC leaves\", \"\", (c) => captureRow(b, c.text)),"
+  , "      schedulePlan: (b) => planRows(b, \"SCHEDULED\"),"
+  , "      deadlinePlan: (b) => planRows(b, \"DEADLINE\"),"
   , "      quitWindow: () => (editing ? leave()"
   , "        : append(\"cmd\", \"info\", \"q closes the sheet; there is no window to quit\")),"
     -- One key out of whichever overlay is up: the prompt first, since it is the
@@ -3240,6 +3469,14 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- without this the two nulls would meet and Shift would commit whatever
     -- came out of the pool empty.
   , "      if (!k) return;"
+    -- The text mode has no list, so no letter commits and nothing narrows: RET
+    -- takes the line as typed and every other key is the field's own.
+  , "      if (prompting.text) {"
+  , "        if (k !== \"RET\") return;"
+  , "        takeChoice({ text: el(\"pinput\").value });"
+  , "        e.preventDefault();"
+  , "        return;"
+  , "      }"
     -- A letter writes, so it runs once per press — the `ONCE' rule, owed here
     -- rather than by the map because the key that OPENS this palette is a
     -- letter too, and a held one would raise it and commit through it.  The

@@ -31,6 +31,7 @@ module Glance.Web.Store
   , FileEntry (..)
   , loadStore
   , loadStoreWith
+  , storeDocument
   , storeHeadline
   , storeRecords
   , storeResult
@@ -75,7 +76,8 @@ import qualified Data.Set as Set
 import qualified Data.Text as T
 
 import Glance.Query ( ConfigLayers (clPrint, clSeed)
-                    , HeadlineRecord (hrDigest, hrId, hrKeywords, hrTags), LoadFailure (..)
+                    , HeadlineRecord (hrDigest, hrDoc, hrId, hrKeywords, hrTags)
+                    , LoadFailure (..)
                     , QueryResult (..), TodoKeywords, WalkOptions, defaultWalk
                     , digestOfText, loadDirWithConfig, mergeKeywords, noConfig
                     , resolveIds, rowJSON, tagsOfCell )
@@ -191,6 +193,18 @@ storeResult st = QueryResult
 -- so materializing an id two files claim opens the one the table is showing.
 storeHeadline :: Text -> Store -> Maybe HeadlineRecord
 storeHeadline rid = find ((== rid) . hrId) . storeRecords
+
+-- | The text ST holds for PATH and the digest it was parsed from, or 'Nothing'
+-- where it holds no rows for it — a file the walk never met, one that failed to
+-- load, one with no top entry in it.
+--
+-- The pair is one file's own: every row of a file shares both, so the first row
+-- answers for all of them.  It is what a write measuring an offset in a file the
+-- store already read pins itself to, the way materialize pins a subtree — and a
+-- caller that gets 'Nothing' owes itself a read ('Glance.Query.currentDocument')
+-- rather than a guess.
+storeDocument :: FilePath -> Store -> Maybe (Text, Text)
+storeDocument path st = (\r -> (hrDoc r, hrDigest r)) <$> listToMaybe (recordsUnder path st)
 
 -- | Every org tag the store's rows carry, sorted.  The producer half of
 -- SCHEMA.md's virtual filter keys: each of these is a filter key of its own, so

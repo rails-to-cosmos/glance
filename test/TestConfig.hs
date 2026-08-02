@@ -24,10 +24,11 @@ import Data.Org.Config ( TodoKeywords (..), classify, configDirIn, configPaths
                        , noKeywords, todoPragmas )
 import Data.Org.Edit (Edit (Edit), applyEdits)
 import Glance.Query ( ConfigLayerFile (..), ConfigLayers (..), HeadlineRecord (..)
-                    , QueryResult (..), WalkOptions (..), builtinFilter, configEdits
+                    , QueryResult (..), WalkOptions (..), builtinFilter
+                    , captureTargetIn, captureTargetOf, configEdits
                     , configPath, defaultFilter, defaultFilterOf, defaultWalk, loadDir
                     , loadDirFilesSerially, loadDirWith, loadDirWithConfig, loadFile
-                    , readConfigLayers, todoLines )
+                    , noConfig, readConfigLayers, todoLines )
 import Glance.Web.Store ( Frame (..), Hub (hubStore), Store (stConfig, stGen, stPrint)
                         , loadStore, newHub, reseeded, storeKeywords, storeRecords )
 import Glance.Web.Watch (settle, watched)
@@ -284,12 +285,13 @@ classificationSpec = testGroup "Classification"
   , testCase "the resolver is the rule, and it is total" $ do
       -- The chain, exercised where the fixtures cannot reach: a keyword in no
       -- layer whatsoever still has to come back with an answer.
-      let cfg = ConfigLayers { clSystem = TodoKeywords [] ["TODO"]
-                             , clTags   = [("book", TodoKeywords ["READING"] [])]
-                             , clSeed   = TodoKeywords ["READING"] ["TODO"]
-                             , clFilter = Nothing
-                             , clPrint  = ""
-                             , clDirs   = [] }
+      let cfg = ConfigLayers { clSystem  = TodoKeywords [] ["TODO"]
+                             , clTags    = [("book", TodoKeywords ["READING"] [])]
+                             , clSeed    = TodoKeywords ["READING"] ["TODO"]
+                             , clFilter  = Nothing
+                             , clCapture = Nothing
+                             , clPrint   = ""
+                             , clDirs    = [] }
           file = TodoKeywords [] ["READING"]
       assertEqual "file first" False (classify cfg file ["book"] "READING")
       assertEqual "then the tag" True (classify cfg noKeywords ["book"] "READING")
@@ -486,7 +488,7 @@ writeSpec = testGroup "Writing a layer"
   , testCase "what a layer may say, and what it may not" $ do
       mapM_ (\(what, lines') ->
                assertBool what (either (const True) (const False)
-                                       (configEdits bookConfig lines' Nothing)))
+                                       (configEdits bookConfig lines' Nothing Nothing)))
             [ ("a headline is not a pragma", ["* TODO not a pragma"])
             , ("nor is a title", ["#+TITLE: no"])
             , ("a pragma declaring nothing", ["#+TODO:"])
@@ -503,7 +505,7 @@ writeSpec = testGroup "Writing a layer"
             , ("and a starred word beside real ones", ["#+TODO: TODO *x* | DONE"]) ]
       assertBool "a cycle with fast-access keys is a block"
                  (either (const False) (const True)
-                         (configEdits bookConfig ["#+TODO: TODO(t) | DONE(d)"] Nothing))
+                         (configEdits bookConfig ["#+TODO: TODO(t) | DONE(d)"] Nothing Nothing))
 
     -- The default view is a line of `system.org', read by the same reader and
     -- written by the same splice.  Absent means the built-in, which is what
@@ -563,6 +565,76 @@ writeSpec = testGroup "Writing a layer"
                   (Right "#+TODO: A | B\n#+GLANCE_DEFAULT_FILTER: tag:work\n* %?\n")
                   (splicedWith "* %?\n" ["#+TODO: A | B"] (Just "tag:work"))
 
+    -- The capture target is the second tree-wide line of `system.org', read by
+    -- the same reader and written by the same splice as the default view.
+  , testCase "the capture target is a line of the system layer" $ do
+      assertEqual "read off the file"
+                  (Just "notes/inbox.org")
+                  (captureTargetOf "#+GLANCE_CAPTURE_TARGET: notes/inbox.org\n")
+      assertEqual "folded, the way org reads a pragma key"
+                  (Just "in.org") (captureTargetOf "#+glance_capture_target: in.org\n")
+      assertEqual "a file with no line names none" Nothing (captureTargetOf bookConfig)
+      assertEqual "the last one wins" (Just "b.org")
+                  (captureTargetOf "#+GLANCE_CAPTURE_TARGET: a.org\n\
+                                   \#+GLANCE_CAPTURE_TARGET: b.org\n")
+
+    -- Where a capture lands is decided HERE, when the config is read, and not
+    -- when a `+' arrives: a tree misconfigured in January says so at startup.
+  , testCase "and it resolves against the served root, or is refused there" $ do
+      assertEqual "with no line, the tree's own inbox"
+                  (Right "/o/inbox.org") (captureTargetIn "/o" noConfig)
+      assertEqual "named, resolved against the root"
+                  (Right "/o/notes/in.org") (captureTargetIn "/o" (naming "notes/in.org"))
+      assertEqual "and an empty line is the default again"
+                  (Right "/o/inbox.org") (captureTargetIn "/o" (naming "  "))
+      -- Three refusals, all textual the way every other path rule here is.
+      mapM_ (\(what, target, needle) ->
+               case captureTargetIn "/o" (naming target) of
+                 Right path -> assertFailure (what <> ": wrote " <> path)
+                 Left why -> assertBool (what <> ": " <> T.unpack why) (needle `T.isInfixOf` why))
+            [ ("an absolute path", "/etc/passwd.org", "absolute")
+            , ("a path climbing out", "../elsewhere.org", "outside")
+            , ("one deeper down", "notes/../../out.org", "outside")
+            -- A file the walk would not collect is a capture that vanishes: the
+            -- entry is written and no watch ever delivers a row for it.  All
+            -- THREE of the walk's predicates, since an org file under
+            -- `.org-glance' is exactly the case an extension test would bless.
+            , ("a name the walk skips", "inbox.txt", "walks")
+            , ("one of Emacs's sidecars", ".#inbox.org", "walks")
+            , ("the config the walk reads by path", ".org-glance/config/system.org", "walks")
+            , ("and a derived mirror", ".org-glance/overviews/inbox.org", "walks") ]
+
+  , testCase "the capture target is written by the same splice as the cycle" $ do
+      assertEqual "written under the header, beside the block"
+                  (Right "#+TITLE: X\n#+TODO: A | B\n#+GLANCE_CAPTURE_TARGET: in.org\n")
+                  (splicedCapture "#+TITLE: X\n" ["#+TODO: A | B"] (Just "in.org"))
+      assertEqual "an existing line is replaced where it stands"
+                  (Right "#+GLANCE_CAPTURE_TARGET: b.org\n#+TODO: A | B\ntail\n")
+                  (splicedCapture "#+GLANCE_CAPTURE_TARGET: a.org\n#+TODO: A | B\ntail\n"
+                                  ["#+TODO: A | B"] (Just "b.org"))
+      assertEqual "an empty one takes the line away, which is the default back"
+                  (Right "#+TODO: A | B\ntail\n")
+                  (splicedCapture "#+GLANCE_CAPTURE_TARGET: a.org\n#+TODO: A | B\ntail\n"
+                                  ["#+TODO: A | B"] (Just ""))
+      assertEqual "and naming none leaves the line exactly as it is"
+                  (Right "#+GLANCE_CAPTURE_TARGET: a.org\n#+TODO: A | B\ntail\n")
+                  (splicedCapture "#+GLANCE_CAPTURE_TARGET: a.org\n#+TODO: A | B\ntail\n"
+                                  ["#+TODO: A | B"] Nothing)
+      -- All three pragmas missing insert at one offset, which the engine
+      -- resolves in list order rather than refusing.
+      assertEqual "a file with none takes all three, in the order they are named"
+                  (Right "#+TODO: A | B\n#+GLANCE_DEFAULT_FILTER: tag:work\n\
+                         \#+GLANCE_CAPTURE_TARGET: in.org\n* %?\n")
+                  (splicing "* %?\n" ["#+TODO: A | B"] (Just "tag:work") (Just "in.org"))
+
+  , testCase "and a tree that names one loads it" $
+      withTree (Just "#+TODO: TODO | DONE\n#+GLANCE_CAPTURE_TARGET: notes/in.org\n")
+               [] [("a.org", "* TODO x\n")] $ \dir -> do
+        (cfg, _rows) <- loaded dir
+        assertEqual "read at load" (Just "notes/in.org") (clCapture cfg)
+        assertEqual "and it is what a capture would write to"
+                    (Right (dir </> "notes/in.org")) (captureTargetIn dir cfg)
+
   , testCase "the layers are read as files, absent ones included" $
       withTree Nothing [("book.org", bookConfig)] [] $ \dir -> do
       files <- readConfigLayers [configDirIn dir]
@@ -602,8 +674,20 @@ spliced doc lines' = splicedWith doc lines' Nothing
 
 -- | 'spliced', also setting the default view to WANT.
 splicedWith :: Text -> [Text] -> Maybe Text -> Either Text Text
-splicedWith doc lines' want = do
-  edits <- configEdits doc lines' want
+splicedWith doc lines' want = splicing doc lines' want Nothing
+
+-- | A config naming TARGET as its capture target and nothing else.
+naming :: Text -> ConfigLayers
+naming target = noConfig { clCapture = Just target }
+
+-- | 'spliced', also setting the capture target to TARGET.
+splicedCapture :: Text -> [Text] -> Maybe Text -> Either Text Text
+splicedCapture doc lines' = splicing doc lines' Nothing
+
+-- | 'spliced' over both of the system layer's tree-wide lines.
+splicing :: Text -> [Text] -> Maybe Text -> Maybe Text -> Either Text Text
+splicing doc lines' want target = do
+  edits <- configEdits doc lines' want target
   first (T.pack . show) (applyEdits doc [ Edit sp new | (sp, new) <- edits ])
 
 -- Absence

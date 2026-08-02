@@ -27,13 +27,18 @@ module Data.Org.Config ( ConfigLayerFile (..)
                        , ConfigLayers (..)
                        , TodoKeywords (..)
                        , builtinFilter
+                       , captureTargetEdits
+                       , captureTargetIn
+                       , captureTargetOf
                        , classify
                        , configDirIn
                        , configPaths
                        , declaredKeywords
+                       , defaultCaptureFile
                        , defaultFilter
                        , defaultFilterEdits
                        , defaultFilterOf
+                       , isCaptureTargetPragma
                        , isDefaultFilterPragma
                        , isTodoPragma
                        , loadConfigDirs
@@ -53,18 +58,17 @@ import Data.List (sort)
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import System.Directory (listDirectory)
-import System.FilePath (takeBaseName, (</>))
+import System.FilePath (isAbsolute, splitDirectories, takeBaseName, (</>))
 
-import qualified Data.ByteString as BS
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 
-import Data.Org.Edit (digestOf)
+import Data.Org.Edit (digestOf, readDocument)
 import Data.Org.Parser (orgParse)
 import Data.Org.Types ( Context, Element (EPragma), Pragma (PTodo), Span (..), Spanned (valueOf)
                       , defaultContext, setTodo )
-import Data.Org.Walk (isDocument)
+import Data.Org.Walk (isDocument, isWalked)
 
 -- Keywords
 
@@ -174,18 +178,84 @@ builtinFilter = "state:*active*"
 -- line naming nothing at all is a line naming nothing: it comes back as an
 -- empty query, which is a table opening on the whole store.
 defaultFilterOf :: Text -> Maybe Text
-defaultFilterOf doc =
-  case [ T.strip (T.drop 1 (T.dropWhile (/= ':') line)) | line <- filterLines doc ] of
-    [] -> Nothing
-    vs -> Just (last vs)
-
--- | DOC's @#+GLANCE_DEFAULT_FILTER:@ lines, verbatim and in file order.
-filterLines :: Text -> [Text]
-filterLines = filter isDefaultFilterPragma . T.lines
+defaultFilterOf = lastPragmaValue isDefaultFilterPragma
 
 -- | Does LINE open a @#+GLANCE_DEFAULT_FILTER:@ pragma?
 isDefaultFilterPragma :: Text -> Bool
 isDefaultFilterPragma = opensPragma "#+glance_default_filter:"
+
+-- The capture target
+
+-- | Where a capture lands when no layer names a file: one entry point per tree,
+-- at the root, under the name org-capture templates have always used.
+defaultCaptureFile :: FilePath
+defaultCaptureFile = "inbox.org"
+
+-- | The file DOC's @#+GLANCE_CAPTURE_TARGET:@ line names, or 'Nothing' when it
+-- carries none — which is what makes 'defaultCaptureFile' the fallback rather
+-- than a value written into every tree.  LAST line wins, as with the default
+-- view, and a line naming nothing names nothing.
+captureTargetOf :: Text -> Maybe Text
+captureTargetOf = lastPragmaValue isCaptureTargetPragma
+
+-- | Does LINE open a @#+GLANCE_CAPTURE_TARGET:@ pragma?
+isCaptureTargetPragma :: Text -> Bool
+isCaptureTargetPragma = opensPragma "#+glance_capture_target:"
+
+-- | Where a capture under ROOT lands given CFG, or why this daemon will not
+-- write there.
+--
+-- Absent, the target is @\<root\>\/inbox.org@; named, the value is resolved
+-- against the SERVED ROOT rather than against the config directory, because a
+-- store nested under the root still captures into the tree being served.
+--
+-- The check is made HERE, where the config is read, rather than when a capture
+-- arrives: a tree misconfigured in January should say so at startup instead of
+-- on the first @+@ in March.  Three refusals, all of them textual the way every
+-- other path rule in this repo is (docs\/invariants.md, Walk): an absolute path,
+-- a path climbing out through @..@, and a name the walk would not collect — a
+-- capture into that last one writes a file no watch ever delivers a row for, so
+-- the entry would vanish rather than appear.  That third one is
+-- 'Data.Org.Walk.isWalked' rather than 'Data.Org.Walk.isDocument', and the
+-- difference is load-bearing: @.org-glance\/config\/x.org@ and
+-- @.org-glance\/overviews\/x.org@ are org files the walk declines, so stopping
+-- at the extension would bless exactly the paths this refusal exists for.
+--
+-- Asked of the JOINED path, since that is the one the walk would see.
+captureTargetIn :: FilePath -> ConfigLayers -> Either Text FilePath
+captureTargetIn root cfg = case fmap T.strip (clCapture cfg) of
+  Just want | not (T.null want) -> checked want
+  _unconfigured                 -> Right (root </> defaultCaptureFile)
+  where
+    checked want
+      | isAbsolute path = Left (refused want "an absolute path; name one under the served root")
+      | ".." `elem` splitDirectories path = Left (refused want "outside the served root")
+      | not (isWalked target) = Left (refused want "not a file this tree walks, so no watch\
+                                                   \ would ever deliver the rows it captured")
+      | otherwise = Right target
+      where path   = T.unpack want
+            target = root </> path
+    refused want why = "#+GLANCE_CAPTURE_TARGET: " <> want <> " is " <> why
+
+-- | The span edits setting DOC's capture target to WANT: the
+-- @#+GLANCE_CAPTURE_TARGET:@ line rewritten, written or taken away.  The same
+-- whole-line splice the cycle and the default view get, under a third
+-- predicate; an EMPTY value deletes the line, which is the tree going back to
+-- 'defaultCaptureFile'.
+captureTargetEdits :: Text -> Text -> [(Span, Text)]
+captureTargetEdits doc want =
+  pragmaLineEdits isCaptureTargetPragma doc
+    [ "#+GLANCE_CAPTURE_TARGET: " <> target | not (T.null target) ]
+  where target = T.strip want
+
+-- | The value of the LAST line of DOC that MINE accepts, or 'Nothing' when it
+-- has none.  Last wins, the way a reader scrolling a config file reads it, and
+-- the value is whatever follows the pragma's colon, stripped.
+lastPragmaValue :: (Text -> Bool) -> Text -> Maybe Text
+lastPragmaValue mine doc =
+  case [ T.strip (T.drop 1 (T.dropWhile (/= ':') line)) | line <- T.lines doc, mine line ] of
+    [] -> Nothing
+    vs -> Just (last vs)
 
 -- | Does LINE open the pragma KEY names?  Folded, since org takes either casing
 -- and the parser uppercases the key.
@@ -274,12 +344,13 @@ lineSpans = go 0
 -- losing tag file names still parses as a state — and only classification
 -- picks a winner.
 data ConfigLayers = ConfigLayers
-  { clSystem :: !TodoKeywords            -- ^ @config\/system.org@'s sets; empty when there is no such file.
-  , clTags   :: ![(Text, TodoKeywords)]  -- ^ @config\/tags\/TAG.org@'s sets, tag lowercased, in file-name order.
-  , clSeed   :: !TodoKeywords            -- ^ the recognition union: every keyword any layer names.
-  , clFilter :: !(Maybe Text)            -- ^ the default view @system.org@ names; see 'defaultFilter'.
-  , clPrint  :: !Text                    -- ^ digest over the config files read, @\"\"@ when none were.
-  , clDirs   :: ![FilePath]              -- ^ the config directories these were read from, in walk order.
+  { clSystem  :: !TodoKeywords            -- ^ @config\/system.org@'s sets; empty when there is no such file.
+  , clTags    :: ![(Text, TodoKeywords)]  -- ^ @config\/tags\/TAG.org@'s sets, tag lowercased, in file-name order.
+  , clSeed    :: !TodoKeywords            -- ^ the recognition union: every keyword any layer names.
+  , clFilter  :: !(Maybe Text)            -- ^ the default view @system.org@ names; see 'defaultFilter'.
+  , clCapture :: !(Maybe Text)            -- ^ the capture target it names; see 'captureTargetIn'.
+  , clPrint   :: !Text                    -- ^ digest over the config files read, @\"\"@ when none were.
+  , clDirs    :: ![FilePath]              -- ^ the config directories these were read from, in walk order.
   } deriving (Eq, Show)
 
 -- | The query a table under CFG opens on: what @system.org@'s
@@ -296,7 +367,7 @@ defaultFilter = fromMaybe builtinFilter . clFilter
 -- what every caller that does not want one passes.  Parsing under it is
 -- byte-identical to parsing from 'defaultContext'.
 noConfig :: ConfigLayers
-noConfig = ConfigLayers noKeywords [] noKeywords Nothing "" []
+noConfig = ConfigLayers noKeywords [] noKeywords Nothing Nothing "" []
 
 -- | Where ROOT would keep its config directory.  For a writer — the settings UI
 -- creating @system.org@ — rather than for a reader: a reader is given the
@@ -328,24 +399,37 @@ loadConfigDirs :: [FilePath] -> IO ConfigLayers
 loadConfigDirs dirs = combine . concat <$> mapM layersIn dirs
   where
     combine entries = ConfigLayers
-      { clSystem = mergeKeywords [ kw | (Nothing, _p, _d, kw, _f) <- entries ]
-      , clTags   = firstPerTag [ (tag, kw) | (Just tag, _p, _d, kw, _f) <- entries ]
-      , clSeed   = mergeKeywords [ kw | (_tag, _p, _d, kw, _f) <- entries ]
-      -- The system layer's, and the first that names one: a default view
+      { clSystem  = mergeKeywords [ lrKeywords e | e <- entries, isSystem e ]
+      , clTags    = firstPerTag [ (tag, lrKeywords e) | e <- entries, Just tag <- [lrTag e] ]
+      , clSeed    = mergeKeywords (map lrKeywords entries)
+      -- The system layer's, and the first that names one: a tree-wide setting
       -- belongs to a tree rather than to a tag.
-      , clFilter = listToMaybe [ f | (Nothing, _p, _d, _kw, Just f) <- entries ]
-      , clPrint  = fingerprint [ (p, d) | (_tag, p, d, _kw, _f) <- entries ]
-      , clDirs   = dirs
+      , clFilter  = systemSetting lrFilter entries
+      , clCapture = systemSetting lrCapture entries
+      , clPrint   = fingerprint [ (lrPath e, lrDigest e) | e <- entries ]
+      , clDirs    = dirs
       }
     firstPerTag = firstBy fst
+    isSystem = null . lrTag
+    systemSetting f entries = listToMaybe [ v | e <- entries, isSystem e, Just v <- [f e] ]
 
--- | What one config directory declares: the system layer and each tag layer, as
--- @(tag, path, digest, keywords, default view)@ with the system layer tagged
--- 'Nothing'.
-layersIn :: FilePath -> IO [(Maybe Text, FilePath, Text, TodoKeywords, Maybe Text)]
+-- | One config file as a layer: which layer it is, where it came from, what it
+-- digests to, and everything read out of it.
+data LayerRead = LayerRead
+  { lrTag      :: !(Maybe Text)   -- ^ the tag it configures; 'Nothing' is the system layer.
+  , lrPath     :: !FilePath
+  , lrDigest   :: !Text
+  , lrKeywords :: !TodoKeywords
+  , lrFilter   :: !(Maybe Text)   -- ^ the default view it names, if any.
+  , lrCapture  :: !(Maybe Text)   -- ^ the capture target it names, if any.
+  }
+
+-- | What one config directory declares, one entry per file that is there.
+layersIn :: FilePath -> IO [LayerRead]
 layersIn dir = declaring <$> filesIn dir
-  where declaring files = [ ( lfTag f, lfPath f, lfDigest f
-                            , todoPragmas (lfText f), defaultFilterOf (lfText f) )
+  where declaring files = [ LayerRead (lfTag f) (lfPath f) (lfDigest f)
+                              (todoPragmas (lfText f)) (defaultFilterOf (lfText f))
+                              (captureTargetOf (lfText f))
                           | f <- files, not (T.null (lfDigest f)) ]
 
 -- Reading the layers as files
@@ -392,8 +476,9 @@ filesIn dir = do
   pure (system : tags)
   where
     (systemFile, tagsDir) = configPaths dir
-    layerAt tag path = held <$> readLayer path
-      where held = maybe (ConfigLayerFile path tag "" "") (uncurry (ConfigLayerFile path tag))
+    layerAt tag path = held <$> readDocument path
+      where held = maybe (ConfigLayerFile path tag "" "")
+                         (\(text, digest) -> ConfigLayerFile path tag digest text)
 
 -- | The @.org@ file names directly in DIR, sorted; none when it is not there.
 -- Filtered by the walk's own document rule, so Emacs's sidecars are not layers
@@ -402,15 +487,6 @@ listOrg :: FilePath -> IO [FilePath]
 listOrg dir = do
   listed <- try (listDirectory dir) :: IO (Either IOException [FilePath])
   pure (either (const []) (sort . filter isDocument) listed)
-
--- | PATH's text and the digest of the bytes it was decoded from, or 'Nothing'
--- when there is nothing readable there.
-readLayer :: FilePath -> IO (Maybe (Text, Text))
-readLayer path = do
-  raw <- try (BS.readFile path) :: IO (Either IOException BS.ByteString)
-  pure $ case raw of
-    Left _err   -> Nothing
-    Right bytes -> either (const Nothing) (Just . (,) (digestOf bytes)) (TE.decodeUtf8' bytes)
 
 -- | The tag NAME configures: its base name, folded, since a tag is matched
 -- folded everywhere else.

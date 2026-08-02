@@ -21,13 +21,15 @@ import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString as BS
 import qualified Data.Text as T
+import qualified Data.Time as Time
 
 import Glance.Query ( HeadlineParts (..), HeadlineRecord (..), LoadFailure (..)
-                    , QueryResult (..), Span (..), archiveEdits, archived, defaultWalk
+                    , QueryResult (..), Span (..), archiveEdits, archived
+                    , captureEdits, captureStamp, defaultWalk
                     , displayText, headlineParts, hiddenProperties, loadDir
                     , loadDirFilesSerially, loadDirFilesWith, loadFile, matchesSearch
-                    , readsAsTimestamp, recomposedSubtree
-                    , setStateEdits, subtreeText, viewJSON )
+                    , planningTimestamp, readsAsTimestamp, recomposedSubtree
+                    , setPlanningEdits, setStateEdits, subtreeText, viewJSON )
 
 -- Fixtures
 
@@ -206,7 +208,7 @@ lensSpec = testGroup "Subtree lens"
   , testGroup "recompose"
     [ testCase "decompose then recompose is the subtree, byte for byte" $
         mapM_ roundTrips [ drawered, planned, unicoded, oddly, indented, crlf
-                         , logged, childLogged, permuted
+                         , logged, childLogged, permuted, stamped
                          , T.unlines ["* TODO Bare", "body"]
                          , "* Ends at the drawer\n:PROPERTIES:\n:A: 1\n:END:" ]
 
@@ -258,6 +260,19 @@ lensSpec = testGroup "Subtree lens"
           assertContains "verbatim" ":ORG_GLANCE_ID: first\n" back
           assertBool "and the edited half is gone"
                      (not (":EFFORT:" `T.isInfixOf` back))
+
+      -- The list has more than one entry in it, so "hidden" is the list rather
+      -- than one key's special case: a captured row's creation time is kept the
+      -- same way its id is, and both come back at the indices they sat on.
+    , testCase "every hidden key survives, at the line it sat on" $
+        withParts stamped $ \r -> do
+          let parts = headlineParts r
+          assertEqual "neither is offered" [] [ k | (k, _v) <- hpProperties parts
+                                                  , k `elem` hiddenProperties ]
+          assertEqual "and both are woven back where they were"
+                      [ ":PROPERTIES:", ":ORG_GLANCE_ID: kept"
+                      , ":ORG_GLANCE_CREATION_TIME: [2026-08-01 Sat 09:30]", ":END:" ]
+                      (drawerOf (recomposedSubtree r parts { hpProperties = [] }))
 
       -- And a client that sends one anyway writes nothing.
     , testCase "a client naming a hidden key does not move it" $
@@ -439,6 +454,18 @@ drawered = T.unlines
   , ":ORG_GLANCE_ID: kid"
   , ":END:"
   , "child body" ]
+
+-- | What a capture leaves behind: the row id and the creation time it was
+-- written with, both of them the server's, with one pair of the client's
+-- between them.
+stamped :: Text
+stamped = T.unlines
+  [ "* TODO Buy milk :errands:"
+  , ":PROPERTIES:"
+  , ":ORG_GLANCE_ID: kept"
+  , ":EFFORT: 0:05"
+  , ":ORG_GLANCE_CREATION_TIME: [2026-08-01 Sat 09:30]"
+  , ":END:" ]
 
 -- | A headline whose planning line sits between the title and the drawer.
 planned :: Text
@@ -1197,4 +1224,202 @@ commandSpec = testGroup "Commands"
         withRecord "* TODO Ship it :web:\n"
                    (assertBool "not archived" . not . archived)
     ]
+
+    -- The date a key collects, worked out against a fixed today so the answers
+    -- can be written down.  What is pinned is that a value which does not
+    -- REPARSE is refused rather than written: a planning line that stops being
+    -- one is body text on the next load, and the entry the author set is gone.
+  , testGroup "the dates set-planning takes"
+    [ testCase "each spelling, and what it renders as" $ mapM_ reads'
+        -- Org's own, taken exactly as written once it reparses — so a repeater
+        -- and a range survive rather than being canonicalized away.
+        [ ("<2026-08-05 Wed>",      "<2026-08-05 Wed>")
+        , ("<2026-08-05 Wed 09:30>", "<2026-08-05 Wed 09:30>")
+        , ("<2026-08-05 Wed +1w>",  "<2026-08-05 Wed +1w>")
+        -- A wrong weekday in the file's own form stands: the value is the
+        -- author's, and reparsing is the whole of the bar.
+        , ("<2026-08-05 Mon>",      "<2026-08-05 Mon>")
+        -- ISO, with the weekday computed rather than typed.
+        , ("2026-08-05",            "<2026-08-05 Wed>")
+        , ("2026-08-05 09:30",      "<2026-08-05 Wed 09:30>")
+        , ("2026-08-05 9:05",       "<2026-08-05 Wed 09:05>")
+        , ("  2026-08-05  ",        "<2026-08-05 Wed>")
+        -- Relative to the day the request was made, once for the whole request.
+        , ("today",                 "<2026-08-01 Sat>")
+        , ("TODAY",                 "<2026-08-01 Sat>")
+        , ("tomorrow",              "<2026-08-02 Sun>")
+        , ("+0d",                   "<2026-08-01 Sat>")
+        , ("+3d",                   "<2026-08-04 Tue>")
+        , ("+2w",                   "<2026-08-15 Sat>")
+        , ("+1m",                   "<2026-09-01 Tue>") ]
+
+    , testCase "and everything else is refused, by name" $ mapM_ refuses
+        [ "", "   ", "next tuesday", "05/08/2026", "2026-13-01", "+3", "+3x", "-3d"
+        -- A bracketed value that does not reparse is refused like any other:
+        -- what the brackets buy is being taken verbatim, not being trusted.
+        , "<not a date>", "<2026-08-05 Wed", "2026-08-05 25:00" ]
+    ]
+
+  , testGroup "set-planning"
+    [ -- A reschedule is the timestamp's own span: the keyword, the spacing and
+      -- every other entry on the line stay byte-identical.
+      testCase "over an entry, replaces exactly that timestamp" $
+        planningIs "moved" "SCHEDULED" (Just "<2026-08-09 Sun>")
+          (T.unlines ["* TODO Ship it", "SCHEDULED: <2026-08-01 Sat> DEADLINE: <2026-08-05 Wed>"])
+          (T.unlines ["* TODO Ship it", "SCHEDULED: <2026-08-09 Sun> DEADLINE: <2026-08-05 Wed>"])
+
+    , testCase "with no line at all, one goes under the title line" $
+        planningIs "grown" "SCHEDULED" (Just "<2026-08-09 Sun>")
+          (T.unlines ["* TODO Ship it :web:", "body"])
+          (T.unlines ["* TODO Ship it :web:", "SCHEDULED: <2026-08-09 Sun>", "body"])
+
+      -- Under the TITLE line rather than at `hsFull''s end, which for a
+      -- drawered headline is its `:END:' two lines further down.
+    , testCase "and it goes above the drawer, not into it" $
+        planningIs "over a drawer" "DEADLINE" (Just "<2026-08-09 Sun>")
+          (T.unlines ["* TODO Ship it", ":PROPERTIES:", ":A: 1", ":END:"])
+          (T.unlines ["* TODO Ship it", "DEADLINE: <2026-08-09 Sun>", ":PROPERTIES:"
+                     , ":A: 1", ":END:"])
+
+      -- An added entry joins the END of the line, behind whatever it already
+      -- carries — the lens's own rule for an entry that moved.
+    , testCase "beside an entry the line already has, it joins the end" $
+        planningIs "joined" "DEADLINE" (Just "<2026-08-09 Sun>")
+          (T.unlines ["* TODO Ship it", "SCHEDULED: <2026-08-01 Sat>"])
+          (T.unlines ["* TODO Ship it", "SCHEDULED: <2026-08-01 Sat> DEADLINE: <2026-08-09 Sun>"])
+
+      -- Clearing takes the space that separated the entry with it, so the line
+      -- closes up rather than keeping a gap where an entry was.
+    , testCase "clearing the first of two closes the line up" $
+        planningIs "cleared first" "SCHEDULED" Nothing
+          (T.unlines ["* TODO Ship it", "SCHEDULED: <2026-08-01 Sat> DEADLINE: <2026-08-05 Wed>"])
+          (T.unlines ["* TODO Ship it", "DEADLINE: <2026-08-05 Wed>"])
+
+      -- The last entry on a line has no trailing run to take, so the LEADING
+      -- one goes instead — take both and the neighbours would be glued.
+    , testCase "and clearing the last of two takes the space in front of it" $
+        planningIs "cleared last" "DEADLINE" Nothing
+          (T.unlines ["* TODO Ship it", "SCHEDULED: <2026-08-01 Sat> DEADLINE: <2026-08-05 Wed>"])
+          (T.unlines ["* TODO Ship it", "SCHEDULED: <2026-08-01 Sat>"])
+
+    , testCase "clearing the middle of three leaves its neighbours apart" $
+        planningIs "cleared middle" "DEADLINE" Nothing
+          (T.unlines [ "* TODO Ship it"
+                     , "SCHEDULED: <2026-08-01 Sat> DEADLINE: <2026-08-05 Wed> \
+                       \CLOSED: [2026-07-30 Thu]" ])
+          (T.unlines [ "* TODO Ship it"
+                     , "SCHEDULED: <2026-08-01 Sat> CLOSED: [2026-07-30 Thu]" ])
+
+      -- The lens's rule: a planning line with no entries left is not one, so
+      -- the whole line goes rather than an empty keyword being left behind.
+    , testCase "clearing the only entry takes the line with it" $
+        planningIs "line dropped" "SCHEDULED" Nothing
+          (T.unlines ["* TODO Ship it", "SCHEDULED: <2026-08-01 Sat>", "body"])
+          (T.unlines ["* TODO Ship it", "body"])
+
+      -- CLOSED is an entry for that purpose even though no key sets one.
+    , testCase "but a CLOSED beside it keeps the line standing" $
+        planningIs "closed stays" "SCHEDULED" Nothing
+          (T.unlines ["* TODO Ship it", "CLOSED: [2026-07-30 Thu] SCHEDULED: <2026-08-01 Sat>"])
+          (T.unlines ["* TODO Ship it", "CLOSED: [2026-07-30 Thu]"])
+
+    , testCase "clearing an entry the headline never had costs no edit" $
+        withRecord "* TODO Plain\n" $ \r ->
+          assertEqual "no edits" (Right []) (setPlanningEdits "DEADLINE" Nothing r)
+
+      -- Only the two a key sets.  CLOSED is org's own bookkeeping, and a
+      -- keyword org never reads is not one at all.
+    , testCase "a keyword no key sets is refused, by name" $
+        withRecord "* TODO Plain\n" $ \r ->
+          mapM_ (\keyword -> case setPlanningEdits keyword (Just "<2026-08-05 Wed>") r of
+                   Right edits -> assertFailure (T.unpack keyword <> ": " <> show edits)
+                   Left why -> assertBool (T.unpack why) (keyword `T.isInfixOf` why))
+                ["CLOSED", "scheduled", "TIMESTAMP"]
+    ]
+
+  , testGroup "capture"
+    [ -- The insertion is at the END, so a file that already holds work keeps
+      -- every byte of it exactly where it was.
+      testCase "appends a top entry with its creation time in a drawer" $
+        assertEqual "the entry, and the file under it"
+          (Right (T.unlines [ "* TODO old", "* TODO Buy milk :errands:", ":PROPERTIES:"
+                            , ":ORG_GLANCE_CREATION_TIME: [2026-08-01 Sat 09:30]", ":END:" ]))
+          (captured "* TODO old\n" "TODO Buy milk :errands:")
+
+      -- A target that is not there yet is the empty document, and the entry is
+      -- the whole file: creation is the ordinary write under the empty pin.
+    , testCase "into a file that is not there yet, the entry is the file" $
+        assertEqual "no leading blank"
+          (Right (T.unlines [ "* read the docs", ":PROPERTIES:"
+                            , ":ORG_GLANCE_CREATION_TIME: [2026-08-01 Sat 09:30]", ":END:" ]))
+          (captured "" "read the docs")
+
+      -- Appended bare to a file whose last line has no newline, the stars would
+      -- land on the end of a live line and be no headline at all.
+    , testCase "a file not closed with a newline gets one first" $
+        assertEqual "the newline is the first thing written"
+          (Right (T.unlines [ "tail", "* note", ":PROPERTIES:"
+                            , ":ORG_GLANCE_CREATION_TIME: [2026-08-01 Sat 09:30]", ":END:" ]))
+          (captured "tail" "note")
+
+    , testCase "the text is stripped and is otherwise raw org" $
+        assertContains "written as spelled" "* [#A] TODO ship :web:\n"
+          (either (const "") id (captured "" "  [#A] TODO ship :web:  "))
+
+      -- The entry's lines end the way the target's own do, so a capture into a
+      -- CRLF file leaves one rather than a file with two kinds of line in it.
+    , testCase "into a CRLF file, the entry is CRLF too" $
+        assertEqual "every line the target's own ending"
+          (Right (T.intercalate "\r\n"
+                    [ "* old", "* note", ":PROPERTIES:"
+                    , ":ORG_GLANCE_CREATION_TIME: [2026-08-01 Sat 09:30]", ":END:", "" ]))
+          (captured "* old\r\n" "note")
+
+      -- The entry this command promises is ONE headline, so the two ways of
+      -- making it something else are refused rather than written.
+    , testCase "an empty line and a multi-line one are refused" $
+        mapM_ (\(what, text') -> case captured "" text' of
+                 Right doc -> assertFailure (what <> ": wrote " <> show doc)
+                 Left _why -> pure ())
+              [ ("empty", ""), ("blank", "   ")
+              , ("two headlines", "one\n* two"), ("a body line", "one\nbody") ]
+
+      -- The stamp is org's INACTIVE form: a creation time is a record of when a
+      -- row was written rather than something to turn up on an agenda.
+    , testCase "the stamp is org's inactive timestamp, to the minute" $
+        assertEqual "as org-glance's own store spells it"
+                    "[2026-08-01 Sat 09:30]" (captureStamp stampedAt)
+    ]
   ]
+
+-- | WHAT: DOC with @set-planning KEYWORD STAMP@ applied to its one headline is
+-- WANTED.
+planningIs :: String -> Text -> Maybe Text -> Text -> Text -> Assertion
+planningIs what keyword stamp doc wanted = withRecord doc $ \r ->
+  case setPlanningEdits keyword stamp r of
+    Left why    -> assertFailure (what <> ": refused: " <> T.unpack why)
+    Right edits -> assertEqual what wanted (splice doc edits)
+
+-- | The day every relative date here is worked out from, and the moment every
+-- capture is stamped with: a Saturday, so @+1m@ lands on a different weekday and
+-- the computed one is doing work.
+today :: Time.Day
+today = Time.fromGregorian 2026 8 1
+
+stampedAt :: Time.ZonedTime
+stampedAt = Time.ZonedTime (Time.LocalTime today (Time.TimeOfDay 9 30 0)) Time.utc
+
+-- | WHAT: TEXT reads as the timestamp WANTED, against 'today'.
+reads' :: (Text, Text) -> Assertion
+reads' (text', wanted) =
+  assertEqual (T.unpack text') (Right wanted) (planningTimestamp today text')
+
+-- | WHAT: TEXT is no date at all, and the refusal says so by naming it.
+refuses :: Text -> Assertion
+refuses text' = case planningTimestamp today text' of
+  Right stamp -> assertFailure (show text' <> ": read as " <> T.unpack stamp)
+  Left why    -> assertBool (T.unpack why) ("is not a date" `T.isInfixOf` why)
+
+-- | DOC with TEXT captured into it, at 'stampedAt'.
+captured :: Text -> Text -> Either Text Text
+captured doc text' = splice doc <$> captureEdits doc (captureStamp stampedAt) text'

@@ -685,12 +685,19 @@ Exit:
       the browser→file→watch→row leg is live-verified below. The Emacs leg is
       S5's and has been since, but the two have not been demonstrated in one
       sitting.
-- [ ] Capture from a phone browser appends an entry to the inbox file.
-      Untouched: capture is `+` and still staged, and it is the one command that
-      needs an insertion point rather than a span of an existing headline.
-- [ ] `C-c C-s` / `C-c C-d` reschedule. Untouched, and the cheapest of what is
-      left: `hsSchedule`/`hsDeadline` already cover the timestamp text alone, so
-      a reschedule is one span replacement plus a date picker.
+- [~] Capture appends an entry to the inbox file. The COMMAND landed
+      (2026-08-02, below): `+` raises a one-line prompt, `POST /command capture
+      {text}` appends `* <text>` plus an `:ORG_GLANCE_CREATION_TIME:` drawer at
+      the end of the tree's `#+GLANCE_CAPTURE_TARGET:`, creating it under the
+      empty digest where there is none, and the watch delivers the row. The
+      PHONE half is not done and is a UI question rather than a command one: `+`
+      is a key, and a coarse pointer has nothing to press it with until
+      something focuses a field. The two touch affordances this page has — the
+      chip row and the gear — are the shape the answer would take, and neither
+      is wired to this.
+- [x] `C-c C-s` / `C-c C-d` reschedule. Landed (2026-08-02, below):
+      `POST /command set-planning {keyword, date}` over the marked set, one
+      drift-locked write per file, with the date parsed once per request.
 
 **Toggle-state and archive landed (the command layer's first two).** One route,
 `POST /command {name, id | ids, args, digests?}`, and two names —
@@ -719,6 +726,58 @@ over two files (two digests); 4 of 26 lines changed and 22 byte-identical; the
 watch streamed 5 upserts across 4 re-parses, and the idempotent second `archive`
 produced no frame at all — the file was rewritten with the same bytes and
 `guarded` found nothing moved.
+
+**Capture and reschedule landed, and M4's daily core is closed (2026-08-02).**
+Four command names now, and the route grew one shape rather than two: `args` is
+read into one `Args` record, and `.:!` in place of `.:?` is what tells an ABSENT
+field from a NULL one — the distinction `set-state` had been getting away
+without, since `{"args": {}}` used to read as a clear.
+
+`set-planning {keyword: SCHEDULED|DEADLINE, date: TEXT|null}` runs over the
+marked set like `set-state` and batches per file like everything here. Its span
+math (`Glance.Query.setPlanningEdits`) is four shapes — replace the timestamp,
+join the end of the line, grow a line under the TITLE LINE, or clear the entry
+and take the line with it when it was the last one — and the third of those
+shares `titleLineEnd` with `archiveEdits`, which is the one offset `hsFull`
+cannot give. `planningTimestamp` parses the date ONCE per request against the
+server's today: org's bracketed form verbatim once it reparses, `today` /
+`tomorrow`, `+Nd` / `+Nw` / `+Nm`, and a bare ISO date with an optional time,
+everything else being the whole request's 400. Both chords reach the page where
+`C-c C-t` cannot: `Ctrl+S` and `Ctrl+D` are page default actions.
+
+`capture {text}` is the first command that names no rows — it makes one — and
+the first that decides WHERE out of the config. `#+GLANCE_CAPTURE_TARGET:` is
+the second tree-wide line of `system.org`, read by the same `lastPragmaValue`
+the default view uses, written by the same `pragmaLineEdits`, spliced in the same
+`configEdits` call, and edited as a second field of the same settings section.
+`captureTargetIn` resolves it against the served root (absent =
+`<root>/inbox.org`) and refuses an absolute path, a `..` climb and a name the
+walk would not read — at CONFIG-READ time, printed on the startup banner, since
+a capture into an unwalked file writes an entry no watch delivers. The entry is
+appended at the end under the target's own digest (the store's, or a fresh
+`currentDocument` read, which answers `("","")` for a file that is not there and
+so creates it), and carries `:ORG_GLANCE_CREATION_TIME:` — org-glance's own
+property, org's inactive form, the second entry on `hiddenProperties`.
+
+Both keys raise the value palette in a TEXT mode (`askText`): the same overlay,
+band, blur and ESC, with a field where the list was. No new widget, no new z
+value.
+
+Suite: 900 → **954 tests**. Live over a scratch root: a capture created
+`inbox.org`, stamped it `[2026-08-02 Sun 01:30]`, and the watch streamed one
+upsert; `set-planning` over two files came back with two digests and the same
+day in both; a deadline joined the schedule's line; clearing the schedule left
+the deadline and clearing the deadline took the line; `next tuesday` was a 400
+with both files untouched; a `../escape.org` target was refused after a reseed
+and wrote nothing; and `GET /headline` on the captured row showed the creation
+time in neither pane while the raw org kept it.
+
+**What is still staged, and it is now the whole of the list**: `TAB`
+(`org-cycle`), `o` / `!` (`org-glance-overview:open`), `a`
+(`org-glance-agenda`), `@` (`org-glance-overview:relations`). Each is
+recognized in full and says what will back it. `org-cycle` wants an outline the
+table does not have (rows are top entries); `open` and `relations` want the graph
+milestone (S6); `agenda` wants a second view rather than a command.
 
 **Engine landed early (S8 core).** `Data.Org.Edit`, exposed by
 `glance-internal`: `applyEdits :: Text -> [Edit] -> Either EditError Text` over

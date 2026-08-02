@@ -107,11 +107,12 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   and `hrDoc` deliberately keep the document, which is why a loaded store still
   retains what it parsed.
 - Corpus check: `cabal run -v0 glance -- scan ~/sync` — expect 0 span
-  violations, ~12.9k headlines, and a `walk seconds` row of ~10.4 (2026-08-01,
-  warm, of a ~11.6 s wall). (2026-07-31: 13.4k → 12.9k headlines when the
-  derived mirrors left the walk, a semantic correction rather than a loss;
-  2026-08-01: ~13 → ~10.4 walk seconds on the lstat and the `orgGlanceTails`
-  guard, see Walk.)
+  violations, ~12.6k headlines, and a `walk seconds` row of ~10–11 (2026-08-02:
+  6287 files, 12594 headlines, 0 violations, 11.3 s). The headline figure was
+  carried at ~12.9k after the derived mirrors left the walk (2026-07-31,
+  13.4k → 12.9k, a semantic correction rather than a loss) and was not lowered
+  when the star-run rule took it to 12.6k; walk seconds went ~13 → ~10.4 on the
+  lstat and the `orgGlanceTails` guard, see Walk.
 - The `GLANCE_CORPUS` groups still PASS when the variable is unset, and say so:
   `TestDefaults.withCorpusSample` prints `SKIPPED — GLANCE_CORPUS is unset` on
   stderr for each. A green run without those two lines answered is unverified on
@@ -320,17 +321,57 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `glance-internal` sublibrary; cells are sliced from spans and the view
   `Value` is hand-built — no `ToJSON` on an internal type
   (table-view/SCHEMA.md is the contract).
-- Commands: one route, `POST /command {name, id | ids, args, digests?}`, two
-  names — `set-state {keyword: KW | null}` and `archive {}`. Ids group by FILE
-  and each file is one drift-locked `replaceSpans` call, so a marked set over
-  three files is three atomic writes; there is no cross-file rollback and the
-  answer is per id (`{results: [{id, ok, digest | error}]}`, in the order the
-  ids were named). Request-shape refusals are 400 with nothing written — a bad
-  body, an unimplemented name, no ids, and a keyword ANY named row's file does
-  not declare, which refuses the whole request rather than moving the rows whose
-  files do. Per id: an unknown id, and a client digest the store no longer holds
-  (per file, since a digest is). 413 outranks everything. The route never writes
-  the store — the watch is still the sole updater.
+- Commands: one route, `POST /command {name, id | ids, args, digests?}`, four
+  names — `set-state {keyword: KW | null}`, `set-planning {keyword:
+  SCHEDULED|DEADLINE, date: TEXT | null}`, `archive {}` and `capture {text}`.
+  Ids group by FILE and each file is one drift-locked `replaceSpans` call, so a
+  marked set over three files is three atomic writes; there is no cross-file
+  rollback and the answer is per id (`{results: [{id, ok, digest | error}]}`, in
+  the order the ids were named). Request-shape refusals are 400 with nothing
+  written — a bad body, an unimplemented name, no ids, a keyword ANY named row's
+  file does not declare, and a `set-planning` date no parser reads, both of which
+  refuse the whole request rather than moving the rows they could. Per id: an
+  unknown id, and a client digest the store no longer holds (per file, since a
+  digest is). 413 outranks everything. `args` is read once into `Args`, and
+  `.:!` rather than `.:?` is what tells an ABSENT field from a NULL one. The
+  route never writes the store — the watch is still the sole updater.
+- `capture` is the ONE id-less command: it makes a row rather than editing one,
+  so `{"ids": …}` is not owed and the rows-are-named rule does not reach it. The
+  answer is `{ok, file, digest}`. WHERE comes off the config
+  (`Glance.Query.captureTargetIn`), never the request; the entry is `* <text>`
+  plus a drawer holding `:ORG_GLANCE_CREATION_TIME:` — org's INACTIVE stamp,
+  server clock, at column 1, lines ending the way the target's own do
+  (`eolOf`) — appended at the END of the target, under the
+  target's own digest (the store's where it holds the file, else a fresh
+  `currentDocument` read, which is `Data.Org.Edit.readDocument` under the
+  absent-file convention and answers `("","")` for a file that is not there, so
+  the capture creates it under the empty pin). The text is raw org, refused when
+  empty or carrying a newline: a captured entry is ONE headline. Both stamps —
+  the creation time and a planning timestamp — are rendered by one `orgStamp`,
+  which differ only in their brackets and both compute the weekday.
+- The capture target is `#+GLANCE_CAPTURE_TARGET:` in `system.org`, resolved
+  against the SERVED ROOT; absent means `<root>/inbox.org`. An absolute path,
+  one climbing out through `..`, and a name the walk would not COLLECT are
+  refused where the config is READ — printed on the startup banner and answered
+  as a 400 — rather than at capture time, since a capture into an unwalked file
+  writes an entry no watch delivers a row for. That third rule is
+  `Data.Org.Walk.isWalked`, all three of `visit`'s predicates rather than
+  `isDocument` alone: `.org-glance/config/x.org` and `.org-glance/overviews/x.org`
+  are org files the walk declines, so an extension test would bless exactly what
+  the refusal is for. `visit` keeps its own spelling because it holds the three
+  answers already and re-asking would scan each path three more times.
+- `set-planning`'s span math is `Glance.Query.setPlanningEdits`: an entry already
+  there is its own span; an entry the line lacks joins the END of it; a headline
+  with no line grows one under its TITLE LINE (`titleLineEnd`, shared with
+  `archiveEdits`) at column 1; a clear takes the entry plus the TRAILING
+  horizontal run, or the leading one where the entry ends its line, and takes the
+  WHOLE LINE when it was the last entry — the lens rule, `CLOSED:` counting as an
+  entry. Clearing what was never there costs no edit. `planningTimestamp` parses
+  the date once per request against the server's today: a bracketed value is kept
+  verbatim once it REPARSES, `today`/`tomorrow` and `+Nd`/`+Nw`/`+Nm` work a date
+  out, and a bare ISO date takes an optional `HH:MM` — all three rendering an
+  active timestamp with the weekday computed. Everything else is the whole
+  request's 400, naming the input.
 - The span math is `Glance.Query`'s, because `HeadlineSpans` is
   `glance-internal`'s: `setStateEdits` replaces the keyword span, inserts
   `" KW"` at `spanEnd hsStars` when there is none, or deletes the keyword plus
@@ -369,7 +410,8 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   logbook that must stay body text.
 - Two of the four parts are SERVER-PRESERVED and a client neither sees nor sends
   them: the keys in `Glance.Query.hiddenProperties` (`ORG_GLANCE_ID` — the row id
-  a rename would break) and the whole logbook. `headlineParts` drops them,
+  a rename would break — and `ORG_GLANCE_CREATION_TIME`, which a capture stamps
+  and nothing may restate) and the whole logbook. `headlineParts` drops them,
   `recomposedSubtree` re-injects their original lines verbatim whatever the
   client said, and extending the list is one edit. A hidden property therefore
   survives a panel sync that never mentioned it, and an empty `properties` list
@@ -639,13 +681,22 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   holds under both spellings of a command. `archive-flag` needs it most: a repeat
   that survived would flag a row and archive it from ONE press, which is the
   confirmation the two-press shape exists to be.
-- Three keys write without a sheet, all `POST /command`, and WHICH ROWS is per
-  command rather than one rule. `t`/`C-c C-t` (`set-state`) take the MARKED set
-  when there is one and the row at point otherwise — dired's rule, and the
-  generic bulk selection. `D` and `d` take the FLAGGED set instead and never read
-  marks: a mark is what a reader lays down to set a state over a run of rows, and
-  letting the archive key inherit one makes every mark a loaded gun. Both sets
-  are the renderer's and are asked for AT command time; no set is kept here.
+- Six keys write without a sheet, all `POST /command`, and WHICH ROWS is per
+  command rather than one rule. `t`/`C-c C-t` (`set-state`) and `C-c C-s`/`C-c
+  C-d` (`set-planning`) take the MARKED set when there is one and the row at
+  point otherwise — dired's rule, and the generic bulk selection. `D` and `d`
+  take the FLAGGED set instead and never read marks: a mark is what a reader lays
+  down to set a state over a run of rows, and letting the archive key inherit one
+  makes every mark a loaded gun. `+` (`capture`) takes NO rows at all. Every set
+  is the renderer's and is asked for AT command time; no set is kept here.
+- `+`, `C-c C-s` and `C-c C-d` raise the value palette in its TEXT mode
+  (`askText`): the same overlay, the same band, the same `unask` and the same
+  ESC through `cancel`, with `prompting.text` set — no list, no letters, RET
+  commits the line as typed. `+`'s line goes to the server whole; the two chords
+  send it as `date`, and an EMPTY line is the null that clears the entry. Both
+  chords reach the page where `C-c C-t` does not: `Ctrl+S` and `Ctrl+D` are page
+  default actions rather than chrome shortcuts, so `preventDefault` on the
+  completing chord is the whole of what they need.
 - `d` is dired's FLAG and dired's `dd`, in two presses: the first flags the row
   at point (`archive-flag`, echo `d → flagged — d again archives`) and a second
   `d` on an already-flagged row IS `D` — it calls the same handler, so it
@@ -828,6 +879,13 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - `clSeed` is stored, not derived: `clTags` keeps the FIRST config of each tag
   across directories while the seed unions every entry read, shadowed ones
   included.
+- `system.org` carries two TREE-WIDE lines beside its cycle —
+  `#+GLANCE_DEFAULT_FILTER:` and `#+GLANCE_CAPTURE_TARGET:` — read by one
+  `lastPragmaValue` (last line wins), written by one `pragmaLineEdits` (replace
+  where it stands, insert under the header, empty deletes), carried by `clFilter`
+  and `clCapture`, and spliced in the SAME `configEdits` call as the block, since
+  three writes would be three digests. A tag layer names neither. The settings
+  sheet edits them as two fields under the system layer.
 - The DEFAULT VIEW is `system.org`'s `#+GLANCE_DEFAULT_FILTER:` line, read into
   `clFilter` and answered by `defaultFilter`; absent means `builtinFilter` =
   `state:*active*`, a line naming nothing means the empty query, and the LAST

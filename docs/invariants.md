@@ -360,15 +360,20 @@ on.
   "the default view is written by the same splice as the cycle"; `TestServe`
   "GET and POST /config" and "the served page carries the tree's default view".
   **test**
-- **The default view rides in the layer's own write.** `POST /config` takes an
-  optional `filter` beside `lines` and splices both in ONE `configEdits` call
-  under ONE digest, because they are lines of one file: two requests would be two
-  writes and the second would drift against a digest the first had just
-  invalidated. Absent leaves the line exactly as it is, empty takes it away
-  (which is the tree going back to the built-in), and anything else writes it.
-  Two absent pragmas insert at the same offset, which `Data.Org.Edit.applyEdits`
-  resolves in LIST order rather than refusing — touching edits are legal and two
-  insertions at one offset land as the caller named them. **test**
+- **Both tree-wide lines ride in the layer's own write.** `POST /config` takes an
+  optional `filter` and an optional `capture` beside `lines` and splices all
+  three in ONE `configEdits` call under ONE digest, because they are lines of one
+  file: three requests would be three writes and each would drift against a
+  digest the one before it had just invalidated. Absent leaves a line exactly as
+  it is, empty takes it away (which is the tree going back to the built-in view,
+  and to `inbox.org`), and anything else writes it. Three absent pragmas insert
+  at the same offset, which `Data.Org.Edit.applyEdits` resolves in LIST order
+  rather than refusing — touching edits are legal and insertions at one offset
+  land as the caller named them. Both lines belong to the SYSTEM layer alone, so
+  a tag layer's write drops them whatever the request said. One reader
+  (`lastPragmaValue`, last line wins) and one writer (`pragmaLineEdits`) serve
+  both, which is what makes "replace where it stands, insert under the header,
+  empty deletes" true of each without being written twice. **test**
 - **The config write path is the ordinary write path.** `GET`/`POST /config`
   serve and replace one layer's `#+TODO:` block, and every rule the other two
   write routes keep is kept here rather than restated: the spans come from
@@ -904,8 +909,10 @@ on.
   (33 files, 214 spans, each file digest-checked before and after to prove the
   check never wrote). **test + corpus**
 - **The command layer is one route, and its unit of work is a FILE.**
-  `POST /command` takes `{name, id | ids, args, digests?}` and implements two
-  names, `set-state {"keyword": KW | null}` and `archive {}`. The ids it is
+  `POST /command` takes `{name, id | ids, args, digests?}` and implements four
+  names — `set-state {"keyword": KW | null}`,
+  `set-planning {"keyword": "SCHEDULED" | "DEADLINE", "date": TEXT | null}`,
+  `archive {}` and `capture {"text": …}`. The ids it is
   given are grouped by the file their rows came from, and each file is written
   ONCE — one `Glance.Query.replaceSpans` call carrying every span that file
   owes, under that file's own pinned digest. So a marked set of five rows in
@@ -973,6 +980,133 @@ on.
   ships beside its badges and are in no keyword set, so they are refused here
   like any other word — which is why the shell's value palette offers `badges`
   and never `values`. **test**
+- **`args` is one record, and `.:!` is what tells absent from null.** The three
+  commands that take arguments read into one `Args` — `keyword` (which is
+  `set-state`'s state AND `set-planning`'s planning keyword, one field because
+  the wire spells both that way), `date` and `text` — and the two nullable
+  fields go through `.:!` rather than `.:?`. That is the whole of the
+  distinction the layer turns on: `.:?` folds a null into an absence, so
+  `{"args": {}}` would read as an instruction to CLEAR where it is a request
+  that said nothing. Absent is a 400 naming the field; null is the clear.
+  **test** (`TestServe` "a request with no date at all is a 400", "and one with
+  no keyword either", and the set-state pair that predates them)
+- **`set-planning` moves one timestamp, and the LINE is the lens's rule.**
+  `Glance.Query.setPlanningEdits` has four shapes. An entry already there is its
+  own span and nothing else, so a reschedule leaves the keywords, the spacing and
+  every other entry on the line byte-identical. An entry the line lacks joins the
+  END of it, behind whatever it already carries — which is the subtree lens's own
+  rule for an entry that moved, reached from the command side. A headline with no
+  planning line at all grows one under its TITLE LINE, at column 1, through the
+  same `titleLineEnd` `archiveEdits` uses and for the same reason: `hsFull` ends
+  at a drawer's `:END:` two lines down. And a clear takes the entry together with
+  the horizontal run that separated it — the TRAILING one, or the LEADING one
+  where the entry ends its line, never both, since eating both would glue the two
+  neighbours of a middle entry together — and takes the WHOLE LINE when it was
+  the last entry on it, a planning line with no entries not being one. `CLOSED:`
+  counts as an entry for that last rule and is settable by nothing: it is org's
+  own bookkeeping, so a key that wrote one would be forging a state change.
+  Clearing an entry the headline never had costs no edit, which makes the command
+  idempotent the way `archive` is. Evidence: `TestQuery` "set-planning", nine
+  cases spliced with the suite's own three-line oracle and asserted as the whole
+  document; `TestServe` "POST /command set-planning" for the route.
+  **test + live**
+- **The date is parsed ONCE per request, and an unreadable one refuses all of
+  it.** `Glance.Query.planningTimestamp` takes the day the request was made and
+  the text as typed. Four spellings: a value opening on a bracket is org's own
+  and is kept VERBATIM once `readsAsTimestamp` says it reparses — so a repeater,
+  a range or a warning period the author spelled out survives rather than being
+  canonicalized away, and a wrong weekday in that form stands because the value
+  is the author's; `today` and `tomorrow`, and `+Nd` / `+Nw` / `+Nm`, work a date
+  out; and a bare ISO date carries an optional `HH:MM` (read with `%k`, so `9:05`
+  is the time a reader meant rather than a refusal over a zero). The last three
+  render `<YYYY-MM-DD Day>` with the weekday COMPUTED, which is the one thing a
+  reader cannot be asked to get right. Anything else is the WHOLE request's 400
+  naming the input, for the reason an undeclared keyword is: half a reschedule
+  over a marked set is worse than none of one. Reading the clock once is what
+  stops a set crossing midnight from landing on two days. The rendered stamp is
+  then passed DOWN (`resolveDate` → `overRows` → `planCommand` → `commandEdits`)
+  rather than written back into the request, so `agDate` means the text the
+  client typed at every point in it — a field meaning one thing before a call and
+  another after it is a trap for whoever reads it next. **test**
+- **`capture` is the one command that names no rows, and the one whose target
+  comes out of the config.** Every other name here edits a headline a client can
+  point at; this one MAKES one, so the rule that a command names rows is written
+  around it (`rowlessCommand`) rather than relaxed for everything. The answer is
+  its own shape, `{ok, file, digest}`, since there is no per-id result to give.
+  The entry is `* <text>` and a drawer holding `:ORG_GLANCE_CREATION_TIME:`
+  under it, appended at the END of the target so every byte already in the file
+  stays where it was; a target whose last line has no newline gets one first, or
+  the stars would land on a live line and be no headline at all. The text is raw
+  org, written as spelled — `TODO Buy milk :errands:` captures a keyword, a title
+  and a tag — and is refused when it is empty or carries a newline, either of
+  which makes the entry something other than the ONE headline the command
+  promises. Evidence: `TestQuery` "capture", `TestServe` "POST /command capture".
+  **test + live**
+- **The creation stamp is org-glance's own property, in org's INACTIVE form.**
+  `:ORG_GLANCE_CREATION_TIME: [YYYY-MM-DD Day HH:MM]`, on the server's clock and
+  in its zone, at column 1 like the stars. Inactive because a creation time is a
+  record of when a row was written rather than something to turn up on an agenda;
+  the property name and the bracketed spelling are org-glance's, read off its own
+  store rather than invented here. It joins `hiddenProperties`, so the sheet
+  never offers it and a recompose puts it back verbatim — the second entry on
+  that list, which is what makes "hidden" the list rather than one key's special
+  case. **test + corpus** (the spelling is what `~/sync`'s own `data.org` files
+  carry)
+- **The capture target is a line of `system.org`, and where it may point is
+  decided when the config is READ.** `#+GLANCE_CAPTURE_TARGET:` reads into
+  `ConfigLayers.clCapture` by the same `lastPragmaValue` the default view uses
+  and is written by the same `pragmaLineEdits`, in the same `configEdits` call —
+  three lines of one file, one digest, one splice.
+  `Glance.Query.captureTargetIn` resolves it against the SERVED ROOT, because an
+  org-glance store is not obliged to sit at the root being served while the tree
+  a capture belongs in is; absent, the target is `<root>/inbox.org`, and so is an
+  empty line. Three refusals, all TEXTUAL the way every other path rule in this
+  repo is (Walk): an absolute path, a path climbing out through `..`, and a name
+  the walk would not COLLECT — that last one because a capture into it writes an
+  entry no watch ever delivers a row for, so the row would vanish rather than
+  appear. That third one is `Data.Org.Walk.isWalked` — all three of `visit`'s
+  predicates, `isDocument` minus `isConfig` and `isDerived` — and the difference
+  is load-bearing rather than tidy: `.org-glance/config/x.org` and
+  `.org-glance/overviews/x.org` are org files by extension that the walk
+  declines, so stopping at `isDocument` would bless exactly the paths this
+  refusal exists for. `visit` keeps spelling the conjunction itself, because it
+  has the three answers in hand and calling `isWalked` there would re-scan every
+  entry's path three more times — the cost this repo already declined to pay for
+  sharing one of them (Walk, "ONE MEASURED THING DECLINED"). They are refused
+  HERE rather than at capture time: a tree misconfigured
+  in January says so on the startup banner instead of on the first `+` in March,
+  and the same call answers the 400. Evidence: `TestConfig` "the capture target
+  is a line of the system layer", "and it resolves against the served root, or is
+  refused there", `TestServe` "POST /command capture". **test + live**
+- **A capture pins the target's own digest, and creates under the empty one.**
+  The document and the digest come off the STORE where it holds the file
+  (`Glance.Web.Store.storeDocument`, the first row's, since every row of a file
+  shares both) and off a fresh `Glance.Query.currentDocument` where it does not —
+  one read either way, so the offset the entry is spliced at and the lock the
+  write presents describe ONE text, which is materialize's rule kept for a file
+  the store never loaded. The read itself is `Data.Org.Edit.readDocument`, which
+  lives beside `takeSnapshot` because that is where the pin is defined and where
+  the config reader takes its own layers from — one function, so a second raw
+  read cannot drift from the loader's. `currentDocument` reads its `Nothing` as
+  `("", "")`, and the empty digest is `Data.Org.Edit`'s pin for a file that is
+  not there, so the first capture into a tree creates the file and the
+  directories over it. An unreadable file that IS there answers the empty pin
+  too, which is safe rather than lossy: the write re-reads, digests what it
+  finds, and refuses as drift. **test**
+- **One function spells an org timestamp, and the brackets are the difference.**
+  `Glance.Query.orgStamp` renders `<YYYY-MM-DD Day[ HH:MM]>` or the same in
+  square brackets, and its two callers are `planningTimestamp`'s renders and
+  `captureStamp`. Both compute the weekday rather than taking one, which is the
+  parser's own rule (Parser, "Timestamps") reached from the writing side. Two
+  hand-rolled renderers twenty lines apart is how a creation stamp and a planning
+  entry come to disagree about a shape org fixed. **test**
+- **A written line ends the way the file's own lines do.** `captureEdits` and
+  `setPlanningEdits`' grown planning line both take their line ending from
+  `eolOf`, so a capture into a CRLF file leaves a CRLF file rather than one with
+  two kinds of line in it. The lens already did this for a drawer and a planning
+  line it rewrites (`drawerStyle`, `planningStyle`); the commands now do it for
+  the ones they add. **test** (`TestQuery` "into a CRLF file, the entry is CRLF
+  too")
 - **`archive` is idempotent because an archived row costs no edit.**
   `archiveEdits` answers `[]` for a row already carrying the tag, matched
   through `Glance.Query.archived`, which reads `tagsOfCell . hrTags` — the same
@@ -1055,13 +1189,18 @@ on.
   fixtures. Evidence: `TestQuery` "Subtree lens", `TestServe` "GET /headline" and
   "POST /headline". **test**
 - **Two of the four parts are the SERVER's, and are preserved rather than
-  round-tripped.** `Glance.Query.hiddenProperties` (today `["ORG_GLANCE_ID"]`)
-  and the logbook are lifted out of what a client is shown and put back verbatim
-  whatever the client sends. `ORG_GLANCE_ID` is the row id the table keys its
-  updates off — renaming it renames the row and leaves the sheet looking at a
-  different headline — and hiding it is cheaper than a rule about which edits to
-  a shown value are allowed, and honest in a way a warning beside an editable
-  field is not. The logbook is a record nothing in this page edits. ONE list is
+  round-tripped.** `Glance.Query.hiddenProperties` (today `["ORG_GLANCE_ID",
+  "ORG_GLANCE_CREATION_TIME"]`) and the logbook are lifted out of what a client
+  is shown and put back verbatim whatever the client sends. `ORG_GLANCE_ID` is
+  the row id the table keys its updates off — renaming it renames the row and
+  leaves the sheet looking at a different headline — and hiding it is cheaper
+  than a rule about which edits to a shown value are allowed, and honest in a way
+  a warning beside an editable field is not. `ORG_GLANCE_CREATION_TIME` is the
+  same argument from the other end: a capture stamps it once, and a sheet that
+  let it be edited would be offering to make the record say something else. The
+  second entry is what makes this the LIST's rule rather than one key's special
+  case, and the cases are written against the list. The logbook is a record
+  nothing in this page edits. ONE list is
   read by both halves, so extending it is one edit and no other: a listed key
   survives a panel sync that never mentioned it, byte-identical and at the line
   index it sat on (`weave`), and a client that DOES name one writes nothing.
@@ -1767,21 +1906,42 @@ on.
   carries a `ToJSON` instance: deriving one would make the AST the contract,
   and `SCHEMA.md` is. **test** (`TestQuery` imports the facade only; golden +
   schema-conformance groups)
-- **Two keys write without a sheet, and neither asks for confirmation.** `D`
-  archives over the FLAGGED set and `C-c C-t` sets a state over the MARKED one,
-  each falling back to the row at point — dired's rule, and org-glance's. They
-  are `POST /command`: the page sends row ids and a name, the server computes the
-  spans, and the table is not touched at all, the rows arriving over the socket
-  once the watch has re-read the files. There is no confirmation step and there
-  should not be: the drift lock is the safety, `D` archives rather than deletes,
-  and org-glance's own rhythm is a key that acts. The pill counts what landed
-  and the log names every row — a line per landing and a line per refusal, which
-  is what a per-file answer needs: a set spanning three files can come back
-  two-thirds applied.
+- **Six keys write without a sheet, and none asks for confirmation.** `D`
+  archives over the FLAGGED set; `t` / `C-c C-t` set a state and `C-c C-s` /
+  `C-c C-d` set a planning entry, all three over the MARKED one; each falls back
+  to the row at point — dired's rule, and org-glance's. `+` captures and takes no
+  rows at all. They are `POST /command`: the page sends row ids and a name, the
+  server computes the spans, and the table is not touched at all, the rows
+  arriving over the socket once the watch has re-read the files. There is no
+  confirmation step and there should not be: the drift lock is the safety, `D`
+  archives rather than deletes, and org-glance's own rhythm is a key that acts.
+  The pill counts what landed and the log names every row — a line per landing
+  and a line per refusal, which is what a per-file answer needs: a set spanning
+  three files can come back two-thirds applied.
   `D` keeps org-glance's command name, `org-glance-overview:delete`, and earns a
   `kbHelp` because the name is wider than the behaviour. Evidence: `TestServe`
   "Shell commands", which drives both keys through the node harness and asserts
   the bodies they posted. **test**
+- **The same overlay collects a LINE, and that is all `askText` is.** `+`,
+  `C-c C-s` and `C-c C-d` need one line of text rather than a choice, and they
+  raise `#prompt` with `prompting.text` set: no list, no letters, RET commits the
+  field as typed and every other key is the field's own. It is the value
+  palette's overlay rather than a widget of its own because everything a prompt
+  owes is already there — the z band, the blur on the way out that keeps
+  `typing()` honest, and ESC through the keymap's `cancel` — and because a second
+  overlay would be a second thing to keep in step with all three. `+` sends its
+  line whole; the two chords send it as `date`, where an EMPTY line is the null
+  that clears the entry, so the key that sets a date is the key that takes one
+  off. Evidence: `TestServe` "Shell capture and reschedule". **test**
+- **The reschedule chords survive the browser, and `C-c C-t` still does not.**
+  `Ctrl+S` and `Ctrl+D` are page DEFAULT ACTIONS — save-page and bookmark — so
+  `preventDefault` on the completing chord reaches them, exactly as it does for
+  `C-x C-s`; `Ctrl+T`, `Ctrl+N` and `Ctrl+W` are handled in the browser process
+  above the document and cannot be. So `C-c C-s` and `C-c C-d` are the org
+  spellings that WORK, where `C-c C-t` needed a plain `t` beside it. What the
+  page owes either way is the same and is what the suite pins: both halves of the
+  chord claimed off the browser. **test** ("both reschedule chords are claimed,
+  and name the keyword") / **none** (the browser's half, which no harness reaches)
 - **The value palette is the shell's own, and the filter's is still the
   renderer's.** `C-c C-t` (and `t`) raises `#prompt` over the state column's
   `badges` plus a `*clear*` entry. It is a second overlay rather than a reuse of

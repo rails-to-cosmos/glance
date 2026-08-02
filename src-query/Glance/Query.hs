@@ -48,10 +48,17 @@ module Glance.Query ( ConfigLayerFile (..)
                     , archiveTag
                     , archived
                     , builtinFilter
+                    , captureEdits
+                    , captureProperty
+                    , captureStamp
+                    , captureTargetIn
+                    , captureTargetOf
                     , cellSep
                     , configDirIn
                     , configEdits
                     , configPath
+                    , currentDocument
+                    , defaultCaptureFile
                     , defaultFilter
                     , defaultFilterOf
                     , defaultWalk
@@ -74,12 +81,14 @@ module Glance.Query ( ConfigLayerFile (..)
                     , noConfig
                     , orderedForView
                     , planningKeywords
+                    , planningTimestamp
                     , readConfigLayers
                     , readsAsTimestamp
                     , recomposedSubtree
                     , replaceSpans
                     , resolveIds
                     , rowJSON
+                    , setPlanningEdits
                     , setStateEdits
                     , sortedForView
                     , subtreeText
@@ -90,6 +99,7 @@ module Glance.Query ( ConfigLayerFile (..)
                     , viewJSONWith
                     ) where
 
+import Control.Applicative ((<|>))
 import Control.Exception (IOException, evaluate, try)
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Aeson.Text (encodeToLazyText)
@@ -107,6 +117,7 @@ import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Read as TR
 import qualified Data.Time as Time
 
 import Data.Org ( Context, Element (EHeadline), Headline
@@ -120,8 +131,9 @@ import Data.Org ( Context, Element (EHeadline), Headline
                 , schedule, sliceSpan, spans, tags, title, todo, todoActive
                 , todoInactive )
 import Data.Org.Config ( ConfigLayerFile (..), ConfigLayers (..), TodoKeywords (..)
-                       , builtinFilter, classify, configDirIn, declaredKeywords
-                       , defaultFilter
+                       , builtinFilter, captureTargetEdits, captureTargetIn
+                       , captureTargetOf, classify, configDirIn, declaredKeywords
+                       , defaultCaptureFile, defaultFilter
                        , defaultFilterEdits, defaultFilterOf, isTodoPragma
                        , loadConfigDirs, mergeKeywords, noConfig, readConfigLayers
                        , seedContext, todoLineEdits, todoLines, todoPragmas )
@@ -635,13 +647,15 @@ subtreeText r = sliceSpan (hrDoc r) (hrSubtree r)
 -- updates off, and the sheet would be looking at a different headline
 -- afterwards.  Hiding it is cheaper than a rule about which edits to a shown
 -- value are allowed, and honest in a way a warning beside an editable field is
--- not.
+-- not.  'captureProperty' is the other half of the same argument from the other
+-- end: a creation time is a fact about when a row was written, so a sheet that
+-- let it be edited would be offering to make the record say something else.
 --
 -- ONE list, read by both halves of the lens: 'headlineParts' drops these pairs
 -- and 'recomposedSubtree' puts their original lines back, so extending it is
 -- one edit here and none anywhere else.
 hiddenProperties :: [Text]
-hiddenProperties = ["ORG_GLANCE_ID"]
+hiddenProperties = ["ORG_GLANCE_ID", captureProperty]
 
 -- | Is KEY one the server owns?  Folded and stripped, since a drawer spells its
 -- keys however the file that holds it does.
@@ -795,9 +809,16 @@ planningSlice r subtree = case map snd (planningEntries r subtree) of
 planningEntries :: HeadlineRecord -> Text -> [(Text, Span)]
 planningEntries r subtree = sortOn (spanStart . snd)
   [ (key, local)
-  | (key, Just sp) <- zip planningKeywords [hsSchedule hs, hsDeadline hs, hsClosed hs]
+  | (key, sp) <- presentPlanning (headlineSpans r)
   , Just local <- [localSpan r subtree sp] ]
-  where hs = headlineSpans r
+
+-- | HS's planning entries that are there, keyword by keyword, in
+-- 'planningKeywords' order — which is org's default order and NOT necessarily
+-- the line's, the three permuting freely.
+presentPlanning :: HeadlineSpans -> [(Text, Span)]
+presentPlanning hs =
+  [ (key, sp)
+  | (key, Just sp) <- zip planningKeywords [hsSchedule hs, hsDeadline hs, hsClosed hs] ]
 
 -- | Where R's OWN logbook drawer sits in SUBTREE, as a whole-line span, SKIP
 -- being the property drawer's extent.
@@ -860,12 +881,25 @@ planningStyle r subtree _body (Just sp) = PlanningStyle (indentOf line) (eolOf l
 -- AT.  'Nothing' where the keyword is not in front of the timestamp, which the
 -- parse forbids and this checks anyway.
 rawEntry :: Text -> Text -> Span -> Maybe Text
-rawEntry key line at
-  | from < 0  = Nothing
-  | otherwise = Just (T.take (spanEnd at - from) (T.drop from line))
+rawEntry key line at =
+  (\from -> T.take (spanEnd at - from) (T.drop from line)) <$> entryOpening line key (spanStart at)
+
+-- | Where the entry KEY opens in TEXT, given that its timestamp starts at AT:
+-- the offset of the last @KEY:@ ahead of AT ON AT'S OWN LINE, or 'Nothing'
+-- where that line has none.
+--
+-- The LAST one, because only horizontal space may sit between a planning
+-- keyword and its timestamp.  Bounded to the line so the answer cannot come
+-- from a @SCHEDULED:@ further up the document — which is what lets a caller
+-- hand this the whole file rather than a line it cut first, and is why no
+-- caller owes a check afterwards.
+entryOpening :: Text -> Text -> Int -> Maybe Int
+entryOpening text key at
+  | T.null ahead = Nothing
+  | otherwise    = Just (from + T.length ahead - T.length marker)
   where marker = key <> ":"
-        from   = T.length (fst (T.breakOnEnd marker (T.take (spanStart at) line)))
-                   - T.length marker
+        from   = lineStart text at
+        ahead  = fst (T.breakOnEnd marker (sliceSpan text (Span from at)))
 
 -- | STYLE's planning line carrying WANT, or @""@ where WANT is empty — which is
 -- how the last entry coming off takes the line with it.
@@ -1029,7 +1063,14 @@ eolOf t = case T.breakOn "\n" t of
 
 -- | The horizontal space LINE opens with.
 indentOf :: Text -> Text
-indentOf = T.takeWhile (\c -> c == ' ' || c == '\t')
+indentOf = T.takeWhile horizontal
+
+-- | Is C horizontal space — the run a command deletes with a keyword, and the
+-- run a line is indented by?  Org's own distinction: a newline ends a line and
+-- these two do not, so a command taking "the space behind this word" must never
+-- take the line's end with it.
+horizontal :: Char -> Bool
+horizontal c = c == ' ' || c == '\t'
 
 -- | XS's first element, or FALLBACK where it has none.
 firstOr :: a -> [a] -> a
@@ -1153,6 +1194,19 @@ data WriteFailure
   | WriteRefused !Text  -- ^ read, decode, splice or rename trouble, spelled for a caller to show.
   deriving (Eq, Show)
 
+-- | PATH's text and the digest of the bytes it holds, or @("", "")@ where there
+-- is nothing readable there.
+--
+-- ONE read answers both, so the offsets a caller measures in the text and the
+-- digest it pins the write to describe one document — the rule materialize keeps
+-- by taking both at load, kept here for a file the store never loaded.  The
+-- EMPTY digest is 'Data.Org.Edit.editFile''s pin for a file that is not there,
+-- so a capture into a tree with no inbox creates one.  An unreadable file that
+-- IS there answers the empty pin too, which is safe rather than lossy: the write
+-- re-reads, digests what it finds, and refuses as drift.
+currentDocument :: FilePath -> IO (Text, Text)
+currentDocument = fmap (fromMaybe ("", "")) . Edit.readDocument
+
 -- | Replace each span of FILE with the text beside it, provided FILE still
 -- digests to DIGEST; the file's new digest comes back, so a caller chains an
 -- edit without re-reading.
@@ -1228,7 +1282,6 @@ setStateEdits :: Maybe Text -> HeadlineRecord -> Either Text [(Span, Text)]
 setStateEdits Nothing r = Right [ (Span (spanStart sp) (spanEnd sp + trailing sp), "")
                                 | Just sp <- [hsTodo (headlineSpans r)] ]
   where trailing sp = T.length (T.takeWhile horizontal (T.drop (spanEnd sp) (hrDoc r)))
-        horizontal c = c == ' ' || c == '\t'
 setStateEdits (Just keyword) r
   | keyword `notElem` declared = Left (keyword <> " is not a TODO keyword of " <> T.pack (hrFile r)
                                         <> "; it declares " <> T.intercalate ", " declared)
@@ -1256,11 +1309,200 @@ archiveEdits :: HeadlineRecord -> [(Span, Text)]
 archiveEdits r
   | archived r           = []
   | Just sp <- hsTags hs = [ (insertAt (spanEnd sp), archiveTag <> ":") ]
-  | otherwise            = [ (insertAt titleLineEnd, " :" <> archiveTag <> ":") ]
+  | otherwise            = [ (insertAt (titleLineEnd hs), " :" <> archiveTag <> ":") ]
+  where hs = headlineSpans r
+
+-- | Where HS's title LINE ends: the greatest end among the parts org writes on
+-- it — the stars, the keyword, the priority, the title and the tags.
+--
+-- 'hsFull' cannot serve, and its own invariant says why: its end is the last
+-- part in SPAN ORDER, which for a scheduled headline is a timestamp on the NEXT
+-- line and for one with a drawer is its @:END:@.  Two commands insert here: the
+-- archive tag onto an untagged headline, and a planning line under a headline
+-- that has none.
+titleLineEnd :: HeadlineSpans -> Int
+titleLineEnd hs = foldl' max (spanEnd (hsStars hs))
+  [ spanEnd sp | Just sp <- [hsTodo hs, hsPriority hs, hsTitle hs, hsTags hs] ]
+
+-- | The planning keywords a command may set: 'planningKeywords' less
+-- @CLOSED:@, which is org's own bookkeeping — a state change is what writes one
+-- — so the lens reads it and no key sets it.
+--
+-- DERIVED rather than listed, so a fourth keyword added to the trio has to be
+-- excluded on purpose rather than being unsettable by omission.
+settableKeywords :: [Text]
+settableKeywords = filter (/= "CLOSED") planningKeywords
+
+-- | The span edits @set-planning@ makes to R: KEYWORD's entry set to STAMP, or
+-- taken off where STAMP is 'Nothing'.
+--
+-- Four shapes.  An entry already there is its own span and nothing else, so a
+-- reschedule moves the timestamp and leaves the keywords, the spacing and the
+-- other entries on the line byte-identical.  An entry where there is none joins
+-- the END of the planning line, behind whatever it already carries, which is
+-- the lens's own rule for an entry that moved.  A headline with no planning line
+-- at all grows one under its TITLE LINE, where org puts one, at column 1 like
+-- the stars.  And a clear takes the entry out together with the horizontal space
+-- that separated it from its neighbour — the TRAILING run, or the leading one
+-- where the entry ends its line — or takes the WHOLE LINE when it was the last
+-- entry on it, since a planning line with no entries is not one.
+--
+-- Clearing an entry a headline never had costs no edit, which makes the command
+-- idempotent the way @archive@ is.  KEYWORD is refused unless it is one a key
+-- may set ('settableKeywords').
+setPlanningEdits :: Text -> Maybe Text -> HeadlineRecord -> Either Text [(Span, Text)]
+setPlanningEdits keyword stamp r
+  | keyword `notElem` settableKeywords =
+      Left (keyword <> " is not a planning keyword; this server sets "
+              <> T.intercalate " and " settableKeywords)
+  | otherwise = Right $ case (lookup keyword present, stamp) of
+      (Just sp, Just ts) -> [(sp, ts)]
+      (Just sp, Nothing) -> [(cleared sp, "")]
+      (Nothing, Just ts) -> [added ts]
+      (Nothing, Nothing) -> []
   where
-    hs = headlineSpans r
-    titleLineEnd = foldl' max (spanEnd (hsStars hs))
-                     [ spanEnd sp | Just sp <- [hsTodo hs, hsPriority hs, hsTitle hs] ]
+    hs      = headlineSpans r
+    doc     = hrDoc r
+    present = presentPlanning hs
+    others  = [ sp | (key, sp) <- present, key /= keyword ]
+
+    -- The line is cut ONCE and every scan below runs inside it: the entry's
+    -- keyword, the run behind it and the run in front are all a few dozen
+    -- characters away, where over the document each would be a pass down the
+    -- whole prefix.
+    cleared sp
+      | null others  = Span from (pastLine doc (spanEnd sp))
+      | trailing > 0 = Span at (spanEnd sp + trailing)
+      | otherwise    = Span (at - leading) (spanEnd sp)
+      where from     = lineStart doc (spanStart sp)
+            -- The keyword is where the entry starts; a line that somehow spells
+            -- none leaves the timestamp standing in, which the parse forbids
+            -- and this survives anyway.
+            at       = fromMaybe (spanStart sp) (entryOpening doc keyword (spanStart sp))
+            line     = sliceSpan doc (Span from (pastLine doc (spanEnd sp)))
+            trailing = runOf (T.drop (spanEnd sp - from) line)
+            leading  = T.length (T.takeWhileEnd horizontal (T.take (at - from) line))
+            runOf    = T.length . T.takeWhile horizontal
+
+    added ts
+      | null others = (insertAt (titleLineEnd hs), eolOf doc <> entry)
+      | otherwise   = (insertAt (maximum (map spanEnd others)), " " <> entry)
+      where entry = keyword <> ": " <> ts
+
+-- | TEXT as the timestamp a planning entry carries, TODAY anchoring the
+-- relative forms, or why it is not one.
+--
+-- Four spellings, tried in this order.  Org's own — anything opening on a
+-- bracket — is taken exactly as written once it REPARSES, so a repeater, a range
+-- or a warning period the author spelled out survives untouched.  @today@ and
+-- @tomorrow@, and @+Nd@ \/ @+Nw@ \/ @+Nm@ from TODAY, work a date out.  A bare
+-- ISO date carries an optional @HH:MM@.  The last three render as an ACTIVE
+-- timestamp with the weekday computed rather than typed, which is the one thing
+-- a reader cannot be asked to get right.
+--
+-- Anything else is refused by name: a value that does not reparse turns the
+-- planning line into body text on the next load, and the entry the author set is
+-- gone with it.
+planningTimestamp :: Time.Day -> Text -> Either Text Text
+planningTimestamp today text
+  | T.null want = refusal
+  | bracketed   = if readsAsTimestamp want then Right want else refusal
+  | otherwise   = maybe refusal Right (withTime <$> asLocal <|> (`stamped` Nothing) <$> dated)
+  where
+    want      = T.strip text
+    bracketed = "<" `T.isPrefixOf` want || "[" `T.isPrefixOf` want
+    refusal   = Left (text <> " is not a date: spell it 2026-08-05, 2026-08-05 09:30,"
+                        <> " +3d, +2w, +1m, today, tomorrow, or org's own <2026-08-05 Wed>")
+
+    -- One rendering site: a relative form and a bare ISO date differ in how the
+    -- DAY is worked out and in nothing else, and a @+3d@ can never parse as ISO,
+    -- so the two feed one alternative rather than each rendering for itself.
+    dated = relative <|> asDay
+    relative = case T.toLower want of
+      "today"    -> Just today
+      "tomorrow" -> Just (Time.addDays 1 today)
+      offset     -> shifted offset
+    shifted offset = do
+      digits <- T.stripPrefix "+" offset
+      (n, unit) <- either (const Nothing) Just (TR.decimal digits :: Either String (Integer, Text))
+      case unit of
+        "d" -> Just (Time.addDays n today)
+        "w" -> Just (Time.addDays (7 * n) today)
+        "m" -> Just (Time.addGregorianMonthsClip n today)
+        _no -> Nothing
+
+    asDay :: Maybe Time.Day
+    asDay = Time.parseTimeM True Time.defaultTimeLocale "%Y-%m-%d" (T.unpack want)
+    -- @%k@ rather than @%H@ for the hour: it reads one digit as well as two, so
+    -- @9:05@ is the time a reader meant rather than a refusal over a zero.
+    asLocal :: Maybe Time.LocalTime
+    asLocal = Time.parseTimeM True Time.defaultTimeLocale "%Y-%m-%d %k:%M" (T.unpack want)
+    withTime at = stamped (Time.localDay at) (Just (spelled "%H:%M" at))
+    stamped day = orgStamp activeBrackets day
+
+-- | The brackets org writes a timestamp in: @\<…\>@ for one an agenda picks up,
+-- @[…]@ for one that is a record and nothing else.
+activeBrackets, inactiveBrackets :: (Text, Text)
+activeBrackets   = ("<", ">")
+inactiveBrackets = ("[", "]")
+
+-- | DAY inside BRACKETS with its weekday, and TIME after it where there is one:
+-- @\<2026-08-05 Wed 09:30\>@.  The one place this library spells a timestamp,
+-- so a planning entry and a creation stamp cannot disagree about the shape.
+--
+-- The weekday is COMPUTED here, which is the same rule the renderer keeps
+-- (docs\/invariants.md, Parser): a weekday is a function of the date and asking
+-- anyone to type one is asking them to get it wrong.
+orgStamp :: (Text, Text) -> Time.Day -> Maybe Text -> Text
+orgStamp (open, close) day time =
+  open <> spelled "%Y-%m-%d %a" day <> maybe "" (" " <>) time <> close
+
+-- | T under FMT, in the locale org writes.
+spelled :: Time.FormatTime t => String -> t -> Text
+spelled fmt = T.pack . Time.formatTime Time.defaultTimeLocale fmt
+
+-- | The property a captured entry carries, org-glance's own spelling.
+captureProperty :: Text
+captureProperty = "ORG_GLANCE_CREATION_TIME"
+
+-- | NOW as 'captureProperty' spells a moment: org's INACTIVE timestamp,
+-- @[YYYY-MM-DD Day HH:MM]@, in the server's own zone.  Inactive because a
+-- creation time is a record of when a row was written rather than something to
+-- turn up on an agenda.
+captureStamp :: Time.ZonedTime -> Text
+captureStamp now = orgStamp inactiveBrackets (Time.localDay at) (Just (spelled "%H:%M" at))
+  where at = Time.zonedTimeToLocalTime now
+
+-- | The span edits @capture@ makes to DOC — the capture target's text, @\"\"@
+-- for a file that is not there yet, where the entry is the whole file.
+--
+-- ONE insertion at the END, so every byte already in the file stays where it
+-- was: TEXT as a level-one headline, then a drawer holding STAMP under
+-- 'captureProperty'.  TEXT is raw org and is written as spelled, so
+-- @TODO Buy milk :errands:@ captures a keyword, a title and a tag.  What it may
+-- not be is empty, or more than one line — either makes the entry something
+-- other than the one headline this command promises.
+--
+-- The drawer sits at column 1 like the stars: org's unindented layout, and what
+-- the parser reads back with no rule about indentation.  Its lines end the way
+-- the target's own do ('eolOf'), so a capture into a CRLF file leaves one.
+captureEdits :: Text -> Text -> Text -> Either Text [(Span, Text)]
+captureEdits doc stamp text
+  | T.null typed          = Left "a capture needs a headline: the text that goes after the star"
+  | T.any (== '\n') typed = Left "a captured entry is one headline, so its text is one line"
+  | otherwise             = Right [(insertAt (T.length doc), opening <> entry)]
+  where
+    typed = T.strip text
+    eol   = eolOf doc
+    -- A file whose last line has no newline would otherwise take the stars onto
+    -- the end of that line, where they are no headline at all.
+    opening | T.null doc || "\n" `T.isSuffixOf` doc = ""
+            | otherwise                             = eol
+    entry = T.concat [ line <> eol
+                     | line <- [ "* " <> typed
+                               , ":PROPERTIES:"
+                               , ":" <> captureProperty <> ": " <> stamp
+                               , ":END:" ] ]
 
 -- | The span edits writing LINES as the @#+TODO:@ block of a config file
 -- holding DOC, or why LINES are not a block.
@@ -1282,24 +1524,25 @@ archiveEdits r
 -- into one either.  The message says so, since that is the refusal a reader
 -- typing the group name gets.
 --
--- WANT is the default view the same file names, which the system layer carries
--- and a tag layer never does: 'Nothing' leaves the
--- @#+GLANCE_DEFAULT_FILTER:@ line exactly as it is, @Just \"\"@ takes it away,
--- and anything else writes it.  It rides in this one call because it is a line
--- of the same file, and two calls would be two writes under two digests, the
--- second of which the first had just invalidated.
+-- WANT and TARGET are the default view and the capture target the same file
+-- names, both of which the system layer carries and a tag layer never does:
+-- 'Nothing' leaves that line exactly as it is, @Just \"\"@ takes it away, and
+-- anything else writes it.  They ride in this one call because they are lines of
+-- the same file, and three calls would be three writes under three digests, each
+-- of which the one before it had just invalidated.
 --
 -- The spans are the file's own lines ('Data.Org.Config.todoLineEdits'), so
 -- everything a config file is besides its cycle — the @#+TITLE:@, the comments,
 -- the capture template — is bytes this never names.
-configEdits :: Text -> [Text] -> Maybe Text -> Either Text [(Span, Text)]
-configEdits doc asked want
+configEdits :: Text -> [Text] -> Maybe Text -> Maybe Text -> Either Text [(Span, Text)]
+configEdits doc asked want target
   | not (null strange) = Left ("not a #+TODO: line: " <> T.intercalate " · " strange)
-  | null lines'        = Right (todoLineEdits doc [] <> filterEdits)
+  | null lines'        = Right (todoLineEdits doc [] <> lineEdits)
   | null declared      = Left declaresNothing
-  | otherwise          = Right (todoLineEdits doc lines' <> filterEdits)
+  | otherwise          = Right (todoLineEdits doc lines' <> lineEdits)
   where
-    filterEdits = maybe [] (defaultFilterEdits doc) want
+    lineEdits = maybe [] (defaultFilterEdits doc) want
+             <> maybe [] (captureTargetEdits doc) target
     lines'   = filter (not . T.null . T.strip) asked
     -- A LINE, and the pragma test is a prefix one: an entry carrying a newline
     -- of its own would pass it and write everything past that newline into the
