@@ -715,9 +715,11 @@ Exit:
       empty digest where there is none, and the watch delivers the row. The
       PHONE half is not done and is a UI question rather than a command one: `+`
       is a key, and a coarse pointer has nothing to press it with until
-      something focuses a field. The two touch affordances this page has — the
-      chip row and the gear — are the shape the answer would take, and neither
-      is wired to this.
+      something focuses a field. The chip row is the ONE touch affordance this
+      page has left — the settings gear went with the status corner (#56), which
+      took the settings sheet out of a touch reader's reach as well — so
+      whatever answers capture on a phone answers that too, and it is one
+      question rather than two.
 - [x] `C-c C-s` / `C-c C-d` reschedule. Landed (2026-08-02, below):
       `POST /command set-planning {keyword, date}` over the marked set, one
       drift-locked write per file, with the date parsed once per request.

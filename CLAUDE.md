@@ -897,8 +897,8 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   block for `position:fixed` descendants, and the renderer's palette backdrop
   (`.tv-veil`, inside `#app`) is one — it would stop covering the viewport and be
   clipped by `.tv-root`'s `overflow:hidden`. No blur either: a stale row is still
-  the row. The corner, the log
-  strip and the key line are exempt by omission: they explain the state. Triggers:
+  the row. The log strip and the key line are exempt by omission: they explain
+  the state. Triggers:
   a view fetch in flight past 300 ms, and a socket down past 400 ms; the delays
   are what keep a working page undimmed. One holder (`wash`) carries a count, a
   timer and an on-flag per reason with one `arm`/`off`/`show`; the view reason is
@@ -906,12 +906,13 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   (a refused connection closes without ever opening). `viewing` marks the fetches
   whose answer replaces the rows — the parity baseline and `@`'s probe are not
   among them, and a boot holds nothing. The page never reads the class back.
-- Shell z-indexes are four: echo `2`, corner `3`, modal backdrop `100`, sheet
-  `101`. Every overlay shares that pair with the sheet
-  (`#modal,#prompt,#config,#links,#tags` and `#pbox,#lbox,#tbox`), so the four
+- Shell z-indexes are three: echo `2`, modal backdrop `100`, sheet `101`. `3`
+  was the corner's and went with it — the suite forbids the value. Every overlay
+  shares that pair with the sheet
+  (`#modal,#prompt,#config,#links,#tags` and `#pbox,#lbox,#tbox`), so the three
   values stand whatever else is added. The cross-repo constraint is the backdrop pair clearing the renderer's
-  sticky header (`1`) and completion list (`5`); the corner and the echo sit
-  below both on purpose, so they dim under the backdrop. The filter palette
+  sticky header (`1`) and completion list (`5`); the echo sits
+  below both on purpose, so it dims under the backdrop. The filter palette
   carries no shell z-index at all — the overlay is entirely the renderer's, and
   the suite forbids this page naming its parts.
 - `--g-border` is a hand-copied LITERAL of the renderer's `--tv-border`
@@ -933,9 +934,10 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   alone: the query still carries its `sort:` tokens and the server still answers
   in them.
 - The page never scrolls: `body` is `100vh`, `overflow:hidden`, a flex column of
-  table, log and key line. The table has a fixed share, the log takes what is
-  left and scrolls inside itself, the key line is `flex:none` and scrolls
-  sideways. A long message therefore moves nothing.
+  table, log and key line. The log grows to its capped share and scrolls inside
+  itself, the table takes whatever it gives up (`#app` is `flex:1 1 auto`), the
+  key line is `flex:none` and scrolls sideways. A long message therefore moves
+  nothing.
 - The log strip is append-only and its whole interface is
   `append(scope, severity, message)`. A line is `HH:MM:SS SEV scope message` —
   severity `info`/`warn`/`error`, coloured, SPELLED uppercase (`INFO`/`WARN`/
@@ -943,16 +945,37 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   one place the word is drawn; scope
   one of `ws`, `sync`, `cmd`, `filter`, `config`, `boot`; control characters in
   the message collapse to spaces. Nothing clears it, the boot line included; the
-  ring holds 500 and drops the OLDEST; a line identical to the one before it
+  ring holds 500 (`LOGCAP`, lines KEPT — a different limit from the height cap
+  below) and drops the OLDEST; a line identical to the one before it
   bumps a `×N` counter instead of appending, which is the only mutation. The end
   is scrolled to unless the reader has scrolled up. Every write names its rows —
   `headline "TITLE" marked for deletion` / `unmarked for deletion` / `archived` /
   `→ KEYWORD` / `state cleared`, one line per ROW — with the title read through
   the renderer's `displayText` and the id as the fallback; refusals stay one
   `cmd error` line.
+- The log's HEIGHT is the page's second `localStorage` preference, under
+  `glance-log` beside `glance-theme`, applied on boot and on every accepted
+  keystroke. The stylesheet keeps the arithmetic and declares the default
+  (`#log{--g-logn:7;max-height:calc(var(--g-logn) * 1.5em + 2 * 6px + 2 * 1px)}`)
+  and the knob writes a NUMBER onto the element
+  (`style.setProperty("--g-logn", …)`), so the formula is in one place and a page
+  whose glue never ran is capped at the same figure. `LOG = {key:"glance-log",
+  def:7, min:1, max:50}`, mirrored in Haskell as `logLinesDefault`/`logLinesMin`/
+  `logLinesMax` and `logLinesBand` — the constants the declared value is spelled
+  from. Blank is the default (how a reader asks for it back) and REMOVES the key
+  rather than storing `""`, a preference spelling the empty string being still a
+  preference; a whole number in
+  the band is that number, and everything else is DECLINED rather than clamped:
+  the cap stands, nothing is stored, and reopening the sheet draws the preference
+  back over a refused value. A stored value the band no longer takes falls back
+  to the default, the boot reading it through the same `logLines`.
+  The field is `#clog`, the GENERAL panel's third row,
+  applied on `input` rather than `change` so it is a knob rather than a form; the
+  panel says where a preference is READ, and `cmoved` never sees it, so it costs
+  no request and cannot dirty a pristine sheet.
 - Every touch-device rule lives in ONE `@media (pointer:coarse)` block — the
-  chip row as a 44px tap target, its empty-state label, and the sheet's 16px
-  textarea that stops iOS zooming in.
+  chip row as a 44px tap target, its empty-state label, the sheet's stacked
+  panes, and its 16px fields that stop iOS zooming in.
 - A client whose mailbox fills is closed with the reason `resync`; a column
   change closes with `view-changed`. Those two strings are the whole vocabulary
   of a server-initiated close, and the client answers them differently. Only
@@ -1468,18 +1491,23 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   held `@` is a remount per repeat, each leaving a crumb. Feature-detected on
   the four crumb calls; an asset without them is told so and nothing is applied,
   since a view with no way back out of it is worse than no drill.
-- One status corner, top right, and it is a READOUT: the connection dot (`live`
-  / `wait` / `down`), plus the coarse-pointer gear that hands the focus to the
-  sheet it opens. Nothing in it keeps the focus. `themesel` sat beside the dot
-  and is now the settings sheet's theme panel; the keys picker is gone with the
-  profiles.
+- There is NO status corner: `#corner` is gone whole, and with it the connection
+  dot (`#dot`, `.live`/`.wait`/`.down`), the coarse-pointer gear (`#gear`), their
+  CSS, `const dot` and its four call sites (`socket.onopen`, `socket.onclose`,
+  `indexing`, `start`'s catch). The socket's state is carried twice over already
+  — the stale wash, armed at 400 ms on a lost socket, and the strip's `ws` lines
+  — and indexing by the strip's `boot info` line. Body padding was the corner's
+  room: `34px 24px 24px` → `24px`, so nothing floats over the table's top edge.
+  `themesel` sat there and is now the settings sheet's theme panel; the keys
+  picker is gone with the profiles.
 - With no popup open the TABLE holds the keys, and a control that keeps the
   focus belongs inside a popup. The popups — materialize sheet, settings sheet,
   filter palette, value palette, link popup, tags popup — and the controls in
-  them are the only legitimate focus holders. A focused `SELECT` counts as typing, so one in the
-  CORNER ate `n`/`p` as type-ahead until the reader clicked back, and the answer
-  was a `blur()` every new corner control owed; moving that one control into the
-  sheet retires the per-control rule. Inside a popup the focus is the popup's,
+  them are the only legitimate focus holders; the page has no chrome outside
+  them. A focused `SELECT` counts as typing, so one loose on the page ate
+  `n`/`p` as type-ahead until the reader clicked back, and the answer was a
+  `blur()` every such control owed; having them all inside a popup retires the
+  per-control rule. Inside a popup the focus is the popup's,
   `typing()` is true while a control of it holds the focus, and `ESC` (`any`)
   and `C-x C-s` (`modal`) reach the sheet regardless. The popup hands the keys
   back ONCE, on close (`shutSettings` blurs) — so no control on this page blurs
@@ -1580,11 +1608,12 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   layers that moved and closes, pristine closes with no request, `C-x C-s` syncs
   mid-edit, `conflict` waits for a keystroke. THREE PANELS, from ONE list
   (`SECTIONS`, header + part ids, the loop over it the only thing that draws a
-  frame): GENERAL (the default view and the capture target), THEME (the
-  `auto`/`light`/`dark` select, a `localStorage` preference that applies as it
-  is picked, asks no server and closes nothing), KEYWORDS (one box per layer
-  holding its `#+TODO:` lines VERBATIM — the page has no org parser and must not
-  grow one — then the union and its note). A fourth panel is an entry plus the
+  frame): GENERAL (the default view, the capture target and the log's height),
+  THEME (the `auto`/`light`/`dark` select, a `localStorage` preference that
+  applies as it is picked, asks no server and closes nothing), KEYWORDS
+  (`clayers` — one select over one box holding the SELECTED layer's `#+TODO:`
+  lines VERBATIM, since the page has no org parser and must not grow one — then
+  the union `ceff` and its note `cfoot`). A fourth panel is an entry plus the
   markup it names and nothing else: bodies are laid out by class
   (`.csec,.cpart`), never by a roll of ids. They are markup wrapped at boot
   rather than built from the list, being heterogeneous enough that a builder
@@ -1596,10 +1625,30 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   a field is DRAWN moves no write: the two general fields stay bound to the
   system layer and ride its own `POST /config`.
   `#config`/`#cbox` share the existing z band with `#modal`/`#sheet` and
-  `#prompt`/`#pbox`, so the four values still stand. A coarse pointer gets a
-  gear in the corner, hidden by the one `pointer:coarse` block. The sheet is a
+  `#prompt`/`#pbox`, so the three values still stand. The sheet is a
   sibling of `#app`, so the `view-changed` its own write causes leaves it
   standing.
+- KNOWN GAP: the gear was the coarse pointer's ONLY settings door, and it went
+  with the corner. A touch reader can filter and read; `,` cannot be typed
+  there, so they cannot open the settings.
+- The KEYWORDS panel is ONE `<select id="clayer">` over the layers and ONE
+  `<textarea id="ctext">`, with `#clab` naming the selected layer
+  (`system · PATH` / `tag · book · PATH`, ` · not created yet` where the digest
+  is empty) and `#clerr` carrying what the server last said about a write to it.
+  Order is system first, then the tag layers by `localeCompare` (`byLayer`);
+  `sort` is stable, so two system layers keep the server's order, which is the
+  walk's. The text lives on the LAYER (`crows[i].text`) and the box is a VIEW of
+  `crows[cat]`: `takeLayer()` copies the box back to its layer and every door
+  calls it first — the select's `change`, `cdirty`, `flushConfig` — so an edit
+  outlives every switch and a switch asks the server nothing. `cmoved(r)` is
+  `r.text !== r.base` plus the two general fields bound to the system layer.
+  Still one drift-locked `POST /config` per FILE that moved, each awaited, each
+  under its own digest. A refusal SELECTS its layer: `flushConfig` remembers the
+  FIRST refused index and `showLayer`s it, so the box shows the file the message
+  under it describes, and every refusal is also a `config error` line naming
+  `SOURCE · PATH: message`. The select is popup chrome — native tabbing, DOM
+  order is tab order — and it keeps the focus it is given; `#clayer` shares
+  `#themesel`'s select rule and `.ctext` is `7em`.
 
 ## Build
 

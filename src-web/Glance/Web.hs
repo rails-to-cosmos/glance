@@ -166,6 +166,25 @@ walkFor opts = WalkOptions { woIncludeDerived = soDerived opts }
 defaultPort :: Int
 defaultPort = 7777
 
+-- | How many of its own line boxes the event strip grows to before it stops and
+-- scrolls inside itself, and the band a reader may move that to from the
+-- settings sheet.  Seven fills the strip a working page produces without giving
+-- half the window to a log nobody is reading; one is a strip showing its last
+-- line, and past fifty the table has nothing left to be.
+--
+-- The number is a @localStorage@ preference (@glance-log@), so these three are
+-- the DEFAULT and the two walls the glue validates against — spelled here
+-- because the stylesheet's own cap is the same figure and the two must not
+-- drift.
+logLinesDefault, logLinesMin, logLinesMax :: Int
+logLinesDefault = 7
+logLinesMin = 1
+logLinesMax = 50
+
+-- | The band as the settings field's placeholder shows it.
+logLinesBand :: Text
+logLinesBand = T.pack (show logLinesMin <> "–" <> show logLinesMax)
+
 -- | The asset the demo shell loads.  Served from 'embeddedRenderer' by default;
 -- under @--assets@ its presence in that directory decides which page @\/@ serves.
 rendererAsset :: FilePath
@@ -2072,7 +2091,7 @@ shellPage opts hub = do
 -- change is gone — the page wears the stale wash: one class on the document
 -- element fading back the table and every overlay open over it, never blurring
 -- them, so the rows stay readable while they are known to be
--- out of date.  The corner, the event strip and the key line are exempt,
+-- out of date.  The event strip and the key line are exempt,
 -- being where a reader finds out why.  Each half arms on a delay — a fetch
 -- that answers quickly and a socket that blips and comes back dim nothing.
 --
@@ -2186,17 +2205,17 @@ shellPage opts hub = do
 -- horizontal key lands on the first one; the echo names the column it arrived
 -- at by the header over it, or says which edge it stopped at.  The pill in
 -- the bottom corner is the echo area — the pending prefix while one is open,
--- the command and its help line on completion, @is undefined@ otherwise.  The
--- top corner holds the connection dot alone — a readout, with nothing in it to
--- focus; every preference, the theme included, is a panel of the settings sheet
+-- the command and its help line on completion, @is undefined@ otherwise.  There
+-- is no status corner: the socket's state is the stale wash and the event
+-- strip's own @ws@ lines, and every preference is a panel of the settings sheet
 -- @,@ raises.  The page's last line is the same blob resident: the map's core
 -- rows as @keys label@ pairs, named by command, so the pill says what just ran
 -- and the line says what can.
 --
 -- The page is one column the height of the viewport — table, log, key line —
 -- and it does not scroll.  The table keeps the height it asks for, the log
--- takes what is left, and both scroll inside themselves, so the corner and the
--- key line hold their places whatever arrives.
+-- takes what is left under the cap the settings sheet sets, and both scroll
+-- inside themselves, so the key line holds its place whatever arrives.
 --
 -- The log is an event strip: connection, sync outcomes, the parity warning,
 -- errors.  What is loaded is the renderer's own hint line and what the keys are
@@ -2208,22 +2227,13 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   -- No heading: the view title is already the tab's, and printing it a second
   -- time here put it on screen twice.  In palette mode the renderer carries no
   -- bar either, so the page opens on the table itself.
-  -- The corner is the CONNECTION DOT and nothing else a reader can focus: the
-  -- theme selector moved into the settings sheet, where every other preference
-  -- already lived.  What that buys is the blur rule going away — a control in
-  -- the corner that keeps the focus eats `n' and `p' as its own type-ahead,
-  -- and the answer used to be a hand-written `blur()' every new control owed.
-  -- Inside a popup that problem does not exist: the popup is a legitimate
-  -- focus holder, so its own focus rules apply and nothing has to be given
-  -- back.
-  [ "  <div id=\"corner\"><span id=\"dot\" title=\"live connection\"></span>"
-      -- The keyboard-first exception, and the same one the chip row is: a
-      -- coarse pointer has no `,' to press.  Hidden outside the
-      -- pointer:coarse block, so a mouse never sees it and the key is the
-      -- whole of the offer there.  It hands the focus straight to the sheet it
-      -- opens, so it keeps none of its own.
-      <> "<button id=\"gear\" title=\"settings\">\9881</button></div>"
-  , "  <div id=\"app\"></div>"
+  -- There is NO status corner.  What it held is said twice over already: the
+  -- socket's state is the stale wash — the whole page fading back the moment a
+  -- change can no longer reach it — and the event strip's `ws' lines, which say
+  -- when it went and when it came back and are still there to scroll to.  A dot
+  -- is a third spelling of one fact, and it cost the page a fixed box, a z-level
+  -- and a top padding to keep clear of.
+  [ "  <div id=\"app\"></div>"
   , "  <div id=\"log\"></div>"
   , "  <div id=\"kbd\"></div>"
   , "  <div id=\"modal\">"
@@ -2320,10 +2330,18 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
       <> "<input id=\"ctarget\" class=\"cview\" spellcheck=\"false\" placeholder=\""
       <> escape ("where + captures; empty is " <> T.pack defaultCaptureFile)
       <> "\"></div>"
+  -- The log's height, and the one field on this sheet that asks no server: it
+  -- is a `localStorage' preference like the theme, and the panel says where a
+  -- reader READS a preference rather than what writes it.  `cmoved' never sees
+  -- it, so it costs no request and cannot make a pristine sheet dirty.
+  , "        <div class=\"crow\"><div class=\"clab\">log lines</div>"
+      <> "<input id=\"clog\" class=\"cview\" spellcheck=\"false\" inputmode=\"numeric\""
+      <> " placeholder=\"" <> escape ("how tall the log grows, " <> logLinesBand
+      <> "; empty is " <> T.pack (show logLinesDefault)) <> "\"></div>"
   , "      </div>"
-  -- THEME: the selector that used to sit in the corner.  Same three values,
-  -- same `localStorage' key, same pre-paint boot — a different place to reach
-  -- it from.  It wears `cview' with the fields above it, so it takes their
+  -- THEME: three values, one `localStorage' key, and the pre-paint boot in the
+  -- head that reads it.  A preference like every other one on this sheet, which
+  -- is why it is here.  It wears `cview' with the fields above it, so it takes their
   -- border, radius and font, and the one coarse-pointer rule that stops iOS
   -- zooming in on a focused control reaches it too.
   , "      <div id=\"ctheme\" class=\"cpart\">"
@@ -2332,9 +2350,28 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
       <> "<option value=\"auto\">auto</option><option value=\"light\">light</option>"
       <> "<option value=\"dark\">dark</option></select></div>"
   , "      </div>"
-  -- KEYWORDS: one box per layer, then the union they come to and the note
-  -- saying what that union is.
-  , "      <div id=\"clayers\" class=\"cpart\"></div>"
+  -- KEYWORDS: ONE LAYER AT A TIME.  A tree has as many config files as it has
+  -- tags, and a stack of boxes made the panel as tall as that number — the
+  -- reader scrolled past every layer they were not editing to reach the one
+  -- they were.  So the layers are a `select' and there is one box under it,
+  -- holding the SELECTED layer's `#+TODO:' lines verbatim.  What a switch must
+  -- not cost is an edit, so every layer's text is kept in memory whether it is
+  -- the one on screen or not, and the sync writes all of them.
+  --
+  -- The select is the sheet's own chrome and takes the sheet's focus rules: it
+  -- is inside a popup, so it keeps the focus it is given and native tabbing
+  -- walks it in DOM order with the rest.
+  , "      <div id=\"clayers\" class=\"cpart\">"
+  , "        <div class=\"crow\"><div class=\"clab\">layer</div>"
+      <> "<select id=\"clayer\" class=\"cview\" title=\"config layer\"></select></div>"
+  -- The label is the SELECTED layer's — where the file is, and whether it is
+  -- there at all.  A layer with no digest is not a file yet; saying so is what
+  -- makes creating the first one an edit rather than a mystery.
+  , "        <div class=\"crow\"><div id=\"clab\" class=\"clab\"></div>"
+      <> "<textarea id=\"ctext\" class=\"ctext\" spellcheck=\"false\""
+      <> " placeholder=\"#+TODO: TODO STARTED | DONE\"></textarea>"
+      <> "<div id=\"clerr\" class=\"cerr\"></div></div>"
+  , "      </div>"
   , "      <div id=\"ceff\"></div>"
   , "      <div id=\"cfoot\">read-only: the union every file is parsed with."
       <> " A file's own #+TODO: line adds to it and outranks these for that"
@@ -2398,7 +2435,6 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      }"
   , "      if (end) box.scrollTop = box.scrollHeight;"
   , "    }"
-  , "    const dot = (name) => (document.getElementById(\"dot\").className = name);"
   , "    const el = (id) => document.getElementById(id);"
     -- THE WASH.  What is on screen stops being known to be current in exactly
     -- two ways: the view is being replaced and its answer has not landed, or
@@ -2407,9 +2443,9 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- — faded back, and never blurred, since stale rows are still the rows and
     -- have to stay readable while the answer is on its way —
     -- carried by ONE class on the document element.  What EXPLAINS the state
-    -- is exempt: the corner's dot, the event strip and the key line are where
-    -- a reader finds out why, and washing the answer along with the question
-    -- would leave nothing to read.
+    -- is exempt: the event strip and the key line are where a reader finds out
+    -- why, and washing the answer along with the question would leave nothing
+    -- to read.
     --
     -- Each reason arms on a DELAY, which is the whole of what keeps the wash
     -- off a page that is working: a fetch answering inside its grace and a
@@ -4472,7 +4508,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- native tabbing walks the sheet in exactly this order.
     --
     -- The list wraps markup rather than building it because the bodies are
-    -- heterogeneous — two labelled inputs, a select, a list the server fills —
+    -- heterogeneous — labelled inputs, two selects, a box the server fills —
     -- and a builder for that shape would be a template language this page has
     -- no use for.  So `SECTIONS' owns the headers and the order, and the markup
     -- owns what is under them, joined by id.  A `parts' id the markup does not
@@ -4488,7 +4524,11 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      part(sec, \"div\", \"chdr\", s.title);"
   , "      for (const id of s.parts) sec.appendChild(el(id));"
   , "    }"
-  , "    let settings = false, crows = [];"
+    -- The layers, and WHICH of them the one box is showing.  `crows' is the
+    -- whole set with each layer's text in it — the on-screen box is a view of
+    -- `crows[cat]' rather than the place the text lives, which is what makes a
+    -- switch cost nothing.
+  , "    let settings = false, crows = [], cat = 0;"
     -- The settings sheet's half of the pair the ladder drives ('subtreeSheet'
     -- is the other): the same four verbs, over the config layers and their own
     -- digests, filed under its own log scope.
@@ -4516,6 +4556,10 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      config().then((b) => {"
   , "        if (!settings) return;   // an ESC arrived while the layers were out"
   , "        drawLayers(b);"
+    -- The one field on the sheet whose value is this page's own, so it is drawn
+    -- from storage rather than from the answer — and drawn on every open, which
+    -- is what puts the preference back over a refused value left in the box.
+  , "        el(\"clog\").value = logPref.get();"
   , "        cnote(\"synced\");"
   , "        el(\"config\").className = \"on\";"
     -- The top of the sheet, which is the general panel's first field: the sheet
@@ -4528,8 +4572,14 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    }"
   , "    const config = () => getJSON(\"/config\");"
   , "    function drawLayers(b) {"
-  , "      el(\"clayers\").textContent = \"\";"
-  , "      crows = (b.layers || []).map(layerRow);"
+  , "      crows = (b.layers || []).map(layerRow).sort(byLayer);"
+  , "      const pick = el(\"clayer\");"
+  , "      pick.textContent = \"\";"
+  , "      crows.forEach((r, i) => {"
+  , "        const o = part(pick, \"option\", \"\", layerName(r));"
+  , "        o.value = String(i);"
+  , "      });"
+  , "      showLayer(0);"
     -- The general panel's two fields are `system.org''s two tree-wide LINES, so
     -- they are bound to the system layer's row and go out in its write: one
     -- file, one digest, one splice, wherever on the sheet they are drawn.  The
@@ -4546,53 +4596,86 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      el(\"ceff\").textContent ="
   , "        `${(kw.active || []).join(\" \")} | ${(kw.inactive || []).join(\" \")}`;"
   , "    }"
-    -- What one layer shows: which scope it is and where it lives, its lines,
-    -- and a line for whatever the server said about the last write to it.  A
-    -- layer with no digest is not a file yet — saying so is what makes creating
-    -- the first one an edit rather than a mystery.
-  , "    function layerRow(layer) {"
-  , "      const row = document.createElement(\"div\");"
-  , "      row.className = \"crow\";"
-  , "      const lab = document.createElement(\"div\");"
-  , "      lab.className = \"clab\";"
-  , "      lab.textContent = `${layer.tag ? `tag · ${layer.tag}` : \"system\"} · ${layer.path}`"
-  , "        + (layer.digest ? \"\" : \" · not created yet\");"
-  , "      const box = document.createElement(\"textarea\");"
-  , "      box.className = \"ctext\";"
-  , "      box.spellcheck = false;"
-  , "      box.value = (layer.lines || []).join(\"\\n\");"
-  , "      box.placeholder = \"#+TODO: TODO STARTED | DONE\";"
-  , "      const note = document.createElement(\"div\");"
-  , "      note.className = \"cerr\";"
-  , "      row.appendChild(lab); row.appendChild(box); row.appendChild(note);"
+    -- One layer, as this sheet holds it: where it is, what it was read as
+    -- (`base'), what it says NOW (`text'), the digest a write is pinned to, and
+    -- whatever the server last said about a write to it.  The text is the row's
+    -- rather than a box's, which is the whole of what makes switching free.
+    --
     -- The two tree-wide fields are the general panel's and are bound to the
-    -- system layer by `drawLayers'; every layer's row carries the slots so one
-    -- shape answers `cmoved' and one shape is posted.
-  , "      const r = { path: layer.path, tag: layer.tag, digest: layer.digest,"
-  , "                  base: box.value, box, note,"
-  , "                  view: null, viewBase: null, cap: null, capBase: null };"
-  , "      el(\"clayers\").appendChild(row);"
-  , "      return r;"
+    -- system layer by `drawLayers'; every layer carries the slots so one shape
+    -- answers `cmoved' and one shape is posted.
+  , "    const layerRow = (layer) => ({"
+  , "      path: layer.path, tag: layer.tag, digest: layer.digest,"
+  , "      base: (layer.lines || []).join(\"\\n\"),"
+  , "      text: (layer.lines || []).join(\"\\n\"), err: \"\","
+  , "      view: null, viewBase: null, cap: null, capBase: null,"
+  , "    });"
+    -- SYSTEM FIRST, then the tags in their own alphabet.  The server's order is
+    -- the walk's, which is where the directories turned up; a reader looking for
+    -- one tag among forty wants the list they would guess at.  Two system layers
+    -- keep the order they were served in — `sort' is stable — since nothing
+    -- distinguishes them but the directory they came from.
+  , "    const byLayer = (a, b) => (a.tag === null ? 0 : 1) - (b.tag === null ? 0 : 1)"
+  , "      || String(a.tag).localeCompare(String(b.tag));"
+  , "    const layerName = (r) => (r.tag ? `tag · ${r.tag}` : \"system\");"
+    -- The box is a VIEW of one layer, so the box's text goes back to the layer
+    -- it came from before anything else reads or replaces it.  Every door does
+    -- this first: a switch, a dirty check, a flush.
+  , "    const takeLayer = () => { if (crows[cat]) crows[cat].text = el(\"ctext\").value; };"
+    -- What sits AROUND the box, and the only two things a write moves: the label
+    -- carries the digest, so a layer this sheet just CREATED stops saying it is
+    -- not there yet, and the line under it carries the layer's last refusal.
+    -- Drawn on its own because a flush has to redraw both without touching the
+    -- box the reader may still be typing in.
+  , "    function showAround() {"
+  , "      const r = crows[cat];"
+  , "      el(\"clab\").textContent = r ? `${layerName(r)} · ${r.path}`"
+  , "        + (r.digest ? \"\" : \" · not created yet\") : \"\";"
+  , "      el(\"clerr\").textContent = r ? r.err : \"\";"
   , "    }"
+  , "    function showLayer(i) {"
+  , "      cat = Math.max(0, Math.min(i, crows.length - 1));"
+  , "      el(\"clayer\").value = String(cat);"
+  , "      el(\"ctext\").value = crows[cat] ? crows[cat].text : \"\";"
+  , "      showAround();"
+  , "    }"
+    -- Switching layers is a READ, so it writes nothing and asks nobody: the
+    -- text that was on screen goes back to its layer and the next one's comes
+    -- out.  An edit outlives every switch, and the sync at the end writes all of
+    -- them.
+  , "    el(\"clayer\").addEventListener(\"change\", (e) => {"
+  , "      takeLayer();"
+  , "      showLayer(Number(e.target.value));"
+  , "    });"
     -- The same four words the other sheet wears, through the same writer.
   , "    const cnote = (next, message) => note(configSheet, next, message);"
-  , "    const cdirty = () => crows.some(cmoved);"
-  , "    const cmoved = (r) => r.box.value !== r.base"
+  , "    const cdirty = () => (takeLayer(), crows.some(cmoved));"
+  , "    const cmoved = (r) => r.text !== r.base"
   , "      || (r.view !== null && r.view.value !== r.viewBase)"
   , "      || (r.cap !== null && r.cap.value !== r.capBase);"
-    -- Every layer that moved, one POST each and each awaited.  A config file is
-    -- its own write and its own lock, so one that drifted refuses on its own
-    -- line while the rest land — there is no batch to roll back and none to
+    -- Every layer that moved, one POST each and each awaited — which is still
+    -- one drift-locked write per FILE now that the boxes are one box.  A config
+    -- file is its own write and its own lock, so one that drifted refuses on its
+    -- own line while the rest land; there is no batch to roll back and none to
     -- want.
+    --
+    -- A refusal is the LAYER's, and the sheet goes to the layer that has it:
+    -- with one box on screen a message under it would otherwise describe a file
+    -- the reader cannot see.  The FIRST refusal wins the selection, and the log
+    -- names every one of them, since only one can be shown.
   , "    async function flushConfig() {"
+  , "      takeLayer();"
   , "      cnote(\"syncing\");"
-  , "      let ok = true, clashed = false;"
+  , "      let ok = true, clashed = false, landed = -1;"
   , "      for (const r of crows) {"
-  , "        if (!cmoved(r)) continue;"
+    -- A layer this flush has nothing to send for carries no refusal either: its
+    -- text is the file's again, so a message about the write that was refused
+    -- describes an edit the reader has since taken back.
+  , "        if (!cmoved(r)) { r.err = \"\"; continue; }"
   , "        // What was SENT, taken before the await: a keystroke landing while"
   , "        // the write is in flight would otherwise be marked as the file's"
   , "        // and never written, and the sheet would close on it silently."
-  , "        const sent = r.box.value, view = r.view && r.view.value;"
+  , "        const sent = r.text, view = r.view && r.view.value;"
   , "        const cap = r.cap && r.cap.value;"
   , "        const a = await fetch(\"/config\", {"
   , "          method: \"POST\","
@@ -4604,15 +4687,26 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        }).then((x) => x.json().then((b) => ({ status: x.status, body: b })))"
   , "          .catch((e) => ({ status: 0, body: { error: e.message } }));"
   , "        if (a.status === 200) {"
-  , "          r.digest = a.body.digest; r.base = sent; r.note.textContent = \"\";"
+  , "          r.digest = a.body.digest; r.base = sent; r.err = \"\";"
   , "          if (r.view) r.viewBase = view;"
   , "          if (r.cap) r.capBase = cap;"
   , "        } else {"
   , "          ok = false;"
   , "          if (a.status === 409) clashed = true;"
-  , "          r.note.textContent = a.body.error || `sync failed (${a.status})`;"
+  , "          r.err = a.body.error || `sync failed (${a.status})`;"
+  , "          if (landed === -1) landed = crows.indexOf(r);"
+  , "          append(\"config\", \"error\", `${layerName(r)} · ${r.path}: ${r.err}`);"
   , "        }"
   , "      }"
+    -- The BOX is left alone where nothing was refused: `C-x C-s' syncs mid-edit,
+    -- so a reader typing while the write is in flight would have those
+    -- keystrokes painted over by the text the flush snapshotted.  What is
+    -- redrawn either way is what sits AROUND it — the label, since a created
+    -- layer has a digest now, and the refusal line.  A landing takes the box
+    -- under another `takeLayer', so the in-flight text goes home to its own
+    -- layer before the swap.
+  , "      if (landed === -1) showAround();"
+  , "      else { takeLayer(); showLayer(landed); }"
   , "      cnote(ok ? \"synced\" : clashed ? \"conflict\" : \"error\");"
   , "      return ok;"
   , "    }"
@@ -4620,7 +4714,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- refresh above is what a conflict overwrites under, and the close is
     -- pristine-costs-nothing, dirty-syncs-and-closes, trouble-discards.
   , "    function shutSettings() {"
-  , "      el(\"config\").className = \"\"; settings = false; crows = [];"
+  , "      el(\"config\").className = \"\"; settings = false; crows = []; cat = 0;"
   , "      configSheet.state = \"synced\";"
     -- And the keys go back to the table, in ONE place.  A control of the sheet
     -- holds the focus while it is up — which is what keeps the table's own keys
@@ -4630,10 +4724,6 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- the sheet will ever hold rather than costing one `blur()' per control.
   , "      if (typing()) document.activeElement.blur();"
   , "    }"
-    -- The gear is the coarse pointer's `C-c C-,'.  It needs no media query of
-    -- its own: the rules hide it outside the one block, and an element that is
-    -- not displayed is one nobody can tap.
-  , "    el(\"gear\").addEventListener(\"click\", openSettings);"
   , "    // `/' summons the filter.  `openFilter' is the renderer's one entry point"
   , "    // for it whatever mode it is in — in palette mode it raises the overlay,"
   , "    // elsewhere it takes the box already on the page — so the shell asks for"
@@ -4844,11 +4934,55 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- reason to close over it.  The select KEEPS the focus, which is the whole
     -- of the rule now that it lives inside a popup — a popup is a legitimate
     -- focus holder, `typing()' is true while one of its controls has the focus,
-    -- and the table's own keys are dead underneath either way.  The corner's
-    -- copy owed a `blur()' precisely because the corner is not one.
+    -- and the table's own keys are dead underneath either way.  A control OUTSIDE
+    -- a popup owed a hand-written `blur()' for exactly that reason, and this page
+    -- has no such place left to put one.
   , "    el(\"themesel\").addEventListener(\"change\", (e) => {"
   , "      setTheme(e.target.value);"
   , "      echo(`theme: ${e.target.value}`);"
+  , "    });"
+    -- THE LOG'S HEIGHT, the second preference this page keeps for itself.  The
+    -- stylesheet owns the arithmetic and declares the default; what is written
+    -- here is the NUMBER, onto the element, so a reader who never opens the
+    -- sheet and a browser that refuses storage both get the same cap.
+  , "    const LOG = { key: \"glance-log\", def: " <> T.pack (show logLinesDefault)
+      <> ", min: " <> T.pack (show logLinesMin)
+      <> ", max: " <> T.pack (show logLinesMax) <> " };"
+    -- What TEXT asks for: a whole number inside the band, the DEFAULT when it
+    -- names nothing at all, and `null' for everything else — which is a value
+    -- this page declines rather than one it corrects, so a reader typing past
+    -- the wall keeps the cap they had instead of watching it snap to it.  Half a
+    -- number on the way to a whole one is the ordinary case of that.
+  , "    const logLines = (text) => {"
+  , "      const t = String(text).trim();"
+  , "      if (!t) return LOG.def;"
+  , "      return /^[0-9]+$/.test(t) && +t >= LOG.min && +t <= LOG.max ? +t : null;"
+  , "    };"
+    -- An EMPTIED field is a preference that is not there, so it is REMOVED
+    -- rather than stored as the empty string: what the reader asked for is the
+    -- default, and a stored `""' would be a preference spelling one.
+  , "    const logPref = {"
+  , "      get() { try { return localStorage.getItem(LOG.key) || \"\"; }"
+  , "              catch (e) { return \"\"; } },"
+  , "      set(v) {"
+  , "        try { if (v) localStorage.setItem(LOG.key, v);"
+  , "              else localStorage.removeItem(LOG.key); } catch (e) { /* denied */ }"
+  , "      },"
+  , "    };"
+  , "    const setLogLines = (n) =>"
+  , "      el(\"log\").style.setProperty(\"--g-logn\", String(n));"
+  , "    setLogLines(logLines(logPref.get()) || LOG.def);"
+    -- Applied as it is typed, which is what makes the field a knob rather than a
+    -- form: `input' rather than `change', since a preference a reader has to
+    -- leave the field to see is one they cannot aim.  Only a value this page
+    -- takes is stored, so the box can hold a refused one and the next sheet-open
+    -- draws the preference back over it.
+  , "    el(\"clog\").addEventListener(\"input\", (e) => {"
+  , "      const n = logLines(e.target.value);"
+  , "      if (n === null) return;"
+  , "      logPref.set(String(e.target.value).trim());"
+  , "      setLogLines(n);"
+  , "      echo(`log: ${n} lines`);"
   , "    });"
   , ""
   -- The resident key line, under the log: what can run, where the echo pill
@@ -5321,12 +5455,11 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
       -- without ever opening — and the delay is what keeps a reconnect that
       -- costs one revalidation from dimming anything.
   , "      socket.onopen = () => {"
-  , "        backoff = 1000; dot(\"live\"); wash.want(\"socket\", 0);"
+  , "        backoff = 1000; wash.want(\"socket\", 0);"
   , "      };"
   , "      socket.onmessage = (e) => apply(JSON.parse(e.data));"
   , "      socket.onclose = (e) => {"
   , "        socket = null;"
-  , "        dot(\"down\");"
   , "        wash.want(\"socket\", 1);"
   , "        // The columns moved, which SCHEMA.md's row ops cannot say: the"
   , "        // mount has to go.  Every other close — a backlog abandoned under"
@@ -5376,7 +5509,6 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    // A daemon that restarts under a live page lands here too, and comes"
   , "    // back through `resync' — the page it left is still on screen."
   , "    function indexing(b) {"
-  , "      dot(\"wait\");"
   , "      append(\"boot\", \"info\","
       <> " `indexing … ${b.elapsed}s · the table opens when the walk lands`);"
   , "      setTimeout(resync, 1000);"
@@ -5419,7 +5551,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        else arm(a.total);"
   , "      }).catch((e) => {"
   , "        if (e.indexing) return indexing(e.indexing);"
-  , "        dot(\"down\"); quiet(e); if (e.name !== \"AbortError\") again();"
+  , "        quiet(e); if (e.name !== \"AbortError\") again();"
   , "      });"
   , "    }"
     -- The first line of the log, and an ordinary one: the strip is never
@@ -5499,12 +5631,13 @@ page head' title body = T.unlines
   -- One column, exactly the viewport tall: the table at the height it asks
   -- for, the log taking whatever that leaves, the key line last.  The page
   -- itself never scrolls — the two boxes that can outgrow their room scroll
-  -- inside themselves — so the key line stays on screen and the fixed corner
-  -- keeps its place with no scrollbar under it.
+  -- inside themselves — so the key line stays on screen with no scrollbar
+  -- under it.
   , "    height:100vh;box-sizing:border-box;overflow:hidden;"
-  -- The extra top padding is the fixed status corner's room: with no heading
-  -- above it, the table's own top edge would otherwise sit under the corner.
-  , "    padding:34px 24px 24px;display:flex;flex-direction:column;gap:14px}"
+  -- One padding on all four sides.  The extra 10px on top was the fixed status
+  -- corner's room, and the corner is gone: nothing floats over the table's top
+  -- edge, so the table starts where the page does.
+  , "    padding:24px;display:flex;flex-direction:column;gap:14px}"
   , "  h1{font-size:16px;margin:0}"
   , "  p{margin:0;max-width:70ch}"
   , "  code{font-size:12px;color:var(--g-mute)}"
@@ -5528,22 +5661,27 @@ page head' title body = T.unlines
   -- with nothing to say, so an arriving event never moves the key line under it.
   , "  #app,#log{width:100%;box-sizing:border-box}"
   --
-  -- SEVEN LINES and no more.  The strip still fills what is there for smaller
-  -- content, and stops growing at seven of its own line boxes — past that a
-  -- quiet page was giving half the window to a log nobody was reading, and the
-  -- table took the loss.  The cap is computed rather than eyeballed: a line box
-  -- is the body's unitless 1.5 over this rule's OWN font size, which is exactly
-  -- what `em' reads for a length here, so the size is declared once and the
+  -- N LINES and no more.  The strip still fills what is there for smaller
+  -- content, and stops growing at N of its own line boxes — past that a quiet
+  -- page was giving half the window to a log nobody was reading, and the table
+  -- took the loss.  The cap is computed rather than eyeballed: a line box is the
+  -- body's unitless 1.5 over this rule's OWN font size, which is exactly what
+  -- `em' reads for a length here, so the size is declared once and the
   -- arithmetic follows it rather than restating `12px'.  `box-sizing:border-box'
   -- puts the 6px padding twice and the 1px border twice inside the figure, so
   -- those two are still spelled out — which is why the cap is a sum rather than
   -- `140px'.
   --
-  -- SEVEN is a constant here.  Making it a preference is #56's, which owns the
-  -- settings-sheet field and the storage behind it.
+  -- N IS A CUSTOM PROPERTY, and that is what makes it a preference: the
+  -- arithmetic lives HERE, once, and the settings sheet writes a NUMBER onto the
+  -- element.  The declared value is 'logLinesDefault', so a page whose glue has
+  -- not run yet — or a reader who never touched the field — is capped at the
+  -- same figure the sheet would put back.  Whatever the log gives up, the table
+  -- takes: `#app' is the flexible one and the strip's `flex' cannot outgrow this.
   , "  #log{font-size:12px;color:var(--g-mute);padding:6px 10px;"
   , "    border:1px solid var(--g-border);border-radius:8px;"
-  , "    max-height:calc(7 * 1.5em + 2 * 6px + 2 * 1px);"
+  , "    --g-logn:" <> T.pack (show logLinesDefault) <> ";"
+  , "    max-height:calc(var(--g-logn) * 1.5em + 2 * 6px + 2 * 1px);"
   , "    background:var(--g-surface);flex:1 1 auto;overflow-y:auto}"
   -- A line is spans so its parts can be told apart at a glance: the stamp and
   -- the scope recede into the strip's own colour, the message carries the page's
@@ -5561,18 +5699,6 @@ page head' title body = T.unlines
   -- narrow window cannot grow it into the table's room.
   , "  #kbd{flex:none;font-size:11px;color:var(--g-mute);white-space:nowrap;"
   , "    overflow-x:auto;padding:0 2px}"
-  -- The status corner: the connection dot, clear of the table and out of the
-  -- heading.  It is a READOUT and holds nothing focusable — the theme selector
-  -- that used to sit beside the dot is a preference and lives with the rest of
-  -- them, in the settings sheet.
-  , "  #corner{position:fixed;top:12px;right:14px;z-index:3;display:flex;gap:6px;"
-  , "    align-items:center;font-size:11px;color:var(--g-mute)}"
-  , "  #corner:hover{color:var(--g-fg)}"
-  , "  #dot{display:inline-block;width:7px;height:7px;border-radius:50%;"
-  , "    background:var(--g-mute);transition:background .3s}"
-  , "  #dot.live{background:var(--g-ok)}"
-  , "  #dot.wait{background:var(--g-warn)}"
-  , "  #dot.down{background:var(--g-mute)}"
   -- The sheet is the one place the author's Emacs font is asked for by name:
   -- the subtree reads there as it reads in the buffer it came out of.  The
   -- colours are the page's, which are already danneskjold's.
@@ -5800,12 +5926,16 @@ page head' title body = T.unlines
   -- takes its look here takes its 16px there and iOS never zooms in on it.
   , "  .ctext,.cview{font:12px/1.5 var(--dk-mono);padding:6px;border-radius:4px;"
   , "    border:1px solid var(--g-border);background:transparent;color:inherit}"
-  , "  .ctext{height:3.4em;resize:vertical}"
+  -- ONE box, so it gets the room the stack of them used to share out: a
+  -- `#+TODO:' block is a handful of lines and a reader editing one wants to see
+  -- it whole.
+  , "  .ctext{height:7em;resize:vertical}"
   , "  .ctext::selection{background:var(--g-sel);color:var(--g-fg)}"
-  -- The select is the one control with a popup of its own, which has to paint
-  -- on something, and the one that would stretch to the sheet's width.
-  , "  #themesel{background:var(--g-bg);align-self:flex-start;min-width:10em}"
-  , "  #themesel option{background:var(--g-bg);color:var(--g-fg)}"
+  -- The two selects are the controls with a popup of their own, which has to
+  -- paint on something, and the ones that would stretch to the sheet's width.
+  , "  #themesel,#clayer{background:var(--g-bg);align-self:flex-start;"
+  , "    max-width:100%;min-width:10em}"
+  , "  #themesel option,#clayer option{background:var(--g-bg);color:var(--g-fg)}"
   -- What the server said about the last write to that layer, and nothing when
   -- it said nothing.
   , "  .cerr{font-size:11px;color:var(--g-bad)}"
@@ -5828,9 +5958,6 @@ page head' title body = T.unlines
   -- so an edit that lived inside one would be thrown away by the next frame.
   , "  #tpane{position:relative;min-height:0;display:flex;flex-direction:column;"
   , "    overflow:hidden}"
-  -- The gear is the coarse pointer's only way in, so a fine pointer never sees
-  -- it: the rule that shows it is in the one media block below.
-  , "  #gear{display:none}"
   -- THE WASH.  One class on the document element, over the table and the whole
   -- modal band: a sheet open on rows that have gone stale is stale with them,
   -- so the overlays go under the same wash rather than floating over it looking
@@ -5850,15 +5977,16 @@ page head' title body = T.unlines
   -- nothing; over the page's own ground it takes the colour out of a badge as
   -- it goes.
   --
-  -- The corner, the event strip and the key line are EXEMPT by omission: they
-  -- are where a reader finds out what the page is waiting on, and dimming the
-  -- explanation with the thing it explains leaves the page saying nothing.
+  -- The event strip and the key line are EXEMPT by omission: they are where a
+  -- reader finds out what the page is waiting on — a lost socket is a `ws' line
+  -- there and nowhere else now — and dimming the explanation with the thing it
+  -- explains leaves the page saying nothing.
   , "  #app,#modal,#prompt,#config,#links,#tags{transition:opacity .18s ease}"
   , "  html.stale #app,html.stale #modal,html.stale #prompt,html.stale #config,"
   , "  html.stale #links,html.stale #tags{opacity:.55}"
-  -- The echo area and the status corner are the page's, and the backdrop dims
-  -- the page: both sit under it (2 and 3 against the modal's 100) and grey out
-  -- with everything else while the sheet is open.  They stay above the table.
+  -- The echo area is the page's, and the backdrop dims the page: it sits under
+  -- it (2 against the modal's 100) and greys out with everything else while the
+  -- sheet is open.  It stays above the table.
   , "  #echo{position:fixed;right:14px;bottom:12px;z-index:2;padding:4px 10px;"
   , "    border-radius:999px;border:1px solid var(--g-border);font-size:12px;"
   , "    white-space:pre;background:var(--g-surface);color:var(--g-fg);opacity:0;"
@@ -5871,6 +5999,14 @@ page head' title body = T.unlines
   -- which only @!important@ outranks from a stylesheet.  Every rule is inside
   -- the query, so a mouse sees exactly what it saw before.
   --
+  -- THE SETTINGS SHEET IS NOW UNREACHABLE HERE, and that is a known gap rather
+  -- than a decision this block records: the gear was the coarse pointer's only
+  -- door to `,', and it went with the corner it sat in.  A touch reader can
+  -- filter and can read; they cannot open the settings, and the page has no
+  -- other affordance to offer them.  Whatever answers it — a chord surface, a
+  -- long press, a control inside the sheet band — is one place, and this is
+  -- where the query for it lives.
+  --
   -- iOS zooms the page in on a focused field under 16px and does not zoom back
   -- out; the sheet's textarea and its property fields are the shell's own, and
   -- the renderer's input is the renderer's.  The panes stack here whatever the
@@ -5882,12 +6018,6 @@ page head' title body = T.unlines
   , "    #app .tv-chips:empty::after{content:\"filter …\";color:var(--g-mute);"
   , "      font-size:12px}"
   , "    #mpanes{flex-direction:column}"
-  -- The settings gear: the one control a coarse pointer gets that a mouse does
-  -- not, since `C-c C-,' is the way in everywhere there are keys.  44px, like
-  -- the chip row.
-  , "    #gear{display:inline-block;font:inherit;font-family:var(--glance-mono);"
-  , "      min-width:44px;min-height:44px;border-radius:4px;"
-  , "      border:1px solid var(--g-border);background:var(--g-bg);color:inherit}"
   , "    #mtext,#pinput,#pedit input,#tedit input,.ctext,.cview{font-size:16px}}"
   , "</style>"
   -- The stored theme, applied before anything paints: a page that renders in

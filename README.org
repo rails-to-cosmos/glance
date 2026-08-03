@@ -188,10 +188,9 @@ current: a view being replaced, and the socket that would deliver a change being
 gone. Neither looks any different from a page that is simply quiet, so the page
 fades itself back — the table and anything open over it, never blurred, so you
 can still read a stale row while its replacement is on the way.
-The status corner, the event strip and the key line stay bright: they are where
-you find out why. Both arm on a delay (300 ms for a fetch, 400 ms for the
-socket), so a filter that answers at once and a socket that blips and comes back
-dim nothing at all.
+The event strip and the key line stay bright: they are where you find out why.
+Both arm on a delay (300 ms for a fetch, 400 ms for the socket), so a filter
+that answers at once and a socket that blips and comes back dim nothing at all.
 
 *The tab stays live.* The directory is walked and parsed once, at startup, into
 an in-memory store; a request then costs an encode rather than a walk (0.09 s
@@ -200,9 +199,11 @@ for 13344 rows against 14.5 s per request before). A file watcher re-parses one
 table-view's streaming ops: =set-rows= once on connect (=?bootstrap=off= drops
 it for a client that fetched the rows over HTTP), then =upsert-row= and
 =delete-row= per change. Edit a headline in Emacs and the open tab moves in
-about 100 ms, no reload; create or delete a file and its rows appear or go. A
-green dot in the top-right corner says the socket is up, grey that it is
-reconnecting.
+about 100 ms, no reload; create or delete a file and its rows appear or go. The
+socket's state is said in two places: the whole page fades back while it is gone,
+and the log strip carries it in words — =disconnected · retrying in 4s= when it
+drops, =reconnected= when it is back, =reconnected · rows refreshed= where the
+tree moved while it was away.
 
 *Materialize a headline.* The view declares one action — =RET → materialize= —
 so hitting =RET= on the selected row (or double-clicking it) opens that
@@ -328,27 +329,36 @@ preference, over the table, in sections you tab down:
   =system.org=, so both ride in that file's own write: one file, one digest, one
   splice. Empty the first and the tree goes back to the built-in
   =state:*active*=; empty the second and it goes back to =inbox.org= at the
-  root.
+  root. Under them sits *log lines*, how tall the strip under the table grows.
+  The panel gathers what you read in one place; where each field lands — two
+  lines of =system.org=, or the browser itself — is its own matter.
 - *theme* — =auto=, =light= or =dark=. It applies as you pick it, it is
   remembered, and it asks no server, so the sheet stays where it is.
-- *keywords* — one box per keyword layer: =system.org= for the whole tree, then
-  one per =tags/TAG.org=, then a read-only preview of the union they add up to.
-  Each box holds that file's =#+TODO:= lines *verbatim* — the config files are
-  org and that line is the contract, so what you edit is the line rather than a
-  chip UI over a guess at what it means. A tree that has never had a
-  =system.org= still lists it, marked =not created yet=: type a cycle into it
-  and the file, and the directories over it, are created on the way out.
+- *keywords* — a *picker* naming the layers — =system.org= for the whole tree
+  first, then one per =tags/TAG.org= in the tags' own alphabet — and *one box*
+  under it holding the selected layer's =#+TODO:= lines *verbatim*, the file's
+  path over the box and whatever the last write said about that layer under it.
+  The config files are org and that line is the contract, so what you edit is
+  the line rather than a chip UI over a guess at what it means. Switching layers
+  asks the server nothing and costs no edit: what you typed into one is still
+  there when you come back to it, and the sync at the end writes every layer you
+  moved. A tree that has never had a =system.org= still lists it, marked =not
+  created yet=: type a cycle into it and the file, and the directories over it,
+  are created on the way out. Under the box sits a read-only preview of the
+  union the layers add up to.
 
 It is the materialize sheet's own pattern, down to the words. No buttons: =ESC=
 or a click outside syncs the layers that moved and closes, a sheet you only
 read closes with no request, =C-x C-s= syncs mid-edit, and the header carries
 =synced= / =syncing…= / =conflict= / =error=. Each layer is its own file, its
 own write and its own lock, so one that Emacs moved underneath you refuses on its
-own line while the rest land. What comes back is the *whole tree reparsed*: a
-keyword that has just started existing is recognized in files nobody touched, so
-the daemon reseeds, the badge palette moves, and every open tab re-fetches. On a
-touch device, where there is no chord to type, a gear appears in the status
-corner — the same exception the filter's chip row is.
+own while the rest land — and the sheet *selects* that layer, so the message you
+are reading is about the file you are looking at, with the log naming every layer
+that was refused. =TAB= walks the sheet in the order it is laid out, the picker
+included. What comes back is the *whole tree reparsed*: a keyword that has just
+started existing is recognized in files nobody touched, so the daemon reseeds,
+the badge palette moves, and every open tab re-fetches. The sheet answers to =,=
+and nothing else, which is a gap on a touch device — see the keys below.
 
 #+begin_src sh
 curl -s localhost:7777/config
@@ -686,7 +696,7 @@ otherwise, and the prefix drops after two seconds.
 There is *one map*. The =emacs= and =vim= movement profiles are gone, and what
 replaced them is both spellings bound at once: a table has no text field to
 compete with, so =n= and =j= can both step a row and cost a table row each —
-where a profile cost a selector in the corner, a remembered choice, a =?keys==
+where a profile cost a selector of its own, a remembered choice, a =?keys==
 parameter and a key line that had to be rewritten whenever it moved.
 
 | key         | command                           | now                                           |
@@ -801,9 +811,12 @@ is a selection made for archiving and nothing else. =D= reads flags and never
 marks, which is what stops a mark you laid down for a state change from becoming
 a row you archive by reflex.
 
-The status corner, top right, is the connection dot and nothing else you can
-focus — a readout. The theme lives with the rest of the preferences, in the
-=,= sheet.
+*There is no status corner.* Nothing floats over the table's top right, so the
+table starts at the top of the window. The connection dot that sat there was a
+third spelling of one fact: the page fades back the moment a change can no
+longer reach it, and the log's =ws= lines say when the socket went and when it
+came back, still there to scroll to an hour later. Every preference is a panel
+of the =,= sheet.
 
 *Light or dark, and no flash either way.* The theme panel offers =auto=,
 =light= and =dark=. =auto= follows the system's =prefers-color-scheme= and is
@@ -825,9 +838,9 @@ command and spelled from the same blob the dispatch reads, so it can never offer
 a key nothing is bound to. The pill says what just ran; the line says what can.
 
 The page itself never scrolls. It is one column the height of the window — the
-table, the log under it taking whatever is left, the key line last — and the two
-boxes that can outgrow their room scroll inside themselves, so the corner and
-the key line hold their places whatever arrives.
+table, the log under it taking whatever is left under the height you set it, the
+key line last — and the two boxes that can outgrow their room scroll inside
+themselves, so the key line holds its place whatever arrives.
 
 *The log under the table is an event log, and it keeps everything.* A line reads
 =14:03:22 INFO cmd headline "Ship the thing" archived=: a clock, a severity
@@ -844,6 +857,21 @@ which case the place you are holding is left alone. Writes name their rows there
 — =headline "TITLE" marked for deletion= when =d= flags one, =archived= when it
 lands, =→ DONE= when a state does — one line per row, so a bulk command that
 came back two-thirds applied says which third.
+
+*How tall it grows is yours to set.* The strip stops at seven of its own lines
+and leaves the rest of the column to the table, and that seven is a setting: the
+=,= sheet's *log lines* field, under =default view= and =capture target=. Type a
+number between 1 and 50 and the strip resizes as you type, the table taking
+whatever the log gives up. The choice is remembered in =localStorage= under
+=glance-log=, beside the theme, so every page load after it opens at the height
+you left; empty the field to go back to seven, which forgets the setting outright
+rather than remembering an empty one. A number outside the band, or a
+value that is no number at all, is declined — the height you had stands and
+nothing is stored, and the next time you open the sheet the field shows the
+setting again rather than what you left in it. Like the theme it is a browser
+preference: it writes nothing to your org files and costs no request. How much
+the strip *remembers* is a separate limit and has not moved — five hundred
+lines, whatever height you give it.
 
 A staged key is recognized in full and then says what it is waiting for: the map
 is complete ahead of the commands that will back it, which reads better than a
@@ -867,6 +895,13 @@ out, and the two panes stack rather than sitting side by side. A mouse or a
 trackpad sees none of this: every rule is inside =@media (pointer:coarse)= and
 the tap handler asks the same query before it runs. A narrow window stacks them
 too, by wrapping rather than by a breakpoint of its own.
+
+*The settings sheet is out of reach there, and that is a known gap.* The gear in
+the status corner was a touch device's only door to =,=, and it went with the
+corner it sat in. So a touch reader can filter, read and materialize; opening
+the settings wants a keyboard until something replaces that door. Everything
+else the coarse-pointer rules give you stands as it was — the 44px chip row and
+its =filter …= label, the stacked panes, the 16px fields.
 
 The whole page is monospace — /JetBrains Mono/, /Fira Code/, /SF Mono/, Menlo,
 Consolas, whichever is installed. Nothing is fetched for it. Drop a
@@ -1017,9 +1052,10 @@ The daemon binds and answers immediately, and walks the tree behind that: over
 refused connection. While the walk runs, =/headlines=, =/headline=, =/keywords=,
 =/command=, =/config= and =/ws= answer =503= with =Retry-After: 1= and
 ={"loading": true, "elapsed": 3.4}=,
-and =/= plus the assets are served as usual — so the shell paints, shows
-=indexing … 3.4s= against an amber dot, and polls once a second until the store
-is there. Then it mounts exactly as a warm start does.
+and =/= plus the assets are served as usual — so the shell paints, writes
+=indexing … 3.4s · the table opens when the walk lands= into the log, and polls
+once a second until the store is there. Then it mounts exactly as a warm start
+does.
 
 #+begin_src sh
 curl -sD - -o /dev/null localhost:7777/headlines   # HTTP/1.1 503, Retry-After: 1

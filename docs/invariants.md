@@ -2177,7 +2177,8 @@ on.
   `<script type="application/json">` blob — `{rows, hints, reserved, once}` — and
   its own dispatch parses that blob, so a binding cannot exist in the handler and
   not in the map. The movement PROFILES are gone, and with them a selector in the
-  corner, a `localStorage` key, a `?keys=` parameter, a `setProfile` and a key
+  status corner the page still had then, a `localStorage` key, a `?keys=`
+  parameter, a `setProfile` and a key
   line that had to be rewritten whenever the profile moved. What replaced them is
   two rows apiece: `n`/`p` and `j`/`k` both step a row, `f`/`b` and `l`/`h` both
   step a cell, and both spellings are live at once because a table has no text
@@ -2424,7 +2425,7 @@ on.
   badge as it goes. It covers `#app` and
   the whole modal band (`#modal`, `#prompt`, `#config`): a sheet open over stale
   rows is stale with them, and floating clear of the wash would say otherwise.
-  The corner, the event strip and the key line are EXEMPT by omission — they are
+  The event strip and the key line are EXEMPT by omission — they are
   where a reader finds out why, and dimming the answer along with the question
   leaves the page saying nothing. Each trigger arms on a DELAY, which is the
   whole of what keeps the wash off a page that is working: a view fetch at 300 ms
@@ -2448,20 +2449,23 @@ on.
   rows under it) and two `Shell glue` rows for the holder and the selectors,
   the second forbidding `filter:blur` and any `html.stale` reaching the exempt
   parts. **test**
-- **The shell's z-index bands must clear the renderer's.** Four values, all of
-  them here: echo `2`, corner `3`, modal backdrop `100`, sheet `101`.  The value
+- **The shell's z-index bands must clear the renderer's.** Three values, all of
+  them here: echo `2`, modal backdrop `100`, sheet `101`. `3` was the status
+  corner's and went with it; the value is unused and the suite FORBIDS it coming
+  back. The value
   palette, the settings sheet, the link popup and the tags popup share that pair
   rather than adding to it (`#modal,#prompt,#config,#links,#tags` and their
   boxes), so a fifth overlay costs no band — which is the rule a new one joins
   under, and which #55 took without touching a value. The
   cross-repo constraint is the backdrop pair clearing the renderer's sticky
   header (`1`) and its completion list (`5`) — an unnumbered backdrop painted
-  under both. The corner and the echo sit BELOW the backdrop deliberately, so
-  they dim with the page; a consequence worth knowing is that they also sit
-  below the completion list, which paints over them. The filter palette carries
+  under both. The echo sits BELOW the backdrop deliberately, so it dims with
+  the page; a consequence worth knowing is that it also sits below the
+  completion list, which paints over it. The filter palette carries
   no shell z-index at all: the overlay is entirely the renderer's, and the suite
-  forbids this page naming its parts. **test** (`TestServe` pins the four
-  values)
+  forbids this page naming its parts. **test** (`Shell glue` "the sheet's
+  backdrop covers the renderer's chrome" pins the three values and forbids
+  `z-index:3`)
 - **`--g-border` and `--g-sel` are hand-copied literals.** `--g-border` is the
   renderer's own `--tv-border` written out (`#E3E6EA` light, `#2A2D3D` dark)
   rather than read through `var()`, because the shell's frames have to match the
@@ -2508,12 +2512,16 @@ on.
   Evidence: `TestServe` "the landing column is echoed by its header, or the row
   mode it left for". **test**
 - **The page never scrolls; the boxes inside it do.** `body` is `100vh`,
-  `overflow:hidden`, a flex column of table, log and key line. The table takes a
-  fixed share, the log takes what is left (`flex:1 1 auto`) and scrolls inside
-  itself, and the key line is `flex:none` and scrolls sideways rather than
-  wrapping. So an arriving message moves neither the corner nor the key line,
-  which is the whole point: the two pieces of chrome a reader looks for hold
-  their places. **test**
+  `overflow:hidden`, a flex column of table, log and key line. Table and log are
+  both `flex:1 1 auto` and both scroll inside themselves, the log stopping at
+  its cap, so the table takes whatever the strip gives up; the key line is
+  `flex:none` and scrolls sideways rather than wrapping. So an arriving message
+  never moves the key line, which is the whole point: the one piece of chrome a
+  reader looks for holds its place. The padding is one value on all four sides
+  (`padding:24px`) — the extra 10px on top was the status corner's room and went
+  with it, so the table starts where the page does. **test** (`TestServe` "with
+  assets, the page is one column the viewport tall" pins the column and the
+  padding)
 - **The log strip is APPEND-ONLY, and `append(scope, severity, message)` is the
   whole of its interface.** A line is `HH:MM:SS SEV scope message`: the stamp
   muted, the severity in colour (`info` muted, `warn` `--g-warn`, `error`
@@ -2537,6 +2545,47 @@ on.
   log", which drives the widget through the keys and asserts what the strip
   holds; the ring's cap is past what any key reaches a line at a time, so the
   harness has an act that appends straight into it. **test**
+- **The strip's HEIGHT is a preference, and the stylesheet keeps the
+  arithmetic.** `#log` declares `--g-logn:7` and caps itself at
+  `calc(var(--g-logn) * 1.5em + 2 * 6px + 2 * 1px)` — N of its own line boxes,
+  plus the padding twice and the border twice that `border-box` puts inside the
+  figure. The knob writes a NUMBER onto the element
+  (`el("log").style.setProperty("--g-logn", String(n))`), so the formula is in
+  ONE place and a page whose glue has not run — or a reader who never touched
+  the field — is capped at the same figure the sheet would put back. The value
+  lives in `localStorage` under `glance-log`, beside `glance-theme`, applied at
+  boot (`setLogLines(logLines(logPref.get()) || LOG.def)`) and on every accepted
+  keystroke. `LOG = { key: "glance-log", def: 7, min: 1, max: 50 }` in the glue
+  is mirrored in Haskell as `logLinesDefault`/`logLinesMin`/`logLinesMax` and
+  `logLinesBand` (the placeholder's `1–50`), and the stylesheet's declared value
+  is spelled from the same constant, so the three cannot drift. `logLines(text)`
+  reads the field: blank is the DEFAULT, which is how a reader asks for it back;
+  a whole number inside the band is that number; everything else is `null` —
+  DECLINED rather than clamped, so the cap a reader had stands and nothing is
+  stored, and half a number on the way to a whole one is the ordinary case of
+  that. The box can therefore hold a refused value, and reopening the sheet
+  draws the preference back over it. AN EMPTIED FIELD REMOVES THE KEY rather
+  than storing `""`: a preference spelling the empty string is still a
+  preference, and what the reader asked for is the absence of one — which is
+  also the state a stored value the band no longer takes falls back to, since
+  the boot reads it through `logLines` like anything else. Applied on `input`
+  rather than `change`,
+  which is what makes the field a knob rather than a form: a preference a reader
+  has to leave the field to see is one they cannot aim. `LOGCAP` = 500 above is
+  a DIFFERENT limit and the two are easy to confuse — that one is the RING, how
+  many lines are KEPT — so the suite forbids the ring being spelled off the
+  knob's own constants. **test** (`TestServe` "Shell settings" — the knob applying as it is
+  typed and being remembered, the untouched default of seven with the key
+  absent, a browser that arrives remembering one booting at it and opening the
+  sheet on it, a stored value outside the band booting at the default, blanking
+  restoring the default AND removing the key, a value outside the band and a
+  value that is no number at all both
+  declined with the cap standing, and a reopen drawing the preference back over
+  a refused value; `Shell glue` "the log's height is a stored preference the
+  general panel edits" and "the log wears the
+  table's container under it", which pins `--g-logn:7` and the `var()` formula.
+  The boot's read is unreachable from an act, so `bootWith` seeds
+  `localStorage` from argv ahead of the glue)
 - **A write names the rows it landed on, and the pill counts them.** `d` logs
   `headline "TITLE" marked for deletion` and `u` the unmarking; every archived
   row logs `headline "TITLE" archived` and every state that landed
@@ -2548,10 +2597,20 @@ on.
   a row in neither is named by its id. Refusals stay one `cmd error` line
   carrying the server's own words. **test**
 - **Every touch-device rule lives in ONE `@media (pointer:coarse)` block.** The
-  chip row as a 44px tap target, its empty-state label, and the sheet's 16px
-  textarea that stops iOS zooming in and never zooming back out. Keeping them in
+  chip row as a 44px tap target, its empty-state label, the sheet's panes
+  stacked whatever the width, and the 16px fields that stop iOS zooming in and
+  never zooming back out. Keeping them in
   one block is what makes "a mouse sees none of this" checkable by reading a
-  single place, and the tap handler asks the same query before it runs. **test**
+  single place, and the tap handler asks the same query before it runs.
+  **KNOWN GAP: a coarse pointer cannot open the settings.** The gear was its one
+  door to `,`, which cannot be typed there, and the gear went with the status
+  corner it sat in. A touch reader can filter and can read; nothing on the page
+  opens the sheet for them. The gap is recorded rather than papered over, and
+  the comment owning the question lives inside this block — whatever answers it,
+  a chord surface, a long press, a control inside the sheet band, is one place
+  and this is where the query for it already is. **test** (`Shell glue` "the
+  settings door a coarse pointer had went with the corner", asserted from both
+  sides: the block intact, no gear anywhere)
 - **The server closes a socket for exactly two reasons, and the client answers
   them differently.** `resync` when a bounded mailbox fills — named for what the
   client owes, since the backlog behind it is gone and one `/headlines` carries
@@ -3415,18 +3474,19 @@ on.
   newline-plus-indent delimiter, cannot mistake it for that block. **test**
 - **The settings sheet is PANELED, and one list is the panels.**
   `,` (`customize`) raises the page's one place for a preference, in three
-  sections: **general** — the default view and the capture target, the two
-  tree-wide lines of `system.org`; **theme** — the `auto`/`light`/`dark`
-  selector; **keywords** — one box per config layer holding that file's
-  `#+TODO:` lines verbatim, the union they come to, and the note saying what
-  that union is. `SECTIONS` in the glue names the header and the parts of each,
+  sections: **general** — the default view, the capture target and the log's
+  height, the first two being `system.org`'s tree-wide lines and the third this
+  page's own `localStorage` preference; **theme** — the `auto`/`light`/`dark`
+  selector; **keywords** — a select over the config layers and ONE box holding
+  the selected layer's `#+TODO:` lines verbatim, the union they come to, and the
+  note saying what that union is. `SECTIONS` in the glue names the header and the parts of each,
   and the loop over it is the only thing that draws a frame, so a fourth panel
   is an entry there plus the markup it names — nothing else, because the panel
   bodies are laid out by CLASS (`.csec,.cpart`) rather than by a roll of ids.
   The bodies are declared in the markup and wrapped at boot rather than built
-  from the list, because they are heterogeneous — two labelled inputs, a select,
-  a list the server fills — and a builder for that shape would be a template
-  language this page has no use for. The join is by id, and a `parts` id the
+  from the list, because they are heterogeneous — three labelled inputs, two
+  selects, a box the server fills — and a builder for that shape would be a
+  template language this page has no use for. The join is by id, and a `parts` id the
   markup does not carry throws at boot and takes the whole inline script with
   it; the harness cannot see that (its stub answers every id), so the suite
   reads the ids back out of the shipped list and checks them against the page.
@@ -3437,37 +3497,93 @@ on.
   in its own `POST /config`, one file, one digest, one splice. The sync
   semantics are unmoved — buttonless, ESC or the backdrop syncs the layers that
   moved and closes, a pristine sheet costs no request, `C-x C-s` syncs mid-edit,
-  `conflict` and `error` wait for a keystroke. The theme panel asks nobody: it
-  is a `localStorage` preference, applies as it is picked, and closes nothing.
+  `conflict` and `error` wait for a keystroke. Two fields ask nobody, and the
+  panel they sit in says where a preference is READ rather than what writes it:
+  the theme and the log's height are `localStorage`, apply as they are picked or
+  typed, and close nothing — `cmoved` never sees `#clog`, so it costs no request
+  and cannot make a pristine sheet dirty.
   **test** (the three headers in order, every `parts` id present in the markup,
   the theme applying and persisting with the sheet still up, both general fields
   riding the system write, and every sync flow re-run over the new layout)
-- **The status corner is a READOUT: the connection dot, and nothing that keeps
-  the focus.** The dot carries `live` / `wait` / `down`. The only other thing in
-  it is the coarse-pointer gear, hidden outside the one `pointer:coarse` block,
-  and it hands the focus straight to the sheet it opens. `themesel` used to sit
-  beside the dot and moved into the settings sheet with every other preference.
-  **test** (the corner holds the dot and the gear, the theme select is not in
-  it, and the sheet's theme panel is)
-- **With no popup open, the TABLE holds the keys — and a control that keeps the
-  focus belongs inside a popup.** The legitimate focus holders are the popups —
+- **The keywords panel is ONE select over ONE box.** A tree has as many config
+  files as it has tags, and a stack of boxes was as tall as that number — the
+  reader scrolled past every layer they were not editing to reach the one they
+  were. So `#clayer` is a native `select` over the layers and `#ctext` is the
+  one box, holding the SELECTED layer's `#+TODO:` lines verbatim, under `#clab`
+  naming that layer (`system · PATH`, `tag · book · PATH`, plus
+  ` · not created yet` where the digest is empty) and over `#clerr`, which
+  carries whatever the server last said about a write to it. The ORDER is system
+  first, then the tag layers by `localeCompare` (`byLayer`); `sort` is stable,
+  so two system layers keep the order the server served them in, and the
+  server's own order is the walk's — where the directories turned up. The select
+  is the sheet's own chrome and takes the sheet's focus rules: native tabbing
+  walks it in DOM order and it keeps the focus it is given. `SECTIONS`'s
+  keywords entry is unchanged (`["clayers", "ceff", "cfoot"]`), the body is
+  still declared in the markup and wrapped at boot, `.ctext` grew to `7em` since
+  one box takes the room the stack shared, and `#clayer` shares `#themesel`'s
+  select rule.
+  **The text lives on the LAYER, and the box is a view of it.** `crows[i].text`
+  is where a layer's lines are; the box shows `crows[cat]`; `takeLayer()` copies
+  the on-screen box back into its layer, and every door calls it FIRST — the
+  select's `change` handler, `cdirty`, `flushConfig`. That is the whole of what
+  makes a switch free: an edit outlives every switch, and switching asks the
+  server nothing. `cmoved(r)` is `r.text !== r.base`, plus the two general
+  fields, which stay bound to the system layer. The sync semantics are unmoved —
+  buttonless, ESC or the backdrop syncs the layers that moved and closes, a
+  pristine sheet costs no request, `C-x C-s` syncs mid-edit, `conflict` and
+  `error` wait for a keystroke — and it is still ONE drift-locked
+  `POST /config` per FILE that moved, each awaited, each under its own digest,
+  with no batch to roll back.
+  **A refusal brings its layer with it.** With one box on screen, a message
+  under it would otherwise describe a file the reader cannot see, so
+  `flushConfig` remembers the FIRST refused layer's index and `showLayer`s it,
+  and the box then shows the file the message describes. Every refusal is also
+  an `append("config", "error", …)` line naming `SOURCE · PATH: message`, since
+  only one can be shown. **test** (`TestServe` "Shell settings" — the order, the
+  swap, an edit surviving a switch away and back, walking every layer writing
+  nothing, the box holding a layer's lines byte for byte, every layer edited
+  written one call each, and a 409 selecting the layer it refused and naming it
+  — plus every existing sync flow re-run over the new layout; and `Shell glue`
+  "the keyword layers are a select over one box". The harness's `/config`
+  fixture serves THREE layers with `film` ahead of `book`, so the sheet's order
+  and the server's differ and the sort is observable)
+- **There is NO status corner, and the absence is what is asserted.** `#corner`
+  held the connection dot (`live` / `wait` / `down`) and, under a coarse
+  pointer, the gear that opened the settings; both are gone whole, with the
+  dot's four call sites, the gear's click handler and every rule that drew
+  either. The socket's state was already said twice over — the STALE WASH, the
+  whole page fading back once a socket is gone, armed at 400 ms, and the strip's
+  own `ws` lines (`disconnected · retrying in Ns`, `reconnected`, `reconnected ·
+  rows refreshed`) — so a dot was a third spelling of one fact, and it cost a
+  fixed box, a z-level and a top padding to keep clear of. The indexing state is
+  now the strip's `boot info` line alone. `themesel` used to sit beside the dot
+  and moved into the settings sheet with every other preference. What is checked
+  is the ABSENCE of `id="corner"`, `#corner`, `id="dot"`, `#dot`, `dot("live")`,
+  `dot("down")`, `dot("wait")`, `id="gear"` and `#gear`, so the box cannot come
+  back under another name and bring its rule with it. **test** (`TestServe` "the
+  page has no status corner, and nothing focusable outside a popup")
+- **With no popup open, the TABLE holds the keys — and every control this page
+  carries is inside a popup.** The legitimate focus holders are the popups —
   the materialize sheet, the settings sheet, the filter palette and the value
-  palette — and the controls inside them. A focused `SELECT` counts as typing,
-  so a `select` in the CORNER that kept the focus after its change had committed
-  went on eating `n` and `p` as its own type-ahead, and the reader had to click
-  the table back before movement worked; the answer was a hand-written `blur()`
-  that every new corner control owed. Moving the one such control into the
-  settings sheet retires that per-control rule: inside a popup the focus is the
-  popup's, `typing()` is true while a control of it holds the focus, the table's
-  keys are dead under the sheet either way, and `ESC` (`any`) and `C-x C-s`
-  (`modal`) reach the sheet regardless. **The popup hands the keys back once,
+  palette — and the controls inside them. The page's own column, table, log and
+  key line, holds no `select`, `input`, `textarea`, `button` or `a` at all, and
+  that is the whole of the rule. It is also what a control outside a popup cost:
+  a focused `SELECT` counts as typing, so one that kept the focus after its
+  change had committed went on eating `n` and `p` as its own type-ahead, the
+  reader had to click the table back before movement worked, and the answer was
+  a hand-written `blur()` every such control owed. Inside a popup the focus is
+  the popup's: `typing()` is true while a control of it holds the focus, the
+  table's keys are dead under the sheet either way, and `ESC` (`any`) and
+  `C-x C-s` (`modal`) reach the sheet regardless — which is why the settings
+  sheet's theme select and its layer select each keep the focus they are given
+  and owe no line. **The popup hands the keys back once,
   when it closes** — `shutSettings` blurs whatever it held, which a browser
   does anyway at `display:none` and which is stated so it is the sheet's rule
   and covers every control the sheet will ever grow. So no control on this page
-  blurs on its own change, and the corner has nothing left to focus. **test**
+  blurs on its own change, and the suite forbids the line that would. **test**
   (the theme picked from the sheet, then a movement key that must move nothing;
-  then `ESC` and the same key, which must move; and the absence of the
-  per-control blur line)
+  then `ESC` and the same key, which must move; the page's column holding
+  nothing focusable; and the absence of the per-control blur line)
 - **The applied filter query is in the URL, and `DEL` is its backspace.** A
   commit writes `?q=` with `replaceState` and leaves `keys` where it is, so a
   filtered view is a link, a reload keeps it, and a remount comes back to it

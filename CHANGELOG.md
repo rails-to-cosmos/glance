@@ -12,6 +12,26 @@ section groups a feature arc, and its date is that arc's last commit.
 ## Unreleased
 
 ### Removed
+- The status corner is gone whole. `#corner` carried the connection dot (`#dot`
+  with `.live`/`.wait`/`.down`) and the coarse-pointer settings gear (`#gear`,
+  its `display:none` and the 44px rule in the `pointer:coarse` block); swept with
+  them are `const dot`, its four call sites (`socket.onopen`, `socket.onclose`,
+  `indexing`, `start`'s catch), the gear's click handler and the
+  `#corner`/`#corner:hover`/`#dot*`/`#gear` CSS. The socket's state was already
+  said twice over — the stale wash (the whole page fading back once a socket is
+  gone, armed at 400 ms) and the strip's own `ws` lines — so a dot was a third
+  spelling of one fact, and it cost a fixed box, a z-level and a top padding to
+  keep clear of. The indexing state is the strip's `boot info` line alone.
+  Consequences: the body's padding goes `34px 24px 24px` → `24px`, so the table
+  starts where the page does; the z-index bands are THREE rather than four (echo
+  `2`, modal backdrop `100`, sheet `101`, with `3` unused and forbidden by the
+  suite); and the stale-wash exemption list is now the event strip and the key
+  line. KNOWN GAP, worth stating rather than burying: the gear was the coarse
+  pointer's ONLY door to the settings sheet, `,` being untypable there. A touch
+  reader can filter and read; they cannot open the settings, and the page has no
+  other affordance to offer them. The `pointer:coarse` block keeps its other
+  rules — the 44px chip row, its empty-state label, the stacked sheet panes and
+  the 16px fields — and the comment owning the question lives inside that block.
 - Virtual tag keys leave `?q=`. An org tag no longer names a filter key:
   `course:text` is free text, colon and all, and `tag:course text` is the one
   spelling — the predicate reads the tags cell, the free text reads the row, and
@@ -37,6 +57,32 @@ section groups a feature arc, and its date is that arc's last commit.
   archived" guard.
 
 ### Changed
+- The settings sheet's keywords panel is ONE select over ONE box. It showed a
+  `<textarea>` per config layer, stacked in `#clayers`, and a tree has as many
+  config files as it has tags — the stack was as tall as that number, so the
+  reader scrolled past every layer they were not editing to reach the one they
+  were. It is now one native `<select id="clayer">` over the layers and one
+  `<textarea id="ctext">` holding the SELECTED layer's `#+TODO:` lines verbatim,
+  with `#clab` naming that layer (`system · PATH` / `tag · book · PATH`, plus
+  ` · not created yet` where the digest is empty) and `#clerr` carrying whatever
+  the server last said about a write to it. Order in the select is system first,
+  then the tag layers by `localeCompare` (`byLayer`); `sort` is stable, so two
+  system layers keep the order the server served them in, which is the walk's.
+  The text lives on the LAYER (`crows[i].text`) and the box is a view of
+  `crows[cat]`: `takeLayer()` copies the on-screen box back into its layer and
+  every door calls it first — the select's `change`, `cdirty`, `flushConfig` —
+  so an edit outlives every switch and a switch asks the server nothing. Sync
+  semantics are unmoved: buttonless, `ESC` or the backdrop syncs the layers that
+  moved and closes, a pristine sheet costs no request, `C-x C-s` syncs mid-edit,
+  `conflict` and `error` wait for a keystroke, and it is still one drift-locked
+  `POST /config` per FILE that moved, each awaited, each under its own digest.
+  NEW: a refusal brings its layer with it — `flushConfig` remembers the first
+  refused layer's index and selects it, so the box on screen is the file the
+  message under it describes; every refusal is also a `config error` log line
+  naming `SOURCE · PATH: message`, since only one can be shown. `SECTIONS`'s
+  keywords entry is unchanged (`clayers`, `ceff`, `cfoot`) and its body is still
+  markup the list wraps at boot; `.ctext` grew `height:3.4em` → `7em`, and
+  `#clayer` shares `#themesel`'s select rule.
 - A blob's occurrence history is no longer walked. org-glance snapshots a
   completed repetition as `.org-glance/data/<id>/occurrences/<STAMP>.org`, an
   immutable copy carrying the LIVE entry's `ORG_GLANCE_ID`; it sits inside
@@ -91,6 +137,34 @@ section groups a feature arc, and its date is that arc's last commit.
   and the sheet's logbook already wear.
 
 ### Added
+- The log strip's height is a preference. It stopped growing at seven of its own
+  line boxes, a constant; it is now a `localStorage` preference edited from the
+  settings sheet's GENERAL panel (`#clog`, the third row under `default view`
+  and `capture target`). The stylesheet keeps the arithmetic and declares the
+  default — `#log{ … --g-logn:7;
+  max-height:calc(var(--g-logn) * 1.5em + 2 * 6px + 2 * 1px) … }` — and the knob
+  writes a NUMBER onto the element (`style.setProperty("--g-logn", …)`), so
+  there is one formula in one place and a page whose glue has not run — or a
+  reader who never touched the field — is capped at the same figure the sheet
+  would put back. Stored under `glance-log` beside `glance-theme`, applied on
+  boot and on every accepted keystroke, on `input` rather than `change` so the
+  field is a knob rather than a form. `LOG = {key:"glance-log", def:7, min:1,
+  max:50}` in the glue is mirrored in Haskell as
+  `logLinesDefault`/`logLinesMin`/`logLinesMax` and `logLinesBand` (the
+  placeholder's `1–50`) — the same constants the stylesheet's declared value is
+  spelled from, so the two cannot drift. Blank is the default, which is how a
+  reader asks for it back, and it REMOVES the key rather than storing `""` — a
+  preference spelling the empty string is still a preference. A whole number
+  inside the band is that number;
+  everything else is DECLINED rather than clamped, so the cap a reader had
+  stands, nothing is stored, and reopening the sheet draws the preference back
+  over the refused value — half a number on the way to a whole one is the
+  ordinary case of that. A stored value the band no longer takes falls back to
+  the default, the boot reading it through the same check. The panel says where a preference is READ rather than
+  what writes it: `cmoved` never sees `#clog`, so the knob costs no request and
+  cannot make a pristine sheet dirty. The table takes whatever the log gives up
+  (`#app` is `flex:1 1 auto`). `LOGCAP` = 500 is the strip's RING (how many
+  lines it keeps) and is a different limit, unchanged.
 - **The order is part of the query.** `sort:COL` orders the answer by that
   column and `sort:COL:desc` reverses it; written order is precedence, so
   several tokens compose a chain (`sort:state sort:deadline` is state with

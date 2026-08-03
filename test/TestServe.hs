@@ -2868,21 +2868,80 @@ sheetSpec shell = testGroup "Shell sheet"
 
 -- | The settings sheet, driven through the keys a reader presses.  What is
 -- asserted is this page's half: that the chord raises it in PANELS over the
--- layers @\/config@ served, that a box holds one file's @#+TODO:@ lines
--- verbatim, that the theme panel applies without touching the server, that
--- closing it is the save, and that a pristine one costs no request.  The splice
--- itself is @configSpec@'s subject and the grammar is @TestConfig@'s; nothing
--- here re-states either.
+-- layers @\/config@ served, that the one box holds the SELECTED file's
+-- @#+TODO:@ lines verbatim and that switching layers costs no edit, that the
+-- two preference panels apply without touching the server, that closing it is
+-- the save, and that a pristine one costs no request.  The splice itself is
+-- @configSpec@'s subject and the grammar is @TestConfig@'s; nothing here
+-- re-states either.
 settingsSpec :: IO T.Text -> TestTree
 settingsSpec shell = testGroup "Shell settings"
   [ testCase ", opens it over the layers the server serves" $
       bootOf shell "" 500 "," "" $ \answer -> do
         assertEqual "the sheet is up" "on" =<< textAt "settings" answer
-        assertEqual "one box per layer, the lines verbatim"
-                    ["", "#+TODO: TODO READING | READ"] =<< textsAt "cshown" answer
+        assertEqual "the first layer's lines, verbatim" "" =<< textAt "cshown" answer
         assertEqual "the union is previewed" "TODO | DONE" =<< textAt "ceff" answer
         assertEqual "and it opens synced" "synced" =<< textAt "cstate" answer
         assertEqual "with nothing written" ([] :: [Value]) =<< listAt "configWrites" answer
+
+    -- ONE SELECT over the layers, system first and then the tags in their own
+    -- alphabet.  The server's order is the walk's, so the sheet's is its own —
+    -- the fixture serves `film' ahead of `book' precisely so the two differ.
+  , testCase "the layers are a select: system first, then the tags in alphabet" $
+      bootOf shell "" 500 "," "" $ \answer -> do
+        assertEqual "system, then book, then film"
+                    ["system", "tag · book", "tag · film"] =<< textsAt "clayers" answer
+        assertEqual "opening on the first" "0" =<< textAt "cat" answer
+        assertEqual "and the label names the file it is"
+                    "system · /o/.org-glance/config/system.org · not created yet"
+          =<< textAt "clab" answer
+
+    -- The one box is a VIEW of the selected layer, so picking another swaps what
+    -- is in it and nothing else.
+  , testCase "picking a layer swaps the box to that file's lines" $
+      bootOf shell "" 500 "," "clayer:1" $ \answer -> do
+        assertEqual "book's lines" "#+TODO: TODO READING | READ"
+          =<< textAt "cshown" answer
+        assertEqual "and book's label" "tag · book · /o/.org-glance/config/tags/book.org"
+          =<< textAt "clab" answer
+        assertEqual "with nothing written" ([] :: [Value]) =<< listAt "configWrites" answer
+
+    -- THE RULE THE STACK OF BOXES USED TO GIVE FOR FREE: an edit belongs to its
+    -- layer, and a reader who looks at another one comes back to it.
+  , testCase "a switch away and back keeps the edit" $
+      bootOf shell "" 500 "," "ctext:#+TODO:_A_|_B clayer:1 clayer:0" $ \answer -> do
+        assertEqual "the edit is still there" "#+TODO:_A_|_B" =<< textAt "cshown" answer
+        assertEqual "and nothing was written on the way" ([] :: [Value])
+          =<< listAt "configWrites" answer
+
+    -- READING A LAYER IS NOT EDITING IT.  Walking the whole select and coming
+    -- back is the shape a reader looking for one tag makes, and every layer's
+    -- bytes have been through the box by the end of it: nothing may be written,
+    -- and what is on screen must be the file's own text down to the spacing.
+  , testCase "walking every layer and back writes nothing" $
+      bootOf shell "" 500 "," "clayer:1 clayer:2 clayer:0 press:Escape" $ \answer -> do
+        assertEqual "no write" ([] :: [Value]) =<< listAt "configWrites" answer
+        assertEqual "the sheet is down" "" =<< textAt "settings" answer
+  , testCase "and the box shows a layer's lines byte for byte" $
+      bootOf shell "" 500 "," "clayer:2 clayer:1" $
+        assertEqual "book's line, spacing and bar included"
+                    "#+TODO: TODO READING | READ" <=< textAt "cshown"
+
+    -- And every layer edited on the way is written, one drift-locked call per
+    -- FILE — which is what the boxes were doing and what one box must not lose.
+  , testCase "every layer edited is written, one call each" $
+      bootOf shell "" 500 ","
+             "ctext:#+TODO:_A_|_B clayer:2 ctext:#+TODO:_C_|_D press:Escape" $
+        \answer -> do
+          writes <- listAt "configWrites" answer
+          assertEqual "two writes, one per file" 2 (length writes)
+          paths <- traverse (textAt "path") writes
+          assertEqual "the system layer and the one tag layer that moved"
+                      [ "/o/.org-glance/config/system.org"
+                      , "/o/.org-glance/config/tags/film.org" ] paths
+          assertEqual "each carrying its own lines"
+                      [["#+TODO:_A_|_B"], ["#+TODO:_C_|_D"]]
+            =<< traverse (textsAt "lines") writes
 
     -- ONE list draws the headers and the order, so a fourth panel is an entry
     -- there rather than a second place that has to hear about it.  The order is
@@ -2892,6 +2951,69 @@ settingsSpec shell = testGroup "Shell settings"
       bootOf shell "" 500 "," "" $
         assertEqual "general, theme, keywords" ["general", "theme", "keywords"]
           <=< textsAt "csecs"
+
+    -- THE LOG KNOB, the general panel's one field that asks no server: it is a
+    -- `localStorage' preference like the theme, it applies as it is typed, and
+    -- the number lands on the strip itself where the stylesheet's arithmetic
+    -- reads it.
+  , testCase "the log knob applies as it is typed, and is remembered" $
+      bootOf shell "" 500 "," "clog:12" $ \answer -> do
+        assertEqual "the cap is on the strip" "12" =<< textAt "logn" answer
+        assertEqual "and remembered" "12" =<< textAt "logStored" answer
+        assertEqual "the sheet is still up" "on" =<< textAt "settings" answer
+        assertEqual "and nothing was written" ([] :: [Value])
+          =<< listAt "configWrites" answer
+
+    -- The default is the stylesheet's declared value, so a page nobody has
+    -- touched shows seven and stores nothing.
+  , testCase "and it opens on seven, with nothing stored" $
+      bootOf shell "" 500 "," "" $ \answer -> do
+        assertEqual "the boot wrote the default" "7" =<< textAt "logn" answer
+        assertEqual "the field is empty" "" =<< textAt "clog" answer
+        assertEqual "and the key is not there" "«unset»" =<< textAt "logStored" answer
+
+    -- THE BOOT READS THE PREFERENCE, which no act can reach: every act runs
+    -- after the page has already applied it, so the browser has to arrive
+    -- remembering one.
+  , testCase "a browser that remembers one boots at it" $
+      bootWith shell "glance-log=21" "" 500 "" "" $ \answer -> do
+        assertEqual "the cap is the stored one" "21" =<< textAt "logn" answer
+        assertEqual "and the sheet shows it" "" =<< textAt "clog" answer
+  , testCase "and the sheet opens on it" $
+      bootWith shell "glance-log=21" "" 500 "," "" $
+        assertEqual "the field is the stored value" "21" <=< textAt "clog"
+
+    -- A stored value the band no longer takes — an older build's, a hand-edited
+    -- one — falls back rather than being applied.
+  , testCase "a stored value outside the band boots at the default" $
+      bootWith shell "glance-log=900" "" 500 "" "" $
+        assertEqual "the default" "7" <=< textAt "logn"
+
+    -- Emptying it is how a reader asks for the default back, which is why blank
+    -- is a value this page takes rather than one it refuses.  What is stored is
+    -- NOTHING, since a preference spelling the empty string is a preference.
+  , testCase "blanking it restores the default and removes the preference" $
+      bootWith shell "glance-log=12" "" 500 "," "clog:" $ \answer -> do
+        assertEqual "back to seven" "7" =<< textAt "logn" answer
+        assertEqual "with the key gone" "«unset»" =<< textAt "logStored" answer
+
+    -- A value outside the band is DECLINED rather than clamped: the cap a reader
+    -- had stands, and the box is redrawn from the preference on the next open.
+  , testCase "a value outside the band is declined, and the cap stands" $
+      bootOf shell "" 500 "," "clog:12 clog:999" $ \answer -> do
+        assertEqual "the cap did not move" "12" =<< textAt "logn" answer
+        assertEqual "nor did the storage" "12" =<< textAt "logStored" answer
+  , testCase "and so is a value that is no number at all" $
+      bootOf shell "" 500 "," "clog:12 clog:tall clog:0 clog:-3 clog:3.5" $ \answer -> do
+        assertEqual "the cap did not move" "12" =<< textAt "logn" answer
+        assertEqual "nor did the storage" "12" =<< textAt "logStored" answer
+
+    -- Reopening draws the stored preference over whatever was left in the box,
+    -- which is what makes a refused value cost nothing past the keystroke.
+  , testCase "reopening draws the preference back over a refused value" $
+      bootOf shell "" 500 "," "clog:12 clog:999 press:Escape press:," $ \answer -> do
+        assertEqual "the field shows the preference" "12" =<< textAt "clog" answer
+        assertEqual "and the cap is still it" "12" =<< textAt "logn" answer
 
     -- The theme is a preference rather than a write: it applies as it is
     -- picked, it is stored, and the sheet it was picked in stays where it is.
@@ -2910,11 +3032,10 @@ settingsSpec shell = testGroup "Shell settings"
         assertEqual "no attribute" "" =<< textAt "theme" answer
         assertEqual "but the choice is remembered" "auto" =<< textAt "themeStored" answer
 
-    -- The focus rule, both halves, over the control that used to spell it by
-    -- hand.  A `SELECT' inside a popup KEEPS the focus — the popup is a
-    -- legitimate holder and the table's keys are dead under it — and the way
-    -- the keys come back is closing the popup, which is what the corner's own
-    -- `blur()' was standing in for.
+    -- The focus rule, both halves.  A `SELECT' inside a popup KEEPS the focus —
+    -- the popup is a legitimate holder and the table's keys are dead under it —
+    -- and the way the keys come back is closing the popup, which is what a
+    -- hand-written `blur()' on a control outside one was standing in for.
   , testCase "the sheet's theme select keeps the keys away from the table" $
       bootOf shell "" 500 "," "theme:dark press:n" $ \answer -> do
         assertEqual "the select holds the keyboard" "SELECT" =<< textAt "holding" answer
@@ -2928,7 +3049,7 @@ settingsSpec shell = testGroup "Shell settings"
     -- The sheet's own rule, and the reason it has no buttons: the way out is
     -- the save.  Only the layer that moved is written.
   , testCase "ESC syncs the layers that moved and closes" $
-      bootOf shell "" 500 "," "ctext:0=#+TODO:_TODO_STARTED_|_DONE press:Escape" $
+      bootOf shell "" 500 "," "ctext:#+TODO:_TODO_STARTED_|_DONE press:Escape" $
         \answer -> do
           writes <- listAt "configWrites" answer
           assertEqual "one write, for the layer that moved" 1 (length writes)
@@ -2985,7 +3106,7 @@ settingsSpec shell = testGroup "Shell settings"
           =<< textAt "modal" answer
 
   , testCase "C-x C-s syncs mid-edit and leaves the sheet open" $
-      bootOf shell "" 500 "," "ctext:1=#+TODO:_A_|_B press:C-x press:C-s" $
+      bootOf shell "" 500 "," "clayer:1 ctext:#+TODO:_A_|_B press:C-x press:C-s" $
         \answer -> do
           assertEqual "one write" 1 . length =<< listAt "configWrites" answer
           assertEqual "the sheet is still up" "on" =<< textAt "settings" answer
@@ -2995,28 +3116,90 @@ settingsSpec shell = testGroup "Shell settings"
     -- `conflict', where C-x C-s overwrites and ESC discards — the materialize
     -- sheet's flow, over config files.
   , testCase "a layer that moved underneath lands at conflict, and ESC discards" $
-      bootOf shell "" 500 "," "ctext:1=#+TODO:_A_|_B cmoved press:C-x press:C-s" $
+      bootOf shell "" 500 "," "clayer:1 ctext:#+TODO:_A_|_B cmoved press:C-x press:C-s" $
         \answer -> do
           assertEqual "the write was refused" 1 . length =<< listAt "configWrites" answer
           assertEqual "the sheet waits" "conflict" =<< textAt "cstate" answer
           assertEqual "and is still up" "on" =<< textAt "settings" answer
   , testCase "and the second ESC there closes it without writing" $
       bootOf shell "" 500 ","
-             "ctext:1=#+TODO:_A_|_B cmoved press:C-x press:C-s press:Escape" $ \answer -> do
-        assertEqual "no second write" 1 . length =<< listAt "configWrites" answer
-        assertEqual "the sheet is down" "" =<< textAt "settings" answer
+             "clayer:1 ctext:#+TODO:_A_|_B cmoved press:C-x press:C-s press:Escape" $
+        \answer -> do
+          assertEqual "no second write" 1 . length =<< listAt "configWrites" answer
+          assertEqual "the sheet is down" "" =<< textAt "settings" answer
+
+    -- `C-x C-s' SYNCS MID-EDIT, so the reader is still typing while the write is
+    -- out — and a flush that landed must leave the box exactly as they left it.
+    -- The old stack of boxes could not get this wrong; one box redrawn from the
+    -- text the flush snapshotted can.
+  , testCase "a sync that lands does not paint over what is being typed" $
+      bootOf shell "" 500 ","
+             "clayer:1 ctext:#+TODO:_A_|_B chang press:C-x press:C-s\
+             \ ctext:#+TODO:_A_|_B_C cdeliver" $ \answer -> do
+        assertEqual "one write went out" 1 . length =<< listAt "configWrites" answer
+        assertEqual "and the keystrokes behind it stand" "#+TODO:_A_|_B_C"
+          =<< textAt "cshown" answer
+        -- Still dirty against what was sent, so the way out writes it.
+        assertEqual "the sheet is up" "on" =<< textAt "settings" answer
+
+    -- WITH ONE BOX, a refusal has to bring its own layer with it: the sheet
+    -- SELECTS the file that was refused and shows the server's words under it,
+    -- since a message under a box showing another layer describes a file the
+    -- reader cannot see.  The edit was made on `book' and the reader walked on
+    -- to `film' before syncing.
+  , testCase "a 409 selects the layer it refused and names it" $
+      bootOf shell "" 500 ","
+             "clayer:1 ctext:#+TODO:_A_|_B clayer:2 cmoved press:C-x press:C-s" $
+        \answer -> do
+          assertEqual "the sheet came back to book" "1" =<< textAt "cat" answer
+          assertEqual "showing the edit that was refused" "#+TODO:_A_|_B"
+            =<< textAt "cshown" answer
+          assertContains "with the server's own words under it" "changed on disk"
+            =<< textAt "clerr" answer
+          assertEqual "and the sheet waits" "conflict" =<< textAt "cstate" answer
+          -- And the log names it, since one box can show one refusal.
+          strip <- logOf answer
+          assertBool "the log names the refused layer"
+            (any (T.isInfixOf "tags/book.org" . snd) strip)
+
+    -- The label carries the DIGEST, so a layer this sheet just created has to
+    -- stop saying it is not there yet — the sheet is still open on it and the
+    -- line above the box is the only thing that says whether the file exists.
+  , testCase "a layer the sheet creates stops saying it is not there yet" $
+      bootOf shell "" 500 "," "" $
+        assertEqual "the system layer has no file behind it"
+                    "system · /o/.org-glance/config/system.org · not created yet"
+          <=< textAt "clab"
+  , testCase "and the write is what takes the words off" $
+      bootOf shell "" 500 "," "ctext:#+TODO:_A_|_B press:C-x press:C-s" $ \answer -> do
+        assertEqual "the label is the path alone"
+                    "system · /o/.org-glance/config/system.org" =<< textAt "clab" answer
+        assertEqual "and the box was left as it was" "#+TODO:_A_|_B"
+          =<< textAt "cshown" answer
+
+    -- A refusal describes a WRITE, so an edit taken back takes its refusal with
+    -- it: the layer matches the file again and there is nothing left to explain.
+  , testCase "reverting an edit drops the refusal it earned" $
+      bootOf shell "" 500 ","
+             "ctext:#+TODO:_A_|_B cmoved press:C-x press:C-s ctext: press:C-x press:C-s" $
+        \answer -> do
+          assertEqual "one write, the refused one" 1 . length
+            =<< listAt "configWrites" answer
+          assertEqual "the line under the box is gone" "" =<< textAt "clerr" answer
+          assertEqual "and the sheet is synced" "synced" =<< textAt "cstate" answer
 
     -- The one that matters most here: writing a layer is what moves the
     -- columns, so the close that follows a successful save is `view-changed'.
     -- The sheet is a sibling of `#app' and outlives the remount by where it
     -- sits — asserted rather than assumed, since it is a layout fact.
   , testCase "a view-changed remount leaves the sheet standing" $
-      bootOf shell "" 500 "," "ctext:1=#+TODO:_A_|_B close:view-changed" $
+      bootOf shell "" 500 "," "clayer:1 ctext:#+TODO:_A_|_B close:view-changed" $
         \answer -> do
           assertEqual "the mount was rebuilt" 2 =<< intAt "mounts" answer
           assertEqual "the sheet is still up" "on" =<< textAt "settings" answer
-          assertEqual "with the edit still in it"
-                      ["", "#+TODO:_A_|_B"] =<< textsAt "cshown" answer
+          assertEqual "with the edit still in it" "#+TODO:_A_|_B"
+            =<< textAt "cshown" answer
+          assertEqual "on the layer it was made in" "1" =<< textAt "cat" answer
   ]
 
 -- | The event strip, driven through the keys and the acts that write to it.
@@ -3238,7 +3421,15 @@ assigns shell (keywords, expected) =
 -- glue group still reads the same page as text.
 bootOf :: IO T.Text -> T.Text -> Int -> T.Text -> T.Text -> (Value -> Assertion)
        -> Assertion
-bootOf shell search total keys acts check = do
+bootOf shell = bootWith shell ""
+
+-- | 'bootOf' over a browser that already REMEMBERS something: STORE is
+-- @KEY=VALUE@ pairs joined by commas, seeded into @localStorage@ ahead of the
+-- glue.  A preference the BOOT reads is unreachable from an act, every act
+-- running after the page has already applied it.
+bootWith :: IO T.Text -> T.Text -> T.Text -> Int -> T.Text -> T.Text
+         -> (Value -> Assertion) -> Assertion
+bootWith shell store search total keys acts check = do
   node <- findExecutable "node"
   case node of
     Nothing  -> pure ()
@@ -3248,7 +3439,7 @@ bootOf shell search total keys acts check = do
       keysOf page >>= TIO.writeFile (dir </> "keys.json")
       (code, out, err) <- readProcessWithExitCode exe
                             [ harness, dir, T.unpack search, show total
-                            , T.unpack keys, T.unpack acts ] ""
+                            , T.unpack keys, T.unpack acts, T.unpack store ] ""
       case code of
         ExitSuccess -> check =<<
           either (\e -> assertFailure ("the harness answered: " <> e)) pure
@@ -3323,7 +3514,7 @@ shellGlue =
       , "      step(why, by) { this.want(why, this.n[why] + by); },"
       , "wash.step(\"view\", 1);"
       , "return p.finally(() => wash.step(\"view\", -1));"
-      , "backoff = 1000; dot(\"live\"); wash.want(\"socket\", 0);"
+      , "backoff = 1000; wash.want(\"socket\", 0);"
       , "wash.want(\"socket\", 1);"
       , "document.documentElement.classList.toggle(\"stale\"," ]
       -- One class, and the page reads it nowhere: the look is the stylesheet's
@@ -3341,7 +3532,7 @@ shellGlue =
       [ "  html.stale #app,html.stale #modal,html.stale #prompt,html.stale #config,"
       , "  html.stale #links,html.stale #tags{opacity:.55}"
       , "  #app,#modal,#prompt,#config,#links,#tags{transition:opacity .18s ease}" ]
-      [ "html.stale #log", "html.stale #corner", "html.stale #kbd"
+      [ "html.stale #log", "html.stale #kbd"
       , "html.stale #echo", "html.stale body", "stale #app{filter", "filter:blur"
       , "filter:saturate", "filter:grayscale" ]
 
@@ -3688,10 +3879,11 @@ shellGlue =
   -- A cold daemon on the boot, and a restarted one under a live page: both
   -- poll through the reconnect, so the page a reader had is still on screen
   -- while the walk runs.
+    -- The event strip is the whole of what says so, the status dot having gone
+    -- with the corner it sat in.
   , glue "shows the indexing state and polls out of it"
       [ "r.status === 503", "{ indexing: b }", "if (e.indexing) return indexing("
-      , "indexing … ${b.elapsed}s", "setTimeout(resync, 1000)"
-      , "dot(\"wait\")", "#dot.wait{" ]
+      , "indexing … ${b.elapsed}s", "setTimeout(resync, 1000)" ]
 
   , glue "materializes a row and syncs it back"
       [ "\"materialize\"", "/headline?id=${encodeURIComponent(", "<textarea id=\"mtext\""
@@ -3803,10 +3995,13 @@ shellGlue =
       -- It takes the height the table and the key line leave, and scrolls
       -- inside it rather than at a cap of its own.
       , "background:var(--g-surface);flex:1 1 auto;overflow-y:auto}"
-      -- Seven of its own line boxes and no more, computed off the rule's own
-      -- font size (`em', so it is not restated) and the padding above it rather
-      -- than eyeballed; #56 owns making it a preference.
-      , "max-height:calc(7 * 1.5em + 2 * 6px + 2 * 1px);"
+      -- N of its own line boxes and no more, computed off the rule's own font
+      -- size (`em', so it is not restated) and the padding above it rather than
+      -- eyeballed.  N is a CUSTOM PROPERTY declared at the default here, so the
+      -- arithmetic is in one place and the settings sheet writes a NUMBER onto
+      -- the element.
+      , "    --g-logn:7;"
+      , "max-height:calc(var(--g-logn) * 1.5em + 2 * 6px + 2 * 1px);"
       -- The end of a long message is scrolled to unless the reader has scrolled
       -- up to hold a place.
       , "box.scrollTop + box.clientHeight >= box.scrollHeight - 4"
@@ -3855,12 +4050,13 @@ shellGlue =
       , "#log .error .lv{color:var(--g-bad)}" ]
 
   -- `table-view.js' gives its sticky header `z-index:1' and its completion list
-  -- `5'; an unnumbered backdrop painted under both.  The page's own corner and
-  -- echo stay below the backdrop and dim with everything else.
-  , glue "the sheet's backdrop covers the renderer's chrome"
+  -- `5'; an unnumbered backdrop painted under both.  The page's own echo pill
+  -- stays below the backdrop and dims with everything else.  THREE levels now:
+  -- the corner held the third and went with it.
+  , Glue "the sheet's backdrop covers the renderer's chrome"
       [ "position:fixed;inset:0;z-index:100;", "position:relative;z-index:101;"
-      , "#corner{position:fixed;top:12px;right:14px;z-index:3;"
       , "#echo{position:fixed;right:14px;bottom:12px;z-index:2;" ]
+      [ "z-index:3" ]
 
   , glue "the theme is a three-way switch the page honours"
       -- The selector and its three options, under the settings sheet's own
@@ -3879,6 +4075,62 @@ shellGlue =
       , "el(\"themesel\").addEventListener(\"change\""
       -- And the head applies it before anything paints.
       , "<script>try{var t=localStorage.getItem(\"glance-theme\");" ]
+
+  -- The log's height, the page's SECOND `localStorage' preference and the
+  -- general panel's one field that asks no server.  The stylesheet owns the
+  -- arithmetic; what the knob writes is the number, onto the element.  A value
+  -- outside the band is declined rather than clamped, and blank is how a reader
+  -- asks for the default back.
+  , glue "the log's height is a stored preference the general panel edits"
+      [ "id=\"clog\""
+      , "const LOG = { key: \"glance-log\", def: 7, min: 1, max: 50 };"
+      , "if (!t) return LOG.def;"
+      , "return /^[0-9]+$/.test(t) && +t >= LOG.min && +t <= LOG.max ? +t : null;"
+      , "localStorage.getItem(LOG.key)"
+      , "localStorage.setItem(LOG.key, v)"
+      , "el(\"log\").style.setProperty(\"--g-logn\", String(n));"
+      , "setLogLines(logLines(logPref.get()) || LOG.def);"
+      -- Applied as it is TYPED, so the field is a knob rather than a form.
+      , "el(\"clog\").addEventListener(\"input\""
+      , "if (n === null) return;"
+      -- And the sheet draws the preference back over a value that was refused.
+      , "el(\"clog\").value = logPref.get();"
+      -- An EMPTIED field is a preference that is not there.
+      , "else localStorage.removeItem(LOG.key); } catch (e)" ]
+
+  -- THE KEYWORDS PANEL IS ONE SELECT AND ONE BOX.  A tree has as many config
+  -- files as it has tags, and a stack of boxes was as tall as that number.  The
+  -- text lives on the LAYER rather than in the box, which is what makes a switch
+  -- free; every door takes the box back to its layer first, and the flush still
+  -- posts one drift-locked call per file.
+  , Glue "the keyword layers are a select over one box"
+      [ "id=\"clayer\"", "<textarea id=\"ctext\" class=\"ctext\""
+      , "crows = (b.layers || []).map(layerRow).sort(byLayer);"
+      -- System first, then the tags in their own alphabet — the server's order
+      -- is the walk's.
+      , "const byLayer = (a, b) => (a.tag === null ? 0 : 1) - (b.tag === null ? 0 : 1)"
+      , "|| String(a.tag).localeCompare(String(b.tag));"
+      , "const takeLayer = () => { if (crows[cat]) crows[cat].text = el(\"ctext\").value; };"
+      , "el(\"clayer\").addEventListener(\"change\""
+      , "const cdirty = () => (takeLayer(), crows.some(cmoved));"
+      , "const cmoved = (r) => r.text !== r.base"
+      -- One POST per layer that moved, each awaited, each under its own digest.
+      -- A layer with nothing to send drops the refusal it was carrying, since
+      -- the edit that earned it has been taken back.
+      , "if (!cmoved(r)) { r.err = \"\"; continue; }"
+      , "body: JSON.stringify({ path: r.path, lines: sent.split(\"\\n\"),"
+      -- A refusal brings its layer with it, since one box shows one file; a
+      -- flush that refused nothing redraws what sits AROUND the box and leaves
+      -- the box alone, since `C-x C-s' syncs mid-edit and a redraw there would
+      -- paint over what is being typed.
+      , "if (landed === -1) landed = crows.indexOf(r);"
+      , "      if (landed === -1) showAround();"
+      , "      else { takeLayer(); showLayer(landed); }"
+      -- The label is redrawn too: a layer this sheet just CREATED has a digest
+      -- now and must stop saying it is not there yet.
+      , "+ (r.digest ? \"\" : \" · not created yet\") : \"\";" ]
+      -- No box per layer, and no second copy of the text on an element.
+      [ "createElement(\"textarea\")", "r.box.value", "r.note.textContent" ]
 
   , Glue "the dispatch and the echo widget read that blob and no other map"
       [ "<script id=\"keys\" type=\"application/json\">"
@@ -4082,17 +4334,16 @@ shellGlue =
       [ "#mtext,#pinput,#pedit input,#tedit input,.ctext,.cview{font-size:16px}}", "font:12px/1.5 var(--dk-mono)"
       , "#mpanes{flex-direction:column}" ]
 
-  -- The keyboard-first exception, and the second one the page makes: `,'
-  -- is the way into settings wherever there are keys, so the gear exists only
-  -- where there are none.  It needs no `coarse()' of its own — the rule that
-  -- shows it is inside the one block, and an element that is not displayed
-  -- cannot be tapped.
-  , glue "a coarse pointer gets a gear where the settings chord cannot be typed"
-      [ "<button id=\"gear\" title=\"settings\">"
-      , "#gear{display:none}"
-      , "    #gear{display:inline-block;"
-      , "min-width:44px;min-height:44px"
-      , "el(\"gear\").addEventListener(\"click\", openSettings);" ]
+  -- THE SETTINGS SHEET IS UNREACHABLE ON A TOUCH DEVICE, and it is a KNOWN GAP
+  -- rather than an oversight: the gear that opened it lived in the status
+  -- corner, and the corner is gone.  Asserted from both sides so the gap cannot
+  -- be half-closed by accident — no gear anywhere, and the comment that owns the
+  -- question in the one media block.
+  , Glue "the settings door a coarse pointer had went with the corner"
+      -- The block itself is intact, so what is asserted is a missing DOOR
+      -- rather than a missing block.
+      [ "  @media (pointer:coarse){", "#app .tv-chips{min-height:44px;cursor:pointer}" ]
+      [ "id=\"gear\"", "#gear{", "\9881" ]
 
   , glue "asks for one font stack, everywhere in the page"
       [ "--glance-mono:\"JetBrains Mono\", \"Fira Code\", \"SF Mono\", Menlo, Consolas, monospace"
@@ -6749,15 +7000,16 @@ pageSpec shell = testGroup "GET /"
       b <- shell
       holdsAll "column"
             [ "height:100vh;box-sizing:border-box;overflow:hidden;"
-            , "padding:34px 24px 24px;display:flex;flex-direction:column;gap:14px}"
+            -- One padding, all four sides: the extra top was the fixed corner's
+            -- room and nothing floats over the table's top edge now.
+            , "padding:24px;display:flex;flex-direction:column;gap:14px}"
             -- The table asks for its height and can give it back; the key line
             -- never gives any of its own up, so a short window squeezes the
             -- table rather than clipping the line.
             , "#app{flex:1 1 auto;min-height:0}"
             , "#kbd{flex:none;" ] b
-      -- Table, log, key line, in that order — the corner and the pill are
-      -- fixed and out of the column, and the sheet is display:none until it
-      -- is not.
+      -- Table, log, key line, in that order — the pill is fixed and out of the
+      -- column, and the sheet is display:none until it is not.
       let at needle = T.length (fst (T.breakOn needle b))
       assertBool ("app, log, kbd in that order: " <> show (at "id=\"app\"", at "id=\"log\"", at "id=\"kbd\""))
                  (at "id=\"app\"" < at "id=\"log\"" && at "id=\"log\"" < at "id=\"kbd\"")
@@ -7051,29 +7303,38 @@ keymapSpec shell = testGroup "Shell keymap"
         [["f"], ["l"], ["<right>"]]
         [ k | (k, _s, c, _h, _scope, _help) <- rows, c == "next-column" ]
 
-    -- The corner is a READOUT: the connection dot, and the coarse-pointer gear
-    -- that hands the focus straight to the sheet it opens.  The theme selector
-    -- moved into that sheet, which is what takes the blur rule away — a control
-    -- that keeps the focus is a problem in the corner and ordinary inside a
-    -- popup.
-  , testCase "the status corner is the connection dot, and the theme is not in it" $ do
+    -- THERE IS NO STATUS CORNER.  What it held is said twice over without it —
+    -- the socket's state is the stale wash and the strip's own `ws' lines — and
+    -- what it cost was a fixed box, a z-level, a top padding to keep clear of,
+    -- and the standing hazard of a control put there: outside a popup, one that
+    -- keeps the focus eats `n' and `p' as type-ahead.  Asserted as an ABSENCE,
+    -- so the box cannot come back by another name and bring the rule with it.
+  , testCase "the page has no status corner, and nothing focusable outside a popup" $ do
       b <- shell
-      corner <- maybe (assertFailure "no status corner in the shell") pure
-                      (between "<div id=\"corner\">" "</div>" b)
-      holdsAll "corner" ["id=\"dot\"", "id=\"gear\""] corner
-      -- The RULE rather than the one control that broke it: nothing in the
-      -- corner takes the focus, so the next thing added there cannot quietly
-      -- reintroduce the type-ahead bug by not being called `themesel'.
-      holdsNone "corner" ["<select", "<input", "<textarea", "<a "] corner
-      assertEqual "one button, the gear" 1 (T.count "<button" corner)
-      assertContains "fixed in the corner" "#corner{position:fixed;top:12px;right:14px" b
-      -- And it is the settings sheet that holds it now, under its own panel.
+      holdsNone "the shell"
+        [ "id=\"corner\"", "#corner", "id=\"dot\"", "#dot", "dot(\"live\")"
+        , "dot(\"down\")", "dot(\"wait\")", "id=\"gear\"", "#gear" ] b
+      -- Every control the page carries is inside one of the popups, which is
+      -- what makes the sheet's one `blur()' on close the whole focus rule.  The
+      -- page's own COLUMN — table, log, key line — is what the popups are not,
+      -- and it holds nothing a browser will focus.
+      column <- maybe (assertFailure "no modal band in the shell") pure
+                      (between "<body>" "<div id=\"modal\">" b)
+      holdsNone "the page's column"
+        ["<select", "<input", "<textarea", "<button", "<a "] column
+      -- And what follows the popups: the echo pill, which is a readout, up to
+      -- the first script.  Both ends of the markup are swept, so a control can
+      -- be added neither above the overlays nor below them.
+      after <- maybe (assertFailure "no keymap blob in the shell") pure
+                     (between "<div id=\"echo\"" "<script id=\"keys\"" b)
+      holdsNone "under the popups"
+        ["<select", "<input", "<textarea", "<button", "<a "] after
+      -- And the theme lives in the settings sheet, under its own panel.
       sheet <- maybe (assertFailure "no settings sheet in the shell") pure
                      (between "<div id=\"config\">" "<div id=\"echo\"" b)
       holdsAll "the theme panel" ["id=\"ctheme\"", "id=\"themesel\""] sheet
-      -- No control gives the keys back on its own change any more: the sheet
-      -- does it once when it closes, so the per-control `blur()' the corner
-      -- needed is gone with the corner control.
+      -- No control gives the keys back on its own change: the sheet does it once
+      -- when it closes, so there is no per-control `blur()' left to keep in step.
       holdsNone "the shell" ["e.target.blur();"] b
 
     -- The panels are a list of headers joined to the markup BY ID, and the join

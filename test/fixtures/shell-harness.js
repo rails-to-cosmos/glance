@@ -66,7 +66,10 @@
 //
 // The answer is what the page asked for and what it still holds afterwards.
 const fs = require("fs");
-const [dir, search, total, keys, acts] = process.argv.slice(2);
+// STORE is what the browser already REMEMBERS, `KEY=VALUE' pairs joined by
+// commas.  It is argv rather than an act because a preference the BOOT reads is
+// unreachable from an act: every act runs after the glue has been eval'd.
+const [dir, search, total, keys, acts, store] = process.argv.slice(2);
 
 // Every /headlines URL the page asked for, in order, and the tags it sent with
 // them — a revalidation is what a cheap reconnect looks like from the server.
@@ -128,8 +131,15 @@ let refusing = false;
 // The keyword layers behind /config, and every write to one.  The system layer
 // carries no digest: it is a file that does not exist yet, which is the shape
 // the settings sheet has to be able to create.
+//
+// SERVED OUT OF ALPHABET, on purpose: the server's order is the walk's — where
+// the directories turned up — and the sheet's is system first and then the tags
+// in their own alphabet, so a fixture already in order could not tell the two
+// apart.
 let layers = [
   { path: "/o/.org-glance/config/system.org", tag: null, lines: [], digest: "" },
+  { path: "/o/.org-glance/config/tags/film.org", tag: "film",
+    lines: ["#+TODO: WATCHING | WATCHED"], digest: "f1" },
   { path: "/o/.org-glance/config/tags/book.org", tag: "book",
     lines: ["#+TODO: TODO READING | READ"], digest: "c1" },
 ];
@@ -217,6 +227,10 @@ let down = false;
 // else here settles as a microtask and one turn of the loop is past it.
 let hanging = false;
 const held = [];
+// The same pair over `POST /config', which is what lets a script type into the
+// settings sheet while its own write is out.
+let changing = false;
+const cheld = [];
 /**
  * The rows a URL asks for.  The server caps a `limit=' fetch, so a page-sized
  * first paint really is one page: a swap that asks for the whole set can be
@@ -304,7 +318,12 @@ globalThis.fetch = (url, init) => {
     if (sent.filter !== undefined) viewQuery = sent.filter;
     if (sent.capture !== undefined) captureLine = sent.capture;
     layer.digest = `c${(configTick += 1)}`;
-    return answer(200, { path: sent.path, digest: layer.digest });
+    // Held by `chang', the settings sheet's half of `hang': `C-x C-s' syncs
+    // mid-edit, so the state a script has to be able to sit inside is a write in
+    // flight under a reader who is still typing.
+    const send = () => answer(200, { path: sent.path, digest: layer.digest });
+    if (changing) return new Promise((go) => cheld.push(() => go(send())));
+    return send();
   }
   if (String(url).startsWith("/headline?")) {
     if ((init || {}).method === "POST") {
@@ -619,9 +638,16 @@ globalThis.open = (url, target, features) => {
 // a question about what is in here after the pick, which a stub swallowing every
 // write cannot answer.
 const stored = {};
+for (const pair of (store || "").split(",").filter(Boolean)) {
+  const at = pair.indexOf("=");
+  stored[pair.slice(0, at)] = pair.slice(at + 1);
+}
 globalThis.localStorage = {
   getItem: (k) => (Object.prototype.hasOwnProperty.call(stored, k) ? stored[k] : null),
   setItem: (k, v) => { stored[k] = String(v); },
+  // A preference EMPTIED is one that is not there, which a stub writing `""'
+  // could not tell from one set to the empty string.
+  removeItem: (k) => { delete stored[k]; },
 };
 globalThis.matchMedia = () => ({ matches: false, addEventListener: () => {} });
 
@@ -651,13 +677,27 @@ const fields = {};
 // whether a key belongs to the table or to whatever has focus.
 const TAGS = { mtext: "textarea", filter: "input", pinput: "input",
                pkey: "input", pval: "input", tname: "input", themesel: "select",
-               cfilter: "input", ctarget: "input" };
+               cfilter: "input", ctarget: "input", clog: "input",
+               // The keywords panel: one select over the layers and one box
+               // showing the selected one's lines.
+               clayer: "select", ctext: "textarea" };
+/**
+ * Enough of a `CSSStyleDeclaration': a named property is an ordinary field the
+ * page writes and reads back (the palette's badge hues), and a CUSTOM property
+ * goes through the pair a real one answers to — which is how the log's cap is
+ * written, as a number onto the element rather than a length.
+ */
+const styleOf = () => ({
+  custom: {},
+  setProperty(name, value) { this.custom[name] = String(value); },
+  getPropertyValue(name) { return this.custom[name] || ""; },
+});
 /** A stand-in element, enough of one for the page to build its own chrome in. */
 const make = (tag) => {
   const e = {
     tagName: String(tag).toUpperCase(),
     value: "", className: "", placeholder: "", spellcheck: false,
-    style: {}, dataset: {}, children: [],
+    style: styleOf(), dataset: {}, children: [],
     scrollTop: 0, clientHeight: 0, scrollHeight: 0,
     focus() { active = this; },
     blur() { if (active === this) active = null; },
@@ -706,10 +746,13 @@ const STATEFUL = [ "mtext", "mnote", "mfile", "modal", "mprops", "mlog", "sheet"
                  // `ttable' is the element, `tpane' the box the overlay is
                  // placed inside, and `tedit'/`tname' the rename itself.
                  , "tags", "thead", "tpane", "ttable", "tfoot", "tedit", "tname"
-                 // The settings sheet: its state, its panel frames, and the
-                 // fields of the general panel — the two tree-wide lines, which
-                 // are `system.org''s and ride in that layer's write.
-                 , "config", "cnote", "clayers", "ceff", "csecs", "cfilter", "ctarget"
+                 // The settings sheet: its state, its panel frames, the fields
+                 // of the general panel — the two tree-wide lines, which are
+                 // `system.org''s and ride in that layer's write, plus the log
+                 // knob, which is this page's own preference — and the keywords
+                 // panel's select, box, label and refusal line.
+                 , "config", "cnote", "ceff", "csecs", "cfilter", "ctarget"
+                 , "clog", "clayer", "ctext", "clab", "clerr"
                  // The event strip: a line per entry, each a row of spans, so it
                  // has to hold a tree rather than answer "" to everything.
                  , "log"
@@ -784,23 +827,6 @@ const prevented = [];
 // The store moving is a new tag: a client holding the old one is answered with
 // a body rather than a 304, which is the reconnect that has rows to apply.
 const step = () => { tag = `"t${Number(tag.slice(2, -1)) + 1}"`; };
-/**
- * WHICH field of the row ARG names inside the panel ID, given ARG's
- * `INDEX=TEXT', typed into.  Both panels this page builds are rows of fields,
- * so one act serves the property drawer and the settings layers alike.
- */
-const typeInto = (id, which, arg) => {
-  const at = arg.indexOf("=");
-  const row = field(id).children[Number(arg.slice(0, at))];
-  if (!row) throw new Error(`no ${id} row ${arg}`);
-  const box = row.children[which];
-  // A row is read-only text until it is opened, so typing into a closed one is
-  // a script that means nothing: say so rather than write into a cell nobody
-  // can see.
-  if (box.tagName !== "INPUT" && box.tagName !== "TEXTAREA")
-    throw new Error(`${id} row ${arg} is not open for editing`);
-  typed(box, arg.slice(at + 1));
-};
 /** TEXT typed into the settings sheet's fixed field ID, the sheet being open —
  * a closed one shows no field, so a script that types into one means nothing. */
 const typeSetting = (id, text) => {
@@ -936,6 +962,10 @@ const logged = () => field("log").children.map((line) => ({
 // claimed nothing.
 let assigned = [];
 
+/** A stored value as the answer spells it, `«unset»' for a key that is not
+ * there — which is a different state from one holding the empty string. */
+const unset = (v) => (v === null ? "«unset»" : v);
+
 const ACTIONS = {
   close: (reason) => { if (socket && socket.onclose) socket.onclose({ reason }); },
   // The which-key assignment driven as the pure function it is: a comma-separated
@@ -1030,16 +1060,30 @@ const ACTIONS = {
   // script MEANT and is checked rather than looked up.
   pkey: (arg) => typeOver("pkey", arg),
   pval: (arg) => typeOver("pval", arg),
-  // And into the settings sheet: `ctext:0=#+TODO: A | B' is the box of layer 0,
-  // which is the file's `#+TODO:' lines as the sheet edits them.
-  ctext: (arg) => typeInto("clayers", 1, arg),
-  // And the general panel's two fields, which are fixed rows rather than a
+  // And into the settings sheet: `ctext:#+TODO:_A_|_B' is the keywords panel's
+  // one box, holding the SELECTED layer's `#+TODO:' lines as the sheet edits
+  // them.  Which layer that is comes off `clayer' below.
+  ctext: (text) => typeSetting("ctext", text),
+  // Picking a layer, the way a reader picks one: the select takes the focus, the
+  // value moves, and the change event fires.  What it is here to show is that
+  // the box under it swaps and an edit in the layer being left is still there on
+  // the way back.
+  clayer: (at) => {
+    if (field("config").className !== "on")
+      throw new Error("the settings sheet is not open: clayer");
+    const box = field("clayer");
+    box.focus();
+    box.value = String(at);
+    box.fire("change", { target: box });
+  },
+  // And the general panel's three fields, which are fixed rows rather than a
   // layer's: the default view and the capture target, bound to the system
-  // layer and posted in its write.  They are markup rather than a drawn row, so
-  // typing into them with the sheet shut would write where no reader could
-  // have — the refusal `typeInto' makes for the layer boxes, spelled here.
+  // layer and posted in its write, and the log knob, which is stored here and
+  // posted nowhere.  They are markup rather than a drawn row, so typing into
+  // them with the sheet shut would write where no reader could have.
   cview: (text) => typeSetting("cfilter", text),
   ccap: (text) => typeSetting("ctarget", text),
+  clog: (text) => typeSetting("clog", text),
   // Every config layer moves out from under the sheet, which is the drift a
   // second writer causes.
   cmoved: () => { for (const l of layers) l.digest = "gone"; },
@@ -1116,6 +1160,14 @@ const ACTIONS = {
   deliver: () => {
     hanging = false;
     while (held.length) held.shift()();
+  },
+  // The same pair over the settings sheet's own write: `C-x C-s' syncs mid-edit,
+  // so a reader can go on typing while it is out, and what lands afterwards must
+  // not paint over what they typed.
+  chang: () => { changing = true; },
+  cdeliver: () => {
+    changing = false;
+    while (cheld.length) cheld.shift()();
   },
   // Time passing, which is the one thing a delayed state needs and no other act
   // can stand in for: the wash arms on a timer and a script has to be able to
@@ -1232,16 +1284,30 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     crumbs: main.crumbs.map((c) => c.label),
     // Which keys the dispatch took off the browser, in press order.
     prevented,
-    // The settings sheet: whether it is up, the one word it wears, the lines
-    // each layer is showing, the union it previews, and every write it sent.
+    // The settings sheet: whether it is up, the one word it wears, the union it
+    // previews, and every write it sent.
     settings: field("config").className, cstate: field("cnote").className,
-    cshown: field("clayers").children.map((row) => row.children[1].value),
+    // The keywords panel: the layers the select offers in the order it offers
+    // them, which one is picked, the lines the one box is showing, the label
+    // over it, and whatever the server last said about a write to that layer.
+    // A layer's OTHER text is in memory and off screen, which is what switching
+    // back shows.
+    clayers: field("clayer").children.map((o) => o.textContent),
+    cat: field("clayer").value, cshown: field("ctext").value,
+    clab: field("clab").textContent, clerr: field("clerr").textContent,
     // The panels, by the header each wears, in the order the sheet draws them.
     csecs: field("csecs").children.map((s) => parts(s, "chdr")[0].textContent),
     // What the two tree-wide fields are showing, and what the server holds now.
     cview: field("cfilter").value, ccap: field("ctarget").value,
     served: viewQuery, servedCapture: captureLine,
     ceff: field("ceff").textContent, configWrites,
+    // The log knob: what the field holds, what was stored under it, and the
+    // number the page wrote onto the strip — which is the cap taking effect.
+    // A key that is NOT THERE reads as the sentinel rather than as "": emptying
+    // the field removes the preference, and "no preference" and "a preference
+    // spelling the empty string" are the two states that has to be told apart.
+    clog: field("clog").value, logStored: unset(localStorage.getItem("glance-log")),
+    logn: field("log").style.getPropertyValue("--g-logn"),
     // The theme panel: what is stamped on the document element and what was
     // stored under it — `auto' is the attribute coming OFF, so it reads as "".
     theme: root.dataset.theme || "",
