@@ -27,6 +27,8 @@
 //   rewritten     the file behind the open sheet moves: a new digest
 //   press:KEY     KEY pressed, so a key can follow an act rather than precede
 //                 it; `C-x' and `S-Tab' spell the modifiers
+//   click:I       row I of the modal mount that is up clicked, which is the one
+//                 way a cursor moves out from under an open edit overlay
 //   theme:NAME    NAME picked in the settings sheet's theme select, event and all
 //   type:TEXT     TEXT typed into the value palette's field, which narrows it —
 //                 `/' has to have put the palette in that mode first
@@ -822,8 +824,10 @@ const typeOver = (which, arg) => {
   const at = arg.indexOf("=");
   if (field("pedit").className !== "on")
     throw new Error(`no panel row is open for editing: ${which}:${arg}`);
-  // The overlay opens over the row at point and no key can move the cursor
-  // under it, so the panel's own cursor IS which row is being edited.
+  // The overlay opens over the row at point and no KEY can move the cursor under
+  // it, so at the moment of typing the panel's cursor is the row being edited.
+  // A `click' afterwards can move it, which is the hazard the snapshot answers —
+  // so a script that means to test that types FIRST and clicks after.
   if (String(patAt()) !== arg.slice(0, at))
     throw new Error(`panel row ${patAt()} is open, not ${arg}`);
   typed(field(which), arg.slice(at + 1));
@@ -973,6 +977,21 @@ const ACTIONS = {
   recolumn: () => { step(); columns = columns.concat([{ key: "deadline" }]); },
   rewritten: () => { digest = "d1"; },
   press: (key) => press(key),
+  // A MOUSE CLICK landing on another row of a modal mount, which is the ONE
+  // thing that can move a cursor out from under an open edit overlay — no key
+  // can, which is why every other act here is a key.  `click:2' is the reader
+  // clicking row 2 of whichever surface is up: the property panel while the
+  // materialize sheet is open, the tags popup otherwise.  The renderer moves its
+  // own cursor and tells this page nothing, so what this measures is whether a
+  // commit still writes the row the overlay OPENED over.
+  click: (at) => {
+    const m = field("modal").className === "on" ? pan : tgs;
+    if (!m) throw new Error(`no modal mount to click in: click:${at}`);
+    const i = Number(at);
+    if (!(i >= 0 && i < m.own.length))
+      throw new Error(`no row ${at} to click in the mount`);
+    m.cursor = i;
+  },
   // The settings sheet's theme select, driven the way a reader drives it: focus
   // it, pick a theme, and let the change event fire.  What it is here to show is
   // what happens AFTER — the theme applied, the choice stored, and the sheet

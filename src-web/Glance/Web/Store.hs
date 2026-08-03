@@ -34,6 +34,7 @@ module Glance.Web.Store
   , storeDocument
   , storeHeadline
   , storeHeadlines
+  , headlinesIn
   , storeRecords
   , storeResult
   , storeKeywords
@@ -188,11 +189,14 @@ storeResult st = QueryResult
 -- drift-checkable.
 --
 -- A scan of the store rather than an index: an index by id would be a second
--- structure to keep in step with 'stFiles' on every reload, and 'resolvedRows'
--- shows what the scan costs — ~2.4 ms over the 13359-row ~\/sync store, which is
--- most of a materialize request and none of a user's attention.  It is the
--- lever if @\/headline@ ever lands in a loop.  It runs over the resolved rows,
--- so materializing an id two files claim opens the one the table is showing.
+-- structure to keep in step with 'stFiles' on every reload.  What the scan costs
+-- is the RESOLUTION in front of it, and it is most of the request rather than a
+-- rounding error on it: ~28 ms over the 10435-row @~\/sync@ store, measured on
+-- 2026-08-03 as the difference between @\/tags@ resolving once and twice (medians
+-- 45.3 ms and 73.7 ms of 15 requests), against a whole @GET \/headline@ of
+-- ~29 ms.  Still none of a reader's attention for one press, and still the lever
+-- if @\/headline@ ever lands in a loop.  It runs over the resolved rows, so
+-- materializing an id two files claim opens the one the table is showing.
 storeHeadline :: Text -> Store -> Maybe HeadlineRecord
 storeHeadline rid = find ((== rid) . hrId) . storeRecords
 
@@ -200,16 +204,26 @@ storeHeadline rid = find ((== rid) . hrId) . storeRecords
 -- were named, and the ids it holds none for.
 --
 -- What 'storeHeadline' is for a set, and the reason it exists rather than a
--- fold over it: that call resolves the whole store per id (~2.4 ms over the
--- ~13000-row @~\/sync@ store), so a marked set of a hundred rows would spend a
--- quarter of a second on one answer.  This resolves once and indexes, which is
--- flat in the number of ids.  Both routes that name rows go through it, so a
--- refusal for an id nothing holds reads the same either way.
+-- fold over it: that call resolves the whole store per id (~28 ms over the
+-- 10435-row @~\/sync@ store), so a marked set of a hundred rows would spend
+-- SECONDS on one answer.  This resolves once and indexes, which is flat in the
+-- number of ids.  Both routes that name rows go through it, so a refusal for an
+-- id nothing holds reads the same either way.
 storeHeadlines :: [Text] -> Store -> ([HeadlineRecord], [Text])
-storeHeadlines ids st = partitionEithers [ maybe (Right rid) Left (Map.lookup rid held)
-                                         | rid <- ids ]
+storeHeadlines ids st = headlinesIn (storeRecords st) ids
+
+-- | 'storeHeadlines' over rows ALREADY resolved: the same answer without the
+-- resolution, for a route that owes a second fold over the same rows.
+--
+-- The split is the whole of what keeps @\/tags@ to one resolution — the rows the
+-- ids name and the store-wide tag counts are both folds over RESOLVED, and a
+-- caller holding the list cannot accidentally resolve twice by asking the store
+-- again.
+headlinesIn :: [HeadlineRecord] -> [Text] -> ([HeadlineRecord], [Text])
+headlinesIn resolved ids =
+  partitionEithers [ maybe (Right rid) Left (Map.lookup rid held) | rid <- ids ]
   where wanted = Set.fromList ids
-        held   = Map.fromList [ (hrId r, r) | r <- storeRecords st
+        held   = Map.fromList [ (hrId r, r) | r <- resolved
                                             , Set.member (hrId r) wanted ]
 
 -- | The text ST holds for PATH and the digest it was parsed from, or 'Nothing'
@@ -341,11 +355,13 @@ guarded path step st = (if moved then next { stGen = stGen next + 1 } else next,
 -- leaving a stale one until the client reconnects.
 --
 -- Cost: one pass over the store's rows per side, keeping only the ids the step
--- touched — the same order of work as 'storeHeadline', paid per watch event
--- rather than per request.  Measured at 5–6 ms for the whole step over a
--- 14000-row store with a client attached, where the parse alone is 4 ms, and it
--- buys the one thing an incremental view could not otherwise have: agreement
--- with every other reader.
+-- touched, and it is CHEAPER than 'storeHeadline' rather than the same order of
+-- work — 'resolvedRows' filters to the touched ids BEFORE it resolves, so the
+-- full-store resolution that dominates a lookup is never paid here.  A scan and
+-- a resolution of a handful of rows, per watch event rather than per request:
+-- measured at 5–6 ms for the whole step over a 14000-row store with a client
+-- attached, where the parse alone is 4 ms.  It buys the one thing an incremental
+-- view could not otherwise have: agreement with every other reader.
 streamed :: FilePath -> (Store -> Store) -> Store -> (Store, [Frame])
 streamed path update st = (next, upserts <> deletes)
   where

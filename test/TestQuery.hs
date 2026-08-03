@@ -1735,8 +1735,9 @@ commandSpec = testGroup "Commands"
     ]
 
     -- The third tag command, and the one that is a command rather than a
-    -- composition: a remove and an add spliced together are not even disjoint
-    -- edits, and they move the entry to the end of the run.
+    -- composition: a remove and an add spliced together APPLY — the spans touch
+    -- and 'applyEdits' rejects only overlap — and what they write is the tag on
+    -- the title, or the entry moved to the end of the run.
   , testGroup "rename-tag"
     [ testCase "replaces the entry where it stands, colon and all left alone" $ do
         renameTagIs "in the middle" "* TODO Ship it :web:glance:work:\n"
@@ -1806,9 +1807,12 @@ commandSpec = testGroup "Commands"
         renameTagIs "run kept" "* TODO Ship it  :a:b:\n" "a" "b"
                                "* TODO Ship it  :b:\n"
 
-      -- The composition this replaces, spelled out: removing the LAST entry
-      -- takes the whole run away and adding one inserts at the end of the run
-      -- it just took, so the two edit sets cannot be applied together.
+      -- The composition this replaces, spelled out.  The two edit sets apply
+      -- together — the removal ends exactly where the addition inserts, and
+      -- touching spans are what 'Data.Org.Edit.applyEdits' allows ('TestEdit',
+      -- "touching edits are accepted") — and the addition's anchor was measured
+      -- BEFORE the removal, so the tag lands flush against the title the removal
+      -- just closed up to.
     , testCase "the composition it replaces writes the tag onto the title" $ do
         let doc = "* TODO Ship it :work:\n"
         withRecord doc $ \r -> do

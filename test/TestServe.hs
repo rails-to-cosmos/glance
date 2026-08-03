@@ -1490,6 +1490,25 @@ tagKeySpec shell = testGroup "Shell tags"
       bootOf shell "" 500 ":" "press:Enter press:Escape press:Escape" $
         assertEqual "a second ESC closes it" "" <=< textAt "tagpop"
 
+    -- THE TAG A COMMIT RENAMES IS THE TAG THE OVERLAY OPENED OVER.  No key can
+    -- move the cursor while the field is up, but a MOUSE CLICK can, and a commit
+    -- that re-read the cursor would rename whichever tag the reader landed on
+    -- with the name typed for another.  The overlay snapshots at open, and the
+    -- property panel's row edit now answers the same way off the same mechanism.
+  , testCase "a click under an open rename still renames the tag it opened on" $
+      bootOf shell "" 500 ""
+             ("press:m press:m press:: press:+ type:work press:Enter"
+                <> " press:Enter tname:renamed click:0 press:Enter") $ \answer -> do
+        assertEqual "the add, then one rename over the rows carrying it"
+                    [("add-tag", ["r1", "r2"]), ("rename-tag", ["r1", "r2"])]
+          =<< postedOf answer
+        assertEqual "and it names the tag the overlay opened on, not the clicked one"
+                    ": → org-agenda-set-tags (renamed :work:→:renamed: · 2)"
+          =<< textAt "echo" answer
+        assertEqual "so the clicked tag stands and the opened one moved"
+                    [["web", "all", "40"], ["renamed", "all", "2"]]
+          =<< pairsAt "ttags" answer
+
   , testCase "ESC from the + field leaves the popup standing" $
       bootOf shell "" 500 ":" "press:+ type:work press:Escape" $ \answer -> do
         assertEqual "nothing was written" [] =<< postedOf answer
@@ -2494,6 +2513,34 @@ sheetSpec shell = testGroup "Shell sheet"
           assertEqual "the panel still has the keys" True =<< boolAt "pnav" answer
           assertEqual "and the cursor stayed on the row" 3 =<< intAt "pat" answer
 
+    -- THE ROW A COMMIT WRITES IS THE ROW THE OVERLAY OPENED OVER, and the hazard
+    -- is the one thing that can move a cursor while a row is open: a MOUSE
+    -- CLICK.  No key can — the panel's listener sends every key to the fields
+    -- while `pediting()' — so a commit that re-read the cursor would take the
+    -- text typed for one row and write it into whichever row the reader landed
+    -- on, silently.  The tags popup's rename guarded this from the start and the
+    -- panel did not; the shared overlay snapshots at open, so both do.
+  , testCase "a click under an open row commits the row that was opened" $
+      bootOf shell "" 500 "Enter"
+             ("press:Tab press:n press:n press:n press:Enter pval:3=0:45"
+                <> " click:0 press:Enter") $ \answer -> do
+        assertEqual "the opened row took the text, and the clicked one is untouched"
+                    (panelRows sheetStamp [["EFFORT", "0:45"]])
+                    =<< pairsAt "props" answer
+        assertEqual "the overlay closed" "" =<< textAt "focus" answer
+
+    -- The same hazard from the other side: a click that lands on a row whose
+    -- KEY the commit would have rewritten.  The add-row is the case with the
+    -- most to lose — its key is the thing being typed — so a redirected commit
+    -- would name a property after a planning keyword.
+  , testCase "and a click cannot redirect the key an add-row is writing" $
+      bootOf shell "" 500 "Enter"
+             ("press:Tab press:+ pkey:4=OWNER pval:4=ada"
+                <> " click:3 press:Enter") $ \answer ->
+        assertEqual "the added row took both fields and EFFORT stands"
+                    (panelRows sheetStamp [["EFFORT", "0:30"], ["OWNER", "ada"]])
+                    =<< pairsAt "props" answer
+
     -- `+' is the add affordance, and the whole of it: keyboard-first means the
     -- key IS the offer, where a row that is always empty was chrome every
     -- reader of the panel had to filter back out.
@@ -3478,20 +3525,82 @@ shellGlue =
       , "tmount = TableView.mount(el(\"ttable\"), { columns: TCOLS, rows: [] },"
       , "{ palette: true, marks: false, flags: true, actionHints: false,"
       , "flagHelp: \"d/D remove · u unflag\" });"
-      -- The overlay is the property panel's model over one cell: the row's box
-      -- through the mount's published root, the cell's through the class the
-      -- renderer stamps on its own gutter.
-      , "const tr = tmount.el.querySelector(\"tbody tr.tv-sel\");"
-      , "const td = tr && tr.querySelector(\"td:not(.tv-box)\");"
-      , "el(\"tedit\").style.left = `${c.left - b.left}px`;"
-      -- And the write is ONE command rather than a remove and an add composed.
+      -- The overlay is the SHARED mechanism over one cell: the popup declares a
+      -- shape and nothing about the gesture is spelled twice.
+      , "box: \"tedit\", pane: \"tpane\", fields: [\"tname\"], cell: true,"
+      , "const renaming = () => !!edit && edit.o === TROW;"
+      , "openEdit(TROW, at);"
+      -- And the write is ONE command rather than a remove and an add composed,
+      -- over the tag the overlay OPENED on rather than the one under the cursor.
+      , "renameTag(edit.row, el(\"tname\").value);"
       , "fire(tagging, \"rename-tag\", over.map((r) => r.id), { from, to },"
       , "`retagged ${args.from}→${args.to}`" ]
       -- THE LETTERS ARE GONE from this list, and with them the palette that
       -- stayed open over its own writes.  No second copy of the tag sets here
-      -- either: the popup's rows are derived from the targets on every repaint.
+      -- either: the popup's rows are derived from the targets on every repaint —
+      -- and no second copy of the ROWS, a tag being its own row id.  The rename
+      -- overlay's own placer, shutter and snapshot are gone into the shared
+      -- mechanism, so their names coming back means two implementations are live.
       [ "tagChoices", "tagVocabulary", "tagCommit", "landedTags", "letterMode"
-      , "prompting.sticky", "a letter toggles it", "prompting.letters" ]
+      , "prompting.sticky", "a letter toggles it", "prompting.letters"
+      , "trows", "tagRows()", "placeTag", "shutRename", "renamingFrom"
+      , "function tflag" ]
+
+  -- ONE EDIT OVERLAY, over two surfaces.  The property panel opens a row's two
+  -- fields and the tags popup one cell as a field over itself; the class, the
+  -- anchor, the blur and the SNAPSHOT are one implementation, and a shape says
+  -- what differs.
+  , Glue "the edit overlay is one mechanism the two surfaces declare a shape for"
+      [ "function openEdit(o, row) {"
+      , "edit = { o, row };"
+      , "el(o.box).className = \"on\";"
+      , "o.fill(row);"
+      , "o.focus(row);"
+      -- The anchor reads the mount's published root and the renderer's own
+      -- gutter class, for whichever surface is open.
+      , "const tr = m && m.el.querySelector(\"tbody tr.tv-sel\");"
+      , "const td = tr && (o.cell ? tr.querySelector(\"td:not(.tv-box)\") : tr);"
+      , "if (o.cell) { s.left = `${c.left - b.left}px`; s.width = `${c.width}px`; }"
+      -- The window resize moves whichever overlay is up, and is registered once
+      -- rather than per mount.
+      , "window.addEventListener(\"resize\", placeEdit);"
+      -- THE SNAPSHOT, which is the bug this retired: a commit reads the row the
+      -- overlay OPENED over, never the cursor, so a click that moved the cursor
+      -- under an open field cannot redirect the write.
+      , "const r = edit.row;"
+      , "const pediting = () => !!edit && edit.o === PROW;"
+      -- SHARING THE STATE MUST NOT SHARE THE SHUTTER.  The tags popup can stand
+      -- over an open materialize sheet — clicking the sheet's chrome blurs its
+      -- textarea and every `table' row goes live again — so an unscoped shut
+      -- would let the sheet's `drawProps'/`shut' cancel an open tag rename. Each
+      -- caller names its own shape, which is the isolation the two hand-written
+      -- shutters had.
+      , "function shutEdit(o) {"
+      , "if (!edit || edit.o !== o) return;"
+      , "shutEdit(PROW);"
+      , "shutEdit(TROW);" ]
+      -- The live cursor read the commit used to make, the per-surface copies of
+      -- the gesture, and the unscoped shut that would reach across surfaces.
+      [ "prows[patAt()]", "function place()", "function shutRename"
+      , "shutEdit();" ]
+
+  -- ONE `d'/`D'/`u' GESTURE, likewise: the two-press rule, the feature
+  -- detection, the set-or-row choice and the walk after `u' are written once and
+  -- each surface names the four words it says them in.
+  , Glue "the flag gesture is one implementation over two surfaces"
+      [ "function flagKey(k, s) {"
+      , "if (k === \"D\" || (k === \"d\" && flags.indexOf(at) !== -1)) {"
+      , "echo(`u → ${s.unflag} (flag cleared)`);"
+      , "echo(`d → ${s.flag} (d again ${s.again})`);"
+      , "echo(`${k} → ${s.none}`);"
+      , "none: \"org-delete-property (no row)\","
+      , "unflag: \"delete-unflag\", flag: \"delete-flag\", again: \"deletes\","
+      , "none: \"org-toggle-tag (no tag)\","
+      , "unflag: \"tag-unflag\", flag: \"tag-flag\", again: \"removes\","
+      , "flagKey(k, PFLAGS)", "flagKey(k, TFLAGS)" ]
+      -- The two hand-written copies it replaced.
+      [ "function pflag", "function tflag", "d → delete-flag (d again deletes)"
+      , "d → tag-flag (d again removes)" ]
 
   -- `@' asks before it applies: a row nothing points at leaves the table, the
   -- filter and the trail where they were.  The probe is a COUNT — one row —
@@ -3629,9 +3738,8 @@ shellGlue =
       -- arrows, and RET opens a row and commits it.  Movement is the MOUNT's
       -- step, so the cursor a reader moves is the renderer's.
       , "const k = keyName(e), crossing = k === \"TAB\" || k === \"S-TAB\";"
-      , "const moveCur = (step) => stepIn(pmount, step);"
       , "const rowStep = (k) => (k === \"<down>\" || k === \"n\" || k === \"j\" ? 1"
-      , "else if (step) moveCur(step);"
+      , "else if (step) stepIn(pmount, step);"
       , "} else if (crossing) leavePanel();"
       , "const pnav = () => el(\"mprops\").className === \"on\";"
       , "el(\"mprops\").className = \"on\"; el(\"mtext\").blur();"
@@ -3695,9 +3803,10 @@ shellGlue =
       -- It takes the height the table and the key line leave, and scrolls
       -- inside it rather than at a cap of its own.
       , "background:var(--g-surface);flex:1 1 auto;overflow-y:auto}"
-      -- Seven of its own line boxes and no more, computed off the font and the
-      -- padding above it rather than eyeballed; #56 owns making it a preference.
-      , "max-height:calc(7 * 1.5 * 12px + 2 * 6px + 2 * 1px);"
+      -- Seven of its own line boxes and no more, computed off the rule's own
+      -- font size (`em', so it is not restated) and the padding above it rather
+      -- than eyeballed; #56 owns making it a preference.
+      , "max-height:calc(7 * 1.5em + 2 * 6px + 2 * 1px);"
       -- The end of a long message is scrolled to unless the reader has scrolled
       -- up to hold a place.
       , "box.scrollTop + box.clientHeight >= box.scrollHeight - 4"

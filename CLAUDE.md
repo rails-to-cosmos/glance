@@ -368,8 +368,10 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `add-tag {tag}`, `remove-tag {tag}` and `rename-tag {from, to}`.
   `rename-tag` names both ends rather than reusing `tag` for one of them, and it
   is a command rather than a remove and an add a client fires in turn: those two
-  edit sets are not disjoint (`renameTagEdits`), and the pair would be two writes
-  under two digests where the rename is one. `commandNames` is its keys, the
+  edit sets APPLY — they touch, and `applyEdits` rejects only overlap — and what
+  they compose to is the tag spelled onto the title, or moved to the end of the
+  run (`renameTagEdits`); the pair would also be two writes under two digests
+  where the rename is one. `commandNames` is its keys, the
   per-name request-shape guards are each entry's own `csArgs`, and only
   `set-planning` is `csDated` — the one command whose date is read against the
   server's today. `parseCommand` resolves the name BEFORE anything else and a
@@ -1316,8 +1318,12 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   set, and this page keeps no copy of any of them. Row ids are stable for the
   sheet's life: `PLN:<KEYWORD>` for the three planning rows, `P<n>` handed out
   once per property, so a flag and a selection survive an edit above them.
-- The panel is MODAL, and its keys are a SECOND document listener behind the
-  dispatch, like the value palette's. NAV: nothing is focusable, and movement is
+- The panel is MODAL, and its keys are a document listener of its own — written
+  with the sheet near the top of the glue, so it registers AHEAD of the dispatch
+  and is the one private listener that sees a key first; safe for the reason the
+  three behind the dispatch are, since `typing()` has already killed every
+  `table` row and it falls through on every key it does not claim, `ESC`
+  included. NAV: nothing is focusable, and movement is
   `n`/`p`, `j`/`k` and the arrows — both profiles' letters bound
   unconditionally, since a row with no field in it leaves every printable key
   free. Entering the panel BLURS the textarea and sets `pnav`, which `typing()`

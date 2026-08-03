@@ -1438,12 +1438,20 @@ on.
   a composition.** The entry's text is replaced without its closing colon, so the
   run's other entries and both delimiters keep their bytes and the tag stays
   where the author put it: `:a:work:b:` renamed to `projects` is
-  `:a:projects:b:`. A remove and an add composed cannot do this and cannot even
-  be APPLIED together — removing a LAST entry takes the whole run away and adding
-  one inserts at the end of the run it just took, so the two spans are not
-  disjoint and `applyEdits` either refuses them or spells the tag onto the title
-  (`* Ship itprojects:`, which the suite writes down). It would also be two
-  writes under two digests where the rename is one drift-locked splice per file.
+  `:a:projects:b:`. A remove and an add composed cannot do this, and the reason
+  is what they DO rather than a refusal: the two edit sets APPLY. Removing a LAST
+  entry ends exactly where the addition inserts, and `applyEdits` rejects only
+  OVERLAP — an edit may start where the previous one ended — so the pair goes
+  through. What it writes is wrong in two INDEPENDENT ways. The addition's anchor
+  is `spanEnd hsTags` measured in the document BEFORE the removal, so for a lone
+  tag it is the offset the run's closing colon sat at; the removal then takes the
+  whole run AND the space in front of it, and the insertion lands flush against
+  the title — `* TODO Ship itprojects:`, which the suite writes down. Separately,
+  and whatever the anchor, `addTagEdits` APPENDS at the run's end, so an entry
+  with neighbours survives the round trip having MOVED to the end of the run;
+  re-measuring the anchor after the removal would not change that one. It would
+  also be two writes under two digests where the rename is one drift-locked
+  splice per file.
   ONE TAG ONCE is kept the way `removeTagEdits` keeps it: the FIRST entry
   spelling `from` becomes `to` and any further ones are cut, and where the row
   ALREADY carries `to` under another entry every `from` entry is cut instead —
@@ -2700,13 +2708,19 @@ on.
   whole `:a:b:` run — `on` (the coverage, `all` or `k/n`) and `rows` (`/tags`'
   store-wide count). A tag IS its row's id, since a tag appears once per popup
   and that is the whole of its identity: a flag, the cursor and a rename all name
-  the same thing after any number of writes. Mounted once and kept, like the
-  panel and the link popup. Evidence: `TestServe` "Shell tags", "Shell glue"
-  ("the tags popup is a mutable mount with a rename overlay"). **test**
+  the same thing after any number of writes — which is also why the popup keeps
+  no copy of the rows it is showing. `tagUnion()` answers every question a copy
+  could (how many, whether one is still there, which the cursor is on), and a
+  copy would be one more thing each of the three writes had to remember to
+  refresh. Mounted once and kept, like the panel and the link popup. Evidence:
+  `TestServe` "Shell tags", "Shell glue" ("the tags popup is a mutable mount with
+  a rename overlay"). **test**
 - **It is MUTABLE, and every gesture in it is one this page already spells.**
-  `d`/`D`/`u` are dired's flag-then-confirm, borrowed from the table and the
-  property panel; `+` is the value palette's completing field; `RET` is the
-  panel's edit overlay. Nothing here is a new vocabulary. Mounted with
+  `d`/`D`/`u` are dired's flag-then-confirm, and are literally the panel's now —
+  one `flagKey` and a shape apiece; `+` is the value palette's completing field;
+  `RET` is the panel's edit overlay, likewise literally — one `openEdit` and a
+  shape apiece, with `cell` saying the box is one column wide. Nothing here is a
+  new vocabulary, and since #64 nothing here is a second copy of one either. Mounted with
   `marks: false` — the set a tag command runs over is the TABLE's and was settled
   before this went up, so a second selection would be a second answer to a
   settled question — and `flags: true`, since the removal is the two-press
@@ -2990,24 +3004,58 @@ on.
   and the arrows in one place, so the two modal surfaces cannot drift from each
   other or from the map's own `n`/`p`/`j`/`k` rows.
   Evidence: `TestServe` "Shell open". **test**
-- **KNOWN SHAPE, and the fourth surface has arrived: four private listeners, one
-  predicate each of them has to remember to join, and now an ORDER between two of
-  them.** The value palette, the property panel, the link popup and the tags
-  popup each carry a document keydown listener behind the dispatch, and each had
-  to add itself to `typing()` (`pnav() || !!prompting || linking() ||
-  managing()`). Forgetting is silent and destructive — the table's `d` and `D`
-  stay live underneath it. #55 added the second half of the cost: two of these
-  surfaces now STACK (`+` raises the palette over the popup), so the lower one
-  owes two guards of its own — decline while `prompting` is set, and decline a
-  key the palette already claimed (`e.defaultPrevented`). Neither is expressible
-  in the predicate. The keymap holds the machinery this wants: `keyBindings` rows
-  carry a `scope` and `live` routes `any`/`modal`/`table` off page state, so the
-  deeper answer is a scope per surface plus one "which list holds the keys"
+- **KNOWN SHAPE, and the fourth surface has arrived: four private listeners,
+  THREE hand-maintained copies of the surface list — two of them ORDERED — and
+  now a STACK between two of them.** The value palette, the property panel, the link popup and the tags
+  popup each carry a document keydown listener of their own, and each had to add
+  itself to `typing()` (`pnav() || !!prompting || linking() || managing()`).
+  Forgetting is silent and destructive — the table's `d` and `D` stay live
+  underneath it. #55 added the second half of the cost: two of these surfaces now
+  STACK (`+` raises the palette over the popup), so the lower one owes two guards
+  of its own — decline while `prompting` is set, and decline a key the palette
+  already claimed (`e.defaultPrevented`). Neither is expressible in the
+  predicate.
+  THE SURFACE LIST IS WRITTEN DOWN THREE TIMES, in three unrelated notations,
+  and nothing checks them against each other; two of the three are also ORDERED,
+  and a wrong order there is a behaviour change rather than a missing surface.
+  (1) `typing()`'s OR chain, which says WHICH surfaces exist and nothing more —
+  the operands are booleans under `||`, so their order is inert. (2) The
+  REGISTRATION order, which is source order and
+  decides who sees a key first — and it does not match the comments: three of the
+  four listeners are written after the dispatch and run behind it, but the
+  property panel's sits with the sheet near the top of the glue and therefore
+  runs AHEAD of the dispatch. It is harmless today only because its own
+  `if (!editing) return` and `typing()` agree about when it is up, and because it
+  falls through on every key it does not claim, `ESC` included. (3) `cancel`'s
+  ESC ladder, an `else if` chain that spells the surfaces in precedence order —
+  prompt, link popup, open rename, tags popup, open panel row, sheet, focus — and
+  is the copy a new surface is likeliest to be left out of, since leaving it out
+  costs nothing until a reader presses `ESC` over it.
+  A SECOND STACKING PAIR IS ALREADY REACHABLE, and it is `typing()`'s hole
+  rather than a design: with the materialize sheet open, clicking any
+  non-focusable sheet chrome (`#mhead`, `#mfile`, `#mnote`, `#mlog`, the sheet's
+  padding) blurs `#mtext` without closing the sheet, and `typing()` — which is
+  `pnav() || !!prompting || linking() || managing()` plus a focused
+  field — goes FALSE. Every `table` row is live again under an open sheet, so
+  `:` raises the tags popup over it. This is the same hole `openSettings`
+  refuses by hand (`if (activeSheet()) return`), and the tags popup does not.
+  Nothing is corrupted today — the popup is `position:fixed;inset:0` so the
+  sheet cannot be reached under it, and `shutEdit` is scoped per surface so the
+  sheet's own shutters cannot cancel an open tag rename — but the guard that
+  makes it safe is spelled in three places instead of being a property of the
+  map. Either the tags raise takes `openSettings`' refusal, or `typing()` takes
+  `|| editing !== null`; neither is landed. **none**
+
+  The keymap holds the machinery all of this wants: `keyBindings` rows carry a
+  `scope` and `live` routes `any`/`modal`/`table` off page state, so the deeper
+  answer is a scope per surface plus one "which list holds the keys"
   indirection, which would also put the popups' own keys in the blob where the
-  key line and the echo can see them. It is still not taken, because it is a
-  redesign of THREE landed listeners rather than an addition and because the
-  palette's letters are dynamic (`whichKeys`). The count is four and they now
-  stack; a fifth, or a second stacking pair, should force the question. **none**
+  key line and the echo can see them, and would leave ONE ordered list where
+  there are three. It is still not taken, because it is a redesign of THREE
+  landed listeners rather than an addition and because the palette's letters are
+  dynamic (`whichKeys`). The count is four, they stack, and the second stacking
+  pair above arrived without anyone choosing it; a fifth surface should force the
+  question. **none**
 - **`o` is the key inside the popup too, and `RET` is reserved for the edit.**
   The key that raised the list is the key that commits from it, over the link the
   cursor is on rather than the row's first — one gesture with one name. It opens
@@ -3184,7 +3232,7 @@ on.
   `repaint()` is the one door, `props()` and `planning()` read the model, and a
   flush sends what the model holds. The cursor, the flags and the scrolling are
   the renderer's and this page keeps no copy of any of them: `patAt()` asks
-  `getSelection()`, movement is `selectStep(±1)`, `pflags()` asks `getFlagged()`.
+  `getSelection()`, movement is `selectStep(±1)`, `flagKey` asks `getFlagged()`.
   A row's id is stable for the life of the sheet — `PLN:<KEYWORD>` for the three
   fixed rows, `P<n>` handed out once per property — so a flag and a selection
   both survive any number of edits above them, which an index would not.
@@ -3196,11 +3244,15 @@ on.
   `TestServe` "the panel is a table-view mount of its own", "the panel is
   mounted once and re-set per sheet". **test**
 - **The property panel is modal: nav moves over the mount's rows, `RET` opens
-  one in the edit overlay, and `TAB` crosses the panes.** The keys are a second
-  document listener behind the dispatch, the way the value palette's are and
-  safe for the same reason: while the panel holds the keys `typing()` is true,
-  so every `table` row is dead and nothing here takes a key the map wanted —
-  which is what lets `d` flag a property rather than an org row. In NAV nothing
+  one in the edit overlay, and `TAB` crosses the panes.** The keys are a private
+  document listener, and it is the one of the four that registers AHEAD of the
+  dispatch — it is written with the sheet near the top of the glue, and
+  registration order is source order. Safe for the reason the three behind the
+  dispatch are, reached from the other side: while the panel holds the keys
+  `typing()` is true, so every `table` row is dead anyway and nothing here takes
+  a key the map wanted — which is what lets `d` flag a property rather than an
+  org row — and every key it does not claim falls through untouched, `ESC`
+  included, which is what leaves the ladder the map's. In NAV nothing
   is focusable, and that is what pays for the movement being plain letters:
   `n`/`p` and `j`/`k` are both bound, unconditionally and under either profile,
   because a row with no field in it leaves every printable key free and
@@ -3232,13 +3284,34 @@ on.
   mode has one pane and nothing to cross to, so `TAB` is the browser's there,
   and the settings sheet keeps native tabbing. The planning rows are the same
   two modes over the same kind of row and belong in this list rather than a
-  second one. Evidence: `TestServe` "Shell sheet" (the crossing and its
+  second one.
+
+  ONE MECHANISM, TWO SURFACES, AND A SNAPSHOT. The overlay is `openEdit`/
+  `shutEdit`/`placeEdit` and a SHAPE per surface (`PROW` here, `TROW` for the
+  tags popup's rename): the class that shows the box, the `tv-sel` anchor read
+  through the mount's published root, the blur on the way out and the window
+  resize are one implementation, and what a shape declares is its box, its pane,
+  its fields, its mount, how to fill them and where the focus lands — plus
+  `cell`, which narrows the box to the first non-gutter `td` for a rename. The
+  property this shape exists to have is the SNAPSHOT: `edit` keeps the row the
+  overlay OPENED over and a commit is handed it, never the cursor. No key can
+  move the cursor while a row is open, but a MOUSE CLICK can, and the panel's
+  `commitRow` used to re-read `prows[patAt()]` — so a click under an open row
+  wrote the typed text into whichever row the reader landed on, silently, and
+  onto a planning row it wrote a bare value where a timestamp goes. The tags
+  rename guarded this from the start with a snapshot of its own; sharing the
+  mechanism is what gave the panel the same guarantee rather than a second copy
+  of the guard. Evidence: `TestServe` "Shell sheet" (the crossing and its
   remembered cursor, `S-TAB` parity, nav movement on all three pairs with the
   table's own row staying put under it, `RET` opening value-first, `+` adding
   and opening a row, `TAB` hopping the open row, the commit, `ESC` restoring the
   row and the next one closing the sheet, an open row not counting as an edit,
   an emptied planning row taking its entry off, the overlay following the
-  cursor, raw mode leaving `TAB` alone, and the reset on close). **test**
+  cursor, raw mode leaving `TAB` alone, and the reset on close), "a click under
+  an open row commits the row that was opened", "and a click cannot redirect the
+  key an add-row is writing", "a click under an open rename still renames the
+  tag it opened on", "Shell glue" ("the edit overlay is one mechanism the two
+  surfaces declare a shape for"). **test**
 - **Deleting from the panel is the TABLE's gesture, over the same renderer
   flags — one gesture, deliberately spelled twice.** `d` flags the row
   at point — the mount's `flagRow`, so the row wears `tv-flagged` and the count
@@ -3261,19 +3334,27 @@ on.
   off. A deletion moves the model, so it is dirty like any commit and the way
   out of the sheet is a write.
 
-  TWO SPELLINGS OF ONE GESTURE, and the second is the price of the panel's keys
-  living outside `keyBindings`. The table's `flagging`/`archiveFlag`/`archive`
-  and the panel's `pflag`/`pdelete` are the same five-step machine over
-  different handles; what is genuinely shared is factored (`can`, `flagsOn`),
-  and what is not is the ACT — a `POST /command` on one side, a move of the
-  panel's model on the other. Three consequences are live and none is caught by
-  a test: `ONCE` guards the table's repeat and a hand-written `e.repeat` guards
-  the panel's, which is one correctness rule with two homes; `said(b, …)` cannot
-  be reached without a binding row, so the panel hand-spells the `SEQ → command`
-  shape the rebinding config will address; and the panel writes no `noted()`
-  line to the event strip where the table writes one per row. The fix that
-  retires all three is routing the panel's keys through the blob's existing
-  `modal` scope, which the value palette's second listener would want too.
+  THREE SURFACES, TWO SPELLINGS, and the second one is now shared. The panel and
+  the tags popup run ONE `flagKey`: the feature detection, the two-press rule,
+  the set-or-row choice, the walk after `u` and the echo shapes are written once,
+  and each surface declares a mount, where its cursor is, what "take these" means
+  and FOUR words — its line for an empty cursor, the two command names its echo
+  spells, and the verb the second press earns. A third modal surface joins by
+  naming those four.
+
+  The TABLE's `flagging`/`archiveFlag`/`archive` stays a spelling of its own, and
+  that is the price of the modal surfaces' keys living outside `keyBindings`: the
+  same five-step machine, but its ACT is a `POST /command` where theirs move a
+  model in hand. Three consequences are live and none is caught by a test:
+  `ONCE` guards the table's repeat and a hand-written `e.repeat` guards the modal
+  ones, which is one correctness rule with two homes; `said(b, …)` cannot be
+  reached without a binding row, so those surfaces hand-spell the `SEQ → command`
+  shape the rebinding config will address; and they write no `noted()` line to
+  the event strip where the table writes one per row. The fix that retires all
+  three is routing the modal keys through the blob's existing `modal` scope,
+  which the value palette's second listener would want too. Evidence:
+  `TestServe` "Shell glue" ("the flag gesture is one implementation over two
+  surfaces").
 
   Nothing hidden is rowed, so nothing hidden is flaggable — `hiddenProperties`
   and the logbook never reach `prows`, and the identity property is the case

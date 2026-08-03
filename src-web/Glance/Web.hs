@@ -142,6 +142,7 @@ import Glance.Web.Sort (sortChainIn)
 import Glance.Web.Store ( Client, Frame (ViewChanged), Hub, LoadState (..)
                         , Store (stConfig, stGen, stPrint), finishLoading, frameText
                         , hubLoad, hubStore, loadStoreWith, newLoadingHub, nextFrame
+                        , headlinesIn
                         , storeDocument, storeHeadline, storeHeadlines, storeKeywords
                         , storeRecords, storeResult
                         , storeTags, subscribe, unsubscribe )
@@ -851,19 +852,27 @@ keywordsView hub request = do
 tagsView :: Hub -> Request -> IO Response
 tagsView hub request = do
   st <- readTVarIO (hubStore hub)
-  let (found, unknown) = storeHeadlines asked st
+  -- ONE id resolution for the whole answer.  This route owes two folds over the
+  -- store's rows — the ids it was asked about, and the tag counts behind the
+  -- popup's third column — and 'storeRecords' resolves the WHOLE store each time
+  -- it is named, so asking twice paid for the same resolution twice.
+  let rows             = storeRecords st
+      (found, unknown) = headlinesIn rows asked
   pure $ if null asked
     then jsonError status400 "GET /tags?ids=<row id>,<row id>"
     else jsonResponse status200
            [ "rows"       .= [ object [ "id" .= hrId r, "tags" .= tagsOfCell (hrTags r) ]
                              | r <- found ]
            , "vocabulary" .= storeTags st
-           , "counts"     .= tagRowCounts st
+           , "counts"     .= tagRowCounts rows
            , "unknown"    .= unknown
            ]
   where asked = queryIds request
 
--- | How many of ST's rows carry each tag, over every tag any of them carries.
+-- | How many of ROWS carry each tag, over every tag any of them carries.
+--
+-- Takes the RESOLVED rows rather than the store, so the caller that already
+-- holds them cannot pay for a second resolution to get this.
 --
 -- A row counts ONCE per tag however often its file spells one, which is what
 -- makes the number answer "how many rows would a @TAG:@ predicate reach" — the
@@ -872,9 +881,9 @@ tagsView hub request = do
 -- The empty cell is skipped rather than read: `tagsOfCell` lowercases and
 -- re-tokenises whatever it is given, and nearly half the corpus's rows carry no
 -- tag at all.
-tagRowCounts :: Store -> Map Text Int
-tagRowCounts st = Map.fromListWith (+)
-  [ (tag, 1 :: Int) | r <- storeRecords st, not (T.null (hrTags r))
+tagRowCounts :: [HeadlineRecord] -> Map Text Int
+tagRowCounts rows = Map.fromListWith (+)
+  [ (tag, 1 :: Int) | r <- rows, not (T.null (hrTags r))
                     , tag <- nub (tagsOfCell (hrTags r)) ]
 
 -- Links
@@ -2444,9 +2453,9 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- handle rather than of the one this page used to have.
   , "    const can = (mount, name) => !!mount && typeof mount[name] === \"function\";"
     -- ROW MOVEMENT, ONCE.  Both spellings and the arrows, as a direction or
-    -- zero for a key that is not one — read by the two MODAL mounts, the
-    -- property panel and the link popup, whose keys live in listeners of their
-    -- own behind the dispatch.  Written here rather than twice, so a third
+    -- zero for a key that is not one — read by the MODAL mounts, whose keys live
+    -- in private listeners around the dispatch (the property panel's registers
+    -- ahead of it, the rest behind).  Written here rather than twice, so a third
     -- spelling is one edit and the map's own `n'/`p'/`j'/`k' rows cannot drift
     -- from what a modal surface answers to.  The table's own movement stays the
     -- map's, since it walks two axes and pages.
@@ -2908,13 +2917,11 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        actionHints: false,"
   , "        flagHelp: \"d/D delete · u unflag\","
   , "      });"
-        -- The overlay is anchored to the row it opened over, so everything that
-        -- can move that row's box has to say so: the mount's own scrolling —
-        -- caught in the CAPTURE phase, which reaches it without this page
-        -- naming the element that scrolls — and the window resizing, since the
-        -- panes wrap rather than querying a width.
-  , "      el(\"mprops\").addEventListener(\"scroll\", place, true);"
-  , "      window.addEventListener(\"resize\", place);"
+        -- The overlay is anchored to the row it opened over, so this pane's own
+        -- scrolling has to move it — caught in the CAPTURE phase, which reaches
+        -- it without this page naming the element that scrolls.  The window
+        -- resizing is the other half and is registered once, with `placeEdit'.
+  , "      el(\"mprops\").addEventListener(\"scroll\", placeEdit, true);"
   , "      return pmount;"
   , "    }"
   , "    const prowsOf = () =>"
@@ -2929,7 +2936,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    function drawProps(list, plan) {"
   , "      mounted();"
   , "      prows = []; pseq = 0;"
-  , "      shutEdit();"
+  , "      shutEdit(PROW);"
   , "      el(\"mprops\").className = \"\";   // and the panel gives the keys back"
   , "      const held = new Map(plan || []);"
   , "      for (const key of PLANNING)"
@@ -2986,61 +2993,109 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      el(\"mprops\").className = \"\"; el(\"mtext\").focus();"
   , "    }"
   , "    el(\"mtext\").addEventListener(\"focus\", () => pnav() && leavePanel());"
-    -- Movement is the mount's `selectStep', the same call the table's own `n'
-    -- and `p' make, so the cursor a reader moves here is the renderer's cursor
-    -- and there is nothing to keep in step with it.
-  , "    const moveCur = (step) => stepIn(pmount, step);"
-    -- THE EDIT OVERLAY.  The renderer owns its rows and rewrites them as it
-    -- scrolls, so an edit cannot live inside one: the two fields sit OVER the
-    -- panel, anchored to the row the cursor is on.  The value takes the focus,
-    -- since editing an existing property is almost always editing its value —
-    -- except where there is no key yet, which is the add-row, and there the key
-    -- is the thing being typed.  A planning row's key is org's, so its field is
-    -- read-only text with a caret in it.
-  , "    const pediting = () => el(\"pedit\").className === \"on\";"
-  , "    function openRow() {"
-  , "      const at = patAt();"
-  , "      if (at === -1) return;"
-  , "      const r = prows[at];"
-  , "      el(\"pedit\").className = \"on\";"
-  , "      el(\"pkey\").value = r.key;"
-  , "      el(\"pval\").value = r.val;"
-  , "      el(\"pkey\").readOnly = r.fixed;"
+    -- THE EDIT OVERLAY, and it is ONE mechanism over two surfaces.  The renderer
+    -- owns its rows and rewrites them as it scrolls, so an edit cannot live
+    -- inside one: the fields sit OVER the table, anchored to the row the cursor
+    -- is on.  The property panel opens a row's two fields; the tags popup opens
+    -- one cell as a field over itself.  Everything else about them is the same —
+    -- the class that shows the box, the anchor, the blur on the way out — so a
+    -- SHAPE says what differs (`PROW', `TROW') and this holds the gesture.
+    --
+    -- SNAPSHOTTED AT OPEN, which is the property this shape exists to have.  No
+    -- key can move the cursor while a row is open, but a MOUSE CLICK can, and a
+    -- commit that re-read the cursor would write the text typed for one row into
+    -- whichever row the reader landed on.  `edit' keeps what was opened over and
+    -- a commit is handed it, so the rename the tags popup already guarded this
+    -- way and the panel row that did NOT are one rule now.
+    --
+    -- One `edit' for both, because the two can never be up at once: the panel
+    -- needs the subtree sheet open and the tags popup is raised over the table
+    -- alone.  `pediting()' and `renaming()' ask WHOSE it is.
+  , "    let edit = null;"
+  , "    function openEdit(o, row) {"
+  , "      edit = { o, row };"
+  , "      el(o.box).className = \"on\";"
+  , "      o.fill(row);"
       -- The renderer stamps `tv-sel' on its own frame, so a row selected in
       -- THIS tick has no marked element yet: `+' would measure the row the
       -- cursor was on before it.  One frame later there is one.
-  , "      soon(place);"
-  , "      (r.fixed || r.key ? el(\"pval\") : el(\"pkey\")).focus();"
+  , "      soon(placeEdit);"
+  , "      o.focus(row);"
   , "    }"
-  , "    function shutEdit() {"
-  , "      el(\"pedit\").className = \"\";"
-  , "      el(\"pkey\").blur(); el(\"pval\").blur();"
+    -- SHUT MINE, and O is which surface is asking.  The two shapes share one
+    -- `edit', and a caller naming its own is what keeps the sharing from
+    -- reaching across: the tags popup CAN stand over an open materialize sheet
+    -- — clicking the sheet's own chrome blurs its textarea, `typing()' goes
+    -- false and every `table' row is live again, which is the same hole
+    -- `openSettings' refuses by hand — so an unscoped shut here would let the
+    -- sheet's own `drawProps' and `shut' silently cancel an open tag rename.
+    -- Naming the shape restores exactly the isolation the two hand-written
+    -- shutters had, and costs one argument.
+  , "    function shutEdit(o) {"
+  , "      if (!edit || edit.o !== o) return;"
+  , "      el(edit.o.box).className = \"\";"
+  , "      for (const id of edit.o.fields) el(id).blur();"
+  , "      edit = null;"
   , "    }"
     -- Where the overlay sits: over the row the renderer has selected.  Its
-    -- GEOMETRY is the only thing this page reads out of the mount's own DOM, and
+    -- GEOMETRY is the only thing this page reads out of a mount's own DOM, and
     -- it reads nothing about the row but where it is — a page with no layout
     -- (the suite's) simply leaves the overlay where it was put.
     -- The row's box, read through the handle's own `el' rather than by
     -- querying the pane: the mount publishes its root, so the one geometry read
     -- this page makes goes through a published door.
-  , "    function place() {"
-  , "      if (!pediting()) return;"
-  , "      const tr = pmount.el.querySelector(\"tbody tr.tv-sel\");"
-  , "      if (!tr) return;"
-  , "      const a = tr.getBoundingClientRect();"
-  , "      const b = el(\"mprops\").getBoundingClientRect();"
-  , "      el(\"pedit\").style.top = `${a.top - b.top}px`;"
-  , "      el(\"pedit\").style.height = `${a.height}px`;"
+    --
+    -- A `cell' shape narrows to ONE column as well, and the cell is the first
+    -- that is not the GUTTER, which `flags: true' puts there: naming a column
+    -- index would be this page counting the renderer's chrome, where the class
+    -- it already stamps says which cell that is.
+  , "    function placeEdit() {"
+  , "      if (!edit) return;"
+  , "      const o = edit.o, m = o.mount();"
+  , "      const tr = m && m.el.querySelector(\"tbody tr.tv-sel\");"
+  , "      const td = tr && (o.cell ? tr.querySelector(\"td:not(.tv-box)\") : tr);"
+  , "      if (!td) return;"
+  , "      const a = tr.getBoundingClientRect(), c = td.getBoundingClientRect();"
+  , "      const b = el(o.pane).getBoundingClientRect();"
+  , "      const s = el(o.box).style;"
+  , "      s.top = `${a.top - b.top}px`;"
+  , "      s.height = `${a.height}px`;"
+  , "      if (o.cell) { s.left = `${c.left - b.left}px`; s.width = `${c.width}px`; }"
+  , "    }"
+    -- The overlay is anchored to a row's box, so the window resizing has to move
+    -- it — once, here, for both surfaces, since one `placeEdit' answers for
+    -- whichever is open.  Each pane's own scrolling is registered with its mount.
+  , "    window.addEventListener(\"resize\", placeEdit);"
+    -- THE PANEL'S SHAPE: two fields over the whole row.  The value takes the
+    -- focus, since editing an existing property is almost always editing its
+    -- value — except where there is no key yet, which is the add-row, and there
+    -- the key is the thing being typed.  A planning row's key is org's, so its
+    -- field is read-only text with a caret in it.
+  , "    const PROW = {"
+  , "      box: \"pedit\", pane: \"mprops\", fields: [\"pkey\", \"pval\"],"
+  , "      mount: () => pmount,"
+  , "      fill: (r) => {"
+  , "        el(\"pkey\").value = r.key;"
+  , "        el(\"pval\").value = r.val;"
+  , "        el(\"pkey\").readOnly = r.fixed;"
+  , "      },"
+  , "      focus: (r) => (r.fixed || r.key ? el(\"pval\") : el(\"pkey\")).focus(),"
+  , "    };"
+  , "    const pediting = () => !!edit && edit.o === PROW;"
+  , "    function openRow() {"
+  , "      const at = patAt();"
+  , "      if (at !== -1) openEdit(PROW, prows[at]);"
   , "    }"
     -- Committing: the row takes the text the fields are holding and the overlay
     -- goes.  This is the one thing that can make the sheet dirty from the panel
     -- — an edit nobody committed was never in `props()'.  A fixed row keeps its
-    -- key, which is org's rather than the author's.
+    -- key, which is org's rather than the author's.  The row is the one the
+    -- overlay OPENED over, never the one the cursor is on now.
   , "    function commitRow() {"
-  , "      const r = prows[patAt()];"
+  , "      const r = edit.row;"
   , "      if (!r.fixed) r.key = el(\"pkey\").value;"
   , "      r.val = el(\"pval\").value;"
-  , "      shutEdit();"
+  , "      shutEdit(PROW);"
   , "      repaint();"
   , "    }"
     -- ESC over an open row is the ROW's: the overlay goes and the text the row
@@ -3048,7 +3103,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- ESC ladder therefore only ever sees the key from nav — that is why this
     -- runs from the keymap's `cancel' rather than from a listener of its own.
   , "    function cancelRow() {"
-  , "      shutEdit();"
+  , "      shutEdit(PROW);"
   , "      echo(\"ESC → keyboard-quit (row unchanged)\");"
   , "    }"
     -- DELETION IS THE TABLE'S GESTURE, over the renderer's own flags: `d' flags
@@ -3077,10 +3132,14 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      const also = cleared.map((r) => r.key).join(\", \");"
   , "      echo(`D → org-delete-property (${how}${also ? ` · ${also} cleared` : \"\"})`);"
   , "    }"
-    -- The panel's own keys, behind the dispatch and for the reason the value
-    -- palette's are: while the panel holds them `typing()' is true, so every
-    -- `table' row is dead and nothing here takes a key the map wanted — `d'
-    -- flags a property rather than an org row, and `n' moves no table row.
+    -- The panel's own keys.  This listener is written with the sheet, near the
+    -- top of the glue, so it registers AHEAD of the dispatch and sees a key
+    -- FIRST — the one of the four private listeners that does.  Safe for the
+    -- same reason the three behind the dispatch are, reached from the other
+    -- side: while the panel holds the keys `typing()' is true, so every `table'
+    -- row is dead anyway — `d' flags a property rather than an org row, and `n'
+    -- moves no table row — and every key this does not claim falls through
+    -- untouched, `ESC' included, which is what leaves the ladder the map's.
     --
     -- TAB crosses the panes — out of the body into the panel's cursor, out of
     -- nav back into the body — and the cursor is where it was left.  Two stops,
@@ -3114,39 +3173,63 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      } else if (crossing) leavePanel();"
   , "      else if (k === \"RET\") openRow();"
   , "      else if (k === \"+\") addProperty();"
-  , "      else if (step) moveCur(step);"
+      -- Movement is the mount's own `selectStep' through `stepIn', the same
+      -- call the table's `n' and `p' make, so the cursor a reader moves here is
+      -- the renderer's and there is nothing to keep in step with it.
+  , "      else if (step) stepIn(pmount, step);"
     -- The panel's arrows are VERTICAL ONLY, where the table's walk both axes.
     -- The mount has two columns here, but a column selection would say nothing
     -- about the edit: `RET' opens the WHOLE row — both fields, whichever cell a
     -- cursor sat in — and `TAB' is what crosses between them.  So a horizontal
     -- key would move a highlight and change nothing a reader can act on.
-  , "      else if (k === \"d\" || k === \"D\" || k === \"u\") { if (!e.repeat) pflag(k); }"
+  , "      else if (k === \"d\" || k === \"D\" || k === \"u\")"
+  , "        { if (!e.repeat) flagKey(k, PFLAGS); }"
   , "      else return;"
   , "      e.preventDefault();"
   , "    });"
-    -- dired's `d', over the panel's rows: the first press flags the row at point
-    -- and a second `d' on an already-flagged row IS `D' — it calls the same
-    -- handler, so it deletes EVERY flagged row rather than the one under it.
-    -- `u' takes a flag off and walks on, the way it does over the table.
-  , "    function pflag(k) {"
-  , "      if (!flagsOn(pmount)) { echo(`${k} → this table-view.js has no delete flags`); return; }"
-  , "      const at = patAt();"
-  , "      if (at === -1) { echo(`${k} → org-delete-property (no row)`); return; }"
-  , "      const id = prows[at].id, flags = pmount.getFlagged();"
-  , "      if (k === \"D\" || (k === \"d\" && flags.indexOf(id) !== -1)) {"
-  , "        pdelete(flags.length ? flags : [id],"
-  , "                flags.length ? `${flags.length} flagged` : \"row\");"
+    -- DIRED'S `d', and it is ONE implementation over two surfaces.  The first
+    -- press flags the row at point; a second `d' on an already-flagged row IS
+    -- `D' — it calls the same handler, so it takes EVERY flagged row rather than
+    -- the one under it; `u' takes a flag off and walks on, the way it does over
+    -- the table.  The flag is the confirmation, so there is no prompt, and a
+    -- lone flag is a set of one, which is what leaves the single-row flow
+    -- unchanged.
+    --
+    -- A SHAPE says what differs, and it is a mount, where the cursor is, what
+    -- "take these" means, and FOUR words: the surface's line for an empty
+    -- cursor, the two command names its echo spells, and the verb the second
+    -- press earns.  Everything else — the feature detection, the two-press
+    -- rule, the set-or-row choice and the walk after `u' — is the gesture, and
+    -- the gesture is here.  A third surface joins by naming those four.
+  , "    function flagKey(k, s) {"
+  , "      const m = s.mount();"
+  , "      if (!flagsOn(m))"
+  , "        { echo(`${k} → this table-view.js has no delete flags`); return; }"
+  , "      const at = s.at();"
+  , "      if (at === null) { echo(`${k} → ${s.none}`); return; }"
+  , "      const flags = m.getFlagged();"
+  , "      if (k === \"D\" || (k === \"d\" && flags.indexOf(at) !== -1)) {"
+  , "        s.take(flags.length ? flags : [at],"
+  , "               flags.length ? `${flags.length} flagged` : \"row\");"
   , "        return;"
   , "      }"
   , "      if (k === \"u\") {"
-  , "        pmount.unflagRow(id);"
-  , "        echo(\"u → delete-unflag (flag cleared)\");"
-  , "        moveCur(1);"
+  , "        m.unflagRow(at);"
+  , "        echo(`u → ${s.unflag} (flag cleared)`);"
+  , "        stepIn(m, 1);"
   , "        return;"
   , "      }"
-  , "      pmount.flagRow(id);"
-  , "      echo(\"d → delete-flag (d again deletes)\");"
+  , "      m.flagRow(at);"
+  , "      echo(`d → ${s.flag} (d again ${s.again})`);"
   , "    }"
+    -- The panel's four words, and its cursor as an ID: `patAt' answers with an
+    -- INDEX, which is the panel's own currency and nothing the gesture reads.
+  , "    const PFLAGS = {"
+  , "      mount: () => pmount, take: pdelete,"
+  , "      none: \"org-delete-property (no row)\","
+  , "      unflag: \"delete-unflag\", flag: \"delete-flag\", again: \"deletes\","
+  , "      at: () => { const i = patAt(); return i === -1 ? null : prows[i].id; },"
+  , "    };"
     -- What a flush sends: the subtree whole in raw mode, the two panes apart
     -- otherwise.  The server joins them, so this page never spells a drawer.
   , "    const asked = () => raw"
@@ -3196,7 +3279,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    const sync = (next, message) => note(subtreeSheet, next, message);"
   , "    function shut() {"
   , "      el(\"modal\").className = \"\"; editing = null; base = \"\"; baseProps = null;"
-  , "      shutEdit();"
+  , "      shutEdit(PROW);"
   , "      el(\"mprops\").className = \"\";   // and the keys go back to the table"
   , "    }"
   , "    // POST the sheet over the subtree, pinned to DIGEST.  A 200 carries"
@@ -3514,10 +3597,16 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      if (prompting === mine) unask();"
   , "      append(\"cmd\", \"error\", `${name} failed: ${e.message}`);"
   , "    };"
-    -- The results come back out, undefined where the request failed: a palette
-    -- that stays open has to fold what landed into the state it is drawing, and
-    -- it is the only caller that reads them.  Every other one ignores the
-    -- answer, which is the pill and the log this already wrote.
+    -- The results come back out, undefined where the request failed: a caller
+    -- with state of its own to fold them into reads them, and every other one
+    -- ignores the answer, which is the pill and the log this already wrote.
+    -- The tags popup's three flows fold them into the tag sets it is drawing and
+    -- `archive' spends the marks they landed on; each guards the undefined the
+    -- same way, since a failed write landed nothing.
+    --
+    -- WHAT a command means to the rows it touched is the CALLER's, so nothing
+    -- here branches on the name past the wording below: a per-name arm in this
+    -- shared path is one every future command has to be read against.
   , "    function fire(b, name, ids, args, verb, how) {"
   , "      return postCommand({ name, ids, args }).then((answer) => {"
   , "        const results = answer.results || [];"
@@ -3534,26 +3623,27 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "            ? `${args.keyword.toLowerCase()} ${args.date || \"cleared\"}`"
   , "          : args.keyword ? `→ ${args.keyword}` : \"state cleared\";"
   , "        for (const x of results) if (x.ok) noted(x.id, what);"
-      -- AN ARCHIVED ROW SPENDS ITS MARK, the way it spends its flag.  The mark
-      -- is the renderer's and survives a `setRows' and a filter that hides its
-      -- row — which is what makes it useful, and what would otherwise leave an
-      -- archived row marked INVISIBLY: `markedCount()' would count it, `M' and
-      -- `U' would answer about it, and it would come back marked the moment a
-      -- reader looked at `tag:*archive*'.  Only the rows that LANDED, since a
-      -- refused one was not archived.
-  , "        if (name === \"archive\") unmark(results);"
   , "        if (bad.length)"
   , "          append(\"cmd\", \"error\", bad.map((x) => `${x.id}: ${x.error}`).join(\" · \"));"
   , "        return results;"
   , "      }).catch(failed(b, name));"
   , "    }"
-    -- The marks the rows RESULTS landed on were carrying, taken off.  `toggleMark'
-    -- is the only door the renderer offers, so a membership test comes first,
-    -- and it is `isMarked' — the renderer asked at the moment it matters, never
-    -- a set kept here.  Feature-detected through it, so an asset with no marks
-    -- has none to spend.
+    -- AN ARCHIVED ROW SPENDS ITS MARK, the way it spends its flag: the marks the
+    -- rows RESULTS landed on were carrying, taken off.  The mark is the
+    -- renderer's and survives a `setRows' and a filter that hides its row —
+    -- which is what makes it useful, and what would otherwise leave an archived
+    -- row marked INVISIBLY: `markedCount()' would count it, `M' and `U' would
+    -- answer about it, and it would come back marked the moment a reader looked
+    -- at `tag:*archive*'.  Only the rows that LANDED, since a refused one was not
+    -- archived — and none at all where the request itself failed, which is the
+    -- undefined `fire' hands a `.then' after its own `catch'.
+    --
+    -- `toggleMark' is the only door the renderer offers, so a membership test
+    -- comes first, and it is `isMarked' — the renderer asked at the moment it
+    -- matters, never a set kept here.  Feature-detected through it, so an asset
+    -- with no marks has none to spend.
   , "    function unmark(results) {"
-  , "      for (const x of results)"
+  , "      for (const x of results || [])"
   , "        if (x.ok && isMarked(x.id)) table.toggleMark(x.id);"
   , "    }"
     -- Archiving: ONE implementation, reached by both keys.  The tag goes on, the
@@ -3571,15 +3661,29 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- whose row a filter has hidden — which is what makes a flag survive the
     -- refetch this write causes — so a set left standing would be re-archived by
     -- the next press, and the row at point would never be reachable again.
+    -- The marks are spent HERE rather than in `fire', at both of this key's
+    -- doors: what an archived row owes its mark is the archive gesture's rule,
+    -- and a name test in the shared path would be one every command added after
+    -- it has to be read against.
+    --
+    -- `fire' catches its own request failures and resolves to `undefined', so
+    -- the tail this hangs off it needs a catch of its OWN or a throw inside the
+    -- spending would be an unhandled rejection where the old in-`fire' placement
+    -- wrote a `cmd error' line.  It is reachable: `marking()' feature-detects
+    -- `toggleMark' alone while `isMarked' also calls `getMarked', so an asset
+    -- carrying one and not the other throws here.
   , "    function archive(b) {"
   , "      const flags = flagging() ? table.getFlagged() : [];"
   , "      if (flags.length) {"
   , "        table.clearFlags();"
-  , "        fire(b, \"archive\", flags, {}, \"archived\", (n) => `${n} flagged`);"
+  , "        fire(b, \"archive\", flags, {}, \"archived\", (n) => `${n} flagged`)"
+  , "          .then(unmark).catch(failed(b, \"archive\"));"
   , "        return;"
   , "      }"
   , "      const id = focusedId();"
-  , "      if (id) fire(b, \"archive\", [id], {}, \"archived\", (n) => (n ? \"row\" : n));"
+  , "      if (id)"
+  , "        fire(b, \"archive\", [id], {}, \"archived\", (n) => (n ? \"row\" : n))"
+  , "          .then(unmark).catch(failed(b, \"archive\"));"
   , "      else said(b, \"no row\");"
   , "    }"
     -- Capture: the one write that names no row, so it takes none of the
@@ -3756,17 +3860,17 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    }"
     -- THE FIELD: the completing-read `/' falls back to over the state palette,
     -- and the whole of what `+' raises over the tags popup.  What it completes
-    -- over is `wider' — a THUNK rather than a list, so it is current after a
-    -- commit moved what it should offer — and a line matching nothing commits as
-    -- written (`freely'), the charset wall that refuses garbage being the
-    -- server's.
-  , "    function fieldMode() {"
+    -- over is `wider', and a line matching nothing commits as written
+    -- (`freely'), the charset wall that refuses garbage being the server's.
+    --
+    -- FOOT is the one this mode is to wear, and it is left out where the raise
+    -- already wrote it: `askFrom' hands `ask' the field's own foot, so a second
+    -- copy of that string here would be one to keep in step for nothing.
+  , "    function fieldMode(foot) {"
   , "      prompting.narrow = true;"
-  , "      prompting.text = false;"
   , "      el(\"pinput\").value = \"\";"
-  , "      if (prompting.wider) offer(prompting.wider());"
-  , "      mode(\"narrow\", prompting.narrowFoot"
-  , "        || \"RET sets it · C-n/C-p walks · ESC leaves\");"
+  , "      if (prompting.wider) offer(prompting.wider);"
+  , "      mode(\"narrow\", foot);"
   , "      el(\"pinput\").focus();"
   , "    }"
     -- The same overlay raised STRAIGHT into that field, with no letters behind
@@ -3782,8 +3886,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    function askFrom(title, list, foot, commit) {"
   , "      const mine = ask(title, commit, foot);"
   , "      mine.raising = false;"
-  , "      mine.wider = () => list;"
-  , "      mine.narrowFoot = foot;"
+  , "      mine.wider = list;"
   , "      fieldMode();"
   , "      return mine;"
   , "    }"
@@ -3791,9 +3894,13 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- field, and the foot naming the keys the list cannot draw for itself.
     -- Written at the two transitions, so `drawChoices' stays a list renderer
     -- and a keystroke that narrows invalidates nothing outside the list.
+    --
+    -- An ABSENT foot leaves the one that is there: a transition that changes
+    -- only the mode says so by not naming a foot, where passing the string it
+    -- already wrote would be a second copy of it.
   , "    function mode(cls, foot) {"
   , "      el(\"pbox\").className = cls;"
-  , "      el(\"pfoot\").textContent = foot;"
+  , "      if (foot !== undefined) el(\"pfoot\").textContent = foot;"
   , "      drawChoices();"
   , "    }"
     -- Blurred as well as hidden: a focused field nobody can see would leave
@@ -4095,10 +4202,13 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    const TCOLS = " <> jsonLiteral (toJSON tagColumns) <> ";"
     -- The popup's whole state: the target rows as the server described them
     -- (each with its own folded tag list), the tree's vocabulary and its
-    -- store-wide row counts, the rows the mount is showing, and the binding that
-    -- raised this — which is also WHETHER it is up, the way `opening' is for the
-    -- link popup.
-  , "    let tmount = null, trows = [], ttargets = [], tvocab = [], tcount = {};"
+    -- store-wide row counts, and the binding that raised this — which is also
+    -- WHETHER it is up, the way `opening' is for the link popup.
+    --
+    -- What the mount is SHOWING is not among them: a tag is its own row id, so
+    -- `tagUnion()' answers every question a copy of the row list could, and a
+    -- copy is one more thing each write has to remember to refresh.
+  , "    let tmount = null, ttargets = [], tvocab = [], tcount = {};"
   , "    let tagging = null;"
   , "    const managing = () => !!tagging;"
     -- Mounted once and kept, like the panel and the link popup: a mount per
@@ -4108,11 +4218,10 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      tmount = TableView.mount(el(\"ttable\"), { columns: TCOLS, rows: [] },"
   , "        { palette: true, marks: false, flags: true, actionHints: false,"
   , "          flagHelp: \"d/D remove · u unflag\" });"
-      -- The rename overlay is anchored to the row it opened over, so everything
-      -- that can move that row's box has to say so — the property panel's two
-      -- listeners, for the property panel's reasons.
-  , "      el(\"tpane\").addEventListener(\"scroll\", placeTag, true);"
-  , "      window.addEventListener(\"resize\", placeTag);"
+      -- The rename overlay is anchored to the row it opened over, so this pane's
+      -- own scrolling has to move it — the property panel's listener, for the
+      -- property panel's reason.  The resize is `placeEdit''s own, once.
+  , "      el(\"tpane\").addEventListener(\"scroll\", placeEdit, true);"
   , "      return tmount;"
   , "    }"
     -- THE UNION over the target rows, FIRST-SEEN: each row's tags in the order
@@ -4137,25 +4246,26 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      const on = carriers(tag).length;"
   , "      return on === ttargets.length ? \"all\" : `${on}/${ttargets.length}`;"
   , "    };"
-    -- The rows as the mount holds them, and a tag IS its own id: one entry per
-    -- tag per popup, so a flag, the cursor and a rename all name the same thing
+    -- One tag as the mount holds it, and a tag IS its own id: one entry per tag
+    -- per popup, so a flag, the cursor and a rename all name the same thing
     -- after any number of writes.
-  , "    const tagRows = () => tagUnion().map((tag) =>"
+  , "    const tagRow = (tag) =>"
   , "      ({ id: tag, cells: { title: tag, on: coverage(tag),"
-  , "                           rows: tcount[tag] === undefined ? \"\" : tcount[tag] } }));"
+  , "                           rows: tcount[tag] === undefined ? \"\" : tcount[tag] } });"
     -- Every change to the model ends here.  AT is the tag to land the cursor on
-    -- and is left out where it should stay where it is.
+    -- and is left out where it should stay where it is.  The union is read once
+    -- and the three answers below are folds over it.
   , "    function repaintTags(at) {"
   , "      const m = tagsMounted();"
-  , "      trows = tagRows();"
-  , "      m.setRows(trows);"
+  , "      const tags = tagUnion();"
+  , "      m.setRows(tags.map(tagRow));"
       -- The foot names what a reader can do, and a popup with nothing in it
       -- names the one key that still can: an untagged set is honest rather than
       -- empty, and `+' is the way in.
-  , "      el(\"tfoot\").textContent = trows.length"
+  , "      el(\"tfoot\").textContent = tags.length"
   , "        ? \"RET renames · d flags · D removes · + adds · ESC leaves\""
   , "        : \"nothing tagged here · + adds one · ESC leaves\";"
-  , "      if (at && trows.some((r) => r.id === at)) m.select(at);"
+  , "      if (at && tags.indexOf(at) !== -1) m.select(at);"
   , "    }"
     -- Raised on the ANSWER, like the link popup and unlike the state palette:
     -- no key inside this list is also the key that opens it, so nothing is
@@ -4179,18 +4289,20 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- Nothing to blur once the rename is shut: the popup holds the keys with no
     -- field in it, the way the link popup and the property panel's nav do.
   , "    function shutTags() {"
-  , "      shutRename();"
+  , "      shutEdit(TROW);"
   , "      tagging = null;"
   , "      el(\"tags\").className = \"\";"
-  , "      ttargets = []; trows = [];"
+  , "      ttargets = [];"
   , "    }"
     -- The tag the cursor is on, out of the renderer's own selection — this page
     -- keeps no copy of where the popup is standing, the same rule the table, the
-    -- panel and the link popup follow.
+    -- panel and the link popup follow.  Checked against the UNION, which is what
+    -- the mount was drawn from: a selection the popup no longer holds a row for
+    -- — a shut popup's included, since `ttargets' empties the union — is no tag.
   , "    const tagAt = () => {"
   , "      if (!can(tmount, \"getSelection\")) return null;"
   , "      const at = (tmount.getSelection() || {}).id;"
-  , "      return trows.some((r) => r.id === at) ? at : null;"
+  , "      return tagUnion().indexOf(at) !== -1 ? at : null;"
   , "    };"
     -- THE ADDABLE VOCABULARY, which is what `+' completes over: every tag this
     -- tree holds LESS the ones already on every target.  Adding one of those
@@ -4275,9 +4387,13 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- an add fired in turn would be two writes, two locks, and a tag that moved
     -- to the end of every run it was in.  It goes to the targets carrying FROM,
     -- which is the set the write is for.
+    --
+    -- FROM is the tag the overlay OPENED over, read out of the snapshot before
+    -- the overlay comes down: a click that moved the cursor under an open field
+    -- must not rename the tag the reader landed on.
   , "    function renameTag(from, typed) {"
   , "      const to = String(typed || \"\").trim().toLowerCase();"
-  , "      shutRename();"
+  , "      shutEdit(TROW);"
   , "      if (!from || !to || to === from) { said(tagging, \"unchanged\"); return; }"
   , "      const over = carriers(from);"
   , "      fire(tagging, \"rename-tag\", over.map((r) => r.id), { from, to },"
@@ -4303,82 +4419,39 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- that carried both ends comes out carrying one.
   , "    const renamedTags = (tags, from, to) =>"
   , "      [...new Set(tags.map((t) => (t === from ? to : t)))];"
-    -- THE RENAME OVERLAY, which is the property panel's edit model over one
-    -- cell: the tag cell becomes a field over itself, `RET' commits and `ESC'
-    -- restores.  The other two columns are DERIVED — a coverage and a count — so
-    -- there is nothing in them to edit and they never open, exactly as the link
-    -- popup's type cell would not.
-  , "    const renaming = () => el(\"tedit\").className === \"on\";"
-      -- The tag the overlay OPENED on, kept for the commit: no key can move the
-      -- cursor while a row is open, but a mouse click can, and RET would then
-      -- rename the tag the reader landed on with the text typed for another.
-  , "    let renamingFrom = null;"
+    -- THE RENAME OVERLAY: `openEdit' over one CELL.  The tag cell becomes a
+    -- field over itself, `RET' commits and `ESC' restores.  The other two
+    -- columns are DERIVED — a coverage and a count — so there is nothing in them
+    -- to edit and they never open, exactly as the link popup's type cell would
+    -- not; `cell' is what says the box narrows to the one that can.
+    --
+    -- The tag the overlay opened on is `edit.row', which is the snapshot every
+    -- surface using this mechanism gets.
+  , "    const TROW = {"
+  , "      box: \"tedit\", pane: \"tpane\", fields: [\"tname\"], cell: true,"
+  , "      mount: () => tmount,"
+  , "      fill: (tag) => (el(\"tname\").value = tag),"
+  , "      focus: () => { el(\"tname\").focus(); el(\"tname\").select(); },"
+  , "    };"
+  , "    const renaming = () => !!edit && edit.o === TROW;"
   , "    function openRename() {"
   , "      const at = tagAt();"
   , "      if (!at) { echo(\"RET → org-rename-tag (no tag)\"); return; }"
-  , "      renamingFrom = at;"
-  , "      el(\"tedit\").className = \"on\";"
-  , "      el(\"tname\").value = at;"
-      -- The renderer stamps `tv-sel' on its own frame, so a row selected in THIS
-      -- tick has no marked element yet; one frame later there is one.
-  , "      soon(placeTag);"
-  , "      el(\"tname\").focus();"
-  , "      el(\"tname\").select();"
-  , "    }"
-  , "    function shutRename() {"
-  , "      el(\"tedit\").className = \"\";"
-  , "      el(\"tname\").blur();"
+  , "      openEdit(TROW, at);"
   , "    }"
   , "    function cancelRename() {"
-  , "      shutRename();"
+  , "      shutEdit(TROW);"
   , "      echo(\"ESC → keyboard-quit (tag unchanged)\");"
   , "    }"
-    -- Where the overlay sits: over the TAG CELL of the row the renderer has
-    -- selected — the row's box for the vertical, the cell's for the horizontal.
-    -- The row comes through the mount's published root, which is the one door
-    -- this page reads a mount's DOM through; a page with no layout (the suite's)
-    -- finds no row and leaves the overlay where it was put.
-    --
-    -- The cell is the first that is not the GUTTER, which `flags: true' puts
-    -- there: naming a column index would be this page counting the renderer's
-    -- chrome, where the class it already stamps says which cell that is.
-  , "    function placeTag() {"
-  , "      if (!renaming()) return;"
-  , "      const tr = tmount.el.querySelector(\"tbody tr.tv-sel\");"
-  , "      const td = tr && tr.querySelector(\"td:not(.tv-box)\");"
-  , "      if (!td) return;"
-  , "      const a = tr.getBoundingClientRect(), c = td.getBoundingClientRect();"
-  , "      const b = el(\"tpane\").getBoundingClientRect();"
-  , "      el(\"tedit\").style.top = `${a.top - b.top}px`;"
-  , "      el(\"tedit\").style.height = `${a.height}px`;"
-  , "      el(\"tedit\").style.left = `${c.left - b.left}px`;"
-  , "      el(\"tedit\").style.width = `${c.width}px`;"
-  , "    }"
-    -- dired's `d', over the popup's rows: the first press flags the tag at
-    -- point, a second `d' on an already-flagged one IS `D' — it calls the same
-    -- handler, so it removes EVERY flagged tag rather than the one under it —
-    -- and `u' takes a flag off and walks on.  The flag is the confirmation, so
-    -- there is no prompt.  A lone flag is a set of one, which is what leaves the
-    -- single-tag flow unchanged.
-  , "    function tflag(k) {"
-  , "      if (!flagsOn(tmount))"
-  , "        { echo(`${k} → this table-view.js has no delete flags`); return; }"
-  , "      const at = tagAt();"
-  , "      if (!at) { echo(`${k} → org-toggle-tag (no tag)`); return; }"
-  , "      const flags = tmount.getFlagged();"
-  , "      if (k === \"D\" || (k === \"d\" && flags.indexOf(at) !== -1)) {"
-  , "        removeTags(flags.length ? flags : [at]);"
-  , "        return;"
-  , "      }"
-  , "      if (k === \"u\") {"
-  , "        tmount.unflagRow(at);"
-  , "        echo(\"u → tag-unflag (flag cleared)\");"
-  , "        stepIn(tmount, 1);"
-  , "        return;"
-  , "      }"
-  , "      tmount.flagRow(at);"
-  , "      echo(\"d → tag-flag (d again removes)\");"
-  , "    }"
+    -- The popup's four words for `flagKey', the gesture itself being the
+    -- property panel's.  `tagAt' already answers with an id or null, which is
+    -- what the shape asks for; `removeTags' names one tag per command and has no
+    -- use for the count the panel spells, so it takes the ids and drops it.
+  , "    const TFLAGS = {"
+  , "      mount: () => tmount, at: tagAt, take: removeTags,"
+  , "      none: \"org-toggle-tag (no tag)\","
+  , "      unflag: \"tag-unflag\", flag: \"tag-flag\", again: \"removes\","
+  , "    };"
     -- Settings, in PANELS.  The general preferences, the theme, then one box
     -- per keyword layer — a layer being one config file and its `#+TODO:' lines
     -- VERBATIM.  The line is the contract org itself reads, so it is what is
@@ -5108,13 +5181,11 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- without this the two nulls would meet and Shift would commit whatever
     -- came out of the pool empty.
   , "      if (!k) return;"
-    -- The text mode has no list, so no letter commits and nothing narrows: RET
-    -- takes the line as typed and every other key is the field's own.
-    -- The mode that holds a LINE rather than a list — `askText'\''s prompt, and
-    -- `+'\''s field over a sticky palette — takes RET and leaves every other key
-    -- to the field.  Nothing narrows and no letter commits.  A palette whose
-    -- typing reaches past its list takes the line as an ENTRY (`freely'), and
-    -- one with no list at all takes it as text.
+    -- The mode that holds a LINE rather than a list (`askText'): RET takes the
+    -- line as typed and every other key is the field's own, since there is
+    -- nothing to narrow and no letter to commit.  A palette whose typing reaches
+    -- past its list takes the line as an ENTRY (`freely'), and one with no list
+    -- at all takes it as text.
   , "      if (prompting.text) {"
   , "        if (k !== \"RET\") return;"
   , "        takeChoice(freely() || { text: el(\"pinput\").value });"
@@ -5130,7 +5201,10 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- press to nobody, `typing()' having already killed the map's own DEL.
   , "      if (!prompting.narrow) {"
   , "        const hit = prompting.choices.find((c) => c.key === k);"
-  , "        if (k === \"/\") fieldMode();"
+        -- The fallback's own foot, named where the fallback is entered: the
+        -- letters are gone and the field's keys take their place.
+  , "        if (k === \"/\")"
+  , "          fieldMode(\"RET sets it · C-n/C-p walks · ESC leaves\");"
   , "        else if (!hit) return;"
   , "        else if (!e.repeat) takeChoice(hit);"
   , "        e.preventDefault();"
@@ -5214,7 +5288,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      if (!k) return;"
   , "      if (renaming()) {"
   , "        if (k !== \"RET\") return;   // ESC is the keymap's, and puts the tag back"
-  , "        renameTag(renamingFrom, el(\"tname\").value);"
+  , "        renameTag(edit.row, el(\"tname\").value);"
   , "        e.preventDefault();"
   , "        return;"
   , "      }"
@@ -5222,7 +5296,8 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      if (step) stepIn(tmount, step);"
   , "      else if (k === \"RET\") openRename();"
   , "      else if (k === \"+\") addFlow();"
-  , "      else if (k === \"d\" || k === \"D\" || k === \"u\") { if (!e.repeat) tflag(k); }"
+  , "      else if (k === \"d\" || k === \"D\" || k === \"u\")"
+  , "        { if (!e.repeat) flagKey(k, TFLAGS); }"
   , "      else return;"
   , "      e.preventDefault();"
   , "    });"
@@ -5456,18 +5531,19 @@ page head' title body = T.unlines
   -- SEVEN LINES and no more.  The strip still fills what is there for smaller
   -- content, and stops growing at seven of its own line boxes — past that a
   -- quiet page was giving half the window to a log nobody was reading, and the
-  -- table took the loss.  The cap is computed rather than eyeballed: `#log' is
-  -- 12px over the body's unitless 1.5, so a line box is 18px, and
-  -- `box-sizing:border-box' puts the 6px padding twice and the 1px border twice
-  -- inside the figure.  A reader who changes the font or the padding above has
-  -- to change the arithmetic below, which is why it is spelled as the sum
-  -- rather than as `140px'.
+  -- table took the loss.  The cap is computed rather than eyeballed: a line box
+  -- is the body's unitless 1.5 over this rule's OWN font size, which is exactly
+  -- what `em' reads for a length here, so the size is declared once and the
+  -- arithmetic follows it rather than restating `12px'.  `box-sizing:border-box'
+  -- puts the 6px padding twice and the 1px border twice inside the figure, so
+  -- those two are still spelled out — which is why the cap is a sum rather than
+  -- `140px'.
   --
   -- SEVEN is a constant here.  Making it a preference is #56's, which owns the
   -- settings-sheet field and the storage behind it.
   , "  #log{font-size:12px;color:var(--g-mute);padding:6px 10px;"
   , "    border:1px solid var(--g-border);border-radius:8px;"
-  , "    max-height:calc(7 * 1.5 * 12px + 2 * 6px + 2 * 1px);"
+  , "    max-height:calc(7 * 1.5em + 2 * 6px + 2 * 1px);"
   , "    background:var(--g-surface);flex:1 1 auto;overflow-y:auto}"
   -- A line is spans so its parts can be told apart at a glance: the stamp and
   -- the scope recede into the strip's own colour, the message carries the page's

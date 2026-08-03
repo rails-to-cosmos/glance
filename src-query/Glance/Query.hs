@@ -1903,12 +1903,15 @@ removeTagEdits tag r = case tagRun r of
 -- an entry cut from the middle and appended at the end.  This is the reason
 -- rename is a command of its own rather than a remove and an add composed.
 -- Those two edit sets APPLY — they touch, and 'Data.Org.Edit.applyEdits' allows
--- an edit to start where the last one ended — and what they apply to is wrong
--- twice over: the addition's anchor is measured in the document BEFORE the
--- removal, so for a lone tag it lands inside the run the removal deleted and
--- spells @* Ship itprojects:@; and for an entry with neighbours the tag
--- survives but MOVES to the end of the run.  The pair is also two writes under
--- two digests where this is one drift-locked splice per file.
+-- an edit to start where the last one ended — and what they write is wrong in
+-- two INDEPENDENT ways.  The addition's anchor is 'spanEnd' of 'hsTags' measured
+-- BEFORE the removal, so for a lone tag it is where the run's closing colon sat;
+-- the removal takes the whole run and the space in front of it, and the
+-- insertion lands flush against the title, spelling @* TODO Ship itprojects:@.
+-- Separately, and whatever the anchor, this appends at the RUN'S END, so an
+-- entry with neighbours survives having MOVED there — re-measuring after the
+-- removal would not change that one.  The pair is also two writes under two
+-- digests where this is one drift-locked splice per file.
 --
 -- ONE TAG ONCE, which is the invariant 'removeTagEdits' keeps by cutting every
 -- entry that spells its tag.  Here the FIRST entry spelling FROM becomes TO and

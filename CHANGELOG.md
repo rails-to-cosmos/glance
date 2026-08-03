@@ -151,10 +151,13 @@ section groups a feature arc, and its date is that arc's last commit.
   behind that `RET`. `Glance.Query.renameTagEdits` REPLACES the entry where the
   author put it, so `:a:work:b:` renamed to `projects` is `:a:projects:b:` and
   the run's order, its delimiters and every other byte stand. It is a command
-  rather than a `remove-tag` and an `add-tag` fired in turn because those two
-  edit sets are not disjoint — removing a LAST entry takes the whole run away and
-  the addition inserts at the end of the run it just took — so composing them
-  spells the tag onto the title, and because the pair would be two writes under
+  rather than a `remove-tag` and an `add-tag` fired in turn because of what those
+  two edit sets compose to. They APPLY — removing a LAST entry ends where the
+  addition inserts, and `applyEdits` rejects only overlap — and they write the
+  wrong thing twice over: the addition's anchor is measured before the removal,
+  so a lone tag lands flush against the title (`* TODO Ship itprojects:`), and
+  independently of the anchor `add-tag` appends at the run's end, so an entry
+  with neighbours comes back moved to it. The pair would also be two writes under
   two digests where this is one drift-locked splice per file. One tag once: the
   first entry spelling `from` becomes `to`, further ones are cut, and a row
   already carrying `to` loses `from` instead. Both ends take the parser's charset

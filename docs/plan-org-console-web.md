@@ -373,6 +373,17 @@ records is a second structure to keep in step with `stFiles` on every reload,
 for a saving nobody can perceive on a modal that opens. It is written down as
 the lever if `/headline` ever lands in a loop.
 
+**SUPERSEDED, timings only.** The table above predates id resolution: at the
+time `storeHeadline` was a `find` over `storeRows`, where it now runs over
+`resolveIds`' output and so resolves the whole store per lookup. Re-measured
+2026-08-03 over the same tree (10435 rows, 6289 files), a resolution is **~28 ms**
+and a whole `GET /headline` **~29 ms** — an order of magnitude up, and still the
+same conclusion, the lookup being nearly all of the request. The shape rule this
+bought is in `Glance.Web.Store.storeHeadlines` and is pinned by
+`TestSelfContained` "the /tags route resolves the store exactly once". The row
+and file counts here are a 2026-07 tree; see "Corpus numbers, and the day they
+moved" below.
+
 Residency is unchanged in kind — **416 MB** RSS after the load, against the
 593 MB S5 recorded (GC timing moves that number more than these fields do).
 `hrDoc` names the array `hrHeadline` already held, and `hrDigest` is one shared
