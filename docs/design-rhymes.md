@@ -12,11 +12,12 @@ first of a new family (rare — name the family and its rule) or wrong.
 
 **Movement.**  The table's letters are THE movement vocabulary, and they are
 the editors' own: Emacs's `n`/`p` (next/previous) and `f`/`b`
-(forward/backward) beside vim's `j`/`k` and `l`/`h`, both dialects bound
-everywhere at once — a hand trained in either editor lands here already
-knowing the keys.  The property panel, the link and tag popups, and the
-material document all speak it.  Vertical wears the row wash; horizontal
-wears the crosshair's column hue — in the document as in the table.
+(forward/backward) beside vim's `j`/`k` and `l`/`h` — and the arrow keys,
+the classic every hand knows, ride along on both axes.  All three dialects
+bound everywhere at once: a hand trained anywhere lands here already knowing
+the keys.  The property panel, the link and tag popups, and the material
+document all speak it.  Vertical wears the row wash; horizontal wears the
+crosshair's column hue — in the document as in the table.
 
 **Backwards is one gesture.**  `DEL` is the backspace key wearing its oldest
 meaning — erase the last thing you did — lifted from characters to
