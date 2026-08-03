@@ -26,8 +26,8 @@ import Data.Org
 import Data.Org.Config ( ConfigLayers (clSeed), TodoKeywords (..), loadConfigDirs
                        , seedContext )
 import Data.Org.Index ( BlobEntry (..), IndexDrift, blobEntryOf, driftOf
-                      , foldSegments, indexReportLines, manifestFile, openSegment
-                      , segmentNames )
+                      , foldSegments, indexReportLines, manifestFile, metaDir
+                      , openSegment, segmentNames )
 import Data.Org.Walk ( Found (..), WalkOptions (..), beatsForId, errText
                      , findOrgFilesWith, isBlob, mapFilesConcurrently )
 
@@ -313,8 +313,8 @@ blobsOf = reverse . tBlobs
 -- canonicalizes a root, so a store reached two ways is compared twice.
 storeMetaDirs :: [FilePath] -> [FilePath] -> [FilePath]
 storeMetaDirs roots derived =
-  nub ([ root </> ".org-glance" </> "meta" | root <- roots ]
-        ++ [ d | d <- derived, takeFileName d == "meta" ])
+  nub ([ root </> ".org-glance" </> metaDir | root <- roots ]
+        ++ [ d | d <- derived, takeFileName d == metaDir ])
 
 -- | PATH's bytes, or 'Nothing' when it cannot be read.  The instrument never
 -- fails a scan: an index it cannot open is an index it says nothing about.

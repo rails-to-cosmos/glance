@@ -50,6 +50,7 @@ library glance-internal
       Data.Org
       Data.Org.Config
       Data.Org.Edit
+      Data.Org.External
       Data.Org.Index
       Data.Org.Types
       Data.Org.Parser
@@ -213,6 +214,7 @@ test-suite glance-test
       TestConfig
       TestDefaults
       TestEdit
+      TestExternal
       TestFilter
       TestIndex
       TestParser
@@ -238,6 +240,7 @@ test-suite glance-test
   build-depends:
       base >=4.7 && <5
     , aeson
+    , async
     , bytestring
     , containers
     , directory

@@ -45,6 +45,7 @@ module Data.Org.Walk ( Found (..)
                      , isOrg
                      , isSidecar
                      , mapFilesConcurrently
+                     , orgGlanceRoot
                      ) where
 
 import Control.Concurrent (getNumCapabilities)
@@ -56,7 +57,7 @@ import Data.List (sortOn, tails)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
-import System.FilePath (splitDirectories, takeExtension, takeFileName, (</>))
+import System.FilePath (joinPath, splitDirectories, takeExtension, takeFileName, (</>))
 import System.Posix.Files (FileStatus, getFileStatus, getSymbolicLinkStatus, isDirectory, isSymbolicLink)
 
 import qualified Data.Char as Char
@@ -111,6 +112,23 @@ orgGlanceTails :: FilePath -> [[FilePath]]
 orgGlanceTails path
   | not (namesOrgGlance path) = []
   | otherwise = [ rest | ".org-glance" : rest <- tails (splitDirectories path) ]
+
+-- | The @.org-glance@ directory PATH sits inside, or 'Nothing' when it sits in
+-- none.  'orgGlanceTails' with the other half kept: that one answers what is
+-- BELOW the component, this one names the component itself, so a caller holding
+-- a blob can address its store's own @meta@ directory
+-- ('Data.Org.External.externalPathOf' is the caller).
+--
+-- The INNERMOST one wins where a path spells the component twice, which is the
+-- store a file inside it belongs to; and the answer is textual, over the path as
+-- the walk built it, exactly as every other rule here — nothing canonicalizes.
+orgGlanceRoot :: FilePath -> Maybe FilePath
+orgGlanceRoot path
+  | not (namesOrgGlance path) = Nothing
+  | otherwise = case [ n | (n, c) <- zip [0 :: Int ..] parts, c == ".org-glance" ] of
+      [] -> Nothing
+      ns -> Just (joinPath (take (last ns + 1) parts))
+  where parts = splitDirectories path
 
 -- | Does PATH spell @.org-glance@ anywhere in it, as characters rather than as
 -- a component?  A necessary condition for 'orgGlanceTails' to find anything,

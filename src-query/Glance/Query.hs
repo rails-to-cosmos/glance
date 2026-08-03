@@ -166,6 +166,7 @@ import Data.Org.Walk ( Found (..), WalkOptions (..), beatsForId, defaultWalk
                      , mapFilesConcurrently )
 
 import qualified Data.Org.Edit as Edit
+import qualified Data.Org.External as External
 
 -- Records
 
@@ -1738,11 +1739,22 @@ currentDocument = fmap (fromMaybe ("", "")) . Edit.readDocument
 -- pass over the document whatever the batch size, one atomic replace.  So a
 -- command over several rows of one file is ONE write, and either all of its
 -- edits land or none of them do.
+--
+-- It is also THE DOOR every write in this program leaves through — a structured
+-- command, a materialize commit, a capture and a config edit are four callers of
+-- this one function, and 'Data.Org.Edit.editFile' has no other caller — which is
+-- why the note to org-glance is taken here and nowhere else
+-- ('Data.Org.External.noteExternalWrite').  It fires only for a blob under a
+-- store's @data\/@, costs one parse of the text just written, and cannot fail
+-- the write: by the time it runs the rename has happened.
 replaceSpans :: FilePath -> Text -> [(Span, Text)] -> IO (Either WriteFailure Text)
-replaceSpans path digest edits =
-  report <$> Edit.editFile (Edit.Snapshot path digest) [ Edit.Edit sp new | (sp, new) <- edits ]
+replaceSpans path digest edits = do
+  written <- Edit.editFile (Edit.Snapshot path digest) [ Edit.Edit sp new | (sp, new) <- edits ]
+  either (pure . Left . failure) noted written
   where
-    report = either (Left . failure) (Right . Edit.snapDigest . Edit.receiptSnapshot)
+    noted receipt = do
+      External.noteExternalWrite path (Edit.receiptText receipt)
+      pure (Right (Edit.snapDigest (Edit.receiptSnapshot receipt)))
     failure err = case err of
       Edit.Drift _path _pinned found -> WriteDrift found
       Edit.ReadFailed _path why      -> WriteRefused ("cannot read " <> named <> ": " <> why)

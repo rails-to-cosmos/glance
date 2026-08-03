@@ -393,7 +393,9 @@ on.
   gate still passes; what changed is that it is audible)
 - **The scan folds org-glance's index and says where it disagrees with the
   blobs.** `Data.Org.Index` reads `.org-glance/meta/` — read only, and the only
-  thing in this repo that reads that directory at all. WHICH STORES: each root's
+  thing in this repo that reads that directory at all. One file under it is
+  WRITTEN, by `Data.Org.External` and by nothing else: `EXTERNAL.jsonl`, the
+  notification the write path leaves (Architecture, below). WHICH STORES: each root's
   own `<root>/.org-glance/meta`, plus every `meta` directory the walk DECLINED
   (`foundDerived` already holds them, so a store nested anywhere under a root is
   found without a second traversal). The roots are asked separately because
@@ -451,6 +453,15 @@ on.
   Evidence: `TestIndex` — the fold over a real MANIFEST + sealed + open store in
   a temp directory, the comparison's five outcomes, and the report's shape.
   **test + corpus**
+
+  RE-MEASURED 2026-08-03, same store: 6503 records read, 6071 live, 0 malformed;
+  6063 blobs parsed of them, 21 idless; **39 rows disagree, 38 state and 1
+  archived**; 0 unindexed blobs and 29 records without blobs. Everything but the
+  disagreement count stood still, and that one moved 21 → 39 in a day of ordinary
+  browser use — which is the number `EXTERNAL.jsonl` exists to stop growing
+  (Architecture, below). A daemon carrying the notification cannot add to it, and
+  `org-glance-graph:refresh-external` takes off what it names; what is left after
+  a refresh is the pre-existing 21 plus whatever a write outside both sides left.
 
 ## Keyword configuration (layered)
 
@@ -1196,6 +1207,61 @@ on.
   Evidence: `TestEdit`, plus the ~/sync canary behind `GLANCE_CORPUS=<root>`
   (33 files, 214 spans, each file digest-checked before and after to prove the
   check never wrote). **test + corpus**
+- **A write to an org-glance BLOB tells org-glance, through
+  `<store>/.org-glance/meta/EXTERNAL.jsonl`.** The cross-repo contract, frozen;
+  org-glance's half is `org-glance-graph:refresh-external`
+  (`src/data/org-glance-graph.el`, whose commentary states the same rules).
+
+  WHY. A blob is canonical content and org-glance's write-ahead index is Emacs's
+  projection of it. This daemon edits blobs and does not write that index, so a
+  browser edit leaves the index one record behind — which is exactly the drift
+  the instrument above counts. The file is where the two sides meet: this side
+  names the ids it moved, Emacs re-derives a record for each and shortens the
+  file.
+
+  THE LINE. One JSON object per line, newline-terminated, two fields in this
+  order: `{"id":"…","at":"2026-08-03T04:21:07Z"}`. `id` is the `ORG_GLANCE_ID`
+  of the written blob's FIRST headline, read the way `Data.Org.Index.blobEntryOf`
+  reads it, so a line names the record a refresh replaces — first rather than
+  first-with-an-id, and an entry claiming none is skipped with no line at all.
+  `at` is the server clock in UTC at second resolution, and nothing acts on it.
+  Values go through the JSON encoder and the KEYS do not, which is what fixes
+  the order without leaving an id unescaped.
+
+  WHICH WRITES. `Data.Org.Walk.isBlob` — `data.org` inside the canonical store —
+  and no other file. An ordinary document, a config layer, an overview, a blob's
+  occurrence history and another `.org` sitting beside a blob all have no record
+  to refresh, so none of them is noted. The store is the `.org-glance` directory
+  the blob sits under (`Data.Org.Walk.orgGlanceRoot`, innermost wins), so a tree
+  holding several stores notes each write in its own.
+
+  ONE DOOR. The note is taken in `Glance.Query.replaceSpans` and nowhere else,
+  because that is the one function every write in this program leaves through —
+  a structured command, a materialize commit, a capture and a config edit are
+  four callers of it, and `Data.Org.Edit.editFile` has no other caller. So a
+  command over several rows of ONE blob is one `editFile` and therefore one
+  line: the id names the entry rather than the edit. It costs one parse of the text
+  just written, and it cannot fail the write — by the time it runs the rename
+  has happened, so every IO error there is swallowed. A refused write (drift, a
+  rejected batch) notes nothing, having written nothing.
+
+  APPEND-ONLY, and it has to be `O_APPEND` with ONE `write(2)`
+  (`Data.Org.External.appendLine`). A `Handle` in `AppendMode` remembers the
+  offset it opened at, so concurrent writers overwrite each other's lines: eight
+  concurrent blob writes through `BS.appendFile` left FIVE lines. Under
+  `O_APPEND` the kernel re-seeks inside each write and all eight land. This side
+  never truncates, never rewrites, and touches no other file under `meta`.
+
+  THE CRASH RULE. Emacs appends every re-derived record to its log BEFORE
+  shortening this file, so a crash between the two costs a repeated refresh and
+  nothing else — re-deriving a record from a blob that has not moved appends a
+  record equal to the one already there, and the latest-per-id fold cannot tell
+  the difference. Idempotent by construction, which is what lets the two steps
+  be unsynchronised. Emacs drops exactly the prefix it read rather than writing
+  the file empty, so a line this daemon appends mid-refresh survives to the next
+  one. Evidence: `TestExternal` — the door, the golden line, the path rules,
+  append-only including the concurrent case, and the three write routes.
+  **test**
 - **The command layer is one route, and its unit of work is a FILE.**
   `POST /command` takes `{name, id | ids, args, digests?}` and implements eight
   names — `set-state {"keyword": KW | null}`,

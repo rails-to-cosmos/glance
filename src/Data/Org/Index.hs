@@ -39,6 +39,7 @@ module Data.Org.Index ( BlobEntry (..)
                       , foldSegments
                       , indexReportLines
                       , manifestFile
+                      , metaDir
                       , openSegment
                       , segmentNames
                       ) where
@@ -57,6 +58,13 @@ import qualified Data.ByteString.Char8 as BC
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified TextShow as TS
+
+-- | The directory under a store's @.org-glance@ that holds the index — the
+-- segments, the MANIFEST, and the one file this repo writes there
+-- ('Data.Org.External').  Named here because this module is what the layout is
+-- documented in; the scan and the notifier both read it rather than spelling it.
+metaDir :: FilePath
+metaDir = "meta"
 
 -- | The open append segment: read last, because it holds the newest records.
 openSegment :: FilePath

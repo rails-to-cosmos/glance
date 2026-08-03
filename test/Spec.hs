@@ -3,6 +3,7 @@ module Main (main) where
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import qualified TestConfig as Config
 import qualified TestEdit as Edit
+import qualified TestExternal as External
 import qualified TestFilter as Filter
 import qualified TestIndex as Index
 import qualified TestParser as Parser
@@ -31,6 +32,7 @@ tests = testGroup "Tests"
   , Edit.spec
   , Query.spec
   , Index.spec
+  , External.spec
   , Filter.spec
   , Subtree.spec
   , Serve.spec
