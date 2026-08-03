@@ -718,6 +718,10 @@ predicateSpec = testGroup "Predicates"
       matches "state:DONE" [Schema]
       -- Whole value, so a prefix of a keyword is not one of them.
       matches "state:TOD" []
+      -- The whole-value arm folds org's priority decoration on both sides,
+      -- because the renderer's badge matching does (per column TYPE, never
+      -- per key).  A query nobody writes, closed for parity's sake.
+      matches "state:[#TODO]" [Privet]
 
   , testCase "the two group metas are the file's keyword groups" $ do
       -- #+TODO: NEXT WAITING | CANCELLED, over the seeded TODO/DONE.  The
@@ -753,10 +757,20 @@ predicateSpec = testGroup "Predicates"
       matches "state:*active" []
       matches "state:active*" []
 
-  , testCase "priority is the letter, case-insensitively" $ do
+    -- The CELL wears org's own `[#A]' and the match reads THROUGH the brackets,
+    -- on both sides: display wears the decoration and matching reads through it.
+    -- So the letter a reader types and the cell they are looking at are one
+    -- query, and neither spelling is the privileged one.
+  , testCase "priority is the letter, case-insensitively and through the brackets" $ do
       matches "priority:A" [Ship]
       matches "priority:a" [Ship]
       matches "priority:c" [Drop]
+      matches "priority:[#A]" [Ship]
+      matches "priority:[#a]" [Ship]
+      -- Still EXACT past the fold: a letter is one character, so nothing here
+      -- is a substring test and a half-spelled bracket matches nothing.
+      matches "priority:[#" []
+      matches "priority:AB" []
       matches "priority:*empty*" [Reply, Plain, Schema]
 
   , testCase "title and tag are substrings of the cell, case-insensitively" $ do

@@ -90,7 +90,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 
 import Glance.Query ( HeadlineRecord (hrActive, hrId, hrLinks, hrSearch)
-                    , archiveTag, cellSep, filterKeys, refSpellings )
+                    , archiveTag, cellSep, filterKeys, priorityLetter, refSpellings )
 
 -- Grammar
 --
@@ -476,7 +476,12 @@ keyTest _env key field value
     cellTest i
       | Just word <- tagMeta i = \r -> word `elem` cellValues (cell r)
       | key == "state"         = state cell
-      | key == "priority"      = (== value) . cell        -- one letter, so exact
+      -- One letter, so exact — but the CELL wears org's own `[#A]' and the
+      -- match reads THROUGH the brackets, on both sides: display wears the
+      -- decoration and matching reads through it, which is the rule the starred
+      -- metas set from the other side.  So `priority:A' and `priority:[#A]' are
+      -- one query, and a renderer folding the same way answers alike.
+      | key == "priority"      = (== priorityLetter value) . priorityLetter . cell
       | prefixed               = T.isPrefixOf value . cell
       | otherwise              = T.isInfixOf value . cell
       where cell = cellOf i
@@ -511,9 +516,13 @@ keyTest _env key field value
     -- subset of `*active*'.  The empty half is spelled over the CELL rather
     -- than over 'hrActive': it is the predicate `*empty*' reads, and it is the
     -- one half a renderer can answer without knowing a keyword set.
+    -- The whole-value arm folds org's priority decoration on BOTH sides,
+    -- because the renderer's badge matching does (its dispatch is per column
+    -- TYPE, never per key): `state:[#TODO]' matches a TODO cell there, so it
+    -- must here — a query nobody writes, closed for parity's sake.
     state cell r | value == "*active*"   = hrActive r == Just True || T.null (cell r)
                  | value == "*inactive*" = hrActive r == Just False
-                 | otherwise             = cell r == value   -- badge: whole value
+                 | otherwise             = priorityLetter (cell r) == priorityLetter value
 
 -- | CELL's values, for a cell that holds a list: org spells one @:a:b:@.  The
 -- renderer's own @tagsIn@ — split on the delimiter, drop the empties — so the
