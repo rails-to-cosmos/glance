@@ -849,9 +849,9 @@ sortKeySpec shell = testGroup "Shell sort"
     -- carries the order: the press after one continues the chain the reader
     -- built rather than starting the declared one over.
   , testCase "a remount re-seeds the chain off the query it mounts under" $
-      bootOf shell "" 500 "f ^" "close:view-changed press:f press:^" $ \answer ->
+      bootOf shell "" 500 "f ^" "close:view-changed press:f press:^" $
         assertEqual "the leader the query named, flipped back"
-                    "^ → toggle-sort (state ▲)" =<< textAt "echo" answer
+                    "^ → toggle-sort (state ▲)" <=< textAt "echo"
 
     -- THE PRESS IS A QUERY EDIT.  The renderer writes the chain into the applied
     -- query and delivers it, so it arrives here as an ordinary commit: the URL
@@ -870,9 +870,9 @@ sortKeySpec shell = testGroup "Shell sort"
     -- And it composes with a filter rather than replacing it: the sort tokens
     -- are the query's own, so a narrowed view stays narrowed.
   , testCase "the order joins a filter already applied" $
-      bootOf shell "?q=state%3ATODO" 500 "f ^" "" $ \answer ->
+      bootOf shell "?q=state%3ATODO" 500 "f ^" "" $
         assertEqual "the predicate, then the order"
-                    "?q=state%3ATODO+sort%3Astate%3Adesc" =<< textAt "url" answer
+                    "?q=state%3ATODO+sort%3Astate%3Adesc" <=< textAt "url"
 
     -- DEL takes it off like any other token, which is the whole of the way home:
     -- with no sort token the answer comes back in the view's declared order.
@@ -1196,9 +1196,9 @@ landingSpec shell = testGroup "Shell landing"
   , testCase "a set archived from a surviving row leaves point on that row" $
       bootOf shell "" 500 ""
              ("rows:5 press:n press:d press:n press:n press:d press:p press:D"
-              <> " unserved:r2,r4 frame:upsert=r2 frame:upsert=r4 wait:300") $ \answer ->
+              <> " unserved:r2,r4 frame:upsert=r2 frame:upsert=r4 wait:300") $
         assertEqual "the row point was on is still under it"
-                    (Just "r3") =<< maybeTextAt "selected" answer
+                    (Just "r3") <=< maybeTextAt "selected"
 
     -- And no anchor is left ARMED behind it either.  The anchor belongs to the
     -- archive that took point's row away, so an archive that took some other
@@ -1207,9 +1207,9 @@ landingSpec shell = testGroup "Shell landing"
   , testCase "and arms nothing for a later removal to land on" $
       bootOf shell "?q=" 500 ""
              ("rows:6 press:d press:n press:n press:n press:d press:p press:D"
-              <> " frame:delete=r1,r4 frame:delete=r3") $ \answer ->
+              <> " frame:delete=r1,r4 frame:delete=r3") $
         assertEqual "the row that took r3's place, not the archive's own anchor"
-                    (Just "r6") =<< maybeTextAt "selected" answer
+                    (Just "r6") <=< maybeTextAt "selected"
 
     -- A page where every row is leaving has nowhere to land, so the anchor is
     -- nothing and the empty view selects nothing — which is what an applied
@@ -1242,9 +1242,9 @@ landingSpec shell = testGroup "Shell landing"
     -- archive would have picked.
   , testCase "a refused archive arms no landing" $
       bootOf shell "?q=" 500 ""
-             "refuse press:d press:n press:d press:p press:D frame:delete=r1" $ \answer ->
+             "refuse press:d press:n press:d press:p press:D frame:delete=r1" $
         assertEqual "the row that took r1's place, not the anchor's r3"
-                    (Just "r2") =<< maybeTextAt "selected" answer
+                    (Just "r2") <=< maybeTextAt "selected"
 
     -- THE ANCHOR ITSELF VANISHING between the fire and the landing, which is
     -- what the remembered PLACE is for: `r3' is archived from under point and
@@ -1293,9 +1293,9 @@ landingSpec shell = testGroup "Shell landing"
     -- landed somewhere else.
   , testCase "an applied view still lands on row one after an anchor did not" $
       bootOf shell "" 500 "n d d"
-             "unserved:r2 frame:upsert=r2 wait:300 press:g" $ \answer ->
+             "unserved:r2 frame:upsert=r2 wait:300 press:g" $
         assertEqual "g took the top of its answer" (Just "r1")
-          =<< maybeTextAt "selected" answer
+          <=< maybeTextAt "selected"
 
     -- An anchor belongs to the VIEW it was taken in, and a mount thrown away
     -- takes it with it.  Reachable because an archive under NO filter leaves
@@ -1304,9 +1304,9 @@ landingSpec shell = testGroup "Shell landing"
     -- would fire on the next frame and pull the cursor off the row the new view
     -- had just landed it on.
   , testCase "a remount drops an anchor the archive never spent" $
-      bootOf shell "?q=" 500 "n d d" "press:g frame:delete=r2 wait:300" $ \answer ->
+      bootOf shell "?q=" 500 "n d d" "press:g frame:delete=r2 wait:300" $
         assertEqual "where g landed it, not where the old view's anchor pointed"
-                    (Just "r1") =<< maybeTextAt "selected" answer
+                    (Just "r1") <=< maybeTextAt "selected"
 
     -- `visible()` is ONE PAGE, so "the row point was on has left the view" is
     -- only answerable about the page the anchor was taken on.  A reader who
@@ -1329,18 +1329,18 @@ landingSpec shell = testGroup "Shell landing"
   , testCase "a reconnect's repaint lands the anchor too" $
       bootOf shell "" 500 ""
              ("rows:6 press:d press:n press:n press:n press:d press:D"
-              <> " unserved:r1,r4 close:resync") $ \answer ->
+              <> " unserved:r1,r4 close:resync") $
         assertEqual "the next surviving row, not the renderer's place"
-                    (Just "r5") =<< maybeTextAt "selected" answer
+                    (Just "r5") <=< maybeTextAt "selected"
 
     -- And the other door that replaces a view without rebuilding the mount: a
     -- COMMIT.  `^` writes its chain into the query, which is a commit like any
     -- other, so the anchor taken under the query being left goes with it.
   , testCase "and so does a commit, which replaces the view without a remount" $
       bootOf shell "?q=" 500 "n d d"
-             "press:f press:^ frame:delete=r2 wait:300" $ \answer ->
+             "press:f press:^ frame:delete=r2 wait:300" $
         assertEqual "where the commit landed it, not the old view's anchor"
-                    (Just "r1") =<< maybeTextAt "selected" answer
+                    (Just "r1") <=< maybeTextAt "selected"
   ]
 
 -- | The two structured commands, driven through the keys a reader presses.
@@ -2260,10 +2260,10 @@ openKeySpec shell = testGroup "Shell open"
     -- alike — because a type this page has never seen is still a fact about the
     -- link and hiding it would teach less than showing it uncoloured.
   , testCase "every type the server derives reaches the badge cell" $
-      bootOf shell "" 500 "" "everytype press:o" $ \answer ->
+      bootOf shell "" 500 "" "everytype press:o" $
         assertEqual "one word per row"
           ["https", "http", "glance", "mailto", "id", "file", "other"]
-          . map head =<< pairsAt "llinks" answer
+          . map head <=< pairsAt "llinks"
 
     -- One walk down the same popup, `o' on every row: the two followable rows
     -- open the tab that row points at and the five others open none, each
@@ -2525,9 +2525,9 @@ drillSpec shell = testGroup "Shell drill"
         assertEqual "the trail is spent" [] =<< textsAt "crumbs" answer
 
   , testCase "a booted trail is restored from the URL and can be walked back" $
-      bootOf shell ("?q=ref%3Ar1&crumbs=" <> bootedTrail) 500 "" "" $ \answer ->
+      bootOf shell ("?q=ref%3Ar1&crumbs=" <> bootedTrail) 500 "" "" $
         assertEqual "the trail the address bar carried" ["everything"]
-          =<< textsAt "crumbs" answer
+          <=< textsAt "crumbs"
 
   , testCase "and DEL walks that booted trail back out" $
       bootOf shell ("?q=ref%3Ar1&crumbs=" <> bootedTrail) 500 "Backspace" "" $ \answer -> do
@@ -2929,10 +2929,10 @@ sheetSpec shell = testGroup "Shell sheet"
   , testCase "and a click cannot redirect the key an add-row is writing" $
       bootOf shell "" 500 "Enter"
              ("press:Tab press:+ pkey:4=OWNER pval:4=ada"
-                <> " click:3 press:Enter") $ \answer ->
+                <> " click:3 press:Enter") $
         assertEqual "the added row took both fields and EFFORT stands"
                     (panelRows sheetStamp [["EFFORT", "0:30"], ["OWNER", "ada"]])
-                    =<< pairsAt "props" answer
+                    <=< pairsAt "props"
 
     -- `+' is the add affordance, and the whole of it: keyboard-first means the
     -- key IS the offer, where a row that is always empty was chrome every

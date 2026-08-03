@@ -254,7 +254,7 @@ driftSpec = testGroup "Index against blobs"
       assertEqual "rows" 100 (dfRows d)
       assertEqual "samples" 10 (length (dfSamples d))
   ]
-  where rec i state arch = IndexRecord i state arch
+  where rec = IndexRecord
 
 -- The blob's own entry
 
@@ -312,7 +312,7 @@ reportSpec = testGroup "The scan's index report"
                   "org-glance index: 0 rows disagree (0 state, 0 archived)" (head ls)
   ]
   where
-    rec i state arch = IndexRecord i state arch
+    rec = IndexRecord
     hasLine ls label want =
       assertBool (T.unpack label <> " row missing " <> T.unpack want <> " in " <> show ls)
                  (any (\l -> label `T.isInfixOf` l && want `T.isInfixOf` l) ls)

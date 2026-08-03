@@ -992,4 +992,4 @@ layoutSpec = testGroup "Search text layout"
                    (matchesFilter emptyEnv q r)
         answered <- traverse (cellUnder key) (filter (matchesFilter emptyEnv q) records)
         assertBool (asked <> ": a row with an empty cell there answered it")
-                   (all (not . T.null) answered)
+                   (not (any T.null answered))
