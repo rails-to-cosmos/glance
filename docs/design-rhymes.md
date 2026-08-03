@@ -10,11 +10,13 @@ first of a new family (rare — name the family and its rule) or wrong.
 
 ## The ledger
 
-**Movement.**  The table's letters (`n`/`p`/`j`/`k` rows, `f`/`b`/`l`/`h`
-cells, arrows both axes) are THE movement vocabulary: the property panel, the
-link and tag popups, and the material document all speak it.  Vertical wears
-the row wash; horizontal wears the crosshair's column hue — in the document
-as in the table.
+**Movement.**  The table's letters are THE movement vocabulary, and they are
+the editors' own: Emacs's `n`/`p` (next/previous) and `f`/`b`
+(forward/backward) beside vim's `j`/`k` and `l`/`h`, both dialects bound
+everywhere at once — a hand trained in either editor lands here already
+knowing the keys.  The property panel, the link and tag popups, and the
+material document all speak it.  Vertical wears the row wash; horizontal
+wears the crosshair's column hue — in the document as in the table.
 
 **Backwards is one gesture.**  `DEL` always walks back along whatever was
 built forward: filter tokens, then filter frames (the drill stack), sort
