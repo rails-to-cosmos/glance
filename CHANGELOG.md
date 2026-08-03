@@ -12,6 +12,17 @@ section groups a feature arc, and its date is that arc's last commit.
 ## Unreleased
 
 ### Removed
+- **BREAKING: `?order=` is gone from `/headlines`.** `?order=document` and
+  `?order=scheduled` were the ordering's own parameter, and the ordering is the
+  query's now: **`?q=sort:*none*` is the replacement for `order=document`, and
+  naming nothing is the replacement for `order=scheduled`.** The parameter is
+  REFUSED rather than ignored — any `order=` at all is a 400 naming its
+  replacement — which is exactly why it was spelled out in the first place: one
+  silently dropped would serve the default order and read as a working request.
+  Gone with it are `pageParams`' `ordering` arm, its two words, and the base
+  parameter of `Glance.Web.Sort.sortChainIn`, which now reads
+  `defaultSortChain` itself and is a function of the query alone. Neither the
+  shell nor the agenda ever asked for `order=`, so nothing on the page changes.
 - The status corner is gone whole. `#corner` carried the connection dot (`#dot`
   with `.live`/`.wait`/`.down`) and the coarse-pointer settings gear (`#gear`,
   its `display:none` and the 44px rule in the `pointer:coarse` block); swept with
@@ -57,6 +68,62 @@ section groups a feature arc, and its date is that arc's last commit.
   archived" guard.
 
 ### Changed
+- **The `d`/`D`/`u` gesture is ONE implementation over THREE surfaces.** The
+  table joined the property panel and the tags popup on `flagKey`, which now
+  owns the whole gesture: the cursor read, the two-press rule, the set-or-row
+  choice, the spending of the flags before the take, the feature refusal and the
+  walk after `u`. Gone are the table's own `archiveFlag`, the fork inside
+  `archive` choosing between the flagged set and the row at point, and the flag
+  branch inside `mark`. A surface DECLARES a shape — its mount, its cursor as an
+  id, what "take these" means, what it LOGS when a flag moves, its walk, and four
+  phrases — and WHO SPEAKS belongs to the caller rather than to the shape: the
+  popups say `KEY → phrase` out of a listener holding no binding, the table says it
+  through `said`, so `d` and `D` echo `archive-flag` and
+  `org-glance-overview:delete` out of one gesture. Every echo is
+  byte-identical to what it was. Two rules moved and are now uniform: the CURSOR
+  is asked for before the FLAGS (so `D` on a renderer that never had flags takes
+  the row at point on every surface, where the popups used to refuse), and the
+  flags are SPENT inside the gesture rather than by each take. `u`'s
+  flag-before-mark stays in `mark`, named as the table's own asymmetry: over the
+  popups `u` is the flag key, over the table it is the mark key preferring a
+  flag.
+- **An edit overlay names its cells BY KEY.** A shape carries `cells: ["title",
+  "url"]` beside the `cols` list the server declared, and `cellSpan` — pure and
+  order-only — resolves the keys to the leftmost and rightmost indices the
+  placement reads. Replaced a positional pair (`cells: [1, 2]`) with nothing
+  tying it to the list it indexed: reordering `Glance.Query.linkColumns` put the
+  box over the wrong cells, greenly. A key no column carries resolves to nothing
+  and the placement is a NO-OP. The suite drives the resolution as the pure
+  function it is, against the SERVER's own column declaration.
+- **The modal surfaces are one ordered list.** `SURFACES` names the property
+  panel (whose listener registers ahead of the dispatch), then the value
+  palette, the link popup and the tags popup, in the order their listeners are
+  written — rank IS registration order. Three readers where there were three
+  restatements: `typing()` asks whether any is up, `cancel` walks the list for
+  the rung `ESC` belongs to, and a listener asks `covered(NAME)` whether anything
+  above it is up. The five listeners stay, and so does `prompting.raising` —
+  `covered` is one surface declining for another, `raising` is one surface
+  declining the keydown that raised it, and a rank says nothing about a race with
+  one surface in it.
+- **Every route resolves the store's ids ONCE, at its own door.**
+  `Glance.Web.Store` no longer offers anything that takes a `Store` and answers
+  about an id: `storeHeadline` and `storeHeadlines` are gone and `headlinesIn`
+  takes the RESOLVED rows. `storeRecords` resolves the whole store each time it
+  is named (~28 ms over a 10435-row tree), so the old shapes let a route owing
+  two folds pay twice and a fold-per-id spend seconds over a marked set. It is a
+  structural rule now rather than a convention, which retires the
+  `TestSelfContained` grep that guarded `/tags`'s shape by reading its source
+  lines — and the `codeOf` helper with it.
+- **`csOne` folds into `csArgs`.** A command spec's shape check is handed the
+  IDS beside the `args`, because a shape refusal is about the REQUEST rather than
+  about the `args` object alone. Seven of the eight commands ignore the list;
+  `edit-link` owns its own "names one row" message and puts it FIRST, the row
+  count being the coarsest thing wrong with a request. One flag fewer for every
+  entry to answer.
+- `Data.Org.Walk.derivedDirs` names `Data.Org.Index.metaDir` rather than
+  spelling `"meta"` a second time: that module owns the store layout, and a walk
+  declining a directory the index no longer wrote to would be excluding nothing
+  while reading as though it were.
 - After `d`/`D` archives rows out of the view, point lands on the NEXT SURVIVING
   ROW rather than resetting to row one. dired's rule, and it needed two changes.
   THE ANCHOR: `anchorFor` takes it at FIRE time, since by the time the rows have
@@ -188,277 +255,6 @@ section groups a feature arc, and its date is that arc's last commit.
 - The materialize sheet's two panes wear one radius. `#mtext` was 4px against
   the panel's `.tv-root` 8px; 8px is the page's shared value, which the log strip
   and the sheet's logbook already wear.
-
-### Added
-- LINKS ARE WRITEABLE, which is the write boundary the popup was waiting on.
-  `GET /links` now carries a per-link `span` — the half-open CHAR range the link
-  occupies in the FILE — and the file's `digest`, and `POST /command` implements
-  an eighth name, `edit-link {span, target, desc}`, which splices exactly that
-  range. The scanner grew the offsets rather than gaining a second pass: one
-  `linkParts` answers all three questions asked of a bracket link (what it SHOWS,
-  where it POINTS, where it SITS), `linkAt` reports the WIDTH it consumed so a
-  scan costs the links it finds rather than the tail behind each of them, and
-  `subtreeLinks` shifts the subtree scan's spans into document offsets — the
-  currency `Data.Org.Edit` splices in. A target spelled twice is still ONE entry
-  and the entry is now the first occurrence's description AND span, so an edit
-  through a deduplicated link edits the first spelling and the others stand.
-  THE FORM IS PRESERVED, which is what makes it a link edit rather than a rewrite
-  of the text around one: `[[T][D]]` keeps its description under a target-only
-  edit, `[[T]]` stays desc-less, a plain URL swaps its target and stays plain,
-  and a description ARRIVING is the one thing that changes a shape — a plain URL
-  has nowhere to write one, so it brackets. ABSENT IS NOT NULL, the `args`
-  discipline (`.:!`) reaching its first non-keyword field: a request saying
-  nothing about the description leaves the author's, `null` takes it off, and a
-  description that SHOWS nothing is the null spelled another way, since
-  `[[T][]]` shows its target — the emptiness test strips and the value is
-  written verbatim, content being nobody's to trim, which is the target's own
-  rule (a whitespace target is refused, a spaced one is written as given). TWO
-  WALLS, both 400 naming what they turned down:
-  the span must sit inside the ROW's own subtree — a span outside it would let
-  one row's write reach bytes no reader of that row was shown, under that row's
-  digest — and cover exactly one link edge to edge; and the REPLACEMENT must read
-  back as THE LINK IT CLAIMS TO BE, which reparses and COMPARES rather than
-  checking the shape (a target spelling `a][b` renders `[[a][b]]`, one link
-  pointing at `a` described `b`, neither of them asked for). A newline in either
-  half is refused ahead of both, being the one thing reparsing cannot catch: the
-  scanner has no line rule, so the link reads back as itself and lands a column-1
-  star that the ORG parser reads as a new headline. `Data.Org.Edit` is
-  content-agnostic by law, so this is the layer that owes all three. `edit-link` is also the first `csOne` command:
-  its args name a row's own BYTES, so a span means nothing to a second row and
-  over two files would name a different range in each.
-- `RET` over the link popup EDITS the link at point, and the stub that named the
-  missing write is gone. The title and url cells become fields over themselves
-  (`LROW`, the shared edit overlay's THIRD shape), `TAB` hops, `RET` commits
-  `edit-link` over the span `/links` handed out under the digest that answer
-  carried, and `ESC` restores — the property panel's edit model exactly, so a
-  panel row, a tag and a link are edited alike and the derived type cell never
-  opens. The overlay's `cell` flag became a `cells: [FROM, TO]` RANGE over the
-  row's non-gutter cells, which is the one generalization the third surface
-  needed (`[0, 0]` for the tag rename, `[1, 2]` for a link, absent for the whole
-  row). `fire` gained a trailing `pin`, so a command measured against a text can
-  say which one; the commands naming a PROPERTY of a row send none. The page
-  holds no bracket grammar and no offsets of its own: it sends the range it was
-  given and the two strings a reader typed, and the untouched FIELD is what makes
-  absent-not-null reachable — the description field opens on what the link SHOWS,
-  which for a link carrying none of its own is its target, so a field left alone
-  sends no `desc` at all. THE POPUP CLOSES ON THE PRESS, both outcomes alike,
-  which is `o`'s own rule and is forced rather than chosen: the spans it holds
-  describe a file the write has just moved, the store does not know yet
-  (`/command` never writes it — the watch does, a debounce later), and a re-read
-  HERE would answer with what the file said BEFORE the write, which is the tags
-  popup's own documented reason for folding answers instead. `o` again is one
-  keystroke and comes back with fresh spans, descriptions and types. KNOWN
-  CONSEQUENCE, stated rather than worked around: the popup is also the only
-  editor, so a row holding exactly ONE link is followed and never listed, and
-  that link has no editor — a key that LISTS whatever the count is would settle
-  it.
-- The log strip's height is a preference. It stopped growing at seven of its own
-  line boxes, a constant; it is now a `localStorage` preference edited from the
-  settings sheet's GENERAL panel (`#clog`, the third row under `default view`
-  and `capture target`). The stylesheet keeps the arithmetic and declares the
-  default — `#log{ … --g-logn:7;
-  max-height:calc(var(--g-logn) * 1.5em + 2 * 6px + 2 * 1px) … }` — and the knob
-  writes a NUMBER onto the element (`style.setProperty("--g-logn", …)`), so
-  there is one formula in one place and a page whose glue has not run — or a
-  reader who never touched the field — is capped at the same figure the sheet
-  would put back. Stored under `glance-log` beside `glance-theme`, applied on
-  boot and on every accepted keystroke, on `input` rather than `change` so the
-  field is a knob rather than a form. `LOG = {key:"glance-log", def:7, min:1,
-  max:50}` in the glue is mirrored in Haskell as
-  `logLinesDefault`/`logLinesMin`/`logLinesMax` and `logLinesBand` (the
-  placeholder's `1–50`) — the same constants the stylesheet's declared value is
-  spelled from, so the two cannot drift. Blank is the default, which is how a
-  reader asks for it back, and it REMOVES the key rather than storing `""` — a
-  preference spelling the empty string is still a preference. A whole number
-  inside the band is that number;
-  everything else is DECLINED rather than clamped, so the cap a reader had
-  stands, nothing is stored, and reopening the sheet draws the preference back
-  over the refused value — half a number on the way to a whole one is the
-  ordinary case of that. A stored value the band no longer takes falls back to
-  the default, the boot reading it through the same check. The panel says where a preference is READ rather than
-  what writes it: `cmoved` never sees `#clog`, so the knob costs no request and
-  cannot make a pristine sheet dirty. The table takes whatever the log gives up
-  (`#app` is `flex:1 1 auto`). `LOGCAP` = 500 is the strip's RING (how many
-  lines it keeps) and is a different limit, unchanged.
-- **The order is part of the query.** `sort:COL` orders the answer by that
-  column and `sort:COL:desc` reverses it; written order is precedence, so
-  several tokens compose a chain (`sort:state sort:deadline` is state with
-  deadline settling its ties). The token NARROWS NOTHING — it states an order
-  and leaves the set to the predicates beside it — which makes it the one key in
-  the grammar that is no predicate, and `?q=sort:deadline&limit=100` is
-  therefore the first hundred rows OF THAT ORDER rather than a hundred arbitrary
-  rows a browser then re-sorts. What the view declares is the effective chain,
-  so what a client is told and what it is served stay one fact.
-  A query naming any sort key replaces the default chain; naming none leaves it
-  standing, which keeps the default invisible until a reader diverges from it.
-  Refusals are per token and name it: one column, one direction, so a negation
-  (`-sort:x`), an alternation (`sort:a|b`), a column that is not there and a
-  direction other than `asc`/`desc` are each a 400, as is a column named twice.
-  `?order=document` still picks the base the query overrides.
-  `^` is that grammar's key: it composes the chain the way it always did — the
-  column at point to the head, or a flip where it already leads — and now WRITES
-  IT INTO THE QUERY, so the press is an ordinary commit. The URL carries the
-  order, `DEL` walks the keys back off one at a time, a `?q=` link opens in the
-  order it names, and the daemon is asked for the order the reader just stated.
-  The shell keeps no record of a sort and asks the renderer for none.
-  New module `Glance.Web.Sort` beside `Glance.Web.Filter`: one query, split by
-  what a token does — narrow, or order — over one scanner.
-- **The default order opens on state, in the tree's own cycle.**
-  `defaultSortChain` is state, title, deadline, scheduled, all ascending, with
-  state read by BADGE PALETTE position — which is the order your `#+TODO:` line
-  spells — so the table opens with the work in org's order rather than
-  alphabetically, and the title settles rows sharing a state. Priority left the
-  chain: a fifth key behind four that have already separated nearly every pair
-  of rows, and `sort:priority` is how to ask for it.
-- **`a` carries its own order.** The agenda query is
-  `state:*active* -planned:*empty* sort:scheduled`, so the whole canned view is
-  one string: the server answers page one in that order, `DEL` walks out of it
-  like any other token, and nothing has to be asked of the renderer once the
-  rows are up.
-- The tags list on `:` is a MUTABLE MOUNT — the page's fourth table-view mount
-  (`#ttable`), after the table, the property panel and the link popup. Three
-  columns, declared server-side in `Glance.Query.tagColumns`: the tag, its
-  COVERAGE over the rows the command would run over (`all`, or `2/3`), and how
-  many rows the whole tree has under it. `GET /tags` grew the third as `counts`,
-  one pass over the store's rows per request — `stTags` counts FILES, which is a
-  different question. A tag is its row's id, so a flag, the cursor and a rename
-  all name the same thing after any number of writes.
-  It replaces the which-key palette that carried this list, and the letters go
-  with it: a keyword is a single word committed from memory and a tag over a set
-  of rows is a RECORD a reader has to read. The tell was the muted `3/5` aside —
-  a palette entry that needs a note about itself is a record wearing a letter.
-  The which-key machinery is now the state palette's alone (`prompting.sticky`,
-  `letterMode` and `prompting.letters` are gone with it).
-  Gestures are the ones this page already spells, borrowed rather than invented:
-  `d` flags a tag red and a second `d` — or `D` — removes every flagged tag from
-  every target carrying it, one `remove-tag` per tag and the flags spent, which
-  is dired's and the table's own archive gesture; `u` unflags; `+` raises the
-  value palette's completing field over the addable vocabulary and adds; `RET`
-  opens the tag cell as a field over itself, which is the property panel's edit
-  overlay over one cell.
-- `POST /command rename-tag {from, to}` — the seventh command, and the write
-  behind that `RET`. `Glance.Query.renameTagEdits` REPLACES the entry where the
-  author put it, so `:a:work:b:` renamed to `projects` is `:a:projects:b:` and
-  the run's order, its delimiters and every other byte stand. It is a command
-  rather than a `remove-tag` and an `add-tag` fired in turn because of what those
-  two edit sets compose to. They APPLY — removing a LAST entry ends where the
-  addition inserts, and `applyEdits` rejects only overlap — and they write the
-  wrong thing twice over: the addition's anchor is measured before the removal,
-  so a lone tag lands flush against the title (`* TODO Ship itprojects:`), and
-  independently of the anchor `add-tag` appends at the run's end, so an entry
-  with neighbours comes back moved to it. The pair would also be two writes under
-  two digests where this is one drift-locked splice per file. One tag once: the
-  first entry spelling `from` becomes `to`, further ones are cut, and a row
-  already carrying `to` loses `from` instead. Both ends take the parser's charset
-  wall, a row not carrying `from` costs no edit, and rename-then-rename-back is
-  the identity on the bytes.
-
-- The view declares a SORT CHAIN rather than one key: title, then state,
-  deadline, scheduled and priority, every key ascending
-  (`Glance.Query.defaultSortChain`). SCHEMA.md's `sort` takes an array for
-  exactly this and both renderers run every key of it, so the table opens
-  alphabetically and the four keys behind the title fire only where two rows
-  are named alike. The browser draws the chain as a chip per key beside the
-  filter's chips; `table-view.el` prints it on its hint line.
-  ONE list, read twice — `declaredSort` spells it onto the wire and
-  `sortedForViewWith` arranges the rows by it — which is the whole reason a
-  producer sorts at all: a page cut out of a different order than the one
-  declared is a different set of rows than the table would have put there.
-  The arrangement is the renderers' rules, term for term: empty cells last on
-  each key and OUTSIDE that key's direction (a blank is a fact about a cell,
-  never about a row), the state column by its badge PALETTE position with
-  everything unlisted tying at the back, a stable sort so rows equal on all
-  five keep walk order. Text compares case-FOLDED, the way the tags cell
-  already folds: the browser collates with `localeCompare`, which is
-  case-insensitive at its primary strength, and raw code-point order would put
-  every capitalised title ahead of every lowercase one where the table shows
-  them interleaved. Titles differing only by punctuation or script can still
-  land elsewhere than `localeCompare` would put them — the residue of having no
-  collation library on this side.
-  `sortedForViewWith`/`orderedForViewWith` take the state palette; the
-  palette-free `sortedForView` derives one from the records it is given, which
-  orders those records correctly and can differ from the store's in one case
-  (two files declaring the same keywords in opposite orders, and a filter that
-  hides every row of the first). A caller holding the store's palette should
-  pass it.
-- `glance scan` folds org-glance's write-ahead index and says where it and this
-  parser disagree: `org-glance index: 21 rows disagree (20 state, 1 archived)`,
-  with the store, the fold's counts, the blob counts, and up to ten disagreeing
-  ids carrying both values. Read only — the one thing here that opens
-  `.org-glance/meta/` at all, and it never writes, creates or seals anything.
-  The fold is `org-glance-graph--latest-records` term for term: the MANIFEST's
-  sealed segments oldest-first, the open `headlines.jsonl` last, the latest
-  record per `ORG_GLANCE_ID` superseding every earlier one, tombstoned ids out,
-  only the open segment's final line forgiven for being torn. It compares the
-  TODO keyword always and the archive flag only where the record carries the
-  key — `archived` joined the record schema late, so absent is a third answer
-  rather than false. Stores are each root's own `.org-glance/meta` plus every
-  `meta` the walk declined, so a nested store is compared without a second
-  traversal; a tree org-glance never indexed prints no line.
-  ~/sync/views at 2026-08-02: 6502 records read, 6071 live, 0 tombstones, 0
-  malformed; 6063 blobs parsed; 21 rows disagreeing; 0 unindexed blobs.
-- The same report counts what the instrument cannot compare: `blobs 6063
-  parsed, 51 carrying no id` is blobs this parser read and found no
-  `ORG_GLANCE_ID` in, which with the 8 parse failures accounts for all 59
-  `records without blobs` — so none of that number is org-glance indexing
-  something that is not there. 28 of the 51 are one parser gap: a non-English
-  weekday in the planning line (`CLOSED: [2025-12-04 do 22:34]`) fails the
-  planning parse, the property drawer is then no longer the next thing, and the
-  headline loses its properties whole. Reported rather than fixed; without the
-  count it read as index lag.
-- A row whose subtree holds a link wears an UNDERLINED title, so which rows `o`
-  has something to follow is on screen before the press. `/headlines` and every
-  streamed row carry `"linked": true` where there is a link and carry nothing
-  where there is not (SCHEMA.md's Row, additive and sparse); the renderer
-  underlines the `title` cell and leaves its colour alone, which keeps the mark
-  clear of the four row washes and the two selection bands — a linked row under
-  the cursor still reads as linked. It is every link `GET /links` would report
-  rather than the references `ref:` matches, since that is what `o` follows:
-  ~/sync carries 4976 linked rows against 1824 referencing ones. An underlined
-  row whose only link is a `mailto:` still warns on commit — the underline says
-  there is a link, never that a tab can take it.
-- `^` sorts the table by the column at point, which is the cell selection's:
-  `f`/`l` pick a column and `^` orders by it, echoing `^ → toggle-sort
-  (Scheduled ▲)`. A second press reverses it and a third is the first again —
-  two states, because the renderer's handle states an order and offers no call
-  that takes one off. A whole-row selection is refused rather than guessed at
-  (`no column selected — f/l to pick one`), a column that declares no `sortable`
-  is left alone, and a held `^` counts as one press. The order survives a filter
-  refetch and a socket splice; a remount takes the view's declared sort back.
-- Every column of `/headlines` declares `sortable: true`. SCHEMA.md makes the
-  field opt-in and this producer opts all six in — a state cycle, a priority
-  letter, a title, the tags, and the two dates all mean something in order —
-  where `title` and `tag` had been left out. It is what a header click and `^`
-  read; a producer's own `sortBy` never consulted it.
-- `:` manages tags over the marked rows, or the row at point: a which-key
-  palette of the set's own tags where a letter toggles one under dired's
-  normalize-up rule — a tag every row carries comes off all of them, one only
-  some of them carry goes on to the rows that lack it, and a partial entry wears
-  its count. The palette stays open across commits and refreshes from what the
-  write answered. `/` and `+` are two doors into one field, completing over the
-  tags the set can still be given — the tree's vocabulary less what every target
-  already carries — and taking a tag nobody has used yet as typed; `ESC` there
-  steps back to the letters.
-- `POST /command` takes `add-tag {tag}` and `remove-tag {tag}`, batched per file
-  and answered per id like every other command; a tag the org parser would not
-  read back refuses the whole request.
-- `GET /tags?ids=…` reports what the named rows are tagged with and the whole
-  store's tag vocabulary.
-- `d`, `D` and `u` delete from the materialize sheet's property panel, the way
-  they archive a row in the table: `d` flags, a second `d` or `D` deletes every
-  flagged row, `u` unflags, and a held key counts as one press. A property is
-  dropped and one of org's three planning rows has its entry cleared instead.
-- The arrows step a cell as well as a row: `<left>`/`<right>` are
-  `previous-column`/`next-column` beside `b`/`h` and `f`/`l`, and the key line
-  is unchanged — an arrow rides behind its letters the way `<up>`/`<down>`
-  always have.
-- The page says when what is on screen has gone stale: one wash — faded back,
-  never blurred — over the table and anything open above it, armed by a view
-  fetch out past 300 ms or a socket down past 400 ms, and cleared by the answer
-  or the reconnect. The status corner, the event log and the key line stay
-  bright, being where a reader finds out why.
-
-### Changed
 - **BREAKING: combination is one rule — TOKENS AND, ALTERNATIVES OR.** Every
   `?q=` token narrows, whether or not another token names its key. `tag:a tag:b`
   is a row carrying both and `ref:a ref:b` one pointing at both, as before;
@@ -605,7 +401,326 @@ section groups a feature arc, and its date is that arc's last commit.
   total, since neither sheet opens over the other. Behaviour is unchanged — the
   harness drives both sheets through pristine, dirty, conflict and discard.
 
+### Added
+- LINKS ARE WRITEABLE, which is the write boundary the popup was waiting on.
+  `GET /links` now carries a per-link `span` — the half-open CHAR range the link
+  occupies in the FILE — and the file's `digest`, and `POST /command` implements
+  an eighth name, `edit-link {span, target, desc}`, which splices exactly that
+  range. The scanner grew the offsets rather than gaining a second pass: one
+  `linkParts` answers all three questions asked of a bracket link (what it SHOWS,
+  where it POINTS, where it SITS), `linkAt` reports the WIDTH it consumed so a
+  scan costs the links it finds rather than the tail behind each of them, and
+  `subtreeLinks` shifts the subtree scan's spans into document offsets — the
+  currency `Data.Org.Edit` splices in. A target spelled twice is still ONE entry
+  and the entry is now the first occurrence's description AND span, so an edit
+  through a deduplicated link edits the first spelling and the others stand.
+  THE FORM IS PRESERVED, which is what makes it a link edit rather than a rewrite
+  of the text around one: `[[T][D]]` keeps its description under a target-only
+  edit, `[[T]]` stays desc-less, a plain URL swaps its target and stays plain,
+  and a description ARRIVING is the one thing that changes a shape — a plain URL
+  has nowhere to write one, so it brackets. ABSENT IS NOT NULL, the `args`
+  discipline (`.:!`) reaching its first non-keyword field: a request saying
+  nothing about the description leaves the author's, `null` takes it off, and a
+  description that SHOWS nothing is the null spelled another way, since
+  `[[T][]]` shows its target — the emptiness test strips and the value is
+  written verbatim, content being nobody's to trim, which is the target's own
+  rule (a whitespace target is refused, a spaced one is written as given). TWO
+  WALLS, both 400 naming what they turned down:
+  the span must sit inside the ROW's own subtree — a span outside it would let
+  one row's write reach bytes no reader of that row was shown, under that row's
+  digest — and cover exactly one link edge to edge; and the REPLACEMENT must read
+  back as THE LINK IT CLAIMS TO BE, which reparses and COMPARES rather than
+  checking the shape (a target spelling `a][b` renders `[[a][b]]`, one link
+  pointing at `a` described `b`, neither of them asked for). A newline in either
+  half is refused ahead of both, being the one thing reparsing cannot catch: the
+  scanner has no line rule, so the link reads back as itself and lands a column-1
+  star that the ORG parser reads as a new headline. `Data.Org.Edit` is
+  content-agnostic by law, so this is the layer that owes all three. `edit-link`
+  is also the only command that names ONE ROW: its args name a row's own
+  CHARACTERS, so a span means nothing to a second row and over two files would
+  name a different range in each. That rule is its own `csArgs`, which is handed
+  the ids beside the `args` (see Changed).
+- `RET` over the link popup EDITS the link at point, and the stub that named the
+  missing write is gone. The title and url cells become fields over themselves
+  (`LROW`, the shared edit overlay's THIRD shape), `TAB` hops, `RET` commits
+  `edit-link` over the span `/links` handed out under the digest that answer
+  carried, and `ESC` restores — the property panel's edit model exactly, so a
+  panel row, a tag and a link are edited alike and the derived type cell never
+  opens. The overlay's `cell` flag became a `cells: [FROM, TO]` RANGE over the
+  row's non-gutter cells, which is the one generalization the third surface
+  needed (`[0, 0]` for the tag rename, `[1, 2]` for a link, absent for the whole
+  row). `fire` gained a trailing `pin`, so a command measured against a text can
+  say which one; the commands naming a PROPERTY of a row send none. The page
+  holds no bracket grammar and no offsets of its own: it sends the range it was
+  given and the two strings a reader typed, and the untouched FIELD is what makes
+  absent-not-null reachable — the description field opens on what the link SHOWS,
+  which for a link carrying none of its own is its target, so a field left alone
+  sends no `desc` at all. THE POPUP CLOSES ON THE PRESS, both outcomes alike,
+  which is `o`'s own rule and is forced rather than chosen: the spans it holds
+  describe a file the write has just moved, the store does not know yet
+  (`/command` never writes it — the watch does, a debounce later), and a re-read
+  HERE would answer with what the file said BEFORE the write, which is the tags
+  popup's own documented reason for folding answers instead. `o` again is one
+  keystroke and comes back with fresh spans, descriptions and types. KNOWN
+  CONSEQUENCE, stated rather than worked around: the popup is also the only
+  editor, so a row holding exactly ONE link is followed and never listed, and
+  that link has no editor — a key that LISTS whatever the count is would settle
+  it.
+- The log strip's height is a preference, and it is STATIC. It grew to what had
+  arrived and stopped at seven of its own line boxes; it is now exactly that
+  many, always, whatever it is holding — a fixed frame the messages scroll
+  inside. A strip that grew was the table resizing under a reader's cursor every
+  time a write logged a line, which is the one thing a keyboard surface must not
+  do, and a quiet page now reads the same as a busy one. The figure is a
+  `localStorage` preference edited from the settings sheet's GENERAL panel
+  (`#clog`, the third row under `default view` and `capture target`). The
+  stylesheet keeps the arithmetic and declares the default — `#log{ …
+  --g-logn:7; height:calc(var(--g-logn) * 1.5em + 2 * 6px + 2 * 1px);
+  flex:none … }` — and the knob
+  writes a NUMBER onto the element (`style.setProperty("--g-logn", …)`), so
+  there is one formula in one place and a page whose glue has not run — or a
+  reader who never touched the field — gets the same figure the sheet
+  would put back. Stored under `glance-log` beside `glance-theme`, applied on
+  boot and on every accepted keystroke, on `input` rather than `change` so the
+  field is a knob rather than a form. `LOG = {key:"glance-log", def:7, min:1,
+  max:50}` in the glue is mirrored in Haskell as
+  `logLinesDefault`/`logLinesMin`/`logLinesMax` and `logLinesBand` (the
+  placeholder's `1–50`) — the same constants the stylesheet's declared value is
+  spelled from, so the two cannot drift. Blank is the default, which is how a
+  reader asks for it back, and it REMOVES the key rather than storing `""` — a
+  preference spelling the empty string is still a preference. A whole number
+  inside the band is that number;
+  everything else is DECLINED rather than clamped, so the height a reader had
+  stands, nothing is stored, and reopening the sheet draws the preference back
+  over the refused value — half a number on the way to a whole one is the
+  ordinary case of that. A stored value the band no longer takes falls back to
+  the default, the boot reading it through the same check. The panel says where a preference is READ rather than
+  what writes it: `cmoved` never sees `#clog`, so the knob costs no request and
+  cannot make a pristine sheet dirty. The table takes the whole of the rest
+  (`#app` is `flex:1 1 auto`, the strip `flex:none`). `LOGCAP` = 500 is the
+  strip's RING (how many lines it keeps) and is a different limit, unchanged.
+- **The order is part of the query.** `sort:COL` orders the answer by that
+  column and `sort:COL:desc` reverses it; written order is precedence, so
+  several tokens compose a chain (`sort:state sort:deadline` is state with
+  deadline settling its ties). The token NARROWS NOTHING — it states an order
+  and leaves the set to the predicates beside it — which makes it the one key in
+  the grammar that is no predicate, and `?q=sort:deadline&limit=100` is
+  therefore the first hundred rows OF THAT ORDER rather than a hundred arbitrary
+  rows a browser then re-sorts. What the view declares is the effective chain,
+  so what a client is told and what it is served stay one fact.
+  A query naming any sort key replaces the default chain; naming none leaves it
+  standing, which keeps the default invisible until a reader diverges from it.
+  Refusals are per token and name it: one column, one direction, so a negation
+  (`-sort:x`), an alternation (`sort:a|b`), a column that is not there and a
+  direction other than `asc`/`desc` are each a 400, as is a column named twice.
+  DOCUMENT ORDER is a token too: `sort:*none*` is the EMPTY CHAIN — walk order
+  whatever the limit, and no `sort` field on the wire for a renderer to
+  re-apply — and it wears the stars because it is a reserved meta rather than a
+  column, the family `*empty*`/`*archive*`/`*active*`/`*inactive*` already being
+  in. It ADMITS NO COMPANIONS: another sort key beside it, or a direction on it,
+  is a 400 naming the meta, two orders in one query being a reader who meant one
+  of them. The half-typed `sort:` is no companion, naming nothing either way.
+  `^` is that grammar's key: it composes the chain the way it always did — the
+  column at point to the head, or a flip where it already leads — and now WRITES
+  IT INTO THE QUERY, so the press is an ordinary commit. The URL carries the
+  order, `DEL` walks the keys back off one at a time, a `?q=` link opens in the
+  order it names, and the daemon is asked for the order the reader just stated.
+  The shell keeps no record of a sort and asks the renderer for none.
+  New module `Glance.Web.Sort` beside `Glance.Web.Filter`: one query, split by
+  what a token does — narrow, or order — over one scanner.
+- **The default order opens on state, in the tree's own cycle.**
+  `defaultSortChain` is state, title, deadline, scheduled, all ascending, with
+  state read by BADGE PALETTE position — which is the order your `#+TODO:` line
+  spells — so the table opens with the work in org's order rather than
+  alphabetically, and the title settles rows sharing a state. Priority left the
+  chain: a fifth key behind four that have already separated nearly every pair
+  of rows, and `sort:priority` is how to ask for it.
+- **`a` carries its own order.** The agenda query is
+  `state:*active* -planned:*empty* sort:scheduled`, so the whole canned view is
+  one string: the server answers page one in that order, `DEL` walks out of it
+  like any other token, and nothing has to be asked of the renderer once the
+  rows are up.
+- The tags list on `:` is a MUTABLE MOUNT — the page's fourth table-view mount
+  (`#ttable`), after the table, the property panel and the link popup. Three
+  columns, declared server-side in `Glance.Query.tagColumns`: the tag, its
+  COVERAGE over the rows the command would run over (`all`, or `2/3`), and how
+  many rows the whole tree has under it. `GET /tags` grew the third as `counts`,
+  one pass over the store's rows per request — `stTags` counts FILES, which is a
+  different question. A tag is its row's id, so a flag, the cursor and a rename
+  all name the same thing after any number of writes.
+  It replaces the which-key palette that carried this list, and the letters go
+  with it: a keyword is a single word committed from memory and a tag over a set
+  of rows is a RECORD a reader has to read. The tell was the muted `3/5` aside —
+  a palette entry that needs a note about itself is a record wearing a letter.
+  The which-key machinery is now the state palette's alone (`prompting.sticky`,
+  `letterMode` and `prompting.letters` are gone with it).
+  Gestures are the ones this page already spells, borrowed rather than invented:
+  `d` flags a tag red and a second `d` — or `D` — removes every flagged tag from
+  every target carrying it, one `remove-tag` per tag and the flags spent, which
+  is dired's and the table's own archive gesture; `u` unflags; `+` raises the
+  value palette's completing field over the addable vocabulary and adds; `RET`
+  opens the tag cell as a field over itself, which is the property panel's edit
+  overlay over one cell.
+- `POST /command rename-tag {from, to}` — the seventh command, and the write
+  behind that `RET`. `Glance.Query.renameTagEdits` REPLACES the entry where the
+  author put it, so `:a:work:b:` renamed to `projects` is `:a:projects:b:` and
+  the run's order, its delimiters and every other byte stand. It is a command
+  rather than a `remove-tag` and an `add-tag` fired in turn because of what those
+  two edit sets compose to. They APPLY — removing a LAST entry ends where the
+  addition inserts, and `applyEdits` rejects only overlap — and they write the
+  wrong thing twice over: the addition's anchor is measured before the removal,
+  so a lone tag lands flush against the title (`* TODO Ship itprojects:`), and
+  independently of the anchor `add-tag` appends at the run's end, so an entry
+  with neighbours comes back moved to it. The pair would also be two writes under
+  two digests where this is one drift-locked splice per file. One tag once: the
+  first entry spelling `from` becomes `to`, further ones are cut, and a row
+  already carrying `to` loses `from` instead. Both ends take the parser's charset
+  wall, a row not carrying `from` costs no edit, and rename-then-rename-back is
+  the identity on the bytes.
+
+- The view declares a SORT CHAIN rather than one key (`declaredSort`, over
+  `Glance.Query.defaultSortChain` — whose keys are the entry above, state
+  leading). SCHEMA.md's `sort` takes an array for exactly this and both
+  renderers run every key of it, so the keys behind the first fire only where
+  two rows are alike on everything ahead of them. The browser draws the chain as
+  a chip per key beside the filter's chips; `table-view.el` prints it on its
+  hint line.
+  ONE list, read twice — `declaredSort` spells it onto the wire and
+  `sortedForViewWith` arranges the rows by it — which is the whole reason a
+  producer sorts at all: a page cut out of a different order than the one
+  declared is a different set of rows than the table would have put there.
+  The arrangement is the renderers' rules, term for term: empty cells last on
+  each key and OUTSIDE that key's direction (a blank is a fact about a cell,
+  never about a row), the state column by its badge PALETTE position with
+  everything unlisted tying at the back, a stable sort so rows equal on every
+  key keep walk order. Text compares case-FOLDED, the way the tags cell
+  already folds: the browser collates with `localeCompare`, which is
+  case-insensitive at its primary strength, and raw code-point order would put
+  every capitalised title ahead of every lowercase one where the table shows
+  them interleaved. Titles differing only by punctuation or script can still
+  land elsewhere than `localeCompare` would put them — the residue of having no
+  collation library on this side.
+  `sortedForViewWith`/`orderedForViewWith` take the state palette; the
+  palette-free `sortedForView` derives one from the records it is given, which
+  orders those records correctly and can differ from the store's in one case
+  (two files declaring the same keywords in opposite orders, and a filter that
+  hides every row of the first). A caller holding the store's palette should
+  pass it.
+- **This daemon writes a file into org-glance's `meta/` for the first time:
+  `EXTERNAL.jsonl`.** Every write to a BLOB — a document under
+  `.org-glance/data/` — appends one JSON line, `{"id", "at"}`, naming the blob's
+  first headline's `ORG_GLANCE_ID` and when it was written, so org-glance can
+  see that its index is behind and refold that entry. It is the answer to a
+  measured problem: a live store went from 21 to 39 drifted rows in ONE DAY of
+  browser use, the index having no way to learn about a write it did not make.
+  ONE DOOR carries it — `Glance.Query.replaceSpans`, which is the only
+  `editFile` caller and the way all four write paths leave — and the note rides
+  the SUCCESS branch alone. `Data.Org.Edit.editFile` itself was rejected as the
+  site: it is content-agnostic by law and a note is content. `Data.Org.External`
+  owns the format, the path and the append, and `isBlob` decides which writes
+  note at all — documents, config, overviews and occurrences note nothing.
+  Append-only, hand-assembled field order (so the line is a contract rather than
+  whatever a `ToJSON` instance emits), and a failed note is SWALLOWED: the
+  rename already happened, and a write that succeeded must not be reported as
+  one that did not.
+  Found by the concurrency test rather than by review: `BS.appendFile` is NOT
+  atomic — eight concurrent writes produced FIVE lines, `AppendMode` writing at
+  the offset the handle was opened at — so the append is an `openFd` in append
+  mode and one `fdWriteBuf`.
+- `glance scan` folds org-glance's write-ahead index and says where it and this
+  parser disagree: `org-glance index: 21 rows disagree (20 state, 1 archived)`,
+  with the store, the fold's counts, the blob counts, and up to ten disagreeing
+  ids carrying both values. Read only — the one thing here that opens
+  `.org-glance/meta/` at all, and it never writes, creates or seals anything.
+  The fold is `org-glance-graph--latest-records` term for term: the MANIFEST's
+  sealed segments oldest-first, the open `headlines.jsonl` last, the latest
+  record per `ORG_GLANCE_ID` superseding every earlier one, tombstoned ids out,
+  only the open segment's final line forgiven for being torn. It compares the
+  TODO keyword always and the archive flag only where the record carries the
+  key — `archived` joined the record schema late, so absent is a third answer
+  rather than false. Stores are each root's own `.org-glance/meta` plus every
+  `meta` the walk declined, so a nested store is compared without a second
+  traversal; a tree org-glance never indexed prints no line.
+  ~/sync/views at 2026-08-02: 6502 records read, 6071 live, 0 tombstones, 0
+  malformed; 6063 blobs parsed; 21 rows disagreeing; 0 unindexed blobs.
+- The same report counts what the instrument cannot compare: `blobs 6063
+  parsed, 51 carrying no id` is blobs this parser read and found no
+  `ORG_GLANCE_ID` in, which with the 8 parse failures accounts for all 59
+  `records without blobs` — so none of that number is org-glance indexing
+  something that is not there. 28 of the 51 are one parser gap: a non-English
+  weekday in the planning line (`CLOSED: [2025-12-04 do 22:34]`) fails the
+  planning parse, the property drawer is then no longer the next thing, and the
+  headline loses its properties whole. Reported rather than fixed; without the
+  count it read as index lag.
+- A row whose subtree holds a link wears an UNDERLINED title, so which rows `o`
+  has something to follow is on screen before the press. `/headlines` and every
+  streamed row carry `"linked": true` where there is a link and carry nothing
+  where there is not (SCHEMA.md's Row, additive and sparse); the renderer
+  underlines the `title` cell and leaves its colour alone, which keeps the mark
+  clear of the four row washes and the two selection bands — a linked row under
+  the cursor still reads as linked. It is every link `GET /links` would report
+  rather than the references `ref:` matches, since that is what `o` follows:
+  ~/sync carries 4976 linked rows against 1824 referencing ones. An underlined
+  row whose only link is a `mailto:` still warns on commit — the underline says
+  there is a link, never that a tab can take it.
+- `^` sorts the table by the column at point, which is the cell selection's:
+  `f`/`l` pick a column and `^` orders by it, echoing `^ → toggle-sort
+  (Scheduled ▲)` and, past one key, the length of the chain. A whole-row
+  selection is refused rather than guessed at (`no column selected — f/l to pick
+  one`), a column that declares no `sortable` is left alone, and a held `^`
+  counts as one press. What the press DOES with the order is the query entry
+  above: it writes the chain into `?q=` and the daemon answers in it.
+- Every column of `/headlines` declares `sortable: true`. SCHEMA.md makes the
+  field opt-in and this producer opts all six in — a state cycle, a priority
+  letter, a title, the tags, and the two dates all mean something in order —
+  where `title` and `tag` had been left out. It is what a header click and `^`
+  read; a producer's own `sortBy` never consulted it.
+- `:` manages tags over the MARKED rows, or the row at point, under dired's
+  normalize-up rule: a tag every target carries comes off all of them, one only
+  some of them carry goes on to the rows that lack it, and a partial entry says
+  how far it reaches. It stays up across its own writes and refreshes from what
+  each one answered. `+` opens a completing field over the tags the set can
+  still be given — the tree's vocabulary less what every target already carries
+  — and takes a tag nobody has used yet as typed. The SURFACE it draws on is the
+  mutable mount above, which replaced the which-key palette this landed as.
+- `POST /command` takes `add-tag {tag}` and `remove-tag {tag}`, batched per file
+  and answered per id like every other command; a tag the org parser would not
+  read back refuses the whole request.
+- `GET /tags?ids=…` reports what the named rows are tagged with and the whole
+  store's tag vocabulary.
+- `d`, `D` and `u` delete from the materialize sheet's property panel, the way
+  they archive a row in the table: `d` flags, a second `d` or `D` deletes every
+  flagged row, `u` unflags, and a held key counts as one press. A property is
+  dropped and one of org's three planning rows has its entry cleared instead.
+- The arrows step a cell as well as a row: `<left>`/`<right>` are
+  `previous-column`/`next-column` beside `b`/`h` and `f`/`l`, and the key line
+  is unchanged — an arrow rides behind its letters the way `<up>`/`<down>`
+  always have.
+- The page says when what is on screen has gone stale: one wash — faded back,
+  never blurred — over the table and anything open above it, armed by a view
+  fetch out past 300 ms or a socket down past 400 ms, and cleared by the answer
+  or the reconnect. The status corner, the event log and the key line stay
+  bright, being where a reader finds out why.
+
 ### Fixed
+- **A property key may hold a digit, an underscore or a non-Latin letter, and
+  the drawer survives.** `propertyKeyP` is org's own rule now — any run without
+  whitespace or a colon — where it had been the narrow keyword charset, so
+  `:TELE2:` and `:ZhKH:` stopped the drawer dead and everything under them
+  became body text. Reported against a real tree. Deliberately WIDER than
+  `keywordTextP`, whose narrowness is what makes a starred meta undeclarable:
+  the two walls guard different things, and a property key is the author's word
+  where a TODO keyword is a value this producer has semantics for. The reserved
+  `PROPERTIES`/`END` guard is untouched, being what terminates the drawer.
+- **An archived row spends its MARK along with its flag.** A mark is the
+  renderer's and survives a `setRows` and a filter that hides its row — which is
+  what makes it useful, and what left an archived row marked where no reader
+  could see it: `markedCount()` counted it, `U` and `M` answered about it, and it
+  came back marked the moment anyone looked at `tag:*archive*`. Only the rows the
+  answer says LANDED are spent, and none at all where the request itself failed;
+  the spending is the ARCHIVE gesture's rather than `fire`'s, since a name test
+  in the shared path would be one every command added after it has to be read
+  against.
 - **A freshly booted page has a row under the keys.** A mount has no cursor of
   its own — the renderer selects nothing until it is asked to, `selectFirstVisible`
   having one caller and it being the filter box handing over — so `d`, `D` and

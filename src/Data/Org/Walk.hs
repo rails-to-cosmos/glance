@@ -60,6 +60,8 @@ import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
 import System.FilePath (joinPath, splitDirectories, takeExtension, takeFileName, (</>))
 import System.Posix.Files (FileStatus, getFileStatus, getSymbolicLinkStatus, isDirectory, isSymbolicLink)
 
+import Data.Org.Index (metaDir)
+
 import qualified Data.Char as Char
 import qualified Data.Text as T
 
@@ -84,8 +86,13 @@ defaultWalk = WalkOptions False
 
 -- | The directories under a @.org-glance@ one that hold derived buffers.
 -- @data@ is absent on purpose — it is the canonical store.
+--
+-- The index directory is 'Data.Org.Index.metaDir' rather than a second spelling
+-- of the same name: that module owns the store layout, and a walk that declined
+-- a directory the index no longer wrote to would be excluding nothing while
+-- reading as though it were.
 derivedDirs :: [FilePath]
-derivedDirs = ["overviews", "meta"]
+derivedDirs = ["overviews", metaDir]
 
 -- | org-glance's store layout, as the three names the rules below ask for: the
 -- canonical store directory, the one directory inside a blob that is history

@@ -388,9 +388,15 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   where the rename is one. `commandNames` is its keys, the
   per-name request-shape guards are each entry's own `csArgs`, and only
   `set-planning` is `csDated` — the one command whose date is read against the
-  server's today — and only `edit-link` is `csOne`: its args name a row's own
-  TEXT (CHARACTERS, like every span here), so a span means nothing to a second
-  row and over two files would name a different range in each.
+  server's today. `csArgs` is handed the IDS beside the `args`, because a shape
+  refusal is about the REQUEST rather than about the `args` object alone: only
+  `edit-link` reads them, its args naming a row's own TEXT (CHARACTERS, like
+  every span here), so a span means nothing to a second row and over two files
+  would name a different range in each. `wantsLink` owns that message and puts
+  it FIRST — the row count is the coarsest thing wrong with the request, and
+  naming a missing span instead would answer the smaller question. Seven of the
+  eight entries ignore the list, which is what a rule only one command has looks
+  like when it is not lifted into a flag every entry must answer.
   `parseCommand` resolves the name BEFORE anything else and a
   `Command` cannot be built without the entry it resolved to, so nothing below
   has an arm for a name this server does not implement.
@@ -400,8 +406,8 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   the order the ids were named). Request-shape refusals are 400 with nothing
   written — a bad body, an unimplemented name, no ids, a keyword ANY named row's
   CHAIN does not declare (named with the row), a `set-planning` date no
-  parser reads, more than one id where a command names one (`csOne`), and
-  `edit-link`'s own four — no span, an empty or padded target, a span that is
+  parser reads, and `edit-link`'s own five — more than one id, no span, an
+  empty or padded target, a span that is
   outside the named row's subtree or is not one whole link, and a replacement
   that would not read back as the link it claims to be. Each of those refuses the
   WHOLE request rather than moving the rows it could, as does a
@@ -650,9 +656,14 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   would make `-sort:x` the query that empties the table. A query naming any sort key REPLACES
   the chain it was asked under, one naming none leaves it standing, so the
   DEFAULT CHAIN IS INVISIBLE — tokens appear only on divergence, the same
-  pattern as the default view's injection. `?order=` picks the base the query
-  overrides (`document` = the empty chain), so `order=document&q=sort:title` is
-  title's.
+  pattern as the default view's injection. `sort:*none*` is the EMPTY CHAIN and
+  the query's whole vocabulary for document order: a starred meta, so no column
+  is called it and no cell holds it, and it ADMITS NO COMPANIONS — a sort key
+  beside it (or a direction on it) is a 400 naming the meta, since a reader who
+  wrote both meant one of them. The half-typed `sort:` is no companion, naming
+  nothing either way. `?order=` was the older half and is GONE: present at all it
+  is a 400 naming its replacement, because a parameter silently ignored would
+  serve the default order and look exactly like a working request.
 - ONE COLUMN, ONE DIRECTION: a negation, an alternation, a column no view
   carries, a direction that is neither `asc` nor `desc`, and a column named
   twice are each the whole request's 400 naming the token. `sort:` half-typed
@@ -809,13 +820,16 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
     into `hrSearch`, `recordOf` tying the record through its own cells. A cell
     is `HeadlineRecord -> Maybe Text`: `Nothing` is the row JSON's `null` and the
     empty field a filter reads. `TestFilter`'s layout guard keeps its hardcoded
-    six-cell list, which is now the one copy of the layout NOT derived from the
-    table — an independent oracle rather than a mirror. What used to go green
-    was the APPEND: a seventh column left the hand-written search list six
-    fields long and every predicate past it read the wrong field. A REORDER was
-    already caught, by the predicate cases (`TestFilter` 622-645) reading actual
-    cells. The append is closed by construction now, plus a case quantified over
-    the columns there are ("every column is reachable by the key it declares").
+    six-cell list ON PURPOSE — it is the one copy of the layout NOT derived from
+    the table, so it is an INDEPENDENT ORACLE rather than a mirror, and a guard
+    derived from `viewColumns` would agree with any reordering of it. What used
+    to go green was the APPEND: a seventh column left the hand-written search
+    list six fields long and every predicate past it read the wrong field. A
+    REORDER was already caught, by the predicate cases (`TestFilter` 622-645)
+    reading actual cells. The append is closed by construction now, plus a case
+    quantified over the columns there are ("every column is reachable by the key
+    it declares"). What still moves by hand is `Filter.dateKeys` and
+    `Filter.keyTest`'s name switch, neither of which is positional.
   - Which column holds a LIST is chosen by NAME here (`tagsColumn` = the index
     of `tag`) and DECLARED to the renderer: the `tag` column emits
     `"multi": true`, which beats its sampling (`multiColumn` over ≤40 non-empty
@@ -1144,6 +1158,27 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   landed in table-view at 079fa20. The pair is still feature-detected: an asset
   predating it echoes `this table-view.js has no archive flags` and writes
   nothing, and `D` there falls through to the row at point.
+- ONE `d`/`D`/`u` GESTURE OVER THREE SURFACES — the table, the property panel and
+  the tags popup — and `flagKey` is the whole of it: the cursor read, the
+  two-press rule, the set-or-row choice, the spending of the flags before the
+  take, the feature refusal and the walk after `u`. A surface DECLARES a shape:
+  its mount, its cursor as an id, what "take these" means, what it LOGS when a
+  flag moves, its walk, and four PHRASES (missing, none, flag, unflag). WHO
+  SPEAKS belongs to the caller rather than to the shape — the popups say
+  `KEY → phrase` out of
+  a listener holding no binding, the table says it through `said`, which spells
+  the binding's own command name and brackets the phrase — so a phrase is the
+  whole line on one surface and the bracket on another, and `d` and `D` echo
+  `archive-flag` and `org-glance-overview:delete` out of one gesture.
+  The table's shape is a FUNCTION of the binding for exactly that reason. The
+  CURSOR is asked for before the FLAGS: `D` means "take these" and a lone row is
+  a set of one, so it lands on a mount whose renderer never had flags, while the
+  two presses that MOVE a flag are what the refusal is for. `HOW` words the pill
+  and is a function of what LANDED — the popups' takes are local and total and
+  call it with the size of the set; the table's is a write that can come back
+  partly refused. `u`'s flag-before-mark stays in `mark`: over the popups `u` is
+  the flag key, over the table it is the MARK key preferring a flag, and that
+  asymmetry is the table's own — what it hands over is the key.
 - `t`/`C-c C-t` raise a value palette of the shell's OWN, and what it shows is
   the RESOLVER'S TRUTH: `GET /keywords?ids=…` answers with the classification
   chain behind those rows, and the palette draws it as a table — Source |
@@ -1178,6 +1213,34 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   dispatch, and `t` is both the opener and a letter), and `e.repeat` stops a HELD
   `t` committing through what it opened — `ONCE` cannot reach it, since it
   governs dispatch rows and the repeat lands while every row is dead.
+- AN EDIT OVERLAY NAMES ITS CELLS BY KEY. A shape carries `cells: ["title",
+  "url"]` (the link popup) or `cells: ["title"]` (the tags popup) beside the
+  `cols` list the SERVER declared (`Glance.Query.linkColumns`, `tagColumns`), and
+  `cellSpan` resolves the keys to the leftmost and rightmost indices the
+  placement reads — a pure, order-only function, so a column list that moves
+  takes the box with it and inserting a column ahead of the run costs nothing.
+  The run is the COLUMNS' order rather than the shape's, a box being drawn edge
+  to edge. An unknown key resolves to nothing and the placement is a NO-OP: the
+  box stays where it was rather than covering the wrong cells. Replaced a
+  positional pair with nothing tying it to the list it indexed. The property
+  panel names no cells and takes the whole row; the gutter `flags: true` puts in
+  front is skipped by the renderer's own class.
+- THE MODAL SURFACES ARE ONE ORDERED LIST, `SURFACES`: the property panel (whose
+  listener registers AHEAD of the dispatch and so sees a key first), then the
+  three behind it in the order they are written — the value palette, the link
+  popup, the tags popup. Rank IS registration order, which is a fact about the
+  page rather than a preference. Each entry names its `up`, the `off` that closes
+  it, and the OPEN EDIT that is a rung under it. THREE READERS AND NO FOURTH:
+  `typing()` asks whether any is up (which kills every `table` row), `cancel`
+  walks it for the rung ESC belongs to — the sheet is the floor under it, since
+  the panel names no `off` — and a listener asks `covered(NAME)` whether anything
+  ABOVE it is up before claiming a key. The five listeners STAY, and so does
+  `prompting.raising`: `covered` is one surface declining for ANOTHER, `raising`
+  is one surface declining the single keydown that RAISED it, and a rank says
+  nothing about a race with only one surface in it. The surfaces are mutually
+  exclusive in practice — each is raised from a `table` key, which `typing()` has
+  already killed by the time another is up — so the ORDER decides nothing a
+  reader can reach; it is the listeners'.
 - `:` (`org-agenda-set-tags`) raises the TAGS POPUP, the page's FOURTH
   table-view mount (`#ttable`) and the only MUTABLE one. A tag over a set of rows
   is a RECORD — a name, a coverage, a weight in the tree — and a reader deciding
@@ -1239,10 +1302,8 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   POPUP, the page's THIRD table-view mount, raised LATE — the answer decides
   whether there IS one. It browses; `RET` is its one write.
 - `RET` over the link popup EDITS the link at point in place: the title and url
-  cells become fields over themselves (`LROW`, the shared overlay's third shape,
-  `cells: [1, 2]` — a positional index into `Glance.Query.linkColumns` with
-  nothing tying the two together, and the derived type cell never opens), `TAB`
-  hops, `RET` commits
+  cells become fields over themselves (`LROW`, the shared overlay's third shape),
+  `TAB` hops, `RET` commits
   `edit-link` over the SPAN `/links` handed out under the digest that answer
   carried, and `ESC` restores. The page holds no bracket grammar and no offsets
   of its own: it sends the range it was given and the two strings a reader typed.
@@ -1321,8 +1382,10 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   The family: `*empty*` (the empty cell, EVERY column key and `planned`,
   decided off the cell so both sides answer it alike), `*archive*` (the whole
   ARCHIVE tag on the `tag` column, and the one query that lifts `/headlines`'s
-  exclusion), and `*active*`/`*inactive*` (the filter's group metas,
-  producer-evaluated). The state palette's take-the-keyword-off entry is
+  exclusion), `*active*`/`*inactive*` (the filter's group metas,
+  producer-evaluated), and `*none*` (the ORDER's empty chain, under `sort:`
+  alone, which is the one meta that names no cell at all). The state palette's
+  take-the-keyword-off entry is
   `*empty*` too — it takes the cell to what `state:*empty*` then finds — and it
   commits a null keyword, answering to `DEL` rather than to a pool letter.
   `*active*` is the file's active keywords PLUS the EMPTY state cell — a

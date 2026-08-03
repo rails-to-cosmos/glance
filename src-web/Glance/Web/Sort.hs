@@ -11,8 +11,8 @@
 -- A sort token names ONE column in ONE direction: @sort:COL@ ascends,
 -- @sort:COL:desc@ descends, @sort:COL:asc@ spells the default.  Written order is
 -- PRECEDENCE and repeats compose, so @sort:state sort:deadline@ is state with
--- deadline settling its ties.  A query naming any sort key REPLACES the chain it
--- was asked under; one naming none leaves that chain standing, which is what
+-- deadline settling its ties.  A query naming any sort key REPLACES the chain;
+-- one naming none leaves the view's declared chain standing, which is what
 -- keeps the default order invisible until a reader diverges from it.
 --
 -- The refusals are the other half of "one column, one direction".  A negation, an
@@ -26,13 +26,23 @@
 --
 -- @sort:@ with nothing after it is the @key:@ rule: it orders nothing and
 -- narrows nothing, which is the half-typed token every commit passes through.
+--
+-- @sort:*none*@ is the EMPTY CHAIN, and it is the query's whole vocabulary for
+-- document order.  It wears the stars because it is a reserved meta rather than
+-- a column — the family @*active*@, @*inactive*@, @*archive*@ and @*clear*@ are
+-- already in — so no column may be called it and no cell may hold it.  The
+-- empty chain ADMITS NO COMPANIONS: a token beside it names a key the answer is
+-- not to have, and a reader who wrote both meant one of them, so the request is
+-- refused naming the meta rather than resolved by a precedence rule nobody
+-- would remember.  The half-typed @sort:@ is no companion, since it names
+-- nothing either way.
 module Glance.Web.Sort (sortChainIn) where
 
 import Data.Text (Text)
 
 import qualified Data.Text as T
 
-import Glance.Query (SortChain)
+import Glance.Query (SortChain, defaultSortChain)
 import Glance.Web.Filter ( Term (tmKey, tmNegated, tmValue), filterKeys
                          , parseFilter, sortKey )
 
@@ -42,42 +52,73 @@ import Glance.Web.Filter ( Term (tmKey, tmNegated, tmValue), filterKeys
 directions :: [(Text, Bool)]
 directions = [("", True), ("asc", True), ("desc", False)]
 
--- | The chain Q states, over the chain BASE it was asked under: BASE where Q
--- names no sort token, Q's own keys in written order where it names any, and
--- 'Left' naming the token where one is not a chain key at all.
---
--- BASE is what @?order=@ picked — 'Glance.Query.defaultSortChain', or the empty
--- chain for document order — so the query overrides a default rather than being
--- laid on top of it: a reader who states an order states the whole of it.
-sortChainIn :: SortChain -> Text -> Either Text SortChain
-sortChainIn base q = case filter ((== Just sortKey) . tmKey) (parseFilter q) of
-  []     -> Right base
-  tokens -> foldl (\chain t -> chain >>= extend t) (Right []) tokens
-  where
-    extend t chain = do
-      key <- keyOf t
-      case key of
-        Nothing                               -> Right chain
-        Just (column, _) | named column chain -> Left (twice t column)
-        Just k                                -> Right (chain <> [k])
-    named column = any ((== column) . fst)
+-- | The meta that spells the empty chain: document order, and no @sort@ field
+-- on the wire.  A starred word, so it can never be a column and never a cell.
+noOrder :: Text
+noOrder = "*none*"
 
--- | T as a chain key, 'Nothing' for the half-typed @sort:@ that names no
--- column, or 'Left' with what is wrong with it.
-keyOf :: Term -> Either Text (Maybe (Text, Bool))
-keyOf t
+-- | The chain Q states: 'defaultSortChain' where Q names no sort token, Q's own
+-- keys in written order where it names any, the EMPTY chain where it names
+-- 'noOrder', and 'Left' naming the token where one is not a chain key at all.
+--
+-- A query naming any sort key REPLACES the chain rather than being laid on top
+-- of it: a reader who states an order states the whole of it, and the default is
+-- what a query with nothing to say about the order leaves standing.
+sortChainIn :: Text -> Either Text SortChain
+sortChainIn q = case filter ((== Just sortKey) . tmKey) (parseFilter q) of
+  []     -> Right defaultSortChain
+  tokens -> do
+    named <- traverse (\t -> (,) t <$> nameOf t) tokens
+    -- The half-typed token drops out first, so what is left is the tokens that
+    -- have something to say about the order — which is what "no companions"
+    -- counts.
+    let ordering = [ pair | pair@(_t, n) <- named, orders n ]
+    case [ t | (t, NoOrder) <- ordering ] of
+      []      -> foldl extend (Right [])
+                       [ (t, c, a) | (t, Column c a) <- ordering ]
+      empty : _
+        | length ordering > 1 -> Left (alone empty)
+        | otherwise           -> Right []
+  where
+    orders Silent = False
+    orders _named = True
+    extend chain (t, column, ascending) = do
+      keys <- chain
+      if any ((== column) . fst) keys
+        then Left (twice t column)
+        else Right (keys <> [(column, ascending)])
+
+-- | What one @sort:@ token names.
+data Named
+  = Silent               -- ^ @sort:@ half typed: it names no column.
+  | NoOrder              -- ^ @sort:*none*@: the empty chain.
+  | Column !Text !Bool   -- ^ a column and whether it ascends.
+
+-- | What T names, or 'Left' with what is wrong with it.
+nameOf :: Term -> Either Text Named
+nameOf t
   | tmNegated t                 = Left (refused t "a sort key cannot be negated")
   | T.isInfixOf "|" (tmValue t) = Left (refused t "a sort token names one column")
-  | T.null column               = Right Nothing            -- `sort:', half typed
+  | T.null column               = Right Silent             -- `sort:', half typed
+  -- The empty chain has no direction to spell: there is no key in it to reverse.
+  | column == noOrder           =
+      if T.null rest then Right NoOrder
+      else Left (refused t (quoted noOrder <> " has no key to reverse"))
   | column `notElem` filterKeys = Left (refused t ("no column is called "
                                                      <> quoted column))
   | otherwise = maybe (Left (refused t ("a sort direction is "
                                           <> spelled (map fst (drop 1 directions)))))
-                      (Right . Just . (,) column)
+                      (Right . Column column)
                       (lookup dir directions)
   where
     (column, rest) = T.break (== ':') (tmValue t)
     dir            = T.toLower (T.drop 1 rest)
+
+-- | The empty chain was asked for beside a key, which is two orders in one
+-- query.  Named on the meta rather than on the key it stands beside, since the
+-- meta is the token that admits nothing else.
+alone :: Term -> Text
+alone t = refused t (quoted noOrder <> " is the whole order and stands alone")
 
 -- | WHY, with the token as the reader wrote it.  The parse has taken the quotes
 -- out and normalized an @=@ separator to a @:@, which is as close to what was

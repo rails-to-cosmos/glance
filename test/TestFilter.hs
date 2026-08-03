@@ -353,50 +353,72 @@ sortSpec = testGroup "Sort tokens"
       assertEqual "free text" [Term False Nothing "sort:title"] (parsed "\"sort:title\"")
 
   -- The chain the same query states.  Written order is precedence, repeats
-  -- compose, and a query naming none leaves the chain it was asked under.
-  , testCase "a query naming no sort key leaves the chain it was asked under" $ do
+  -- compose, and a query naming none leaves the view's declared chain standing.
+  , testCase "a query naming no sort key leaves the declared chain standing" $ do
       assertEqual "the default" (Right defaultSortChain)
-                  (sortChainIn defaultSortChain "state:TODO tag:web")
-      assertEqual "and the empty chain stays empty" (Right [])
-                  (sortChainIn [] "state:TODO")
+                  (sortChainIn "state:TODO tag:web")
+      assertEqual "and an empty query is a query naming none"
+                  (Right defaultSortChain) (sortChainIn "")
 
   , testCase "a sort token replaces it, whole" $ do
       assertEqual "one key" (Right [("deadline", True)])
-                  (sortChainIn defaultSortChain "sort:deadline")
+                  (sortChainIn "sort:deadline")
       assertEqual "the default is gone rather than behind it"
                   (Right [("deadline", True)])
-                  (sortChainIn defaultSortChain "state:TODO sort:deadline")
+                  (sortChainIn "state:TODO sort:deadline")
 
   , testCase "the direction is the token's second half" $ do
       assertEqual "desc" (Right [("deadline", False)])
-                  (sortChainIn defaultSortChain "sort:deadline:desc")
+                  (sortChainIn "sort:deadline:desc")
       assertEqual "asc spells the default" (Right [("deadline", True)])
-                  (sortChainIn defaultSortChain "sort:deadline:asc")
+                  (sortChainIn "sort:deadline:asc")
       assertEqual "and the word is folded" (Right [("deadline", False)])
-                  (sortChainIn defaultSortChain "sort:deadline:DESC")
+                  (sortChainIn "sort:deadline:DESC")
       -- A trailing colon is the direction half-typed, and an unspelled
       -- direction ascends — the renderer's own reading of the same token.
       assertEqual "a trailing colon is no direction at all"
                   (Right [("deadline", True)])
-                  (sortChainIn defaultSortChain "sort:deadline:")
+                  (sortChainIn "sort:deadline:")
 
   , testCase "written order is precedence, and repeats compose" $ do
       assertEqual "two keys" (Right [("state", True), ("deadline", False)])
-                  (sortChainIn defaultSortChain "sort:state sort:deadline:desc")
+                  (sortChainIn "sort:state sort:deadline:desc")
       assertEqual "the other way round"
                   (Right [("deadline", False), ("state", True)])
-                  (sortChainIn defaultSortChain "sort:deadline:desc sort:state")
+                  (sortChainIn "sort:deadline:desc sort:state")
       -- The tokens need not be adjacent: a chain is the sort tokens in the
       -- order the query spells them, whatever stands between them.
       assertEqual "with predicates between them"
                   (Right [("state", True), ("title", True)])
-                  (sortChainIn defaultSortChain "sort:state tag:web sort:title")
+                  (sortChainIn "sort:state tag:web sort:title")
 
   , testCase "a half-typed key orders nothing and refuses nothing" $
-      assertEqual "the key: rule" (Right []) (sortChainIn defaultSortChain "sort:")
+      assertEqual "the key: rule" (Right []) (sortChainIn "sort:")
+
+  -- `*none*' is the query's whole vocabulary for document order, and it
+  -- replaced `?order=document'.  It is a STARRED META like `*active*' and
+  -- `*archive*': no column is called it and no cell can hold it.
+  , testCase "sort:*none* is the empty chain" $ do
+      assertEqual "alone" (Right []) (sortChainIn "sort:*none*")
+      assertEqual "beside predicates, which narrow as they always do"
+                  (Right []) (sortChainIn "state:TODO sort:*none* tag:web")
+      -- The half-typed token names nothing either way, so it is no companion.
+      assertEqual "and beside the half-typed token"
+                  (Right []) (sortChainIn "sort: sort:*none*")
+
+  , testCase "and it admits no companion that orders anything" $
+      mapM_ (\q -> case sortChainIn q of
+               Right chain -> assertFailure (T.unpack q <> " was read as " <> show chain)
+               Left why    -> assertBool (T.unpack q <> ": " <> T.unpack why)
+                                         ("*none*" `T.isInfixOf` why))
+        [ "sort:*none* sort:title"
+        , "sort:title sort:*none*"
+        , "sort:*none* sort:*none*"
+          -- The empty chain has no key in it to reverse.
+        , "sort:*none*:desc" ]
 
   , testCase "one column, one direction: everything else is refused by name" $
-      mapM_ (\(q, named) -> case sortChainIn defaultSortChain q of
+      mapM_ (\(q, named) -> case sortChainIn q of
                Right chain -> assertFailure (T.unpack q <> " was read as " <> show chain)
                Left why    -> assertBool (T.unpack q <> ": " <> T.unpack why)
                                          (named `T.isInfixOf` why))
@@ -410,7 +432,7 @@ sortSpec = testGroup "Sort tokens"
   , testCase "a refusal is the whole query's, wherever the token sits" $
       assertBool "the good key does not rescue the bad one"
                  (either (const True) (const False)
-                         (sortChainIn defaultSortChain "sort:title -sort:state"))
+                         (sortChainIn "sort:title -sort:state"))
   ]
 
 -- | Which queries turn the served view's archive exclusion off

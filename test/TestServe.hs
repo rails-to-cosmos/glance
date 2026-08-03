@@ -39,8 +39,8 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 
 import Data.Org.Edit (snapDigest, snapshotOf)
-import Glance.Query ( QueryResult (qrRecords), builtinFilter, loadDir, loadFile
-                    , viewJSON )
+import Glance.Query ( QueryResult (qrRecords), builtinFilter, linkColumns, loadDir
+                    , loadFile, tagColumns, viewJSON )
 import Glance.Web ( ServeOptions (..), application, bannerLines, bootstrapWanted
                   , defaultPort, viewTitleFor )
 import Glance.Web.Store ( Hub, applyFile, finishLoading, loadStore, newHub
@@ -359,7 +359,8 @@ spec = withResource (body <$> get assetsDir "/") (const (pure ())) $ \shell ->
     , glueSpec shell, bootSpec shell, liveSpec shell, washSpec shell
     , paletteSpec shell
     , moveSpec shell, sortKeySpec shell, markSpec shell, landingSpec shell
-    , commandKeySpec shell, promptKeySpec shell, whichKeySpec shell, tagKeySpec shell
+    , commandKeySpec shell, promptKeySpec shell, whichKeySpec shell
+    , cellSpanSpec shell, tagKeySpec shell
     , openKeySpec shell, agendaSpec shell, drillSpec shell, logSpec shell
     , sheetSpec shell
     , settingsSpec shell
@@ -3807,6 +3808,56 @@ assigns shell (keywords, expected) =
   bootOf shell "" 500 "" ("assign:" <> keywords)
          (assertEqual (T.unpack keywords) expected <=< textsAt "assigned")
 
+-- | An edit overlay's cell resolution, likewise driven as the pure function it
+-- is: the KEYS its shape names, resolved against COLUMNS, come out as
+-- @\"FROM,TO\"@ — or @«none»@ where one of them names no column there.
+resolves :: IO T.Text -> ([T.Text], [T.Text], T.Text) -> Assertion
+resolves shell (keys, cols, expected) =
+  bootOf shell "" 500 ""
+         ("cells:" <> T.intercalate "," keys <> "@" <> T.intercalate "," cols)
+         (assertEqual (show keys <> " over " <> show cols) (Just expected)
+            <=< maybeTextAt "span")
+
+-- | The KEYS of the columns a popup's shape is resolved against, out of the
+-- SERVER's own declaration — so what the cases below check is the real list
+-- rather than a copy of it here.
+columnKeys :: [Value] -> IO [T.Text]
+columnKeys = traverse (textAt "key")
+
+-- | WHERE AN EDIT OVERLAY LANDS, resolved BY KEY.  A shape names the columns it
+-- covers and the resolution turns them into the indices the placement reads, so
+-- a column list that moves takes the box with it — where the shape used to
+-- carry a positional pair and reordering those columns put the box over the
+-- wrong cells, greenly.  The rule is pure and order-only, which is what lets it
+-- be checked against the server's own declaration under the harness, over no
+-- page at all.
+cellSpanSpec :: IO T.Text -> TestTree
+cellSpanSpec shell = testGroup "Shell cell resolution"
+  [ testCase "the two popups' own shapes, against the columns the server declares" $ do
+      links <- columnKeys linkColumns
+      tags <- columnKeys tagColumns
+      -- The link popup edits the description and the target; `type' is derived
+      -- and leads the list, which is exactly why the pair is not 0,1.
+      resolves shell (["title", "url"], links, "1,2")
+      -- And the tags popup edits the tag cell alone, a run of one.
+      resolves shell (["title"], tags, "0,0")
+
+  , testCase "an unknown key resolves to nothing, so the placement is a no-op" $ do
+      links <- columnKeys linkColumns
+      resolves shell (["title", "nosuchcolumn"], links, "«none»")
+      resolves shell (["nosuchcolumn"], links, "«none»")
+      -- Naming no column at all is the same answer: there is nothing to cover.
+      resolves shell ([], links, "«none»")
+
+    -- The run is drawn from one EDGE to the other, so it is the columns' order
+    -- rather than the shape's: a shape spelling its keys the other way round
+    -- means the same two cells and gets the same box.
+  , testCase "the run follows the columns' order, whatever order the shape spelled" $ do
+      links <- columnKeys linkColumns
+      resolves shell (["url", "title"], links, "1,2")
+      resolves shell (["type", "url"], links, "0,2")
+  ]
+
 -- | SHELL's glue booted under node on SEARCH, with the server reporting TOTAL
 -- matches, KEYS pressed over the table once it settled and ACTS run after
 -- those, then CHECK over the harness's whole answer.  A machine with no node
@@ -4111,7 +4162,7 @@ shellGlue =
       , "flagHelp: \"d/D remove · u unflag\" });"
       -- The overlay is the SHARED mechanism over one cell: the popup declares a
       -- shape and nothing about the gesture is spelled twice.
-      , "box: \"tedit\", pane: \"tpane\", fields: [\"tname\"], cells: [0, 0],"
+      , "cells: [\"title\"], cols: TCOLS,"
       , "const renaming = () => !!edit && edit.o === TROW;"
       , "openEdit(TROW, at);"
       -- And the write is ONE command rather than a remove and an add composed,
@@ -4141,11 +4192,13 @@ shellGlue =
       , "o.fill(row);"
       , "o.focus(row);"
       -- The anchor reads the mount's published root and the renderer's own
-      -- gutter class, for whichever surface is open, and the shape says which
-      -- RANGE of the row's own cells the box covers.
+      -- gutter class, for whichever surface is open, and the shape names BY KEY
+      -- which of the row's own cells the box covers — resolved against the
+      -- column list the server declared, so a column that moves takes the box.
       , "const tr = m && m.el.querySelector(\"tbody tr.tv-sel\");"
-      , "const tds = o.cells && [...tr.querySelectorAll(\"td:not(.tv-box)\")];"
-      , "const from = tds && tds[o.cells[0]], to = tds && tds[o.cells[1]];"
+      , "const span = o.cells && cellSpan(o.cells, o.cols);"
+      , "const tds = span && [...tr.querySelectorAll(\"td:not(.tv-box)\")];"
+      , "const from = tds && tds[span[0]], to = tds && tds[span[1]];"
       , "s.width = `${rt.right - l.left}px`;"
       -- The window resize moves whichever overlay is up, and is registered once
       -- rather than per mount.
@@ -4171,23 +4224,38 @@ shellGlue =
       [ "prows[patAt()]", "function place()", "function shutRename"
       , "shutEdit();" ]
 
-  -- ONE `d'/`D'/`u' GESTURE, likewise: the two-press rule, the feature
-  -- detection, the set-or-row choice and the walk after `u' are written once and
-  -- each surface names the four words it says them in.
-  , Glue "the flag gesture is one implementation over two surfaces"
-      [ "function flagKey(k, s) {"
+  -- ONE `d'/`D'/`u' GESTURE, likewise, and over THREE surfaces now: the
+  -- two-press rule, the feature detection, the set-or-row choice, the spending
+  -- of the flags and the walk after `u' are written once, and each surface names
+  -- the phrases it says them in, the mount they live on, what "take these"
+  -- means and what it logs.
+  , Glue "the flag gesture is one implementation over three surfaces"
+      [ "function flagKey(k, s, say) {"
       , "if (k === \"D\" || (k === \"d\" && flags.indexOf(at) !== -1)) {"
-      , "echo(`u → ${s.unflag} (flag cleared)`);"
-      , "echo(`d → ${s.flag} (d again ${s.again})`);"
-      , "echo(`${k} → ${s.none}`);"
+      , "if (can(m, \"clearFlags\")) m.clearFlags();"
+      , "say(s.unflag);", "say(s.flag);", "say(s.none);", "say(s.missing);"
       , "none: \"org-delete-property (no row)\","
-      , "unflag: \"delete-unflag\", flag: \"delete-flag\", again: \"deletes\","
+      , "unflag: \"delete-unflag (flag cleared)\","
       , "none: \"org-toggle-tag (no tag)\","
-      , "unflag: \"tag-unflag\", flag: \"tag-flag\", again: \"removes\","
-      , "flagKey(k, PFLAGS)", "flagKey(k, TFLAGS)" ]
-      -- The two hand-written copies it replaced.
+      , "unflag: \"tag-unflag (flag cleared)\","
+      -- And the table's own shape, which is a function of the BINDING because
+      -- `said' spells the binding's command name: one gesture, two names.
+      , "const XFLAGS = (b) => ({"
+      , "flag: \"flagged — d again archives\","
+      , "flagKey(k, PFLAGS, keySaid(k))", "flagKey(k, TFLAGS, keySaid(k))"
+      , "archiveFlag: (b) => flagKey(\"d\", XFLAGS(b), (what) => said(b, what)),"
+      , "archiveRows: (b) => flagKey(\"D\", XFLAGS(b), (what) => said(b, what)),"
+      , "flagKey(\"u\", XFLAGS(b), (what) => said(b, what)); return; }" ]
+      -- The three hand-written copies it replaced: the panel's, the popup's, and
+      -- the table's — which was an `archiveFlag' of its own, a fork inside
+      -- `archive' choosing between the flagged set and the row at point, and a
+      -- flag branch inside `mark'.
       [ "function pflag", "function tflag", "d → delete-flag (d again deletes)"
-      , "d → tag-flag (d again removes)" ]
+      , "d → tag-flag (d again removes)"
+      , "if (isFlagged(id)) { archive(b); return; }"
+      , "said(b, \"flagged — d again archives\")"
+      , "const flags = flagging() ? table.getFlagged() : [];"
+      , "archiveRows: archive," ]
 
   -- `@' asks before it applies: a row nothing points at leaves the table, the
   -- filter and the trail where they were.  The probe is a COUNT — one row —
@@ -4333,9 +4401,12 @@ shellGlue =
       , "} else if (crossing) leavePanel();"
       , "const pnav = () => el(\"mprops\").className === \"on\";"
       , "el(\"mprops\").className = \"on\"; el(\"mtext\").blur();"
-      -- Nav holds the keys with nothing focused, so the map has to be told —
-      -- the value palette's letter mode is the other thing that does.
-      , "return pnav() || !!prompting"
+      -- Nav holds the keys with nothing focused, so the map has to be told.  It
+      -- is the FIRST of the modal surfaces, its listener registering ahead of
+      -- the dispatch, and `typing()' reads that one list rather than naming any
+      -- of them.
+      , "{ name: \"panel\", up: pnav, edit: pediting, shut: cancelRow },"
+      , "return SURFACES.some((s) => s.up())"
       -- The panel stacks under the text when there is no room beside it, which
       -- is a wrap rather than a second breakpoint to keep in step.
       , "#mpanes{flex:1;min-height:0;display:flex;flex-wrap:wrap;gap:10px}"
@@ -4383,28 +4454,32 @@ shellGlue =
 
   -- One rule sets both widths, so the strip cannot drift from the table above
   -- it; the hairline, the radius and the surface tint are `.tv-root''s, which is
-  -- what makes it read as the same thing.  The frame is resident, so an arriving
-  -- event cannot shift the key line under it: the collapse, the hand-reserved
-  -- line and the ten-line cap are all superseded designs the flex rule replaced,
-  -- and a second limit here could only fight the column.
-  , Glue "the log wears the table's container under it"
+  -- what makes it read as the same thing.
+  --
+  -- ITS HEIGHT IS STATIC: N line boxes whatever it is holding, so the table
+  -- above it never resizes under a reader's cursor because a write logged a
+  -- line, and a quiet page reads the same as a busy one.  The collapse, the
+  -- hand-reserved line, the ten-line cap and the flexible strip that grew to its
+  -- content are all superseded designs.
+  , Glue "the log wears the table's container under it, at a static height"
       [ "#app,#log{width:100%;box-sizing:border-box}"
       , "border:1px solid var(--g-border);border-radius:8px;"
-      -- It takes the height the table and the key line leave, and scrolls
-      -- inside it rather than at a cap of its own.
-      , "background:var(--g-surface);flex:1 1 auto;overflow-y:auto}"
-      -- N of its own line boxes and no more, computed off the rule's own font
+      -- The table is the flexible one and takes the whole of the rest.
+      , "#app{flex:1 1 auto;min-height:0}"
+      , "background:var(--g-surface);flex:none;overflow-y:auto}"
+      -- N of its own line boxes exactly, computed off the rule's own font
       -- size (`em', so it is not restated) and the padding above it rather than
       -- eyeballed.  N is a CUSTOM PROPERTY declared at the default here, so the
       -- arithmetic is in one place and the settings sheet writes a NUMBER onto
       -- the element.
       , "    --g-logn:7;"
-      , "max-height:calc(var(--g-logn) * 1.5em + 2 * 6px + 2 * 1px);"
+      , "height:calc(var(--g-logn) * 1.5em + 2 * 6px + 2 * 1px);"
       -- The end of a long message is scrolled to unless the reader has scrolled
       -- up to hold a place.
       , "box.scrollTop + box.clientHeight >= box.scrollHeight - 4"
       , "if (end) box.scrollTop = box.scrollHeight;" ]
-      ["#log:empty", "min-height:1.4em", "max-height:10em"]
+      [ "#log:empty", "min-height:1.4em", "max-height:10em"
+      , "max-height:calc(var(--g-logn)" ]
 
   -- Connection, sync outcomes, the parity warning and errors: what a reader
   -- could not have seen otherwise.  The row count is the renderer's hint line
@@ -4596,7 +4671,11 @@ shellGlue =
   -- pinned to the digest that answer carried.  The third surface on the shared
   -- overlay, so what is spelled here is the shape and the commit.
   , Glue "the link popup edits in place, over the range the server gave it"
-      [ "box: \"ledit\", pane: \"lpane\", fields: [\"ltitle\", \"lurl\"], cells: [1, 2],"
+      [ "box: \"ledit\", pane: \"lpane\", fields: [\"ltitle\", \"lurl\"],"
+      -- BY KEY, against the column list the server declared: reordering those
+      -- columns takes the box with them, where a positional pair had nothing
+      -- tying it to the list it indexed.
+      , "cells: [\"title\", \"url\"], cols: LCOLS,"
       , "const lediting = () => !!edit && edit.o === LROW;"
       , "openEdit(LROW, at);"
       , "else if (k === \"RET\") commitLink(edit.row);"
@@ -5280,23 +5359,25 @@ querySpec = testGroup "GET /headlines filter and paging"
       assertEqual "rows" 6 . length =<< rowsOf r
   ]
 
--- | @order=document@ — EXPERIMENTAL, and the only thing that reaches it is a
--- typed URL.  It moves both halves of the ordering at once: the rows stay in
--- walk order under a limit, and the view carries no @sort@ field for a renderer
--- to re-apply.  What it orders is top entries, so it is the order the files
--- list them in rather than an outline.
+-- | Document order, which is @?q=sort:*none*@ — a QUERY TOKEN rather than a
+-- parameter of its own, and a starred meta like @*active*@ and @*archive*@.  It
+-- moves both halves of the ordering at once: the rows stay in walk order under a
+-- limit, and the view carries no @sort@ field for a renderer to re-apply.  What
+-- it orders is top entries, so it is the order the files list them in rather
+-- than an outline.
+--
+-- @?order=@ was the older spelling and is GONE.  It is refused rather than
+-- ignored, which is the whole reason it was ever spelled out: a parameter this
+-- server no longer reads would otherwise serve the default order and look
+-- exactly like a working request.
 orderSpec :: TestTree
-orderSpec = testGroup "GET /headlines?order=document"
+orderSpec = testGroup "GET /headlines?q=sort:*none*"
   [ testCase "the default still declares the view's sort" $ do
       v <- get assetsDir "/headlines" >>= decoded
       fieldsOf v >>= assertBool "no sort field" . elem "sort"
 
-  , testCase "and so does naming it" $ do
-      v <- get assetsDir "/headlines?order=scheduled" >>= decoded
-      fieldsOf v >>= assertBool "no sort field" . elem "sort"
-
   , testCase "document order declares none at all" $ do
-      v <- get assetsDir "/headlines?order=document" >>= decoded
+      v <- get assetsDir "/headlines?q=sort:*none*" >>= decoded
       assertEqual "top-level keys" ["actions", "columns", "rows", "title"]
         . sort =<< fieldsOf v
 
@@ -5306,19 +5387,39 @@ orderSpec = testGroup "GET /headlines?order=document"
       -- The whole fixture under a limit, since its first rows are in the same
       -- order either way and a shorter page cannot tell the two apart.
       byState <- map rowId <$> (rowsOf =<< getFrom a "/headlines?limit=6")
-      doc <- map rowId <$> (rowsOf =<< getFrom a "/headlines?order=document&limit=6")
+      doc <- map rowId <$> (rowsOf =<< getFrom a "/headlines?q=sort:*none*&limit=6")
       assertEqual "the walk itself" walk doc
       -- Without this the case would pass over a fixture whose two orders agree.
       assertBool ("the fixture cannot tell them apart: " <> show byState)
                  (byState /= doc)
 
-  , testCase "anything else under order is a 400 naming it" $ do
+    -- The empty chain admits no companions: a key beside it is two orders in one
+    -- query, and a reader who wrote both meant one of them.
+  , testCase "a sort key beside it is a 400 naming the meta" $ do
       a <- app assetsDir
       mapM_ (\path -> do
                r <- getFrom a path
                assertEqual (show path <> " status") 400 (status r)
-               assertContains "names the parameter" "order" (body r))
-            ["/headlines?order=walk", "/headlines?order=Document", "/headlines?order="]
+               assertContains "names the meta" "*none*" (body r))
+            [ "/headlines?q=sort:*none*%20sort:title"
+            , "/headlines?q=sort:title%20sort:*none*"
+            , "/headlines?q=sort:*none*:desc" ]
+
+    -- The retired parameter, in every spelling that used to work and one that
+    -- never did: all of them 400, and the refusal names what replaced it.
+  , testCase "order= is gone, and the refusal names its replacement" $ do
+      a <- app assetsDir
+      mapM_ (\path -> do
+               r <- getFrom a path
+               assertEqual (show path <> " status") 400 (status r)
+               assertContains "names the parameter" "order=" (body r)
+               assertContains "and its replacement" "sort:*none*" (body r))
+            [ "/headlines?order=document", "/headlines?order=scheduled"
+            , "/headlines?order=walk", "/headlines?order=" ]
+      -- A parameter with no value reads as absent, here as everywhere: `?order'
+      -- asks for no order and is not a request for the retired one.
+      bare <- getFrom a "/headlines?order"
+      assertEqual "a bare parameter is an absent one" 200 (status bare)
   ]
 
 -- | The ORDER a query states: @?q=@'s @sort:@ tokens, served AND declared.
@@ -5401,11 +5502,12 @@ sortQuerySpec = testGroup "GET /headlines?q=sort:"
       assertEqual "status" 200 (status r)
       assertEqual "rows" 6 . length =<< rowsOf r
 
-    -- @order=@ picks the BASE the query overrides, so the two compose rather
-    -- than fighting: document order with a sort token is that token's order.
-  , testCase "a sort token outranks order=document" $ do
-      v <- get assetsDir "/headlines?order=document&q=sort:title" >>= decoded
-      assertEqual "the chain declared" [("title", True)] =<< chainDeclaredBy v
+    -- The empty chain is a sort token like any other, so it is refused for the
+    -- same reason a column named twice is: two orders in one query.
+  , testCase "and it cannot state two orders at once" $ do
+      r <- get assetsDir "/headlines?q=sort:title%20sort:*none*"
+      assertEqual "status" 400 (status r)
+      assertContains "names the meta" "*none*" (body r)
   ]
 
 -- | The chain VIEW declares, highest priority first — the @sort@ array, or none
@@ -7162,6 +7264,18 @@ editLinkSpec = testGroup "POST /command edit-link"
         assertContains "naming the command" "edit-link" (body r)
         assertContains "and the rule" "one row" (body r)
         assertEqual "nothing was written" before =<< document path
+
+    -- THE ROW COUNT IS THE COARSEST THING WRONG with the request, so it is what
+    -- the refusal names: a caller that named three rows has misunderstood the
+    -- command, and telling it about a missing span instead would answer the
+    -- smaller question.  It is `csArgs' asking, the same function the span and
+    -- the target go through — there is no separate ids rule above it.
+  , testCase "and the count outranks everything else its args owe" $
+      withLinkable $ \a _hub _path -> do
+        r <- postTo a "/command"
+               (linkCommand "edit-link" ["first", "second"] (object []) [])
+        assertEqual "status" 400 (status r)
+        assertContains "the count outranks the missing span" "one row" (body r)
 
     -- The refusals, all 400 with the file untouched: a link that points nowhere,
     -- a padded target, a missing range, a range the row does not hold, a range

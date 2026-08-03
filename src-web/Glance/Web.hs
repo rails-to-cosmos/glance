@@ -130,7 +130,7 @@ import Glance.Query ( ConfigLayerFile (..), ConfigLayers (clDirs)
                     , WriteFailure (..), addTagEdits, archiveEdits, archived, builtinFilter
                     , captureEdits, captureStamp, captureTargetIn, captureTargetOf
                     , configDirIn, configEdits, currentDocument, defaultCaptureFile
-                    , defaultFilter, defaultFilterOf, defaultSortChain
+                    , defaultFilter, defaultFilterOf
                     , editLinkEdits, followableTypes
                     , headlineParts, keywordSources, linkColumns, linkShown, linkType
                     , planningKeywords
@@ -146,7 +146,7 @@ import Glance.Web.Store ( Client, Frame (ViewChanged), Hub, LoadState (..)
                         , Store (stConfig, stGen, stPrint), finishLoading, frameText
                         , hubLoad, hubStore, loadStoreWith, newLoadingHub, nextFrame
                         , headlinesIn
-                        , storeDocument, storeHeadline, storeHeadlines, storeKeywords
+                        , storeDocument, storeKeywords
                         , storeRecords, storeResult
                         , storeTags, subscribe, unsubscribe )
 import Glance.Web.Watch (watchOrgTree)
@@ -471,13 +471,13 @@ safeName name = not (T.null name)
 -- the whole set itself, which is the full-fidelity mode; under a limit a
 -- client-side re-sort reorders the loaded page alone.
 --
--- @order=document@ is the __experimental__ exception, and it moves both halves
--- together ('Glance.Query.ViewOrder'): the rows stay in walk order whatever the
--- limit, and the view carries no @sort@ field, so a renderer leaves them where
--- they landed.  Walk order is document order — file by file, top entry by top
--- entry down each.  Anything else under @order=@ is a 400; @order=scheduled@
--- names the default.  There is no UI for it: the shell never asks, so a reader
--- reaches it by typing the URL.
+-- @?q=sort:*none*@ is the exception, and it moves both halves together: the
+-- rows stay in walk order whatever the limit, and the view carries no @sort@
+-- field, so a renderer leaves them where they landed.  Walk order is document
+-- order — file by file, top entry by top entry down each.  It is a QUERY TOKEN
+-- rather than a parameter of its own, so it travels the way every other thing a
+-- reader states about the answer travels: in @q@, in the URL, and back out of
+-- the renderer's own chips.
 --
 -- Caching.  The @ETag@ is the tree's fingerprint and the store's generation,
 -- which the watcher moves whenever a response would change, and
@@ -577,43 +577,38 @@ pageHeaders total hasNext hidden =
   , ("X-Glance-Has-Next", if hasNext then "true" else "false")
   , ("X-Glance-Archived", BSC.pack (show hidden)) ]
 
--- | @q@, @limit@, @offset@ and the CHAIN the rows are served in, out of
--- REQUEST's query string, or what is wrong with one of them.  An absent
--- parameter is its default — no filter, no limit, the top of the set,
--- 'defaultSortChain' — and a present one that is not a number is a 400 rather
--- than a silent fallback to it, since a mistyped page size that quietly serves
--- the whole store looks like a working request.  @order@ is spelled out for the
--- same reason: a misspelling that silently served the sorted view would look
--- exactly like a working one.
+-- | @q@, @limit@ and @offset@ out of REQUEST's query string, with the CHAIN the
+-- rows are served in read off @q@, or what is wrong with one of them.  An absent
+-- parameter is its default — no filter, no limit, the top of the set — and a
+-- present one that is not a number is a 400 rather than a silent fallback to it,
+-- since a mistyped page size that quietly serves the whole store looks like a
+-- working request.
 --
--- The chain is read TWICE from two places, in one order: @order=@ picks the
--- base — the default chain, or the empty one for document order — and the
--- query's own @sort:@ tokens override it where it names any
--- ('Glance.Web.Sort.sortChainIn'), so a reader who states an order states the
--- whole of it.  A sort token this producer cannot read is this request's 400,
--- naming the token.
+-- The chain is read from ONE place, the query ('Glance.Web.Sort.sortChainIn'):
+-- @?q=sort:COL@ states an order and @?q=sort:*none*@ states document order, so
+-- a reader who states an order states the whole of it in the grammar the
+-- renderer also writes.  A sort token this producer cannot read is this
+-- request's 400, naming the token.
+--
+-- @order=@ was the older half of that and is GONE, refused rather than ignored:
+-- a parameter this server no longer reads would otherwise serve the default
+-- order and look exactly like a working request, which is the failure the
+-- parameter was spelled out to avoid in the first place.  The refusal names its
+-- replacement.
 pageParams :: Request -> Either Text (Text, Maybe Int, Int, SortChain)
 pageParams request = do
   q      <- maybe (Right "") text (raw "q")
   limit  <- traverse count (raw "limit")
   offset <- maybe (Right 0) count (raw "offset")
-  base   <- maybe (Right defaultSortChain) ordering (raw "order")
-  chain  <- sortChainIn base q
+  _order <- maybe (Right ()) (const (Left retired)) (raw "order")
+  chain  <- sortChainIn q
   case limit of
     Just n | n > limitCap -> Left ("limit is at most " <> T.pack (show limitCap)
                                      <> "; page with offset for more")
     _within                -> Right (q, limit, offset, chain)
   where
-    -- Experimental, and the only way to reach the empty chain — walk order,
-    -- with no @sort@ declared.  @scheduled@ names the default so a client can be
-    -- explicit about the ordinary case; the name is a fossil of the days the
-    -- default was one @scheduled@ key.
-    ordering named = do
-      t <- text named
-      case t of
-        "document"  -> Right []
-        "scheduled" -> Right defaultSortChain
-        _unknown    -> Left "order must be scheduled or document"
+    retired = "order= is gone; the order is the query's: ?q=sort:COL, \
+              \or ?q=sort:*none* for document order"
     -- A parameter with no @=@ reads as absent, so @?limit@ is not a zero page.
     raw name = case lookup (TE.encodeUtf8 name) (queryString request) of
       Just (Just bytes) -> Just (name, bytes)
@@ -667,8 +662,9 @@ bodyLimit = 1024 * 1024
 materialize :: Hub -> Maybe Text -> IO Response
 materialize _hub Nothing = pure (jsonError status400 "GET /headline?id=<row id>")
 materialize hub (Just rid) = do
-  found <- storeHeadline rid <$> readTVarIO (hubStore hub)
-  pure $ case found of
+  st <- readTVarIO (hubStore hub)
+  let rows = storeRecords st
+  pure $ case rowIn rows rid of
     Nothing -> jsonError status404 ("no headline with id " <> rid)
     Just r  -> let parts = headlineParts r in jsonResponse status200
       [ "id"         .= hrId r
@@ -710,8 +706,9 @@ commit :: Hub -> Maybe Text -> Request -> IO Response
 commit _hub Nothing _request = pure (jsonError status400 "POST /headline?id=<row id>")
 commit hub (Just rid) request = do
   body <- takeBody bodyLimit request
-  found <- storeHeadline rid <$> readTVarIO (hubStore hub)
-  case prepare rid body found of
+  st <- readTVarIO (hubStore hub)
+  let rows = storeRecords st
+  case prepare rid body (rowIn rows rid) of
     Left refusal -> pure refusal
     Right (r, digest, org) ->
       answerWrite rewritten (\fresh -> ["digest" .= fresh])
@@ -829,7 +826,8 @@ again = "; materialize it again and re-apply the edit"
 keywordsView :: Hub -> Request -> IO Response
 keywordsView hub request = do
   st <- readTVarIO (hubStore hub)
-  let (found, unknown) = storeHeadlines asked st
+  let rows             = storeRecords st
+      (found, unknown) = headlinesIn rows asked
   pure $ if null asked
     then jsonError status400 "GET /keywords?ids=<row id>,<row id>"
     else jsonResponse status200
@@ -874,10 +872,6 @@ keywordsView hub request = do
 tagsView :: Hub -> Request -> IO Response
 tagsView hub request = do
   st <- readTVarIO (hubStore hub)
-  -- ONE id resolution for the whole answer.  This route owes two folds over the
-  -- store's rows — the ids it was asked about, and the tag counts behind the
-  -- popup's third column — and 'storeRecords' resolves the WHOLE store each time
-  -- it is named, so asking twice paid for the same resolution twice.
   let rows             = storeRecords st
       (found, unknown) = headlinesIn rows asked
   pure $ if null asked
@@ -946,8 +940,9 @@ tagRowCounts rows = Map.fromListWith (+)
 linksView :: Hub -> Maybe Text -> IO Response
 linksView _hub Nothing = pure (jsonError status400 "GET /links?id=<row id>")
 linksView hub (Just rid) = do
-  found <- storeHeadline rid <$> readTVarIO (hubStore hub)
-  pure $ case found of
+  st <- readTVarIO (hubStore hub)
+  let rows = storeRecords st
+  pure $ case rowIn rows rid of
     Nothing -> jsonError status404 ("no headline with id " <> rid)
     Just r  -> jsonResponse status200
       [ "digest" .= hrDigest r
@@ -955,6 +950,20 @@ linksView hub (Just rid) = do
                             , "type" .= linkType (olTarget l)
                             , "span" .= [spanStart (olSpan l), spanEnd (olSpan l)] ]
                    | l <- subtreeLinks r ] ]
+
+-- | The one row RID names among ROWS, or 'Nothing'.  The single-id spelling of
+-- 'Glance.Web.Store.headlinesIn', so the routes that name ONE row and the ones
+-- that name a set answer out of the same lookup — and so neither can reach the
+-- store to resolve it a second time.
+--
+-- EVERY ROUTE RESOLVES AT ITS DOOR, once, and passes the rows down.  That is a
+-- structural rule rather than a convention: 'Glance.Web.Store' offers nothing
+-- that takes a 'Store' and answers about an id, so a route owing two folds over
+-- the rows — @\/tags@ owes the ids it was asked about and the store-wide tag
+-- counts behind the popup's third column — has no way to spell the second one
+-- as another whole resolution.
+rowIn :: [HeadlineRecord] -> Text -> Maybe HeadlineRecord
+rowIn rows rid = listToMaybe (fst (headlinesIn rows [rid]))
 
 -- | The rows REQUEST names, deduplicated: every @ids@ parameter, each a comma
 -- separated list, and every @id@ parameter, each ONE id — the way
@@ -1196,14 +1205,21 @@ data FilePlan = FilePlan
 type RowEdits = ConfigLayers -> Maybe Text -> Args -> HeadlineRecord
               -> Either Text [(Span, Text)]
 
--- | One command: what its @args@ owe, whether its date is resolved against the
--- server's today, whether it names ONE row, and what it does to a row.
--- 'Nothing' for the edits is the command that names no rows — it MAKES one, so
--- there is no row function to hold and no ids rule to apply.
+-- | One command: what its request's SHAPE owes, whether its date is resolved
+-- against the server's today, and what it does to a row.  'Nothing' for the
+-- edits is the command that names no rows — it MAKES one, so there is no row
+-- function to hold and no ids rule to apply.
+--
+-- 'csArgs' is handed the IDS beside the @args@ because a shape refusal is about
+-- the request rather than about the @args@ object alone: @edit-link@ carries a
+-- span, and a span means nothing to a second row and a different range in each
+-- file, so "one row" is one of the things its shape owes.  Seven of the eight
+-- entries ignore the list, which is what a rule only one command has looks like
+-- when it is not lifted into a flag every entry has to answer.
 data CommandSpec = CommandSpec
-  { csArgs  :: Args -> Maybe Text  -- ^ why the request's shape is refused, where it is.
+  { csArgs  :: [Text] -> Args -> Maybe Text
+      -- ^ why the request's shape is refused, where it is.
   , csDated :: Bool                -- ^ its @date@ is read against today, once per request.
-  , csOne   :: Bool                -- ^ its @args@ describe one row's own text.
   , csEdits :: Maybe RowEdits      -- ^ what it does to each named row.
   }
 
@@ -1224,41 +1240,43 @@ data CommandSpec = CommandSpec
 -- not there.
 commands :: [(Text, CommandSpec)]
 commands =
-  [ ("add-tag", CommandSpec (wantsTag "add-tag") False False
+  [ ("add-tag", CommandSpec (overIds (wantsTag "add-tag")) False
       (Just (\_cfg _stamp args r -> Right (addTagEdits (tagOf args) r))))
     -- @archive@ is 'addTagEdits' at a fixed name, and it takes no @tag@ of its
     -- own: the name is org's and a client cannot aim it elsewhere.  Idempotent,
     -- so a row already tagged costs no edit and still answers @ok@.
-  , ("archive", CommandSpec (const Nothing) False False
+  , ("archive", CommandSpec (overIds (const Nothing)) False
       (Just (\_cfg _stamp _args r -> Right (archiveEdits r))))
-  , ("capture", CommandSpec wantsText False False Nothing)
+  , ("capture", CommandSpec (overIds wantsText) False Nothing)
     -- The ONE command whose args describe a row's own TEXT rather than a
-    -- property of it, so it names ONE row: a span means nothing to a second
-    -- one, and over rows in two files it would name a different range in each.
-    -- The span and the target are there — 'csArgs' refuses an @edit-link@
-    -- without either, so neither can refuse per row.
-  , ("edit-link", CommandSpec wantsLink False True
+    -- property of it, so its shape includes the ROW COUNT and 'wantsLink' owns
+    -- that refusal.  The span and the target are there by then — 'csArgs'
+    -- refuses an @edit-link@ without either, so neither can refuse per row.
+  , ("edit-link", CommandSpec wantsLink False
       (Just (\_cfg _stamp args r ->
                editLinkEdits (fromMaybe (Span 0 0) (agSpan args))
                              (word agTarget args) (agDesc args) r)))
-  , ("remove-tag", CommandSpec (wantsTag "remove-tag") False False
+  , ("remove-tag", CommandSpec (overIds (wantsTag "remove-tag")) False
       (Just (\_cfg _stamp args r -> Right (removeTagEdits (tagOf args) r))))
     -- One command rather than a @remove-tag@ and an @add-tag@ a client fires in
     -- turn: the rename is ONE drift-locked write per file, and the pair it
     -- would compose from spells the tag onto the title
     -- ('Glance.Query.renameTagEdits').
-  , ("rename-tag", CommandSpec wantsRename False False
+  , ("rename-tag", CommandSpec (overIds wantsRename) False
       (Just (\_cfg _stamp args r ->
                Right (renameTagEdits (word agFrom args) (word agTo args) r))))
     -- The keyword is there and the date has been resolved: 'csArgs' refuses a
     -- @set-planning@ without either, so neither can refuse per row.
-  , ("set-planning", CommandSpec wantsPlanning True False
+  , ("set-planning", CommandSpec (overIds wantsPlanning) True
       (Just (\_cfg stamp args r ->
                setPlanningEdits (fromMaybe "" (join (agKeyword args))) stamp r)))
-  , ("set-state", CommandSpec wantsState False False
+  , ("set-state", CommandSpec (overIds wantsState) False
       (Just (\cfg _stamp args r -> setStateEdits cfg (join (agKeyword args)) r)))
   ]
   where
+    -- A shape that has nothing to say about HOW MANY rows were named, which is
+    -- seven of the eight.
+    overIds owed = const owed
     word field = fromMaybe "" . field
     tagOf = word agTag
     -- The one command whose keyword may be NULL: that is how a state comes off,
@@ -1285,7 +1303,13 @@ commands =
     -- is refused for.
     -- The description is not asked for — absent is the ordinary request, and it
     -- leaves the link the one it has.
-    wantsLink args
+    -- THE ROW COUNT IS FIRST because it is the coarsest thing wrong with the
+    -- request: a caller that named three rows has misunderstood the command, and
+    -- telling it about a missing span instead would be answering the smaller
+    -- question.
+    wantsLink ids args
+      | length ids > 1 =
+          Just "edit-link names one row: its args describe that row's own text"
       | Nothing <- agSpan args =
           Just ("edit-link wants args {\"span\": [START, END],"
                   <> " \"target\": \"https://example.org\"}")
@@ -1458,7 +1482,7 @@ planCommand st stamp rowEdits cmd = do
   where
     -- One resolution for the whole set rather than one per id, which is what
     -- keeps a marked set of a hundred rows off a hundred passes of the store.
-    (held, absent) = storeHeadlines (cmdIds cmd) st
+    (held, absent) = headlinesIn (storeRecords st) (cmdIds cmd)
     withEdits r = (,) r <$> rowEdits (stConfig st) stamp (cmdArgs cmd) r
     missing = [ (rid, refused rid ("no headline with id " <> rid)) | rid <- absent ]
     stale rs = or [ pinned /= hrDigest r
@@ -1488,7 +1512,8 @@ groupOn key xs = [ (k, [ x | x <- xs, key x == k ]) | k <- nub (map key xs) ]
 -- The name is resolved to its entry in 'commands' FIRST and the 'Command' is
 -- built out of that entry, so an unimplemented name never reaches a rule that
 -- would have to guess what it takes.  What is left is the entry's own two:
--- whether it names rows, and what its @args@ owe ('csArgs').
+-- whether it names rows at all, and what the request's shape owes it
+-- ('csArgs', which is handed the ids beside the @args@).
 parseCommand :: BL.ByteString -> Either Text Command
 parseCommand raw =
   first (("body: " <>) . T.pack) (eitherDecode' raw >>= parseEither command) >>= checked
@@ -1519,9 +1544,7 @@ parseCommand raw =
       Just spec
         | isJust (csEdits spec), null ids ->
             Left "a command names rows: {\"ids\": [\"…\"]}, or {\"id\": \"…\"} for one"
-        | csOne spec, length ids > 1 ->
-            Left (name <> " names one row: its args describe that row's own text")
-        | Just why <- csArgs spec args -> Left why
+        | Just why <- csArgs spec ids args -> Left why
         | otherwise -> Right (Command spec ids args digests)
 
 -- | The @id@ parameter of REQUEST, when it carries one with a value.
@@ -3172,24 +3195,29 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- querying the pane: the mount publishes its root, so the one geometry read
     -- this page makes goes through a published door.
     --
-    -- A `cells' shape narrows to a RANGE of columns as well — `[FROM, TO]',
-    -- inclusive, counted over the cells that are not the GUTTER, which
-    -- `flags: true' puts there.  The gutter is skipped by the class the renderer
-    -- already stamps rather than by this page counting its chrome; what is
-    -- counted past that is the popup's own columns, which the SERVER declares
-    -- (`Glance.Query.linkColumns', `tagColumns') and this page embeds.
-    -- The tags popup edits one cell (`[0, 0]'), the link popup two (`[1, 2]',
-    -- the derived type column being the one it may not open), and the property
-    -- panel names no range and takes the whole row.  A range is therefore a
-    -- POSITIONAL INDEX into a list declared elsewhere: reorder those columns and
-    -- the box covers the wrong cells, greenly.
+    -- A `cells' shape narrows to a RUN of columns as well, and it names them BY
+    -- KEY — the tags popup edits `["title"]', the link popup `["title", "url"]'
+    -- (the derived type column being the one it may not open), and the property
+    -- panel names none and takes the whole row.  The keys are resolved against
+    -- the shape's OWN column list, which is the one the SERVER declared
+    -- (`Glance.Query.linkColumns', `tagColumns') and this page embeds, so
+    -- reordering those columns moves the overlay with them and inserting one
+    -- ahead of the run costs nothing.  A key no column carries resolves to
+    -- nothing and the placement is a no-op, which is a box left where it was
+    -- rather than a box over the wrong cells.
+    --
+    -- The GUTTER `flags: true' puts in front is skipped by the class the
+    -- renderer already stamps, so what the resolution counts is the popup's own
+    -- columns and nothing of its chrome.
   , "    function placeEdit() {"
   , "      if (!edit) return;"
   , "      const o = edit.o, m = o.mount();"
   , "      const tr = m && m.el.querySelector(\"tbody tr.tv-sel\");"
   , "      if (!tr) return;"
-  , "      const tds = o.cells && [...tr.querySelectorAll(\"td:not(.tv-box)\")];"
-  , "      const from = tds && tds[o.cells[0]], to = tds && tds[o.cells[1]];"
+  , "      const span = o.cells && cellSpan(o.cells, o.cols);"
+  , "      if (o.cells && !span) return;"
+  , "      const tds = span && [...tr.querySelectorAll(\"td:not(.tv-box)\")];"
+  , "      const from = tds && tds[span[0]], to = tds && tds[span[1]];"
   , "      if (o.cells && !(from && to)) return;"
   , "      const a = tr.getBoundingClientRect();"
   , "      const b = el(o.pane).getBoundingClientRect();"
@@ -3200,6 +3228,22 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      const l = from.getBoundingClientRect(), rt = to.getBoundingClientRect();"
   , "      s.left = `${l.left - b.left}px`;"
   , "      s.width = `${rt.right - l.left}px`;"
+  , "    }"
+    -- WHERE A RUN OF NAMED COLUMNS SITS: the leftmost and rightmost of KEYS as
+    -- indices into COLS, or null where any of them names no column there.  The
+    -- RUN IS THE COLUMNS' ORDER rather than the shape's, since a box is drawn
+    -- from one edge to the other and a shape spelling its keys the other way
+    -- round means the same two cells.  Pure and order-only, so the answer is a
+    -- property of the two lists and of nothing else on the page — which is what
+    -- lets the suite check it against the server's own column declaration rather
+    -- than against a copy of it.
+    --
+    -- A declaration rather than a `const', so a direct `eval' of this glue leaks
+    -- it the way it leaks `whichKeys'.
+  , "    function cellSpan(keys, cols) {"
+  , "      const at = (keys || []).map((k) => (cols || []).findIndex((c) => c.key === k));"
+  , "      if (!at.length || at.some((i) => i < 0)) return null;"
+  , "      return [Math.min(...at), Math.max(...at)];"
   , "    }"
     -- The overlay is anchored to a row's box, so the window resizing has to move
     -- it — once, here, for both surfaces, since one `placeEdit' answers for
@@ -3256,20 +3300,21 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- empty value is already how an entry is absent.
     -- IDS is the set the key worked out, HOW the word the pill calls it: a
     -- caller that has already found the row and read the flags does not make
-    -- this look for them again.
+    -- this look for them again.  HOW is a function of what LANDED, and this
+    -- deletion is local and total, so it is asked about the whole set.
   , "    function pdelete(ids, how) {"
   , "      const gone = new Set(ids);"
   , "      const cleared = prows.filter((r) => gone.has(r.id) && r.fixed);"
   , "      for (const r of cleared) r.val = \"\";"
   , "      prows = prows.filter((r) => r.fixed || !gone.has(r.id));"
-  , "      pmount.clearFlags();"
   , "      repaint();"
       -- The command name is the BINDING's and the brackets carry what it did:
       -- org has no one function for taking a planning entry off — it is
       -- `org-schedule' or `org-deadline' under a prefix — so the line names the
       -- keys it cleared rather than claiming a property function did it.
   , "      const also = cleared.map((r) => r.key).join(\", \");"
-  , "      echo(`D → org-delete-property (${how}${also ? ` · ${also} cleared` : \"\"})`);"
+  , "      echo(`D → org-delete-property (${how(ids.length)}"
+      <> "${also ? ` · ${also} cleared` : \"\"})`);"
   , "    }"
     -- The panel's own keys.  This listener is written with the sheet, near the
     -- top of the glue, so it registers AHEAD of the dispatch and sees a key
@@ -3322,53 +3367,90 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- cursor sat in — and `TAB' is what crosses between them.  So a horizontal
     -- key would move a highlight and change nothing a reader can act on.
   , "      else if (k === \"d\" || k === \"D\" || k === \"u\")"
-  , "        { if (!e.repeat) flagKey(k, PFLAGS); }"
+  , "        { if (!e.repeat) flagKey(k, PFLAGS, keySaid(k)); }"
   , "      else return;"
   , "      e.preventDefault();"
   , "    });"
-    -- DIRED'S `d', and it is ONE implementation over two surfaces.  The first
-    -- press flags the row at point; a second `d' on an already-flagged row IS
-    -- `D' — it calls the same handler, so it takes EVERY flagged row rather than
-    -- the one under it; `u' takes a flag off and walks on, the way it does over
-    -- the table.  The flag is the confirmation, so there is no prompt, and a
-    -- lone flag is a set of one, which is what leaves the single-row flow
-    -- unchanged.
+    -- DIRED'S `d', and it is ONE implementation over THREE surfaces — the table,
+    -- this panel and the tags popup.  The first press flags the row at point; a
+    -- second `d' on an already-flagged row IS `D' — it calls the same handler,
+    -- so it takes EVERY flagged row rather than the one under it; `u' takes a
+    -- flag off and walks on.  The flag is the confirmation, so there is no
+    -- prompt, and a lone flag is a set of one, which is what leaves the
+    -- single-row flow unchanged.
+    --
+    -- THE CURSOR IS ASKED FOR FIRST AND THE FLAGS SECOND, because that is what
+    -- each branch actually needs: `D' means "take these" and a lone row is a set
+    -- of one, so it lands on a mount whose renderer never had flags, while the
+    -- two presses that MOVE a flag are exactly the ones an asset predating them
+    -- cannot serve and are what the refusal is for.
     --
     -- A SHAPE says what differs, and it is a mount, where the cursor is, what
-    -- "take these" means, and FOUR words: the surface's line for an empty
-    -- cursor, the two command names its echo spells, and the verb the second
-    -- press earns.  Everything else — the feature detection, the two-press
-    -- rule, the set-or-row choice and the walk after `u' — is the gesture, and
-    -- the gesture is here.  A third surface joins by naming those four.
-  , "    function flagKey(k, s) {"
+    -- "take these" means, what the surface LOGS when a flag moves, and FOUR
+    -- PHRASES — the line for a mount with no flags, the line for an empty
+    -- cursor, and the line each of the two flagging presses earns.  Everything
+    -- else — the feature detection, the two-press rule, the set-or-row choice
+    -- and the walk after `u' — is the gesture, and the gesture is here.  A third
+    -- surface joins by naming those.
+    --
+    -- SAY is the caller's rather than the shape's, because WHO IS SPEAKING is:
+    -- the popups say `KEY → phrase' out of a listener that has no binding in its
+    -- hand, and the table says it through `said', which spells the binding's own
+    -- command name and puts the phrase in brackets.  So a phrase is the whole
+    -- line on one surface and the bracket on another, and each surface's `say'
+    -- and its phrases travel together.
+    --
+    -- HOW words the count for the pill, and it is a FUNCTION of what LANDED
+    -- rather than of what was asked for: the popups' takes are local and total,
+    -- so they call it with the size of the set; the table's is a write that can
+    -- come back partly refused, and a name over the asked-for count would read
+    -- as a whole answer.
+  , "    function flagKey(k, s, say) {"
   , "      const m = s.mount();"
-  , "      if (!flagsOn(m))"
-  , "        { echo(`${k} → this table-view.js has no delete flags`); return; }"
   , "      const at = s.at();"
-  , "      if (at === null) { echo(`${k} → ${s.none}`); return; }"
-  , "      const flags = m.getFlagged();"
+  , "      if (at === null) { say(s.none); return; }"
+  , "      const flags = flagsOn(m) ? m.getFlagged() : [];"
   , "      if (k === \"D\" || (k === \"d\" && flags.indexOf(at) !== -1)) {"
-  , "        s.take(flags.length ? flags : [at],"
-  , "               flags.length ? `${flags.length} flagged` : \"row\");"
+  , "        const ids = flags.length ? flags : [at];"
+      -- The flags are SPENT before the take, on every surface: a mount keeps a
+      -- flag whose row is hidden — which is what makes a flag outlive the
+      -- repaint the take causes — so a set left standing would be taken again by
+      -- the next press and the row at point would never be reachable again.
+  , "        if (can(m, \"clearFlags\")) m.clearFlags();"
+  , "        s.take(ids, flags.length ? (n) => `${n} flagged` : (n) => (n ? \"row\" : n));"
   , "        return;"
   , "      }"
+  , "      if (!flagsOn(m)) { say(s.missing); return; }"
   , "      if (k === \"u\") {"
   , "        m.unflagRow(at);"
-  , "        echo(`u → ${s.unflag} (flag cleared)`);"
-  , "        stepIn(m, 1);"
+  , "        s.note(at, false);"
+  , "        say(s.unflag);"
+  , "        s.walk();"
   , "        return;"
   , "      }"
   , "      m.flagRow(at);"
-  , "      echo(`d → ${s.flag} (d again ${s.again})`);"
+  , "      s.note(at, true);"
+  , "      say(s.flag);"
   , "    }"
-    -- The panel's four words, and its cursor as an ID: `patAt' answers with an
+    -- The popups have nothing to log: their rows are a property and a tag, which
+    -- the echo already names, where the table's are org headlines the strip
+    -- reports one line per.  So the hook is theirs to leave empty rather than a
+    -- branch inside the gesture.
+  , "    const unlogged = () => {};"
+    -- The panel's phrases, and its cursor as an ID: `patAt' answers with an
     -- INDEX, which is the panel's own currency and nothing the gesture reads.
   , "    const PFLAGS = {"
-  , "      mount: () => pmount, take: pdelete,"
+  , "      mount: () => pmount, take: pdelete, note: unlogged,"
+  , "      walk: () => stepIn(pmount, 1),"
+  , "      missing: \"this table-view.js has no delete flags\","
   , "      none: \"org-delete-property (no row)\","
-  , "      unflag: \"delete-unflag\", flag: \"delete-flag\", again: \"deletes\","
+  , "      unflag: \"delete-unflag (flag cleared)\","
+  , "      flag: \"delete-flag (d again deletes)\","
   , "      at: () => { const i = patAt(); return i === -1 ? null : prows[i].id; },"
   , "    };"
+    -- How a surface with no binding in its hand speaks: the key, the arrow, and
+    -- the phrase whole.
+  , "    const keySaid = (k) => (what) => echo(`${k} → ${what}`);"
     -- What a flush sends: the subtree whole in raw mode, the two panes apart
     -- otherwise.  The server joins them, so this page never spells a drawer.
   , "    const asked = () => raw"
@@ -3674,13 +3756,14 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- `u' takes the archive FLAG off first: it is the more recent thing a
     -- reader put on the row and the one that would otherwise write a file.
     -- One key for both, which is what dired does, and the echo says which.
-  , "      if (!toggling && isFlagged(id)) {"
-  , "        table.unflagRow(id);"
-  , "        noted(id, \"unmarked for deletion\");"
-  , "        said(b, \"flag cleared\");"
-  , "        move(1);"
-  , "        return;"
-  , "      }"
+    --
+    -- THE ASYMMETRY IS THE TABLE'S and stays here.  Over the two popups `u' is
+    -- the flag key and nothing else; over the table it is the MARK key, which
+    -- prefers a flag when the row is wearing one — so what belongs to the shared
+    -- gesture is the clearing, the log line and the walk (`flagKey' does all
+    -- three), and what belongs to this surface is the choice to hand it the key.
+  , "      if (!toggling && isFlagged(id))"
+  , "        { flagKey(\"u\", XFLAGS(b), (what) => said(b, what)); return; }"
   , "      let on = table.toggleMark(id);"
   , "      if (on && !toggling) on = table.toggleMark(id);"
   , "      said(b, `${on ? \"marked\" : \"unmarked\"} · ${table.markedCount()}`);"
@@ -3871,23 +3954,16 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      if (visible().some((r) => r.id === want.from)) return;"
   , "      land({ id: want.id, col: column() }, want.at);"
   , "    }"
-    -- Archiving: ONE implementation, reached by both keys.  The tag goes on, the
-    -- headline stays, and the default view stops showing it.  It runs over the
-    -- FLAGGED set when there is one and the row at point otherwise, and never
-    -- over the marked one — a mark is the generic bulk selection a reader lays
-    -- down to set a state over a run of rows, and letting the archive key
-    -- inherit it makes every mark a loaded gun.
+    -- Archiving: the tag goes on, the headline stays, and the default view stops
+    -- showing it.  WHICH ROWS is `flagKey''s — the FLAGGED set when there is one
+    -- and the row at point otherwise — and never the marked one: a mark is the
+    -- generic bulk selection a reader lays down to set a state over a run of
+    -- rows, and letting the archive key inherit it makes every mark a loaded
+    -- gun.  So the table names no set of its own here; it hands the gesture a
+    -- key and takes back the ids.
     --
-    -- `d' on an already-flagged row calls THIS, so dired's `dd' is flag then
-    -- mass-confirm: one flag archives one row, three flags archive three, from
-    -- the same second press.  `D' is the same gesture without the first half.
-    --
-    -- The flags are SPENT here.  They have to be: the renderer keeps a flag
-    -- whose row a filter has hidden — which is what makes a flag survive the
-    -- refetch this write causes — so a set left standing would be re-archived by
-    -- the next press, and the row at point would never be reachable again.
-    -- The marks are spent HERE rather than in `fire', at both of this key's
-    -- doors: what an archived row owes its mark is the archive gesture's rule,
+    -- The marks are spent HERE rather than in `fire': what an archived row owes
+    -- its mark is the archive gesture's rule,
     -- and a name test in the shared path would be one every command added after
     -- it has to be read against.
     --
@@ -3913,23 +3989,36 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        leaving = null;"
   , "      unmark(results);"
   , "    };"
-  , "    function archive(b) {"
-  , "      const flags = flagging() ? table.getFlagged() : [];"
-  , "      if (flags.length) {"
-  , "        leaving = anchorFor(flags);"
-  , "        table.clearFlags();"
-  , "        fire(b, \"archive\", flags, {}, \"archived\", (n) => `${n} flagged`)"
-  , "          .then(spent(leaving)).catch(failed(b, \"archive\"));"
-  , "        return;"
-  , "      }"
-  , "      const id = focusedId();"
-  , "      if (id) {"
-  , "        leaving = anchorFor([id]);"
-  , "        fire(b, \"archive\", [id], {}, \"archived\", (n) => (n ? \"row\" : n))"
-  , "          .then(spent(leaving)).catch(failed(b, \"archive\"));"
-  , "      }"
-  , "      else said(b, \"no row\");"
+    -- WHAT THE TABLE'S SECOND PRESS TAKES: the ids `flagKey' worked out, archived
+    -- in one request under the binding that asked.  The anchor is taken HERE, at
+    -- fire time, while the view still holds the rows about to go; `fire' notes
+    -- the landed rows one line each; and HOW is the gesture's, a function of the
+    -- LANDED count so a partly refused write cannot read as a whole one.
+  , "    function archive(b, ids, how) {"
+  , "      leaving = anchorFor(ids);"
+  , "      fire(b, \"archive\", ids, {}, \"archived\", how)"
+  , "        .then(spent(leaving)).catch(failed(b, \"archive\"));"
   , "    }"
+    -- THE TABLE'S SHAPE, and the third `flagKey' surface.  It is a function of
+    -- the BINDING because everything it says and everything it fires is spoken
+    -- through one — `said' spells the binding's own command name, so `d' reads
+    -- `archive-flag' and `D' reads `org-glance-overview:delete' out of the same
+    -- gesture, which is what the two keys mean.
+    --
+    -- Its phrases are BRACKET CONTENTS where the popups' are whole lines, since
+    -- `said' supplies the arrow and the command name.  Its `note' is the one
+    -- that has anything to log: a table row is an org headline, and the strip
+    -- names every one a key touches.
+  , "    const XFLAGS = (b) => ({"
+  , "      mount: () => table, at: focusedId, walk: () => move(1),"
+  , "      take: (ids, how) => archive(b, ids, how),"
+  , "      note: (id, on) =>"
+  , "        noted(id, on ? \"marked for deletion\" : \"unmarked for deletion\"),"
+  , "      missing: \"this table-view.js has no archive flags\","
+  , "      none: \"no row\","
+  , "      unflag: \"flag cleared\","
+  , "      flag: \"flagged — d again archives\","
+  , "    });"
     -- Capture: the one write that names no row, so it takes none of the
     -- selection machinery above.  The line is raw org — `TODO Buy milk
     -- :errands:' captures a keyword, a title and a tag — and the server decides
@@ -4452,7 +4541,8 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- The target takes the focus, for the panel's reason: editing a link that is
     -- already there is nearly always editing where it points.
   , "    const LROW = {"
-  , "      box: \"ledit\", pane: \"lpane\", fields: [\"ltitle\", \"lurl\"], cells: [1, 2],"
+  , "      box: \"ledit\", pane: \"lpane\", fields: [\"ltitle\", \"lurl\"],"
+  , "      cells: [\"title\", \"url\"], cols: LCOLS,"
   , "      mount: () => lmount,"
   , "      fill: (r) => {"
   , "        el(\"ltitle\").value = r.link.desc;"
@@ -4687,11 +4777,10 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    }"
     -- `D', and the second `d' that reaches the same handler: every FLAGGED tag
     -- comes off every target carrying it.  ONE COMMAND PER TAG, since a command
-    -- names one — each its own per-file batch of atomic writes — and the flags
-    -- are SPENT before the first goes out, the way the table's archive flags
-    -- are: a set left standing would be removed again by the next press.
+    -- names one — each its own per-file batch of atomic writes.  The flags were
+    -- spent before this ran (`flagKey'), and the count the other two surfaces
+    -- word is nothing this can use, so it takes the ids and drops it.
   , "    function removeTags(list) {"
-  , "      tmount.clearFlags();"
   , "      for (const tag of list) untag(tag);"
   , "    }"
   , "    function untag(tag) {"
@@ -4753,7 +4842,8 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- The tag the overlay opened on is `edit.row', which is the snapshot every
     -- surface using this mechanism gets.
   , "    const TROW = {"
-  , "      box: \"tedit\", pane: \"tpane\", fields: [\"tname\"], cells: [0, 0],"
+  , "      box: \"tedit\", pane: \"tpane\", fields: [\"tname\"],"
+  , "      cells: [\"title\"], cols: TCOLS,"
   , "      mount: () => tmount,"
   , "      fill: (tag) => (el(\"tname\").value = tag),"
   , "      focus: () => { el(\"tname\").focus(); el(\"tname\").select(); },"
@@ -4768,14 +4858,17 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      shutEdit(TROW);"
   , "      echo(\"ESC → keyboard-quit (tag unchanged)\");"
   , "    }"
-    -- The popup's four words for `flagKey', the gesture itself being the
-    -- property panel's.  `tagAt' already answers with an id or null, which is
-    -- what the shape asks for; `removeTags' names one tag per command and has no
-    -- use for the count the panel spells, so it takes the ids and drops it.
+    -- The popup's phrases for `flagKey', the gesture itself being the property
+    -- panel's.  `tagAt' already answers with an id or null, which is what the
+    -- shape asks for; `removeTags' names one tag per command and has no use for
+    -- the count the panel spells, so it takes the ids and drops it.
   , "    const TFLAGS = {"
-  , "      mount: () => tmount, at: tagAt, take: removeTags,"
+  , "      mount: () => tmount, at: tagAt, take: removeTags, note: unlogged,"
+  , "      walk: () => stepIn(tmount, 1),"
+  , "      missing: \"this table-view.js has no delete flags\","
   , "      none: \"org-toggle-tag (no tag)\","
-  , "      unflag: \"tag-unflag\", flag: \"tag-flag\", again: \"removes\","
+  , "      unflag: \"tag-unflag (flag cleared)\","
+  , "      flag: \"tag-flag (d again removes)\","
   , "    };"
     -- Settings, in PANELS.  The general preferences, the theme, then one box
     -- per keyword layer — a layer being one config file and its `#+TODO:' lines
@@ -5327,19 +5420,52 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      echo(`${shown} -`, true);"
   , "      pendingAt = setTimeout(() => { pending = []; echo(`${shown} - timed out`); }, 2000);"
   , "    }"
+    -- THE MODAL SURFACES, IN RANK ORDER, and it is ONE list.  Each is a thing
+    -- that holds the keys with NOTHING FOCUSED — the property panel in nav, the
+    -- value palette in letter mode (whose whole offer is single letters the
+    -- table also binds), and the two popups, which browse on the table's own
+    -- movement keys and write on its own `d'/`D'/`u'.  Any of them would
+    -- otherwise leave the table's keys live underneath it: for the link popup
+    -- that is the whole of what makes it read-only, and for the tags popup it is
+    -- what keeps `d' off an org row while it flags a tag.
+    --
+    -- THE ORDER IS THE REGISTRATION ORDER.  The panel's listener is written with
+    -- the sheet, near the top of the glue, so it registers AHEAD of the dispatch
+    -- and sees a key first; the other three are behind it and see one in the
+    -- order they were written.  That is why the panel leads: rank here is which
+    -- listener wins a key, and it is a fact about the page rather than a
+    -- preference.
+    --
+    -- THREE READERS AND NO FOURTH.  `typing()' asks whether ANY of them is up,
+    -- which is what kills every `table' row; `cancel' walks the list for the one
+    -- ESC belongs to; and a listener asks whether anything ABOVE it is up before
+    -- it claims a key (`covered').  Each entry names its own `up', the `off'
+    -- that closes it, and the OPEN EDIT that is a rung under it — the panel's
+    -- row, the popups' overlays — which ESC puts back before the surface itself
+    -- can hear the key.  A surface with no door of its own (the panel: ESC from
+    -- nav belongs to the sheet under it) names no `off' and the ladder walks past
+    -- it.
+  , "    const SURFACES = ["
+  , "      { name: \"panel\", up: pnav, edit: pediting, shut: cancelRow },"
+  , "      { name: \"prompt\", up: () => !!prompting, off: unask },"
+  , "      { name: \"links\", up: linking, off: shutLinks,"
+  , "        edit: lediting, shut: cancelLinkEdit },"
+  , "      { name: \"tags\", up: managing, off: shutTags,"
+  , "        edit: renaming, shut: cancelRename },"
+  , "    ];"
+    -- Anything ranked ABOVE NAME being up, which is what a listener behind
+    -- another one has to decline for.  Read forwards off the list, so adding a
+    -- surface puts it in every reader's answer at once.
+  , "    const covered = (name) =>"
+  , "      SURFACES.slice(0, SURFACES.findIndex((s) => s.name === name))"
+  , "              .some((s) => s.up());"
   , "    // A focus that keeps its own keys: the filter box, the sheet, and the"
   , "    // keys select, which navigates on the arrows this map would otherwise"
-  , "    // take for row movement — and the four modal things that hold the keys"
-  , "    // with nothing focused at all: the property panel in nav, the value"
-  , "    // palette in letter mode, whose whole offer is single letters the table"
-  , "    // also binds, and the two popups, which browse on the table's own"
-  , "    // movement keys and write on its own `d'/`D'/`u'.  Any of them would"
-  , "    // otherwise leave the table's own keys live underneath it — for the link"
-  , "    // popup that is the whole of what makes it read-only, and for the tags"
-  , "    // popup it is what keeps `d' off a row while it flags a tag."
+  , "    // take for row movement — and the modal surfaces, which hold them with"
+  , "    // nothing focused at all."
   , "    const typing = () => {"
   , "      const a = document.activeElement;"
-  , "      return pnav() || !!prompting || linking() || managing()"
+  , "      return SURFACES.some((s) => s.up())"
   , "        || (!!a && (a.tagName === \"INPUT\" || a.tagName === \"TEXTAREA\""
   , "                     || a.tagName === \"SELECT\" || a.isContentEditable));"
   , "    };"
@@ -5426,26 +5552,19 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        said(b, `marked · ${table.markedCount()}`);"
   , "      },"
     -- dired's `d', in two presses: the first flags the row and the second is
-    -- `D' — `archive' over every flagged row, this one included.  The flag IS
+    -- `D' — the archive over every flagged row, this one included.  The flag IS
     -- the confirmation, so there is no prompt — and the command is in ONCE, so a
     -- HELD `d' delivers exactly one press and can never flag and archive from
-    -- one keystroke.  `u' takes a flag off.
-  , "      archiveFlag: (b) => {"
-  , "        if (!flagging()) { said(b, \"this table-view.js has no archive flags\"); return; }"
-  , "        const id = focusedId();"
-  , "        if (!id) { said(b, \"no row\"); return; }"
-  , "        if (isFlagged(id)) { archive(b); return; }"
-  , "        table.flagRow(id);"
-  , "        noted(id, \"marked for deletion\");"
-  , "        said(b, \"flagged — d again archives\");"
-  , "      },"
+    -- one keystroke.  `u' takes a flag off, through `mark'.
+  , "      archiveFlag: (b) => flagKey(\"d\", XFLAGS(b), (what) => said(b, what)),"
   , "      applyDefault, relations, focusFilter, toggleRaw, openSettings,"
     -- One `save-buffer' over two sheets: `saveSheet' asks `activeSheet' which
     -- is up, so there is nothing to choose between here.
   , "      save: saveSheet,"
-    -- D is dired's key and org-glance's `delete', and it is `archive' with no
-    -- flagging step in front of it — the same function the second `d' reaches.
-  , "      archiveRows: archive,"
+    -- D is dired's key and org-glance's `delete', and it is the same gesture
+    -- with no flagging step in front of it — the same call the second `d' makes,
+    -- differing in the key it hands over and so in the name the echo spells.
+  , "      archiveRows: (b) => flagKey(\"D\", XFLAGS(b), (what) => said(b, what)),"
     -- C-c C-t asks which state, over whatever the command would run on.  The
     -- overlay goes up on the press and the answer fills it: the same server
     -- that refuses a keyword the row's own file does not declare is the one
@@ -5514,25 +5633,23 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        : append(\"cmd\", \"info\", \"q closes the sheet; there is no window to quit\")),"
     -- One key out of whichever overlay is up: the prompt first, since it is the
     -- one that can be raised over an open sheet.
+    -- ONE KEY OUT OF WHICHEVER OVERLAY IS UP, walked off `SURFACES' rather than
+    -- restated as a chain of tests: each surface's OPEN EDIT is the rung under
+    -- it, so ESC puts a panel row, a link or a tag back and only the next press
+    -- reaches the surface holding it.  The sheet is the floor — the panel names
+    -- no `off', so ESC from nav falls through to it — and a stray focus is what
+    -- is left under that.
+    --
+    -- The surfaces are mutually exclusive in practice (each is raised from a
+    -- table key, and `typing()' has already killed every one of those by the
+    -- time another is up), so the ORDER decides nothing a reader can reach; it
+    -- is the list's, and the list's order is the listeners'.
   , "      cancel: () => {"
-    -- The prompt is the top rung wherever it is raised: over the table, or over
-    -- the tags popup as its `+' field, which is what leaves the popup standing
-    -- when a reader backs out of adding.
-  , "        if (prompting) unask();"
-    -- The two popups are rungs of their own beside the palette's: each is raised
-    -- over the table alone, never over a sheet, so their place in the ladder is
-    -- decided by nothing but reading order.  Each popup's OPEN EDIT is a rung
-    -- UNDER it, the way the panel's open row is under the sheet: ESC puts the
-    -- link or the tag back, and only then does the key reach the popup.
-  , "        else if (lediting()) cancelLinkEdit();"
-  , "        else if (linking()) shutLinks();"
-  , "        else if (renaming()) cancelRename();"
-  , "        else if (managing()) shutTags();"
-    -- The panel's open row is a rung of its own, under the sheet's: while one
-    -- is open ESC puts it back, and only from nav does the key reach the sheet
-    -- — whichever of the two is up, which is `leaveSheet''s own question.
-  , "        else if (pediting()) cancelRow();"
-  , "        else if (activeSheet()) leaveSheet();"
+  , "        for (const s of SURFACES) {"
+  , "          if (s.edit && s.edit()) { s.shut(); return; }"
+  , "          if (s.off && s.up()) { s.off(); return; }"
+  , "        }"
+  , "        if (activeSheet()) leaveSheet();"
   , "        else if (typing()) document.activeElement.blur();"
   , "      },"
   , "      // The filter's own backspace: the renderer drops the token and the"
@@ -5608,6 +5725,13 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- Letter mode is bare letters only: `keyName' spells a chord `C-t' and a
     -- held shift `T', neither of which is a claimed letter, so both fall
     -- through to whatever else wants them.
+    --
+    -- `raising' IS NOT WHAT `covered' IS, which is why the list does not absorb
+    -- it.  `covered' is one surface declining for ANOTHER one above it;
+    -- `raising' is this surface declining the one keydown that RAISED it — `t'
+    -- is both the opener and a letter in what it opens, and this listener sits
+    -- behind the dispatch, so that press arrives here next.  A rank cannot say
+    -- anything about it: there is only one surface involved.
   , "    document.addEventListener(\"keydown\", (e) => {"
   , "      if (!prompting) return;"
   , "      if (prompting.raising) { prompting.raising = false; return; }"
@@ -5678,7 +5802,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- popup's are: `RET' commits and `ESC' is the keymap's, which puts the link
     -- back.
   , "    document.addEventListener(\"keydown\", (e) => {"
-  , "      if (!linking()) return;"
+  , "      if (!linking() || covered(\"links\")) return;"
   , "      const k = keyName(e);"
   , "      if (!k) return;"
   , "      if (lediting()) {"
@@ -5707,15 +5831,16 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- made every `table' row dead, so the only row that can have fired ahead of
     -- this is `ESC' — which is the one that should.
     --
-    -- TWO GUARDS, both about the value palette `+' raises OVER this one.  While
-    -- it is up this listener declines outright, or a reader narrowing the field
-    -- would be flagging tags underneath it — `typing()' having killed the map's
-    -- rows, there is nothing else between the two surfaces.  And a key the
-    -- palette has just CLAIMED is declined too: the palette's listener runs
-    -- ahead of this one and closes the overlay as it commits, so the very `RET'
-    -- that added a tag would arrive here over a popup with no prompt on it and
-    -- open the rename.  `defaultPrevented' is the DOM's own word for "handled",
-    -- which is what every listener here already says by calling it.
+    -- TWO GUARDS.  `covered' is the first: while anything ranked above this in
+    -- `SURFACES' is up — in practice the value palette `+' raises OVER it — this
+    -- listener declines outright, or a reader narrowing the palette's field
+    -- would be flagging tags underneath it, `typing()' having killed the map's
+    -- rows and left nothing else between the two surfaces.  And a key that
+    -- surface has just CLAIMED is declined too: its listener runs ahead of this
+    -- one and closes the overlay as it commits, so the very `RET' that added a
+    -- tag would arrive here over a popup with no prompt on it and open the
+    -- rename.  `defaultPrevented' is the DOM's own word for "handled", which is
+    -- what every listener here already says by calling it.
     --
     -- MOVE, RENAME, FLAG, REMOVE, ADD.  Row movement is `rowStep', the property
     -- panel's own and the link popup's; `RET' opens the rename; `d'/`D'/`u' are
@@ -5725,7 +5850,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- be.  With the overlay open the keys are the rename's: `RET' commits, and
     -- `ESC' is the keymap's, which puts the tag back.
   , "    document.addEventListener(\"keydown\", (e) => {"
-  , "      if (!managing() || prompting || e.defaultPrevented) return;"
+  , "      if (!managing() || covered(\"tags\") || e.defaultPrevented) return;"
   , "      const k = keyName(e);"
   , "      if (!k) return;"
   , "      if (renaming()) {"
@@ -5739,7 +5864,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      else if (k === \"RET\") openRename();"
   , "      else if (k === \"+\") addFlow();"
   , "      else if (k === \"d\" || k === \"D\" || k === \"u\")"
-  , "        { if (!e.repeat) flagKey(k, TFLAGS); }"
+  , "        { if (!e.repeat) flagKey(k, TFLAGS, keySaid(k)); }"
   , "      else return;"
   , "      e.preventDefault();"
   , "    });"
@@ -5991,34 +6116,37 @@ page head' title body = T.unlines
   -- the same fact, and the two disagreed about where the row began.
   -- The log is the table's own container repeated under it: same width,
   -- because this rule is the one place either width is set; same hairline,
-  -- radius and surface tint as @.tv-root@.  It takes the height the table and
-  -- the key line leave and scrolls inside it, so a long message cannot push
-  -- either of them off the page.  The frame is resident: it holds its place
-  -- with nothing to say, so an arriving event never moves the key line under it.
+  -- radius and surface tint as @.tv-root@.  Its height is FIXED (below) and it
+  -- scrolls inside that, so a long message moves nothing on the page.  The frame
+  -- is resident: it holds its place with nothing to say, so an arriving event
+  -- never moves the key line under it or the table above it.
   , "  #app,#log{width:100%;box-sizing:border-box}"
   --
-  -- N LINES and no more.  The strip still fills what is there for smaller
-  -- content, and stops growing at N of its own line boxes — past that a quiet
-  -- page was giving half the window to a log nobody was reading, and the table
-  -- took the loss.  The cap is computed rather than eyeballed: a line box is the
-  -- body's unitless 1.5 over this rule's OWN font size, which is exactly what
-  -- `em' reads for a length here, so the size is declared once and the
-  -- arithmetic follows it rather than restating `12px'.  `box-sizing:border-box'
-  -- puts the 6px padding twice and the 1px border twice inside the figure, so
-  -- those two are still spelled out — which is why the cap is a sum rather than
-  -- `140px'.
+  -- N LINES, ALWAYS.  The strip is exactly N of its own line boxes tall whatever
+  -- it is holding — a fixed frame the messages scroll inside, rather than a box
+  -- that grows to what has arrived and stops at a cap.  A strip that GREW was
+  -- the table resizing under a reader's cursor every time a write logged a line,
+  -- which is the one thing a keyboard surface must not do; and a quiet page
+  -- reads the same as a busy one.
+  --
+  -- The height is computed rather than eyeballed: a line box is the body's
+  -- unitless 1.5 over this rule's OWN font size, which is exactly what `em'
+  -- reads for a length here, so the size is declared once and the arithmetic
+  -- follows it rather than restating `12px'.  `box-sizing:border-box' puts the
+  -- 6px padding twice and the 1px border twice inside the figure, so those two
+  -- are still spelled out — which is why it is a sum rather than `140px'.
   --
   -- N IS A CUSTOM PROPERTY, and that is what makes it a preference: the
   -- arithmetic lives HERE, once, and the settings sheet writes a NUMBER onto the
   -- element.  The declared value is 'logLinesDefault', so a page whose glue has
-  -- not run yet — or a reader who never touched the field — is capped at the
-  -- same figure the sheet would put back.  Whatever the log gives up, the table
-  -- takes: `#app' is the flexible one and the strip's `flex' cannot outgrow this.
+  -- not run yet — or a reader who never touched the field — gets the same figure
+  -- the sheet would put back.  `flex:none' is the other half: the strip takes its
+  -- declared height and `#app', the flexible one, takes the whole of the rest.
   , "  #log{font-size:12px;color:var(--g-mute);padding:6px 10px;"
   , "    border:1px solid var(--g-border);border-radius:8px;"
   , "    --g-logn:" <> T.pack (show logLinesDefault) <> ";"
-  , "    max-height:calc(var(--g-logn) * 1.5em + 2 * 6px + 2 * 1px);"
-  , "    background:var(--g-surface);flex:1 1 auto;overflow-y:auto}"
+  , "    height:calc(var(--g-logn) * 1.5em + 2 * 6px + 2 * 1px);"
+  , "    background:var(--g-surface);flex:none;overflow-y:auto}"
   -- A line is spans so its parts can be told apart at a glance: the stamp and
   -- the scope recede into the strip's own colour, the message carries the page's
   -- text colour, and the severity is the one part that changes colour — which is

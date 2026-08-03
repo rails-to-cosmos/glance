@@ -32,8 +32,6 @@ module Glance.Web.Store
   , loadStore
   , loadStoreWith
   , storeDocument
-  , storeHeadline
-  , storeHeadlines
   , headlinesIn
   , storeRecords
   , storeResult
@@ -66,7 +64,7 @@ import Control.Concurrent.STM.TBQueue (TBQueue, isFullTBQueue, newTBQueue, readT
 import Control.Monad (filterM, (<=<))
 import Data.Aeson (Value, encode, object, (.=))
 import Data.Either (partitionEithers)
-import Data.List (find, foldl', nub)
+import Data.List (foldl', nub)
 import Data.Map.Strict (Map)
 import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Set (Set)
@@ -183,42 +181,24 @@ storeResult st = QueryResult
         (rows, clashes)  = resolveIds (storeRows st)
         failures f       = length (filter ((== Just f) . feFailure) entries)
 
--- | The record ST holds under ID, or 'Nothing'.  What @\/headline@ materializes
--- from: the row the table shows, with the subtree extent and the digest of the
--- text that extent was measured in, which is what makes a write back to it
--- drift-checkable.
+-- | IDS looked up over rows ALREADY RESOLVED: the rows among them the ids name,
+-- in the order the ids were named, and the ids nothing holds.
 --
--- A scan of the store rather than an index: an index by id would be a second
--- structure to keep in step with 'stFiles' on every reload.  What the scan costs
--- is the RESOLUTION in front of it, and it is most of the request rather than a
--- rounding error on it: ~28 ms over the 10435-row @~\/sync@ store, measured on
--- 2026-08-03 as the difference between @\/tags@ resolving once and twice (medians
--- 45.3 ms and 73.7 ms of 15 requests), against a whole @GET \/headline@ of
--- ~29 ms.  Still none of a reader's attention for one press, and still the lever
--- if @\/headline@ ever lands in a loop.  It runs over the resolved rows, so
--- materializing an id two files claim opens the one the table is showing.
-storeHeadline :: Text -> Store -> Maybe HeadlineRecord
-storeHeadline rid = find ((== rid) . hrId) . storeRecords
-
--- | IDS looked up in ONE resolution: the rows ST holds, in the order the ids
--- were named, and the ids it holds none for.
+-- It takes the ROWS rather than the store, and that is the whole of the rule
+-- this module enforces about @/headline@, @/links@, @/keywords@, @/tags@ and
+-- @POST \/command@: every route resolves ONCE, at its own door
+-- ('storeRecords'), and hands the list on.  'storeRecords' resolves the WHOLE
+-- store each time it is named — ~28 ms over the 10435-row @~\/sync@ store,
+-- measured on 2026-08-03 as the difference between @\/tags@ resolving once and
+-- twice (medians 45.3 ms and 73.7 ms of 15 requests), against a whole
+-- @GET \/headline@ of ~29 ms — so a store-taking lookup let a route resolving
+-- two folds pay twice, and a fold over one per id let a marked set of a hundred
+-- rows spend SECONDS on one answer.  Neither is reachable from a function that
+-- cannot see the store.
 --
--- What 'storeHeadline' is for a set, and the reason it exists rather than a
--- fold over it: that call resolves the whole store per id (~28 ms over the
--- 10435-row @~\/sync@ store), so a marked set of a hundred rows would spend
--- SECONDS on one answer.  This resolves once and indexes, which is flat in the
--- number of ids.  Both routes that name rows go through it, so a refusal for an
--- id nothing holds reads the same either way.
-storeHeadlines :: [Text] -> Store -> ([HeadlineRecord], [Text])
-storeHeadlines ids st = headlinesIn (storeRecords st) ids
-
--- | 'storeHeadlines' over rows ALREADY resolved: the same answer without the
--- resolution, for a route that owes a second fold over the same rows.
---
--- The split is the whole of what keeps @\/tags@ to one resolution — the rows the
--- ids name and the store-wide tag counts are both folds over RESOLVED, and a
--- caller holding the list cannot accidentally resolve twice by asking the store
--- again.
+-- A scan rather than an index: an index by id would be a second structure to
+-- keep in step with 'stFiles' on every reload.  It runs over the RESOLVED rows,
+-- so materializing an id two files claim opens the one the table is showing.
 headlinesIn :: [HeadlineRecord] -> [Text] -> ([HeadlineRecord], [Text])
 headlinesIn resolved ids =
   partitionEithers [ maybe (Right rid) Left (Map.lookup rid held) | rid <- ids ]
@@ -355,10 +335,10 @@ guarded path step st = (if moved then next { stGen = stGen next + 1 } else next,
 -- leaving a stale one until the client reconnects.
 --
 -- Cost: one pass over the store's rows per side, keeping only the ids the step
--- touched, and it is CHEAPER than 'storeHeadline' rather than the same order of
--- work — 'resolvedRows' filters to the touched ids BEFORE it resolves, so the
--- full-store resolution that dominates a lookup is never paid here.  A scan and
--- a resolution of a handful of rows, per watch event rather than per request:
+-- touched, and it is CHEAPER than a route's own lookup rather than the same
+-- order of work — 'resolvedRows' filters to the touched ids BEFORE it resolves,
+-- so the full-store resolution that dominates a request is never paid here.  A
+-- scan and a resolution of a handful of rows, per watch event rather than per request:
 -- measured at 5–6 ms for the whole step over a 14000-row store with a client
 -- attached, where the parse alone is 4 ms.  It buys the one thing an incremental
 -- view could not otherwise have: agreement with every other reader.

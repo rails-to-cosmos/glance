@@ -90,17 +90,19 @@ curl -s 'localhost:7777/headlines?q=sort:deadline&limit=100' | jq '.sort'
 curl -s 'localhost:7777/headlines?q=state:*active*%20sort:scheduled:desc' | jq '.rows | length'
 #+end_src
 
-*Walk order (experimental).* =?order=document= leaves the rows in walk order
-whatever the limit — file by file, top entry by top entry down each — and the
-view carries *no =sort= field at all*, so a renderer leaves them where they
-landed.
+*Walk order.* =sort:*none*= leaves the rows in walk order whatever the limit —
+file by file, top entry by top entry down each — and the view carries *no =sort=
+field at all*, so a renderer leaves them where they landed. It is a starred meta
+like =*active*=, so no column is called it, and it *stands alone*: a sort key
+beside it is a 400 naming it.
 
 #+begin_src sh
-curl -s 'localhost:7777/headlines?order=document' | jq '.rows[:4] | map(.id)'
-curl -s 'localhost:7777/headlines?order=document' | jq 'has("sort")'   # false
+curl -s 'localhost:7777/headlines?q=sort:*none*' | jq '.rows[:4] | map(.id)'
+curl -s 'localhost:7777/headlines?q=sort:*none*' | jq 'has("sort")'   # false
 #+end_src
 
-There is no UI for it: the shell never asks, so this is a URL you type.
+The older =?order=document= parameter is gone; it is a 400 naming this
+replacement.
 
 Every answer carries =ETag: "<fingerprint>-gN"= — the fingerprint being a
 digest of the tree the daemon loaded, =N= the store's generation, which the file

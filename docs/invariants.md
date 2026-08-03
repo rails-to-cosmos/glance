@@ -972,9 +972,9 @@ on.
   `loadDir`'s `summarise`, `Glance.Web.Store.storeRecords`,
   `Glance.Web.Store.storeResult` and `Glance.Web.Store.resolvedRows` — which is
   what keeps the store equal to the load it stands in for and the stream equal
-  to both; `storeHeadline` and `bootstrapFrame` resolve transitively through
-  `storeRecords`, so materializing an id two files claim opens the one the table
-  is showing. The count rides as
+  to both; every route resolves at its own door through `storeRecords` and
+  `bootstrapFrame` resolves transitively through it, so materializing an id two
+  files claim opens the one the table is showing. The count rides as
   `X-Glance-Id-Collisions` and the pairs
   are listed by the scan (capped at 20). Corpus: 522 collisions with the
   mirrors walked, 9 without — those nine are genuine duplicates between real
@@ -1148,7 +1148,7 @@ on.
   streams the winner's new cells; and a winner that goes away re-points its id
   at the row behind it with an upsert rather than leaving a stale one until the
   client reconnects. Cost: one pass over the store's rows per side, kept to the
-  touched ids — the order of `storeHeadline`'s scan, and measured end to end at
+  touched ids — the order of a route's own scan, and measured end to end at
   5–6 ms for the whole watch step (read, parse, both folds, publish) over a
   14000-row 2000-file store with a live subscriber, against the 4 ms the parse
   alone cost at S5. Building the frames off one file's records is what made it
@@ -1955,20 +1955,24 @@ on.
   same query answers differently depending on which half evaluated it, and
   neither suite can see it, because each tests its own half. Read them as a
   standing list to re-check whenever either file moves. **none**
-- **Column lockstep is three-way, and `hrSearch`'s field order sits outside
-  it.** `Glance.Query.viewColumns` is the single source for three things — the
-  `columns` array, `rowJSON`'s cells, and `filterKeys`. The fourth thing that
-  must agree, the order of fields inside `hrSearch`, is a hand-written
-  positional list in `recordOf` and is NOT derived from `viewColumns`. The guard
-  that looks as though it closes the loop does not: `TestFilter`'s layout group
-  compares `hrSearch`'s fields against its OWN hardcoded list, so it catches
-  `recordOf` drifting from the test and is blind to `viewColumns` drifting from
-  both. Reorder `viewColumns` alone — swap `title` and `tag`, say — and
-  `filterKeys` and `tagsColumn` move while `hrSearch` stays put; every predicate
-  then reads the wrong `\x1f` field, and the suite stays green. Five places move
-  together: `viewColumns`, `recordOf`'s `searchTextOf` list, `Filter.dateKeys`,
-  `Filter.keyTest`'s name switch with `tagsColumn`, and the test's own list.
-  **none** (the guard exists and does not guard this)
+- **Column lockstep is FOUR-way, and `hrSearch` is derived like the rest.**
+  `Glance.Query.viewColumns` is the single source for four things — the `columns`
+  array, `rowJSON`'s cells, `filterKeys`, and the field order inside `hrSearch`,
+  which `viewCells` reads straight off the same table (`recordOf` ties the record
+  through its own cells). A cell is `HeadlineRecord -> Maybe Text`, so `Nothing`
+  is the row JSON's `null` and the empty field a filter reads, in one statement.
+  The APPEND hazard is closed by construction: a seventh column used to leave the
+  hand-written search list six fields long and every predicate past it read the
+  wrong `\x1f` field, greenly. A REORDER was already caught, by the predicate
+  cases (`TestFilter` 622-645) reading actual cells. What is left to keep in step
+  by hand is `Filter.dateKeys` and `Filter.keyTest`'s name switch, neither of
+  which is positional. `TestFilter`'s layout guard keeps its own hardcoded
+  six-cell list on purpose: it is now the one copy of the layout that is NOT
+  derived from the table, which makes it an INDEPENDENT ORACLE rather than a
+  mirror — a test derived from `viewColumns` would agree with any reordering of
+  it. Beside it, a case quantified over the columns there are ("every column is
+  reachable by the key it declares"). **test** (the oracle, and the quantified
+  case)
 - **Which column holds a LIST is chosen by NAME here and declared to the
   renderer.** The server's multi-valued column is `tagsColumn`, the index of the
   key literally named
@@ -2098,10 +2102,11 @@ on.
   **test**
 - **The watch is the only channel that WRITES the store.** A commit writes the
   file and returns; no path through the route writes the `Hub` or the `Store`.
-  It does READ them — `storeHeadline` is where the extent and the pinned digest
-  come from — and that read is the point: the write is measured against what the
-  store already holds. The invariant is one-directional, and stating it as "the
-  route does not touch the store" is wrong in a way that makes the digest lock
+  It does READ them — a route's own resolution is where the extent and the
+  pinned digest come from — and that read is the point: the write is measured
+  against what the store already holds. The invariant is one-directional, and
+  stating it as "the route does not touch the store" is wrong in a way that
+  makes the digest lock
   look impossible.
   The watch re-reads what was written and streams the rows, so a browser save
   reaches every open tab by the path an editor's save already takes. Updating
@@ -2178,11 +2183,13 @@ on.
   those spans were measured against". **test**
 - **`edit-link` is the ONE command whose args name a row's own TEXT, so it names
   ONE row.** A span means nothing to a second row, and over two files it would
-  name a different range in each — `csOne` is the rule, checked where the ids
-  rule already lives. CHARACTERS, like every other span in this codebase. THE
-  FORM IS PRESERVED, which is what makes it a link edit
-  rather than a rewrite of the text around one: `[[T][D]]` keeps its description
-  under a target-only edit, `[[T]]` stays desc-less, a plain URL swaps its target
+  name a different range in each. The rule is the command's own `csArgs`, which
+  is handed the IDS beside the `args` because a shape refusal is about the
+  REQUEST: seven of the eight commands ignore the list, and `wantsLink` names the
+  count FIRST, ahead of the span and the target it also owes. CHARACTERS, like
+  every other span in this codebase. THE FORM IS PRESERVED, which is what makes
+  it a link edit rather than a rewrite of the text around one: `[[T][D]]` keeps
+  its description under a target-only edit, `[[T]]` stays desc-less, a plain URL swaps its target
   and stays plain, and a description ARRIVING is the one thing that changes a
   shape — a plain URL has nowhere to write one, so it brackets. ABSENT IS NOT
   NULL (`.:!` rather than `.:?`, the whole command layer's discipline): a request
@@ -3341,10 +3348,19 @@ on.
   narrows nothing in either polarity where a match-all under that inverter would
   make `-sort:x` empty the table. `Glance.Web.Sort.sortChainIn` reads the same
   module's `parseFilter` output for what those tokens say about the order, so
-  one parse serves both questions. A query
-  naming any sort key replaces the chain it was asked under (`?order=` picks that
-  base), and one naming none leaves it standing — which is what keeps the default
-  chain invisible until a reader diverges from it. A negation, an alternation, a
+  one parse serves both questions. A query naming any sort key replaces the
+  chain, and one naming none leaves the view's declared chain standing — which is
+  what keeps the default chain invisible until a reader diverges from it.
+  `sort:*none*` is the EMPTY CHAIN — document order, and no `sort` field on the
+  wire — and it is a starred meta rather than a parameter: it travels in `q`, in
+  the URL and back out of the renderer's chips like everything else a reader
+  states about the answer. It ADMITS NO COMPANIONS: another sort key beside it,
+  or a direction on it, is a 400 naming the meta, since two orders in one query
+  is a reader meaning one of them; the half-typed `sort:` is no companion. The
+  older `?order=document`/`?order=scheduled` parameter is GONE and is refused
+  rather than ignored, which is the reason it was ever spelled out — a parameter
+  silently dropped would serve the default order and read as a working request.
+  A negation, an alternation, a
   column no view carries, a direction that is neither `asc` nor `desc` and a
   column named twice are each this request's 400 naming the token; the renderer
   has nobody to refuse to and drops the key instead, so the producer is STRICTER

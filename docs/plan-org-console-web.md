@@ -367,20 +367,25 @@ So a materialize is **3–4 ms** end to end, and the lookup is nearly all of it:
 **~2.5 ms** of scan over 13k records, against 0.4 ms of HTTP and — on a second
 run of the same benchmark — a 68 KB subtree that came back in 3.39 ms while the
 404 took 3.45 ms, the slice and the encode disappearing into run-to-run noise.
-The scan is deliberate (`Glance.Web.Store.storeHeadline`): the store's id index
+The scan is deliberate (`Glance.Web.Store.headlinesIn`, over a route's own
+`storeRecords`): the store's id index
 counts ids to decide deletions and holds no records, and an index keyed to
 records is a second structure to keep in step with `stFiles` on every reload,
 for a saving nobody can perceive on a modal that opens. It is written down as
 the lever if `/headline` ever lands in a loop.
 
 **SUPERSEDED, timings only.** The table above predates id resolution: at the
-time `storeHeadline` was a `find` over `storeRows`, where it now runs over
+time the lookup was a `find` over `storeRows`, where it now runs over
 `resolveIds`' output and so resolves the whole store per lookup. Re-measured
 2026-08-03 over the same tree (10435 rows, 6289 files), a resolution is **~28 ms**
 and a whole `GET /headline` **~29 ms** — an order of magnitude up, and still the
 same conclusion, the lookup being nearly all of the request. The shape rule this
-bought is in `Glance.Web.Store.storeHeadlines` and is pinned by
-`TestSelfContained` "the /tags route resolves the store exactly once". The row
+bought is `Glance.Web.Store.headlinesIn` taking the RESOLVED rows rather than
+the store: every route resolves once at its own door and passes the list down,
+and the module offers nothing that takes a `Store` and answers about an id, so a
+second resolution has no spelling left. It was a `TestSelfContained` grep over
+`tagsView`'s source lines until 2026-08-03, when the design took the hazard away
+instead. The row
 and file counts here are a 2026-07 tree; see "Corpus numbers, and the day they
 moved" below.
 
@@ -559,7 +564,7 @@ every client's tag; a per-query tag would need the filter result cached, which
 is a second structure to keep in step. `storeKeywords` and `storeResult` are
 recomputed per request — ~13 ms of the paged request — and caching them in the
 `Store` beside `stGen` is the obvious next lever, held back for the same reason
-`storeHeadline` is still a scan.
+a row lookup is still a scan.
 
 ## Desktop stage 1 (landed) — `glance desktop`, and serving before the walk
 
@@ -1091,11 +1096,12 @@ The exit criteria were (1) read it on ~/sync, (2) decide whether the degradation
 under the default `state:*active*` filter is right or merely honest, and only
 then (3) wire the shell. (1) and (2) were answered together, and the answer was
 to stop describing an outline rather than to draw a better one — see the next
-section. `depth` and its tests are out of `Glance.Query`; `?order=document` and
-`ViewOrder` stay, since walk order is still walk order and the parameter costs a
-`case` (its documentation now says it orders top entries rather than an
-outline). The renderer's `tree: true` is unreached from here, which is what it
-already was: the shell never mounted with it.
+section. `depth` and its tests are out of `Glance.Query`; walk order stayed,
+since walk order is still walk order (its documentation now says it orders top
+entries rather than an outline). It is spelled `?q=sort:*none*` as of
+2026-08-03, the `?order=` parameter having been retired into the query grammar.
+The renderer's `tree: true` is unreached from here, which is what it already
+was: the shell never mounted with it.
 
 ## First-level-only rows (2026-08-01)
 

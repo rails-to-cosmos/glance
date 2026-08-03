@@ -5,6 +5,17 @@
 -- served a table-less page on every other machine — and neither is visible to a
 -- test that drives the server, which is why they live in a module of their own
 -- rather than beside the routes.
+--
+-- A ROUTE RESOLVING THE STORE TWICE was the third rule here and is gone.  It
+-- gave the right answer and cost double, which is exactly why no test that
+-- drove the server could see it: @\/tags@ owes two folds over the rows, and
+-- every 'Glance.Web.Store.storeRecords' is a whole id resolution (~28 ms over
+-- the 10435-row @~\/sync@ tree, 2026-08-03).  A grep over @tagsView@'s own
+-- source lines guarded it until 2026-08-03, when the design took the hazard
+-- away instead: 'Glance.Web.Store' offers nothing that takes a 'Store' and
+-- answers about an id, so a second resolution has no spelling left.  The rule
+-- is that module's export list now, and a test reading source text for it would
+-- be re-asserting the type checker.
 module TestSelfContained (spec) where
 
 import Control.Monad (filterM)
@@ -35,28 +46,6 @@ spec = testGroup "Self-containment"
       makefile <- TIO.readFile "Makefile"
       mapM_ (holds makefile)
             ["sync-renderer:", "../table-view/web/table-view.js", "assets/table-view.js"]
-
-    -- A ROUTE THAT RESOLVES THE STORE TWICE gives the right answer and costs
-    -- double, which is exactly why no test that drives the server can see it.
-    -- @\/tags@ owes two folds over the rows — the ids it was asked about, and
-    -- the store-wide tag counts behind the popup's third column — and every
-    -- 'Glance.Web.Store.storeRecords' is a whole id resolution of the store:
-    -- ~28 ms over the 10435-row @~\/sync@ tree, measured on 2026-08-03 as the
-    -- difference between the two shapes (medians 45.3 ms and 73.7 ms of fifteen
-    -- requests).  The TIMING is the machine's and is not asserted; the SHAPE is
-    -- this route's and is.  'headlinesIn' and 'tagRowCounts' both take the rows
-    -- for the same reason — a helper that took the store could not be handed
-    -- what the route already resolved.
-  , testCase "the /tags route resolves the store exactly once" $ do
-      code <- codeOf "src-web/Glance/Web.hs" "tagsView"
-      assertBool "the sweep never found tagsView to read" (length code >= 8)
-      assertEqual "resolutions in tagsView's code" 1
-                  (length (filter ("storeRecords" `T.isInfixOf`) code))
-      -- The store-taking spellings of the two folds, which are what a second
-      -- resolution comes back as.
-      assertEqual "and no fold that would resolve it again" []
-                  [ T.unpack (T.strip l) | l <- code
-                  , any (`T.isInfixOf` l) ["storeHeadlines", "tagRowCounts st"] ]
   ]
 
 -- | WHAT is somewhere in HAYSTACK.
@@ -75,21 +64,6 @@ haskellSources =
       files <- filterM doesFileExist entries
       nested <- mapM under =<< filterM doesDirectoryExist entries
       pure (filter ((== ".hs") . takeExtension) files <> concat nested)
-
--- | The CODE lines of PATH's definition of NAME: from its type signature to the
--- blank line that ends it, with the comments dropped.
---
--- Comments are dropped because the rule being counted is about what the code
--- DOES, and a docstring naming the call it is explaining would be a second hit.
--- Crude, and enough for a one-definition shape rule; a definition carrying a
--- blank line inside it would need more.
-codeOf :: FilePath -> T.Text -> IO [T.Text]
-codeOf path name = pick . T.lines <$> TIO.readFile path
-  where
-    pick     = filter (not . comment) . takeWhile (not . T.null)
-             . dropWhile (not . opens)
-    opens l  = (name <> " ::") `T.isPrefixOf` l
-    comment  = ("--" `T.isPrefixOf`) . T.strip
 
 -- | The lines of PATH naming an absolute home directory, each with its file and
 -- number, so a failure says where to look.

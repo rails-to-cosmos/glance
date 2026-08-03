@@ -45,6 +45,8 @@
 //                 `RET' has to have opened it over the link at point first
 //   assign:A,B,C  the which-key assignment run over that cycle, as the pure
 //                 function it is
+//   cells:K@C     the edit overlay's cell resolution run over the keys K
+//                 against the column keys C, likewise as the pure function
 //   refuse        the next /command refuses — every row it named, or the
 //                 capture whole, which names none
 //   bare          the mounted handle loses its mark calls, the way an older
@@ -1102,6 +1104,11 @@ const logged = () => field("log").children.map((line) => ({
 // claimed nothing.
 let assigned = [];
 
+// What `cells' worked out: the column indices an edit overlay's shape resolves
+// to as `FROM,TO', `«none»' where one of its keys names no column in the list,
+// and null where the act never ran.
+let span = null;
+
 /** A stored value as the answer spells it, `«unset»' for a key that is not
  * there — which is a different state from one holding the empty string. */
 const unset = (v) => (v === null ? "«unset»" : v);
@@ -1115,6 +1122,16 @@ const ACTIONS = {
     const labels = arg.split(",");
     assigned = whichKeys(labels).map((at, i) =>
       (at === -1 ? "-" : `${letterAt(labels[i], at)}@${at}`));
+  },
+  // And the edit overlay's cell resolution, likewise driven as the pure function
+  // it is: `KEYS@COLUMNS', both comma-separated, the column list being the KEYS
+  // of the columns the server declared for that popup.  The glue's own function
+  // answers — there is no second copy of the rule here.
+  cells: (arg) => {
+    const [keys, cols] = arg.split("@");
+    const at = cellSpan(keys ? keys.split(",") : [],
+                        (cols ? cols.split(",") : []).map((key) => ({ key })));
+    span = at ? at.join(",") : "«none»";
   },
   // The resolution never arrives, which is what leaves the palette standing in
   // the state between the press that raised it and the answer that fills it.
@@ -1440,7 +1457,7 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     // names, and what a commit posted.
     prompt: field("prompt").className, phead: field("phead").textContent,
     pmode: field("pbox").className, plist: paletteRows(), resolved,
-    pfoot: field("pfoot").textContent, assigned, commands,
+    pfoot: field("pfoot").textContent, assigned, commands, span,
     // Following a link: which rows were asked about, which tabs were opened,
     // the last sort a call asked for and how many were asked for, and the CHAIN
     // in force — which the query names and no call has to have made.
