@@ -128,7 +128,20 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `blobs … carrying no id` is the instrument on itself — a blob glance parsed and
   read no id out of, which is what keeps `records without blobs` from reading as
   index lag. ~/sync/views at 2026-08-02: 6502 read, 6071 live, 6063 blobs, 51
-  idless, 21 rows disagree (20 state, 1 archived), 0 unindexed, 59 recordless.
+  idless, 21 rows disagree (20 state, 1 archived), 0 unindexed, 59 recordless —
+  and 39 one day later, which is the rate the next entry exists to stop.
+- The drift FIX is a one-file contract: every successful write to a BLOB
+  (`isBlob` — `data.org` in the canonical store; documents, config, overviews,
+  occurrences note nothing) appends `{"id","at"}` to `meta/EXTERNAL.jsonl` —
+  the blob's FIRST headline's `ORG_GLANCE_ID`, no id no line, one `editFile` one
+  line. The note rides `replaceSpans`' success branch (the one door all four
+  write paths leave through; `Data.Org.External` owns format/path/append, by
+  `openFd` append + one `fdWriteBuf` — `BS.appendFile` measurably LOSES lines
+  under concurrency). The daemon appends only, never truncates, never touches
+  another `meta/` file. Emacs's `org-glance-graph:refresh-external` adopts each
+  id via `graph:insert` (never `put-content` — blobs are read, not rewritten)
+  and shortens the file by the PREFIX IT READ; a crash between = a repeated
+  refresh, no-op by construction.
 - Corpus check: `cabal run -v0 glance -- scan ~/sync` — expect 0 span
   violations, ~12.6k headlines, and a `walk seconds` row of ~10–11 (2026-08-02:
   6287 files, 12594 headlines, 0 violations, 11.3 s; re-measured the same day at
