@@ -37,7 +37,9 @@ module Glance.Query ( ConfigLayerFile (..)
                     , HeadlineParts (..)
                     , HeadlineRecord (..)
                     , IdCollision (..)
+                    , LinkShape (..)
                     , LoadFailure (..)
+                    , OrgLink (..)
                     , QueryResult (..)
                     , Span (..)
                     , SortChain
@@ -67,12 +69,14 @@ module Glance.Query ( ConfigLayerFile (..)
                     , digestOfText
                     , displayText
                     , documentPath
+                    , editLinkEdits
                     , filterKeys
                     , followableTypes
                     , headlineParts
                     , hiddenProperties
                     , keywordSources
                     , linkColumns
+                    , linkShown
                     , linkType
                     , loadDir
                     , loadDirFilesSerially
@@ -122,7 +126,7 @@ import Control.Exception (IOException, evaluate, try)
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Aeson.Text (encodeToLazyText)
 import Data.Aeson.Types (Pair)
-import Data.Char (isAlphaNum, isAsciiLower, isDigit)
+import Data.Char (isAlphaNum, isAsciiLower, isDigit, isSpace)
 import Data.Either (fromRight)
 import Data.List (foldl', nub, partition, sort, sortBy, sortOn)
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
@@ -516,62 +520,114 @@ displayText = squashControls . showLinks
 -- @[[@ alone.
 showLinks :: Text -> Text
 showLinks s | not ("[[" `T.isInfixOf` s) = s   -- the common cell, scanned once
-            | otherwise                  = T.concat (map (either id snd) (linkParts s))
+            | otherwise                  = T.concat (map (either snd linkShown) (linkParts s))
 
--- | S cut into the text between its bracket links and the links themselves, as
--- @(target, shown)@, in order.  Text that does not close a link — an unmatched
--- @[[@ — stays literal, the way the renderer's regex leaves one alone.
+-- | Which of org's two link SHAPES the source spells, which is what a rewrite
+-- has to keep: @[[T]]@ is 'Bracketed' 'Nothing', @[[T][D]]@ is 'Bracketed' over
+-- the description section it carries — the empty one included, since @[[T][]]@
+-- is a section that is THERE — and a plain URL is 'Bare'.
+data LinkShape = Bare | Bracketed !(Maybe Text)
+  deriving (Eq, Show)
+
+-- | One link as the scanner read it: where it points, the shape that spells it,
+-- and the half-open CHAR span it occupies in the text scanned.
 --
--- ONE scanner for the two questions asked of a bracket link: 'showLinks' keeps
--- what each shows and 'orgLinks' keeps where each points, and a second pass
--- would be a second grammar to keep in step with SCHEMA.md's link rule.
-linkParts :: Text -> [Either Text (Text, Text)]
-linkParts = go
-  where
-    go rest
-      | T.null after = [Left before]
-      | otherwise    = Left before : case linkAt (T.drop 2 after) of
-          Just (target, shown, more) -> Right (target, shown) : go more
-          Nothing                    -> Left "[[" : go (T.drop 2 after)
-      where (before, after) = T.breakOn "[[" rest
+-- The span is what makes a link WRITEABLE: @GET \/links@ carries it out to the
+-- page and @edit-link@ takes it back as the range to splice ('editLinkEdits'),
+-- so the reader edits the very characters the scanner read.
+data OrgLink = OrgLink
+  { olTarget :: !Text       -- ^ where it points, as the source spells it.
+  , olShape  :: !LinkShape  -- ^ how the source spells it.
+  , olSpan   :: !Span       -- ^ its extent in the text scanned.
+  } deriving (Eq, Show)
 
--- | The link opening TEXT — which starts past its @[[@ — as its target, as it
--- displays, and whatever follows it.  'Nothing' when TEXT does not close one.
-linkAt :: Text -> Maybe (Text, Text, Text)
+-- | What L SHOWS: its description where it carries one that says anything,
+-- and its target otherwise — @[[T][D]]@ shows @D@, @[[T]]@, @[[T][]]@ and a
+-- plain URL show @T@.
+--
+-- The display rule and the shape are therefore ONE fact: 'displayText' reads
+-- this and so does @\/links@' @desc@, so what the table shows for a link and
+-- what the popup calls it cannot come apart.
+linkShown :: OrgLink -> Text
+linkShown l = case olShape l of
+  Bracketed (Just desc) | not (T.null desc) -> desc
+  _itsTarget                                -> olTarget l
+
+-- | S cut into the text between its bracket links and the links themselves, in
+-- order, every piece carrying its offset into S.  Text that does not close a
+-- link — an unmatched @[[@ — stays literal, the way the renderer's regex leaves
+-- one alone.
+--
+-- ONE scanner for the three questions asked of a bracket link: 'showLinks' keeps
+-- what each shows, 'orgLinks' keeps where each points, and 'editLinkEdits' keeps
+-- where each SITS.  A second pass would be a second grammar to keep in step with
+-- SCHEMA.md's link rule.
+linkParts :: Text -> [Either (Int, Text) OrgLink]
+linkParts = go 0
+  where
+    go at rest
+      | T.null after = [Left (at, before)]
+      | otherwise    = Left (at, before) : case linkAt after of
+          Just (target, desc, width) ->
+            Right (OrgLink target (Bracketed desc) (Span opens (opens + width)))
+              : go (opens + width) (T.drop width after)
+          Nothing -> Left (opens, "[[") : go (opens + 2) (T.drop 2 after)
+      where (before, after) = T.breakOn "[[" rest
+            opens           = at + T.length before
+
+-- | The link TEXT opens with — TEXT standing at its @[[@ — as its target, the
+-- description section it carries (absent for @[[T]]@) and the WIDTH it spends,
+-- both pairs of brackets included.  'Nothing' when TEXT does not close one.
+--
+-- The width is read off the pieces rather than measured against what is left,
+-- so a scan costs the links it finds rather than the tail behind each of them.
+linkAt :: Text -> Maybe (Text, Maybe Text, Int)
 linkAt text
   | T.null target || T.null rest = Nothing
   | otherwise = case T.uncons (T.drop 1 rest) of
-      Just (']', more) -> Just (target, target, more)          -- [[TARGET]]
-      Just ('[', more) | "]]" `T.isPrefixOf` after'            -- [[TARGET][DESC]]
-                       -> Just (target, if T.null desc then target else desc, T.drop 2 after')
+      Just (']', _more) -> Just (target, Nothing, 4 + T.length target)  -- [[TARGET]]
+      Just ('[', more) | "]]" `T.isPrefixOf` after'                     -- [[TARGET][DESC]]
+                       -> Just (target, Just desc, 6 + T.length target + T.length desc)
         where (desc, after') = T.break (== ']') more
       _notALink        -> Nothing
-  where (target, rest) = T.break (== ']') text
+  where (target, rest) = T.break (== ']') (T.drop 2 text)
 
 -- Links
 
--- | Every link R's subtree points at, as @(target, description)@.
+-- | Every link R's subtree points at, spanned in the DOCUMENT.
 --
 -- Server-side because it is org text work: a page that extracted these would
 -- need the bracket grammar 'displayText' already holds, and would then hold a
 -- second copy of it.  The subtree rather than the cells, so a link in the body
 -- of an entry is reachable from the row that carries it.
-subtreeLinks :: HeadlineRecord -> [(Text, Text)]
-subtreeLinks = orgLinks . subtreeText
+--
+-- The scan runs over the subtree slice and every span is shifted by where that
+-- slice starts, so what comes out is an offset into 'hrDoc' — the currency
+-- 'Data.Org.Edit' splices in and the one @\/links@ hands to a client that means
+-- to write.
+subtreeLinks :: HeadlineRecord -> [OrgLink]
+subtreeLinks r = map (shiftLink (spanStart (hrSubtree r))) (orgLinks (subtreeText r))
+
+-- | L moved BY characters along the text it was scanned in.
+shiftLink :: Int -> OrgLink -> OrgLink
+shiftLink by l = l { olSpan = Span (spanStart sp + by) (spanEnd sp + by) }
+  where sp = olSpan l
 
 -- | The links TEXT holds, in order of appearance, one per target.
 --
 -- Two forms, which is what org writes and what 'displayText' already reads: the
 -- bracket link, described by its @DESC@ where it has one and by its target
 -- where it does not ('linkAt'), and the plain URL, which is its own description.
--- A target spelled twice keeps the FIRST description — the second is the same
--- destination under another name, and a palette offering it twice would be
--- offering one place two letters.
+-- A target spelled twice keeps the FIRST occurrence — its description AND its
+-- SPAN: the second is the same destination under another name, and a palette
+-- offering it twice would be offering one place two letters.  So an edit made
+-- through a deduplicated link edits the FIRST spelling of it, wherever the
+-- others sit; the others are untouched and still point where they did.
 -- A plain URL can only be in the text BETWEEN bracket links, which is what
 -- 'linkParts' hands over separately — so @[[https://…][x]]@ never also reports
 -- its own target as a bare one.
-orgLinks :: Text -> [(Text, Text)]
-orgLinks = firstBy fst . concatMap (either plainLinks pure) . linkParts
+orgLinks :: Text -> [OrgLink]
+orgLinks = firstBy olTarget . concatMap (either (uncurry plainLinks) pure) . linkParts
 
 -- | The schemes a bare URL is recognized by.  org's plain-link set is wider;
 -- these three are the ones a browser is asked to open, and a scheme this does
@@ -579,28 +635,48 @@ orgLinks = firstBy fst . concatMap (either plainLinks pure) . linkParts
 linkSchemes :: [Text]
 linkSchemes = ["https://", "http://", "mailto:"]
 
--- | The plain URLs S holds, each as its own description.  A URL cannot carry
--- whitespace, so the words of S are the candidates and one word holds at most
--- one link.
-plainLinks :: Text -> [(Text, Text)]
-plainLinks = mapMaybe urlIn . T.words
+-- | The plain URLs S holds, each as its own description and each spanning where
+-- it sits — AT being where S itself sits in the text being scanned, so the spans
+-- come out in that text's offsets rather than in this piece's.  A URL cannot
+-- carry whitespace, so the words of S are the candidates and one word holds at
+-- most one link.
+plainLinks :: Int -> Text -> [OrgLink]
+plainLinks at s =
+  [ OrgLink url Bare (Span from (from + T.length url))
+  | (start, word) <- spacedWords s
+  , Just (opens, url) <- [urlIn word]
+  , let from = at + start + opens ]
 
--- | The plain URL WORD holds, if any: from the earliest scheme that opens at a
--- non-word boundary — so @xhttp://a@ is not one — to the end of the word, with
--- the punctuation a sentence leaves behind taken off the tail.  That last rule
--- is what makes @see https://x.org.@ and @(https://x.org)@ point where they
--- read as pointing.
+-- | The words of S with their offsets into it.  'Data.Text.words' answers the
+-- first question and loses the second, and a plain link's span is where the word
+-- carrying it stands.
+spacedWords :: Text -> [(Int, Text)]
+spacedWords = go 0
+  where
+    go at text
+      | T.null word = []
+      | otherwise   = (opens, word) : go (opens + T.length word) rest
+      where (spaces, body) = T.span isSpace text
+            (word, rest)   = T.break isSpace body
+            opens          = at + T.length spaces
+
+-- | The plain URL WORD holds and where in WORD it opens, if any: from the
+-- earliest scheme that opens at a non-word boundary — so @xhttp://a@ is not one
+-- — to the end of the word, with the punctuation a sentence leaves behind taken
+-- off the tail.  That last rule is what makes @see https://x.org.@ and
+-- @(https://x.org)@ point where they read as pointing.
 --
 -- Every scheme carries its separator, so a word with no @:@ in it can hold no
 -- link and is turned away by one cheap pass — which is nearly every word of
 -- nearly every subtree.
-urlIn :: Text -> Maybe (Text, Text)
+urlIn :: Text -> Maybe (Int, Text)
 urlIn word
   | not (T.any (== ':') word) = Nothing
   | otherwise = case mapMaybe opensAt linkSchemes of
       []  -> Nothing
-      ats -> let url = T.dropWhileEnd trailing (T.drop (minimum ats) word)
-             in if T.null url then Nothing else Just (url, url)
+      ats -> let at  = minimum ats
+                 url = T.dropWhileEnd trailing (T.drop at word)
+             in if T.null url then Nothing else Just (at, url)
   where
     opensAt scheme
       | T.null after               = Nothing
@@ -756,8 +832,8 @@ refTargets = refTargetsOf . orgLinks
 
 -- | The references among LINKS, which 'orgLinks' already read.  Split off so a
 -- caller wanting both answers about one subtree scans it once ('recordOf').
-refTargetsOf :: [(Text, Text)] -> [Text]
-refTargetsOf = nub . map detach . mapMaybe (refTargetOf . fst)
+refTargetsOf :: [OrgLink] -> [Text]
+refTargetsOf = nub . map detach . mapMaybe (refTargetOf . olTarget)
 
 -- | TARGET as the row it names, or 'Nothing' where it names no row.  Three
 -- shapes, and everything else — a @file:@ path, an @http@ URL, a protocol this
@@ -1994,6 +2070,126 @@ tagEntries run = case offsets 0 (T.splitOn ":" run) of
 -- that function's: a row already carrying the tag costs no edit.
 archiveEdits :: HeadlineRecord -> [(Span, Text)]
 archiveEdits = addTagEdits archiveTag
+
+-- | The span edits @edit-link@ makes to R: the link at SP rewritten to point at
+-- TARGET, under whatever DESC says about its description.
+--
+-- THE FORM IS PRESERVED, which is what makes this a link edit rather than a
+-- rewrite of the text around one.  A bracketed link stays bracketed and a plain
+-- URL stays plain, so an entry keeps the way its author wrote it:
+--
+--   * @[[T][D]]@ with a target alone becomes @[[T'][D]]@ — the description is
+--     the author's and no one asked for it.
+--   * @[[T]]@ likewise stays @[[T']]@, and takes brackets around a description
+--     the moment one arrives: @[[T'][D']]@.
+--   * a bare @https:\/\/x@ swaps its target and stays bare; a description has
+--     nowhere to live in a plain URL, so one arriving BRACKETS it.
+--
+-- ABSENT IS NOT NULL, which is the @args@ discipline this route already turns on
+-- (@.:!@ rather than @.:?@): a request that says nothing about the description
+-- leaves it exactly as it is, and one that says @null@ takes it OFF — leaving a
+-- bracketed link desc-less and a bare one bare.  An empty description is the
+-- null spelled another way, since @[[T][]]@ shows its target and a description
+-- that shows nothing is not one ('linkShown').
+--
+-- TWO WALLS, and both are the lens rule stated as a refusal ('linkAtSpan',
+-- 'spelling').  The span has to cover exactly one link as the document reads
+-- and the replacement has to read back as THE LINK IT CLAIMS TO BE — the write
+-- engine is content-agnostic by law ('Data.Org.Edit'), so this is the layer that
+-- owes the check.  A target carrying a bracket, a space in a bare URL, a scheme
+-- no plain link is recognized by: each is refused here rather than spliced into
+-- text that would parse as something else on the next load.
+editLinkEdits :: Span -> Text -> Maybe (Maybe Text) -> HeadlineRecord
+              -> Either Text [(Span, Text)]
+editLinkEdits sp target desc r = do
+  found <- linkAtSpan sp r
+  written <- spelling target (reshaped (olShape found) desc)
+  pure [(sp, written)]
+
+-- | TARGET in SHAPE as the text to write, or why that text is not that link.
+--
+-- REPARSE AND COMPARE, which is the only honest form of this check: rendering
+-- and scanning are one grammar, so a rendered link that reads back as a link
+-- with ANOTHER target or another shape says the grammar was escaped rather than
+-- used.  A target spelling @a][b@ renders @[[a][b]]@, which IS one link — with
+-- target @a@ and description @b@, neither of them what was asked for — so the
+-- shape check alone would bless it and write a link pointing somewhere the
+-- request never named.
+--
+-- A NEWLINE is refused ahead of that, and it is the one thing reparsing cannot
+-- catch: this scanner has no line rule, so @[[a\n* B]]@ reads back as the very
+-- link it claims to be — and lands a column-1 star in the file, which the ORG
+-- parser reads as a new headline.  The subtree splits and a row appears that
+-- nobody wrote.  Neither half of a link spans lines in org, so both are refused.
+spelling :: Text -> LinkShape -> Either Text Text
+spelling target shape
+  | T.any newline target || any (T.any newline) (described shape) =
+      Left "a link is one line: neither its target nor its description may carry a newline"
+  | Just l <- onlyLink written, olTarget l == target, olShape l == shape = Right written
+  | otherwise = Left (written <> " does not read as one link pointing at " <> target)
+  where written = renderLink target shape
+        newline c = c == '\n' || c == '\r'
+        described (Bracketed d) = maybe [] pure d
+        described Bare          = []
+
+-- | The one link SP covers in R's document, or why it covers none.
+--
+-- The span must sit inside the ROW's own subtree: a row's links are its
+-- subtree's ('subtreeLinks'), and a span outside it would let one row's write
+-- reach bytes no reader of that row was ever shown — under that row's digest,
+-- since a digest is per file.  And it must cover the link EDGE TO EDGE, so a
+-- span a character short of the real one is refused rather than spliced into the
+-- middle of a link.
+linkAtSpan :: Span -> HeadlineRecord -> Either Text OrgLink
+linkAtSpan sp r
+  | spanStart sp >= spanEnd sp =
+      Left (spanned sp <> " covers no characters")
+  | spanStart sp < spanStart sub || spanEnd sp > spanEnd sub =
+      Left (spanned sp <> " is not inside " <> hrId r <> "'s subtree " <> spanned sub)
+  | otherwise = maybe (Left (spanned sp <> " does not read as one link")) Right
+                      (onlyLink (sliceSpan (hrDoc r) sp))
+  where sub = hrSubtree r
+
+-- | TEXT as the ONE link it spells, edge to edge, or 'Nothing' where it spells
+-- none, part of one, or more than one.  One reading for both walls, so what a
+-- span must currently hold and what a replacement must come to are the same
+-- question asked twice.
+onlyLink :: Text -> Maybe OrgLink
+onlyLink text = case orgLinks text of
+  [l] | olSpan l == Span 0 (T.length text) -> Just l
+  _notOneLink                              -> Nothing
+
+-- | SHAPE under what a request said about the description: absent leaves it, a
+-- value gives the link one — which BRACKETS a bare link, a plain URL having
+-- nowhere to write a description — and a null, or a description that shows
+-- nothing, takes it off.
+--
+-- The EMPTINESS test strips and the value is written verbatim, which is the
+-- target's own rule ('wantsLink' refuses a target that is whitespace): neither
+-- is content, and content is nobody's to trim.
+reshaped :: LinkShape -> Maybe (Maybe Text) -> LinkShape
+reshaped shape Nothing      = shape
+reshaped shape (Just given) = case given of
+  Just desc | not (T.null (T.strip desc)) -> Bracketed (Just desc)
+  _takeItOff                              -> case shape of
+    Bare        -> Bare
+    Bracketed _ -> Bracketed Nothing
+
+-- | TARGET spelled in SHAPE.  The one place this module writes a link, so the
+-- bracket grammar is READ in 'linkAt' and WRITTEN here and nowhere else.
+renderLink :: Text -> LinkShape -> Text
+renderLink target Bare                 = target
+renderLink target (Bracketed Nothing)  = "[[" <> target <> "]]"
+renderLink target (Bracketed (Just d)) = "[[" <> target <> "][" <> d <> "]]"
+
+-- | SP as a refusal spells it: @[START,END)@, the half-open range it is.
+--
+-- 'show' rather than 'TextShow.showt', which this module holds for the org
+-- re-serializer: what goes out on the wire is never that one, and an offset
+-- spelled through it would be the first exception.
+spanned :: Span -> Text
+spanned sp = "[" <> offset (spanStart sp) <> "," <> offset (spanEnd sp) <> ")"
+  where offset = T.pack . show
 
 -- | Where HS's title LINE ends: the greatest end among the parts org writes on
 -- it — the stars, the keyword, the priority, the title and the tags.

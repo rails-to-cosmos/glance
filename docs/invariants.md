@@ -1197,11 +1197,12 @@ on.
   (33 files, 214 spans, each file digest-checked before and after to prove the
   check never wrote). **test + corpus**
 - **The command layer is one route, and its unit of work is a FILE.**
-  `POST /command` takes `{name, id | ids, args, digests?}` and implements seven
+  `POST /command` takes `{name, id | ids, args, digests?}` and implements eight
   names — `set-state {"keyword": KW | null}`,
   `set-planning {"keyword": "SCHEDULED" | "DEADLINE", "date": TEXT | null}`,
   `archive {}`, `capture {"text": …}`, `add-tag {"tag": …}`,
-  `remove-tag {"tag": …}` and `rename-tag {"from": …, "to": …}`. The ids it is
+  `remove-tag {"tag": …}`, `rename-tag {"from": …, "to": …}` and
+  `edit-link {"span": [S, E], "target": …, "desc": … | null}`. The ids it is
   given are grouped by the file their rows came from, and each file is written
   ONCE — one `Glance.Query.replaceSpans` call carrying every span that file
   owes, under that file's own pinned digest. So a marked set of five rows in
@@ -2067,10 +2068,12 @@ on.
   gets the shape the route always uses. An upgrade aimed at any path but `/ws` is rejected rather
   than routed. **test** (`TestServe`)
 - **`GET /links?id=ROW` is where a row points, and the rule is the DISPLAY
-  rule.** `{links: [{target, desc, type}]}`, extracted from the row's SUBTREE in order
-  of appearance and one entry per target. Two forms, which is what org writes:
+  rule.** `{digest, links: [{target, desc, type, span}]}`, extracted from the
+  row's SUBTREE in order of appearance and one entry per target. Two forms,
+  which is what org writes:
   the bracket link, described by its `DESC` and by its target where it has none
-  — `Glance.Query.linkAt`, the very parser `displayText` reads a cell with, so
+  — `Glance.Query.linkAt` is the grammar and `linkShown` the display rule, the
+  very pair `displayText` reads a cell with, so
   what `/links` calls a link is what the table shows for it — and the plain
   `http(s)`/`mailto:` URL, which is its own description. A plain URL is a WORD
   (a URL carries no whitespace), it must open at a non-word boundary so
@@ -2078,7 +2081,9 @@ on.
   off its tail so `(https://x.org)` points where it reads as pointing. The scan
   is one left-to-right pass over the bracket links, so a `[[https://x][y]]`
   never also reports its own target as a bare URL. A target spelled twice keeps
-  the FIRST description — one destination, one letter in the palette. It is
+  the FIRST occurrence — its description AND its span, so an edit made through a
+  deduplicated link edits the first spelling and the others go on pointing where
+  they did. It is
   SERVER-side because it is org text work: the page holds no org parser and must
   not grow one, and a JS copy of the bracket grammar would be a second grammar
   to keep in step with SCHEMA.md's link rule. The SUBTREE rather than the cells,
@@ -2086,6 +2091,56 @@ on.
   store has no row for and 400 with no id, exactly as materialize, 503 while
   indexing, 405 on POST. Evidence: `TestQuery` "Links" (the rule),
   `TestServe` "GET /links" (the route). **test**
+- **The answer is WRITEABLE, which is what `span` and `digest` are for.** `span`
+  is the half-open CHAR range the link occupies in the FILE — the scan runs over
+  the subtree slice and `subtreeLinks` shifts every span by where that slice
+  starts — and `edit-link` takes exactly that range back. `digest` is the file's
+  as the store holds it, and it is the LOCK: the spans describe the text this
+  store last read, so a client that pins it (`digests` on `POST /command`) is
+  refused rather than spliced blind. The disk-drift check in `replaceSpans`
+  already refuses a file that moved under the daemon with no pin at all; what the
+  pin adds is refusing one the STORE has re-read since, whose spans are somebody
+  else's. One scanner answers
+  all three questions asked of a bracket link — `showLinks` what it SHOWS,
+  `orgLinks` where it POINTS, and the span itself where it SITS (`subtreeLinks`
+  shifts it, `editLinkEdits` validates what comes back) — so a second pass is
+  a second grammar. `linkAt` reports the width it consumed rather than measuring
+  what is left, so a scan costs the links it finds rather than the tail behind
+  each of them. Evidence: `TestQuery` "a link spans exactly the characters that
+  spell it", "a row's link spans are offsets into the document it was read from",
+  `TestServe` "every link carries the file range that spells it", "and the digest
+  those spans were measured against". **test**
+- **`edit-link` is the ONE command whose args name a row's own TEXT, so it names
+  ONE row.** A span means nothing to a second row, and over two files it would
+  name a different range in each — `csOne` is the rule, checked where the ids
+  rule already lives. CHARACTERS, like every other span in this codebase. THE
+  FORM IS PRESERVED, which is what makes it a link edit
+  rather than a rewrite of the text around one: `[[T][D]]` keeps its description
+  under a target-only edit, `[[T]]` stays desc-less, a plain URL swaps its target
+  and stays plain, and a description ARRIVING is the one thing that changes a
+  shape — a plain URL has nowhere to write one, so it brackets. ABSENT IS NOT
+  NULL (`.:!` rather than `.:?`, the whole command layer's discipline): a request
+  saying nothing about the description leaves the author's, `null` takes it off,
+  and a description that SHOWS nothing is the null spelled another way, since
+  `[[T][]]` shows its target — the emptiness test strips and the value is
+  written verbatim, content being nobody's to trim, which is the target's own
+  rule. TWO WALLS, both the lens rule as a refusal: the
+  span must sit inside the ROW's own subtree — a span outside it would let one
+  row's write reach text no reader of that row was shown, under that row's
+  digest — and must cover exactly one link EDGE TO EDGE; and the REPLACEMENT must
+  read back as THE LINK IT CLAIMS TO BE, since `Data.Org.Edit` is
+  content-agnostic by law and this is the layer that owes the check. That second
+  wall REPARSES AND COMPARES rather than checking the shape, which is what a
+  target spelling `a][b` needs: it renders `[[a][b]]`, which IS one link —
+  pointing at `a`, described `b`, neither of them what was asked for — so a shape
+  check alone would bless a link pointing somewhere the request never named. A
+  NEWLINE is refused ahead of both, and it is the one thing reparsing cannot
+  catch: this scanner has no line rule, so `[[a\n* B]]` reads back as itself and
+  lands a column-1 star, which the ORG parser reads as a new headline — the
+  subtree splits and a row appears that nobody wrote. Each is a 400 naming what
+  it turned down. Evidence: `TestQuery` "edit-link" (the form table, both walls),
+  `TestServe` "POST /command edit-link" (the round trip, the pin, the ids rule).
+  **test**
 - **A link's TYPE is its scheme, folded, and the rule is one pass over the
   PREFIX.** `Glance.Query.linkType` takes what sits before the first `:`,
   lowercases it, and answers with it — after refusing anything not shaped like
@@ -2666,13 +2721,17 @@ on.
   carries a `ToJSON` instance: deriving one would make the AST the contract,
   and `SCHEMA.md` is. **test** (`TestQuery` imports the facade only; golden +
   schema-conformance groups)
-- **Seven keys write without a sheet, and none asks for confirmation.** `D`
+- **Eight keys write without a sheet, and none asks for confirmation.** `D`
   archives over the FLAGGED set; `t` / `C-c C-t` set a state, `:` manages tags
   and `C-c C-s` / `C-c C-d` set a planning entry, all four over the MARKED one;
   each falls back
   to the row at point — dired's rule, and org-glance's. `+` captures and takes no
-  rows at all. They are `POST /command`: the page sends row ids and a name, the
-  server computes the spans, and the table is not touched at all, the rows
+  rows at all. `o` follows a row and, where it raised the popup, `RET` inside it
+  edits a link over the row the popup was raised for (`lfor`) — neither the
+  marked set nor the flagged one, the way `:` reaches its own writes. They are
+  `POST /command`: the page sends row ids and a name and the server computes the
+  spans — `edit-link` alone sends a range, which is a range the SERVER measured
+  and handed out — and the table is not touched at all, the rows
   arriving over the socket once the watch has re-read the files. There is no
   confirmation step and there should not be: the drift lock is the safety, `D`
   archives rather than deletes, and org-glance's own rhythm is a key that acts.
@@ -2752,7 +2811,8 @@ on.
   than setting one", "DEL fires nothing in a palette that has no clear". **test**
 - **The tags list is a MOUNT, and that is what made the letters go.** `:` — the
   agenda's own key for the same question over there — raises `#tags`, the page's
-  FOURTH table-view mount (`#ttable`) and the first one that WRITES. A tag over a
+  FOURTH table-view mount (`#ttable`), and the first one that WROTE — the link
+  popup grew an edit of its own later (#59). A tag over a
   set of rows is a RECORD: a name, a coverage over the set, a weight in the tree,
   and a reader deciding whether to drop one is READING those three. That is the
   link popup's case exactly ("two shapes for a choice"), so this list took the
@@ -2832,7 +2892,7 @@ on.
   mount's published root (`tmount.el`), the cell's through
   `td:not(.tv-box)`, which is the class the renderer already stamps on the flag
   gutter rather than a column index this page would be counting. The other two
-  columns are DERIVED and never open, exactly as the link popup's type cell would
+  columns are DERIVED and never open, exactly as the link popup's type cell does
   not. `RET` commits `rename-tag {from, to}` over the targets carrying `from`,
   `ESC` restores, and a name that folds to the one it opened on costs no request.
   The model is rewritten IN PLACE and deduplicated, mirroring the server's rule,
@@ -3016,8 +3076,8 @@ on.
     surface is move, look, act: `n`/`p` (and `j`/`k`, and the arrows), keys to
     commit, `ESC` to leave. The renderer draws it, because this page has ONE list
     widget and a table of records is what it is for — which is the same argument
-    the property panel landed under (#50). READ-ONLY is not part of the shape:
-    the link popup is one and the tags popup writes.
+    the property panel landed under (#50). Whether it WRITES is not part of the
+    shape: both of these do, and the link popup did not when it landed.
   What decides is the ENTRY rather than the length: a two-entry table still wants
   columns and a forty-keyword cycle still wants letters. A list whose entries are
   single known words takes letters; a list whose entries are records takes a
@@ -3037,7 +3097,7 @@ on.
 
   Evidence: `TestServe` "Shell which-key", "Shell open" and "Shell tags".
   **test**
-- **The link popup is a MOUNT, it is READ-ONLY, and it is raised LATE.** `o` on a
+- **The link popup is a MOUNT, it browses, and it is raised LATE.** `o` on a
   row with several links raises `#links`, a sibling of `#app` sharing the two z
   levels with the sheets, the value palette and the tags popup, hosting the
   page's THIRD table-view mount (`#ltable`). Three columns, declared server-side in
@@ -3048,11 +3108,15 @@ on.
   offers one, so the target reads in the page's ordinary ink and the column it
   sits in is what tells it from the title; inventing a kind would be a renderer
   feature and styling one from the shell would be this page reaching into the
-  table's cells. Read-only is STATED rather than inherited (`marks: false, flags:
-  false, actionHints: false`, no `pageSize`), and it is `typing()` that enforces
-  it: the popup turns `typing()` on with NO field focused, the way the property
-  panel's nav does, so every `table` row is dead under it and `d`, `D`, `m`, `M`,
-  `u` and `U` do nothing at all. Its keys are a THIRD document listener behind
+  table's cells. What it does NOT carry is STATED rather than inherited
+  (`marks: false, flags: false, actionHints: false`, no `pageSize`): its one
+  write is `RET`, over the link at point, so a gutter, a wash and a per-row hint
+  would each be chrome about a gesture it does not have. `typing()` is what
+  enforces that: the popup turns it on with no field focused at all — the way the
+  property panel's nav does, and until `RET` opens the edit overlay, whose fields
+  hold the focus themselves — so every `table` row is dead under it and `d`, `D`,
+  `m`, `M`, `u` and `U` do nothing at all. Its keys are a THIRD document
+  listener behind
   the dispatch, safe for the reason the other two are — the only row that can
   fire ahead of it is `ESC`, which is the one that should. Raised LATE, behind
   the fetch, because none and one are answered without a popup at all; by then
@@ -3087,7 +3151,8 @@ on.
   `if (!editing) return` and `typing()` agree about when it is up, and because it
   falls through on every key it does not claim, `ESC` included. (3) `cancel`'s
   ESC ladder, an `else if` chain that spells the surfaces in precedence order —
-  prompt, link popup, open rename, tags popup, open panel row, sheet, focus — and
+  prompt, open link edit, link popup, open rename, tags popup, open panel row,
+  sheet, focus — and
   is the copy a new surface is likeliest to be left out of, since leaving it out
   costs nothing until a reader presses `ESC` over it.
   A SECOND STACKING PAIR IS ALREADY REACHABLE, and it is `typing()`'s hole
@@ -3120,18 +3185,38 @@ on.
   cursor is on rather than the row's first — one gesture with one name. It opens
   and CLOSES, both outcomes alike, the tab and the type refusal: picking one link
   is what the popup was raised to do, and staying up on the refusal would be a
-  second rule for the same key. `RET` is held for editing the link IN PLACE — the
-  row's own title and url cells becoming fields over themselves, `TAB` between
-  them, `RET` committing and `ESC` restoring, which is the property panel's edit
-  model exactly, so a panel row and a link row are edited alike and the derived
-  type cell never opens. **NOT LANDED**: the write needs a per-link `span` out of
-  `GET /links` and an `edit-link` command to splice it under the file's digest,
-  preserving the link's FORM (`[[T][D]]` stays bracketed, a bare URL losing its
-  description stays bare, a bare one gaining one becomes bracketed). Until then
-  the key says what it is waiting for and leaves the popup standing, the way a
-  bound key with no handler does. Evidence: `TestServe` "o opens the link at
-  point and closes the popup", "RET names the edit that is not here yet, and
-  writes nothing". **test** (what is here) / **none** (the write)
+  second rule for the same key. `RET` EDITS the link at point IN PLACE — the
+  row's own title and url cells becoming fields over themselves (`LROW`, the
+  shared overlay's third shape), `TAB` between them, `RET` committing and `ESC`
+  restoring, which is the property panel's edit model exactly, so a panel row, a
+  tag and a link are edited alike and the derived type cell never opens. The
+  commit is `edit-link` over the SPAN `/links` handed out, pinned to the digest
+  that same answer carried: this page holds no bracket grammar and no offsets of
+  its own, so it sends back the range it was given plus the two strings a reader
+  typed. ABSENT IS NOT NULL here too, and the untouched FIELD is what says so:
+  the description field opens on what the link SHOWS, which for a link carrying
+  none of its own is its target, so a field left alone sends no `desc` at all and
+  an emptied one sends the null. Both fields are TRIMMED on the way out, which is
+  the page's rule and worth stating beside the server's opposite one:
+  `[[T][ D ]]` sends `D`, the padding being the field's, where the server writes
+  a description verbatim and refuses a padded target outright. THE POPUP CLOSES
+  ON THE PRESS, both outcomes
+  alike, which is `o`'s own rule — and it has to: the spans it is holding
+  describe the file as it was and the write has just moved it, while the store
+  does not know yet (`/command` never writes it, the watch does, a debounce
+  later), so a popup left standing would be offering ranges into a text that is
+  gone and a re-read HERE would answer with what the file said BEFORE the write —
+  the tags popup's own documented reason for never re-reading. `o` again is one
+  keystroke and comes back with fresh spans, fresh descriptions and a fresh type.
+  KNOWN CONSEQUENCE: the popup is also the only editor, so a row holding exactly
+  ONE link is followed and never listed, and that link has no editor; a key that
+  LISTS whatever the count is would settle it. Evidence: `TestServe` "o opens the
+  link at point and closes the popup", "RET opens the link at point over its own
+  two cells", "TAB hops the two fields", "RET commits the span the server gave,
+  under the digest it came with", "a description nobody moved is not sent at
+  all", "and one the reader emptied is the null that takes it off", "the commit
+  closes the popup, and the log names both ends", "a link nobody changed costs no
+  write", "a click under an open link cannot redirect the write". **test**
 - **`a` is a canned VIEW, not a mode — and the whole view is one string.**
   `org-glance-agenda` applies `state:*active* -planned:*empty* sort:scheduled`
   through the door `g` uses — `applyView` writes it into the URL, drops the
@@ -3345,13 +3430,21 @@ on.
   two modes over the same kind of row and belong in this list rather than a
   second one.
 
-  ONE MECHANISM, TWO SURFACES, AND A SNAPSHOT. The overlay is `openEdit`/
+  ONE MECHANISM, THREE SURFACES, AND A SNAPSHOT. The overlay is `openEdit`/
   `shutEdit`/`placeEdit` and a SHAPE per surface (`PROW` here, `TROW` for the
-  tags popup's rename): the class that shows the box, the `tv-sel` anchor read
+  tags popup's rename, `LROW` for the link popup's two fields): the class that
+  shows the box, the `tv-sel` anchor read
   through the mount's published root, the blur on the way out and the window
   resize are one implementation, and what a shape declares is its box, its pane,
   its fields, its mount, how to fill them and where the focus lands — plus
-  `cell`, which narrows the box to the first non-gutter `td` for a rename. The
+  `cells`, the inclusive RANGE of non-gutter `td`s the box covers (`[0, 0]` for a
+  rename, `[1, 2]` for a link's title and url, absent for the whole row). KNOWN
+  LOCKSTEP, in the class the parity discipline enumerates: that range is a
+  POSITIONAL INDEX into a column list declared in Haskell
+  (`Glance.Query.tagColumns`, `linkColumns`) with nothing tying the two together
+  — reorder those columns and the box covers the wrong cells, greenly. The flag
+  it replaced (`cell: true` = the first non-gutter `td`) needed no index and
+  could not cover two. The
   property this shape exists to have is the SNAPSHOT: `edit` keeps the row the
   overlay OPENED over and a commit is handed it, never the cursor. No key can
   move the cursor while a row is open, but a MOUSE CLICK can, and the panel's
@@ -3369,7 +3462,8 @@ on.
   cursor, raw mode leaving `TAB` alone, and the reset on close), "a click under
   an open row commits the row that was opened", "and a click cannot redirect the
   key an add-row is writing", "a click under an open rename still renames the
-  tag it opened on", "Shell glue" ("the edit overlay is one mechanism the two
+  tag it opened on", "a click under an open link cannot redirect the write",
+  "Shell glue" ("the edit overlay is one mechanism the three
   surfaces declare a shape for"). **test**
 - **Deleting from the panel is the TABLE's gesture, over the same renderer
   flags — one gesture, deliberately spelled twice.** `d` flags the row

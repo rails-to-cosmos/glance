@@ -354,7 +354,7 @@ spec = withResource (body <$> get assetsDir "/") (const (pure ())) $ \shell ->
     , orderSpec, sortQuerySpec, archiveViewSpec
     , bootstrapSpec, materializeSpec, commitSpec, commandSpec, planningSpec
     , tagCommandSpec, renameCommandSpec, tagsSpec, captureSpec
-    , configSpec, keywordsSpec, linksSpec, indexingSpec
+    , configSpec, keywordsSpec, linksSpec, editLinkSpec, indexingSpec
     , pageSpec shell, keymapSpec shell
     , glueSpec shell, bootSpec shell, liveSpec shell, washSpec shell
     , paletteSpec shell
@@ -1762,8 +1762,8 @@ openKeySpec shell = testGroup "Shell open"
           , ["mailto", "mailto:t@example.org", "mailto:t@example.org"] ]
           =<< pairsAt "llinks" answer
         assertEqual "the cursor lands on the first" 0 =<< intAt "lat" answer
-        assertEqual "and the foot names the two keys that work"
-                    "o opens it · ESC leaves" =<< textAt "lfoot" answer
+        assertEqual "and the foot names the three keys that work"
+                    "RET edits · o opens it · ESC leaves" =<< textAt "lfoot" answer
 
     -- READ-ONLY, and stated in the mount rather than inherited: nothing here
     -- writes, so a mark column, a flag wash and a per-row hint would each be
@@ -1814,19 +1814,130 @@ openKeySpec shell = testGroup "Shell open"
         assertEqual "nothing opened" [] =<< openedOf answer
         assertEqual "the popup is down" "" =<< textAt "popup" answer
 
-    -- Editing a link IN PLACE is the gesture `RET' is reserved for — the row's
-    -- own title and url cells becoming fields over themselves, the property
-    -- panel's edit model exactly.  It needs a per-link span out of `/links' and
-    -- an `edit-link' command to splice it, and this build has neither, so the
-    -- key says what it is waiting for and changes nothing.
-  , testCase "RET names the edit that is not here yet, and writes nothing" $
+    -- `RET' EDITS the link at point in place: the row's own title and url cells
+    -- become fields over themselves, which is the property panel's edit model
+    -- and the third surface to declare a shape for it.  The type cell is the
+    -- server's word for the target and never opens.
+  , testCase "RET opens the link at point over its own two cells" $
       bootOf shell "" 500 "o" "press:Enter" $ \answer -> do
-        assertEqual "nothing opened" [] =<< openedOf answer
+        assertEqual "the overlay is up" True =<< boolAt "lopen" answer
+        assertEqual "holding what the entry calls it" "First reference"
+          =<< textAt "ltitle" answer
+        assertEqual "and where it points" "https://one.example/a"
+          =<< textAt "lurl" answer
+        assertEqual "the target takes the focus" "lurl" =<< textAt "focus" answer
+        assertEqual "the popup stands under it" "on" =<< textAt "popup" answer
+        assertEqual "and nothing is posted by opening one" [] =<< namesOf answer
+
+  , testCase "TAB hops the two fields, and nothing else moves" $ do
+      bootOf shell "" 500 "o" "press:Enter press:Tab" $ \answer -> do
+        assertEqual "over to the description" "ltitle" =<< textAt "focus" answer
+        assertEqual "the overlay is still open" True =<< boolAt "lopen" answer
+      bootOf shell "" 500 "o" "press:Enter press:Tab press:Tab" $
+        assertEqual "and back" "lurl" <=< textAt "focus"
+
+    -- THE COMMIT is `edit-link' over the SPAN the server handed out, pinned to
+    -- the digest that same answer carried: this page holds no bracket grammar
+    -- and no offsets of its own, so what it sends back is the range it was
+    -- given and the two strings a reader typed.
+  , testCase "RET commits the span the server gave, under the digest it came with" $
+      bootOf shell "" 500 "o" "press:Enter lurl:https://new.example press:Enter" $
+        \answer -> do
+          assertEqual "one command, naming the row the popup was raised over"
+            [("edit-link", ["r1"])] =<< postedOf answer
+          [cmd] <- listAt "commands" answer
+          args <- field "args" cmd
+          assertEqual "the span it was handed" [10, 48] =<< spanOf args
+          assertEqual "the target as typed" "https://new.example"
+            =<< textAt "target" args
+          assertEqual "and the digest that answer carried" "d0"
+            =<< textAt "r1" =<< field "digests" cmd
+
+    -- ABSENT IS NOT NULL, and the field the reader left alone is what says so:
+    -- the description field opens on what the link SHOWS, which for a link with
+    -- none of its own is its target, so sending that back would spell the
+    -- target into a description.
+  , testCase "a description nobody moved is not sent at all" $
+      bootOf shell "" 500 "o" "press:Enter lurl:https://new.example press:Enter" $
+        \answer -> do
+          [cmd] <- listAt "commands" answer
+          args <- field "args" cmd
+          assertEqual "no desc field" ["span", "target"] . sort =<< fieldsOf args
+
+  , testCase "and one the reader emptied is the null that takes it off" $
+      bootOf shell "" 500 "o" "press:Enter ltitle: press:Enter" $ \answer -> do
+        [cmd] <- listAt "commands" answer
+        args <- field "args" cmd
+        assertEqual "a null description" Null =<< field "desc" args
+        assertEqual "under the target it already had" "https://one.example/a"
+          =<< textAt "target" args
+
+  , testCase "a description typed over the old one is sent as it was typed" $
+      bootOf shell "" 500 "o" "press:Enter ltitle:renamed press:Enter" $
+        \answer -> do
+          [cmd] <- listAt "commands" answer
+          args <- field "args" cmd
+          assertEqual "the text" "renamed" =<< textAt "desc" args
+
+    -- The popup CLOSES on the press, both outcomes alike, which is `o'\''s own
+    -- rule — and it has to: the spans it holds describe the file as it was, and
+    -- the write has just moved it.  `o' again is one keystroke and comes back
+    -- with fresh ones.
+  , testCase "the commit closes the popup, and the log names both ends" $
+      bootOf shell "" 500 "o" "press:Enter lurl:https://new.example press:Enter" $
+        \answer -> do
+          assertEqual "the popup is down" "" =<< textAt "popup" answer
+          assertEqual "and the overlay with it" False =<< boolAt "lopen" answer
+          assertEqual "the pill names what moved"
+            "o → org-glance-overview:open (link edited: https://one.example/a → \
+            \https://new.example · 1)"
+            =<< textAt "echo" answer
+          assertEqual "and the log names the row it landed on"
+            (Just "headline \"one\" link edited: https://one.example/a → \
+                  \https://new.example")
+            =<< lastLog answer
+
+  , testCase "a link nobody changed costs no write" $
+      bootOf shell "" 500 "o" "press:Enter press:Enter" $ \answer -> do
         assertEqual "nothing posted" [] =<< namesOf answer
-        assertEqual "the popup stands" "on" =<< textAt "popup" answer
-        assertEqual "and the log says what it is waiting for"
-          (Just "RET (edit-link) — arrives with the link span and the edit-link command")
-          =<< lastLog answer
+        assertEqual "the popup is down all the same" "" =<< textAt "popup" answer
+        assertEqual "and the pill says so"
+                    "o → org-glance-overview:open (unchanged)" =<< textAt "echo" answer
+
+  , testCase "an emptied target is refused here, since a link points somewhere" $
+      bootOf shell "" 500 "o" "press:Enter lurl: press:Enter" $ \answer -> do
+        assertEqual "nothing posted" [] =<< namesOf answer
+        assertEqual "the pill says why"
+          "o → org-glance-overview:open (a link points somewhere)"
+          =<< textAt "echo" answer
+
+  , testCase "ESC over an open link puts it back and leaves the popup standing" $
+      bootOf shell "" 500 "o" "press:Enter lurl:https://new.example press:Escape" $
+        \answer -> do
+          assertEqual "the overlay is gone" False =<< boolAt "lopen" answer
+          assertEqual "the popup is not" "on" =<< textAt "popup" answer
+          assertEqual "nothing was posted" [] =<< namesOf answer
+          assertEqual "and the pill says the link stands"
+            "ESC → keyboard-quit (link unchanged)" =<< textAt "echo" answer
+
+  , testCase "and a second ESC closes the popup" $
+      bootOf shell "" 500 "o" "press:Enter press:Escape press:Escape" $
+        assertEqual "down" "" <=< textAt "popup"
+
+    -- THE HAZARD THE SHARED MECHANISM ANSWERS, on the third surface: no KEY can
+    -- move the cursor under an open field, but a MOUSE CLICK can, and a commit
+    -- that re-read the cursor would send the text typed for one link against
+    -- another link's span.  The commit is handed the row the overlay OPENED
+    -- over, so the click moves nothing.
+  , testCase "a click under an open link cannot redirect the write" $
+      bootOf shell "" 500 "o" "press:Enter lurl:https://new.example click:2 press:Enter" $
+        \answer -> do
+          [cmd] <- listAt "commands" answer
+          args <- field "args" cmd
+          assertEqual "the span is the one the overlay opened over"
+            [10, 48] =<< spanOf args
+          assertEqual "and the target is what was typed for it" "https://new.example"
+            =<< textAt "target" args
 
     -- A held key must not be a browser tab per repeat, which is why the command
     -- is on the ONCE list beside the writes.
@@ -1906,6 +2017,12 @@ openKeySpec shell = testGroup "Shell open"
                 assertEqual "and the refusal names the target"
                   (Just ("link type not implemented: " <> target)) =<< lastLog answer
   ]
+
+-- | The @span@ an @edit-link@ body carries, as the pair of offsets it is.
+spanOf :: Value -> IO [Int]
+spanOf args = traverse number =<< listAt "span" args
+  where number (Number n) = pure (round n)
+        number other = assertFailure ("expected a number in span, got " <> show other)
 
 -- | Every tab the page opened: the URL, the target name and the window features
 -- — @noopener@ being half of what makes following a link safe.
@@ -3718,7 +3835,7 @@ shellGlue =
       , "flagHelp: \"d/D remove · u unflag\" });"
       -- The overlay is the SHARED mechanism over one cell: the popup declares a
       -- shape and nothing about the gesture is spelled twice.
-      , "box: \"tedit\", pane: \"tpane\", fields: [\"tname\"], cell: true,"
+      , "box: \"tedit\", pane: \"tpane\", fields: [\"tname\"], cells: [0, 0],"
       , "const renaming = () => !!edit && edit.o === TROW;"
       , "openEdit(TROW, at);"
       -- And the write is ONE command rather than a remove and an add composed,
@@ -3737,21 +3854,23 @@ shellGlue =
       , "trows", "tagRows()", "placeTag", "shutRename", "renamingFrom"
       , "function tflag" ]
 
-  -- ONE EDIT OVERLAY, over two surfaces.  The property panel opens a row's two
-  -- fields and the tags popup one cell as a field over itself; the class, the
-  -- anchor, the blur and the SNAPSHOT are one implementation, and a shape says
-  -- what differs.
-  , Glue "the edit overlay is one mechanism the two surfaces declare a shape for"
+  -- ONE EDIT OVERLAY, over three surfaces.  The property panel opens a row's two
+  -- fields, the tags popup one cell as a field over itself and the link popup
+  -- two; the class, the anchor, the blur and the SNAPSHOT are one
+  -- implementation, and a shape says what differs.
+  , Glue "the edit overlay is one mechanism the three surfaces declare a shape for"
       [ "function openEdit(o, row) {"
       , "edit = { o, row };"
       , "el(o.box).className = \"on\";"
       , "o.fill(row);"
       , "o.focus(row);"
       -- The anchor reads the mount's published root and the renderer's own
-      -- gutter class, for whichever surface is open.
+      -- gutter class, for whichever surface is open, and the shape says which
+      -- RANGE of the row's own cells the box covers.
       , "const tr = m && m.el.querySelector(\"tbody tr.tv-sel\");"
-      , "const td = tr && (o.cell ? tr.querySelector(\"td:not(.tv-box)\") : tr);"
-      , "if (o.cell) { s.left = `${c.left - b.left}px`; s.width = `${c.width}px`; }"
+      , "const tds = o.cells && [...tr.querySelectorAll(\"td:not(.tv-box)\")];"
+      , "const from = tds && tds[o.cells[0]], to = tds && tds[o.cells[1]];"
+      , "s.width = `${rt.right - l.left}px`;"
       -- The window resize moves whichever overlay is up, and is registered once
       -- rather than per mount.
       , "window.addEventListener(\"resize\", placeEdit);"
@@ -3769,7 +3888,8 @@ shellGlue =
       , "function shutEdit(o) {"
       , "if (!edit || edit.o !== o) return;"
       , "shutEdit(PROW);"
-      , "shutEdit(TROW);" ]
+      , "shutEdit(TROW);"
+      , "shutEdit(LROW);" ]
       -- The live cursor read the commit used to make, the per-surface copies of
       -- the gesture, and the unscoped shut that would reach across surfaces.
       [ "prows[patAt()]", "function place()", "function shutRename"
@@ -3948,8 +4068,8 @@ shellGlue =
       , "#mptable .tv-root,#ltable .tv-root,#ttable .tv-root{flex:1;min-width:0;"
       -- The open row's fields sit OVER the row, since the mount rewrites its own
       -- rows as it scrolls, and they land on the text they replace.
-      , "#pedit,#tedit{display:none;position:absolute;background:var(--g-sel)}"
-      , "#pedit input,#tedit input{font:13px/1.5 var(--dk-mono);padding:5px 12px;"
+      , "#pedit,#tedit,#ledit{display:none;position:absolute;background:var(--g-sel)}"
+      , "#pedit input,#tedit input,#ledit input{font:13px/1.5 var(--dk-mono);"
       -- A planning row's key is org's rather than the author's, and says so.
       , "#pkey[readonly]{color:var(--g-mute)}"
       -- ONE FOCUS LANGUAGE: whichever pane holds the keys wears the accent on
@@ -4178,7 +4298,7 @@ shellGlue =
       [ "const linksOf = (id) => getJSON(`/links?id=${encodeURIComponent(id)}`);"
       , "if (!links.length) { said(b, \"no links\"); return; }"
       , "if (links.length === 1) { openLink(b, links[0]); return; }"
-      , "showLinks(b, links);"
+      , "showLinks(b, id, a);"
       , "window.open(link.target, \"_blank\", \"noopener\");"
       , "append(\"cmd\", \"info\", `link ${JSON.stringify(link.target)} opened`);"
       -- SEVERAL is a table-view MOUNT, and the followable set is the SERVER's
@@ -4192,6 +4312,28 @@ shellGlue =
       -- one over a link and nothing narrows a link list.
       [ "\\\\[\\\\[", "linkAt("
       , "linkChoices", "a letter opens it", "c.target" ]
+
+  -- And `RET' WRITES one: the link at point becomes two fields over its own
+  -- cells, and the commit is `edit-link' over the SPAN the server handed out,
+  -- pinned to the digest that answer carried.  The third surface on the shared
+  -- overlay, so what is spelled here is the shape and the commit.
+  , Glue "the link popup edits in place, over the range the server gave it"
+      [ "box: \"ledit\", pane: \"lpane\", fields: [\"ltitle\", \"lurl\"], cells: [1, 2],"
+      , "const lediting = () => !!edit && edit.o === LROW;"
+      , "openEdit(LROW, at);"
+      , "else if (k === \"RET\") commitLink(edit.row);"
+      , "const args = { span: link.span, target };"
+      -- ABSENT IS NOT NULL: only a description field the reader moved says
+      -- anything, and one they emptied is the null that takes it off.
+      , "if (typed !== link.desc) args.desc = typed || null;"
+      , "fire(b, \"edit-link\", [id], args," ]
+      -- No link SPELLED here — the shape is the server's, so this page sends a
+      -- target and a description and never a rendered link — and no offsets of
+      -- its own: the range came out of the answer and goes back as it came.  No
+      -- re-read behind the commit either: `/command' never writes the store, so
+      -- asking again here would answer with what the file said BEFORE the write.
+      [ "arrives with the link span", "renderLink", "linksOf(lfor"
+      , "link.span[0] +", "repaintLinks" ]
 
   , glue "a binding with no handler names what it is waiting for"
       [ "arrives with daemon commands (M4)" ]
@@ -4331,7 +4473,8 @@ shellGlue =
   -- everywhere else.  All of them in the one block, which is where every rule
   -- a touch device gets lives — the panes stacking there included.
   , glue "a coarse pointer gets fields iOS will not zoom into"
-      [ "#mtext,#pinput,#pedit input,#tedit input,.ctext,.cview{font-size:16px}}", "font:12px/1.5 var(--dk-mono)"
+      [ "#mtext,#pinput,#pedit input,#tedit input,#ledit input,"
+      , ".ctext,.cview{font-size:16px}}", "font:12px/1.5 var(--dk-mono)"
       , "#mpanes{flex-direction:column}" ]
 
   -- THE SETTINGS SHEET IS UNREACHABLE ON A TOUCH DEVICE, and it is a KNOWN GAP
@@ -6630,6 +6773,240 @@ keywordsSpec = testGroup "GET /keywords"
           =<< sourcesOf =<< getFrom a "/keywords?ids=only"
   ]
 
+-- | @POST \/command edit-link@: the link write the popup's @RET@ commits.
+--
+-- The span math and the form table are @TestQuery@'s ("edit-link"); what
+-- belongs here is the ROUND TRIP a client makes — the range comes out of
+-- @GET \/links@ and goes back into @POST \/command@ — and the refusals that are
+-- the route's rather than the math's.
+editLinkSpec :: TestTree
+editLinkSpec = testGroup "POST /command edit-link"
+  [ testCase "the range /links handed out is the range the write splices" $
+      withLinkable $ \a _hub path -> do
+        before <- document path
+        (sp, digest) <- pinnedSpan a "first" 0
+        r <- postTo a "/command"
+               (linkCommand "edit-link" ["first"]
+                       (object ["span" .= sp, "target" .= ("https://z.example" :: T.Text)])
+                       [("first", digest)])
+        assertEqual "status" 200 (status r)
+        assertEqual "the row landed" [("first", True)] =<< outcomesOf r
+        assertEqual "the file is the old one with one target replaced"
+          (T.replace "[[https://a.example][A]]" "[[https://z.example][A]]" before)
+          =<< document path
+        onDisk <- digestOnDisk path
+        assertEqual "the digest it reports is the file's" [onDisk] =<< digestsOf r
+
+    -- The three forms over one row, each through the range the route itself
+    -- reported: a bracketed link keeps its description, a description ARRIVING
+    -- brackets a plain URL, and a null takes one off.  The table is
+    -- @TestQuery@'s; what this pins is that the offsets survive the wire.
+  , testCase "a description added, kept and taken off, over the wire" $ do
+      withLinkable $ \a _hub path -> do
+        before <- document path
+        (sp, digest) <- pinnedSpan a "first" 1
+        _ <- postTo a "/command"
+               (linkCommand "edit-link" ["first"]
+                       (object [ "span" .= sp
+                               , "target" .= ("https://b.example" :: T.Text)
+                               , "desc" .= ("B" :: T.Text) ])
+                       [("first", digest)])
+        assertEqual "the bracketed bare link took a description"
+          (T.replace "[[https://b.example]]" "[[https://b.example][B]]" before)
+          =<< document path
+      withLinkable $ \a _hub path -> do
+        before <- document path
+        (sp, digest) <- pinnedSpan a "first" 2
+        _ <- postTo a "/command"
+               (linkCommand "edit-link" ["first"]
+                       (object [ "span" .= sp
+                               , "target" .= ("https://d.example" :: T.Text) ])
+                       [("first", digest)])
+        assertEqual "and the plain URL swapped its target and stayed plain"
+          (T.replace "https://c.example" "https://d.example" before) =<< document path
+      withLinkable $ \a _hub path -> do
+        before <- document path
+        (sp, digest) <- pinnedSpan a "first" 0
+        _ <- postTo a "/command"
+               (linkCommand "edit-link" ["first"]
+                       (object [ "span" .= sp
+                               , "target" .= ("https://a.example" :: T.Text)
+                               , "desc" .= Null ])
+                       [("first", digest)])
+        assertEqual "a null description leaves a desc-less bracketed link"
+          (T.replace "[[https://a.example][A]]" "[[https://a.example]]" before)
+          =<< document path
+
+    -- THE PIN.  The spans describe the text the store last read, so a client
+    -- holding a digest the store no longer has is refused — per id, since a
+    -- digest is per file — rather than splicing a range that has moved.
+  , testCase "a span measured against a text the store no longer holds is refused" $
+      withLinkable $ \a _hub path -> do
+        (sp, _digest) <- pinnedSpan a "first" 0
+        before <- document path
+        r <- postTo a "/command"
+               (linkCommand "edit-link" ["first"]
+                       (object ["span" .= sp, "target" .= ("https://z.example" :: T.Text)])
+                       [("first", "0000")])
+        assertEqual "status" 200 (status r)
+        assertEqual "the row did not land" [("first", False)] =<< outcomesOf r
+        assertEqual "and nothing was written" before =<< document path
+
+    -- The subtree wall's interesting half: a span that IS in the file, and IS a
+    -- link, and belongs to ANOTHER ROW.  The digest is per file, so nothing but
+    -- this wall stands between one row's write and a link no reader of that row
+    -- was ever shown.
+  , testCase "a link belonging to another row of the same file is refused" $
+      withLinkable $ \a _hub path -> do
+        before <- document path
+        (sp, digest) <- pinnedSpan a "second" 0
+        r <- postTo a "/command"
+               (linkCommand "edit-link" ["first"]
+                       (object ["span" .= sp, "target" .= ("https://z.example" :: T.Text)])
+                       [("first", digest)])
+        assertEqual "status" 400 (status r)
+        assertContains "naming the row it does not belong to" "first" (body r)
+        assertContains "and the extent that does not hold it" "subtree" (body r)
+        assertEqual "nothing was written" before =<< document path
+
+    -- A SPAN NAMES ONE ROW's own text, so the command names one row.  Over two it
+    -- would mean a different range in each file, and in one of them very likely
+    -- a link the reader never saw.
+  , testCase "two ids are refused, since a span names one row's own text" $
+      withLinkable $ \a _hub path -> do
+        before <- document path
+        (sp, digest) <- pinnedSpan a "first" 0
+        r <- postTo a "/command"
+               (linkCommand "edit-link" ["first", "second"]
+                       (object ["span" .= sp, "target" .= ("https://z.example" :: T.Text)])
+                       [("first", digest)])
+        assertEqual "status" 400 (status r)
+        assertContains "naming the command" "edit-link" (body r)
+        assertContains "and the rule" "one row" (body r)
+        assertEqual "nothing was written" before =<< document path
+
+    -- The refusals, all 400 with the file untouched: a link that points nowhere,
+    -- a padded target, a missing range, a range the row does not hold, a range
+    -- that is not a link, and a target that would not read back as the link it
+    -- claims to be.
+  , testCase "every refusal is a 400, and each names what it turned down" $
+      mapM_ (\(what, args, named) ->
+               withLinkable $ \a _hub path -> do
+                 before <- document path
+                 (sp, digest) <- pinnedSpan a "first" 0
+                 r <- postTo a "/command"
+                        (linkCommand "edit-link" ["first"] (args sp) [("first", digest)])
+                 assertEqual (what <> ": status") 400 (status r)
+                 assertContains what named (body r)
+                 assertEqual (what <> ": nothing written") before =<< document path)
+        [ ( "an empty target"
+          , \sp -> object ["span" .= sp, "target" .= ("" :: T.Text)]
+          , "points somewhere" )
+        , ( "no span at all"
+          , const (object ["target" .= ("https://z.example" :: T.Text)])
+          , "span" )
+        , ( "a span outside the row"
+          , const (object [ "span" .= [9000 :: Int, 9100]
+                          , "target" .= ("https://z.example" :: T.Text) ])
+          , "subtree" )
+        , ( "a span over prose"
+          , const (object [ "span" .= [0 :: Int, 4]
+                          , "target" .= ("https://z.example" :: T.Text) ])
+          , "does not read as one link" )
+        , ( "a target that would not read back as a link"
+          , \sp -> object ["span" .= sp, "target" .= ("https://a]b" :: T.Text)]
+          , "does not read as one link" )
+        , ( "a padded target"
+          , \sp -> object ["span" .= sp, "target" .= (" https://z.example " :: T.Text)]
+          , "leading or trailing space" )
+        , ( "a newline in the target"
+          , \sp -> object ["span" .= sp, "target" .= ("https://z\n* B" :: T.Text)]
+          , "one line" ) ]
+
+    -- The route writes the FILE; the watch is what updates rows.  A link in the
+    -- TITLE is a cell, so the edit reaches the table the way every other write
+    -- does — and one in the body moves no cell at all, which is the store's own
+    -- rule and why the popup re-asks rather than expecting a frame.
+  , testCase "a title link reaches the row over the watch" $
+      withLinkable $ \a hub path -> do
+        (sp, digest) <- pinnedSpan a "first" 0
+        _ <- postTo a "/command"
+               (linkCommand "edit-link" ["first"]
+                       (object [ "span" .= sp
+                               , "target" .= ("https://a.example" :: T.Text)
+                               , "desc" .= ("Alpha" :: T.Text) ])
+                       [("first", digest)])
+        watchStep hub path
+        r <- getFrom a "/headlines"
+        assertEqual "the cell carries the line the file holds"
+          ["one [[https://a.example][Alpha]]", "two [[https://e.example][E]]"]
+          =<< traverse (cellAt "title") =<< rowsOf r
+
+    -- And the links themselves are re-read: the popup asks again and gets the
+    -- new target, its span moved by what the edit cost.
+  , testCase "and /links answers with the edited link once the watch has run" $
+      withLinkable $ \a hub path -> do
+        (sp, digest) <- pinnedSpan a "first" 0
+        _ <- postTo a "/command"
+               (linkCommand "edit-link" ["first"]
+                       (object ["span" .= sp, "target" .= ("https://z.example" :: T.Text)])
+                       [("first", digest)])
+        watchStep hub path
+        assertEqual "the new target, described as it always was"
+          [ ["https://z.example", "A", "https"]
+          , ["https://b.example", "https://b.example", "https"]
+          , ["https://c.example", "https://c.example", "https"] ]
+          =<< linksOf =<< getFrom a "/links?id=first"
+        text <- document path
+        assertEqual "and the spans still cut their own links out of the file"
+          [ "[[https://z.example][A]]", "[[https://b.example]]", "https://c.example" ]
+          . map (charSpan text) =<< spansOf =<< getFrom a "/links?id=first"
+  ]
+
+-- | A row pointing three ways — a described bracket link on the title, a
+-- desc-less one in the body and a plain URL beside it — so the form table has
+-- one of each to be right about, and a second row with a link of its OWN: the
+-- ids rule needs a second row, and the subtree wall needs a span that IS in this
+-- file and IS a link and belongs to somebody else.
+linkable :: T.Text
+linkable = T.unlines
+  [ "* one [[https://a.example][A]]"
+  , ":PROPERTIES:"
+  , ":ORG_GLANCE_ID: first"
+  , ":END:"
+  , "body [[https://b.example]] and https://c.example here"
+  , "* two [[https://e.example][E]]"
+  , ":PROPERTIES:"
+  , ":ORG_GLANCE_ID: second"
+  , ":END:"
+  , "nothing else to follow"
+  ]
+
+-- | Run K over a server holding 'linkable': the app, the hub whose store it
+-- answers from — the watch cases step it the way a live daemon does — and the
+-- file.
+withLinkable :: (Application -> Hub -> FilePath -> Assertion) -> Assertion
+withLinkable k = withTempDir $ \dir -> do
+  path <- orgFile dir "notes.org" linkable
+  (a, hub) <- serverOver dir
+  k a hub path
+
+-- | The span A reports for ROW's link at AT, and the digest that answer carried
+-- — which is exactly what the popup holds and sends back.
+pinnedSpan :: Application -> ByteString -> Int -> IO (Value, T.Text)
+pinnedSpan a rid at = do
+  answer <- decoded =<< getFrom a ("/links?id=" <> rid)
+  links <- listAt "links" answer
+  sp <- field "span" (links !! at)
+  (,) sp <$> textAt "digest" answer
+
+-- | A command as the LINK POPUP sends one: 'command' under the digests it was
+-- measured against, which the commands naming a property of a row send none of.
+linkCommand :: T.Text -> [T.Text] -> Value -> [(T.Text, T.Text)] -> BL.ByteString
+linkCommand name ids args digests = encode (object
+  [ "name" .= name, "ids" .= ids, "args" .= args
+  , "digests" .= object [ Key.fromText rid .= digest | (rid, digest) <- digests ] ])
+
 -- | @GET \/links@: where one row points.
 --
 -- The extraction rule is @TestQuery@'s ("Links"), which drives the pure
@@ -6638,7 +7015,7 @@ keywordsSpec = testGroup "GET /keywords"
 linksSpec :: TestTree
 linksSpec = testGroup "GET /links"
   [ testCase "is the row's links, in the order its subtree writes them" $
-      withLinkTree $ \a -> do
+      withLinkTree $ \a _dir -> do
         r <- getFrom a "/links?id=linked"
         assertEqual "status" 200 (status r)
         assertEqual "target, description and type"
@@ -6652,7 +7029,7 @@ linksSpec = testGroup "GET /links"
     -- pointed anywhere.  The derivation is `TestQuery''s ("Links"); what belongs
     -- here is that the route carries it, over targets no tab can follow.
   , testCase "every link carries its type, followable or not" $
-      withLinkTree $ \a ->
+      withLinkTree $ \a _dir ->
         assertEqual "one word per link"
           [ ["mailto:t@example.org", "write", "mailto"]
           , ["org-glance-visit:E1B2", "the other row", "glance"]
@@ -6661,24 +7038,47 @@ linksSpec = testGroup "GET /links"
           =<< linksOf =<< getFrom a "/links?id=typed"
 
   , testCase "an id the store has no row for is a 404, like materialize" $
-      withLinkTree $ \a -> do
+      withLinkTree $ \a _dir -> do
         r <- getFrom a "/links?id=nosuch"
         assertEqual "status" 404 (status r)
         assertContains "hint" "no headline with id" (body r)
 
   , testCase "no id at all says what the route wants" $
-      withLinkTree $ \a -> do
+      withLinkTree $ \a _dir -> do
         r <- getFrom a "/links"
         assertEqual "status" 400 (status r)
         assertEqual "naming the parameter" "GET /links?id=<row id>"
           =<< textAt "error" =<< decoded r
 
   , testCase "a row with nothing to follow answers with an empty list" $
-      withLinkTree $ \a ->
+      withLinkTree $ \a _dir ->
         assertEqual "no links" [] =<< linksOf =<< getFrom a "/links?id=bare"
 
+    -- EVERY LINK CARRIES ITS SPAN, and the span is into the FILE: it is what
+    -- makes the answer writeable, since `edit-link' takes that range back and
+    -- splices it.  Asserted by cutting each range out of the file on disk, which
+    -- is the claim a span makes and the one a client acts on.
+  , testCase "every link carries the file range that spells it" $
+      withLinkTree $ \a dir -> do
+        r <- getFrom a "/links?id=linked"
+        text <- document (dir </> "a.org")
+        assertEqual "each range cuts its own link out of the file"
+          [ "[[https://x.example/a][the first]]", "https://y.example/b"
+          , "https://z.example/c" ]
+          . map (charSpan text) =<< spansOf r
+
+    -- And the answer carries the file's DIGEST, which is the lock an edit is
+    -- pinned to: the spans describe the text the store last read, so a client
+    -- that sends it back is refused rather than spliced blind once the file has
+    -- moved.
+  , testCase "and the digest those spans were measured against" $
+      withLinkTree $ \a dir -> do
+        r <- getFrom a "/links?id=linked"
+        onDisk <- digestOnDisk (dir </> "a.org")
+        assertEqual "the file's own" onDisk =<< textAt "digest" =<< decoded r
+
   , testCase "and it is a read: POST is a 405" $ do
-      r <- withLinkTree (\a -> postTo a "/links?id=linked" "{}")
+      r <- withLinkTree (\a _dir -> postTo a "/links?id=linked" "{}")
       assertEqual "status" 405 (status r)
   ]
 
@@ -6687,11 +7087,22 @@ linksOf :: SResponse -> IO [[T.Text]]
 linksOf r = traverse one =<< listAt "links" =<< decoded r
   where one v = sequence [textAt "target" v, textAt "desc" v, textAt "type" v]
 
+-- | The half-open char range each of R's links reports.
+spansOf :: SResponse -> IO [(Int, Int)]
+spansOf r = traverse one =<< listAt "links" =<< decoded r
+  where one v = listAt "span" v >>= pair
+        pair [Number from, Number to] = pure (round from, round to)
+        pair other = assertFailure ("expected a [start, end] span, got " <> show other)
+
+-- | TEXT's half-open char range, which is what a span claims to be.
+charSpan :: T.Text -> (Int, Int) -> T.Text
+charSpan text (from, to) = T.take (to - from) (T.drop from text)
+
 -- | A tree with one row worth following, one holding a link of every type the
 -- popup draws a badge for, and one with nothing in it.  The first has a bracket
 -- link on the title, a bare URL in the body and one more under a child, so the
 -- route's answer shows it read the SUBTREE.
-withLinkTree :: (Application -> IO a) -> IO a
+withLinkTree :: (Application -> FilePath -> IO a) -> IO a
 withLinkTree k = withTempDir $ \dir -> do
   _ <- orgFile dir "a.org" (T.unlines
          [ "* one [[https://x.example/a][the first]]"
@@ -6712,7 +7123,7 @@ withLinkTree k = withTempDir $ \dir -> do
          , "[[mailto:t@example.org][write]] [[org-glance-visit:E1B2][the other row]]"
          , "[[file:notes.org][notes]] [[Some Headline]]" ])
   (a, _hub) <- serverOver dir
-  k a
+  k a dir
 
 -- | Each source the answer names, with the keywords it is the nearest to
 -- declare.

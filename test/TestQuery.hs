@@ -25,16 +25,17 @@ import qualified Data.Text as T
 import qualified Data.Time as Time
 
 import Glance.Query ( ConfigLayers (..), HeadlineParts (..), HeadlineRecord (..)
-                    , LoadFailure (..)
+                    , LinkShape (..), LoadFailure (..), OrgLink (..)
                     , QueryResult (..), Span (..), TodoKeywords (..), addTagEdits
                     , archiveEdits, archived
                     , captureEdits, captureStamp, defaultWalk, derivedPath, documentPath
-                    , displayText, headlineParts, hiddenProperties, keywordSources, loadDir
+                    , displayText, editLinkEdits, headlineParts, hiddenProperties
+                    , keywordSources, loadDir
                     , loadDirFilesSerially, loadDirFilesWith, loadFile, matchesSearch
                     , noConfig, orgLinks
                     , planningTimestamp, readsAsTimestamp, recomposedSubtree
-                    , linkColumns, linkType, removeTagEdits, renameTagEdits, rowJSON
-                    , setPlanningEdits, setStateEdits
+                    , linkColumns, linkShown, linkType, removeTagEdits, renameTagEdits
+                    , rowJSON, setPlanningEdits, setStateEdits
                     , settableStates, sortedForView, sortedTagsCell
                     , subtreeLinks, subtreeText, tagText, tagged, viewJSON )
 
@@ -91,6 +92,25 @@ boolOf :: Value -> IO Bool
 boolOf (Bool b) = pure b
 boolOf v = assertFailure ("expected a boolean, got " <> show v)
 
+-- | L as the pair the DISPLAY rule answers with: where it points and what it
+-- shows.  The span is the other half of a link and has cases of its own, so a
+-- case about the grammar reads through this and says nothing about offsets.
+linkPair :: OrgLink -> (Text, Text)
+linkPair l = (olTarget l, linkShown l)
+
+-- | The links TEXT holds, as those pairs.
+shown :: Text -> [(Text, Text)]
+shown = map linkPair . orgLinks
+
+-- | The links TEXT holds, each cut back out of TEXT by its own span — which is
+-- the whole claim a span makes.
+spelled :: Text -> [Text]
+spelled text' = [ cut text' (olSpan l) | l <- orgLinks text' ]
+
+-- | The half-open char span SP of TEXT.
+cut :: Text -> Span -> Text
+cut text' sp = T.take (spanEnd sp - spanStart sp) (T.drop (spanStart sp) text')
+
 -- | The value at KEY of every element of the array at ARR of V.
 each :: Text -> Text -> Value -> IO [Value]
 each arr k v = listAt arr v >>= mapM (field k)
@@ -125,58 +145,81 @@ linkSpec :: TestTree
 linkSpec = testGroup "Links"
   [ testCase "a bracket link is its target and what it shows" $ do
       assertEqual "described" [("https://x/y", "table-view")]
-                  (orgLinks "[[https://x/y][table-view]]")
+                  (shown "[[https://x/y][table-view]]")
       -- The two spellings with no description of their own fall back to the
       -- target, which is exactly what the table shows for them.
-      assertEqual "bare" [("https://x/y", "https://x/y")] (orgLinks "[[https://x/y]]")
+      assertEqual "bare" [("https://x/y", "https://x/y")] (shown "[[https://x/y]]")
       assertEqual "empty description" [("file:a.org", "file:a.org")]
-                  (orgLinks "[[file:a.org][]]")
+                  (shown "[[file:a.org][]]")
 
   , testCase "the description is what displayText would show" $ do
       let one = "[[https://x/y][table-view]]"
-      assertEqual "one parser, two questions" (displayText one) (snd (head (orgLinks one)))
+      assertEqual "one parser, two questions" (displayText one) (snd (head (shown one)))
 
   , testCase "several links come back in the order they are written" $
       assertEqual "in order" [("file:R.md", "readme"), ("file:N.org", "notes")]
-                  (orgLinks "see [[file:R.md][readme]] and [[file:N.org][notes]].")
+                  (shown "see [[file:R.md][readme]] and [[file:N.org][notes]].")
 
   , testCase "a bare URL is its own description" $ do
       assertEqual "https" [("https://x.org/a", "https://x.org/a")]
-                  (orgLinks "read https://x.org/a today")
-      assertEqual "http" [("http://x.org", "http://x.org")] (orgLinks "http://x.org")
+                  (shown "read https://x.org/a today")
+      assertEqual "http" [("http://x.org", "http://x.org")] (shown "http://x.org")
       assertEqual "mailto" [("mailto:t@x.org", "mailto:t@x.org")]
-                  (orgLinks "write to mailto:t@x.org")
+                  (shown "write to mailto:t@x.org")
 
   , testCase "and the punctuation a sentence leaves behind is not part of it" $ do
       assertEqual "full stop" [("https://x.org/a", "https://x.org/a")]
-                  (orgLinks "see https://x.org/a.")
+                  (shown "see https://x.org/a.")
       assertEqual "parens" [("https://x.org/a", "https://x.org/a")]
-                  (orgLinks "(https://x.org/a)")
+                  (shown "(https://x.org/a)")
       assertEqual "angles" [("https://x.org/a", "https://x.org/a")]
-                  (orgLinks "<https://x.org/a>")
+                  (shown "<https://x.org/a>")
 
   , testCase "a scheme inside a word is not a link" $ do
-      assertEqual "glued" [] (orgLinks "xhttps://x.org")
-      assertEqual "no scheme at all" [] (orgLinks "x.org and ftp://x.org")
+      assertEqual "glued" [] (shown "xhttps://x.org")
+      assertEqual "no scheme at all" [] (shown "x.org and ftp://x.org")
 
   , testCase "a bracket link's own target is not also a bare URL" $
       assertEqual "counted once" [("https://x.org/a", "the page")]
-                  (orgLinks "[[https://x.org/a][the page]]")
+                  (shown "[[https://x.org/a][the page]]")
 
   , testCase "text that never closes a link holds no link" $ do
-      assertEqual "unclosed" [] (orgLinks "[[oops")
-      assertEqual "not a link" [] (orgLinks "[[a]x]")
+      assertEqual "unclosed" [] (shown "[[oops")
+      assertEqual "not a link" [] (shown "[[a]x]")
       -- And the scan carries on past it: an unclosed `[[' is two characters
       -- skipped rather than the end of the text.
       assertEqual "and the one after it survives"
-                  [("https://x.org", "https://x.org")] (orgLinks "[[oops https://x.org")
-
-  , testCase "one entry per target, keeping the first description" $
-      assertEqual "deduped" [("https://x.org", "first")]
-                  (orgLinks "[[https://x.org][first]] and [[https://x.org][second]]")
+                  [("https://x.org", "https://x.org")] (shown "[[oops https://x.org")
 
   , testCase "a row with nothing to follow has no links" $
-      assertEqual "none" [] (orgLinks "* TODO plain headline\nwith a body\n")
+      assertEqual "none" [] (shown "* TODO plain headline\nwith a body\n")
+
+    -- EVERY LINK CARRIES ITS SPAN, which is the half-open CHAR range it occupies
+    -- in the text scanned — what `/links' hands out and what `edit-link' splices
+    -- back.  Read as a slice here, so what is asserted is that the range cuts
+    -- the link out of the very text it was found in.
+  , testCase "a link spans exactly the characters that spell it" $ do
+      let text = "see [[file:R.md][readme]] and https://x.org/a."
+      assertEqual "the bracket link whole, and the bare URL without the full stop"
+        ["[[file:R.md][readme]]", "https://x.org/a"] (spelled text)
+      assertEqual "the spans are where the words are"
+        [Span 4 25, Span 30 45] (map olSpan (orgLinks text))
+
+  , testCase "the shape a link is spelled in comes back with it" $
+      assertEqual "bracketed with a description, bracketed without, and bare"
+        [Bracketed (Just "readme"), Bracketed Nothing, Bracketed (Just ""), Bare]
+        (map olShape (orgLinks
+           "[[file:a][readme]] [[file:b]] [[file:c][]] https://x.org"))
+
+    -- A target spelled twice is ONE entry, and the entry is the FIRST spelling:
+    -- its description and its SPAN.  So an edit made through a deduplicated link
+    -- edits the first one, and the others go on pointing where they did.
+  , testCase "one entry per target, keeping the first description and its span" $ do
+      assertEqual "deduped" [("https://x.org", "first")]
+                  (shown "[[https://x.org][first]] and [[https://x.org][second]]")
+      assertEqual "the span is the first spelling's"
+        ["[[https://x.org][first]]"]
+        (spelled "[[https://x.org][first]] and [[https://x.org][second]]")
 
   , testCase "the subtree is what is read, body and children included" $
       withRecordsOf (T.unlines
@@ -186,7 +229,19 @@ linkSpec = testGroup "Links"
         assertEqual "the whole extent"
           [[ ("https://a.example", "A"), ("https://b.example", "B")
            , ("https://c.example", "https://c.example") ]]
-          (map subtreeLinks recs)
+          (map (map linkPair . subtreeLinks) recs)
+
+    -- A ROW'S SPANS ARE THE DOCUMENT'S.  The scan runs over the subtree slice
+    -- and every span is shifted by where that slice starts, so the range is one
+    -- `Data.Org.Edit' can splice — asserted by cutting the link back out of the
+    -- whole file rather than out of the subtree.
+  , testCase "a row's link spans are offsets into the document it was read from" $
+      withRecordsOf (T.unlines
+        [ "* first", "nothing here", "* second [[https://a.example][A]]"
+        , "body https://b.example" ]) $ \recs ->
+        assertEqual "each cut out of the file itself"
+          [[], ["[[https://a.example][A]]", "https://b.example"]]
+          [ [ cut (hrDoc r) (olSpan l) | l <- subtreeLinks r ] | r <- recs ]
 
     -- `hrLinks' is the same subtree read for a narrower question: which ROWS it
     -- points at.  A URL is not one of them, which is what keeps the field small
@@ -1465,6 +1520,16 @@ addTagIs what doc tag = editsAre what doc (addTagEdits tag)
 removeTagIs :: String -> Text -> Text -> Text -> Assertion
 removeTagIs what doc tag = editsAre what doc (removeTagEdits tag)
 
+-- | WHAT: DOC with its FIRST link retargeted to TARGET under DESC is WANTED.
+-- The span is the scan's own, which is where a client's comes from.
+editLinkIs :: String -> Text -> Text -> Maybe (Maybe Text) -> Text -> Assertion
+editLinkIs what doc target desc wanted = withRecord doc $ \r ->
+  case subtreeLinks r of
+    []      -> assertFailure (what <> ": the document holds no link")
+    (l : _) -> case editLinkEdits (olSpan l) target desc r of
+      Left why    -> assertFailure (what <> ": refused: " <> T.unpack why)
+      Right edits -> assertEqual what wanted (splice doc edits)
+
 -- | WHAT: DOC with @rename-tag FROM TO@ applied to its one headline is WANTED.
 renameTagIs :: String -> Text -> Text -> Text -> Text -> Assertion
 renameTagIs what doc from to = editsAre what doc (renameTagEdits from to)
@@ -1821,6 +1886,153 @@ commandSpec = testGroup "Commands"
                       (splice doc (removeTagEdits "work" r <> addTagEdits "projects" r))
           assertEqual "where the one command spells the file" "* TODO Ship it :projects:\n"
                       (splice doc (renameTagEdits "work" "projects" r))
+    ]
+
+    -- @edit-link@: the one command whose args name a row's own BYTES.  The span
+    -- comes out of the scan here, which is where a client's comes from — the
+    -- popup edits the ranges `/links' handed it — so what these cases drive is
+    -- the round trip, read and written by one grammar.
+  , testGroup "edit-link"
+    [ -- THE FORM TABLE.  A bracketed link stays bracketed and a plain URL stays
+      -- plain, so an entry keeps the way its author wrote it; a description
+      -- ARRIVING is the one thing that changes a shape, since a plain URL has
+      -- nowhere to write one.
+      testCase "the shape is preserved, and only an arriving description moves it" $
+        mapM_ (\(what, wrote, target, desc, wanted) ->
+                 editLinkIs what ("* one " <> wrote <> "\n") target desc
+                            ("* one " <> wanted <> "\n"))
+          [ ( "described, target alone", "[[https://a.example][A]]"
+            , "https://b.example", Nothing, "[[https://b.example][A]]" )
+          , ( "described, description replaced", "[[https://a.example][A]]"
+            , "https://b.example", Just (Just "B"), "[[https://b.example][B]]" )
+          , ( "described, description off", "[[https://a.example][A]]"
+            , "https://b.example", Just Nothing, "[[https://b.example]]" )
+          , ( "bracketed bare, target alone", "[[https://a.example]]"
+            , "https://b.example", Nothing, "[[https://b.example]]" )
+          , ( "bracketed bare, description added", "[[https://a.example]]"
+            , "https://b.example", Just (Just "B"), "[[https://b.example][B]]" )
+          , ( "bracketed bare, description off", "[[https://a.example]]"
+            , "https://b.example", Just Nothing, "[[https://b.example]]" )
+          , ( "plain URL, target alone", "https://a.example"
+            , "https://b.example", Nothing, "https://b.example" )
+            -- The one shape change: a description has nowhere to live in a
+            -- plain URL, so one arriving brackets it.
+          , ( "plain URL, description added", "https://a.example"
+            , "https://b.example", Just (Just "B"), "[[https://b.example][B]]" )
+          , ( "plain URL, description off", "https://a.example"
+            , "https://b.example", Just Nothing, "https://b.example" ) ]
+
+      -- ABSENT IS NOT NULL, which is the `args' discipline this route turns on
+      -- (`.:!' rather than `.:?'): a request that says nothing about the
+      -- description leaves the author's, and a null takes it off.  A
+      -- description that SHOWS nothing is the null spelled another way, since
+      -- `[[T][]]' shows its target — and an untouched empty section is still
+      -- the author's bytes, so it stands.
+    , testCase "a description that shows nothing is the null spelled another way" $ do
+        editLinkIs "empty string" "* one [[https://a.example][A]]\n"
+                   "https://b.example" (Just (Just "")) "* one [[https://b.example]]\n"
+        editLinkIs "spaces" "* one [[https://a.example][A]]\n"
+                   "https://b.example" (Just (Just "  ")) "* one [[https://b.example]]\n"
+        editLinkIs "an empty section nobody touched stands"
+                   "* one [[https://a.example][]]\n"
+                   "https://b.example" Nothing "* one [[https://b.example][]]\n"
+        -- The emptiness test strips and the VALUE is written verbatim, which is
+        -- the target's own rule: neither is content, and content is nobody's to
+        -- trim.
+        editLinkIs "a description with content keeps its spacing"
+                   "* one [[https://a.example][A]]\n"
+                   "https://b.example" (Just (Just " spaced "))
+                   "* one [[https://b.example][ spaced ]]\n"
+
+      -- A description is written as it was given, trimmed of the whitespace a
+      -- field leaves behind — the bytes around the link are the author's and
+      -- this moves none of them.
+    , testCase "the link is the only thing that moves" $
+        editLinkIs "the prose either side stands"
+                   "* one\nsee [[https://a.example][A]] and stop.\n"
+                   "https://b.example" (Just (Just "B"))
+                   "* one\nsee [[https://b.example][B]] and stop.\n"
+
+      -- A link in a CHILD is the row's, since a row's links are its subtree's.
+    , testCase "a link under a child is the row's to edit" $
+        editLinkIs "the child's line moves"
+                   "* one\n** child [[https://a.example][A]]\n"
+                   "https://b.example" Nothing
+                   "* one\n** child [[https://b.example][A]]\n"
+
+      -- THE FIRST WALL: the span has to sit inside the ROW's own subtree and
+      -- cover exactly one link, edge to edge.  A span a character short of the
+      -- real one is refused rather than spliced into the middle of a link.
+    , testCase "a span that does not cover exactly one link is refused" $
+        withRecord "* one\nsee [[https://a.example][A]] and https://b.example\n" $ \r -> do
+          let refused what sp = case editLinkEdits sp "https://c.example" Nothing r of
+                Right edits -> assertFailure (what <> ": expected a refusal, got "
+                                                <> show edits)
+                Left why    -> assertContains what "does not read as one link" why
+          refused "one character short" (Span 10 33)
+          refused "one character long" (Span 10 35)
+          refused "prose" (Span 6 9)
+          refused "two links at once" (Span 10 52)
+
+    , testCase "a span outside the row's subtree is refused, naming both" $
+        withRecord "* one [[https://a.example][A]]\n" $ \r ->
+          case editLinkEdits (Span 900 950) "https://c.example" Nothing r of
+            Right edits -> assertFailure ("expected a refusal, got " <> show edits)
+            Left why    -> do
+              assertContains "names the span" "[900,950)" why
+              assertContains "and the row" (hrId r) why
+
+      -- THE SECOND WALL: the replacement has to READ BACK as THE LINK IT CLAIMS
+      -- TO BE.  The write engine is content-agnostic by law, so this is the
+      -- layer that owes the check — a target that would spell something else on
+      -- the next load is refused rather than written.
+    , testCase "a replacement that would not read as one link is refused" $
+        mapM_ (\(what, wrote, target) ->
+                 withRecord ("* one " <> wrote <> "\n") $ \r ->
+                   case subtreeLinks r of
+                     (l : _) -> case editLinkEdits (olSpan l) target Nothing r of
+                       Right edits -> assertFailure (what <> ": expected a refusal, got "
+                                                       <> show edits)
+                       Left why -> assertContains what "does not read as one link" why
+                     [] -> assertFailure (what <> ": no link to edit"))
+          -- A bracket in the target closes the link early.
+          [ ("a bracket in the target", "[[https://a.example][A]]", "https://a]b")
+          -- A plain URL keeps its shape, and a target no plain-link scheme reads
+          -- would be prose on the next load.
+          , ("a bare link swapped for a path", "https://a.example", "file:notes.org")
+          , ("a bare link given a space", "https://a.example", "https://a b") ]
+
+      -- REPARSING ALONE IS NOT THE WALL, and this is the case that says why: a
+      -- target spelling `a][b' renders a link that IS one link — pointing at
+      -- `a', described `b', neither of them what the request named.  The check
+      -- compares the reparse against what was ASKED for, so the grammar cannot
+      -- be escaped by spelling it.
+    , testCase "a target that reparses as another link is refused, naming both" $
+        withRecord "* one [[https://a.example]]\n" $ \r ->
+          case subtreeLinks r of
+            (l : _) -> case editLinkEdits (olSpan l) "https://a][b" Nothing r of
+              Right edits -> assertFailure ("expected a refusal, got " <> show edits)
+              Left why -> do
+                assertContains "names what would have been written" "[[https://a][b]]" why
+                assertContains "and what it was asked to point at" "https://a][b" why
+            [] -> assertFailure "no link to edit"
+
+      -- A NEWLINE is the one thing reparsing cannot catch: this scanner has no
+      -- line rule, so the link reads back as itself — and lands a column-1 star
+      -- in the file, which the ORG parser reads as a new headline.  Refused in
+      -- both halves, since neither spans lines in org.
+    , testCase "a newline in either half is refused before anything is written" $
+        withRecord "* one [[https://a.example][A]]\n" $ \r ->
+          case subtreeLinks r of
+            (l : _) -> mapM_ (\(what, target, desc) ->
+                                case editLinkEdits (olSpan l) target desc r of
+                                  Right edits -> assertFailure (what <> ": expected a"
+                                                   <> " refusal, got " <> show edits)
+                                  Left why -> assertContains what "one line" why)
+                             [ ("in the target", "https://a\n* B", Nothing)
+                             , ("in the description", "https://a.example",
+                                Just (Just "A\n* B")) ]
+            [] -> assertFailure "no link to edit"
     ]
 
     -- The wall both tag commands put up, and it is the PARSER's own charset:

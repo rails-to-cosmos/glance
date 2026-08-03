@@ -34,6 +34,9 @@
 //                 `/' has to have put the palette in that mode first
 //   tname:TEXT    TEXT typed into the tags popup's rename overlay, which `RET'
 //                 has to have opened over the tag at point first
+//   ltitle:TEXT   TEXT typed into the link popup's edit overlay, whose two
+//   lurl:TEXT     fields are what the entry calls the link and where it points;
+//                 `RET' has to have opened it over the link at point first
 //   assign:A,B,C  the which-key assignment run over that cycle, as the pure
 //                 function it is
 //   refuse        the next /command refuses — every row it named, or the
@@ -166,11 +169,22 @@ let stalling = false;
 // The TYPE is the server's own word for the target (`Glance.Query.linkType'):
 // canned here like the rest of the answer, since the derivation is TestQuery's
 // and what the page owes is the badge cell and the commit it decides.
+// The SPAN is the half-open char range the link occupies in its file, which is
+// what makes the answer writeable: `RET' sends it back as the range to splice.
+// Canned like the rest — the offsets are the scanner's and TestQuery is where
+// they are measured — so what the page owes is handing back the range it was
+// given, under the digest it came with.
 let links = [
-  { target: "https://one.example/a", desc: "First reference", type: "https" },
-  { target: "https://two.example/b", desc: "Second reference", type: "https" },
-  { target: "mailto:t@example.org", desc: "mailto:t@example.org", type: "mailto" },
+  { target: "https://one.example/a", desc: "First reference", type: "https",
+    span: [10, 48] },
+  { target: "https://two.example/b", desc: "Second reference", type: "https",
+    span: [60, 99] },
+  { target: "mailto:t@example.org", desc: "mailto:t@example.org", type: "mailto",
+    span: [120, 140] },
 ];
+// And the digest that answer carried, which an edit pins: the spans describe
+// the file as the store read it, so a file that has moved refuses.
+let linkDigest = "d0";
 // Every /links URL asked for, and every tab the page opened.
 const linked = [];
 const opened = [];
@@ -297,7 +311,7 @@ globalThis.fetch = (url, init) => {
   if (String(url).startsWith("/links?id=")) {
     linked.push(url);
     return refusing ? answer(404, { error: "no headline with id r1" })
-                    : answer(200, { links });
+                    : answer(200, { links, digest: linkDigest });
   }
   if (String(url) === "/config") {
     if ((init || {}).method !== "POST")
@@ -677,6 +691,7 @@ const fields = {};
 // whether a key belongs to the table or to whatever has focus.
 const TAGS = { mtext: "textarea", filter: "input", pinput: "input",
                pkey: "input", pval: "input", tname: "input", themesel: "select",
+               ltitle: "input", lurl: "input",
                cfilter: "input", ctarget: "input", clog: "input",
                // The keywords panel: one select over the layers and one box
                // showing the selected one's lines.
@@ -739,9 +754,11 @@ const STATEFUL = [ "mtext", "mnote", "mfile", "modal", "mprops", "mlog", "sheet"
                  // underlined words, so it has to hold one.
                  , "echo", "prompt", "phead", "pinput", "pbox", "plist", "pfoot"
                  // The link popup, which is a MOUNT like the panel: `ltable' is
-                 // the element it is given, and the two lines around it are the
-                 // only chrome it draws for itself.
-                 , "links", "lhead", "ltable", "lfoot"
+                 // the element it is given, `lpane' the box the edit overlay is
+                 // placed inside, `ledit'/`ltitle'/`lurl' the edit itself, and
+                 // the two lines around them the only chrome it draws.
+                 , "links", "lhead", "lpane", "ltable", "lfoot"
+                 , "ledit", "ltitle", "lurl"
                  // And the tags popup, which is a mount and an edit overlay:
                  // `ttable' is the element, `tpane' the box the overlay is
                  // placed inside, and `tedit'/`tname' the rename itself.
@@ -859,6 +876,16 @@ const typeOver = (which, arg) => {
   typed(field(which), arg.slice(at + 1));
 };
 /**
+ * Type into the link popup's edit overlay.  A closed overlay has no fields, so a
+ * script that types without pressing RET first is typing into nothing on a real
+ * page: say so rather than write where no reader could have.
+ */
+const typeLink = (which, text) => {
+  if (field("ledit").className !== "on")
+    throw new Error(`no link is open for editing: ${which}`);
+  typed(field(which), text);
+};
+/**
  * What INST is showing: KEYS' cells, one array per row.  Read off the MOUNT
  * rather than off any DOM, because the two model-owning mounts ARE their models
  * — the shell hands each a row list and that list is the whole of what it shows.
@@ -881,6 +908,11 @@ const patAt = () => curOf(pan);
 const focused = () => {
   if (!active) return "";
   if (active === field("mtext")) return "mtext";
+  // The link overlay's two fields, which have no row index to carry: the
+  // overlay opens over one link and `TAB' is the whole of what moves between
+  // them.
+  if (active === field("ltitle")) return "ltitle";
+  if (active === field("lurl")) return "lurl";
   const which = active === field("pkey") ? "pkey"
     : active === field("pval") ? "pval" : "";
   return which ? `${which}:${patAt()}` : "";
@@ -1011,11 +1043,13 @@ const ACTIONS = {
   // thing that can move a cursor out from under an open edit overlay — no key
   // can, which is why every other act here is a key.  `click:2' is the reader
   // clicking row 2 of whichever surface is up: the property panel while the
-  // materialize sheet is open, the tags popup otherwise.  The renderer moves its
+  // materialize sheet is open, then the link popup, then the tags popup — one
+  // per surface that edits in place.  The renderer moves its
   // own cursor and tells this page nothing, so what this measures is whether a
   // commit still writes the row the overlay OPENED over.
   click: (at) => {
-    const m = field("modal").className === "on" ? pan : tgs;
+    const m = field("modal").className === "on" ? pan
+      : field("links").className === "on" ? lnk : tgs;
     if (!m) throw new Error(`no modal mount to click in: click:${at}`);
     const i = Number(at);
     if (!(i >= 0 && i < m.own.length))
@@ -1054,6 +1088,11 @@ const ACTIONS = {
       throw new Error("no tag is open for renaming");
     typed(field("tname"), text);
   },
+  // And into the link popup's edit overlay, which is two fields over the link at
+  // point: `ltitle' is what the entry calls it and `lurl' where it points.  A
+  // closed overlay has neither, for the rename's reason.
+  ltitle: (text) => typeLink("ltitle", text),
+  lurl: (text) => typeLink("lurl", text),
   // Typing into the property panel: `pkey:1=EFFORT' is the key field over row 1,
   // `pval:1=0:45' its value.  The panel's rows are the mount's and the edit is
   // ONE overlay laid over the row at point, so the index says which row the
@@ -1260,6 +1299,10 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     lmarks: lnk ? lnk.marksOn : null, lflags: lnk ? lnk.flagsOn : null,
     lhints: lnk ? lnk.hintsOn : null, lpage: lnk ? lnk.pageSize : null,
     lmarked: lnk ? [...lnk.marks] : [], lflagged: lnk ? [...lnk.flags] : [],
+    // The link popup's edit overlay: whether a link is open for editing and what
+    // its two fields are holding.
+    lopen: field("ledit").className === "on",
+    ltitle: field("ltitle").value, lurl: field("lurl").value,
     // The tags popup, which is the page's FOURTH mount and the one that WRITES:
     // whether it is up, its two lines of chrome, how many times it was built and
     // re-set, the rows it shows with their coverage and their store-wide counts,

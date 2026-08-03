@@ -815,6 +815,16 @@ in the entry, and S6 is about the edges BETWEEN entries. `@` (`relations`) was
 read as wanting that milestone too; it wanted a filter, and landed as one the
 same day — see the drill section below.
 
+**SUPERSEDED, the shape of both halves (2026-08-03).** The palette went first:
+several links raise a table-view MOUNT, the page's third, since a list you have
+to READ is the wrong place for which-key letters. Then the answer grew the two
+fields that make it writeable — `{digest, links: [{target, desc, type, span}]}`,
+`span` being the half-open CHAR range the link occupies in the FILE — and `RET`
+over the popup became an in-place edit committing `edit-link` over exactly that
+range, pinned to that digest. The DISPLAY rule and the one-scanner rule are
+unchanged and now carry a third question: what a link SHOWS, where it POINTS,
+and where it SITS.
+
 `a` (`org-glance-agenda`) is a canned VIEW rather than a mode: `state:*active*
 -planned:*empty*` applied through the door `g` uses, so the query is in the URL and
 in the renderer's chips, `DEL` strips a token off it, and `g` is the way home.

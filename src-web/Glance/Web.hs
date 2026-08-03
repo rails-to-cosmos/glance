@@ -15,8 +15,10 @@
 -- materialize round-trip — @GET@ for
 -- one headline's raw subtree, @POST@ to write an edited one back —
 -- @POST \/command@ the structured writes, which name rows and let the server
--- compute the spans, @GET \/keywords@ the states those rows may be set to and
--- which scope declares each, @GET \/links@ where one row points,
+-- compute the spans — @edit-link@ alone names a range, and that range is one
+-- @\/links@ measured — @GET \/keywords@ the states those rows may be set to and
+-- which scope declares each, @GET \/links@ where one row points and over which
+-- characters — the range @edit-link@ writes back through —
 -- @GET \/tags@ what those rows are tagged with and what else the tree has, and
 -- @\/config@ the keyword layers themselves.
 -- The view's field set is the contract
@@ -121,15 +123,16 @@ import qualified Network.WebSockets as WS
 import Glance.Query ( ConfigLayerFile (..), ConfigLayers (clDirs)
                     , HeadlineParts (..)
                     , HeadlineRecord (hrDigest, hrFile, hrId, hrSubtree, hrTags)
-                    , IdCollision (..), QueryResult (..), SortChain
-                    , Span (spanEnd, spanStart)
+                    , IdCollision (..), OrgLink (olSpan, olTarget)
+                    , QueryResult (..), SortChain
+                    , Span (Span, spanEnd, spanStart)
                     , TodoKeywords (..), WalkOptions (..)
                     , WriteFailure (..), addTagEdits, archiveEdits, archived, builtinFilter
                     , captureEdits, captureStamp, captureTargetIn, captureTargetOf
                     , configDirIn, configEdits, currentDocument, defaultCaptureFile
                     , defaultFilter, defaultFilterOf, defaultSortChain
-                    , followableTypes
-                    , headlineParts, keywordSources, linkColumns, linkType
+                    , editLinkEdits, followableTypes
+                    , headlineParts, keywordSources, linkColumns, linkShown, linkType
                     , planningKeywords
                     , planningTimestamp, readConfigLayers, readsAsTimestamp
                     , recomposedSubtree, removeTagEdits, renameTagEdits
@@ -909,11 +912,21 @@ tagRowCounts rows = Map.fromListWith (+)
 
 -- | @GET \/links?id=ROW@: where that row points.
 --
--- @{"links": [{"target": …, "desc": …, "type": …}]}@, in order of appearance and
--- one entry per target ('Glance.Query.subtreeLinks').  The rule is the DISPLAY
--- rule the table already answers to: a bracket link is described by its @DESC@,
--- or by its target where it has none, and a bare @http(s)@ or @mailto:@ URL
--- describes itself.
+-- @{"digest": …, "links": [{"target": …, "desc": …, "type": …, "span": [S, E]}]}@,
+-- in order of appearance and one entry per target
+-- ('Glance.Query.subtreeLinks').  The rule is the DISPLAY rule the table already
+-- answers to: a bracket link is described by its @DESC@, or by its target where
+-- it has none, and a bare @http(s)@ or @mailto:@ URL describes itself.
+--
+-- @span@ is the half-open CHAR range the link occupies in the FILE, which is
+-- what makes the answer writeable: @edit-link@ takes that range back and splices
+-- it ('Glance.Query.editLinkEdits').  A target spelled twice is one entry, so
+-- the span is the FIRST spelling's and an edit through it edits that one.
+--
+-- @digest@ is the file's, and it is the LOCK a client edits under: the spans
+-- describe the text this store last read, so a client that pins them
+-- (@digests@ on @POST \/command@) is refused rather than spliced blind once the
+-- file has moved.
 --
 -- @type@ is the target's SCHEME, folded ('Glance.Query.linkType'): the popup
 -- draws it as a badge column and @o@ reads it to decide whether a browser tab
@@ -937,9 +950,11 @@ linksView hub (Just rid) = do
   pure $ case found of
     Nothing -> jsonError status404 ("no headline with id " <> rid)
     Just r  -> jsonResponse status200
-      [ "links" .= [ object [ "target" .= target, "desc" .= desc
-                            , "type" .= linkType target ]
-                   | (target, desc) <- subtreeLinks r ] ]
+      [ "digest" .= hrDigest r
+      , "links" .= [ object [ "target" .= olTarget l, "desc" .= linkShown l
+                            , "type" .= linkType (olTarget l)
+                            , "span" .= [spanStart (olSpan l), spanEnd (olSpan l)] ]
+                   | l <- subtreeLinks r ] ]
 
 -- | The rows REQUEST names, deduplicated: every @ids@ parameter, each a comma
 -- separated list, and every @id@ parameter, each ONE id — the way
@@ -1135,18 +1150,21 @@ data Command = Command
   , cmdDigests :: !(Map Text Text)  -- ^ id to the digest the client holds for its file.
   }
 
--- | The @args@ object, read once for every command that takes one.  Six
+-- | The @args@ object, read once for every command that takes one.  Nine
 -- fields between them, and a request naming one command leaves the rest absent:
 -- @keyword@ is @set-state@'s state and @set-planning@'s planning keyword — one
 -- field because the wire spells both that way — @date@ is the timestamp text,
 -- @text@ is the line @capture@ writes, @tag@ is the one @add-tag@ and
--- @remove-tag@ move, and @from@\/@to@ are @rename-tag@'s pair.
+-- @remove-tag@ move, @from@\/@to@ are @rename-tag@'s pair, and @span@,
+-- @target@ and @desc@ are @edit-link@'s three.
 --
--- The two nested 'Maybe's are the distinction the whole command layer turns on:
--- ABSENT is a request that said nothing, which is a 400, and NULL is a request
--- that asked for the value to come off.  The other four are flat, since none of
--- those commands has a value to clear: a tag comes off through @remove-tag@
--- rather than through a null.
+-- The three nested 'Maybe's are the distinction the whole command layer turns
+-- on: ABSENT is a request that said nothing, and NULL is a request that asked
+-- for the value to come off.  For @keyword@ and @date@ an absent field is a 400,
+-- since neither command has anything to do without it; for @edit-link@'s @desc@
+-- absent is the ordinary case and means the link keeps the description it has.
+-- The other four are flat, since none of those commands has a value to clear: a
+-- tag comes off through @remove-tag@ rather than through a null.
 --
 -- @rename-tag@ spells its pair @from@\/@to@ rather than reusing @tag@ for one
 -- half: the two are symmetric, and naming one of them @tag@ would leave a
@@ -1158,6 +1176,9 @@ data Args = Args
   , agTag     :: !(Maybe Text)
   , agFrom    :: !(Maybe Text)
   , agTo      :: !(Maybe Text)
+  , agSpan    :: !(Maybe Span)
+  , agTarget  :: !(Maybe Text)
+  , agDesc    :: !(Maybe (Maybe Text))
   }
 
 -- | One file's share of a command: the write it costs, and the ids it answers
@@ -1176,12 +1197,13 @@ type RowEdits = ConfigLayers -> Maybe Text -> Args -> HeadlineRecord
               -> Either Text [(Span, Text)]
 
 -- | One command: what its @args@ owe, whether its date is resolved against the
--- server's today, and what it does to a row.  'Nothing' for the edits is the
--- command that names no rows — it MAKES one, so there is no row function to
--- hold and no ids rule to apply.
+-- server's today, whether it names ONE row, and what it does to a row.
+-- 'Nothing' for the edits is the command that names no rows — it MAKES one, so
+-- there is no row function to hold and no ids rule to apply.
 data CommandSpec = CommandSpec
   { csArgs  :: Args -> Maybe Text  -- ^ why the request's shape is refused, where it is.
   , csDated :: Bool                -- ^ its @date@ is read against today, once per request.
+  , csOne   :: Bool                -- ^ its @args@ describe one row's own text.
   , csEdits :: Maybe RowEdits      -- ^ what it does to each named row.
   }
 
@@ -1190,7 +1212,9 @@ data CommandSpec = CommandSpec
 -- @set-planning@ takes @{"keyword": "SCHEDULED", "date": "+3d"}@ or a null
 -- date, @capture@ takes @{"text": "TODO Buy milk :errands:"}@, @add-tag@ and
 -- @remove-tag@ take @{"tag": "work"}@, @rename-tag@ takes
--- @{"from": "work", "to": "projects"}@, and @archive@ takes nothing.
+-- @{"from": "work", "to": "projects"}@, @edit-link@ takes
+-- @{"span": [S, E], "target": "https:\/\/x", "desc": "…"}@, and @archive@ takes
+-- nothing.
 --
 -- ONE table, so a command is one entry rather than a name spelled into a list,
 -- two guards and a case arm: 'commandNames' is its keys, 'parseCommand' refuses
@@ -1200,29 +1224,38 @@ data CommandSpec = CommandSpec
 -- not there.
 commands :: [(Text, CommandSpec)]
 commands =
-  [ ("add-tag", CommandSpec (wantsTag "add-tag") False
+  [ ("add-tag", CommandSpec (wantsTag "add-tag") False False
       (Just (\_cfg _stamp args r -> Right (addTagEdits (tagOf args) r))))
     -- @archive@ is 'addTagEdits' at a fixed name, and it takes no @tag@ of its
     -- own: the name is org's and a client cannot aim it elsewhere.  Idempotent,
     -- so a row already tagged costs no edit and still answers @ok@.
-  , ("archive", CommandSpec (const Nothing) False
+  , ("archive", CommandSpec (const Nothing) False False
       (Just (\_cfg _stamp _args r -> Right (archiveEdits r))))
-  , ("capture", CommandSpec wantsText False Nothing)
-  , ("remove-tag", CommandSpec (wantsTag "remove-tag") False
+  , ("capture", CommandSpec wantsText False False Nothing)
+    -- The ONE command whose args describe a row's own TEXT rather than a
+    -- property of it, so it names ONE row: a span means nothing to a second
+    -- one, and over rows in two files it would name a different range in each.
+    -- The span and the target are there — 'csArgs' refuses an @edit-link@
+    -- without either, so neither can refuse per row.
+  , ("edit-link", CommandSpec wantsLink False True
+      (Just (\_cfg _stamp args r ->
+               editLinkEdits (fromMaybe (Span 0 0) (agSpan args))
+                             (word agTarget args) (agDesc args) r)))
+  , ("remove-tag", CommandSpec (wantsTag "remove-tag") False False
       (Just (\_cfg _stamp args r -> Right (removeTagEdits (tagOf args) r))))
     -- One command rather than a @remove-tag@ and an @add-tag@ a client fires in
     -- turn: the rename is ONE drift-locked write per file, and the pair it
     -- would compose from spells the tag onto the title
     -- ('Glance.Query.renameTagEdits').
-  , ("rename-tag", CommandSpec wantsRename False
+  , ("rename-tag", CommandSpec wantsRename False False
       (Just (\_cfg _stamp args r ->
                Right (renameTagEdits (word agFrom args) (word agTo args) r))))
     -- The keyword is there and the date has been resolved: 'csArgs' refuses a
     -- @set-planning@ without either, so neither can refuse per row.
-  , ("set-planning", CommandSpec wantsPlanning True
+  , ("set-planning", CommandSpec wantsPlanning True False
       (Just (\_cfg stamp args r ->
                setPlanningEdits (fromMaybe "" (join (agKeyword args))) stamp r)))
-  , ("set-state", CommandSpec wantsState False
+  , ("set-state", CommandSpec wantsState False False
       (Just (\cfg _stamp args r -> setStateEdits cfg (join (agKeyword args)) r)))
   ]
   where
@@ -1243,6 +1276,24 @@ commands =
     wantsText args
       | Nothing <- agText args =
           Just "capture wants args {\"text\": \"TODO Buy milk :errands:\"}"
+      | otherwise = Nothing
+    -- A link points SOMEWHERE, so an empty target is refused here with the rest
+    -- of the request's shape: it is no more a link for one row than for another.
+    -- PADDING is refused beside it, so the string this tests and the string
+    -- 'Glance.Query.editLinkEdits' writes are the same one — a target is written
+    -- verbatim, and a bracketed link would otherwise take the spaces a bare one
+    -- is refused for.
+    -- The description is not asked for — absent is the ordinary request, and it
+    -- leaves the link the one it has.
+    wantsLink args
+      | Nothing <- agSpan args =
+          Just ("edit-link wants args {\"span\": [START, END],"
+                  <> " \"target\": \"https://example.org\"}")
+      | maybe True (T.null . T.strip) (agTarget args) =
+          Just "edit-link wants a target: a link points somewhere"
+      | Just given <- agTarget args, T.strip given /= given =
+          Just ("edit-link wants a target with no leading or trailing space: "
+                  <> T.strip given)
       | otherwise = Nothing
     -- The charset is a property of the STRING, so it is refused here with the
     -- rest of the request's shape rather than once per row: a word that is not
@@ -1447,14 +1498,19 @@ parseCommand raw =
       one <- o .:? "id"
       several <- o .:? "ids"
       digests <- o .:? "digests"
-      -- @.:!@ rather than @.:?@ for the two nullable fields, and that is the
+      -- @.:!@ rather than @.:?@ for the three nullable fields, and that is the
       -- whole of how ABSENT is told from NULL: @.:?@ folds a null into an
       -- absence, which would make @{"args": {}}@ an instruction to clear.
       -- A request with no @args@ at all reads as an empty one, so there is no
       -- second shape to carry.
       a <- fromMaybe mempty <$> (o .:? "args" :: Parser (Maybe Object))
+      -- The span arrives as the half-open pair it is, @[START, END]@, and is a
+      -- 'Span' from here on: the offsets are the parser's own currency and
+      -- nothing below this line reads them as a tuple.
+      sp <- fmap (uncurry Span) <$> (a .:? "span" :: Parser (Maybe (Int, Int)))
       parsed <- Args <$> a .:! "keyword" <*> a .:! "date" <*> a .:? "text" <*> a .:? "tag"
                      <*> a .:? "from" <*> a .:? "to"
+                     <*> pure sp <*> a .:? "target" <*> a .:! "desc"
       pure ( name :: Text, nub (maybe [] pure one <> fromMaybe [] several)
            , parsed, fromMaybe Map.empty digests )
     checked (name, ids, args, digests) = case lookup name commands of
@@ -1463,6 +1519,8 @@ parseCommand raw =
       Just spec
         | isJust (csEdits spec), null ids ->
             Left "a command names rows: {\"ids\": [\"…\"]}, or {\"id\": \"…\"} for one"
+        | csOne spec, length ids > 1 ->
+            Left (name <> " names one row: its args describe that row's own text")
         | Just why <- csArgs spec args -> Left why
         | otherwise -> Right (Command spec ids args digests)
 
@@ -2159,7 +2217,9 @@ shellPage opts hub = do
 -- The split is deliberate: a mark is the generic bulk selection and a flag is a
 -- selection made for archiving, so the destructive-looking key inherits
 -- nothing.  They are @POST \/command@ ('runCommand'):
--- the page sends row ids and a name, the server computes the spans, and the
+-- the page sends row ids and a name, the server computes the spans (with one
+-- exception, @edit-link@, whose range came out of @GET \/links@ in the first
+-- place), and the
 -- table is not touched at all, since the rows come back over the socket once
 -- the watch has re-read the files.  There is no confirmation step; the drift
 -- lock is the safety, and @D@ archives rather than deletes, so the worst a
@@ -2292,10 +2352,17 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   -- than a hand-made list under hand-assigned letters.  A sibling of `#app'
   -- sharing the two z levels with the sheets and the value palette, so the four
   -- values still stand.
+  --
+  -- `#lpane' is the edit overlay's positioning parent, the way `#tpane' is the
+  -- rename's: `RET' lays two fields over the row's title and url cells, and the
+  -- mount rewrites its rows as it scrolls, so an edit living inside one would be
+  -- thrown away by the next frame.
   , "  <div id=\"links\">"
   , "    <div id=\"lbox\">"
   , "      <div id=\"lhead\"></div>"
-  , "      <div id=\"ltable\"></div>"
+  , "      <div id=\"lpane\"><div id=\"ltable\"></div>"
+      <> "<div id=\"ledit\"><input id=\"ltitle\" spellcheck=\"false\">"
+      <> "<input id=\"lurl\" spellcheck=\"false\"></div></div>"
   , "      <div id=\"lfoot\"></div>"
   , "    </div>"
   , "  </div>"
@@ -3029,13 +3096,14 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      el(\"mprops\").className = \"\"; el(\"mtext\").focus();"
   , "    }"
   , "    el(\"mtext\").addEventListener(\"focus\", () => pnav() && leavePanel());"
-    -- THE EDIT OVERLAY, and it is ONE mechanism over two surfaces.  The renderer
-    -- owns its rows and rewrites them as it scrolls, so an edit cannot live
-    -- inside one: the fields sit OVER the table, anchored to the row the cursor
-    -- is on.  The property panel opens a row's two fields; the tags popup opens
-    -- one cell as a field over itself.  Everything else about them is the same —
-    -- the class that shows the box, the anchor, the blur on the way out — so a
-    -- SHAPE says what differs (`PROW', `TROW') and this holds the gesture.
+    -- THE EDIT OVERLAY, and it is ONE mechanism over three surfaces.  The
+    -- renderer owns its rows and rewrites them as it scrolls, so an edit cannot
+    -- live inside one: the fields sit OVER the table, anchored to the row the
+    -- cursor is on.  The property panel opens a row's two fields; the tags popup
+    -- opens one cell as a field over itself; the link popup opens two.
+    -- Everything else about them is the same — the class that shows the box, the
+    -- anchor, the blur on the way out — so a SHAPE says what differs (`PROW',
+    -- `TROW', `LROW') and this holds the gesture.
     --
     -- SNAPSHOTTED AT OPEN, which is the property this shape exists to have.  No
     -- key can move the cursor while a row is open, but a MOUSE CLICK can, and a
@@ -3044,9 +3112,10 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- a commit is handed it, so the rename the tags popup already guarded this
     -- way and the panel row that did NOT are one rule now.
     --
-    -- One `edit' for both, because the two can never be up at once: the panel
-    -- needs the subtree sheet open and the tags popup is raised over the table
-    -- alone.  `pediting()' and `renaming()' ask WHOSE it is.
+    -- One `edit' for all three, because no two can be up at once: the panel
+    -- needs the subtree sheet open, and each popup is raised over the table
+    -- alone and counts as `typing()' while it stands, so neither can raise the
+    -- other.  `pediting()', `renaming()' and `lediting()' ask WHOSE it is.
   , "    let edit = null;"
   , "    function openEdit(o, row) {"
   , "      edit = { o, row };"
@@ -3081,22 +3150,34 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- querying the pane: the mount publishes its root, so the one geometry read
     -- this page makes goes through a published door.
     --
-    -- A `cell' shape narrows to ONE column as well, and the cell is the first
-    -- that is not the GUTTER, which `flags: true' puts there: naming a column
-    -- index would be this page counting the renderer's chrome, where the class
-    -- it already stamps says which cell that is.
+    -- A `cells' shape narrows to a RANGE of columns as well — `[FROM, TO]',
+    -- inclusive, counted over the cells that are not the GUTTER, which
+    -- `flags: true' puts there.  The gutter is skipped by the class the renderer
+    -- already stamps rather than by this page counting its chrome; what is
+    -- counted past that is the popup's own columns, which the SERVER declares
+    -- (`Glance.Query.linkColumns', `tagColumns') and this page embeds.
+    -- The tags popup edits one cell (`[0, 0]'), the link popup two (`[1, 2]',
+    -- the derived type column being the one it may not open), and the property
+    -- panel names no range and takes the whole row.  A range is therefore a
+    -- POSITIONAL INDEX into a list declared elsewhere: reorder those columns and
+    -- the box covers the wrong cells, greenly.
   , "    function placeEdit() {"
   , "      if (!edit) return;"
   , "      const o = edit.o, m = o.mount();"
   , "      const tr = m && m.el.querySelector(\"tbody tr.tv-sel\");"
-  , "      const td = tr && (o.cell ? tr.querySelector(\"td:not(.tv-box)\") : tr);"
-  , "      if (!td) return;"
-  , "      const a = tr.getBoundingClientRect(), c = td.getBoundingClientRect();"
+  , "      if (!tr) return;"
+  , "      const tds = o.cells && [...tr.querySelectorAll(\"td:not(.tv-box)\")];"
+  , "      const from = tds && tds[o.cells[0]], to = tds && tds[o.cells[1]];"
+  , "      if (o.cells && !(from && to)) return;"
+  , "      const a = tr.getBoundingClientRect();"
   , "      const b = el(o.pane).getBoundingClientRect();"
   , "      const s = el(o.box).style;"
   , "      s.top = `${a.top - b.top}px`;"
   , "      s.height = `${a.height}px`;"
-  , "      if (o.cell) { s.left = `${c.left - b.left}px`; s.width = `${c.width}px`; }"
+  , "      if (!o.cells) return;"
+  , "      const l = from.getBoundingClientRect(), rt = to.getBoundingClientRect();"
+  , "      s.left = `${l.left - b.left}px`;"
+  , "      s.width = `${rt.right - l.left}px`;"
   , "    }"
     -- The overlay is anchored to a row's box, so the window resizing has to move
     -- it — once, here, for both surfaces, since one `placeEdit' answers for
@@ -3580,9 +3661,11 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      move(1);"
   , "    }"
     -- Commands.  A structured write names ROWS and lets the server compute the
-    -- spans, so nothing here knows what a headline looks like — and nothing
-    -- here touches the table afterwards either: the rows arrive over the socket
-    -- once the watch has re-read the files, the way an editor's save arrives.
+    -- spans, so nothing here knows what a headline looks like.  `edit-link' is
+    -- the one that names a RANGE, and it knows no more for it: the range came
+    -- out of `GET /links' and goes back as it came.  Nothing here touches the
+    -- table afterwards either: the rows arrive over the socket once the watch
+    -- has re-read the files, the way an editor's save arrives.
     --
     -- Which rows a command runs over is per COMMAND, and the two answers are
     -- deliberately different.  `set-state' takes the MARKED set, which is the
@@ -3643,15 +3726,26 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- WHAT a command means to the rows it touched is the CALLER's, so nothing
     -- here branches on the name past the wording below: a per-name arm in this
     -- shared path is one every future command has to be read against.
-  , "    function fire(b, name, ids, args, verb, how) {"
-  , "      return postCommand({ name, ids, args }).then((answer) => {"
+    --
+    -- PIN is the optimistic lock, and it is the caller's because knowing what a
+    -- write was measured against is: `edit-link' holds char offsets into a file
+    -- and sends the digest that file had when `/links' measured them, where the
+    -- commands that name a PROPERTY of a row — a keyword, a tag — are measured
+    -- against nothing and send none.  Absent, the route still refuses a file
+    -- that moved on DISK; what the pin adds is refusing one the STORE has
+    -- re-read since.
+  , "    function fire(b, name, ids, args, verb, how, pin) {"
+  , "      return postCommand({ name, ids, args, digests: pin }).then((answer) => {"
   , "        const results = answer.results || [];"
   , "        const bad = results.filter((x) => !x.ok);"
   , "        const landed = results.length - bad.length;"
   , "        said(b, `${verb} · ${how ? how(landed) : landed}`);"
     -- What one landed write did, per row.  The names are the route's whole
-    -- vocabulary, so the wording sits here rather than at each key that fires.
-  , "        const what = name === \"archive\" ? \"archived\""
+    -- vocabulary, so the wording sits here rather than at each key that fires —
+    -- except the one whose phrase names both ends of what it moved, where the
+    -- line the pill got IS the line the log wants.
+  , "        const what = name === \"edit-link\" ? verb"
+  , "          : name === \"archive\" ? \"archived\""
   , "          : name === \"add-tag\" ? `tagged :${args.tag}:`"
   , "          : name === \"remove-tag\" ? `untagged :${args.tag}:`"
   , "          : name === \"rename-tag\" ? `retagged ${args.from}→${args.to}`"
@@ -4176,45 +4270,126 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- value answers both questions rather than two that have to move in step.
     -- It is what lets the pill name the command that ran when the commit finally
     -- lands, the way it does for a link the row held only one of.
-  , "    let lmount = null, lrows = [], opening = null;"
+  , "    let lmount = null, lrows = [], opening = null, lfor = null, lpin = \"\";"
   , "    const linking = () => !!opening;"
   , "    function linksMounted() {"
   , "      if (lmount) return lmount;"
   , "      lmount = TableView.mount(el(\"ltable\"), { columns: LCOLS, rows: [] },"
   , "        { palette: true, marks: false, flags: false, actionHints: false });"
+      -- The edit overlay is anchored to the row it opened over, so this pane's
+      -- own scrolling has to move it — the property panel's listener, for the
+      -- property panel's reason.  The resize is `placeEdit''s own, once.
+  , "      el(\"lpane\").addEventListener(\"scroll\", placeEdit, true);"
   , "      return lmount;"
   , "    }"
-    -- The answer as rows, under B — the binding that asked.  The id is the
-    -- link's PLACE in the answer, which is the only identity a link has here:
-    -- two entries may share a description, and the targets are deduplicated
-    -- upstream.  The model keeps it beside the link, so finding the link the
-    -- cursor is on is a lookup by id like the property panel's rather than this
-    -- page taking an id apart.
-  , "    function showLinks(b, links) {"
+    -- The answer as rows, under B — the binding that asked — for the row ID.
+    -- The link's own id is its PLACE in the answer, which is the only identity
+    -- a link has here: two entries may share a description, and the targets are
+    -- deduplicated upstream.  The model keeps it beside the link, so finding the
+    -- link the cursor is on is a lookup by id like the property panel's rather
+    -- than this page taking an id apart.
+    --
+    -- TWO THINGS BESIDE THE ROWS, and both are what makes `RET' a WRITE: the
+    -- row the links belong to, since a command names rows and this popup is
+    -- raised over one, and the answer's DIGEST, which is the file as the store
+    -- read it when it measured these spans.  An edit pins that digest, so a file
+    -- that has moved since refuses rather than splicing a range that has.
+  , "    function showLinks(b, id, answer) {"
+  , "      const links = answer.links || [];"
   , "      lrows = links.map((l, i) => ({ id: `L${i}`, link: l }));"
+  , "      lfor = id;"
+  , "      lpin = answer.digest || \"\";"
   , "      const m = linksMounted();"
   , "      m.setRows(lrows.map((r) => ({ id: r.id,"
   , "        cells: { type: r.link.type, title: r.link.desc, url: r.link.target } })));"
   , "      el(\"lhead\").textContent = `open · ${links.length} links`;"
-  , "      el(\"lfoot\").textContent = \"o opens it · ESC leaves\";"
+  , "      el(\"lfoot\").textContent = \"RET edits · o opens it · ESC leaves\";"
   , "      el(\"links\").className = \"on\";"
   , "      opening = b;"
   , "      if (lrows.length) m.select(lrows[0].id);"
   , "    }"
-    -- Nothing to blur: the popup holds the keys with no field in it, the way
-    -- the property panel's nav does, so closing is the class coming off and the
+    -- An open edit is a rung UNDER the popup, the way the tags popup's rename
+    -- is: closing the popup takes it with it, and nothing else here is focused
+    -- — the popup holds the keys with no field in it, the way the property
+    -- panel's nav does, so the rest of closing is the class coming off and the
     -- value `linking()' reads going null.
   , "    function shutLinks() {"
-  , "      opening = null;"
+  , "      shutEdit(LROW);"
+  , "      opening = null; lfor = null; lpin = \"\";"
   , "      el(\"links\").className = \"\";"
   , "    }"
-    -- The link the cursor is on, out of the renderer's own selection — this
-    -- page keeps no copy of where the popup is standing, the same rule the
-    -- table and the panel follow.
-  , "    function pointedLink() {"
+    -- The row the cursor is on, out of the renderer's own selection — this page
+    -- keeps no copy of where the popup is standing, the same rule the table and
+    -- the panel follow.  The ROW rather than the link, since the overlay opens
+    -- over the row and the link is what it holds.
+  , "    function pointedRow() {"
   , "      if (!can(lmount, \"getSelection\")) return null;"
   , "      const at = (lmount.getSelection() || {}).id;"
-  , "      return (lrows.find((r) => r.id === at) || {}).link || null;"
+  , "      return lrows.find((r) => r.id === at) || null;"
+  , "    }"
+  , "    const pointedLink = () => (pointedRow() || {}).link || null;"
+    -- THE LINK OVERLAY: `openEdit' over TWO cells.  The description and the
+    -- target become fields over themselves, `TAB' hops, `RET' commits and `ESC'
+    -- restores — the property panel's edit model exactly, and the third surface
+    -- to declare a shape for it.  The type column is DERIVED (the server's word
+    -- for the target, which the write itself may move), so it never opens and
+    -- the box covers the two cells that can.
+    --
+    -- The target takes the focus, for the panel's reason: editing a link that is
+    -- already there is nearly always editing where it points.
+  , "    const LROW = {"
+  , "      box: \"ledit\", pane: \"lpane\", fields: [\"ltitle\", \"lurl\"], cells: [1, 2],"
+  , "      mount: () => lmount,"
+  , "      fill: (r) => {"
+  , "        el(\"ltitle\").value = r.link.desc;"
+  , "        el(\"lurl\").value = r.link.target;"
+  , "      },"
+  , "      focus: () => { el(\"lurl\").focus(); el(\"lurl\").select(); },"
+  , "    };"
+  , "    const lediting = () => !!edit && edit.o === LROW;"
+  , "    function openLinkEdit() {"
+  , "      const at = pointedRow();"
+  , "      if (!at) { echo(\"RET → org-insert-link (no link)\"); return; }"
+  , "      openEdit(LROW, at);"
+  , "    }"
+  , "    function cancelLinkEdit() {"
+  , "      shutEdit(LROW);"
+  , "      echo(\"ESC → keyboard-quit (link unchanged)\");"
+  , "    }"
+    -- THE COMMIT, and it is ONE row and ONE SPAN: the range `/links' handed out,
+    -- spliced under the digest that answer carried.  The link is the one the
+    -- overlay OPENED over — the snapshot every surface on this mechanism gets —
+    -- so a click that moved the cursor under an open field cannot redirect the
+    -- write.
+    --
+    -- The popup CLOSES on the press, both outcomes alike, which is `o'\''s own
+    -- rule: picking one link is what it was raised to do.  It also has to.  The
+    -- spans it is holding describe the file as it was, and the write has just
+    -- moved it; the store does not know yet either — `/command' never writes it,
+    -- the watch does, a debounce later — so a popup left standing would be
+    -- offering ranges into a text that is gone, and a re-read here would answer
+    -- with what the file said BEFORE the write.  `o' again is one keystroke and
+    -- comes back with fresh spans.
+    --
+    -- ABSENT IS NOT NULL.  The description field opens on what the link SHOWS,
+    -- which for a link carrying none of its own is its target, so sending that
+    -- back unchanged would spell the target into a description.  Only a field
+    -- the reader MOVED says anything: left alone it is absent and the link keeps
+    -- what it has, emptied it is the null that takes the description off.
+  , "    function commitLink(row) {"
+  , "      const link = row.link;"
+  , "      const target = String(el(\"lurl\").value).trim();"
+  , "      const typed = String(el(\"ltitle\").value).trim();"
+  , "      const b = opening, id = lfor, pin = lpin;"
+  , "      shutLinks();"
+  , "      if (!target) { said(b, \"a link points somewhere\"); return; }"
+  , "      const args = { span: link.span, target };"
+  , "      if (typed !== link.desc) args.desc = typed || null;"
+  , "      if (target === link.target && args.desc === undefined)"
+  , "        { said(b, \"unchanged\"); return; }"
+  , "      fire(b, \"edit-link\", [id], args,"
+      <> " `link edited: ${shortly(link.target)} → ${shortly(target)}`, null,"
+  , "           { [id]: pin });"
   , "    }"
     -- THE TAGS POPUP, the page's FOURTH table-view mount and the first one that
     -- WRITES.  What a set of rows is tagged with is a list of RECORDS — a name,
@@ -4458,13 +4633,13 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- THE RENAME OVERLAY: `openEdit' over one CELL.  The tag cell becomes a
     -- field over itself, `RET' commits and `ESC' restores.  The other two
     -- columns are DERIVED — a coverage and a count — so there is nothing in them
-    -- to edit and they never open, exactly as the link popup's type cell would
-    -- not; `cell' is what says the box narrows to the one that can.
+    -- to edit and they never open, exactly as the link popup's type cell does
+    -- not; `cells' is what says which of them the box covers.
     --
     -- The tag the overlay opened on is `edit.row', which is the snapshot every
     -- surface using this mechanism gets.
   , "    const TROW = {"
-  , "      box: \"tedit\", pane: \"tpane\", fields: [\"tname\"], cell: true,"
+  , "      box: \"tedit\", pane: \"tpane\", fields: [\"tname\"], cells: [0, 0],"
   , "      mount: () => tmount,"
   , "      fill: (tag) => (el(\"tname\").value = tag),"
   , "      focus: () => { el(\"tname\").focus(); el(\"tname\").select(); },"
@@ -5189,12 +5364,18 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      capture: (b) =>"
   , "        askText(\"capture · a headline for the inbox\","
   , "                \"RET captures it · ESC leaves\", \"\", (c) => captureRow(b, c.text)),"
-    -- `o' follows the row rather than editing it, and how many links the row
-    -- holds decides the whole gesture: none is a refusal, one opens, several
-    -- raise the popup.  The count is the server's answer, so the popup can only
-    -- go up behind the request — which is why this one is raised late where the
-    -- state palette is raised on the press.  By then the `o' that asked has been
-    -- dispatched and gone, so nothing is travelling and no press is declined.
+    -- `o' FOLLOWS the row, and how many links it holds decides the whole
+    -- gesture: none is a refusal, one opens, several raise the popup.  The count
+    -- is the server's answer, so the popup can only go up behind the request —
+    -- which is why this one is raised late where the state palette is raised on
+    -- the press.  By then the `o' that asked has been dispatched and gone, so
+    -- nothing is travelling and no press is declined.
+    --
+    -- One consequence, named rather than worked around: the popup is also where
+    -- a link is EDITED, so a row holding exactly ONE link is followed and never
+    -- listed, and that link has no editor.  Following is what this key promises,
+    -- and a list of one to pick from would be chrome over every press that meant
+    -- to open something.  A key that LISTS whatever the count is would settle it.
   , "      openLinks: (b) => {"
   , "        const id = focusedId();"
   , "        if (!id) { said(b, \"no row\"); return; }"
@@ -5202,7 +5383,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "          const links = a.links || [];"
   , "          if (!links.length) { said(b, \"no links\"); return; }"
   , "          if (links.length === 1) { openLink(b, links[0]); return; }"
-  , "          showLinks(b, links);"
+  , "          showLinks(b, id, a);"
   , "        }).catch(failed(b, \"open\"));"
   , "      },"
   , "      applyAgenda: (b) => applyView(b, AGENDA_QUERY, (total) => landedAgenda(b, total)),"
@@ -5221,9 +5402,10 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        if (prompting) unask();"
     -- The two popups are rungs of their own beside the palette's: each is raised
     -- over the table alone, never over a sheet, so their place in the ladder is
-    -- decided by nothing but reading order.  The tags popup's open rename is a
-    -- rung UNDER it, the way the panel's open row is under the sheet: ESC puts
-    -- the tag back and only then does the key reach the popup.
+    -- decided by nothing but reading order.  Each popup's OPEN EDIT is a rung
+    -- UNDER it, the way the panel's open row is under the sheet: ESC puts the
+    -- link or the tag back, and only then does the key reach the popup.
+  , "        else if (lediting()) cancelLinkEdit();"
   , "        else if (linking()) shutLinks();"
   , "        else if (renaming()) cancelRename();"
   , "        else if (managing()) shutTags();"
@@ -5368,19 +5550,27 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- since picking one link is what the popup was raised to do and a popup that
     -- stayed up on the refusal would be a second rule for the same key.
     --
-    -- `RET' is reserved for editing the link at point IN PLACE — the row's own
-    -- title and url cells becoming fields over themselves, `TAB' between them,
-    -- `RET' committing and `ESC' restoring, which is the property panel's edit
-    -- model exactly.  ONE edit vocabulary across the page: a panel row and a
-    -- link row are edited alike, and the type cell is derived and never opens.
-    -- It is not here yet — the write needs a per-link SPAN out of `GET /links'
-    -- and an `edit-link' command to splice it, neither of which this build has —
-    -- so it says what it is waiting for, the way a bound key with no handler
-    -- does, and leaves the popup standing.
+    -- `RET' EDITS the link at point in place — the row's own title and url cells
+    -- becoming fields over themselves, `TAB' between them, `RET' committing and
+    -- `ESC' restoring, which is the property panel's edit model exactly.  ONE
+    -- edit vocabulary across the page: a panel row, a tag and a link are edited
+    -- alike, and the derived cell — a coverage, a count, a link's type — never
+    -- opens.  With the overlay up the keys are the edit's, the way the tags
+    -- popup's are: `RET' commits and `ESC' is the keymap's, which puts the link
+    -- back.
   , "    document.addEventListener(\"keydown\", (e) => {"
   , "      if (!linking()) return;"
   , "      const k = keyName(e);"
   , "      if (!k) return;"
+  , "      if (lediting()) {"
+  , "        if (k === \"TAB\" || k === \"S-TAB\")"
+  , "          (document.activeElement === el(\"ltitle\") ? el(\"lurl\")"
+  , "                                                    : el(\"ltitle\")).focus();"
+  , "        else if (k === \"RET\") commitLink(edit.row);"
+  , "        else return;   // ESC is the keymap's, and puts the link back"
+  , "        e.preventDefault();"
+  , "        return;"
+  , "      }"
   , "      const step = rowStep(k);"
   , "      if (step) stepIn(lmount, step);"
   , "      else if (k === \"o\") {"
@@ -5389,8 +5579,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        shutLinks();"
   , "        if (link) openLink(b, link);"
   , "      }"
-  , "      else if (k === \"RET\") append(\"cmd\", \"info\","
-      <> " \"RET (edit-link) — arrives with the link span and the edit-link command\");"
+  , "      else if (k === \"RET\") openLinkEdit();"
   , "      else return;"
   , "      e.preventDefault();"
   , "    });"
@@ -5790,24 +5979,30 @@ page head' title body = T.unlines
   -- mount, so paint order puts it over the rows already, and the page's four
   -- bands stay four.
   --
-  -- The tags popup's rename overlay is the same thing over ONE cell, so the two
-  -- share every declaration but the geometry: `#pedit' spans its row and
-  -- `#tedit' is laid over the tag cell alone, whose left and width the glue
-  -- reads off that cell.  One edit vocabulary across the page means one look.
-  , "  #pedit,#tedit{display:none;position:absolute;background:var(--g-sel)}"
+  -- The two popups' overlays are the same thing over a RANGE of cells, so all
+  -- three share every declaration but the geometry: `#pedit' spans its row,
+  -- `#tedit' is laid over the tag cell alone and `#ledit' over the title and
+  -- url cells together, whose left and width the glue reads off those cells.
+  -- One edit vocabulary across the page means one look.
+  , "  #pedit,#tedit,#ledit{display:none;position:absolute;background:var(--g-sel)}"
   , "  #pedit{left:0;right:0}"
-  , "  #pedit.on,#tedit.on{display:flex;align-items:center}"
+  , "  #pedit.on,#tedit.on,#ledit.on{display:flex;align-items:center}"
       -- The mount's own cell metrics, so the fields land on the text they
       -- replace: `.tv-table td' is `5px 12px' at the root's 13px/1.5, and a
       -- coarse pointer stretches the row rather than the padding.
-  , "  #pedit input,#tedit input{font:13px/1.5 var(--dk-mono);padding:5px 12px;"
-  , "    border:none;border-bottom:1px solid transparent;"
+  , "  #pedit input,#tedit input,#ledit input{font:13px/1.5 var(--dk-mono);"
+  , "    padding:5px 12px;border:none;border-bottom:1px solid transparent;"
   , "    background:transparent;color:var(--g-fg);min-width:0}"
-  , "  #pedit input:focus,#tedit input:focus{outline:none;"
+  , "  #pedit input:focus,#tedit input:focus,#ledit input:focus{outline:none;"
   , "    border-bottom-color:var(--g-border)}"
-  , "  #pedit input::selection,#tedit input::selection{background:var(--g-sel);"
-  , "    color:var(--g-fg)}"
+  , "  #pedit input::selection,#tedit input::selection,"
+  , "  #ledit input::selection{background:var(--g-sel);color:var(--g-fg)}"
   , "  #tname{flex:1 1 auto}"
+  -- The link overlay's two fields split the width the two cells give them: the
+  -- description reads as the row's name and the target is the longer string, so
+  -- the split is the property panel's, key against value.
+  , "  #ltitle{flex:1 1 40%}"
+  , "  #lurl{flex:2 1 50%}"
   -- A planning key is org's rather than the author's, so its field is muted and
   -- takes no typing — a label with a caret in it.
   , "  #pkey{flex:1 1 40%}"
@@ -5951,13 +6146,13 @@ page head' title body = T.unlines
   -- the one rule `#mptable' takes too and the one rule they share.
   , "  #links,#tags{align-items:flex-start;padding-top:12vh}"
   , "  #ltable,#ttable{max-height:52vh;min-height:0;display:flex;overflow:hidden}"
-  -- The tags popup, fifth in the same two bands and in the same box.  The pane
-  -- is the rename overlay's positioning parent, which is the one thing this one
-  -- needs and the link popup does not — `#mprops' does the same job in the
-  -- sheet, and for the same reason: the mount rewrites its rows as it scrolls,
-  -- so an edit that lived inside one would be thrown away by the next frame.
-  , "  #tpane{position:relative;min-height:0;display:flex;flex-direction:column;"
-  , "    overflow:hidden}"
+  -- The tags popup, fifth in the same two bands and in the same box.  Each
+  -- popup's PANE is its edit overlay's positioning parent — `#mprops' does the
+  -- same job in the sheet, and for the same reason: the mount rewrites its rows
+  -- as it scrolls, so an edit that lived inside one would be thrown away by the
+  -- next frame.
+  , "  #tpane,#lpane{position:relative;min-height:0;display:flex;"
+  , "    flex-direction:column;overflow:hidden}"
   -- THE WASH.  One class on the document element, over the table and the whole
   -- modal band: a sheet open on rows that have gone stale is stale with them,
   -- so the overlays go under the same wash rather than floating over it looking
@@ -6018,7 +6213,8 @@ page head' title body = T.unlines
   , "    #app .tv-chips:empty::after{content:\"filter …\";color:var(--g-mute);"
   , "      font-size:12px}"
   , "    #mpanes{flex-direction:column}"
-  , "    #mtext,#pinput,#pedit input,#tedit input,.ctext,.cview{font-size:16px}}"
+  , "    #mtext,#pinput,#pedit input,#tedit input,#ledit input,"
+  , "    .ctext,.cview{font-size:16px}}"
   , "</style>"
   -- The stored theme, applied before anything paints: a page that renders in
   -- the wrong one and corrects itself a frame later is a flash the selector

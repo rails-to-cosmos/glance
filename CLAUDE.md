@@ -362,10 +362,11 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `Value` is hand-built — no `ToJSON` on an internal type
   (table-view/SCHEMA.md is the contract).
 - Commands: one route, `POST /command {name, id | ids, args, digests?}`, over ONE
-  table — `commands`, name to `{argument shape, dated, edits}`. Seven entries:
-  `set-state {keyword: KW | null}`, `set-planning {keyword:
+  table — `commands`, name to `{argument shape, dated, one-row, edits}`. Eight
+  entries: `set-state {keyword: KW | null}`, `set-planning {keyword:
   SCHEDULED|DEADLINE, date: TEXT | null}`, `archive {}`, `capture {text}`,
-  `add-tag {tag}`, `remove-tag {tag}` and `rename-tag {from, to}`.
+  `add-tag {tag}`, `remove-tag {tag}`, `rename-tag {from, to}` and
+  `edit-link {span: [S, E], target, desc: TEXT | null}`.
   `rename-tag` names both ends rather than reusing `tag` for one of them, and it
   is a command rather than a remove and an add a client fires in turn: those two
   edit sets APPLY — they touch, and `applyEdits` rejects only overlap — and what
@@ -374,7 +375,10 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   where the rename is one. `commandNames` is its keys, the
   per-name request-shape guards are each entry's own `csArgs`, and only
   `set-planning` is `csDated` — the one command whose date is read against the
-  server's today. `parseCommand` resolves the name BEFORE anything else and a
+  server's today — and only `edit-link` is `csOne`: its args name a row's own
+  TEXT (CHARACTERS, like every span here), so a span means nothing to a second
+  row and over two files would name a different range in each.
+  `parseCommand` resolves the name BEFORE anything else and a
   `Command` cannot be built without the entry it resolved to, so nothing below
   has an arm for a name this server does not implement.
   Ids group by FILE and each file is one drift-locked `replaceSpans` call, so a
@@ -382,15 +386,20 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   rollback and the answer is per id (`{results: [{id, ok, digest | error}]}`, in
   the order the ids were named). Request-shape refusals are 400 with nothing
   written — a bad body, an unimplemented name, no ids, a keyword ANY named row's
-  CHAIN does not declare (named with the row), and a `set-planning` date no
-  parser reads, both of which
-  refuse the whole request rather than moving the rows they could — as does a
+  CHAIN does not declare (named with the row), a `set-planning` date no
+  parser reads, more than one id where a command names one (`csOne`), and
+  `edit-link`'s own four — no span, an empty or padded target, a span that is
+  outside the named row's subtree or is not one whole link, and a replacement
+  that would not read back as the link it claims to be. Each of those refuses the
+  WHOLE request rather than moving the rows it could, as does a
   `tag` that is not one, since a word that is not a tag is not a tag for any
   row (`Glance.Query.tagText`, the PARSER's charset). Per id: an
   unknown id, and a client digest the store no longer holds (per file, since a
   digest is). 413 outranks everything. `args` is read once into `Args`, and
   `.:!` rather than `.:?` is what tells an ABSENT field from a NULL one; `text`
-  and `tag` are flat, neither having a value to clear. The
+  and `tag` are flat, neither having a value to clear. For `keyword` and `date`
+  an absent field is a 400; for `edit-link`'s `desc` absent is the ORDINARY case
+  and means the link keeps the description it has. The
   route never writes the store — the watch is still the sole updater.
 - `capture` is the ONE id-less command: it makes a row rather than editing one,
   which in the table is the entry with no row function, so `{"ids": …}` is not
@@ -560,16 +569,44 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   because `stTags` counts FILES and no arithmetic recovers a row count from that;
   a row counts once per tag however often its file spells one. Refusals follow
   `/keywords`'.
-- `GET /links?id=ROW` is where a row points: `{links: [{target, desc}]}`, out of
-  the row's SUBTREE, in order of appearance and one entry per target (first desc
-  kept). The rule is the DISPLAY rule — `Glance.Query.linkAt` is the parser
-  `displayText` reads a cell with, so a bracket link is described by its `DESC`
-  and by its target where it has none — plus bare `http(s)`/`mailto:` URLs,
+- `GET /links?id=ROW` is where a row points: `{digest, links: [{target, desc,
+  type, span}]}`, out of the row's SUBTREE, in order of appearance and one entry
+  per target (the FIRST occurrence kept — its description AND its span, so an
+  edit through a deduplicated link edits the first spelling and the others
+  stand). The rule is the DISPLAY rule — `Glance.Query.linkAt` is the grammar
+  `displayText` reads a cell with and `linkShown` the display rule over it, so a
+  bracket link is described by its `DESC` and by its target where it has none —
+  plus bare `http(s)`/`mailto:` URLs,
   which describe themselves: a WORD, opening at a non-word boundary, with
   trailing `.,;:!?'"()[]{}<>` off the tail. One left-to-right pass over the
   bracket links, so `[[https://x][y]]` never also reports its target as a bare
   URL. Server-side because the page holds no org parser and must not grow one.
   404 on an unknown id, 400 with none, 503 while indexing, 405 on POST.
+- The answer is WRITEABLE, which is what `span` and `digest` are for. `span` is
+  the half-open CHAR range the link occupies in the FILE (`subtreeLinks` shifts
+  the subtree scan's spans by where the slice starts) and `edit-link` takes that
+  range back; `digest` is the file's as the store holds it, and pinning it
+  (`digests` on `/command`) is what refuses a range the STORE has re-read since —
+  a file that moved on DISK is already refused by `replaceSpans` with no pin. ONE
+  scanner answers all three questions asked of a bracket link: what it SHOWS
+  (`showLinks`, through `linkShown`), where it POINTS (`orgLinks`), and where it
+  SITS (the span, shifted into document offsets by `subtreeLinks`).
+- `edit-link` PRESERVES THE FORM: `[[T][D]]` keeps its description under a
+  target-only edit, `[[T]]` stays desc-less, a plain URL swaps its target and
+  stays plain, and a description ARRIVING brackets a plain URL — the one thing
+  that changes a shape, a plain URL having nowhere to write one. Absent `desc`
+  leaves the author's, `null` takes it off, and a description that shows nothing
+  is the null spelled another way (`[[T][]]` shows its target) — the emptiness
+  test strips and the value is written verbatim, content being nobody's to trim.
+  TWO WALLS, both
+  400: the span must sit inside the ROW's own subtree and cover exactly one link
+  edge to edge, and the REPLACEMENT must read back as THE LINK IT CLAIMS TO BE —
+  reparse and compare, since `a][b` renders `[[a][b]]`, which is one link
+  pointing somewhere the request never named. A NEWLINE in either half is refused
+  ahead of both walls: this scanner has no line rule, so the link reads back as
+  itself and lands a column-1 star the ORG parser reads as a new headline.
+  `Data.Org.Edit` is content-agnostic by law, so this is the layer that owes all
+  three checks.
 - `POST /headline` caps the body at 1 MiB and answers 413 past it. The cap is
   checked before the id lookup, so 413 outranks 404.
 - `?limit=` is capped at 20000 and a larger one is a 400; no `limit` serves the
@@ -1171,7 +1208,7 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - `o`/`!` (`org-glance-overview:open`) FOLLOW the row, and the ANSWER decides the
   gesture: `GET /links?id=` for the row at point, then no links is an echo
   refusal, ONE is `window.open(target, "_blank", "noopener")`, and SEVERAL raise
-  the palette. Every open writes a `cmd` line naming the target. WHICH rows have
+  the popup. Every open writes a `cmd` line naming the target. WHICH rows have
   one is on screen ahead of the press: `linked` underlines the title, over every
   link `/links` would report rather than the ones a tab can take, so an
   underlined `mailto:` row still warns on commit.
@@ -1182,17 +1219,32 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `link type not implemented: TARGET`, truncated at 80 characters
   (`shortly`) — plus the same words in the echo, and no tab. The judgement lives
   in `openLink`, which is why it is ONE function rather than a filter over the
-  choices: the palette still LISTS every link, since that is what teaches a
+  rows: the popup still LISTS every link, since that is what teaches a
   reader what the entry holds, and the COMMIT is where the answer is given — so
-  a lone `mailto:` warns without a palette, and a `mailto:` entry beside an
-  `http` one warns while its neighbour still opens. The link palette
-  is the value palette's third shape and is raised LATE — the answer decides
-  whether there IS a palette, so `askLinks` puts it up behind the fetch and
-  clears `prompting.raising`: the `o` that asked has been dispatched and gone,
-  and declining a press would eat the reader's first real key. It draws FLAT
-  (`drawChoices` branches on `prompting.table`), an entry's label being the
-  link's DESCRIPTION with the target beside it muted (`.pt`), and `/` narrows
-  over both through the entry's `hay`.
+  a lone `mailto:` warns without a popup, and a `mailto:` entry beside an
+  `http` one warns while its neighbour still opens. SEVERAL raise the LINK
+  POPUP, the page's THIRD table-view mount, raised LATE — the answer decides
+  whether there IS one. It browses; `RET` is its one write.
+- `RET` over the link popup EDITS the link at point in place: the title and url
+  cells become fields over themselves (`LROW`, the shared overlay's third shape,
+  `cells: [1, 2]` — a positional index into `Glance.Query.linkColumns` with
+  nothing tying the two together, and the derived type cell never opens), `TAB`
+  hops, `RET` commits
+  `edit-link` over the SPAN `/links` handed out under the digest that answer
+  carried, and `ESC` restores. The page holds no bracket grammar and no offsets
+  of its own: it sends the range it was given and the two strings a reader typed.
+  The untouched FIELD is what makes absent-not-null reachable — the description
+  field opens on what the link SHOWS, which for a link with none of its own is
+  its target, so a field left alone sends no `desc` and an emptied one sends the
+  null. Both fields are TRIMMED on the way out, so `[[T][ D ]]` sends `D`: the
+  padding is the field's, and the server writes a description verbatim and
+  refuses a padded target outright. The popup CLOSES on the press, both outcomes
+  alike, which is `o`'s own
+  rule and is forced: the spans it holds describe a file the write has just
+  moved, the store does not know yet, and a re-read here would answer with what
+  the file said BEFORE the write (the tags popup's documented reason). KNOWN
+  CONSEQUENCE: a row with exactly ONE link is followed rather than listed, so
+  that link has no editor.
 - `a` (`org-glance-agenda`) is a canned VIEW, not a mode: `state:*active*
   -planned:*empty* sort:scheduled` through `applyView`, the door `g` uses — URL,
   socket dropped, remount — so the query is the renderer's chips and `DEL` strips

@@ -137,6 +137,68 @@ section groups a feature arc, and its date is that arc's last commit.
   and the sheet's logbook already wear.
 
 ### Added
+- LINKS ARE WRITEABLE, which is the write boundary the popup was waiting on.
+  `GET /links` now carries a per-link `span` — the half-open CHAR range the link
+  occupies in the FILE — and the file's `digest`, and `POST /command` implements
+  an eighth name, `edit-link {span, target, desc}`, which splices exactly that
+  range. The scanner grew the offsets rather than gaining a second pass: one
+  `linkParts` answers all three questions asked of a bracket link (what it SHOWS,
+  where it POINTS, where it SITS), `linkAt` reports the WIDTH it consumed so a
+  scan costs the links it finds rather than the tail behind each of them, and
+  `subtreeLinks` shifts the subtree scan's spans into document offsets — the
+  currency `Data.Org.Edit` splices in. A target spelled twice is still ONE entry
+  and the entry is now the first occurrence's description AND span, so an edit
+  through a deduplicated link edits the first spelling and the others stand.
+  THE FORM IS PRESERVED, which is what makes it a link edit rather than a rewrite
+  of the text around one: `[[T][D]]` keeps its description under a target-only
+  edit, `[[T]]` stays desc-less, a plain URL swaps its target and stays plain,
+  and a description ARRIVING is the one thing that changes a shape — a plain URL
+  has nowhere to write one, so it brackets. ABSENT IS NOT NULL, the `args`
+  discipline (`.:!`) reaching its first non-keyword field: a request saying
+  nothing about the description leaves the author's, `null` takes it off, and a
+  description that SHOWS nothing is the null spelled another way, since
+  `[[T][]]` shows its target — the emptiness test strips and the value is
+  written verbatim, content being nobody's to trim, which is the target's own
+  rule (a whitespace target is refused, a spaced one is written as given). TWO
+  WALLS, both 400 naming what they turned down:
+  the span must sit inside the ROW's own subtree — a span outside it would let
+  one row's write reach bytes no reader of that row was shown, under that row's
+  digest — and cover exactly one link edge to edge; and the REPLACEMENT must read
+  back as THE LINK IT CLAIMS TO BE, which reparses and COMPARES rather than
+  checking the shape (a target spelling `a][b` renders `[[a][b]]`, one link
+  pointing at `a` described `b`, neither of them asked for). A newline in either
+  half is refused ahead of both, being the one thing reparsing cannot catch: the
+  scanner has no line rule, so the link reads back as itself and lands a column-1
+  star that the ORG parser reads as a new headline. `Data.Org.Edit` is
+  content-agnostic by law, so this is the layer that owes all three. `edit-link` is also the first `csOne` command:
+  its args name a row's own BYTES, so a span means nothing to a second row and
+  over two files would name a different range in each.
+- `RET` over the link popup EDITS the link at point, and the stub that named the
+  missing write is gone. The title and url cells become fields over themselves
+  (`LROW`, the shared edit overlay's THIRD shape), `TAB` hops, `RET` commits
+  `edit-link` over the span `/links` handed out under the digest that answer
+  carried, and `ESC` restores — the property panel's edit model exactly, so a
+  panel row, a tag and a link are edited alike and the derived type cell never
+  opens. The overlay's `cell` flag became a `cells: [FROM, TO]` RANGE over the
+  row's non-gutter cells, which is the one generalization the third surface
+  needed (`[0, 0]` for the tag rename, `[1, 2]` for a link, absent for the whole
+  row). `fire` gained a trailing `pin`, so a command measured against a text can
+  say which one; the commands naming a PROPERTY of a row send none. The page
+  holds no bracket grammar and no offsets of its own: it sends the range it was
+  given and the two strings a reader typed, and the untouched FIELD is what makes
+  absent-not-null reachable — the description field opens on what the link SHOWS,
+  which for a link carrying none of its own is its target, so a field left alone
+  sends no `desc` at all. THE POPUP CLOSES ON THE PRESS, both outcomes alike,
+  which is `o`'s own rule and is forced rather than chosen: the spans it holds
+  describe a file the write has just moved, the store does not know yet
+  (`/command` never writes it — the watch does, a debounce later), and a re-read
+  HERE would answer with what the file said BEFORE the write, which is the tags
+  popup's own documented reason for folding answers instead. `o` again is one
+  keystroke and comes back with fresh spans, descriptions and types. KNOWN
+  CONSEQUENCE, stated rather than worked around: the popup is also the only
+  editor, so a row holding exactly ONE link is followed and never listed, and
+  that link has no editor — a key that LISTS whatever the count is would settle
+  it.
 - The log strip's height is a preference. It stopped growing at seven of its own
   line boxes, a constant; it is now a `localStorage` preference edited from the
   settings sheet's GENERAL panel (`#clog`, the third row under `default view`
