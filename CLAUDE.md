@@ -1527,6 +1527,22 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   fourth argument so the rule runs once rather than in each caller; `fetchRows`
   calls it too, since a commit REPAINTS rather than remounting and would
   otherwise leave the cursor on a row the new answer may not hold.
+- A BOOT IS AN APPLIED VIEW, so it takes row one through that same `land`. A
+  mount has no cursor of its own — the renderer selects nothing until it is
+  asked to, `selectFirstVisible` having one caller and it being the filter box
+  handing over — so a page that landed nothing opened with `d`, `D` and `RET`
+  answering `no row` until the reader pressed `n`. `start` lands on the MOUNT,
+  which is the `?limit=100` first paint; the full set arriving behind it lands
+  nothing more, `paint` keeping the cursor the way the renderer keeps every
+  selection. A caller that PASSES an `after` lands inside it and this door
+  stands aside, which is what leaves a pop's remembered row alone; a
+  `view-changed` remount passes none and takes row one like any other apply. The
+  suite could not see any of this until `shell-harness.js` stopped answering
+  `getSelection` with row 0 of the page: the stub now models `state.selected ===
+  null` (`keepSelection` returns at the guard, `indexOfSelected` is -1,
+  `selectStep` from nothing lands on the end it steps away from), and a `total`
+  of 0 is an empty store — the one state no act can reach in time, every act
+  running after the boot has painted.
 - THE ARCHIVE ANCHOR, and the carve that makes room for it. `anchorFor` takes it
   at FIRE time — by the time the rows have gone the gap they left is exactly
   what a later read cannot see — scanning from POINT: down the page for the

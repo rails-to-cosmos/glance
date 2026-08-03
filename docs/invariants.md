@@ -3807,16 +3807,29 @@ on.
   "the trail and its labels ride in the URL beside the query", "a remount
   restores the trail and the labels", "a booted trail is restored from the URL
   and can be walked back". **test**
-- **Where the cursor lands is THREE rules at one door.** `land(sel, back)` is
-  the whole of it: it takes the row `sel` names when the view still holds it,
-  else the row at index `back`, else — with no rows at all — nothing. What the
-  three callers ask for is the whole difference between them:
+- **Where the cursor lands is THREE rules at one door, and a BOOT IS AN APPLY.**
+  `land(sel, back)` is the whole of it: it takes the row `sel` names when the
+  view still holds it, else the row at index `back`, else — with no rows at all
+  — nothing. What the callers ask for is the whole difference between them:
 
   | landing | asks for | falls back to | door |
   | --- | --- | --- | --- |
   | apply a view (palette commit, `g`, `a`, `@`, a filter commit) | nothing | row one | `applyView`, `fetchRows` |
+  | BOOT the page (a reload, a `?q=` link, a `view-changed` remount) | nothing | row one | `start` |
   | pop a crumb (`DEL` out of a drill) | the row the drill was pushed from | row one | `applyView` |
   | archive (`d`, `D`) | the next surviving row below point | that row's place among the survivors | `settled` |
+
+  A MOUNT HAS NO CURSOR OF ITS OWN. The renderer selects nothing until it is
+  asked to (`selectFirstVisible` has one caller and it is the filter box handing
+  over), so a boot that landed nothing opened with `d`, `D` and `RET` all
+  answering `no row` until the reader pressed `n` — and a boot IS an applied
+  view, so the apply rule reaches it: `start` lands through `land` like every
+  other caller rather than growing a first-row rule of its own. It lands on the
+  MOUNT, so the `?limit=100` first paint carries it and the full set arriving
+  behind it lands nothing more — one landing per mount, and `paint` keeps the
+  cursor the way the renderer keeps every selection. A caller that PASSES a
+  landing lands inside its own `after` and this door stands aside for it, which
+  is what leaves a pop's remembered row untouched.
 
   `select` answers false for a row the view no longer holds, so a remembered row
   an edit or a narrower filter took away falls through rather than being forced
@@ -3830,12 +3843,30 @@ on.
   `getCrumbs()`. The renderer's DEPTH stays the truth: `selsFit` compares
   lengths and a side table out of step is dropped whole rather than pairing a
   crumb with another crumb's row. Marks and flags need none of this, being
-  id-keyed renderer state that already survives. Evidence: `TestServe` "a pop
-  puts the cursor back on the row the drill was launched from", "and the column
-  it was in, when one was set", "a remembered row the answer lost falls back to
-  the first row", "g lands on the first row rather than where the reader was",
-  "a commit that repaints lands on the first row too", "an applied view still
-  lands on row one after an anchor did not". **test**
+  id-keyed renderer state that already survives. Evidence: `TestServe` "a boot
+  lands on row one, like every other applied view", "so the first key pressed
+  already has a row to work on", "an empty answer leaves nothing selected, and d
+  says so", "and RET says which key would pick one", "a pop out of a booted
+  trail still lands on the remembered row", "a pop puts the cursor back on the
+  row the drill was launched from", "and the column it was in, when one was
+  set", "a remembered row the answer lost falls back to the first row", "g lands
+  on the first row rather than where the reader was", "a commit that repaints
+  lands on the first row too", "an applied view still lands on row one after an
+  anchor did not". **test**
+- **The harness's mount has NO SELECTION until something selects in it.**
+  `shell-harness.js` models `state.selected === null` as `rowId` null and
+  answers for it everywhere the renderer does: `keepSelection` returns at the
+  guard, `indexOfSelected` answers -1, `getSelection` answers a null id, and
+  `selectStep` from nothing lands on the end it is stepping away from. It used
+  to answer `getSelection` with row 0 of the page whatever had happened, and
+  that one lie hid the boot landing above from ~170 cases that pressed a row key
+  as their first act. A harness that stands in for the renderer owes the
+  renderer's empty states, or every case resting on one is unverified. The
+  second half of the same rule: a `total` of 0 is an EMPTY STORE, since the
+  count the server reports is the count of the set it answers with. It is argv
+  rather than an act because no act can reach it in time — every one of them
+  runs after the boot has painted. Evidence: `TestServe` "an empty answer leaves
+  nothing selected, and d says so". **test**
 - **An archive lands point on the NEXT SURVIVING ROW, and a refetch the watch
   caused lands nothing.** dired's rule, and the carve that makes room for it.
   The anchor is taken at FIRE time (`anchorFor`), because by the time the rows

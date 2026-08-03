@@ -5837,7 +5837,10 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- AFTER is what a canned view wants doing once its own rows are up, given
     -- the server's match count.  An argument rather than a variable this arms
     -- and disarms, so it belongs to the boot it was passed to and a boot that
-    -- never lands cannot leave one behind for the next.
+    -- never lands cannot leave one behind for the next.  It also carries the
+    -- LANDING, which is why a caller that passes one lands nothing here: a pop
+    -- puts the cursor back on the row its drill was launched from, and this
+    -- door must not land row one over it first.
   , "    function start(after) {"
   , "      // A `?q=' in the address bar is a filtered view, and so is a bare"
   , "      // boot: the boot asks for whichever it is and `mount' opens the"
@@ -5861,8 +5864,20 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      const narrow = asking(asked) + (asked ? \"&\" : \"?\");"
   , "      viewing(load(swap ? asking(asked) : `${narrow}limit=${PAGE}`)).then((a) => {"
   , "        mount(a.view);"
-  , "        if (after) after(a.total);"
+      -- A MOUNT LANDS, and a BOOT IS AN APPLIED VIEW.  A new mount has no
+      -- cursor of its own — the renderer selects nothing until something asks
+      -- it to — so a page that landed nothing here would open with `d', `D' and
+      -- `RET' all answering `no row' until the reader pressed `n'.  It is the
+      -- apply landing and it goes through `land' like every other, so row one
+      -- is spelled in exactly one place.  A caller with an opinion — a pop,
+      -- through `applyView' — lands inside AFTER instead and this one stands
+      -- aside for it.
+  , "        if (after) after(a.total); else land(null);"
   , "        listen();"
+      -- The full set arriving behind the first page LANDS NOTHING: the cursor
+      -- this just put on row one is the reader's from the first paint on, and
+      -- `paint' keeps it the way the renderer keeps every selection — on its
+      -- row while the row is there.  One landing per mount, at the mount.
   , "        // The rest behind the painted table: n/p, sort and materialize all"
   , "        // want the whole answer, and the renderer holds it without the DOM."
   , "        if (!swap && a.total > (a.view.rows || []).length)"

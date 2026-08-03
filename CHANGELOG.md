@@ -104,14 +104,12 @@ section groups a feature arc, and its date is that arc's last commit.
   mount grew `upsertRow`/`deleteRow` and models `keepSelection` verbatim,
   including its stale visual index, which is what makes the two halves separable
   at all. Sixteen cases in `TestServe`'s "Shell landing".
-  KNOWN GAP, found reviewing the harness against the renderer and left alone as
-  a separate question: a freshly mounted table has NO selection. The renderer's
-  `selectFirstVisible` has one caller and it is the filter box handing over, so
-  `state.selected` is null until something selects — meaning `d`, `D` and `RET`
-  on a just-booted page say "no row" until the reader presses `n`. The harness
-  has always answered `getSelection` with row 0 of the page instead, so the
-  suite has never seen it; the divergence is now named in `keep`'s comment
-  rather than left for the next reader to rediscover.
+  FOUND HERE, FIXED UNDER Fixed below: a freshly mounted table has NO selection,
+  the renderer's `selectFirstVisible` having one caller and it being the filter
+  box handing over — so `d`, `D` and `RET` on a just-booted page said "no row"
+  until the reader pressed `n`, and the harness answering `getSelection` with
+  row 0 of the page is why the suite never saw it. The boot now takes the apply
+  landing through this same `land`, and the stub models the empty selection.
 - The settings sheet's keywords panel is ONE select over ONE box. It showed a
   `<textarea>` per config layer, stacked in `#clayers`, and a tree has as many
   config files as it has tags — the stack was as tall as that number, so the
@@ -608,6 +606,32 @@ section groups a feature arc, and its date is that arc's last commit.
   harness drives both sheets through pristine, dirty, conflict and discard.
 
 ### Fixed
+- **A freshly booted page has a row under the keys.** A mount has no cursor of
+  its own — the renderer selects nothing until it is asked to, `selectFirstVisible`
+  having one caller and it being the filter box handing over — so `d`, `D` and
+  `RET` on a just-opened page all answered `no row` until the reader pressed
+  `n`. The landing table already said an APPLIED VIEW lands on row one, and a
+  boot IS a view applied: `start` now lands through the same `land`, so row one
+  is spelled in exactly one place rather than growing a boot rule beside the
+  three. It lands on the MOUNT, which is the `?limit=100` first paint, and the
+  full set arriving behind it lands nothing more — `paint` keeps the cursor the
+  way the renderer keeps every selection, so it is one landing per mount. A
+  caller that PASSES an `after` lands inside it and this door stands aside,
+  which is what leaves a pop's remembered row untouched; a `view-changed`
+  remount passes none and takes row one like any other apply. An empty answer
+  still selects nothing, and the keys say so (`d → archive-flag (no row)`,
+  `no row focused — n or p picks one`).
+  THE HARNESS LIE THAT HID IT: `shell-harness.js` answered `getSelection` with
+  row 0 of the page whatever had happened, so ~170 cases pressing a row key as
+  their first act were testing a selection the browser would not have had. The
+  stub now models `state.selected === null` where the renderer does —
+  `keepSelection` returns at the guard, `indexOfSelected` answers -1,
+  `getSelection` answers a null id, and `selectStep` from nothing lands on the
+  end it steps away from — and a `total` of 0 is an EMPTY STORE, the count the
+  server reports being the count of the set it answers with, which is the one
+  store state no act can reach. Flipping the stub alone fails those ~170 cases;
+  the landing is what makes them honest rather than lucky. Five cases open
+  `TestServe`'s "Shell landing".
 - **A weekday in any language keeps its headline's property drawer.** The
   timestamp parser took exactly three letters in the weekday slot, so ~/sync's
   Dutch stamps — `CLOSED: [2025-12-04 do 22:34]`, with `ma`, `zo`, `vr` and `za`

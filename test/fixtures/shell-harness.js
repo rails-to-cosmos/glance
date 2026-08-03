@@ -88,7 +88,11 @@ const tags = [];
 // it callers hold.  `moved' and `recolumn' step it.
 // Three, because a walk needs somewhere to walk to: `m' marks and steps, so a
 // one-row store cannot tell marking from advancing.
-let rows = ["one", "two", "three"].map((title, i) =>
+// A TOTAL OF NONE IS AN EMPTY STORE, since the count the server reports is the
+// count of the set it is answering with: a boot told there are no matches
+// cannot also be handed rows.  Argv rather than an act, because an act cannot
+// reach it in time — every one of them runs after the boot has painted.
+let rows = +total === 0 ? [] : ["one", "two", "three"].map((title, i) =>
   ({ id: `r${i + 1}`, cells: { state: "TODO", title, tag: ":web:" } }));
 // The rows the APPLIED QUERY no longer matches: still the store's — the socket
 // carries a row op whatever the client asked for — and out of what /headlines
@@ -499,15 +503,15 @@ const makeMount = (host, view, options, own) => {
    * Called wherever the real one renders with the rows moved: `setRows' and the
    * two frame ops.
    */
-  // ONE KNOWN DIVERGENCE, and it is older than this function: the real one
-  // opens `if (state.selected === null) return;', so a mount nothing has
-  // selected in has NO selection — the renderer's `selectFirstVisible' has one
-  // caller and it is the filter box handing over.  This stub has always
-  // answered `getSelection' with row 0 of the page instead, and the suite rests
-  // on it.  Stated here rather than fixed, since fixing it is a question about
-  // the PAGE (a booted table with no row under the keys) rather than about this
-  // file.  Everything below the guard is `keepSelection' line for line.
+  // A MOUNT NOTHING HAS SELECTED IN HAS NO SELECTION: `rowId' null is the real
+  // one's `state.selected === null', and every answer below reads it as such —
+  // `keepSelection' returns at the guard, `indexOfSelected' answers -1 and
+  // `getSelection' answers a null id.  The renderer selects nothing of its own
+  // (`selectFirstVisible' has one caller and it is the filter box handing
+  // over), so a page that wants a cursor on its first row has to land one.
+  // Everything below the guard is `keepSelection' line for line.
   const keep = () => {
+    if (m.rowId === null) return;
     const on = onPage();
     // Emptied: the row, the column and the PLACE all go, and the place going is
     // what makes the next set land on row 0 rather than where this one stood.
@@ -517,14 +521,15 @@ const makeMount = (host, view, options, own) => {
     m.cursor = Math.max(0, Math.min(m.cursor, on.length - 1));
     m.rowId = on[m.cursor].id;
   };
-  /** Where the cursor sits now — `indexOfSelected', falling back to the clamp
-   * for the one state the real one cannot be in: rows moved by an ACT, which
-   * the store shares with this mount and no call announces. */
+  /** Where the cursor sits now — `indexOfSelected', -1 with nothing selected,
+   * falling back to the clamp for the one state the real one cannot be in: rows
+   * moved by an ACT, which the store shares with this mount and no call
+   * announces. */
   const held = () => {
     const on = onPage();
-    if (!on.length) return 0;
+    if (m.rowId === null || !on.length) return -1;
     if (on[m.cursor] && on[m.cursor].id === m.rowId) return m.cursor;
-    const i = m.rowId ? on.findIndex((r) => r.id === m.rowId) : -1;
+    const i = on.findIndex((r) => r.id === m.rowId);
     return i !== -1 ? i : Math.max(0, Math.min(m.cursor, on.length - 1));
   };
   /** Put the cursor on index I of the page in hand, remembering the row. */
@@ -596,15 +601,22 @@ const makeMount = (host, view, options, own) => {
     // The selection is the renderer's, both halves of it, and the shell reads
     // the row id back out of here to materialize one.
     getSelection: () => {
-      const on = onPage();
-      return { id: on.length ? on[held()].id : null, col: m.selCol };
+      const at = held();
+      return { id: at === -1 ? null : onPage()[at].id, col: m.selCol };
     },
     getVisible: () => onPage(),
     // Clamped, never wrapped, and false at the end — which is what tells the
-    // shell that a mark on the last row has nowhere to walk to.
+    // shell that a mark on the last row has nowhere to walk to.  From NO
+    // selection it lands on the end it is stepping away from, the way the real
+    // one does with `state.selected' null: forward takes the first row, back
+    // the last.
     selectStep: (step) => {
-      const to = held() + step;
-      if (to < 0 || to >= onPage().length) return false;
+      const on = onPage();
+      if (!on.length) return false;
+      const at = held();
+      if (at === -1) { sit(step < 0 ? on.length - 1 : 0); return true; }
+      const to = at + step;
+      if (to < 0 || to >= on.length) return false;
       sit(to);
       return true;
     },
@@ -989,8 +1001,9 @@ const typeLink = (which, text) => {
  */
 const cellsOf = (inst, keys) =>
   (inst ? inst.own.map((r) => keys.map((k) => r.cells[k])) : []);
-/** Which row wears INST's cursor, and -1 when there is no such mount yet. */
-const curOf = (inst) => (inst && inst.own.length ? inst.at() : -1);
+/** Which row wears INST's cursor, and -1 when there is no such mount yet — or
+ * when nothing has been selected in it, which its own answer already is. */
+const curOf = (inst) => (inst ? inst.at() : -1);
 /** The property panel: a [key, value] pair per row. */
 const panel = () => cellsOf(pan, ["key", "value"]);
 const patAt = () => curOf(pan);
@@ -1412,8 +1425,10 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     marksOn: main.marksOn, hintsOn: main.hintsOn, flagHelp: main.flagHelp,
     marked: [...main.marks], flagged: [...main.flags], cursor: main.at(),
     // Where the cursor is in terms a page-local index cannot give: the row it
-    // sits on, the column it is in, and the page it is reading.
-    selected: main.onPage().length ? main.onPage()[main.at()].id : null,
+    // sits on, the column it is in, and the page it is reading.  A table
+    // nothing has selected in reports -1 and a null row, which is a boot that
+    // landed nothing.
+    selected: main.at() === -1 ? null : main.onPage()[main.at()].id,
     col: main.selCol,
     page: main.pageAt + 1,
     echo: field("echo").textContent,

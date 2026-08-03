@@ -1073,26 +1073,86 @@ markSpec shell = testGroup "Shell marks"
                     =<< textAt "echo" answer
   ]
 
--- | Where point ends up after an archive takes its row out of the view.
+-- | Where point ends up: on the BOOT, and after an archive takes its row out
+-- of the view.
 --
--- The rows leave by one of two doors and both are driven here: an unfiltered
--- client SPLICES the socket's row ops straight in, and a filtered one reads
--- none of them and refetches.  The anchor is worked out at FIRE time, while the
--- view still holds the rows about to go, and lands at whichever door they
--- actually left by.
+-- The boot opens the group because it is the landing every other one is
+-- measured against — a mount has no cursor of its own, so a page that landed
+-- nothing opened with every row key answering @no row@.
 --
--- The other two landing rules are somebody else's cases and stay there: an
+-- The archive's rows leave by one of two doors and both are driven here: an
+-- unfiltered client SPLICES the socket's row ops straight in, and a filtered
+-- one reads none of them and refetches.  The anchor is worked out at FIRE time,
+-- while the view still holds the rows about to go, and lands at whichever door
+-- they actually left by.
+--
+-- The remaining landing rules are somebody else's cases and stay there: an
 -- applied view lands on row one (@moveSpec@, @drillSpec@) and a pop puts back
--- the row its drill was launched from (@drillSpec@).  The one case here that
--- touches them is the last, which pins that an applied view still lands on row
--- one immediately after an anchor landed somewhere else.
+-- the row its drill was launched from (@drillSpec@).  The one archive case that
+-- touches them pins that an applied view still lands on row one immediately
+-- after an anchor landed somewhere else.
 landingSpec :: IO T.Text -> TestTree
 landingSpec shell = testGroup "Shell landing"
-  [ -- dired's: the row point was standing on goes, and point goes to the one
+  [ -- A BOOT IS AN APPLIED VIEW, so it lands where every applied view lands.
+    -- The renderer selects nothing until it is asked to, so the cursor on row
+    -- one here is this page's own landing and nothing else.  The total is 500
+    -- over a three-row store, so the whole set arrives behind the first page:
+    -- the landing is taken on the FIRST paint and the swap behind it keeps it,
+    -- which is the one landing per mount.
+    testCase "a boot lands on row one, like every other applied view" $
+      bootOf shell "" 500 "" "" $ \answer -> do
+        assertEqual "the first row of the answer" (Just "r1")
+          =<< maybeTextAt "selected" answer
+        assertEqual "at the top of the page" 0 =<< intAt "cursor" answer
+        assertEqual "and the whole set arrived behind the first page" 2 . length
+          =<< listAt "paints" answer
+
+    -- Which is the whole point of it: the first key a reader presses has a row
+    -- to work on, with no `n' spent to reach one.
+  , testCase "so the first key pressed already has a row to work on" $
+      bootOf shell "" 500 "d d" "" $ \answer -> do
+        assertEqual "the row the boot landed on" [("archive", ["r1"])]
+          =<< postedOf answer
+        assertEqual "and the pill named the write"
+                    "d → archive-flag (archived · 1 flagged)" =<< textAt "echo" answer
+
+    -- AND AN EMPTY ANSWER LANDS NOTHING.  `land' selects nothing where there is
+    -- no row to select, so the keys that want one say so rather than writing
+    -- over a row that is not there.
+  , testCase "an empty answer leaves nothing selected, and d says so" $
+      bootOf shell "" 0 "d" "" $ \answer -> do
+        assertEqual "no row is on" Nothing =<< maybeTextAt "selected" answer
+        assertEqual "and the cursor is nowhere" (-1) =<< intAt "cursor" answer
+        assertEqual "which the key names" "d → archive-flag (no row)"
+          =<< textAt "echo" answer
+        assertEqual "nothing was flagged" [] =<< textsAt "flagged" answer
+        assertEqual "and nothing was written" [] =<< postedOf answer
+
+    -- RET is the other key with a row in its hand, and it names the key that
+    -- would pick one rather than opening a sheet over nothing.
+  , testCase "and RET says which key would pick one" $
+      bootOf shell "" 0 "Enter" "" $ \answer -> do
+        assertEqual "the strip says what to press"
+                    (Just "no row focused — n or p picks one") =<< lastLog answer
+        assertEqual "and no sheet opened" "" =<< textAt "modal" answer
+
+    -- A LANDING SOMEBODY ASKED FOR OUTRANKS THE BOOT'S.  A pop carries the row
+    -- its drill was launched from, and it arrives through `applyView', whose
+    -- own landing runs in place of this door's — so the trail's remembered row
+    -- is not overwritten by row one on the way past.
+  , testCase "a pop out of a booted trail still lands on the remembered row" $
+      bootOf shell ("?q=ref%3Ar1&crumbs=" <> bootedSels) 500 "Backspace" "" $
+        \answer -> do
+          assertEqual "the row the drill was launched from" (Just "r3")
+            =<< maybeTextAt "selected" answer
+          assertEqual "over the crumb's own query, which is what was applied"
+                      "?q=" =<< textAt "url" answer
+
+    -- dired's: the row point was standing on goes, and point goes to the one
     -- after it.  Under a filter that means the refetch the frame scheduled,
     -- which is where the rows leave for a filtered reader — and the frame the
     -- server sent was an UPSERT, the row still being the store's.
-    testCase "an archived row mid-table lands point on the next surviving row" $
+  , testCase "an archived row mid-table lands point on the next surviving row" $
       bootOf shell "" 500 "n d d" "unserved:r2 frame:upsert=r2 wait:300" $ \answer -> do
         assertEqual "the row at point was archived"
                     [("archive", ["r2"])] =<< postedOf answer
@@ -2542,6 +2602,12 @@ drillSpec shell = testGroup "Shell drill"
 -- view, and the label the live @ref:@ chip wears.
 bootedTrail :: T.Text
 bootedTrail = "%7B%22trail%22%3A%5B%7B%22label%22%3A%22everything%22%2C%22query%22%3A%22%22%7D%5D%2C%22labels%22%3A%7B%7D%7D"
+
+-- | The same trail with the SELECTION the crumb was pushed from beside it,
+-- which is what a pop puts back — and what the boot's own landing must not
+-- write over.  @landingSpec@ reads it.
+bootedSels :: T.Text
+bootedSels = "%7B%22trail%22%3A%5B%7B%22label%22%3A%22everything%22%2C%22query%22%3A%22%22%7D%5D%2C%22labels%22%3A%7B%7D%2C%22sels%22%3A%5B%7B%22id%22%3A%22r3%22%2C%22col%22%3Anull%7D%5D%7D"
 
 -- | The sort the agenda asked the renderer for, if any.  Through `field', so a
 -- harness that stopped reporting the call at all fails loudly rather than
