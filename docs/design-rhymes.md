@@ -18,9 +18,11 @@ knowing the keys.  The property panel, the link and tag popups, and the
 material document all speak it.  Vertical wears the row wash; horizontal
 wears the crosshair's column hue — in the document as in the table.
 
-**Backwards is one gesture.**  `DEL` always walks back along whatever was
-built forward: filter tokens, then filter frames (the drill stack), sort
-tokens, a child sheet up to its parent, the sheet closed at the top.
+**Backwards is one gesture.**  `DEL` is the backspace key wearing its oldest
+meaning — erase the last thing you did — lifted from characters to
+structure: filter tokens, then filter frames (the drill stack), sort tokens,
+a child sheet up to its parent, the sheet closed at the top.  In a text
+field it still erases characters; over structure it erases steps.
 
 **Deletion is one gesture.**  dired's flag-then-confirm everywhere something
 dies: `d` flags red, `d` on a flagged thing (or `D`) takes every flagged
