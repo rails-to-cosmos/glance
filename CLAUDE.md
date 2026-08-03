@@ -1515,16 +1515,46 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   they carry is work the reader has NOT committed, and there is no such thing as
   a half-applied crumb. A parameter that does not parse is one boot without a
   trail, and `setCrumbs` drops whatever is not a crumb.
-- WHERE AN APPLIED VIEW LANDS THE CURSOR is one rule at one door (`land`), and
-  it has two answers. A POP puts back the row its drill was pushed from; every
-  other application — a palette commit, `g`, `a`, `@` — lands on the FIRST row
-  of the answer. An empty answer selects nothing. `select` answers false for a
-  row the view no longer holds, so a remembered row an edit or a narrower filter
-  took away falls through to the same first-row landing and is never forced
-  back. `applyView` takes the remembered selection as a fourth argument so the
-  rule runs once rather than in each caller; `fetchRows` calls it too, since a
-  commit REPAINTS rather than remounting and would otherwise leave the cursor on
-  a row the new answer may not hold.
+- WHERE THE CURSOR LANDS is THREE rules at one door, `land(sel, back)`: it takes
+  the row `sel` names while the view still holds it, else the row at index
+  `back`, else — no rows at all — nothing. An APPLIED view (a palette commit,
+  `g`, `a`, `@`, a filter commit) asks for nothing and takes row one; a POP asks
+  for the row its drill was pushed from and falls back to row one; an ARCHIVE
+  asks for the next surviving row below point and falls back to that row's place
+  among the survivors. `select` answers false for a row the view no longer
+  holds, so a remembered row an edit or a narrower filter took away falls through
+  rather than being forced back. `applyView` takes the remembered selection as a
+  fourth argument so the rule runs once rather than in each caller; `fetchRows`
+  calls it too, since a commit REPAINTS rather than remounting and would
+  otherwise leave the cursor on a row the new answer may not hold.
+- THE ARCHIVE ANCHOR, and the carve that makes room for it. `anchorFor` takes it
+  at FIRE time — by the time the rows have gone the gap they left is exactly
+  what a later read cannot see — scanning from POINT: down the page for the
+  first row not leaving, else back up for the nearest one, else nothing. It
+  carries `from` (the row point was on), `id`, `at` (the anchor's place among
+  the SURVIVORS, for the anchor itself vanishing before the landing) and `on`
+  (the page it was taken on). THE DOOR THE ROWS LEAVE BY IS THE FILTERED
+  REFETCH: `archive` puts an UPSERT on the wire (`streamed` deletes only an id
+  absent afterwards, and `:ARCHIVE:` leaves the row emitted), so an UNFILTERED
+  client splices the row back in and point does not move; `resync`'s repaint is
+  the only other. All three call `settled`, which ALWAYS SPENDS the anchor —
+  that is what keeps it describing ONE watch step — and lands it only where
+  something is owed: never while `from` is still in the view, and never on a
+  page other than `on`, since `visible()` is one page. `spent(mine)` drops it
+  when the answer says `from` was not archived (a refusal, and an archive over a
+  set point is not in), keyed to its own anchor so an earlier answer cannot
+  disarm a later archive's, and deciding before `unmark`, which can throw. A
+  `commit` and a `remount` drop it outright — an anchor belongs to its view.
+  THE CARVE:
+  `fetchRows` takes the landing as an argument and the watch's refetch passes
+  `settled` where a commit passes nothing — a refetch is the view the reader
+  already had, so it lands nothing of its own and the renderer keeps the cursor.
+  Before it, any watch event under a filter took a reader back to row one. What
+  the anchor buys over the renderer's `keepSelection` is rows going from ABOVE
+  point: that keeps the visual PLACE, which is a row further down once they have
+  gone. Its other branches — the up-scan, the empty view, a surviving point row
+  — agree with the renderer exactly and are guaranteed twice, so nothing
+  exercises the up-scan alone.
 - The remembered selection rides BESIDE the trail (`crumbSels`, one entry per
   crumb) rather than inside it, because the renderer's `crumbOf` keeps a crumb's
   `label` and `query` and drops everything else — a selection put in a crumb

@@ -3807,12 +3807,19 @@ on.
   "the trail and its labels ride in the URL beside the query", "a remount
   restores the trail and the labels", "a booted trail is restored from the URL
   and can be walked back". **test**
-- **Where an applied view lands the cursor is one rule at one door.** `land` has
-  two answers: a POP puts back the row its drill was pushed from, and every
-  other application — a palette commit, `g`, `a`, `@` — lands on the FIRST row
-  of the answer. An empty answer selects nothing. `select` answers false for a
-  row the view no longer holds, so a remembered row an edit or a narrower filter
-  took away falls through to the same first-row landing and is never forced
+- **Where the cursor lands is THREE rules at one door.** `land(sel, back)` is
+  the whole of it: it takes the row `sel` names when the view still holds it,
+  else the row at index `back`, else — with no rows at all — nothing. What the
+  three callers ask for is the whole difference between them:
+
+  | landing | asks for | falls back to | door |
+  | --- | --- | --- | --- |
+  | apply a view (palette commit, `g`, `a`, `@`, a filter commit) | nothing | row one | `applyView`, `fetchRows` |
+  | pop a crumb (`DEL` out of a drill) | the row the drill was pushed from | row one | `applyView` |
+  | archive (`d`, `D`) | the next surviving row below point | that row's place among the survivors | `settled` |
+
+  `select` answers false for a row the view no longer holds, so a remembered row
+  an edit or a narrower filter took away falls through rather than being forced
   back. `applyView` takes the remembered selection as a fourth argument so the
   rule runs once rather than once per caller, and `fetchRows` calls it too,
   since a commit REPAINTS rather than remounting and would otherwise leave the
@@ -3827,7 +3834,60 @@ on.
   puts the cursor back on the row the drill was launched from", "and the column
   it was in, when one was set", "a remembered row the answer lost falls back to
   the first row", "g lands on the first row rather than where the reader was",
-  "a commit that repaints lands on the first row too". **test**
+  "a commit that repaints lands on the first row too", "an applied view still
+  lands on row one after an anchor did not". **test**
+- **An archive lands point on the NEXT SURVIVING ROW, and a refetch the watch
+  caused lands nothing.** dired's rule, and the carve that makes room for it.
+  The anchor is taken at FIRE time (`anchorFor`), because by the time the rows
+  have gone the answer is unrecoverable — the gap they left is exactly what a
+  later read cannot see. It is worked out from POINT rather than from the set:
+  down the page for the first row not leaving, and only failing that back UP for
+  the nearest one, which is what a reader is owed when the row they were
+  standing on goes. It carries three things — `from` (the row point was on),
+  `id` (the anchor) and `at` (the anchor's place among the SURVIVORS, the
+  fallback for the anchor itself vanishing before the landing).
+
+  THE DOOR THE ROWS LEAVE BY IS THE FILTERED REFETCH, and there is only one
+  other. `archive` puts an UPSERT on the wire — `Store.streamed` emits a delete
+  only for an id absent from the store afterwards, and adding `:ARCHIVE:` leaves
+  the row emitted under the same id — so an UNFILTERED client splices the row
+  straight back in and point does not move at all. A filtered one reads no frame
+  content, refetches behind the 250 ms debounce, and gets an answer the row has
+  dropped out of. The second door is `resync`'s repaint: a socket down while the
+  write landed makes the reconnect's answer the first this page sees without the
+  rows. All three call `settled`.
+
+  `settled` ALWAYS SPENDS the anchor and lands it only where something is owed.
+  Spending unconditionally is what keeps it describing ONE watch step: left
+  armed, a page turn and somebody else's edit minutes later would pull the
+  cursor to a row this write had an opinion about. It declines to land in two
+  cases — `from` is still in the view (the unfiltered client, and a
+  `tag:*archive*` query that still matches it), and the page showing is not the
+  page the anchor was taken on, since `visible()` is ONE PAGE and can say
+  nothing about a row outside it. `spent` drops the anchor when the answer says
+  `from` was not archived, which is what a refusal and an archive over a set
+  point is not in both look like; it is keyed to the anchor it answers for
+  (`spent(mine)`), so an earlier archive's answer cannot disarm a later one's,
+  and it decides the anchor BEFORE `unmark`, which can throw on an asset
+  carrying half the mark calls. A `commit` and a `remount` each drop it outright:
+  an anchor belongs to the view it was taken in.
+
+  THE CARVE: `fetchRows` takes the landing as an argument, and the watch's
+  refetch passes `settled` where a commit passes nothing. A refetch is the view
+  the reader already had arriving again because a file moved, so it is not a new
+  question and lands nothing of its own — the renderer keeps the cursor and only
+  an armed anchor may override that. Before the carve, ANY watch event under a
+  filter took a reader back to row one.
+
+  What the anchor buys over the renderer's own `keepSelection` is the case where
+  rows went from ABOVE point too: `keepSelection` keeps the visual PLACE, which
+  is a row further down once the rows above have gone, so it skips one. Its
+  other branches agree with the anchor exactly — the up-scan, the empty view and
+  the surviving-row case are all guaranteed twice, which is why the cases for
+  them pin the outcome rather than which half produced it, and why nothing
+  exercises the up-scan alone. Evidence: `TestServe` "Shell landing", sixteen
+  cases; the one that separates the anchor from the renderer is "the anchor is
+  the next surviving row, not the place point stood". **test**
 - **`@` takes the row at point and never the marked set.** A drill is a look,
   and a key that inherited a mark would make every mark change what it means —
   the reasoning that keeps `D` off marks, arrived at from the other side. The

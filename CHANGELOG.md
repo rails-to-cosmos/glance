@@ -57,6 +57,61 @@ section groups a feature arc, and its date is that arc's last commit.
   archived" guard.
 
 ### Changed
+- After `d`/`D` archives rows out of the view, point lands on the NEXT SURVIVING
+  ROW rather than resetting to row one. dired's rule, and it needed two changes.
+  THE ANCHOR: `anchorFor` takes it at FIRE time, since by the time the rows have
+  gone the gap they left is exactly what a later read cannot see. It scans from
+  POINT — down the page for the first row not leaving, else back up for the
+  nearest one, else nothing at all — and carries `from` (the row point was on),
+  `id`, `at` (the anchor's place among the SURVIVORS, the fallback for the
+  anchor itself vanishing before the landing) and `on` (the page it was taken
+  on). THE DOOR THE ROWS LEAVE BY is the FILTERED REFETCH behind the 250 ms
+  debounce: `archive` puts an UPSERT on the wire — `Store.streamed` emits a
+  delete only for an id absent from the store afterwards, and adding `:ARCHIVE:`
+  leaves the row emitted under the same id — so an UNFILTERED client splices the
+  row straight back in and point does not move at all. `resync`'s repaint is the
+  only other, for a socket that was down while the write landed. All three call
+  `settled`, which ALWAYS SPENDS the anchor and lands it only where something is
+  owed: spending unconditionally is what keeps it describing ONE watch step,
+  where an anchor left armed would let a page turn and somebody else's edit
+  minutes later pull the cursor to a row this write had an opinion about. It
+  declines to land while `from` is still in the view, and on any page but the one
+  the anchor was taken on — `visible()` is ONE PAGE and can say nothing about a
+  row outside it. `spent(mine)` drops the anchor when the answer says `from` was
+  not archived (a refusal, and an archive over a set point is not in), keyed to
+  the anchor it answers for so an earlier archive's answer cannot disarm a later
+  one's, and deciding the anchor before `unmark`, which can throw on an asset
+  carrying half the mark calls. A `commit` and a `remount` drop it outright: an
+  anchor belongs to the view it was taken in.
+  THE CARVE: `fetchRows` takes the landing as an argument and the watch's refetch
+  passes `settled` where a commit passes nothing. A refetch is the view the
+  reader already had arriving again because a file moved, so it is not a new
+  question and lands nothing of its own — the renderer keeps the cursor and only
+  an armed anchor overrides it. Before this, ANY watch event under a filter took
+  a reader back to row one, which is the larger half of what this fixes.
+  `land` grew the fallback index that makes the three landings one function
+  (apply → row one, pop → the drill's row, archive → the anchor), so the
+  first-row rule is now the general rule's default rather than a case beside it.
+  What the anchor buys over the renderer's own `keepSelection` is the case where
+  rows went from ABOVE point too: that keeps the visual PLACE, which is a row
+  further down once they have gone, so it skips one. Its other branches — the
+  up-scan, the empty view, a point row that survives — agree with the anchor
+  exactly and are guaranteed twice, so nothing exercises the up-scan alone.
+  The shell harness grew the socket path to prove it: `frame:upsert=IDS` and
+  `frame:delete=IDS` deliver row frames through `socket.onmessage`, the page's
+  own door, and `unserved:IDS` drops rows out of what `/headlines` answers — an
+  archive being an upsert on the wire and an absence in the answer. The table
+  mount grew `upsertRow`/`deleteRow` and models `keepSelection` verbatim,
+  including its stale visual index, which is what makes the two halves separable
+  at all. Sixteen cases in `TestServe`'s "Shell landing".
+  KNOWN GAP, found reviewing the harness against the renderer and left alone as
+  a separate question: a freshly mounted table has NO selection. The renderer's
+  `selectFirstVisible` has one caller and it is the filter box handing over, so
+  `state.selected` is null until something selects — meaning `d`, `D` and `RET`
+  on a just-booted page say "no row" until the reader presses `n`. The harness
+  has always answered `getSelection` with row 0 of the page instead, so the
+  suite has never seen it; the divergence is now named in `keep`'s comment
+  rather than left for the next reader to rediscover.
 - The settings sheet's keywords panel is ONE select over ONE box. It showed a
   `<textarea>` per config layer, stacked in `#clayers`, and a tree has as many
   config files as it has tags — the stack was as tall as that number, so the

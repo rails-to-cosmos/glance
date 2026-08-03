@@ -358,7 +358,7 @@ spec = withResource (body <$> get assetsDir "/") (const (pure ())) $ \shell ->
     , pageSpec shell, keymapSpec shell
     , glueSpec shell, bootSpec shell, liveSpec shell, washSpec shell
     , paletteSpec shell
-    , moveSpec shell, sortKeySpec shell, markSpec shell
+    , moveSpec shell, sortKeySpec shell, markSpec shell, landingSpec shell
     , commandKeySpec shell, promptKeySpec shell, whichKeySpec shell, tagKeySpec shell
     , openKeySpec shell, agendaSpec shell, drillSpec shell, logSpec shell
     , sheetSpec shell
@@ -1071,6 +1071,216 @@ markSpec shell = testGroup "Shell marks"
         assertEqual "the last key said why"
                     "U → unmark-all (this table-view.js has no marks)"
                     =<< textAt "echo" answer
+  ]
+
+-- | Where point ends up after an archive takes its row out of the view.
+--
+-- The rows leave by one of two doors and both are driven here: an unfiltered
+-- client SPLICES the socket's row ops straight in, and a filtered one reads
+-- none of them and refetches.  The anchor is worked out at FIRE time, while the
+-- view still holds the rows about to go, and lands at whichever door they
+-- actually left by.
+--
+-- The other two landing rules are somebody else's cases and stay there: an
+-- applied view lands on row one (@moveSpec@, @drillSpec@) and a pop puts back
+-- the row its drill was launched from (@drillSpec@).  The one case here that
+-- touches them is the last, which pins that an applied view still lands on row
+-- one immediately after an anchor landed somewhere else.
+landingSpec :: IO T.Text -> TestTree
+landingSpec shell = testGroup "Shell landing"
+  [ -- dired's: the row point was standing on goes, and point goes to the one
+    -- after it.  Under a filter that means the refetch the frame scheduled,
+    -- which is where the rows leave for a filtered reader — and the frame the
+    -- server sent was an UPSERT, the row still being the store's.
+    testCase "an archived row mid-table lands point on the next surviving row" $
+      bootOf shell "" 500 "n d d" "unserved:r2 frame:upsert=r2 wait:300" $ \answer -> do
+        assertEqual "the row at point was archived"
+                    [("archive", ["r2"])] =<< postedOf answer
+        assertEqual "and point moved down one, not back to the top"
+                    (Just "r3") =<< maybeTextAt "selected" answer
+        assertEqual "which is where the row it was on had been" 1
+                    =<< intAt "cursor" answer
+        assertEqual "the rows came back over the wire, not off the frame"
+                    [] =<< textsAt "spliced" answer
+
+    -- Nothing below point to scan to, so the anchor walks back UP to the
+    -- nearest surviving row — the new last row, which is the landing a reader
+    -- deleting from the bottom of a buffer expects.  That branch always agrees
+    -- with the renderer's own keeping (point is past every survivor, so the
+    -- place it stood clamps to the same row), so what this pins is the outcome
+    -- rather than which of the two produced it.
+  , testCase "archiving the last row lands point on the new last" $
+      bootOf shell "" 500 "n n d d" "unserved:r3 frame:upsert=r3 wait:300" $ \answer -> do
+        assertEqual "the last row went" [("archive", ["r3"])] =<< postedOf answer
+        assertEqual "and point is on the one above it"
+                    (Just "r2") =<< maybeTextAt "selected" answer
+
+    -- THE CASE THE RENDERER'S OWN KEEPING GETS WRONG, and the reason the anchor
+    -- is taken at fire time at all.  Six rows, `r1' and `r4' flagged, point on
+    -- `r4': the next surviving row is `r5', but rows went from ABOVE point too,
+    -- so the visual PLACE point stood in — index 3 — is `r6' once they have
+    -- gone.  A landing that only knew where point had been would skip a row.
+  , testCase "the anchor is the next surviving row, not the place point stood" $
+      bootOf shell "" 500 ""
+             ("rows:6 press:d press:n press:n press:n press:d press:D"
+              <> " unserved:r1,r4 frame:upsert=r1 frame:upsert=r4 wait:300") $ \answer -> do
+        assertEqual "both flagged rows, in one request"
+                    [("archive", ["r1", "r4"])] =<< postedOf answer
+        assertEqual "and the flags are spent" [] =<< textsAt "flagged" answer
+        assertEqual "the row under the one that went, not the one two below it"
+                    (Just "r5") =<< maybeTextAt "selected" answer
+
+    -- And with point on a row that SURVIVES the set, nothing is owed: no
+    -- anchor is armed at all, so it stays exactly where it stood — which is what
+    -- "where point was" means when point did not have to move.
+  , testCase "a set archived from a surviving row leaves point on that row" $
+      bootOf shell "" 500 ""
+             ("rows:5 press:n press:d press:n press:n press:d press:p press:D"
+              <> " unserved:r2,r4 frame:upsert=r2 frame:upsert=r4 wait:300") $ \answer ->
+        assertEqual "the row point was on is still under it"
+                    (Just "r3") =<< maybeTextAt "selected" answer
+
+    -- And no anchor is left ARMED behind it either.  The anchor belongs to the
+    -- archive that took point's row away, so an archive that took some other
+    -- row must leave nothing lying in wait: when point's row later goes for
+    -- some unrelated reason, the renderer's own keeping is the whole rule.
+  , testCase "and arms nothing for a later removal to land on" $
+      bootOf shell "?q=" 500 ""
+             ("rows:6 press:d press:n press:n press:n press:d press:p press:D"
+              <> " frame:delete=r1,r4 frame:delete=r3") $ \answer ->
+        assertEqual "the row that took r3's place, not the archive's own anchor"
+                    (Just "r6") =<< maybeTextAt "selected" answer
+
+    -- A page where every row is leaving has nowhere to land, so the anchor is
+    -- nothing and the empty view selects nothing — which is what an applied
+    -- view with no rows in it already did, and what the renderer does when the
+    -- last row goes out from under the cursor.
+  , testCase "archiving every row leaves nothing selected" $
+      bootOf shell "" 500 "d n d n d"
+             ("press:d unserved:r1,r2,r3"
+              <> " frame:upsert=r1 frame:upsert=r2 frame:upsert=r3 wait:300") $ \answer -> do
+        assertEqual "all three went" [("archive", ["r1", "r2", "r3"])]
+          =<< postedOf answer
+        assertEqual "and there is no row to be on" Nothing
+          =<< maybeTextAt "selected" answer
+
+    -- THE CARVE.  A refetch the watch caused is the view the reader already
+    -- had, arriving again because a file moved: it lands nothing of its own, so
+    -- somebody else's edit no longer yanks a reader back to row one.  Only the
+    -- archive that took the rows away may override where the renderer kept the
+    -- cursor, and it says so by arming the anchor.
+  , testCase "a watch refetch under a filter leaves point where it was" $
+      bootOf shell "" 500 "n n" "frame:upsert=r1 wait:300" $ \answer -> do
+        assertEqual "the frame was re-asked for" 3 . length =<< listAt "paints" answer
+        assertEqual "and point did not move for it"
+                    (Just "r3") =<< maybeTextAt "selected" answer
+
+    -- A refused write moved no row, so the landing it armed goes with the marks
+    -- it did not spend: the row point was on is still there.  When it later
+    -- goes for some other reason the renderer's own keeping is the whole rule,
+    -- which lands on the row that took its PLACE rather than on the one the
+    -- archive would have picked.
+  , testCase "a refused archive arms no landing" $
+      bootOf shell "?q=" 500 ""
+             "refuse press:d press:n press:d press:p press:D frame:delete=r1" $ \answer ->
+        assertEqual "the row that took r1's place, not the anchor's r3"
+                    (Just "r2") =<< maybeTextAt "selected" answer
+
+    -- THE ANCHOR ITSELF VANISHING between the fire and the landing, which is
+    -- what the remembered PLACE is for: `r3' is archived from under point and
+    -- `r4', the row it was to land on, goes to somebody else's edit first.
+    -- `select' answers false for a row the view no longer holds, so the landing
+    -- falls through to where the anchor WOULD have been sitting once the
+    -- archived rows had gone — index 1 of what is left — rather than to row one.
+  , testCase "an anchor the view lost falls back to the place it would have had" $
+      bootOf shell "" 500 ""
+             ("rows:4 press:n press:d press:d unserved:r2,r3"
+              <> " frame:upsert=r2 wait:300") $ \answer -> do
+        assertEqual "the row point was on" [("archive", ["r2"])] =<< postedOf answer
+        assertEqual "the place, since the row it named is gone too"
+                    (Just "r4") =<< maybeTextAt "selected" answer
+
+    -- An archive is an UPSERT on the wire — `Store.streamed` emits a delete
+    -- only for an id that left the store, and archiving adds a tag to a row
+    -- that stays — so an unfiltered client keeps the row it just archived:
+    -- `/headlines` would not have served it, and the socket is not filtered.
+    -- Nothing left the view, so point does not move.
+  , testCase "an archived row an unfiltered client keeps does not move point" $
+      bootOf shell "?q=" 500 "n d d" "frame:upsert=r2" $ \answer -> do
+        assertEqual "the row was spliced back in" ["upsert r2"]
+          =<< textsAt "spliced" answer
+        assertEqual "and point is still on it" (Just "r2")
+          =<< maybeTextAt "selected" answer
+
+    -- Which is what the splice door is FOR: it cannot land an archive's anchor,
+    -- because the archive's own frames leave every row where it was — what it
+    -- does is SPEND it, so the anchor describes one watch step and no more.
+    -- Here the rows go later, for somebody else's reason, and the landing is
+    -- the renderer's own keeping (the visual place, `r6`) rather than the
+    -- archive's anchor (`r5`), which was spent when its own frames arrived.
+  , testCase "and its frames spend the anchor rather than landing it" $
+      bootOf shell "?q=" 500 ""
+             ("rows:6 press:d press:n press:n press:n press:d press:D"
+              <> " frame:upsert=r1 frame:upsert=r4 frame:delete=r1,r4") $ \answer -> do
+        assertEqual "the frames the archive itself caused, then the removals"
+                    [ "upsert r1", "upsert r4", "delete r1", "delete r4" ]
+                    =<< textsAt "spliced" answer
+        assertEqual "the renderer's place, the anchor having been spent"
+                    (Just "r6") =<< maybeTextAt "selected" answer
+
+    -- The carve reaches the WATCH's refetch and nothing else: an applied view
+    -- is a new question and still lands on row one, immediately after an anchor
+    -- landed somewhere else.
+  , testCase "an applied view still lands on row one after an anchor did not" $
+      bootOf shell "" 500 "n d d"
+             "unserved:r2 frame:upsert=r2 wait:300 press:g" $ \answer ->
+        assertEqual "g took the top of its answer" (Just "r1")
+          =<< maybeTextAt "selected" answer
+
+    -- An anchor belongs to the VIEW it was taken in, and a mount thrown away
+    -- takes it with it.  Reachable because an archive under NO filter leaves
+    -- its row on screen — the socket carries an upsert whatever the query — so
+    -- the anchor is still armed when `g' rebuilds the table.  Left standing, it
+    -- would fire on the next frame and pull the cursor off the row the new view
+    -- had just landed it on.
+  , testCase "a remount drops an anchor the archive never spent" $
+      bootOf shell "?q=" 500 "n d d" "press:g frame:delete=r2 wait:300" $ \answer ->
+        assertEqual "where g landed it, not where the old view's anchor pointed"
+                    (Just "r1") =<< maybeTextAt "selected" answer
+
+    -- `visible()` is ONE PAGE, so "the row point was on has left the view" is
+    -- only answerable about the page the anchor was taken on.  A reader who
+    -- turned a page between the write and its watch event would otherwise be
+    -- told every row of that page had gone, and be landed on the new page's
+    -- row `at`.
+  , testCase "an anchor is not landed on a page it was not taken on" $
+      bootOf shell "" 500 ""
+             ("rows:6 paged:3 press:n press:n press:d press:d press:] press:n"
+              <> " unserved:r3 frame:upsert=r3 wait:300") $ \answer -> do
+        assertEqual "the row point was on" [("archive", ["r3"])] =<< postedOf answer
+        assertEqual "still on the page it walked to" 2 =<< intAt "page" answer
+        assertEqual "and on the row it walked to, not the other page's anchor"
+                    (Just "r5") =<< maybeTextAt "selected" answer
+
+    -- The third road the same rows can arrive without them: a socket that was
+    -- down while the write landed, and a reconnect whose answer is the first
+    -- this page has seen since.  `resync` repaints the same view, so it settles
+    -- the anchor exactly as the watch's own refetch would have.
+  , testCase "a reconnect's repaint lands the anchor too" $
+      bootOf shell "" 500 ""
+             ("rows:6 press:d press:n press:n press:n press:d press:D"
+              <> " unserved:r1,r4 close:resync") $ \answer ->
+        assertEqual "the next surviving row, not the renderer's place"
+                    (Just "r5") =<< maybeTextAt "selected" answer
+
+    -- And the other door that replaces a view without rebuilding the mount: a
+    -- COMMIT.  `^` writes its chain into the query, which is a commit like any
+    -- other, so the anchor taken under the query being left goes with it.
+  , testCase "and so does a commit, which replaces the view without a remount" $
+      bootOf shell "?q=" 500 "n d d"
+             "press:f press:^ frame:delete=r2 wait:300" $ \answer ->
+        assertEqual "where the commit landed it, not the old view's anchor"
+                    (Just "r1") =<< maybeTextAt "selected" answer
   ]
 
 -- | The two structured commands, driven through the keys a reader presses.
@@ -3940,8 +4150,10 @@ shellGlue =
       [ "new WebSocket(", "/ws?bootstrap=off", "table.setRows("
       , "\"upsert-row\"", "table.upsertRow(", "\"delete-row\"", "table.deleteRow("
       -- Under a filter the rows are the server's answer to a query, so a row
-      -- frame is re-asked for rather than spliced into them.
-      , "setTimeout(fetchRows, 250)" ]
+      -- frame is re-asked for rather than spliced into them — and the refetch
+      -- lands the archive's anchor rather than the first row every other
+      -- caller of `fetchRows' takes.
+      , "setTimeout(() => fetchRows(settled), 250)" ]
       ["\"set-rows\""]
 
   -- A close costs rows; only the columns moving costs the mount.  The
@@ -3955,7 +4167,7 @@ shellGlue =
       , "function resync() {"
       , "if (!table) { start(); return; }"
       , "load(asking(asked), etag)"
-      , "if (a.view && query === asked) paint(a);"
+      , "if (a.view && query === asked) { paint(a); settled(); }"
       , "listen();"
       , "setTimeout(resync,", "Math.min(backoff * 2, 30000)"
       -- The revalidation is this page's, not the browser cache's, so the 304
@@ -3977,7 +4189,7 @@ shellGlue =
   -- so a file that moved underneath opens the conflict flow instead of being
   -- overwritten by the restore.
   , glue "a real remount carries the sheet and the palette across it"
-      [ "function remount(after) { stash(); start(after); }"
+      [ "function remount(after) { leaving = null; stash(); start(after); }"
       , "function stash() {"
       , "sheet: editing && dirty()"
       , "? { id: editing.id, raw, text: el(\"mtext\").value, props: props(),"

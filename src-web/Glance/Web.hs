@@ -2585,6 +2585,13 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    // with, the fetch still in flight for it, and the timer that re-asks"
   , "    // when a row frame lands while one is on."
   , "    let query = \"\", inflight = null, requeryAt = 0;"
+    -- WHERE POINT GOES WHEN AN ARCHIVE TAKES ITS ROW AWAY.  Armed at fire time,
+    -- because that is the last moment the view still holds the rows about to
+    -- leave, and spent when they have left — which is the only moment it means
+    -- anything.  `from' is the row point was standing on, `id' the row to land
+    -- on and `at' its place among the survivors.  Null whenever point was NOT
+    -- on a leaving row, since nothing is owed then.
+  , "    let leaving = null;"
   , "    // The tag the last answer carried, which is what makes a reconnect"
   , "    // cheap: an unmoved store answers the revalidation 304 and no rows"
   , "    // cross the wire at all."
@@ -2779,28 +2786,32 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- crumb's row.
   , "    let crumbSels = [];"
   , "    const selsFit = () => crumbSels.length === trail().length;"
-    -- Where an applied view lands the cursor.  ONE rule, at one door: a POP puts
-    -- back the row its drill was launched from, and every other application —
-    -- a palette commit, `g', `a', `@' — lands on the FIRST row of the answer.
-    -- An empty answer selects nothing, which is what it did before.
+    -- Where a landing puts the cursor.  ONE function, three rules, and they
+    -- differ only in what they ask for: an APPLIED view — a palette commit,
+    -- `g', `a', `@' — asks for nothing and takes the FIRST row of the answer; a
+    -- POP asks for the row its drill was launched from; an ARCHIVE asks for the
+    -- row after the ones it took away, at the place they left.  An empty answer
+    -- selects nothing, whichever asked.
     --
     -- `select' answers false for a row the view no longer holds, so a
     -- remembered row that an edit or a narrower filter took away falls through
-    -- to the same first-row landing rather than being forced back.
+    -- to AT — index 0 for the two callers that name none, which is the
+    -- first-row landing spelled as the general rule rather than beside it.
     -- The COLUMN rides across either landing: a commit repaints the same mount,
     -- so the cell the reader was reading in is still there to land in — and `^',
     -- which is a commit now, would otherwise take the selection it needs away
     -- from the next press of itself.  After a REMOUNT there is no column to
     -- keep and `column()' answers null, which is the whole-row look this landed
     -- on before.
-  , "    function land(sel) {"
+  , "    function land(sel, back) {"
   , "      if (!table || typeof table.select !== \"function\") return;"
   , "      const rows = visible();"
   , "      if (!rows.length) return;"
   , "      if (sel && sel.id"
   , "          && table.select(sel.id, sel.col === null ? undefined : sel.col)) return;"
   , "      const at = column();"
-  , "      table.select(rows[0].id, at === null ? undefined : at);"
+  , "      const i = Math.max(0, Math.min(back || 0, rows.length - 1));"
+  , "      table.select(rows[i].id, at === null ? undefined : at);"
   , "    }"
     -- A row as the `ref:' token naming it.  The value is quoted where the id
     -- carries a token separator: the fallback row id is `PATH#K' and a path may
@@ -2856,19 +2867,30 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    // be answered 304 against rows answering some other question."
   , "    const asking = (q) => (q ? `?q=${encodeURIComponent(q)}` : \"\");"
   , "    // One place asks the server for rows: `query' is already what to ask."
-      -- A commit REPAINTS rather than remounting, so the cursor would otherwise
-      -- stay wherever it was — on a row the new answer may not hold.  The same
-      -- landing rule `applyView' uses closes that: the first row of what came
-      -- back, and nothing when nothing did.
-  , "    const fetchRows = () =>"
+      -- A COMMIT is a new question, so the cursor has no claim on the answer:
+      -- it REPAINTS rather than remounting and would otherwise stay wherever it
+      -- was, on a row the new answer may not hold, so it takes the same
+      -- first-row landing `applyView' gives every applied view.
+      --
+      -- A REFETCH THE WATCH CAUSED is the view the reader already had, arriving
+      -- again because a file moved.  Nothing about it is a new question, so it
+      -- lands nothing of its own: the renderer keeps the cursor where it was —
+      -- on its row while that row is still there, else at the same visual place
+      -- — and the only thing that may override that is the archive that took
+      -- the rows away, which says so by arming `leaving'.  That carve is what
+      -- stops somebody else's edit yanking a reader back to row one.
+  , "    const fetchRows = (landing) =>"
   , "      viewing(load(asking(query)))"
-  , "        .then((a) => { if (table) { paint(a); land(null); } })"
+  , "        .then((a) => { if (!table) return;"
+  , "                       paint(a);"
+  , "                       if (landing) landing(); else land(null); })"
   , "        .catch(quiet);"
   , "    // A commit is the moment a NEW query goes to the server — a settled"
   , "    // debounce, a committed token, an accepted completion."
   , "    function commit(q) {"
   , "      if (q === query) return;"
   , "      query = q;"
+  , "      leaving = null;   // the anchor belonged to the view being left"
   , "      remember(q);"
   , "      fetchRows();"
   , "    }"
@@ -3528,6 +3550,10 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- same at a stop as at a turn.
   , "    const pager = () => !!table && typeof table.nextPage === \"function\""
   , "      && typeof table.pageInfo === \"function\";"
+    -- WHICH page is showing, 1 for an asset with no pages: `visible()' is one
+    -- page's worth, so anything asking what the view still holds has to know
+    -- which page it asked about.
+  , "    const pageNow = () => (pager() ? table.pageInfo().page : 1);"
     -- The sort, which is `^''s alone now: an ORDER IS A QUERY, so the agenda
     -- states its own by carrying a `sort:' token and no page here calls
     -- `sortBy'.  Named with the rest of the optional calls, since this is where
@@ -3776,6 +3802,75 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      for (const x of results || [])"
   , "        if (x.ok && isMarked(x.id)) table.toggleMark(x.id);"
   , "    }"
+    -- WHERE POINT GOES AFTER AN ARCHIVE: THE NEXT SURVIVING ROW.  Worked out
+    -- from POINT rather than from the set — down the page for the first row not
+    -- leaving, and only failing that back UP it for the nearest one — because
+    -- what a reader is owed is the row that takes the place of the one they were
+    -- standing on, and a scattered set says nothing about that.  Nothing at all
+    -- where every row on the page is leaving: an empty view has nowhere to land.
+    --
+    -- The UP half always agrees with the renderer's own keeping, which clamps to
+    -- the last surviving row — nothing survives below point, so point is past
+    -- every survivor and the place it stood clamps to the same row.  Nothing can
+    -- exercise it alone; it is here so the rule is one sentence and does not
+    -- rest on another component for half of itself.
+    --
+    -- Taken HERE, at fire time, because by the time the rows have gone the
+    -- answer is unrecoverable: the gap they left is exactly what a later read
+    -- cannot see, which is why the renderer's own keeping falls back to the
+    -- visual PLACE and can land past a run of rows that went from under point.
+    --
+    -- WHETHER anything is owed is not decided here.  This says where point WOULD
+    -- go; `settled' fires only once the row it was on has actually left the
+    -- view, and `spent' drops the whole thing when the answer says that row was
+    -- not archived — so an archive over a set point is not IN owes nothing and
+    -- costs nothing, without a third statement of the same rule at this end.
+    --
+    -- `at' is the anchor's place among the rows that SURVIVE, which is where it
+    -- will be sitting once they go — the fallback for the anchor itself
+    -- vanishing between the fire and the landing.
+  , "    function anchorFor(ids) {"
+  , "      const rows = visible(), going = (id) => ids.indexOf(id) !== -1;"
+  , "      const from = focusedId();"
+  , "      const here = from ? rows.findIndex((r) => r.id === from) : -1;"
+  , "      if (here === -1) return null;"
+      -- The PAGE it was taken on.  `visible()' is one page, so "the row point
+      -- was on has left the view" is only answerable about the page it was on:
+      -- a reader who turned a page between the write and its watch event would
+      -- otherwise be told every row of it had gone.
+  , "      const on = pageNow();"
+  , "      let want = null;"
+  , "      for (let i = here + 1; want === null && i < rows.length; i += 1)"
+  , "        if (!going(rows[i].id)) want = rows[i];"
+  , "      for (let i = here - 1; want === null && i >= 0; i -= 1)"
+  , "        if (!going(rows[i].id)) want = rows[i];"
+  , "      if (want === null) return null;"
+  , "      return { from, on, id: want.id,"
+  , "               at: rows.filter((r) => !going(r.id)).indexOf(want) };"
+  , "    }"
+    -- And the landing, run at every door the archive's rows can reach the view
+    -- through: the filtered REFETCH, which is the one they actually leave by;
+    -- the unfiltered SPLICE, which for an archive re-sends the row rather than
+    -- removing it (the tag moved, the headline did not) but is what a row
+    -- leaving over the socket would come through; and the repaint a reconnect
+    -- costs, which is the same rows arriving by a third road.
+    --
+    -- IT IS ALWAYS SPENT, and lands only where there is something to land: the
+    -- anchor describes ONE watch step and must not outlive it, or a page turn
+    -- and somebody else's edit later would pull the cursor to a row this write
+    -- had an opinion about long ago.  Nothing to land in two cases — the row
+    -- point was standing on is still there (an unfiltered client keeps it, and
+    -- so does a `tag:*archive*' query that still matches it), and the page
+    -- showing is not the page the anchor was taken on, where `visible()' can
+    -- say nothing about whether that row is still in the view.
+  , "    function settled() {"
+  , "      const want = leaving;"
+  , "      leaving = null;"
+  , "      if (!want || !table) return;"
+  , "      if (pageNow() !== want.on) return;"
+  , "      if (visible().some((r) => r.id === want.from)) return;"
+  , "      land({ id: want.id, col: column() }, want.at);"
+  , "    }"
     -- Archiving: ONE implementation, reached by both keys.  The tag goes on, the
     -- headline stays, and the default view stops showing it.  It runs over the
     -- FLAGGED set when there is one and the row at point otherwise, and never
@@ -3802,18 +3897,37 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- wrote a `cmd error' line.  It is reachable: `marking()' feature-detects
     -- `toggleMark' alone while `isMarked' also calls `getMarked', so an asset
     -- carrying one and not the other throws here.
+    -- A refused write moved no row, so the landing it armed is dropped with the
+    -- marks it did not spend: the rows are all still there and point is still
+    -- on one of them.  Both are what the ANSWER says rather than what the
+    -- request asked for, which is why they are folded in one place.
+    --
+    -- MINE is the anchor this answer is about, and it is compared rather than
+    -- assumed: two archives can be out at once, and an earlier answer naming
+    -- none of the later one's rows would otherwise disarm it.  The anchor is
+    -- decided BEFORE the marks, since `unmark' can throw on an asset carrying
+    -- half the mark calls and would leave a landed write still armed.
+  , "    const spent = (mine) => (results) => {"
+  , "      if (mine && leaving === mine"
+  , "          && !(results || []).some((x) => x.ok && x.id === mine.from))"
+  , "        leaving = null;"
+  , "      unmark(results);"
+  , "    };"
   , "    function archive(b) {"
   , "      const flags = flagging() ? table.getFlagged() : [];"
   , "      if (flags.length) {"
+  , "        leaving = anchorFor(flags);"
   , "        table.clearFlags();"
   , "        fire(b, \"archive\", flags, {}, \"archived\", (n) => `${n} flagged`)"
-  , "          .then(unmark).catch(failed(b, \"archive\"));"
+  , "          .then(spent(leaving)).catch(failed(b, \"archive\"));"
   , "        return;"
   , "      }"
   , "      const id = focusedId();"
-  , "      if (id)"
+  , "      if (id) {"
+  , "        leaving = anchorFor([id]);"
   , "        fire(b, \"archive\", [id], {}, \"archived\", (n) => (n ? \"row\" : n))"
-  , "          .then(unmark).catch(failed(b, \"archive\"));"
+  , "          .then(spent(leaving)).catch(failed(b, \"archive\"));"
+  , "      }"
   , "      else said(b, \"no row\");"
   , "    }"
     -- Capture: the one write that names no row, so it takes none of the
@@ -4982,7 +5096,12 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "    // The one door that throws the mount away and builds a new one: a"
   , "    // `view-changed' close, and `g'.  Everything else that loses the socket"
   , "    // goes through `resync', which keeps the page it has."
-  , "    function remount(after) { stash(); start(after); }"
+      -- An archive's anchor belongs to the VIEW it was taken in, and both doors
+      -- that replace one drop it: a mount thrown away here, and a new query in
+      -- `commit'.  Without that, an anchor still armed when a `view-changed'
+      -- close or `g' rebuilt the table would fire on the next socket frame and
+      -- pull the cursor off the row the new view had just landed it on.
+  , "    function remount(after) { leaving = null; stash(); start(after); }"
     -- `g': the view this tree configures, applied the way every other query is
     -- — written into the URL and asked of the server.  It goes through the
     -- mount because the chips are the renderer's and only a mount can be handed
@@ -5629,10 +5748,20 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      if (!table) return;"
   , "      // Under a filter the loaded rows are the server's answer to a query,"
   , "      // and only it knows whether the changed row still matches: ask again."
+      -- The refetch is where the rows leave for a filtered client, so it is the
+      -- refetch that has to land the archive's anchor — hence `settled' rather
+      -- than the first-row landing every other caller of `fetchRows' takes.
   , "      if (query) return void (clearTimeout(requeryAt),"
-  , "        requeryAt = setTimeout(fetchRows, 250));"
+  , "        requeryAt = setTimeout(() => fetchRows(settled), 250));"
   , "      if (frame.op === \"upsert-row\") table.upsertRow(frame.row);"
   , "      else if (frame.op === \"delete-row\") table.deleteRow(frame.id);"
+      -- And the splice is where they leave for an unfiltered one.  The renderer
+      -- has already kept the cursor by the time this runs — on its row while
+      -- that row is there, else at the same visual place — so this only ever
+      -- overrides that with the anchor, and only for the frame that takes
+      -- point's own row out.
+  , "      else return;"
+  , "      settled();"
   , "    }"
   , "    function listen() {"
   , "      const scheme = location.protocol === \"https:\" ? \"wss\" : \"ws\";"
@@ -5672,7 +5801,10 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "        // this page was away had no socket to send `view-changed' down, and"
   , "        // its columns can still have moved."
   , "        if (a.view && !sameColumns(a.view.columns || [])) { remount(); return; }"
-  , "        if (a.view && query === asked) paint(a);"
+      -- A repaint of the SAME view is a third road the archive's rows can leave
+      -- by: the write landed while the socket was down and the reconnect's
+      -- answer is the first the page has seen without them.
+  , "        if (a.view && query === asked) { paint(a); settled(); }"
   , "        backoff = 1000;"
   , "        listen();"
   , "        append(\"ws\", \"info\", a.view ? \"reconnected · rows refreshed\" : \"reconnected\");"

@@ -22,6 +22,12 @@
 //                 been opened for editing first — a closed one has no fields
 //   pval:I=TEXT   TEXT typed into property row I's value field, likewise
 //   filter:TEXT   TEXT typed into the raised palette
+//   frame:OP=IDS  row frames delivered down the LIVE SOCKET, the way the
+//                 watcher delivers them — `frame:upsert=r1' re-sends a row that
+//                 moved, `frame:delete=r1,r2' says two are gone and the served
+//                 set loses them
+//   unserved:IDS  the applied query stops matching IDS: /headlines answers
+//                 without them and the tag steps, the rows staying the store's
 //   moved         the store moves: a new ETag, and a row more to fetch
 //   recolumn      the store moves and its columns move with it
 //   rewritten     the file behind the open sheet moves: a new digest
@@ -84,6 +90,12 @@ const tags = [];
 // one-row store cannot tell marking from advancing.
 let rows = ["one", "two", "three"].map((title, i) =>
   ({ id: `r${i + 1}`, cells: { state: "TODO", title, tag: ":web:" } }));
+// The rows the APPLIED QUERY no longer matches: still the store's — the socket
+// carries a row op whatever the client asked for — and out of what /headlines
+// answers, which is what an archived row looks like to a client filtered to the
+// active ones.  `unserved' moves them here and a frame can still be built from
+// one afterwards.
+let hidden = [];
 // The state column carries its badge palette, which is where the value palette
 // C-c C-t raises reads its COLOURS — the keywords themselves are /keywords'
 // answer, and a keyword no badge names simply carries no hue.
@@ -381,6 +393,11 @@ let tmounts = 0, tsets = 0;
 // a view painted before its answer is two, so what a reader would have seen
 // flash is what this reads out.
 const paints = [];
+// And every row op the shell SPLICED into the table rather than refetching for,
+// as `OP ID' in order — the unfiltered half of what a socket frame costs.  A
+// shell that landed on the right row without ever splicing reads the same off
+// the rows alone, so the calls are recorded as well as their effect.
+const spliced = [];
 // The last programmatic sort asked of a handle, which is the whole of what the
 // agenda's own ordering can be observed to have done — and HOW MANY have been
 // asked for, which is what says a sort was left alone: the renderer keeps its
@@ -452,16 +469,70 @@ const makeMount = (host, view, options, own) => {
     // The page size is the mount's, the way the real one takes it, so a script
     // that never asks for pages gets the one the shell always requests.
     pageSize: o.pageSize || 0,
-    cursor: 0, selCol: null, pageAt: 0,
+    // WHERE THE CURSOR IS, in the two terms the renderer keeps it in: the visual
+    // place, and the row that was standing there.  Both, because rows go away
+    // under a mount — spliced out by a frame, dropped by an answer — and the
+    // real one's `keepSelection' keeps the ROW while it is still on the page and
+    // falls back to the PLACE, clamped, when it is not.
+    cursor: 0, rowId: null, selCol: null, pageAt: 0,
     marks: new Set(), flags: new Set(), crumbs: [],
   };
   /** Every row this mount holds: its own, or the store's. */
   const all = () => (m.own ? m.own : rows);
-  /** The rows on show: one page's worth, or the whole set when there are none. */
-  const onPage = () =>
-    (m.pageSize ? all().slice(m.pageAt * m.pageSize, (m.pageAt + 1) * m.pageSize) : all());
   const pageMax = () =>
     (m.pageSize ? Math.max(1, Math.ceil(all().length / m.pageSize)) : 1);
+  /** The rows on show: one page's worth, or the whole set when there are none.
+   * The page is CLAMPED rather than reset, the way the renderer clamps it, so a
+   * set that shrank out from under the last page shows the new last one. */
+  const onPage = () => {
+    if (!m.pageSize) return all();
+    m.pageAt = Math.max(0, Math.min(m.pageAt, pageMax() - 1));
+    return all().slice(m.pageAt * m.pageSize, (m.pageAt + 1) * m.pageSize);
+  };
+  /**
+   * `keepSelection' verbatim, and the reason the pair above is kept rather than
+   * an index alone: a row still on the page keeps the cursor whatever moved
+   * around it, and one that went takes its PLACE with it, clamped.  The place
+   * is the last index something explicitly landed on — it is deliberately NOT
+   * re-derived while the row is still there, which is what makes a run of rows
+   * going from ABOVE point land the fallback lower than the row point was on.
+   * Called wherever the real one renders with the rows moved: `setRows' and the
+   * two frame ops.
+   */
+  // ONE KNOWN DIVERGENCE, and it is older than this function: the real one
+  // opens `if (state.selected === null) return;', so a mount nothing has
+  // selected in has NO selection — the renderer's `selectFirstVisible' has one
+  // caller and it is the filter box handing over.  This stub has always
+  // answered `getSelection' with row 0 of the page instead, and the suite rests
+  // on it.  Stated here rather than fixed, since fixing it is a question about
+  // the PAGE (a booted table with no row under the keys) rather than about this
+  // file.  Everything below the guard is `keepSelection' line for line.
+  const keep = () => {
+    const on = onPage();
+    // Emptied: the row, the column and the PLACE all go, and the place going is
+    // what makes the next set land on row 0 rather than where this one stood.
+    if (!on.length) { m.rowId = null; m.selCol = null; m.cursor = -1; return; }
+    if (on[m.cursor] && on[m.cursor].id === m.rowId) return;
+    if (on.some((r) => r.id === m.rowId)) return;
+    m.cursor = Math.max(0, Math.min(m.cursor, on.length - 1));
+    m.rowId = on[m.cursor].id;
+  };
+  /** Where the cursor sits now — `indexOfSelected', falling back to the clamp
+   * for the one state the real one cannot be in: rows moved by an ACT, which
+   * the store shares with this mount and no call announces. */
+  const held = () => {
+    const on = onPage();
+    if (!on.length) return 0;
+    if (on[m.cursor] && on[m.cursor].id === m.rowId) return m.cursor;
+    const i = m.rowId ? on.findIndex((r) => r.id === m.rowId) : -1;
+    return i !== -1 ? i : Math.max(0, Math.min(m.cursor, on.length - 1));
+  };
+  /** Put the cursor on index I of the page in hand, remembering the row. */
+  const sit = (i) => {
+    const on = onPage();
+    m.cursor = on.length ? Math.max(0, Math.min(i, on.length - 1)) : 0;
+    m.rowId = on.length ? on[m.cursor].id : null;
+  };
   /**
    * Turn to page TO, counting from zero, landing the cursor on the end it
    * arrives at — FIRST says which.  The column rides across untouched, which is
@@ -472,10 +543,12 @@ const makeMount = (host, view, options, own) => {
     const at = Math.max(0, Math.min(pageMax() - 1, to));
     if (at === m.pageAt) return false;
     m.pageAt = at;
-    m.cursor = first ? 0 : Math.max(0, onPage().length - 1);
+    sit(first ? 0 : onPage().length - 1);
     return true;
   };
   m.onPage = onPage;
+  m.at = held;
+  m.sit = sit;
   m.handle = {
     // The root the mount drew into, which the real handle publishes and the
     // sheet's edit overlay reads a row's box through.  Nothing here has a
@@ -484,14 +557,35 @@ const makeMount = (host, view, options, own) => {
     el: host || { querySelector: () => null },
     // The table's `setRows' is a count: its rows are the store's and an act is
     // what moves them.  The panel's are the shell's model, and the whole of what
-    // the panel shows, so that instance keeps them — and CLAMPS its cursor the
-    // way the real one does when rows go away under it.
+    // the panel shows, so that instance keeps them.  Either way the cursor is
+    // kept the way the real one keeps it — `renderRows' runs `keepSelection'
+    // first, whatever the rows were handed to it.
     setRows: (list) => {
       if (m.own) {
         m.own = (list || []).slice();
-        m.cursor = Math.max(0, Math.min(m.cursor, m.own.length - 1));
         if (m === tgs) tsets += 1; else if (m === pan) psets += 1;
       } else { sets += 1; paints.push((list || []).length); }
+      keep();
+    },
+    // The row ops a socket frame carries, which is the whole of what an
+    // unfiltered client applies without asking the server again.  The table's
+    // rows ARE the store's, so these move the store; `keep' is what holds the
+    // cursor afterwards, which is the renderer's own `keepSelection'.
+    // Recorded, because a shell that landed the right row without ever splicing
+    // would read the same off the rows alone.
+    upsertRow: (row) => {
+      spliced.push(`upsert ${row.id}`);
+      const list = all(), at = list.findIndex((r) => r.id === row.id);
+      if (at === -1) list.push(row); else list[at] = row;
+      keep();
+    },
+    deleteRow: (id) => {
+      spliced.push(`delete ${id}`);
+      const list = all(), at = list.findIndex((r) => r.id === id);
+      if (at !== -1) list.splice(at, 1);
+      m.marks.delete(id);   // the row is gone; a mark on it would outlive it
+      m.flags.delete(id);
+      keep();
     },
     getQuery: () => m.held,
     stripLastToken: () => {
@@ -503,14 +597,15 @@ const makeMount = (host, view, options, own) => {
     // the row id back out of here to materialize one.
     getSelection: () => {
       const on = onPage();
-      return { id: on.length ? on[m.cursor].id : null, col: m.selCol };
+      return { id: on.length ? on[held()].id : null, col: m.selCol };
     },
     getVisible: () => onPage(),
     // Clamped, never wrapped, and false at the end — which is what tells the
     // shell that a mark on the last row has nowhere to walk to.
     selectStep: (step) => {
-      if (m.cursor + step < 0 || m.cursor + step >= onPage().length) return false;
-      m.cursor += step;
+      const to = held() + step;
+      if (to < 0 || to >= onPage().length) return false;
+      sit(to);
       return true;
     },
     // A row of the page in hand, and the column to land in.  Null is a
@@ -521,7 +616,7 @@ const makeMount = (host, view, options, own) => {
     select: (id, col) => {
       const at = onPage().findIndex((r) => r.id === id);
       if (at === -1) return false;
-      m.cursor = at;
+      sit(at);
       m.selCol = cellCol(m.cols, col);
       return true;
     },
@@ -895,7 +990,7 @@ const typeLink = (which, text) => {
 const cellsOf = (inst, keys) =>
   (inst ? inst.own.map((r) => keys.map((k) => r.cells[k])) : []);
 /** Which row wears INST's cursor, and -1 when there is no such mount yet. */
-const curOf = (inst) => (inst && inst.own.length ? inst.cursor : -1);
+const curOf = (inst) => (inst && inst.own.length ? inst.at() : -1);
 /** The property panel: a [key, value] pair per row. */
 const panel = () => cellsOf(pan, ["key", "value"]);
 const patAt = () => curOf(pan);
@@ -1037,6 +1132,53 @@ const ACTIONS = {
     served += 1;
   },
   recolumn: () => { step(); columns = columns.concat([{ key: "deadline" }]); },
+  // ROW FRAMES, delivered down the LIVE SOCKET the way the watcher delivers
+  // them: `socket.onmessage' is the page's own door and this is the only way
+  // in, so what a frame reaches is the shell's real handling of one.
+  // `frame:upsert=r1' re-sends a row that moved — which is what an ARCHIVE puts
+  // on the wire, the row still being the store's — and `frame:delete=r1,r2'
+  // says two rows are gone, so the served set loses them with the frame.
+  // An unfiltered client splices these straight in; a filtered one reads none
+  // of them and refetches, which is what `unserved' is for.
+  frame: (arg) => {
+    const at = arg.indexOf("=");
+    const op = at === -1 ? arg : arg.slice(0, at);
+    if (op !== "upsert" && op !== "delete")
+      throw new Error(`no such frame op: ${arg}`);
+    if (!socket || !socket.onmessage)
+      throw new Error(`no socket to carry a frame: frame:${arg}`);
+    for (const id of (at === -1 ? "" : arg.slice(at + 1)).split(",").filter(Boolean)) {
+      if (op === "delete") {
+        // The frame FIRST, so an unfiltered client's own `deleteRow' is what
+        // takes the row out and a shell that ignored the frame is visible in
+        // what is left.  The store loses it either way: a `delete-row' IS the
+        // store having lost it, and a filtered client never splices.
+        socket.onmessage({ data: JSON.stringify({ op: "delete-row", id }) });
+        rows = rows.filter((r) => r.id !== id);
+        served -= 1;
+        step();
+        continue;
+      }
+      const row = rows.concat(hidden).find((r) => r.id === id);
+      if (!row) throw new Error(`no such row to upsert: ${id}`);
+      step();   // a frame is a store that moved, so the tag moves with it
+      socket.onmessage({ data: JSON.stringify({ op: "upsert-row", row }) });
+    }
+  },
+  // The applied query stops matching IDS: /headlines answers without them and
+  // the tag steps, so a revalidation comes back with rows rather than a 304.
+  // It describes an APPLIED QUERY, so pairing it with an unfiltered boot means
+  // nothing — an unfiltered client splices a frame back in and undoes it.
+  // The rows themselves stay the store's, which is what lets a frame still
+  // carry one — an archive is an upsert on the wire and an absence in the
+  // answer, and this is the second half.
+  unserved: (arg) => {
+    const ids = arg.split(",").filter(Boolean);
+    hidden = hidden.concat(rows.filter((r) => ids.indexOf(r.id) !== -1));
+    rows = rows.filter((r) => ids.indexOf(r.id) === -1);
+    served -= ids.length;
+    step();
+  },
   rewritten: () => { digest = "d1"; },
   press: (key) => press(key),
   // A MOUSE CLICK landing on another row of a modal mount, which is the ONE
@@ -1054,7 +1196,7 @@ const ACTIONS = {
     const i = Number(at);
     if (!(i >= 0 && i < m.own.length))
       throw new Error(`no row ${at} to click in the mount`);
-    m.cursor = i;
+    m.sit(i);
   },
   // The settings sheet's theme select, driven the way a reader drives it: focus
   // it, pick a theme, and let the change event fire.  What it is here to show is
@@ -1175,10 +1317,10 @@ const ACTIONS = {
   rows: (n) => {
     rows = Array.from({ length: Number(n) }, (_x, i) =>
       ({ id: `r${i + 1}`, cells: { state: "TODO", title: `row ${i + 1}`, tag: ":web:" } }));
-    main.cursor = 0;
     main.pageAt = 0;
+    main.sit(0);
   },
-  paged: (n) => { main.pageSize = Number(n); main.cursor = 0; main.pageAt = 0; },
+  paged: (n) => { main.pageSize = Number(n); main.pageAt = 0; main.sit(0); },
   // N distinct lines through the page's own `append': the glue is eval'd into
   // this scope, so its functions are reachable from here.  The ring holds five
   // hundred and nothing a key presses writes them faster than one at a time, so
@@ -1240,8 +1382,8 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     // it is on at the end.  A page that was never dimmed reports neither.
     washed, stale: root.classList.contains("stale"),
     // And every row count the table was handed, which is what says whether a
-    // view arrived in one piece.
-    paints,
+    // view arrived in one piece, plus every row op it spliced in without one.
+    paints, spliced,
     sheet: field("mtext").value, state: field("mnote").className,
     modal: field("modal").className,
     palette: field("filter").value,
@@ -1268,10 +1410,10 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     // The renderer's side of marking, and the last thing the echo pill said —
     // which is where a key that could not do what it was asked reports it.
     marksOn: main.marksOn, hintsOn: main.hintsOn, flagHelp: main.flagHelp,
-    marked: [...main.marks], flagged: [...main.flags], cursor: main.cursor,
+    marked: [...main.marks], flagged: [...main.flags], cursor: main.at(),
     // Where the cursor is in terms a page-local index cannot give: the row it
     // sits on, the column it is in, and the page it is reading.
-    selected: main.onPage().length ? main.onPage()[main.cursor].id : null,
+    selected: main.onPage().length ? main.onPage()[main.at()].id : null,
     col: main.selCol,
     page: main.pageAt + 1,
     echo: field("echo").textContent,
