@@ -308,11 +308,31 @@ plannedSpec = testGroup "Planned"
       matches "state:*inactive* -planned:*empty*" []
       matches "-planned:2026-08" [Plain, Drop, Schema]
 
-  , testCase "a tree tagged :planned: cannot take the key away" $
-      -- There is nothing left to shadow: a tag is not a key, so the only
-      -- reading of the token is the date one.
+    -- NO TREE CAN TAKE THE KEY AWAY, and the reason is structural rather than
+    -- scenario-shaped: key resolution is 'fieldOf' over a CLOSED list, so a tag
+    -- named `planned' is not a key and has nothing to shadow.  What is asserted
+    -- is that closure — every key a query can name, enumerated — since a
+    -- resolution assertion alone repeats the case above it, and a comparison of
+    -- two environments would pass whatever the tree carried ('storeEnv' answers
+    -- `ref:' and nothing else, so it holds no tag for a tree to reach).
+  , testCase "no tree can take the key away, the keys being a closed list" $ do
       assertEqual "still the date key" [Term False (Just "planned") "*empty*"]
                   (parsed "planned:*empty*")
+      records <- qrRecords <$> loadDir viewDir
+      -- The fixture DOES carry tags, and not one of them is a key: every token
+      -- `TAG:x' over them comes back as free text.
+      let carried = vocabularyOf records
+      assertBool "the fixture carries tags to offer" (length carried >= 2)
+      assertEqual "and no tag the tree carries is a key" []
+                  [ tag | tag <- carried
+                        , Term _neg key _v <- parsed (tag <> ":x")
+                        , key /= Nothing ]
+      -- The whole vocabulary a query may name, so a key added or lost fails
+      -- here rather than being noticed by a reader typing one.
+      assertEqual "the keys are exactly the columns plus the four the grammar owns"
+                  (sort (filterKeys <> [plannedKey, refKey, sortKey]))
+                  (sort [ k | k <- filterKeys <> [plannedKey, refKey, sortKey]
+                            , Term _n (Just k') _v <- parsed (k <> ":x"), k' == k ])
   ]
 
 -- | The ORDER token: @sort:COL@, @sort:COL:desc@.
@@ -955,11 +975,25 @@ degenerateSpec = testGroup "Plain text"
 
   , testCase "an unknown key stays a substring of the whole row" $ do
       records <- qrRecords <$> loadDir viewDir
-      let q = "note:later"
-      assertEqual "no row carries it" []
-        [ hrTitle r | r <- records, matchesFilter (storeEnv records) q r ]
+      let hit q = [ hrTitle r | r <- records, matchesFilter (storeEnv records) q r ]
+          q = "note:later"
+      assertEqual "no row carries it" [] (hit q)
       assertBool "and it is not read as a predicate"
                  (all ((== Nothing) . tmKey) (parseFilter q))
+      -- THE POSITIVE HALF, which an empty answer cannot give: a token whose key
+      -- nothing declares over text a row DOES spell.  A schedule cell carries a
+      -- time, so `09:30' is key `09' — no key at all — over text the Ship row
+      -- holds, and it matches that row as the free text it is.  It answers row
+      -- for row with the same string QUOTED, which is free text by the grammar.
+      assertBool ("an unknown key over text a row carries finds it: "
+                    <> show (hit "09:30"))
+                 (not (null (hit "09:30")))
+      assertEqual "the whole token is the needle, colon included"
+                  (hit "\"09:30\"") (hit "09:30")
+      -- And the KEY is part of the needle rather than dropped: a reading that
+      -- searched the value alone would answer this with most of the fixture.
+      assertEqual "the value alone is not what was searched for" [] (hit "nosuchkey:e")
+      assertBool "though the value alone matches plenty" (length (hit "e") >= 3)
   ]
 
 -- Haystack layout
@@ -1007,8 +1041,8 @@ layoutSpec = testGroup "Search text layout"
     -- the producer's own function would make this a mirror of the code it is
     -- meant to check.
     cellsOf r = [ unset (hrState r), unset (hrPriority r), hrTitle r
-                , sortedTags (hrTags r)
-                , unset (hrScheduled r), unset (hrDeadline r) ]
+                , unset (hrScheduled r), unset (hrDeadline r)
+                , sortedTags (hrTags r) ]
     sortedTags cell = case sortOn T.toCaseFold (filter (not . T.null) (T.splitOn ":" cell)) of
       []   -> cell
       tags -> ":" <> T.intercalate ":" tags <> ":"

@@ -43,6 +43,7 @@ module Glance.Query ( ConfigLayerFile (..)
                     , QueryResult (..)
                     , Span (..)
                     , SortChain
+                    , SubtreeEntry (..)
                     , TodoKeywords (..)
                     , WalkOptions (..)
                     , WriteFailure (..)
@@ -91,6 +92,8 @@ module Glance.Query ( ConfigLayerFile (..)
                     , orgLinks
                     , planningKeywords
                     , planningTimestamp
+                    , priorityLetter
+                    , priorityText
                     , readConfigLayers
                     , readsAsTimestamp
                     , recomposedSubtree
@@ -103,15 +106,24 @@ module Glance.Query ( ConfigLayerFile (..)
                     , resolveIds
                     , rowJSON
                     , setPlanningEdits
+                    , setPriorityEdits
                     , setStateEdits
+                    , setTitleEdits
                     , settableStates
+                    , ownBodyLines
+                    , subtreeEntries
+                    , subtreeEntryAt
+                    , titleSpan
+                    , titleText
                     , defaultSortChain
                     , sortedForView
                     , sortedForViewWith
                     , sortedTagsCell
                     , subtreeLinks
                     , subtreeText
+                    , systemSetting
                     , tagColumns
+                    , tagRunEntries
                     , tagText
                     , tagged
                     , tagsOfCell
@@ -126,10 +138,11 @@ import Control.Exception (IOException, evaluate, try)
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Aeson.Text (encodeToLazyText)
 import Data.Aeson.Types (Pair)
-import Data.Char (isAlphaNum, isAsciiLower, isDigit, isSpace)
+import Data.Char (isAlphaNum, isAsciiLower, isAsciiUpper, isDigit, isSpace)
 import Data.Either (fromRight)
 import Data.List (foldl', nub, partition, sort, sortBy, sortOn)
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
+import Data.Ord (comparing)
 import Data.Text (Text)
 import TextShow (showt)
 
@@ -146,13 +159,13 @@ import qualified Data.Time as Time
 import Data.Org ( Context, Element (EHeadline), Headline
                 , HeadlineSpans ( hsClosed, hsDeadline, hsPriority, hsProperties
                                 , hsSchedule, hsStars, hsTags, hsTitle, hsTodo )
-                , Indent (Indent)
                 , Priority (Priority), Span (..), Spanned (valueOf)
-                , Timestamp (tsStart), Todo (name)
+                , Timestamp (tsStart)
+                , TimestampStatus (TimestampActive, TimestampInactive), Todo (name)
                 , TsMoment (tsmHasTime, tsmTime), archiveTag, deadline, defaultContext
-                , hsFull, identity, indent, isTagChar, metaCategory, orgParse, priority
-                , schedule, sliceSpan, spans, tags, title, todo, todoActive
-                , todoInactive )
+                , headlinesOf, hsFull, identity, isTagChar, levelOf, metaCategory
+                , orgParse, priority, schedule, sliceSpan, spans, spelled, tags, title
+                , todo, todoActive, todoInactive, tsBrackets )
 import Data.Org.Config ( ConfigLayerFile (..), ConfigLayers (..), TodoKeywords (..)
                        , builtinFilter, captureTargetEdits, captureTargetIn
                        , captureTargetOf, classify, configDirIn, declaredKeywords
@@ -160,10 +173,16 @@ import Data.Org.Config ( ConfigLayerFile (..), ConfigLayers (..), TodoKeywords (
                        , defaultFilterEdits, defaultFilterOf, isTodoPragma
                        , firstBy, keywordScopes
                        , loadConfigDirs, mergeKeywords, noConfig, readConfigLayers
-                       , seedContext, todoLineEdits, todoLines, todoPragmas )
+                       , seedContext, systemSetting, todoLineEdits, todoLines
+                       , todoPragmas )
 import Data.Org.Walk ( Found (..), WalkOptions (..), beatsForId, defaultWalk
                      , findOrgFilesWith, isConfig, isDerived, isDocument
                      , mapFilesConcurrently )
+
+-- The line splitter and its span arithmetic are the write engine's: this
+-- module's regions are cut by whole lines and spliced back by char span, which
+-- is the currency 'Data.Org.Edit' owns.  Two spellings of it agreed by accident.
+import Data.Org.Edit (lineSpansIn, linesWith)
 
 import qualified Data.Org.Edit as Edit
 import qualified Data.Org.External as External
@@ -385,7 +404,7 @@ recordsOf cfg path doc digest ctx elems =
         -- Forced here, once per file: it is STORED now ('hrDeclared'), and an
         -- unforced set is a thunk over ELEMS.
         declared = forcedKeywords (declaredKeywords elems)
-        heads    = [ h | e <- elems, EHeadline h <- [valueOf e] ]
+        heads    = headlinesOf elems
         -- The position in THIS list is the row's ordinal ('rowId'), so BOTH
         -- filters run before the numbering: a child or a blank entry between
         -- two rows would otherwise consume an ordinal and shift every row
@@ -407,7 +426,7 @@ recordsOf cfg path doc digest ctx elems =
 -- every headline written @**@ or deeper — contributes no rows at all, the same
 -- answer a file with no headlines gives.
 topLevel :: Headline -> Bool
-topLevel h = case indent h of Indent n -> n == 1
+topLevel h = levelOf h == 1
 
 -- | Has H nothing the table can show?  Six sub-spans, one per column: a
 -- headline carrying none of them renders six empty cells, and a row a reader
@@ -482,7 +501,7 @@ recordOf cfg declared path ordinal doc digest category keywords h subtree =
         -- component is empty.
         cut mspan render = detach (maybe render (sliceSpan doc) mspan)
         state     = detach . name <$> todo h
-        pri       = (\(Priority c) -> T.singleton c) <$> priority h
+        pri       = (\(Priority c) -> priorityCell (T.singleton c)) <$> priority h
         titleCell = cut (hsTitle sp) (showt (title h))
         tagsCell  = cut (hsTags sp) (showt (tags h))
         scheduled = isoStamp <$> schedule h
@@ -749,14 +768,11 @@ linkTypes = followableTypes <> ["glance", "mailto", "id", "file"]
 -- existing two lists, so the popup reads in the palette the table already uses
 -- and this module grows no second colour language.
 --
--- No @group@ field.  That one is the state column's own, saying which side of a
--- @#+TODO:@ bar a keyword fell on, and spending it here on a different question
--- would be two meanings for one name.
+-- No @group@ field ('badge'): that one is the state column's own.
 linkTypeBadges :: [Value]
 linkTypeBadges =
-  zipWith badge (take n activeColors <> cycle inactiveColors) linkTypes
-  where badge color value = object ["value" .= value, "color" .= color]
-        n = length followableTypes
+  zipWith (badge Nothing) (take n activeColors <> cycle inactiveColors) linkTypes
+  where n = length followableTypes
 
 -- | The link popup's columns: what a link IS, what the entry calls it, and where
 -- it points.  SCHEMA.md Column objects through the same 'column' builder the
@@ -926,8 +942,10 @@ sortedTagsCell cell
 
 -- | The entries of a tag RUN, org spelling it @:a:b:@: split on the colon and
 -- drop the empties its two ends leave.  One spelling of that rule, since
--- 'tagsOfCell' and 'sortedTagsCell' ask the same question of the same string and
--- a second copy would be a second reading of org's own syntax.
+-- 'tagsOfCell', 'sortedTagsCell' and the filter's own cell reader
+-- ('Glance.Web.Filter') ask the same question of the same string and a second
+-- copy would be a second reading of org's own syntax.  Exported for that third
+-- caller.
 --
 -- 'tagEntries' is the near miss and is deliberately not this: it keeps the
 -- INTERIOR positions, being what an edit measures a splice in.
@@ -978,12 +996,12 @@ resolveIds records = (kept, reverse clashes)
     indexed = zip [0 :: Int ..] records
     (winners, clashes) = foldl' pick (Map.empty, []) indexed
     pick (best, out) (i, r) = case Map.lookup (hrId r) best of
-      Nothing -> (Map.insert (hrId r) (i, hrFile r) best, out)
+      Nothing -> (taken, out)
       Just (_j, held)
-        | beatsForId (hrFile r) held
-                    -> (Map.insert (hrId r) (i, hrFile r) best, collision (hrFile r) held : out)
-        | otherwise -> (best, collision held (hrFile r) : out)
-        where collision = IdCollision (hrId r)
+        | beatsForId (hrFile r) held -> (taken, collision (hrFile r) held : out)
+        | otherwise                  -> (best, collision held (hrFile r) : out)
+      where taken     = Map.insert (hrId r) (i, hrFile r) best
+            collision = IdCollision (hrId r)
     kept = [ r | (i, r) <- indexed, fmap fst (Map.lookup (hrId r) winners) == Just i ]
 
 -- | Is PATH inside one of org-glance's derived mirrors — the directories the
@@ -1071,10 +1089,18 @@ sortCell palette key = read' <$> lookup key [(k, cell) | (k, _, _, cell) <- view
   where
     ranked = paletteRank palette
     read' cell r = case cell r of
-      Just value | not (T.null value) ->
-        Just (if key == "state" then ranked value else 0
-             , if key == "state" then "" else T.toCaseFold value)
-      _empty -> Nothing
+      Just value | not (T.null value) -> Just (rank value, text' value)
+      _empty                          -> Nothing
+    -- The state column orders by PALETTE POSITION and everything else by its
+    -- text, folded.  The priority column is a third answer only in what it
+    -- reads: its cell wears org's brackets, so the comparator reads the LETTER
+    -- through them ('priorityLetter') and @[#A]@ still sorts ahead of @[#B]@ —
+    -- which the bracketed text would do anyway, and would stop doing the moment
+    -- a tree spelled one of them differently.
+    rank value  = if key == "state" then ranked value else 0
+    text' value | key == "state"    = ""
+                | key == "priority" = priorityLetter value
+                | otherwise         = T.toCaseFold value
 
 -- | Where a value sits in PALETTE, or one past its end for a keyword it does
 -- not name.  The renderers' rule for a badge column: palette order is sort
@@ -1104,9 +1130,18 @@ sortedForViewWith _       []    = id
 sortedForViewWith palette chain = sortBy (mconcat (mapMaybe key chain))
   where
     key (k, asc) = compareBy asc <$> sortCell palette k
+    -- Nulls last, OUTSIDE the direction: the emptiness is settled first and the
+    -- values only reach the second comparator once both cells are there.
+    --
+    -- ONE EXTRACTION A SIDE.  `Ordering''s `<>' short-circuits only when the
+    -- first comparator answers non-EQ — exactly when one cell is empty — so
+    -- pairing `comparing (isNothing . value)' with `comparing value' ran
+    -- `value' TWICE per side in the common case where both are there, and
+    -- `value' is a cell read plus a palette lookup or a case fold.  Over an
+    -- unlimited answer that is 20000 rows times the chain's keys, twice.
     compareBy asc value a b = case (value a, value b) of
       (Nothing, Nothing) -> EQ
-      (Nothing, Just _)  -> GT          -- nulls last, outside the direction
+      (Nothing, Just _)  -> GT
       (Just _,  Nothing) -> LT
       (Just x,  Just y)  -> if asc then compare x y else compare y x
 
@@ -1130,6 +1165,94 @@ sortedForView records =
 -- caller encodes it into a response and drops it.
 subtreeText :: HeadlineRecord -> Text
 subtreeText r = sliceSpan (hrDoc r) (hrSubtree r)
+
+-- | One headline INSIDE a row's subtree, past the row's own stars: where it
+-- sits in the outline, which entry it hangs under, and the record that
+-- addresses it.
+--
+-- The INDEX of an entry in 'subtreeEntries'' answer is what @?child=K@ names, so
+-- the addressing is document order over the WHOLE subtree rather than a count
+-- per level: a grandchild is one number away from the row it belongs to, and a
+-- client is handed that number rather than working a path out of the levels.
+data SubtreeEntry = SubtreeEntry
+  { seLevel  :: !Int             -- ^ org's outline level; the row's own is 1.
+  , seParent :: !Int             -- ^ the index it hangs under, @-1@ being the row itself.
+  , seRecord :: !HeadlineRecord  -- ^ the entry as a record: cells, extent, digest.
+  } deriving (Show)
+
+-- | R's descendants, in document order.
+--
+-- A record keeps its OWN headline and nothing deeper, so the descendants are
+-- read back out of the document R was parsed from — one parse per call, from the
+-- seed the load used ('Data.Org.Config.seedContext'), which is what makes a
+-- child's keyword the keyword the loader would have read there.  Their extents
+-- come out of the same 'subtreeSpans' the rows do, so a child's slice is org's
+-- outline rule over the whole document rather than a second rule over a
+-- fragment, and a document that no longer parses yields none.
+--
+-- Ids are the ROW's with the index behind it (@ROW\/K@).  Nothing registers one
+-- and no route resolves one: they exist so a refusal names something a reader
+-- can place.
+subtreeEntries :: ConfigLayers -> HeadlineRecord -> [SubtreeEntry]
+subtreeEntries cfg r = case orgParse (seedContext cfg) doc of
+  (_elems, _ctx, Just _err) -> []
+  (elems, _ctx, Nothing)    -> parented (zip [0 ..] (inside elems))
+  where
+    doc   = hrDoc r
+    outer = hrSubtree r
+    inside elems =
+      [ (levelOf h, h, sub)
+      | (h, sub) <- zip heads (subtreeSpans (T.length doc) heads)
+      , spanStart sub > spanStart outer, spanStart sub < spanEnd outer ]
+      where heads = headlinesOf elems
+    made k (_lvl, h, sub) =
+      (recordOf cfg (hrDeclared r) (hrFile r) k doc (hrDigest r)
+                (hrCategory r) (hrKeywords r) h sub)
+        { hrId = detach (hrId r <> "/" <> T.pack (show k)) }
+    -- One left-to-right pass with a stack of the entries still open: anything
+    -- at this level or deeper is closed by it, and whatever is left on top is
+    -- what it hangs under.  Org permits a level jump, so the parent is the
+    -- nearest SHALLOWER entry rather than the one a level up.
+    parented = go []
+      where
+        go _open [] = []
+        go open ((k, e@(lvl, _h, _sub)) : rest) =
+          SubtreeEntry lvl parent (made k e) : go ((k, lvl) : still) rest
+          where still  = dropWhile ((>= lvl) . snd) open
+                parent = case still of
+                  ((j, _l) : _rest) -> j
+                  []                -> -1
+
+-- | ENTRIES' K-th, or 'Nothing' where there is no such descendant.  The bounds
+-- rule is here rather than at each caller, since @?child=K@ is where every
+-- out-of-range number arrives.
+subtreeEntryAt :: [SubtreeEntry] -> Int -> Maybe SubtreeEntry
+subtreeEntryAt entries k
+  | k < 0     = Nothing
+  | otherwise = listToMaybe (drop k entries)
+
+-- | How many lines of BODY — R's, with the three regions already lifted out —
+-- are R's OWN: the ones ahead of FIRST, its first descendant.
+--
+-- ONE OWNER PER BYTE, one level down.  The lens hands a client the whole
+-- subtree's body, children and all, because the regions are the only thing it
+-- lifts out; a reader looking at the ENTRY needs to know where its own text
+-- stops and the outline under it begins, or the same bytes would be drawn twice
+-- — once as this entry's last paragraph and once as the child that owns them.
+--
+-- Counted by DIFFERENCE rather than by looking for a star: the three regions all
+-- sit above the first child (a planning line is the line under the title, both
+-- drawers follow it, and the logbook scan stops at the first child's stars), so
+-- everything from that child onwards is in the body unmoved, and what is left is
+-- the lines this entry kept.  Reading it off a leading @*@ instead would need
+-- the parser's star-run rule spelled a second time, and a body line opening
+-- @*bold*@ would cut the entry short.
+ownBodyLines :: HeadlineRecord -> Text -> Maybe HeadlineRecord -> Int
+ownBodyLines r body first' = case first' of
+  Nothing     -> whole
+  Just deeper -> whole - length (linesWith (T.drop (cut deeper) (subtreeText r)))
+  where whole = length (linesWith body)
+        cut deeper = spanStart (hrSubtree deeper) - spanStart (hrSubtree r)
 
 -- Lens
 --
@@ -1198,12 +1321,16 @@ data HeadlineParts = HeadlineParts
 -- lines.
 headlineParts :: HeadlineRecord -> HeadlineParts
 headlineParts r = HeadlineParts
-  { hpBody       = withoutSpans subtree (regionSpans r subtree)
-  , hpProperties = [ p | p <- drawerPairs r subtree, not (hiddenProperty (fst p)) ]
-  , hpPlanning   = [ (key, sliceSpan subtree sp) | (key, sp) <- planningEntries r subtree ]
-  , hpLogbook    = maybe "" (sliceSpan subtree) (logbookSlice (drawerSlice r subtree) subtree)
+  { hpBody       = withoutSpans subtree (regionSpans [planAt, drawAt, logAt])
+  , hpProperties = [ p | p <- drawerPairs subtree drawAt, not (hiddenProperty (fst p)) ]
+  , hpPlanning   = [ (key, sliceSpan subtree sp) | (key, sp) <- entries ]
+  , hpLogbook    = maybe "" (sliceSpan subtree) logAt
   }
   where subtree = subtreeText r
+        entries = planningEntries r subtree
+        planAt  = planningSlice entries subtree
+        drawAt  = drawerSlice r subtree
+        logAt   = logbookSlice drawAt subtree
 
 -- | R's subtree as its file would hold PARTS.
 --
@@ -1221,7 +1348,8 @@ recomposedSubtree :: HeadlineRecord -> HeadlineParts -> Text
 recomposedSubtree r parts = spliceRegions (hpBody parts) regions
   where
     subtree = subtreeText r
-    planAt  = planningSlice r subtree
+    entries = planningEntries r subtree
+    planAt  = planningSlice entries subtree
     drawAt  = drawerSlice r subtree
     logAt   = logbookSlice drawAt subtree
     -- Which line of the BODY each region goes back on: the line it sat on in the
@@ -1238,9 +1366,10 @@ recomposedSubtree r parts = spliceRegions (hpBody parts) regions
       where taken sp = sum [ height q | q <- cut, spanStart q < spanStart sp ]
     regions = [ Region at text | (at, text) <- [plan, props, logs], not (T.null text) ]
     plan  = ( bodyLine 1 planAt
-            , planningText (planningStyle r subtree (hpBody parts) planAt) (hpPlanning parts) )
+            , planningText (planningStyle subtree (hpBody parts) entries planAt)
+                           (hpPlanning parts) )
     props = ( bodyLine 1 drawAt
-            , drawerText (drawerStyle r subtree (hpBody parts))
+            , drawerText (drawerStyle subtree (hpBody parts) drawAt)
                          [ p | p <- hpProperties parts, not (hiddenProperty (fst p)) ] )
     logs  = ( bodyLine 0 logAt, maybe "" (sliceSpan subtree) logAt )
 
@@ -1262,8 +1391,10 @@ spliceRegions body regions = knit (go 0 (linesWith body) (sortOn rgLine regions)
   where
     go _seen ls [] = ls
     go seen ls (Region at block : rest) =
+      -- 'splitAt' clamps at both ends, so a region naming a line already spent
+      -- takes none and one past the body's last takes all of it.
       taken <> linesWith block <> go (seen + length taken) left rest
-      where (taken, left) = splitAt (max 0 (at - seen)) ls
+      where (taken, left) = splitAt (at - seen) ls
 
 -- | LINES concatenated, each but the last closed with a newline.  A body whose
 -- last line has none still ends without one; a region spliced behind it gets
@@ -1282,11 +1413,11 @@ withoutSpans subtree = T.concat . go 0
         go at (sp : sps) = slice at (spanStart sp) : go (spanEnd sp) sps
         slice from to = T.take (to - from) (T.drop from subtree)
 
--- | Every region of SUBTREE that is R's own, in source order.
-regionSpans :: HeadlineRecord -> Text -> [Span]
-regionSpans r subtree =
-  sortOn spanStart (catMaybes [planningSlice r subtree, drawer, logbookSlice drawer subtree])
-  where drawer = drawerSlice r subtree
+-- | SLICES in source order, the ones a headline has no region for dropped.  The
+-- three are located once by the caller, each answer feeding the next
+-- ('logbookSlice' steps over the drawer), so this arranges rather than finds.
+regionSpans :: [Maybe Span] -> [Span]
+regionSpans = sortOn spanStart . catMaybes
 
 -- Regions
 
@@ -1300,15 +1431,15 @@ drawerSlice r subtree = do
   Span from to <- localSpan r subtree sp
   pure (Span from (pastLine subtree to))
 
--- | Where R's planning line sits in SUBTREE, as a whole-line span.  'Nothing'
--- when the headline has no planning at all.
+-- | Where the planning line ENTRIES sit in SUBTREE, as a whole-line span.
+-- 'Nothing' when the headline has no planning at all.
 --
 -- The three planning spans cover their timestamps alone and permute freely on
 -- one line, so the region is the LINE the outermost of them sits on: the
 -- keywords that open the entries and whatever spacing is between them belong to
 -- it too, which is what lets an untouched line go back byte for byte.
-planningSlice :: HeadlineRecord -> Text -> Maybe Span
-planningSlice r subtree = case map snd (planningEntries r subtree) of
+planningSlice :: [(Text, Span)] -> Text -> Maybe Span
+planningSlice entries subtree = case map snd entries of
   []  -> Nothing
   sps -> Just (Span (lineStart subtree (minimum (map spanStart sps)))
                     (pastLine subtree (maximum (map spanEnd sps))))
@@ -1367,22 +1498,22 @@ localSpan r subtree sp
 
 -- Planning
 
--- | How R's planning line in SUBTREE is spelled, so a rewritten one reads like
--- the file it goes back into.  BODY supplies the line ending for a headline
--- that has no line to copy one from.
+-- | How the planning line at SP in SUBTREE is spelled, so a rewritten one reads
+-- like the file it goes back into, ENTRIES being the ones it carries.  BODY
+-- supplies the line ending for a headline that has no line to copy one from.
 data PlanningStyle = PlanningStyle
   { psIndent :: !Text                    -- ^ what a written line is indented by.
   , psEol    :: !Text                    -- ^ what it ends with.
   , psRaw    :: ![((Text, Text), Text)]  -- ^ each entry already there, and its own text.
   }
 
-planningStyle :: HeadlineRecord -> Text -> Text -> Maybe Span -> PlanningStyle
-planningStyle _r _subtree body Nothing = PlanningStyle "" (eolOf body) []
-planningStyle r subtree _body (Just sp) = PlanningStyle (indentOf line) (eolOf line) raws
+planningStyle :: Text -> Text -> [(Text, Span)] -> Maybe Span -> PlanningStyle
+planningStyle _subtree body _entries Nothing = PlanningStyle "" (eolOf body) []
+planningStyle subtree _body entries (Just sp) = PlanningStyle (indentOf line) (eolOf line) raws
   where
     line = sliceSpan subtree sp
     raws = [ ((key, sliceSpan subtree at), raw)
-           | (key, at) <- planningEntries r subtree
+           | (key, at) <- entries
            , Just raw <- [rawEntry key line (shifted at)] ]
     shifted (Span s e) = Span (s - spanStart sp) (e - spanStart sp)
 
@@ -1448,9 +1579,9 @@ readsAsTimestamp value = not (T.null trimmed) && not (T.any (== '\n') trimmed) &
 
 -- Properties
 
--- | R's drawer pairs in SUBTREE, in file order and with nothing hidden.
-drawerPairs :: HeadlineRecord -> Text -> [(Text, Text)]
-drawerPairs r subtree = case drawerSlice r subtree of
+-- | The drawer pairs at SLICE in SUBTREE, in file order and with nothing hidden.
+drawerPairs :: Text -> Maybe Span -> [(Text, Text)]
+drawerPairs subtree slice = case slice of
   Nothing -> []
   Just sp -> [ (key, value) | (key, value, _raw) <- drawerRows (sliceSpan subtree sp) ]
 
@@ -1461,28 +1592,33 @@ data DrawerStyle = DrawerStyle
   { dsOpen   :: !Text                    -- ^ the @:PROPERTIES:@ line, terminator and all.
   , dsClose  :: !Text                    -- ^ the @:END:@ line, which ends the block.
   , dsIndent :: !Text                    -- ^ what a rendered line is indented by.
-  , dsEol    :: !Text                    -- ^ what a rendered line ends with.
   , dsRaw    :: ![((Text, Text), Text)]  -- ^ each pair a client may write, and its line.
   , dsHidden :: ![(Int, Text)]           -- ^ the server's own lines, and where in the block they sat.
   }
 
--- | How R's drawer in SUBTREE is spelled, BODY standing in for the parts a
--- headline with no drawer has nothing to copy.
-drawerStyle :: HeadlineRecord -> Text -> Text -> DrawerStyle
-drawerStyle r subtree body = case drawerSlice r subtree of
-  Nothing -> DrawerStyle (":PROPERTIES:" <> eol) (":END:" <> eol) "" eol [] []
-    where eol = eolOf body
-  Just sp -> DrawerStyle open close (indentOf (firstOr open [ raw | (_k, _v, raw) <- rows ]))
-                         (eolOf close)
-                         [ ((key, value), raw) | (key, value, raw) <- rows
-                                               , not (hiddenProperty key) ]
-                         [ (at, raw) | (at, (key, _value, raw)) <- zip [0 ..] rows
-                                     , hiddenProperty key ]
-    where block = sliceSpan subtree sp
-          ls    = linesWith block
-          open  = firstOr (":PROPERTIES:" <> eolOf body) ls
-          close = firstOr (":END:" <> eolOf body) (reverse ls)
-          rows  = drawerRows block
+-- | What a line rendered into STYLE's drawer ends with: the closing line's own
+-- ending, which is the drawer's, which is the file's.  Derived rather than
+-- stored, since a stored copy could only ever be this.
+dsEol :: DrawerStyle -> Text
+dsEol = eolOf . dsClose
+
+-- | How the drawer at SLICE in SUBTREE is spelled, BODY standing in for the
+-- parts a headline with no drawer has nothing to copy.
+drawerStyle :: Text -> Text -> Maybe Span -> DrawerStyle
+drawerStyle _subtree body Nothing =
+  DrawerStyle (":PROPERTIES:" <> eol) (":END:" <> eol) "" [] []
+  where eol = eolOf body
+drawerStyle subtree body (Just sp) =
+  DrawerStyle open close (indentOf (firstOr open [ raw | (_k, _v, raw) <- rows ]))
+              [ ((key, value), raw) | (key, value, raw) <- rows
+                                    , not (hiddenProperty key) ]
+              [ (at, raw) | (at, (key, _value, raw)) <- zip [0 ..] rows
+                          , hiddenProperty key ]
+  where block = sliceSpan subtree sp
+        ls    = linesWith block
+        open  = firstOr (":PROPERTIES:" <> eolOf body) ls
+        close = firstOr (":END:" <> eolOf body) (reverse ls)
+        rows  = drawerRows block
 
 -- | STYLE's drawer holding PROPS: the opening line, a line per property, the
 -- closing line — and @""@ where there is nothing at all to hold, which is how a
@@ -1515,7 +1651,9 @@ drawerText style props
 weave :: [(Int, Text)] -> [Text] -> [Text]
 weave kept ls = foldl' put ls (sortOn fst kept)
   where put acc (at, line) = before <> [line] <> after
-          where (before, after) = splitAt (min at (length acc)) acc
+          -- 'splitAt' clamps, so an index past the end appends without this
+          -- walking the list to find out how long it is.
+          where (before, after) = splitAt at acc
 
 -- | BLOCK's property lines: everything between its @:PROPERTIES:@ and @:END:@
 -- lines, each as the key it names, the value it carries and the raw line it is.
@@ -1539,21 +1677,6 @@ propertyOf line = case T.uncons (T.stripStart line) of
   Just (':', rest) | (key, closed) <- T.breakOn ":" rest, not (T.null closed)
                    -> (key, T.strip (T.drop 1 closed))
   _notAProperty    -> ("", T.strip line)
-
--- | T split into lines, each carrying the newline that ends it.  The last line
--- carries one only where T does, so @T.concat . linesWith@ is @id@.
-linesWith :: Text -> [Text]
-linesWith t
-  | T.null t  = []
-  | otherwise = case T.breakOn "\n" t of
-      (line, rest) | T.null rest -> [line]
-                   | otherwise   -> (line <> "\n") : linesWith (T.drop 1 rest)
-
--- | T's lines, each with the span covering it and the newline that ends it.
-lineSpansIn :: Text -> [(Span, Text)]
-lineSpansIn t = go 0 (linesWith t)
-  where go _at []       = []
-        go at (l : ls)  = (Span at (at + T.length l), l) : go (at + T.length l) ls
 
 -- | The offset in T past the newline ending the line offset AT sits on, or T's
 -- length when that line has none.
@@ -1581,6 +1704,16 @@ indentOf = T.takeWhile horizontal
 horizontal :: Char -> Bool
 horizontal c = c == ' ' || c == '\t'
 
+-- | How wide the horizontal run T opens with is — the run a command deletes
+-- with the token in front of it, measured where that token ends.
+runWidth :: Text -> Int
+runWidth = T.length . T.takeWhile horizontal
+
+-- | How wide the horizontal run T ends with is, which is the same measurement
+-- taken from the other side: the separator in front of a token.
+runWidthEnd :: Text -> Int
+runWidthEnd = T.length . T.takeWhileEnd horizontal
+
 -- | XS's first element, or FALLBACK where it has none.
 firstOr :: a -> [a] -> a
 firstOr fallback xs = case xs of { (x : _rest) -> x; [] -> fallback }
@@ -1603,8 +1736,7 @@ firstOr fallback xs = case xs of { (x : _rest) -> x; [] -> fallback }
 subtreeSpans :: Int -> [Headline] -> [Span]
 subtreeSpans len heads = snd (foldl' place ([], []) (reverse (map extent heads)))
   where
-    extent h = (level (indent h), spanStart (hsFull (spans h)))
-    level (Indent n) = n
+    extent h = (levelOf h, spanStart (hsFull (spans h)))
     place (open, ends) (lvl, start) = ((lvl, start) : closers, Span start end : ends)
       where closers = dropWhile ((> lvl) . fst) open
             end = case closers of
@@ -1666,7 +1798,7 @@ rowId path ordinal h = maybe fallback detach (identity h)
 -- the source carried a time of day.  A computed value rather than a slice: ISO
 -- is the contract, and org's bracketed spelling stays in the file.
 isoStamp :: Timestamp -> Text
-isoStamp ts = T.pack (Time.formatTime Time.defaultTimeLocale fmt (tsmTime moment))
+isoStamp ts = spelled fmt (tsmTime moment)
   where moment = tsStart ts
         fmt | tsmHasTime moment = "%Y-%m-%d %H:%M"
             | otherwise         = "%Y-%m-%d"
@@ -1875,17 +2007,12 @@ keywordSources cfg rows = widest Set.empty (sortOn fst chain)
             unseen w  = not (Set.member w seen)
             taken     = foldr Set.insert seen (actives <> inactives)
 
--- | The span edits @set-state@ makes to R.
+-- | The span edits @set-state@ makes to R: KEYWORD in place of the one it
+-- carries, or the keyword taken off where KEYWORD is 'Nothing'.
 --
--- Three shapes, decided by what the headline carries.  A keyword over one
--- already there is that keyword's own span and nothing else.  A keyword where
--- there is none is an insertion right after the stars — org's own place for it,
--- and the one offset every headline has, present or empty.  And 'Nothing'
--- deletes the keyword together with the horizontal space behind it, so
--- @* TODO Title@ closes up to @* Title@ rather than keeping the gap; the run
--- deleted is horizontal only, so a keyword that is the last thing on its line
--- keeps the newline that ends it.  A headline with no keyword asked to drop one
--- costs no edit.
+-- The three shapes are 'tokenEdits'\'s, read at 'hsTodo' with the stars as the
+-- place a headline carrying no keyword takes one — org's own place for it, and
+-- the one offset every headline has, present or empty.
 --
 -- KEYWORD is refused unless R's OWN CHAIN declares it ('settableStates'): org's
 -- TODO\/DONE, @system.org@, the configs of the tags THIS row carries, the file's
@@ -1899,18 +2026,36 @@ keywordSources cfg rows = widest Set.empty (sortOn fst chain)
 -- @*inactive*@) are in no keyword set, so they are refused here like any other
 -- word that is not one.
 setStateEdits :: ConfigLayers -> Maybe Text -> HeadlineRecord -> Either Text [(Span, Text)]
-setStateEdits _cfg Nothing r = Right [ (Span (spanStart sp) (spanEnd sp + trailing sp), "")
-                                     | Just sp <- [hsTodo (headlineSpans r)] ]
-  where trailing sp = T.length (T.takeWhile horizontal (T.drop (spanEnd sp) (hrDoc r)))
+setStateEdits _cfg Nothing r = Right (tokenEdits hsTodo (spanEnd . hsStars) Nothing r)
 setStateEdits cfg (Just keyword) r
   | keyword `notElem` settable =
       Left (keyword <> " is not a TODO keyword for " <> hrId r <> " in " <> T.pack (hrFile r)
               <> "; that row may be set to " <> T.intercalate ", " settable)
-  | otherwise = Right [placed (hsTodo hs)]
+  | otherwise = Right (tokenEdits hsTodo (spanEnd . hsStars) (Just keyword) r)
+  where settable = settableStates cfg r
+
+-- | The span edits setting the token AT reads on R to TOKEN, or taking it off
+-- where TOKEN is 'Nothing'.  PLACE says where one goes on a headline that
+-- carries none.
+--
+-- Three shapes, and @set-state@ and @set-priority@ are both of them one
+-- accessor apart.  A token already there is its own span and nothing else, so
+-- everything around it keeps its bytes.  A token where there is none is an
+-- insertion at PLACE behind one space.  And 'Nothing' deletes the token
+-- together with the horizontal space behind it, so @* TODO Title@ closes up to
+-- @* Title@ rather than keeping the gap; the run deleted is horizontal only, so
+-- a token that is the last thing on its line keeps the newline that ends it.  A
+-- headline with no token asked to drop one costs no edit, which is what makes
+-- both commands idempotent.
+tokenEdits :: (HeadlineSpans -> Maybe Span) -> (HeadlineSpans -> Int)
+           -> Maybe Text -> HeadlineRecord -> [(Span, Text)]
+tokenEdits at place token r = case (at hs, token) of
+  (Just sp, Just new) -> [(sp, new)]
+  (Just sp, Nothing)  -> [(Span (spanStart sp) (spanEnd sp + trailing sp), "")]
+  (Nothing, Just new) -> [(insertAt (place hs), " " <> new)]
+  (Nothing, Nothing)  -> []
   where hs = headlineSpans r
-        settable = settableStates cfg r
-        placed (Just sp) = (sp, keyword)
-        placed Nothing   = (insertAt (spanEnd (hsStars hs)), " " <> keyword)
+        trailing sp = runWidth (T.drop (spanEnd sp) (hrDoc r))
 
 -- | The states R may be set to: 'keywordSources' for that one row, flattened.
 --
@@ -1927,6 +2072,102 @@ setStateEdits cfg (Just keyword) r
 settableStates :: ConfigLayers -> HeadlineRecord -> [Text]
 settableStates cfg r =
   [ word | (_source, kw) <- keywordSources cfg [r], word <- tkActive kw <> tkInactive kw ]
+
+-- | TEXT as a headline title, or why it is not one.  The wall @set-title@ puts
+-- up, and a whole-request refusal the way the tag charset's is: a string that is
+-- not a title is not a title for any row.
+--
+-- Two rules and no third.  A title is at least one character, since a headline
+-- with none is a blank entry and no longer a row ('blankEntry'); and it is ONE
+-- line, since the second one would be body text at best and a headline of its
+-- own at worst.  What it may SAY is the author's: a title spelling @:word:@ at
+-- its end reads back as a tag run, which is org's own grammar rather than
+-- something to refuse here.
+-- | Where R's TITLE sits in its file, when it has one.
+--
+-- The one sub-span a CLIENT needs by itself: a title may hold org links, and a
+-- link's own range comes back from @\/links@ in FILE coordinates, so a renderer
+-- has to know where the cell it is drawing starts before it can tell which
+-- links are inside it.  Every other cell is drawn as the text it is.
+--
+-- A 'Span' rather than the whole 'HeadlineSpans': that type is
+-- @glance-internal@'s and stays there.
+titleSpan :: HeadlineRecord -> Maybe Span
+titleSpan = hsTitle . headlineSpans
+
+titleText :: Text -> Either Text Text
+titleText text
+  | T.null want          = Left "a headline needs a title: the text after the keyword"
+  | T.any (== '\n') want = Left "a title is one line: the rest of the headline's own line"
+  | otherwise            = Right want
+  where want = T.strip text
+
+-- | The span edits @set-title@ makes to R: TITLE in place of the one it carries.
+--
+-- Two shapes.  A title already there is its own span and nothing else, so the
+-- keyword, the priority and the tags around it keep their bytes.  A headline
+-- with none — @* TODO@, @* [#A]@, bare stars — takes an insertion behind the
+-- last part org writes AHEAD of a title, which is the priority, else the
+-- keyword, else the stars themselves.
+--
+-- 'titleLineEnd' cannot serve here and the difference is the point: its answer
+-- includes 'hsTags', and a title inserted past a tag run would be read back as
+-- tag text on the next load, taking the entry the author typed with it.
+setTitleEdits :: Text -> HeadlineRecord -> Either Text [(Span, Text)]
+setTitleEdits text r = do
+  want <- titleText text
+  pure $ case hsTitle hs of
+    Just sp -> [(sp, want)]
+    -- Behind the priority, else behind the keyword, each of which owes its own
+    -- separator.  With NEITHER there is only the stars, and the horizontal run
+    -- org already writes after them is that separator — so the title goes past
+    -- it rather than growing a second one.
+    Nothing -> case [ spanEnd sp | Just sp <- [hsPriority hs, hsTodo hs] ] of
+      (at : _rest) -> [(insertAt at, " " <> want)]
+      []           -> [(insertAt (pastRun (spanEnd (hsStars hs))), want)]
+  where hs = headlineSpans r
+        pastRun at = at + runWidth (T.drop at (hrDoc r))
+
+-- | TEXT as an org priority letter, or why it is not one.  The wall
+-- @set-priority@ puts up, and a whole-request refusal like the tag charset's: a
+-- string that is not a letter is not one for any row.
+--
+-- ONE ASCII LETTER, uppercased.  Org's own cycle is @A@ to @C@ and its
+-- @org-highest-priority@ / @org-lowest-priority@ move that window rather than
+-- changing what a priority IS, so the charset is the letter and the CYCLE is the
+-- reader's — which is what leaves a tree using @D@ writable here and unbadged in
+-- the table ('priorityBadges').
+priorityText :: Text -> Either Text Text
+priorityText text
+  | T.length want == 1, T.all isAsciiUpper want = Right want
+  | otherwise = Left (text <> " is not a priority: org spells one as a single"
+                        <> " letter, A to C in its own cycle")
+  where want = T.toUpper (T.strip text)
+
+-- | The span edits @set-priority@ makes to R: LETTER in place of the token it
+-- carries, or the token taken off where LETTER is 'Nothing'.
+--
+-- The three shapes are 'tokenEdits'\'s, read at 'hsPriority' — @set-state@'s own
+-- one part along, so the keyword in front of the token and the title behind it
+-- keep their bytes, a headline with no token takes one behind the KEYWORD
+-- ('afterKeyword'), and a clear closes @* TODO [#A] Title@ up to
+-- @* TODO Title@.
+--
+-- Clearing a headline that carries none costs no edit, which makes the command
+-- idempotent the way @archive@ is — and is what lets the cycle's wrap through
+-- NONE be pressed twice without a second write.
+setPriorityEdits :: Maybe Text -> HeadlineRecord -> Either Text [(Span, Text)]
+setPriorityEdits Nothing r = Right (tokenEdits hsPriority afterKeyword Nothing r)
+setPriorityEdits (Just letter) r = do
+  want <- priorityText letter
+  pure (tokenEdits hsPriority afterKeyword (Just (priorityCell want)) r)
+
+-- | Where a priority goes on a headline that has none: behind the keyword, else
+-- behind the stars.  Org writes @* TODO [#A] Title@, so the token follows the
+-- state and precedes the title — and the stars are the fallback because they are
+-- the one part every headline has.
+afterKeyword :: HeadlineSpans -> Int
+afterKeyword hs = maybe (spanEnd (hsStars hs)) spanEnd (hsTodo hs)
 
 -- | The span edits @add-tag@ makes to R: TAG joining its tag list.  A row
 -- already carrying it ('tagged') costs no edit at all, which is what makes the
@@ -2045,7 +2286,7 @@ tagRun r = case hsTags hs of
               in Just ( run
                         -- The horizontal run between the title and the tags,
                         -- which comes off with the whole list.
-                      , T.length (T.takeWhileEnd horizontal (T.take ahead line))
+                      , runWidthEnd (T.take ahead line)
                       , [ (spanStart run + at, entry)
                         | (at, entry) <- tagEntries (T.drop ahead line) ] )
   where hs   = headlineSpans r
@@ -2271,9 +2512,8 @@ setPlanningEdits keyword stamp r
             -- and this survives anyway.
             at       = fromMaybe (spanStart sp) (entryOpening doc keyword (spanStart sp))
             line     = sliceSpan doc (Span from (pastLine doc (spanEnd sp)))
-            trailing = runOf (T.drop (spanEnd sp - from) line)
-            leading  = T.length (T.takeWhileEnd horizontal (T.take (at - from) line))
-            runOf    = T.length . T.takeWhile horizontal
+            trailing = runWidth (T.drop (spanEnd sp - from) line)
+            leading  = runWidthEnd (T.take (at - from) line)
 
     added ts
       | null others = (insertAt (titleLineEnd hs), eolOf doc <> entry)
@@ -2301,7 +2541,7 @@ planningTimestamp today text
   | otherwise   = maybe refusal Right (withTime <$> asLocal <|> (`stamped` Nothing) <$> dated)
   where
     want      = T.strip text
-    bracketed = "<" `T.isPrefixOf` want || "[" `T.isPrefixOf` want
+    bracketed = any (`T.isPrefixOf` want) timestampOpeners
     refusal   = Left (text <> " is not a date: spell it 2026-08-05, 2026-08-05 09:30,"
                         <> " +3d, +2w, +1m, today, tomorrow, or org's own <2026-08-05 Wed>")
 
@@ -2328,14 +2568,30 @@ planningTimestamp today text
     -- @9:05@ is the time a reader meant rather than a refusal over a zero.
     asLocal :: Maybe Time.LocalTime
     asLocal = Time.parseTimeM True Time.defaultTimeLocale "%Y-%m-%d %k:%M" (T.unpack want)
-    withTime at = stamped (Time.localDay at) (Just (spelled "%H:%M" at))
-    stamped = orgStamp activeBrackets
+    withTime = timedStamp activeBrackets
+    stamped  = orgStamp activeBrackets
 
 -- | The brackets org writes a timestamp in: @\<…\>@ for one an agenda picks up,
 -- @[…]@ for one that is a record and nothing else.
+--
+-- DERIVED from the pair the parser matches on ('Data.Org.tsBrackets') rather
+-- than respelled here, because nothing downstream would catch a disagreement:
+-- only 'planningTimestamp'\'s already-bracketed branch reparses, so a computed
+-- stamp and a 'captureStamp' written in a bracket the parser does not read reach
+-- the disk and turn the planning line into body text on the next load.
 activeBrackets, inactiveBrackets :: (Text, Text)
-activeBrackets   = ("<", ">")
-inactiveBrackets = ("[", "]")
+activeBrackets   = bracketsOf TimestampActive
+inactiveBrackets = bracketsOf TimestampInactive
+
+-- | STATUS's brackets as the text a stamp is spelled with.
+bracketsOf :: TimestampStatus -> (Text, Text)
+bracketsOf status = (T.singleton open, T.singleton close)
+  where (open, close) = tsBrackets status
+
+-- | What a value spelled in org's OWN timestamp grammar opens with, which is
+-- how 'planningTimestamp' tells one from a date it has to work out.
+timestampOpeners :: [Text]
+timestampOpeners = map fst [activeBrackets, inactiveBrackets]
 
 -- | DAY inside BRACKETS with its weekday, and TIME after it where there is one:
 -- @\<2026-08-05 Wed 09:30\>@.  The one place this library spells a timestamp,
@@ -2348,9 +2604,11 @@ orgStamp :: (Text, Text) -> Time.Day -> Maybe Text -> Text
 orgStamp (open, close) day time =
   open <> spelled "%Y-%m-%d %a" day <> maybe "" (" " <>) time <> close
 
--- | T under FMT, in the locale org writes.
-spelled :: Time.FormatTime t => String -> t -> Text
-spelled fmt = T.pack . Time.formatTime Time.defaultTimeLocale fmt
+-- | AT inside BRACKETS with its time of day spelled out.  The shape both stamps
+-- this library writes share, so a planning entry and a creation stamp differ in
+-- their brackets and in nothing else.
+timedStamp :: (Text, Text) -> Time.LocalTime -> Text
+timedStamp brackets at = orgStamp brackets (Time.localDay at) (Just (spelled "%H:%M" at))
 
 -- | The property a captured entry carries, org-glance's own spelling.
 captureProperty :: Text
@@ -2361,8 +2619,7 @@ captureProperty = "ORG_GLANCE_CREATION_TIME"
 -- creation time is a record of when a row was written rather than something to
 -- turn up on an agenda.
 captureStamp :: Time.ZonedTime -> Text
-captureStamp now = orgStamp inactiveBrackets (Time.localDay at) (Just (spelled "%H:%M" at))
-  where at = Time.zonedTimeToLocalTime now
+captureStamp = timedStamp inactiveBrackets . Time.zonedTimeToLocalTime
 
 -- | The span edits @capture@ makes to DOC — the capture target's text, @\"\"@
 -- for a file that is not there yet, where the entry is the whole file.
@@ -2524,14 +2781,26 @@ viewJSONTextWith chain viewTitle palette =
 -- joins them into 'hrSearch' — which is what lets a predicate read one field of
 -- that text by its key's position.  A column appended here is therefore a
 -- column a filter can name the day it lands, with no second list to extend.
+-- Reordering is the same one edit: every index downstream is resolved by KEY
+-- NAME ('Glance.Web.Filter''s @fieldOf@, @tagsColumn@ and @dateColumns@ are
+-- each an 'Data.List.elemIndex' over 'filterKeys'), so the only lists that have
+-- to be moved by hand are the suites' deliberate oracles.
+--
+-- TAGS SITS LAST because org writes it last: a headline's tag run is flush
+-- right, past the title and past the planning it carries, so the column reads
+-- where the file reads.  The PRIORITY header is org's own glyph @#@ rather than
+-- a word — the cells are @[#A]@, three characters wide, and a header that
+-- spells the column out makes the column as wide as the word instead of as wide
+-- as what is in it.  Both are drawing decisions: the KEYS are untouched, so
+-- nothing starts or stops matching, and nothing re-sorts.
 viewColumns :: [(Text, Text, Text, HeadlineRecord -> Maybe Text)]
 viewColumns =
   [ ("state",     "State",     "badge", hrState)
-  , ("priority",  "Pri",       "text",  hrPriority)
-  , ("title",     "Headline",  "text",  Just . hrTitle)
-  , ("tag",       "Tags",      "text",  Just . sortedTagsCell . hrTags)
+  , ("priority",  "#",         "badge", hrPriority)
+  , ("title",     "Title",     "text",  Just . hrTitle)
   , ("scheduled", "Scheduled", "text",  hrScheduled)
   , ("deadline",  "Deadline",  "text",  hrDeadline)
+  , ("tag",       "Tags",      "text",  Just . sortedTagsCell . hrTags)
   ]
 
 -- | R's cells in column order, an absent one as the empty string: what
@@ -2556,7 +2825,7 @@ columns palette =
   where
     extra key = case key of
       "state"    -> [ "badges" .= badges palette, "values" .= stateValues ]
-      "priority" -> [ "values" .= (["A", "B", "C"] :: [Text]) ]
+      "priority" -> [ "badges" .= priorityBadges, "values" .= priorityValues ]
       -- Declared rather than left to be sampled: the renderer decides which
       -- column holds a LIST from up to 40 non-empty cells, so a page with fewer
       -- than two tagged rows finds none at all — and then @tag:*archive*@ is
@@ -2564,6 +2833,36 @@ columns palette =
       -- the whole tag.  The declaration wins there.
       "tag"      -> [ "multi" .= True, "values" .= tagValues ]
       _          -> []
+
+-- | A priority LETTER as the cell spells it, which is org's own @[#A]@ rather
+-- than the bare letter.  The cell is what a reader sees, what a filter reads and
+-- what a sort compares, so the decoration is applied ONCE, here, and every
+-- reader of it goes through 'priorityLetter' rather than knowing the brackets.
+priorityCell :: Text -> Text
+priorityCell letter = "[#" <> letter <> "]"
+
+-- | And back: a priority cell read through its brackets, folded.  The rule the
+-- filter matches by and the comparator orders by — DISPLAY WEARS THE
+-- DECORATION, MATCHING READS THROUGH IT, which is the star-blind precedent the
+-- starred metas set from the other side.  A value that is not bracketed is its
+-- own answer, so @priority:A@ and @priority:[#A]@ are one query.
+priorityLetter :: Text -> Text
+priorityLetter value = T.toCaseFold (fromMaybe folded stripped)
+  where folded   = T.strip value
+        stripped = T.stripSuffix "]" =<< T.stripPrefix "[#" folded
+
+-- | The three priorities org's own cycle names, as the cells spell them.
+priorityValues :: [Text]
+priorityValues = map priorityCell ["A", "B", "C"]
+
+-- | And their hues, which are danneskjold's own org-priority faces: the highest
+-- in the theme's red, the medium in its yellow, the lowest in its green.  THREE
+-- and no more — org's default cycle is @A@ to @C@ and a tree that spells @[#D]@
+-- gets the badge-less default ink rather than a colour this file invented.
+--
+-- No @group@ field ('badge'): a priority has no such halves.
+priorityBadges :: [Value]
+priorityBadges = zipWith (badge Nothing) ["#E74C3C", "#FFCC00", "#27AE60"] priorityValues
 
 -- | The state column's meta values: filter vocabulary rather than cell text.
 -- SCHEMA.md lets a producer add values over a column's own domain, and this one
@@ -2630,9 +2929,20 @@ rowJSON r = object
 badges :: TodoKeywords -> [Value]
 badges (TodoKeywords actives inactives) =
   group "active" activeColors actives <> group "inactive" inactiveColors inactives
-  where group g hues = zipWith (badge g) (cycle hues)
-        badge g color value =
-          object [ "value" .= value, "color" .= color, "group" .= (g :: Text) ]
+  where group g hues = zipWith (badge (Just g)) (cycle hues)
+
+-- | A SCHEMA.md badge: VALUE drawn in COLOR, under GROUP where its column has
+-- halves to name.  One builder for the three palettes this module declares —
+-- the state cycle, org's priority letters and the link types — so a field added
+-- to the object is added to all three.
+--
+-- The GROUP is the state column's own, saying which side of a @#+TODO:@ bar a
+-- keyword fell on; the other two have no such halves and pass 'Nothing', which
+-- leaves the field off the object entirely rather than spending the name on a
+-- different question.
+badge :: Maybe Text -> Text -> Text -> Value
+badge group color value =
+  object ([ "value" .= value, "color" .= color ] <> [ "group" .= g | Just g <- [group] ])
 
 -- | Warm hues for keywords that still want work.
 activeColors :: [Text]

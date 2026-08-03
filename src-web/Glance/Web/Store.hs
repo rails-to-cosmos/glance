@@ -274,23 +274,17 @@ dropFile path = guarded path (streamed path (removeFile path))
 -- does and for the same reason — rows built against a palette that is already
 -- gone are rows a client draws wrong.
 --
--- This is the third writer of the generation, and the only one that is not
--- 'guarded'.  The counter carries over from ST rather than restarting at
--- FRESH's zero: a client revalidating across a reseed must never be handed a
--- tag it has already seen.  It moves on the same two conditions 'guarded' uses
--- — frames, or a load outcome — and NOT on the fingerprint, which moves itself:
--- a config edit that changes no keyword rewrites bytes the fingerprint covers,
--- so the @ETag@ already differs and the generation has nothing to add.
+-- The generation is 'installed's, which both writers of it go through.  What is
+-- this one's own is the store it installs: FRESH was loaded from scratch and
+-- carries a counter of zero, so ST's is what goes on.
 reseeded :: Store -> Store -> (Store, [Frame])
-reseeded fresh st = (fresh { stGen = stGen st + if moved then 1 else 0 }, out)
+reseeded fresh st = installed st fresh (outcomes st /= outcomes fresh) out
   where
     before   = rowsById st
     after    = rowsById fresh
-    upserts  = [ UpsertRow row | (i, row) <- Map.toList after, Map.lookup i before /= Just row ]
-    deletes  = [ DeleteRow i | i <- Map.keys before, Map.notMember i after ]
+    everyId  = Set.toAscList (Map.keysSet before <> Map.keysSet after)
     out      = if storeKeywords st /= storeKeywords fresh then [ViewChanged]
-                                                          else upserts <> deletes
-    moved    = not (null out) || outcomes st /= outcomes fresh
+                                                          else rowFrames everyId before after
     outcomes = Map.map feFailure . stFiles
 
 -- | Every row ST serves, by id — the resolved view, which is what a frame
@@ -298,34 +292,62 @@ reseeded fresh st = (fresh { stGen = stGen st + if moved then 1 else 0 }, out)
 rowsById :: Store -> Map Text Value
 rowsById st = Map.fromList [ (hrId r, rowJSON r) | r <- storeRecords st ]
 
--- | STEP, with the columns watched and the generation moved.  The palette can
--- only move when the file STEP touched changes what it declares, every other
--- file's contribution being untouched and the merge being a function of them;
--- that check is a lookup, and the full merge runs only when it fires.
+-- | The ops IDS owe, given the rows a store served BEFORE a step and the rows it
+-- serves AFTER it: an id whose row arrived or changed is an upsert, one the
+-- store no longer serves is a delete, and one neither side holds costs nothing.
 --
--- The generation is what @\/headlines@ spells as an @ETag@, so it has to move
--- whenever a response would: when rows changed (there are frames, 'ViewChanged'
--- among them) or when the file's load outcome did, which is a stats header
--- moving with no row to show for it.  A watch event over a file nothing wrote
--- leaves it alone, so an idle tree revalidates to 304 forever.
+-- UPSERTS LEAD, and both callers rest on it: a client applying the batch in
+-- order never shows fewer rows than the store has, where a delete arriving first
+-- would empty a row on screen and fill it again.
+--
+-- IDS is the whole of what the two callers differ by — 'streamed' passes the ids
+-- one file touched, 'reseeded' every id on either side — so one diff and one
+-- ordering rule stand under both.
+rowFrames :: [Text] -> Map Text Value -> Map Text Value -> [Frame]
+rowFrames ids before after =
+  [ UpsertRow row | i <- ids, Just row <- [Map.lookup i after]
+                            , Map.lookup i before /= Just row ]
+    <> [ DeleteRow i | i <- ids, Map.notMember i after ]
+
+-- | NEXT installed over ST with OUT to send, the generation stepped where the
+-- view moved: OUT carries something, or OUTCOMES says a file's load outcome did.
+--
+-- ONE rule, for the two writers of the counter.  The generation is what
+-- @\/headlines@ spells as an @ETag@, so it has to move whenever a response
+-- would: when rows changed (there are frames, 'ViewChanged' among them) or when
+-- a file's load outcome did, which is a stats header moving with no row to show
+-- for it.  A watch event over a file nothing wrote leaves it alone, so an idle
+-- tree revalidates to 304 forever.
+--
+-- The counter is ST's rather than NEXT's, because 'reseeded' installs a store
+-- loaded from scratch whose own counter is zero and a client revalidating across
+-- a reseed must never be handed a tag it has already seen.  The fingerprint is
+-- not one of the conditions: it moves itself, so a config edit that changes no
+-- keyword rewrites bytes it covers, the @ETag@ already differs, and the
+-- generation has nothing to add.
+installed :: Store -> Store -> Bool -> [Frame] -> (Store, [Frame])
+installed st next outcomes out = (next { stGen = stGen st + bump }, out)
+  where bump = if null out && not outcomes then 0 else 1
+
+-- | STEP, with the columns watched and the generation moved ('installed').  The
+-- palette can only move when the file STEP touched changes what it declares,
+-- every other file's contribution being untouched and the merge being a function
+-- of them; that check is a lookup, and the full merge runs only when it fires.
 guarded :: FilePath -> (Store -> (Store, [Frame])) -> Store -> (Store, [Frame])
-guarded path step st = (if moved then next { stGen = stGen next + 1 } else next, out)
+guarded path step st = installed st next (outcome st /= outcome next) out
   where
     (next, frames) = step st
     -- '&&' short-circuits, so the full merge runs only when the touched file's
     -- own declaration moved.
     palette  = declared st /= declared next && storeKeywords st /= storeKeywords next
     out      = if palette then [ViewChanged] else frames
-    moved    = not (null out) || outcome st /= outcome next
     declared = fmap hrKeywords . (listToMaybe . feRecords <=< Map.lookup path) . stFiles
     outcome  = fmap feFailure . Map.lookup path . stFiles
 
 -- | UPDATE applied to the store, and the frames it owes for the ids under PATH.
 -- Both sides are read through the store's own id resolution, so a streamed row
--- is the row @\/headlines@ would serve.  New and changed rows become upserts,
--- in file order; an id gone from the RESOLVED store becomes a delete.  Upserts
--- lead, so a client applying the batch never shows fewer rows than the store
--- has.
+-- is the row @\/headlines@ would serve.  The diff itself is 'rowFrames', over
+-- the touched ids in file order.
 --
 -- Resolving here is the whole point.  Where two files claim one
 -- @ORG_GLANCE_ID@, an edit to the LOSING file streams the winner — which is to
@@ -343,16 +365,13 @@ guarded path step st = (if moved then next { stGen = stGen next + 1 } else next,
 -- attached, where the parse alone is 4 ms.  It buys the one thing an incremental
 -- view could not otherwise have: agreement with every other reader.
 streamed :: FilePath -> (Store -> Store) -> Store -> (Store, [Frame])
-streamed path update st = (next, upserts <> deletes)
+streamed path update st = (next, rowFrames touched before after)
   where
     next     = update st
     touched  = nub (idsUnder next <> idsUnder st)
     idsUnder = map hrId . recordsUnder path
     before   = resolvedRows touched st
     after    = resolvedRows touched next
-    upserts  = [ UpsertRow row | i <- touched, Just row <- [Map.lookup i after]
-                               , Map.lookup i before /= Just row ]
-    deletes  = [ DeleteRow i | i <- touched, Map.notMember i after ]
 
 -- | The row each of IDS resolves to in ST: the store's own resolution
 -- ('Glance.Query.resolveIds') over the rows carrying them, which is the call
@@ -538,7 +557,7 @@ publish hub step = atomically $ do
   writeTVar (hubStore hub) st
   clients <- readTVar (hubClients hub)
   slow <- filterM (fmap not . flip writeAll frames . snd) (Map.toList clients)
-  mapM_ (cut clients . fst) slow
+  mapM_ cut slow
   pure frames
   where
     -- The full check is what keeps this from blocking: 'writeTBQueue' on a
@@ -548,6 +567,6 @@ publish hub step = atomically $ do
     writeAll c (f : fs) = do
       full <- isFullTBQueue (clQueue c)
       if full then pure False else writeTBQueue (clQueue c) f >> writeAll c fs
-    cut clients cid = do
-      mapM_ (\c -> writeTVar (clDropped c) True) (Map.lookup cid clients)
+    cut (cid, client) = do
+      writeTVar (clDropped client) True
       modifyTVar' (hubClients hub) (Map.delete cid)

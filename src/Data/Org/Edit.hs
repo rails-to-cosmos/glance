@@ -23,6 +23,17 @@
 -- attributes and hard links — the rename installs a new inode, so full metadata
 -- preservation is out of scope for this engine.  Durability stops at the file:
 -- the data is @fsync@ed before the rename, the containing directory is not.
+--
+-- AND SYMLINKS ARE NOT PRESERVED EITHER, which is the one that can surprise.
+-- @rename(2)@ replaces the destination NAME, so writing through a symlinked
+-- @.org@ file leaves a regular file where the link was and the real file
+-- untouched: the table then serves the copy for ever and the original never
+-- moves.  @copyPermissions@ above DOES follow the link, so the write looks
+-- correct all the way through.  The walk keeps symlinked documents on purpose
+-- ('Data.Org.Walk.visit'), so this is reachable; resolving the target before
+-- the write is a POLICY decision (whose permissions, whose directory for the
+-- temp file, what a link out of the tree means) and is deliberately not taken
+-- here.
 module Data.Org.Edit ( Edit (..)
                      , EditError (..)
                      , EditIOError (..)
@@ -31,6 +42,9 @@ module Data.Org.Edit ( Edit (..)
                      , applyEdits
                      , digestOf
                      , editFile
+                     , lineSpansIn
+                     , linesWith
+                     , readBytes
                      , readDocument
                      , snapshotOf
                      , takeSnapshot
@@ -53,7 +67,7 @@ import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 
-import Data.Org.Types (Span (..))
+import Data.Org.Types (Span (..), spanFaults)
 import Data.Org.Walk (errText)
 
 -- Edits
@@ -74,10 +88,13 @@ data EditError
 --
 -- Edits may arrive in any order and must be pairwise non-overlapping; touching
 -- is fine, an edit may start where the previous one ends.  Application order is
--- by span, start then end, so two insertions at one offset land in list order
--- and the result never depends on how the caller sorted the batch.  One pass:
--- the cost is the document's length plus the replacements', whatever the number
--- of edits.
+-- by span, start then end, so two edits over DISTINCT spans give the same
+-- result however the caller sorted the batch.  Two INSERTIONS at one offset are
+-- the exception and the one the sort is stable for: they land in LIST order, so
+-- a caller writing two pragma blocks into a file that had neither gets them in
+-- the order it named them, and the outcome of such a pair is fixed by
+-- construction rather than by the offsets.  One pass: the cost is the
+-- document's length plus the replacements', whatever the number of edits.
 applyEdits :: Text -> [Edit] -> Either EditError Text
 applyEdits doc edits = do
   mapM_ (checkSpan (T.length doc) . editSpan) edits
@@ -86,11 +103,41 @@ applyEdits doc edits = do
   where key e = (spanStart (editSpan e), spanEnd (editSpan e))
 
 -- | Reject SP against a document of LEN characters.
+--
+-- The faults are 'Data.Org.Types.spanFaults'\'s — ONE enumeration of what makes a
+-- span malformed, shared with the corpus audit, so a fault added there is
+-- refused by this engine rather than written.  Only the backwards span has an
+-- error of its own; every other fault is out of bounds, which is what a new one
+-- reads as until it is given a constructor.  The backwards arm reads that
+-- fault's LABEL, so renaming it there quietly downgrades a backwards span to
+-- out-of-bounds -- @TestEdit@\'s @Backwards (Span 5 2)@ case is what stands
+-- between that and silence.
 checkSpan :: Int -> Span -> Either EditError ()
-checkSpan len sp
-  | spanStart sp < 0 || spanEnd sp > len = Left (OutOfBounds sp len)
-  | spanStart sp > spanEnd sp            = Left (Backwards sp)
-  | otherwise                            = Right ()
+checkSpan len sp = case spanFaults len sp of
+  []     -> Right ()
+  faults | faults == ["start-after-end"] -> Left (Backwards sp)
+         | otherwise                     -> Left (OutOfBounds sp len)
+
+-- | T split into lines, each carrying the newline that ends it.  The last line
+-- carries one only where T does, so @T.concat . linesWith@ is @id@.
+linesWith :: Text -> [Text]
+linesWith t
+  | T.null t  = []
+  | otherwise = case T.breakOn "\n" t of
+      (line, rest) | T.null rest -> [line]
+                   | otherwise   -> (line <> "\n") : linesWith (T.drop 1 rest)
+
+-- | T's lines, each with the char span covering it and the newline that ends
+-- it.  A final line with no newline still gets a span, ending at the document.
+--
+-- Here rather than beside either caller because both of them compute WHOLE-LINE
+-- span edits — the settings write and the subtree lens — and this module already
+-- owns the char-span arithmetic they hand the spans to.  Two spellings agreed by
+-- accident: a CRLF or last-line fix in one never reached the other.
+lineSpansIn :: Text -> [(Span, Text)]
+lineSpansIn t = go 0 (linesWith t)
+  where go _at []      = []
+        go at (l : ls) = (Span at (at + T.length l), l) : go (at + T.length l) ls
 
 -- | EDITS unchanged when no two of them overlap, else the offending pair.
 -- Expects them sorted by span.
@@ -140,7 +187,8 @@ data EditIOError
 -- digest is of the bytes, so a file that is not valid UTF-8 still snapshots and
 -- fails later, at the edit.
 takeSnapshot :: FilePath -> IO (Either EditIOError Snapshot)
-takeSnapshot path = fmap (Snapshot path . digestOf) <$> readBytes path
+takeSnapshot path =
+  either (Left . ReadFailed path) (Right . Snapshot path . digestOf) <$> readBytes path
 
 -- | PATH's text and the digest of the bytes it was decoded from, or 'Nothing'
 -- where there is nothing readable there.
@@ -218,16 +266,25 @@ currentText :: Snapshot -> IO (Either EditIOError Text)
 currentText snap = do
   there <- doesFileExist path
   if not there && T.null (snapDigest snap) then pure (Right "") else runExceptT $ do
-    bytes <- ExceptT (readBytes path)
+    bytes <- ExceptT (either (Left . ReadFailed path) Right <$> readBytes path)
     let found = digestOf bytes
     unless (found == snapDigest snap) $ throwError (Drift path (snapDigest snap) found)
     either (const (throwError (DecodeFailed path))) pure (TE.decodeUtf8' bytes)
   where path = snapPath snap
 
--- | PATH's bytes, read strictly.
-readBytes :: FilePath -> IO (Either EditIOError BS.ByteString)
+-- | PATH's bytes, read strictly, or the first line of why they could not be
+-- had.
+--
+-- Exported because every reader in this codebase wants the same three things —
+-- one strict read, 'IOException' caught, the reason as text — and each hand
+-- rolling it grew its own answer to what an unreadable file is.  The reason
+-- comes back as TEXT rather than as an 'EditIOError' so a caller with a failure
+-- type of its own is not made to unwrap this one; the two callers here wrap it
+-- back into 'ReadFailed' at the point they already know the path.  A caller
+-- that also wants the text decoded wants 'readDocument' instead.
+readBytes :: FilePath -> IO (Either Text BS.ByteString)
 readBytes path = report <$> (try (BS.readFile path) :: IO (Either IOException BS.ByteString))
-  where report = either (Left . ReadFailed path . errText) Right
+  where report = either (Left . errText) Right
 
 -- | Put BYTES at PATH without PATH ever holding anything else: a temp file in
 -- PATH's own directory, flushed and synced, its permissions copied from PATH,

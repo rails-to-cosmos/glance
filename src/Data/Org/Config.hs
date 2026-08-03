@@ -52,8 +52,6 @@ module Data.Org.Config ( ConfigLayerFile (..)
                        , defaultFilterEdits
                        , defaultFilterOf
                        , firstBy
-                       , isCaptureTargetPragma
-                       , isDefaultFilterPragma
                        , isTodoPragma
                        , keywordScopes
                        , loadConfigDirs
@@ -62,6 +60,7 @@ module Data.Org.Config ( ConfigLayerFile (..)
                        , noKeywords
                        , readConfigLayers
                        , seedContext
+                       , systemSetting
                        , todoLineEdits
                        , todoLines
                        , todoPragmas
@@ -79,11 +78,11 @@ import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 
-import Data.Org.Edit (digestOf, readDocument)
+import Data.Org.Edit (digestOf, lineSpansIn, readDocument)
 import Data.Org.Parser (orgParse)
 import Data.Org.Types ( Context, Element (EPragma), Pragma (PTodo), Span (..), Spanned (valueOf)
                       , defaultContext, setTodo, todoActive, todoInactive )
-import Data.Org.Walk (isDocument, isWalked)
+import Data.Org.Walk (isDocument, isWalked, orgGlanceDir)
 
 -- Keywords
 
@@ -186,19 +185,47 @@ isTodoPragma = opensPragma "#+todo:"
 builtinFilter :: Text
 builtinFilter = "state:*active*"
 
--- | The filter query DOC's @#+GLANCE_DEFAULT_FILTER:@ line names, or 'Nothing'
--- when it carries none — which is what makes 'builtinFilter' the fallback
--- rather than a value written into every tree.
+-- | The two TREE-WIDE settings @system.org@ carries beside its cycle, as the
+-- pragma keys they are spelled with.  Each name is written ONCE: a reader folds
+-- it and a writer renders it, and the pair drifting apart is a line a settings
+-- sheet rewrites into a line nothing reads.
+defaultFilterKey, captureTargetKey :: Text
+defaultFilterKey = "GLANCE_DEFAULT_FILTER"
+captureTargetKey = "GLANCE_CAPTURE_TARGET"
+
+-- | Does a line open KEY's pragma?  The reader's half of a setting name, folded
+-- once so the writer below can render the same name in org's own casing.
+settingPragma :: Text -> Text -> Bool
+settingPragma key = opensPragma ("#+" <> T.toLower key <> ":")
+
+-- | The value DOC's @#+KEY:@ line names, or 'Nothing' when it carries none.
 --
 -- LAST line wins, the way a reader scrolling a config file would read it, and a
 -- line naming nothing at all is a line naming nothing: it comes back as an
--- empty query, which is a table opening on the whole store.
-defaultFilterOf :: Text -> Maybe Text
-defaultFilterOf = lastPragmaValue isDefaultFilterPragma
+-- empty value, which for the default view is a table opening on the whole
+-- store.
+settingOf :: Text -> Text -> Maybe Text
+settingOf = lastPragmaValue . settingPragma
 
--- | Does LINE open a @#+GLANCE_DEFAULT_FILTER:@ pragma?
-isDefaultFilterPragma :: Text -> Bool
-isDefaultFilterPragma = opensPragma "#+glance_default_filter:"
+-- | The span edits setting DOC's @#+KEY:@ line to WANT: rewritten, written or
+-- taken away.  The same whole-line splice the @#+TODO:@ block gets, under a
+-- per-setting predicate; an EMPTY value deletes the line, which is the tree
+-- going back to that setting's built-in.
+--
+-- Two absent pragmas insert at the same offset, which 'Data.Org.Edit.applyEdits'
+-- resolves in list order rather than refusing, so a caller writing both settings
+-- into a file that had neither gets them in the order it named them.
+settingEdits :: Text -> Text -> Text -> [(Span, Text)]
+settingEdits key doc want =
+  pragmaLineEdits (settingPragma key) doc
+    [ "#+" <> key <> ": " <> value | not (T.null value) ]
+  where value = T.strip want
+
+-- | The filter query DOC's @#+GLANCE_DEFAULT_FILTER:@ line names, or 'Nothing'
+-- when it carries none — which is what makes 'builtinFilter' the fallback
+-- rather than a value written into every tree.
+defaultFilterOf :: Text -> Maybe Text
+defaultFilterOf = settingOf defaultFilterKey
 
 -- The capture target
 
@@ -209,14 +236,9 @@ defaultCaptureFile = "inbox.org"
 
 -- | The file DOC's @#+GLANCE_CAPTURE_TARGET:@ line names, or 'Nothing' when it
 -- carries none — which is what makes 'defaultCaptureFile' the fallback rather
--- than a value written into every tree.  LAST line wins, as with the default
--- view, and a line naming nothing names nothing.
+-- than a value written into every tree.
 captureTargetOf :: Text -> Maybe Text
-captureTargetOf = lastPragmaValue isCaptureTargetPragma
-
--- | Does LINE open a @#+GLANCE_CAPTURE_TARGET:@ pragma?
-isCaptureTargetPragma :: Text -> Bool
-isCaptureTargetPragma = opensPragma "#+glance_capture_target:"
+captureTargetOf = settingOf captureTargetKey
 
 -- | Where a capture under ROOT lands given CFG, or why this daemon will not
 -- write there.
@@ -251,18 +273,12 @@ captureTargetIn root cfg = case fmap T.strip (clCapture cfg) of
       | otherwise = Right target
       where path   = T.unpack want
             target = root </> path
-    refused want why = "#+GLANCE_CAPTURE_TARGET: " <> want <> " is " <> why
+    refused want why = "#+" <> captureTargetKey <> ": " <> want <> " is " <> why
 
--- | The span edits setting DOC's capture target to WANT: the
--- @#+GLANCE_CAPTURE_TARGET:@ line rewritten, written or taken away.  The same
--- whole-line splice the cycle and the default view get, under a third
--- predicate; an EMPTY value deletes the line, which is the tree going back to
--- 'defaultCaptureFile'.
+-- | The span edits setting DOC's capture target to WANT.  An EMPTY value
+-- deletes the line, which is the tree going back to 'defaultCaptureFile'.
 captureTargetEdits :: Text -> Text -> [(Span, Text)]
-captureTargetEdits doc want =
-  pragmaLineEdits isCaptureTargetPragma doc
-    [ "#+GLANCE_CAPTURE_TARGET: " <> target | not (T.null target) ]
-  where target = T.strip want
+captureTargetEdits = settingEdits captureTargetKey
 
 -- | The value of the LAST line of DOC that MINE accepts, or 'Nothing' when it
 -- has none.  Last wins, the way a reader scrolling a config file reads it, and
@@ -286,23 +302,12 @@ opensPragma key line = key `T.isPrefixOf` T.toLower (T.stripStart line)
 todoLineEdits :: Text -> [Text] -> [(Span, Text)]
 todoLineEdits = pragmaLineEdits isTodoPragma
 
--- | The span edits setting DOC's default view to WANT: the
--- @#+GLANCE_DEFAULT_FILTER:@ line rewritten, written or taken away.
---
--- Every rule 'todoLineEdits' keeps is kept here, since it is the same function
--- under a different predicate.  An EMPTY query deletes the line, which is how a
--- tree goes back to 'builtinFilter' — a line naming nothing would be a
--- different answer (the whole store) and a settings sheet has no way to spell
--- the difference.
---
--- Two absent pragmas insert at the same offset, which 'Data.Org.Edit.applyEdits'
--- resolves in list order rather than refusing, so a caller writing both blocks
--- into a file that had neither gets them in the order it named them.
+-- | The span edits setting DOC's default view to WANT.  An EMPTY query deletes
+-- the line, which is how a tree goes back to 'builtinFilter' — a line naming
+-- nothing would be a different answer (the whole store) and a settings sheet
+-- has no way to spell the difference.
 defaultFilterEdits :: Text -> Text -> [(Span, Text)]
-defaultFilterEdits doc want =
-  pragmaLineEdits isDefaultFilterPragma doc
-    [ "#+GLANCE_DEFAULT_FILTER: " <> query | not (T.null query) ]
-  where query = T.strip want
+defaultFilterEdits = settingEdits defaultFilterKey
 
 -- | The span edits putting LINES where DOC's MINE lines are.
 --
@@ -322,7 +327,7 @@ pragmaLineEdits mine doc new = case [ sp | (sp, line) <- lines', mine line ] of
   []          -> [ (Span at at, opening <> block) | not (null new) ]
   (sp : rest) -> (sp, block) : [ (r, "") | r <- rest ]
   where
-    lines' = lineSpans doc
+    lines' = lineSpansIn doc
     block  = if null new then "" else T.unlines new
     -- Past the header the file opens with, or at the very top when it opens
     -- with content; a file that is nothing but header takes it at the end.
@@ -335,18 +340,6 @@ pragmaLineEdits mine doc new = case [ sp | (sp, line) <- lines', mine line ] of
     -- one, and a block appended to a live line is not a pragma at all.
     opening | at > 0, not ("\n" `T.isSuffixOf` T.take at doc) = "\n"
             | otherwise                                       = ""
-
--- | DOC's lines, each with the span covering it and the newline that ends it.
--- A final line with no newline still gets a span, ending at the document.
-lineSpans :: Text -> [(Span, Text)]
-lineSpans = go 0
-  where
-    go at rest
-      | T.null rest = []
-      | otherwise   = (Span at end, line) : go end more
-      where (line, tailed) = T.break (== '\n') rest
-            more = T.drop 1 tailed
-            end  = at + T.length line + (if T.null tailed then 0 else 1)
 
 -- The layers
 
@@ -395,7 +388,7 @@ noConfig = ConfigLayers noKeywords [] noKeywords Nothing Nothing "" []
 -- at the root that is being served.  In ~\/sync's own tree it does not: the
 -- walk root is @~\/sync@ and the store is @~\/sync\/views\/.org-glance@.
 configDirIn :: FilePath -> FilePath
-configDirIn root = root </> ".org-glance" </> "config"
+configDirIn root = root </> orgGlanceDir </> "config"
 
 -- | What a config directory DIR holds: the system file and the per-tag
 -- directory.
@@ -416,41 +409,38 @@ configPaths dir = (dir </> "system.org", dir </> "tags")
 -- config that cannot be read must not stop a tree from loading, and the tree
 -- then loads exactly as it did before there was a config layer.
 loadConfigDirs :: [FilePath] -> IO ConfigLayers
-loadConfigDirs dirs = combine . concat <$> mapM layersIn dirs
+loadConfigDirs dirs = combine <$> readConfigLayers dirs
   where
-    combine entries = ConfigLayers
-      { clSystem  = mergeKeywords [ lrKeywords e | e <- entries, isSystem e ]
-      , clTags    = firstPerTag [ (tag, lrKeywords e) | e <- entries, Just tag <- [lrTag e] ]
-      , clSeed    = mergeKeywords (map lrKeywords entries)
-      -- The system layer's, and the first that names one: a tree-wide setting
-      -- belongs to a tree rather than to a tag.
-      , clFilter  = systemSetting lrFilter entries
-      , clCapture = systemSetting lrCapture entries
-      , clPrint   = fingerprint [ (lrPath e, lrDigest e) | e <- entries ]
+    combine files = ConfigLayers
+      { clSystem  = mergeKeywords [ keywordsIn f | f <- entries, isSystem f ]
+      , clTags    = firstBy fst [ (tag, keywordsIn f) | f <- entries, Just tag <- [lfTag f] ]
+      , clSeed    = mergeKeywords (map keywordsIn entries)
+      , clFilter  = systemSetting defaultFilterOf files
+      , clCapture = systemSetting captureTargetOf files
+      , clPrint   = fingerprint [ (lfPath f, lfDigest f) | f <- entries ]
       , clDirs    = dirs
       }
-    firstPerTag = firstBy fst
-    isSystem = null . lrTag
-    systemSetting f entries = listToMaybe [ v | e <- entries, isSystem e, Just v <- [f e] ]
+      -- A file that is not there is still a layer, and declares nothing: the
+      -- empty digest is what says so, and the settings routes read the very
+      -- same list off 'readConfigLayers'.
+      where entries = [ f | f <- files, not (T.null (lfDigest f)) ]
+    keywordsIn = todoPragmas . lfText
 
--- | One config file as a layer: which layer it is, where it came from, what it
--- digests to, and everything read out of it.
-data LayerRead = LayerRead
-  { lrTag      :: !(Maybe Text)   -- ^ the tag it configures; 'Nothing' is the system layer.
-  , lrPath     :: !FilePath
-  , lrDigest   :: !Text
-  , lrKeywords :: !TodoKeywords
-  , lrFilter   :: !(Maybe Text)   -- ^ the default view it names, if any.
-  , lrCapture  :: !(Maybe Text)   -- ^ the capture target it names, if any.
-  }
+-- | The value READ takes off the first SYSTEM layer of LAYERS that names one,
+-- or 'Nothing' where none does.  A tree-wide setting belongs to a tree rather
+-- than to a tag, so a tag layer is never asked.
+--
+-- Both settings are read this way and both readers share it — the load, which
+-- fills 'clFilter' and 'clCapture', and the settings route, which reads the
+-- same bytes the digests it hands out were taken from, so what a sheet shows
+-- and what its write is pinned to describe one file.
+systemSetting :: (Text -> Maybe Text) -> [ConfigLayerFile] -> Maybe Text
+systemSetting reader layers =
+  listToMaybe [ v | l <- layers, isSystem l, Just v <- [reader (lfText l)] ]
 
--- | What one config directory declares, one entry per file that is there.
-layersIn :: FilePath -> IO [LayerRead]
-layersIn dir = declaring <$> filesIn dir
-  where declaring files = [ LayerRead (lfTag f) (lfPath f) (lfDigest f)
-                              (todoPragmas (lfText f)) (defaultFilterOf (lfText f))
-                              (captureTargetOf (lfText f))
-                          | f <- files, not (T.null (lfDigest f)) ]
+-- | Is LAYER the tree's own @system.org@ rather than a tag's file?
+isSystem :: ConfigLayerFile -> Bool
+isSystem = null . lfTag
 
 -- Reading the layers as files
 

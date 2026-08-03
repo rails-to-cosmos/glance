@@ -8,13 +8,16 @@
                   { "value": "CANCELLED", "color": "#9ece6a", "group": "inactive" },
                   { "value": "DONE",      "color": "#73daca", "group": "inactive" } ],
       "values": ["*active*", "*inactive*"] },
-    { "key": "priority", "header": "Pri", "type": "text", "sortable": true,
-      "values": ["A", "B", "C"] },
-    { "key": "title", "header": "Headline", "type": "text", "sortable": true },
-    { "key": "tag", "header": "Tags", "type": "text", "sortable": true, "multi": true,
-      "values": ["*archive*"] },
+    { "key": "priority", "header": "#", "type": "badge", "sortable": true,
+      "badges": [ { "value": "[#A]", "color": "#E74C3C" },
+                  { "value": "[#B]", "color": "#FFCC00" },
+                  { "value": "[#C]", "color": "#27AE60" } ],
+      "values": ["[#A]", "[#B]", "[#C]"] },
+    { "key": "title", "header": "Title", "type": "text", "sortable": true },
     { "key": "scheduled", "header": "Scheduled", "type": "text", "sortable": true },
-    { "key": "deadline", "header": "Deadline", "type": "text", "sortable": true }
+    { "key": "deadline", "header": "Deadline", "type": "text", "sortable": true },
+    { "key": "tag", "header": "Tags", "type": "text", "sortable": true, "multi": true,
+      "values": ["*archive*"] }
   ],
   "actions": [
     { "key": "RET", "command": "materialize", "label": "Materialize" }
@@ -27,24 +30,24 @@
   ],
   "rows": [
     { "id": "ship-table-view", "cells": {
-        "state": "NEXT", "priority": "A", "title": "Ship the table view",
-        "tag": ":glance:web:", "scheduled": "2026-08-01 09:30",
-        "deadline": "2026-08-05" } },
+        "state": "NEXT", "priority": "[#A]", "title": "Ship the table view",
+        "scheduled": "2026-08-01 09:30", "deadline": "2026-08-05",
+        "tag": ":glance:web:" } },
     { "id": "test/fixtures/view/sample.org#1", "cells": {
-        "state": "TODO", "priority": "B", "title": "Привет мир",
-        "tag": ":unicode:", "scheduled": "2026-08-03", "deadline": null } },
+        "state": "TODO", "priority": "[#B]", "title": "Привет мир",
+        "scheduled": "2026-08-03", "deadline": null, "tag": ":unicode:" } },
     { "id": "test/fixtures/view/sample.org#2", "cells": {
         "state": "WAITING", "priority": null, "title": "Reply from the печатник",
-        "tag": "", "scheduled": null, "deadline": "2026-08-10 17:00" } },
+        "scheduled": null, "deadline": "2026-08-10 17:00", "tag": "" } },
     { "id": "test/fixtures/view/sample.org#3", "cells": {
         "state": null, "priority": null, "title": "Plain headline without a state",
-        "tag": "", "scheduled": null, "deadline": null } },
+        "scheduled": null, "deadline": null, "tag": "" } },
     { "id": "test/fixtures/view/sample.org#4", "cells": {
-        "state": "CANCELLED", "priority": "C", "title": "Drop the old renderer",
-        "tag": ":cleanup:", "scheduled": null, "deadline": null } },
+        "state": "CANCELLED", "priority": "[#C]", "title": "Drop the old renderer",
+        "scheduled": null, "deadline": null, "tag": ":cleanup:" } },
     { "id": "test/fixtures/view/sample.org#5", "cells": {
         "state": "DONE", "priority": null, "title": "Read the schema",
-        "tag": ":web:", "scheduled": null, "deadline": null },
+        "scheduled": null, "deadline": null, "tag": ":web:" },
       "linked": true }
   ]
 }

@@ -44,7 +44,10 @@ import Control.Exception (IOException, finally, throwIO, try)
 import Data.Aeson (Value (Bool, Null, Number, Object, String), parseJSON)
 import Data.Aeson.Types (parseEither)
 import Data.List (sort)
-import Data.Org
+-- 'headlinesOf' is hidden and spelled again below ON PURPOSE: the suite's copy
+-- is an INDEPENDENT ORACLE for the span groups that read it, and one derived
+-- from the library would agree with any change to it.
+import Data.Org hiding (headlinesOf)
 import Data.Org.Walk (findOrgFiles, foundFiles)
 import Data.Text (Text)
 import Data.Time (UTCTime, defaultTimeLocale, parseTimeOrError)

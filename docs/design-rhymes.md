@@ -19,11 +19,30 @@ the keys.  The property panel, the link and tag popups, and the material
 document all speak it.  Vertical wears the row wash; horizontal wears the
 crosshair's column hue — in the document as in the table.
 
+**Movement never changes context.**  `n`/`p`, `f`/`b` and the grain walk only
+relocate attention: they never open, never close, never commit, never cross a
+boundary a reader would have to come back out of.  `RET` and `DEL` are the
+context axis — `RET` goes deeper (opens the edit, enters the child, raises the
+thing's own popup) and `DEL` comes back out (unmark, token, frame, the sheet
+ladder, close).  A key that both moved and switched would make every press a
+risk to weigh; the split is what makes holding `n` safe anywhere on the page.
+It is also why the grains are a WALK rather than a descend key: a list is one
+stop then its items, inline in the sequence, so the reader crosses a grain by
+moving and nothing changes under them when they do.
+
 **Backwards is one gesture.**  `DEL` is the backspace key wearing its oldest
 meaning — erase the last thing you did — lifted from characters to
-structure: filter tokens, then filter frames (the drill stack), sort tokens,
-a child sheet up to its parent, the sheet closed at the top.  In a text
-field it still erases characters; over structure it erases steps.
+structure: a marked set, then filter tokens, then filter frames (the drill
+stack), sort tokens, a child sheet up to its parent, the sheet closed at the
+top.  A popup with no inner ladder IS the last structure standing, so `DEL`
+steps out of it: over the link and tag popups it closes them, where `ESC`
+goes.  The state palette is the exception and keeps its own landed meaning
+(`DEL` commits `*empty*`), a value being what that surface is for.
+Grains are not a rung: the walk crosses them, so there is nothing there
+for `DEL` to undo.  Marks go first, being the last structure a reader put there; flags stay,
+being the archive queue rather than a mark.  In a text field it still erases
+characters — an open rename or link edit inside a popup keeps the field's
+own erase, and only nav-mode `DEL` closes — over structure it erases steps.
 
 **Deletion is one gesture.**  dired's flag-then-confirm everywhere something
 dies: `d` flags red, `d` on a flagged thing (or `D`) takes every flagged
@@ -46,8 +65,10 @@ literal; matching reads through the stars (completion is star-blind), the
 walls (`keywordTextP`, `isTagChar`) make a starred literal undeclarable.
 
 **Decoration for eyes, substance for predicates.**  `[#A]` displays; the
-predicate folds the brackets.  Links underline in `--tv-link`; matching never
-cares.  The weekday renders computed; the parser discards what it read.
+predicate folds the brackets.  Links underline in `--tv-link` — in the table's
+cells and in the material document alike, where `[[T][D]]` shows `D` and `RET`
+still opens the raw org; matching never cares.  The weekday renders computed;
+the parser discards what it read.
 
 **The grammar is one language.**  Predicates narrow, sort tokens order,
 alternatives OR inside a token, tokens AND across, written order is
@@ -55,9 +76,11 @@ precedence, repeats collapse at the door.  Filter and sort share the box,
 the URL, the chips, `DEL`, completion and the crumbs.
 
 **One list, many readers.**  `viewColumns`, `keywordScopes`, `SURFACES`,
-the commands table, the route table: the order is spelled once and every
-consumer reads it.  When prose says "kept in sync", the design owes a
-derivation.
+the commands table, the route table, the popup size tiers: the order is
+spelled once and every consumer reads it.  A popup wears `.pop-band` or
+`.pop-sheet` and declares no width of its own; a surface needing a third
+measure adds a tier rather than a rule.  When prose says
+"kept in sync", the design owes a derivation.
 
 **Emacs is the source of the spellings.**  Keys and command names are
 org-glance's/org's own (`^`, `:` = `org-agenda-set-tags`, `C-c '`,

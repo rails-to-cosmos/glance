@@ -38,6 +38,7 @@
 -- nothing either way.
 module Glance.Web.Sort (sortChainIn) where
 
+import Control.Monad (foldM)
 import Data.Text (Text)
 
 import qualified Data.Text as T
@@ -74,19 +75,18 @@ sortChainIn q = case filter ((== Just sortKey) . tmKey) (parseFilter q) of
     -- counts.
     let ordering = [ pair | pair@(_t, n) <- named, orders n ]
     case [ t | (t, NoOrder) <- ordering ] of
-      []      -> foldl extend (Right [])
-                       [ (t, c, a) | (t, Column c a) <- ordering ]
+      []      -> foldM extend [] [ (t, c, a) | (t, Column c a) <- ordering ]
       empty : _
         | length ordering > 1 -> Left (alone empty)
         | otherwise           -> Right []
   where
     orders Silent = False
     orders _named = True
-    extend chain (t, column, ascending) = do
-      keys <- chain
-      if any ((== column) . fst) keys
-        then Left (twice t column)
-        else Right (keys <> [(column, ascending)])
+    -- 'foldM' over 'Either' stops at the first refusal, so a query naming two
+    -- bad tokens is answered by the one written first.
+    extend keys (t, column, ascending)
+      | any ((== column) . fst) keys = Left (twice t column)
+      | otherwise                    = Right (keys <> [(column, ascending)])
 
 -- | What one @sort:@ token names.
 data Named

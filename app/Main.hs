@@ -4,9 +4,8 @@ import Data.List (isPrefixOf)
 import System.Environment
 import System.Exit
 
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as BSChar8
 import Data.Org (defaultContext, orgParse)
+import Data.Org.Edit (readDocument)
 
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -44,12 +43,12 @@ main :: IO ()
 main = do
   getArgs >>= parse
 
-greetings :: [[Text]] -> IO ()
+-- | The REPL banner, with MESSAGES under it.
+greetings :: [Text] -> IO ()
 greetings messages = do
   TIO.putStrLn "---"
   TIO.putStrLn "Hello, fellow hacker!\n"
-  let _lines = map (Text.intercalate " ") messages
-  mapM_ TIO.putStrLn _lines
+  mapM_ TIO.putStrLn messages
   TIO.putStrLn "---"
   TIO.putStrLn ""
 
@@ -73,18 +72,30 @@ parse ("desktop":args) = run "desktop" desktopUsage runDesktop (desktopOptions a
 
 parse (filename:_) = do
   settings <- replSettings
-  content <- Text.pack . BSChar8.unpack <$> BS.readFile filename
+  -- 'readDocument' rather than a decode of this REPL's own: every other reader
+  -- in the codebase takes UTF-8 through it, and the latin-1 round trip this
+  -- replaces gave a non-ASCII file mojibake titles and latin-1 offsets where
+  -- the parser's spans are characters.
+  content <- readDocument filename
 
-  let (_elements, context, maybeErr) = orgParse defaultContext content
+  case content of
+    Nothing -> do
+      -- 'readDocument' answers 'Nothing' for a file that is not there, one
+      -- that cannot be read, and one whose bytes are not UTF-8, so the sentence
+      -- names all three rather than claiming the first.
+      hPutStrLn stderr ("glance: cannot read " <> filename <> " as UTF-8 org")
+      exitFailure
+    Just (text, _digest) -> do
+      let (_elements, context, maybeErr) = orgParse defaultContext text
 
-  greetings [ ["Additional context provided:", Text.pack filename]]
+      greetings ["Additional context provided: " <> Text.pack filename]
 
-  case maybeErr of
-    Just err -> TIO.putStrLn $ Text.pack (errorBundlePretty err)
-    Nothing  -> pure ()
+      case maybeErr of
+        Just err -> TIO.putStrLn $ Text.pack (errorBundlePretty err)
+        Nothing  -> pure ()
 
-  runRepl settings context
-  exitSuccess
+      runRepl settings context
+      exitSuccess
 
 -- | OPTIONS through ACT, or NAME's complaint and USAGE on stderr.
 run :: String -> String -> (a -> IO ()) -> Either String a -> IO b

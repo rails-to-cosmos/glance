@@ -145,7 +145,11 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - Corpus check: `cabal run -v0 glance -- scan ~/sync` — expect 0 span
   violations, ~12.6k headlines, and a `walk seconds` row of ~10–11 (2026-08-02:
   6287 files, 12594 headlines, 0 violations, 11.3 s; re-measured the same day at
-  6289 files, 12596 headlines, 0 violations, 9.9 s). The headline figure was
+  6289 files, 12596 headlines, 0 violations, 9.9 s; 2026-08-04: 6292 files,
+  12611 headlines, 0 violations, 10.4 s — the tree is live, so a handful of
+  files a day is drift rather than a rule moving. The `isSidecar` narrowing
+  cost this corpus nothing: it holds no `#name.org` at all, every `#…#` there
+  being an auto-save that `isOrg` refuses first). The headline figure was
   carried at ~12.9k after the derived mirrors left the walk (2026-07-31,
   13.4k → 12.9k, a semantic correction rather than a loss) and was not lowered
   when the star-run rule took it to 12.6k; walk seconds went ~13 → ~10.4 on the
@@ -170,6 +174,11 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `data` is not privileged in the walk; it survives by not
   being on the list, and is privileged only in `beatsForId`
   (`Data.Org.Walk`), which is a different rule for a different question.
+  `isConfig` is a FOURTH exclusion beside those three, and an unconditional one:
+  a `config` directory sitting directly under a `.org-glance` component is
+  declined whatever `--include-derived` says, with an accumulator and a
+  `config skipped` scan row of its own. Nothing there is derived, so nothing
+  there becomes truth by asking louder — those files are INPUT to a parse.
   One `Data.Org.Walk.isDerived` serves the walk and the watch — the watch
   reaches it, and `isDocument`, through the facade re-exports
   `Glance.Query.derivedPath`/`documentPath` — so a file the store never loaded
@@ -197,7 +206,13 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   same rule and no event ever revisits it. Emacs's sidecars are out of that
   rule: `isDocument` = `isOrg` minus `isSidecar` (`.#name.org`, the lock
   symlink that dangles, and `#name.org#`), one predicate for the walk and, via
-  `Glance.Query.documentPath`, for `isWatchable`.
+  `Glance.Query.documentPath`, for `isWatchable`. BOTH SHAPES ARE EXACT: the
+  auto-save is matched on its closing `#` as well as its opening one. A bare
+  leading `#` took every `.org` file whose name starts with one, so a
+  hand-written `#inbox.org` was invisible to the walk, to the watch and to a
+  capture target naming it. Only the lock shape can fire through `isDocument` —
+  `#name.org#`'s extension is `.org#`, which `isOrg` refuses first — and the
+  auto-save stays named so the pair is one rule.
 - `orgGlanceTails` guards its `splitDirectories`/`tails` pair with an
   allocation-free character scan for `.org-glance`: a path that does not spell
   the string cannot hold the component, so it is the same function with a fast
@@ -271,7 +286,11 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - Write-back (S8) = surgical span replacement, optimistic lock, atomic
   temp+rename; untouched bytes stay byte-identical.
 - Write-back engine = `Data.Org.Edit`: char-span splice, drift-checked, atomic
-  same-dir rename, content-agnostic (no `TextShow`).
+  same-dir rename, content-agnostic (no `TextShow`). The rename replaces the
+  destination NAME, so a write through a SYMLINKED `.org` file leaves a regular
+  file where the link was and the real file untouched — the table then serves
+  the copy for ever. The walk keeps symlinked documents on purpose, so it is
+  reachable; resolving the target first is a policy decision nobody has taken.
 - `Display`/`TextShow` stay out of the wire contract; the web layer is the
   private sublibrary `glance-web` (`src-web/`, `Glance.Web*`) with the public
   library alone in its `build-depends`, and it binds 127.0.0.1 until S7 brings
@@ -304,13 +323,26 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   in seconds, drained by a 25 ms poll loop. There is no ceiling and no
   leading edge: a path taking events faster than every 100 ms is deferred for
   as long as that lasts.
+- THE DRAIN LOOP IS SERIAL, and that is the correctness argument for reseed.
+  `Watch.settle` is ONE `forever` loop, so nothing else is settling while a step
+  runs. `reseed` builds the fresh store OUTSIDE the transaction and `reseeded`
+  installs it wholesale, discarding the live store's rows — sound only because
+  the events queued during that walk are re-drained afterwards. Make the loop
+  concurrent, which is the obvious fix for the stall below, and any edit that
+  landed during the walk is silently reverted.
+- A CONFIG RESEED BLOCKS THAT LOOP, so the 100 ms debounce above means "100 ms,
+  or a full re-walk" — ~10 s over ~/sync. "No ceiling" is about the debounce and
+  understates what a config edit costs every other pending path.
 - Deletion is decided by `doesFileExist` at reload time, not by the event kind.
 - `stTags` counts FILES, not rows: it is stepped by the set difference between
   a file's old and new projection, so a tag on forty rows of one file counts
   once.
-- `stDirErrs` is frozen at startup — written by `loadStoreWith`, read by
-  `storeResult`, and touched by nothing in the watch. A directory that becomes
-  readable, or stops being, is invisible until restart.
+- `stDirErrs` and `stPrint` are written by `loadStoreWith` and by nothing else,
+  which means they move on a RESEED as well as at startup: `Watch.reseed` calls
+  that same loader and `reseeded` installs the fresh store wholesale. So a
+  directory that becomes readable, or a file whose bytes moved, is invisible to
+  those two fields until the next config change or a restart — a per-file watch
+  event never touches either.
 - `storeKeywords` merges ONE record per file (`listToMaybe . feRecords`), which
   is sound because every row of a file shares the file's keyword sets.
 - The server binds before it walks: the store starts `Loading`, the walk runs on
@@ -375,11 +407,12 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `Value` is hand-built — no `ToJSON` on an internal type
   (table-view/SCHEMA.md is the contract).
 - Commands: one route, `POST /command {name, id | ids, args, digests?}`, over ONE
-  table — `commands`, name to `{argument shape, dated, one-row, edits}`. Eight
+  table — `commands`, name to `{argument shape, dated, one-row, edits}`. Ten
   entries: `set-state {keyword: KW | null}`, `set-planning {keyword:
-  SCHEDULED|DEADLINE, date: TEXT | null}`, `archive {}`, `capture {text}`,
-  `add-tag {tag}`, `remove-tag {tag}`, `rename-tag {from, to}` and
-  `edit-link {span: [S, E], target, desc: TEXT | null}`.
+  SCHEDULED|DEADLINE, date: TEXT | null}`, `set-title {title}`,
+  `set-priority {priority: LETTER | null}`, `archive {}`,
+  `capture {text}`, `add-tag {tag}`, `remove-tag {tag}`, `rename-tag {from, to}`
+  and `edit-link {span: [S, E], target, desc: TEXT | null}`.
   `rename-tag` names both ends rather than reusing `tag` for one of them, and it
   is a command rather than a remove and an add a client fires in turn: those two
   edit sets APPLY — they touch, and `applyEdits` rejects only overlap — and what
@@ -394,8 +427,8 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   every span here), so a span means nothing to a second row and over two files
   would name a different range in each. `wantsLink` owns that message and puts
   it FIRST — the row count is the coarsest thing wrong with the request, and
-  naming a missing span instead would answer the smaller question. Seven of the
-  eight entries ignore the list, which is what a rule only one command has looks
+  naming a missing span instead would answer the smaller question. Nine of the
+  ten entries ignore the list, which is what a rule only one command has looks
   like when it is not lifted into a flag every entry must answer.
   `parseCommand` resolves the name BEFORE anything else and a
   `Command` cannot be built without the entry it resolved to, so nothing below
@@ -459,6 +492,35 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   out, and a bare ISO date takes an optional `HH:MM` — all three rendering an
   active timestamp with the weekday computed. Everything else is the whole
   request's 400, naming the input.
+- `setPriorityEdits` is `setStateEdits`' three shapes one part along: a token
+  already there is its own span; a headline with none takes `" [#X]"` behind the
+  KEYWORD (org's place — a priority follows the state) else behind the stars; a
+  null deletes the token plus the HORIZONTAL run behind it, so `* TODO [#A] T`
+  closes up to `* TODO T`. Clearing a headline that carries none costs no edit,
+  which is what lets the ring's wrap through NONE be pressed twice. `priorityText`
+  is the wall and it is the whole request's: ONE ASCII letter, uppercased — org's
+  `A`–`C` cycle is the READER's window, so a tree spelling `[#D]` is writable and
+  simply unbadged.
+- ORG'S PRIORITY RING, pressed rather than picked: `S-<up>` = `priority-up` runs
+  `none → C → B → A → none` and `S-<down>` the reverse, both `table` scope and
+  both in `ONCE` (a held key would walk the ring and land on the parity of the
+  repeat count). Marked-else-point, like `set-state` — but EACH ROW CYCLES FROM
+  ITS OWN VALUE, which `args` cannot carry for a mixed set, so the shell groups
+  the targets by LANDING value and fires one command per group (the tags popup's
+  rule from another side: a command names one value). A set that agrees is one
+  request. The echo is `S-<up> → priority-up ([#B] · 3)`, `*empty*` where the
+  wrap landed on none. The keys reach the DOCUMENT too, over the entry the sheet
+  is standing on and refused on a child; `RET` on the priority cell still refuses
+  and now names the two keys — a ring of three is pressed, not picked from a
+  list.
+- `setTitleEdits` replaces the title's own span, or inserts `" TITLE"` behind
+  the priority, else the keyword, else PAST the horizontal run after the stars —
+  never `titleLineEnd`, whose answer includes the TAGS, where a title would read
+  back as tag text. `titleText` is the wall and it is the whole request's: a
+  title is at least one character (a headline with none is a `blankEntry` and no
+  longer a row) and is ONE line. What it may SAY is the author's — a title
+  ending `:word:` reads back as a tag run, which is org's grammar rather than
+  something the command refuses.
 - The span math is `Glance.Query`'s, because `HeadlineSpans` is
   `glance-internal`'s: `setStateEdits` replaces the keyword span, inserts
   `" KW"` at `spanEnd hsStars` when there is none, or deletes the keyword plus
@@ -492,10 +554,25 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   filtered: it carries row ops whatever the client's query, so an unfiltered
   client splices in an archived row `/headlines` would not have served — the
   shell's default query makes it refetch instead.
-- Materialize: `GET`/`POST /headline?id=…` serves and replaces a headline's raw
-  subtree. The digest is pinned at load, any divergence is a 409 with the file
-  untouched, and the write path never WRITES the store — it reads it for the
-  extent and the digest, and the file watch is the only thing that updates rows.
+- Materialize: `GET`/`POST /headline?id=…[&child=K]` serves and replaces a
+  headline's raw subtree. The digest is pinned at load, any divergence is a 409
+  with the file untouched, and the write path never WRITES the store — it reads
+  it for the extent and the digest, and the file watch is the only thing that
+  updates rows.
+- SUB-ADDRESSING is `?child=K`: a child has no row of its own, so a ROW id plus
+  an INDEX names one — K the K-th headline inside that row's subtree in DOCUMENT
+  order (`Glance.Query.subtreeEntries`, one re-parse of the file per call from
+  the load's own seed, extents off the same `subtreeSpans` the rows are cut by).
+  So a grandchild is one number from the row rather than a path. The answer
+  carries `child` (the index it IS), `parent` (the one `DEL` climbs to, null
+  being the row), `children` (the DIRECT descendants with the index each answers
+  to), `path` (the titles from the row down), `cells` (the four the table shows)
+  and `ownLines` — how many lines of `body` are this entry's, ahead of the first
+  child's stars, so the same bytes are never both a paragraph and the child that
+  owns them. The digest and the id stay the ROW's: one file, one lock. An index
+  the subtree has no entry for is a 404 and one that is not a number is a 400
+  (`limit=`'s rule — a mistyped index that served the parent would look like a
+  working request and a write pinned to it would splice the wrong subtree).
   A byte-identical commit still rewrites the file (temp + rename, no equality
   short-circuit), so it costs an inotify event and a re-parse; `guarded` then
   finds nothing moved and the generation stays put.
@@ -539,9 +616,15 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   which is what a headline growing a planning line and a drawer in one commit
   needs. A region the headline never had goes on the line under the title.
 - `/headlines` carries `ETag: "<stPrint16>-g<stGen>"` under
-  `Cache-Control: no-cache`; the generation moves only in `Store.guarded`, and
-  only when frames were produced or a file's load outcome moved, and the
-  fingerprint is fixed at load. One tag covers every query variant: the
+  `Cache-Control: no-cache`; the generation moves in ONE function after load,
+  `Store.installed`, and it has two callers — `Store.guarded` for a per-file
+  event and `Store.reseeded` for a config reseed — so the two cannot come to
+  disagree about the rule, which is: frames produced, or a file's load outcome
+  moved. `installed` takes the counter off the OLD store, which is what makes
+  `reseeded` CARRY IT OVER rather than restart at the fresh store's zero, so a
+  client revalidating across a reseed can never be handed a tag it has already
+  seen. The fingerprint is not one of the conditions and is fixed per load. One
+  tag covers every query variant: the
   parameters are in the URL and an HTTP cache is keyed by URL, so the response
   is a function of (tree, generation, URL) and no `Vary` is owed for them — gzip
   writes the `Accept-Encoding` one itself.
@@ -627,7 +710,10 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `Data.Org.Edit` is content-agnostic by law, so this is the layer that owes all
   three checks.
 - `POST /headline` caps the body at 1 MiB and answers 413 past it. The cap is
-  checked before the id lookup, so 413 outranks 404.
+  checked before the id lookup, so 413 outranks 404. `focusIn` extends that
+  chain at the other end: a malformed `?child=` is a 400 raised BEFORE the id is
+  looked up, so a bad child index over an unknown id answers 400 rather than
+  404.
 - `?limit=` is capped at 20000 and a larger one is a 400; no `limit` serves the
   whole store, which is the mode the shell settles into.
 - The asset route takes ONE path segment through `safeName`, which rejects the
@@ -815,6 +901,28 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
     `sortsIn`/`sortKeyOf`). `fixtures/parity/sort-tokens.json` runs the shared
     half over the browser renderer; `TestFilter`'s "Sort tokens" runs the same
     table here.
+  - PRIORITY WEARS ORG'S BRACKETS, and the fold is the divergence. The cell is
+    `[#A]`, the column is a BADGE column, and its three badges are danneskjold's
+    org-priority hues (`[#A]` #E74C3C, `[#B]` #FFCC00, `[#C]` #27AE60 — three and
+    no more; a `[#D]` takes the badge-less default ink). DISPLAY WEARS THE
+    DECORATION AND MATCHING READS THROUGH IT: `Glance.Query.priorityLetter`
+    strips `[#`…`]` and folds, so `priority:A` and `priority:[#A]` are one query
+    on this side and `sortCell` orders by the LETTER. The renderer's own
+    `tokenTest` priority arm does NOT fold, so a locally-filtered page answers
+    `priority:A` with nothing — a handoff rather than a rule, and the narrower
+    direction, which is the tripwire's blessed one. The `title` column's header
+    moved `Headline` → `Title` in the same change; the key was already `title`,
+    so nothing but the drawn word and the `^` echo reads it. The `priority`
+    column's header moved `Pri` → `#` the same way, on the same rule: org's own
+    glyph, and the header stops driving a column wider than `[#A]`. The `^`
+    echo reads `# ▲`, which is the header doing its job.
+  - COLUMN ORDER: `state | priority | title | scheduled | deadline | tag`. Tags
+    are LAST because org writes them flush right on a headline. The reorder is
+    the one-list edit — `columns`, `rowJSON`'s cells, `filterKeys` and
+    `viewCells`→`hrSearch` all follow `viewColumns`, and `tagsColumn` is the
+    INDEX of `tag` computed by NAME, so it followed too. What did not follow, by
+    design, is `TestFilter`'s hardcoded layout oracle: it is moved by hand,
+    which is the whole reason it exists.
   - Column lockstep is FOUR-way through `viewColumns` — `columns` declares them,
     `rowJSON` fills them, `filterKeys` names them, and `viewCells` joins them
     into `hrSearch`, `recordOf` tying the record through its own cells. A cell
@@ -1203,10 +1311,13 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `resolving…` line until then), so the raising guard, `typing()` and `ESC` are
   where they were; a fill landing after the reader left finds another prompt or
   none and drops, and a refusal closes the palette with a `cmd` error line.
-  Its keys live in a SECOND document listener behind the dispatch,
-  safe because `typing()` — which the palette turns on with NO field focused,
-  the way the property panel's nav does — has already killed every `table` row,
-  so `n` moves nothing and `d` flags nothing while it is up. The pill counts what
+  Its keys live in a SECOND document listener behind the dispatch. `typing()` —
+  which the palette turns on with NO field focused, the way the property panel's
+  nav does — kills every `table` row, so `n` moves nothing and `d` flags nothing
+  while it is up; that is what holds the DISPATCH off. What holds the SHEET's own
+  listener off is `momentary()`, which names the palette the moment it is up:
+  the sheet's listener runs AHEAD of the dispatch, so `typing()` never gets the
+  chance to answer for it. The pill counts what
   landed, the log names every row it landed on and every one refused, and the
   rows arrive over the watch. TWO GUARDS, one press each: `prompting.raising`
   declines the keydown that OPENED the palette (that listener is behind the
@@ -1225,22 +1336,20 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   positional pair with nothing tying it to the list it indexed. The property
   panel names no cells and takes the whole row; the gutter `flags: true` puts in
   front is skipped by the renderer's own class.
-- THE MODAL SURFACES ARE ONE ORDERED LIST, `SURFACES`: the property panel (whose
-  listener registers AHEAD of the dispatch and so sees a key first), then the
-  three behind it in the order they are written — the value palette, the link
-  popup, the tags popup. Rank IS registration order, which is a fact about the
-  page rather than a preference. Each entry names its `up`, the `off` that closes
-  it, and the OPEN EDIT that is a rung under it. THREE READERS AND NO FOURTH:
-  `typing()` asks whether any is up (which kills every `table` row), `cancel`
-  walks it for the rung ESC belongs to — the sheet is the floor under it, since
-  the panel names no `off` — and a listener asks `covered(NAME)` whether anything
-  ABOVE it is up before claiming a key. The five listeners STAY, and so does
-  `prompting.raising`: `covered` is one surface declining for ANOTHER, `raising`
-  is one surface declining the single keydown that RAISED it, and a rank says
-  nothing about a race with only one surface in it. The surfaces are mutually
-  exclusive in practice — each is raised from a `table` key, which `typing()` has
-  already killed by the time another is up — so the ORDER decides nothing a
-  reader can reach; it is the listeners'.
+- THE MODAL SURFACES ARE ONE LIST, `SURFACES`, in the order they are written:
+  the value palette (`prompt`), the link popup, the tags popup, then the sheet.
+  The first three are `momentary`; the sheet is the floor under them. Each entry
+  names its `up`, the `off` that closes it, and the OPEN EDIT that is a rung
+  under it. FOUR READERS: `momentary()` names whichever momentary one is up,
+  `typing()` asks whether ANY is up (which kills every `table` row), `sole()`
+  closes every momentary one on a raise, and `cancel` walks it for the rung ESC
+  belongs to. The five listeners STAY, and so does `prompting.raising` — one
+  surface declining the single keydown that RAISED it, which no list can answer.
+  ORDER IS LOAD-BEARING FOR EXACTLY ONE PAIR: `+` over the tags popup leaves both
+  `prompt` and `tags` up, and `momentary()` resolves that tie by list position,
+  so swapping them makes the tags listener eat the add-field's letters.
+  Everywhere else the surfaces are mutually exclusive — each is raised from a
+  `table` key, which `typing()` has already killed by the time another is up.
 - `:` (`org-agenda-set-tags`) raises the TAGS POPUP, the page's FOURTH
   table-view mount (`#ttable`) and the only MUTABLE one. A tag over a set of rows
   is a RECORD — a name, a coverage, a weight in the tree — and a reader deciding
@@ -1276,11 +1385,12 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   the tag cell (`td:not(.tv-box)`, the row's box through the mount's published
   root), RET commits `rename-tag {from, to}` over the targets carrying `from`,
   ESC restores. A tag is FOLDED at commit, since presence is.
-  Its keys are a FOURTH document listener behind the dispatch, with two guards
-  about the palette `+` raises OVER it: it declines while `prompting` is set, and
-  it declines a key that palette has already CLAIMED (`e.defaultPrevented`) —
-  without the second, the very RET that added a tag would land on a popup with no
-  prompt on it and open the rename.
+  Its keys are a document listener behind the dispatch, with two guards about
+  the palette `+` raises OVER it: it runs only while `momentary()` names it —
+  which the palette's own entry, standing EARLIER in `SURFACES`, takes away the
+  moment `+` raises one — and it declines a key that palette has already CLAIMED
+  (`e.defaultPrevented`); without the second, the very RET that added a tag would
+  land on a popup with no prompt on it and open the rename.
 - `o`/`!` (`org-glance-overview:open`) FOLLOW the row, and the ANSWER decides the
   gesture: `GET /links?id=` for the row at point, then no links is an echo
   refusal, ONE is `window.open(target, "_blank", "noopener")`, and SEVERAL raise
@@ -1408,6 +1518,15 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 
 ## UI
 
+- MOVEMENT NEVER CHANGES CONTEXT. `n`/`p`, `f`/`b` and the grain relocate
+  attention alone: they never open, never close, never commit, never cross a
+  boundary a reader would have to come back out of. `RET` and `DEL` are the
+  context axis — `RET` goes deeper (opens the edit, enters the child, raises the
+  thing's own popup) and `DEL` comes back out (unmark, token, frame, the sheet
+  ladder, close). A key that both moved and switched would make every press a
+  risk to weigh; the split is what makes holding `n` safe anywhere on the page,
+  and it is why movement keys are the ones left OUT of `ONCE`. Stated in full in
+  `docs/design-rhymes.md`.
 - Keyboard-first: every web-surface feature ships with a key path mirroring
   the Emacs org-glance maps; buttons only where keys cannot reach; the echo
   widget must know every new binding (keymap-is-data blob is the single
@@ -1437,19 +1556,211 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   states: `synced` / `syncing…` / `conflict` / `error` — the last two are the
   ones that wait for a keystroke, so each spells the key that clears it, and the
   retry line is one constant rather than three copies.
-- The sheet is two panes over one subtree and the cut is the SERVER's: textarea
-  = `body`, panel = `properties`, a flush posts both back. The page holds no org
-  parser and must not grow one. A panel row is key then value in file order (no
+- TWO KEYS COMMIT AN OPEN ELEMENT in the material document: `C-x C-s`
+  (`save-buffer`) and org's own `C-c C-c` (`org-ctrl-c-ctrl-c`), over the
+  paragraph textarea and the two-field overlay alike, `RET` keeping its landed
+  meanings. `C-x C-s` keeps the half that is a BUFFER's — with nothing open it
+  flushes the sheet and on a conflict it overwrites — where `C-c C-c` stops
+  where the element does and says `nothing open here`. `commitDocEdit` takes the
+  binding that fired, so the echo names the command that ran. `Ctrl+C` reaches
+  the page (a page default action rather than a chrome shortcut, like `Ctrl+S`),
+  and COPY is untouched because prefix opening is guarded by `selecting()`: with
+  anything selected the first press is the browser's, which is exactly when a
+  reader means to copy. The resident key line is the TABLE's, so a modal row
+  carries its help on the binding rather than in `keyHints`.
+- The sheet is two panes over one subtree and the cut is the SERVER's:
+  STRUCTURED DOCUMENT = `body`, panel = `properties` + `planning`, a flush posts
+  both back. The page holds no org parser and must not grow one. A panel row is
+  key then value in file order (no
   `tabindex` anywhere); `+` adds one and `d`/`D` delete one; an emptied key
   deletes too; the hidden properties are not rowed at all
   (`Glance.Query.hiddenProperties`), so there is nothing to warn about and
   nothing a gesture can reach. `C-c '` (org's `org-edit-special`) swaps
   two-pane and raw org by RE-MATERIALIZING — a dirty sheet is refused with `sync
   first — C-x C-s`, since a local conversion would need the parser this keeps
-  out, and the re-read lands at `synced`. Stash and restore carry both panes and
-  the shape. The sheet is four fifths of the window each way (`min(80vw,100%)` ×
-  `min(80vh,100%)`); the panes wrap rather than querying a width, and the
+  out, and the re-read lands at `synced`. Stash and restore carry both panes,
+  the shape, where the document's cursor stood and what an open edit was
+  holding — and only for a DIRTY sheet, a pristine one being a sibling of `#app`
+  that a remount leaves standing. The sheet wears `.pop-sheet` like every other
+  working surface; the panes wrap rather than querying a width, and the
   `pointer:coarse` block pins the column.
+- POPUP SIZE IS A TIER and there are TWO: `.pop-band` (a list of single words —
+  the state palette) and `.pop-sheet` (a working surface FIXED on both axes —
+  the materialize sheet, the link and tag popups, the settings sheet). No box
+  declares a width or a height of its own. `.pop-wide` was the third, growing
+  between a floor and a ceiling; fixing its height at the bound made its
+  definition character for character `.pop-sheet`'s, so it is gone — its floor
+  existed only because a sparse entry made a GROWING box a strip, which a fixed
+  box cannot become.
+- A POPUP CLAMPS AND SCROLLS INSIDE, and it is a CHAIN rather than one
+  declaration: `--g-pop-max` is `min(90vh, calc(100vh - 2 * var(--g-pop-top)))`
+  — the foot margin is the HEAD's, derived from the anchor rather than spelled
+  as a second figure, so a tall box stops as far from the bottom as it started
+  from the top. The `min()` stays for a RAISED anchor, where the 90vh cap binds
+  again; at the shipped `5vh` the two agree exactly. `#mpanes`
+  carries `overflow:hidden` — `flex:1;min-height:0` lets the row be SIZED by the
+  box but not stop its own content painting past that, and under `flex-wrap` the
+  LINE is content-sized and `align-items:stretch` stretches the panes to the
+  LINE — and no PANE carries a floor, a `min-height` on a flex child being a
+  refusal to shrink. `#mdoc` owns its scroll, `#mprops`/`#mptable` and
+  `#lpane`/`#ltable` hand theirs to the mount inside, `#cbox` and `#plist` scroll
+  in their own right.
+- The log strip's severity and scope are COLUMNS, each as wide as its own
+  longest word — `error` 5ch, `config` 6ch — so every message starts at one x
+  position. The vocabulary is not a list in the code, so `TestServe` derives both
+  widths off the page's own `append` calls: a longer scope fails there.
+- THE LEFT PANE IS THE STRUCTURED DOCUMENT, and it is NOT a table-view mount —
+  the doctrine line: the renderer's list widget draws a list of RECORDS, one
+  shape per row, and this is a list of KINDS. Elements in file order: the
+  HEADLINE LINE (cells `state | priority | title | tags`), the body's own
+  PARAGRAPHS (blank-line separated, each remembering the line range it came out
+  of), and the CHILD headlines collapsed to one line each. `drows` is the model
+  and `drawDoc` is the whole view.
+- GRAINS ARE STOPS IN ONE WALK, never a mode. A LIST, a `#+begin_X`/`#+end_X`
+  BLOCK and an org TABLE each take TWO kinds of stop over the same bytes, laid
+  out in document
+  order as `[whole, leaf1..leafN]` and inline among everything else: `n` from
+  above meets the whole thing and then walks into it, `p` from below walks the
+  parts and meets the whole on the way out — one sequence read in both
+  directions, which is why there is no descend key and no ascend key. `RET` is
+  pure edit at either grain (a leaf opens its own lines, a composite the whole
+  block's), `DEL` stays the sheet's ladder, and `d` flags whatever the stop is.
+  `grain` on a row names its kind: `element`, `composite`, `leaf`.
+- ONE GRAIN SPEAKS FOR A RANGE. A composite and its leaves cover the same lines,
+  so `bodyText` leaves a leaf out of the splice whenever its owner MOVED or is
+  going — a reader flagging a list and one of its items gets one deletion.
+  A composite is likewise DRAWN once with its leaves inside it, and what no leaf
+  claims is drawn INERT (`.dg`, muted): the `#+begin_`/`#+end_` lines, the blank
+  line org lets stand between two items, a lead-in the opener did not take.
+  Every byte on screen exactly once — the lens's rule, one grain down.
+- A TABLE'S LEAF IS A LINE, and that is the one place the table grain differs
+  from the list's: a list's leaves are RUNS found by `listRun`, a table's are
+  cut inline, one per `|`-opening line. `|---|` rules are leaves like any other
+  line — a line is a line, and editing or deleting one is the same act — so
+  there is no cell grain and no column awareness. Corpus at 2026-08-03: 101 of
+  6337 files hold table rows, 2178 lines, 211 of them rules, which is what makes
+  the coarse grain plenty.
+- The openers are the CORPUS's, not a guess: `-` (28571 lines), `1.`/`1)`
+  (2675), `+` (42) and an INDENTED `*` (34). A block is ANY `#+begin_X` with a
+  matching `#+end_X` BY NAME — naming quote/src/example would have missed this
+  corpus's commonest block by a factor of three (`pin` 1022, `src` 338, `quote`
+  111, `notes` 42, `example` 38). ONE blank line stays inside a list (org's rule
+  and 1173 corpus item pairs); two, or a blank with something else under it,
+  close it. An item deeper than the first RIDES INSIDE the item above rather
+  than taking a stop — v1's grain, and the nesting is still there in the text.
+  An opener with no closer is ordinary text. A paragraph ends at the next
+  STRUCTURE as readily as at a blank line, org letting a list follow its lead-in
+  with no blank between.
+- ORG LINKS RENDER, under org's own DISPLAY-VS-SOURCE model: what is SHOWN is
+  the description (`[[T][D]]` shows `D`, `[[T]]` shows `T`, a bare URL shows
+  itself — `table-view.js`'s `displayText` rule, which is the table's), and what
+  `RET` opens is the RAW org, brackets and all. The display never becomes the
+  source, so an edit is always over what the file says. NO SECOND PARSER: the
+  shown text is the server's `desc` verbatim (`Glance.Query.linkShown`) and the
+  range is its `span`, one scan in `Glance.Query`, so this page only intersects
+  the file-spans into an element's own coordinates and draws segments
+  (`drawText`). `drawText` walks the segments in order and SILENTLY DROPS a link
+  that starts inside the previous one (`if (a < cut) continue;`), so it rests on
+  a non-overlap guarantee that only `subtreeLinks` can give and that nothing
+  checks: overlapping spans out of the scanner lose segments here with no
+  complaint. A bare URL is drawn because it is in the same answer. SPAN-driven,
+  never search-driven, which has one visible consequence: `/links` keeps the
+  FIRST spelling of a target and no other (`orgLinks`, so `o` offers one
+  destination one letter), so a URL written twice is MARKED ONCE and the later
+  occurrences read as the text they are. The
+  paragraph/leaf elements and the headline's TITLE cell render alike; the title
+  needs `titleAt` (the server's `Glance.Query.titleSpan`, `Span` rather than the
+  internal `HeadlineSpans`) because only the server has that sub-span, and a
+  CHILD's title stays text. `/links` is fetched once beside the materialize and
+  the document is drawn without waiting, so a failed link scan costs the marks
+  and never the sheet. Links are NOT stops and bind no mouse — `o` is the opener
+  and shares `linksIn` with the draw, so what a reader sees marked in an element
+  is exactly what `o` there will find. `--g-link` is hand-copied from the
+  renderer's `--tv-link` (`#30739B` / `#7CC9F8`) like `--g-border`, since
+  `--tv-link` is declared on `.tv-root` and a live `var()` resolves to nothing
+  beside the mount; ALIASED, so every use reads the name and the suite forbids
+  the hex at a use site.
+- THE CURSOR CARRIES ITS PANE'S SCROLL. `keepInView` on every draw, and the band
+  is CSS: `.de` carries `scroll-margin-block: var(--g-doc-off)` and
+  `scrollIntoView({block:"nearest"})` honours it, so the scrolloff is three of
+  the pane's OWN lines (`calc(3 * var(--g-doc-fs) * var(--g-doc-lh))`, the two
+  numbers the pane is set in) and the movement code measures nothing.
+  `scrollIntoView` is forbidden over the TABLE's rows — the renderer owns their
+  scroller, their page and their selection — and ordinary here, the document's
+  rows and scroller being the shell's. The suite keeps the distinction by
+  COUNTING: one call site, plus the `typeof` that guards it.
+- STARS, ORG-CLEANED. Every headline line — the root's and each child's — opens
+  with its own stars drawn the way `org-hide-leading-stars` + `org-startup-indented`
+  draw them: every star but the LAST rendered as a space, so the root reads
+  `* Title`, a child ` * Title`, a grandchild `  * Title`. Depth is RELATIVE to
+  the entry the sheet is standing on (the answer's `level`), so materializing
+  into a child makes that line the root. It is DISPLAY CHROME ahead of the state
+  cell rather than a cell — `f`/`b` walk past it — and the indentation IS the
+  outline, so the child lines carry no padding of their own.
+- AND CONTENT SITS UNDER THE TITLE TEXT, which is `org-startup-indented`'s other
+  half: a paragraph starts at the head's own title column rather than at its
+  stars. The width is DERIVED from `dstars` — the head is the root of its own
+  document whatever entry the sheet walked into, so the answer is the same two at
+  every depth — and is written onto `#mdoc` as a NUMBER (`--g-doc-indent`), with
+  the arithmetic in the stylesheet, the way the log's cap is. PADDING rather than
+  a margin or a `text-indent`: a margin would shrink the element's box and take
+  the selection wash off the left of the line, and a `text-indent` would indent a
+  block's first line alone. Chrome only — `bodyText` never reads it and the file
+  bytes are untouched. The logbook strip keeps its own frame and is not content.
+- AND A HEADLINE LINE IS LAID OUT AS ORG LAYS ONE OUT: the two headline kinds are
+  flex rows where a paragraph is flowing text, the TITLE takes whatever room the
+  line has left, and the TAGS are flushed to the far edge (`org-tags-column`).
+  `margin-left:auto` on the tags rather than the title's flex alone, so a
+  headline with no title still puts them at the edge. The selection is
+  unaffected: the element's ground is the whole line, gap included, and the cell
+  wash lands on the tags cell where it sits.
+- NO PLACEHOLDERS, EVER. A part the headline has not got renders nothing in
+  every state, and `f`/`b` stop on the PRESENT cells alone — a bare title is one
+  stop, an absent priority is not a stop. Setting an absent part is the
+  COMMANDS' job: `t` and `:` fire AT THE ELEMENT (the headline line, whatever
+  the cell point, and refused on a child, which has no row id) over the row the
+  sheet is on.
+- EVERY SELECTION IN IT IS A GROUND, never a line. Vertical is the ROW language
+  (`--g-sel`, the element's own wash) and horizontal is the COLUMN language: the
+  cell under point wears the table's crosshair — the renderer's `--tv-col` band
+  hue at its `--tv-cell-wash` step, aliased here as `--g-col`/`--g-cell-wash`
+  (hand-copied literals like `--g-border`, since `.tv-root`'s properties are out
+  of scope outside a mount). No underline, no border, no outline in any of the
+  four rules; `TestServe`'s ground sweep cuts them out of the page and asserts
+  it, and asserts what it swept first.
+- Its movement is the TABLE's letters exactly: `n`/`p`, `j`/`k` and the vertical
+  arrows over elements; `f`/`b`, `l`/`h` and the horizontal ones over the cells
+  of the element that has any, walking OFF either end into the whole-element look
+  rather than bumping. `TAB` crosses to the panel and back, each pane keeping its
+  own cursor and each wearing the accent on its own frame (`#mdoc.on`,
+  `#mprops.on`). The cursor carries a reserved `dgrain` (element today; a future
+  expand-region moves it).
+- RET is BY KIND: a CHILD re-materializes into it (`?child=`), a PARAGRAPH opens
+  as a textarea over itself, and the TITLE cell opens in the shared overlay and
+  commits `set-title`. The STATE and TAGS cells raise the value palette and the
+  tags popup where they are present; `t` and `:` do the same at the element and
+  are the only way to set a part that is absent. PRIORITY has no command yet.
+  A CHILD's cells are read-only in v1 — a child has no row id, so no `/command`
+  addresses it — while its planning, drawer, paragraphs and children are all
+  editable through the lens that materialized it.
+- `DEL` is UP: in a child it re-materializes the `parent` the server named (null
+  being the row) and lands on the child it came out of; at the top it is the
+  sheet's door. The dispatch stands aside for a key this listener claimed
+  (`e.defaultPrevented`), or the table's own `DEL` would strip a filter token off
+  the view underneath on the same press.
+- PER-ELEMENT COMMITS in that pane: a paragraph edit or delete is one
+  drift-locked `POST /headline` carrying `body` (that block's lines spliced over,
+  every other byte where it was) beside the panel's own two lists, each answer
+  re-pinning the digest and re-materializing off it. A cell edit is a
+  `/command`, and what it wrote comes back through the WATCH — a socket frame
+  naming this row re-reads the sheet, since `/command` never writes the store.
+  `C-x C-s` is the commit for whichever edit is open (a paragraph has no other,
+  RET being a newline inside one). `dirty()` is the PANEL's and raw mode's alone.
+  `d`/`D`/`u` over the document take PARAGRAPHS; a headline refuses with a log
+  line. The sheet is one entry in `SURFACES` (`up: docHolds`), the fourth
+  `flagKey` surface (`DFLAGS`, a four-call mount over a Set of element ids) and
+  the fourth `openEdit` shape pair (`DROW`, `DPARA`), whose `anchor` is the one
+  thing a shape declares that a mount's does not.
 - THE PANEL IS A TABLE-VIEW MOUNT — the renderer is the app's ONE list widget.
   A second `TableView.mount` in `#mptable` inside `#mprops`, columns `key |
   value`, `palette: true` (no bar, no resident filter), no `pageSize` (a drawer
@@ -1541,6 +1852,32 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   muted, border, selection, warn, bad) declared once and re-declared per theme.
   The sheet keeps exactly one variable of its own, `--dk-mono` (Hack first);
   everything else it uses is the page's.
+- `DEL` IN THE TABLE IS A LADDER, and the rhyme is the backspace's: ERASE THE
+  LAST STRUCTURE STANDING. A MARKED SET is one, so while marks exist `DEL` clears
+  them and stops — the MARKS alone, since a flag is the archive queue and a
+  backspace must not empty it — then the query's last token, then the drill it
+  was made in. It runs `U`'s own implementation (`clearMarking`, one function,
+  `alsoFlags` telling the two keys apart) and the pill says `DEL → unmark-all
+  (N)`, the command that RAN rather than the row's own name. A rung with nothing
+  under it falls through in SILENCE; only the rung that runs speaks.
+  `filter-drop-token` is already in `ONCE`, which matters more now.
+- AND `DEL` CLOSES A POPUP WITH NO INNER LADDER, which is the same rung read one
+  surface up: over the LINK and TAG popups the popup IS the last structure
+  standing, so `DEL` steps out of it where `ESC` does, through the same `off`.
+  The guard is the edit sub-mode — `DEL` inside an open rename or link edit stays
+  the FIELD's character erase and closes nothing, so the two meanings never meet
+  on one press. The STATE palette is the exception on purpose and keeps its
+  landed meaning (`DEL` commits `*empty*`): a value is what that surface exists
+  to hand back, and `*empty*` is out of the letter pool precisely because `DEL`
+  already names it.
+- A CURSOR IS ONLY DRAWN WHERE THE KEYS ARE. Each sheet pane already says on its
+  frame whether it holds them (`#mdoc.on`, `#mprops.on`); the cursor inside it
+  takes the same guard, so the sheet never shows two. The POSITION is not gated —
+  it is the model's, so crossing away and back finds the cursor where it was left
+  and the wash simply returns. A FLAG keeps its ground either way, being a queue
+  rather than a cursor. The panel's costs TWO rules, since the wash it suppresses
+  is the RENDERER's `tr.tv-sel` and the `tr.tv-alt` stripe under it has to be put
+  back; a `cursor:` gate in table-view retires both.
 - The applied filter query is in the URL (`replaceState`, `keys` preserved) and
   applied from it on load. `DEL` over the table drops the query's last token
   through the renderer (`stripLastToken`/`getQuery`) — the chips are the
@@ -1743,12 +2080,18 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `Store.storeKeywords` (the badge palette / config preview) — it is out of
   `keywordScopes`, so nothing classifies or authorizes by it.
 - `system.org` carries two TREE-WIDE lines beside its cycle —
-  `#+GLANCE_DEFAULT_FILTER:` and `#+GLANCE_CAPTURE_TARGET:` — read by one
-  `lastPragmaValue` (last line wins), written by one `pragmaLineEdits` (replace
-  where it stands, insert under the header, empty deletes), carried by `clFilter`
-  and `clCapture`, and spliced in the SAME `configEdits` call as the block, since
-  three writes would be three digests. A tag layer names neither. The settings
-  sheet edits them as two fields under the system layer.
+  `#+GLANCE_DEFAULT_FILTER:` and `#+GLANCE_CAPTURE_TARGET:` — and each NAME is
+  written once, as a key constant, with `settingOf key` reading it
+  (`lastPragmaValue`, last line wins) and `settingEdits key` writing it
+  (`pragmaLineEdits`: replace where it stands, insert under the header, empty
+  deletes). The reader folds the key and the writer renders it, off one
+  `settingPragma`, so a fold that drifted from a render can no longer rewrite a
+  line nothing reads. Carried by `clFilter` and `clCapture`, and spliced in the
+  SAME `configEdits` call as the block, since three writes would be three
+  digests. A tag layer names neither. The settings sheet edits them as two
+  fields under the system layer. `Config.systemSetting` is the ONE "first system
+  layer that names one" fold, over the `ConfigLayerFile` list `readConfigLayers`
+  returns, and both the load and the settings route call it.
 - The DEFAULT VIEW is `system.org`'s `#+GLANCE_DEFAULT_FILTER:` line, read into
   `clFilter` and answered by `defaultFilter`; absent means `builtinFilter` =
   `state:*active*`, a line naming nothing means the empty query, and the LAST

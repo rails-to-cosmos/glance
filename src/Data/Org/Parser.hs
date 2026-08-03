@@ -403,14 +403,22 @@ tsTimeParser = do
 tsWeekdayParser :: StatelessParser ()
 tsWeekdayParser = void (takeWhile1P (Just "weekday") isAlpha) <* MPC.space
 
+-- | The value of an enumeration whose character SPELL names, matched over every
+-- value there is.  The three repeater slots each ask this of a different
+-- rendering function, so the enumeration is walked in ONE place and a value
+-- added to any of them parses without a second edit.  'Nothing' from SPELL is a
+-- value with no character, which is what @typeChar@'s default is.
+byChar :: (Bounded a, Enum a) => (a -> Maybe Char) -> StatelessParser a
+byChar spell = choice [ v <$ char c | v <- [minBound ..], Just c <- [spell v] ]
+
 -- | Parse a repeater such as ".+3d", spelled with the characters
 -- 'typeChar', 'signChar' and 'unitChar' name.
 tsRepeaterParser :: StatelessParser TimestampRepeaterInterval
 tsRepeaterParser = do
-  repType <- MP.optional . MP.try $ choice [t <$ char c | t <- [minBound ..], Just c <- [typeChar t]]
-  repSign <- MP.optional . MP.try $ choice [s <$ char (signChar s) | s <- [minBound ..]]
+  repType <- MP.optional (MP.try (byChar typeChar))
+  repSign <- MP.optional (MP.try (byChar (Just . signChar)))
   repValue <- MPL.decimal
-  repUnit <- choice [u <$ char (unitChar u) | u <- [minBound ..]]
+  repUnit <- byChar (Just . unitChar)
 
   return TimestampRepeaterInterval {
     repeaterValue = repValue,

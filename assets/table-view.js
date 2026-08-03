@@ -211,6 +211,18 @@
  *   window). Column widths come from the widest cell in the filtered set, in
  *   `ch` — the renderer's font is monospace — so they hold still while
  *   scrolling.
+ * - THE `title' COLUMN FILLS AND THE REST ARE MINIMAL. Every other column is
+ *   exactly as wide as its own widest cell and no wider, capped at 40
+ *   characters with an ellipsis past it; the leading gutter is exactly `[X]'
+ *   plus the cell padding; and the title column carries no width at all, so
+ *   under the `table-layout:fixed' this turns on it takes every pixel the
+ *   others leave. Nothing measures the container — the numbers are all `ch`
+ *   and the browser does the remainder on a resize — and the table's
+ *   `min-width' is the sized columns plus a 40-character floor for the title,
+ *   which is where a window too narrow for them begins to scroll sideways. A
+ *   view carrying no `title' column has nothing to fill with and keeps the auto
+ *   layout it always had, widths as hints. `title' is the same convention
+ *   `linked' reads.
  * - Row and header events are delegated from the scroll container, attached
  *   once. `tr.click()` still selects a rendered row.
  * - Filter input is debounced 120ms; the row window renders on a rAF. With an
@@ -282,13 +294,21 @@
  *   where `tag:boo' is a substring of the cell); anything else is a PRODUCER
  *   meta over a set only the producer can enumerate (`state:*active*'), matched
  *   literally here, which narrows. The first two need no producer, so both
- *   halves of the wire answer them alike.
+ *   halves of the wire answer them alike. `sort:*none*' is the family's one
+ *   member on a key that is no predicate: the EMPTY chain, which reads no cell
+ *   and answers no column.
  * - A STARRED META COMPLETES STAR-FREE. The asterisks are reading notation —
  *   the mark that says this value has semantics — so completion matches through
  *   them: `act' and `active' both reach `*active*', at the value stage and as a
  *   bare word, and the starred spelling still answers to itself. Display and
  *   commit wear the stars; only the completion's matching ignores them, and
  *   what a query MEANS reads them, so `state:active' is the literal `active'.
+ * - AND A DECORATED CELL READS THROUGH ITS BRACKETS. Org draws a priority
+ *   `[#A]' and means `A', so completion reaches that cell's own spelling from
+ *   either (`a' offers `priority:[#A]', which still commits decorated) and a
+ *   whole-value predicate answers both: `priority:A' and `priority:[#A]' are
+ *   one query. The stars' rule from the cell's side rather than the
+ *   vocabulary's, and the matching half is the producer's too.
  * - `palette: true' makes the filter a thing you summon. The page keeps the
  *   chip row and nothing else — an unfiltered table carries no filter chrome at
  *   all — and `openFilter()' raises a centred overlay holding the control, the
@@ -741,10 +761,28 @@
    * answers to itself.
    */
   const starless = (v) => (META.test(v) ? v.slice(1, -1) : v);
-  /** Does the lowercased value LOWER open with P, stars either way? */
-  const opensWith = (lower, p) => lower.startsWith(p) || starless(lower).startsWith(p);
-  /** Is LOWER what P spells, stars either way? */
-  const spells = (lower, p) => lower === p || starless(lower) === p;
+
+  /** Org's priority decoration, which a cell WEARS rather than means: `[#A]'. */
+  const DECORATED = /^\[#(.*)\]$/;
+
+  /**
+   * V with that decoration off. DISPLAY WEARS THE DECORATION, MATCHING READS
+   * THROUGH IT — the stars' rule from the other side: `[#A]' is what the table
+   * shows and `A' is what a reader means by it, so a whole-value predicate
+   * answers both spellings (`cellTest') and completion reaches the cell's from
+   * either (`opensWith').
+   */
+  const undecorated = (v) => {
+    const m = DECORATED.exec(v);
+    return m ? m[1] : v;
+  };
+
+  /** V with its reading notation off, whichever of the two it wears. */
+  const meant = (v) => undecorated(starless(v));
+  /** Does the lowercased value LOWER open with P, notation either way? */
+  const opensWith = (lower, p) => lower.startsWith(p) || meant(lower).startsWith(p);
+  /** Is LOWER what P spells, notation either way? */
+  const spells = (lower, p) => lower === p || meant(lower) === p;
 
   /**
    * The one PRODUCER meta this renderer can partly answer: SCHEMA puts the EMPTY
@@ -783,6 +821,21 @@
   const SORT_DIRS = { "": true, asc: true, desc: false };
 
   /**
+   * The meta that spells the EMPTY CHAIN. `sort:*none*' NAMES a sort key, so it
+   * replaces the view's declared `sort' the way any other sort token does — with
+   * nothing, leaving the rows in the order they arrived. It is what a reader has
+   * instead of a token to take off, the declared order being invisible until
+   * they diverge from it.
+   *
+   * It admits no companions: `sort:*none* sort:title' is a query a producer
+   * refuses, and a renderer, having nobody to refuse to, drops the `*none*' and
+   * lets the companions stand. The producer is the stricter of the two, which is
+   * every other sort refusal's asymmetry, and it costs no rows either way — a
+   * sort token narrows nothing in any polarity.
+   */
+  const NONE_META = "*none*";
+
+  /**
    * TOKEN as a sort key, or null where nothing orderable is spelled. KNOWN is
    * the columns a key may name.
    *
@@ -805,25 +858,38 @@
   }
 
   /**
-   * The chain Q names, highest priority first, or [] when it names none. KNOWN
-   * is the columns a key may name.
+   * The chain Q names, highest priority first: [] where it names the EMPTY one
+   * and null where it names no chain at all. That difference is the whole
+   * question of whether a declared `sort' still stands — a reader asking for no
+   * order and a reader saying nothing about order are different readers.
+   * KNOWN is the columns a key may name.
    *
    * Written order is precedence and repeats compose, so `sort:deadline
-   * sort:title' opens on deadline with title behind it. A column named twice is
-   * the producer error SCHEMA's chain rule already names: the later spelling is
-   * dropped here, so what this answers can always be handed to `applyChain'.
+   * sort:title' opens on deadline with title behind it. A column named twice
+   * keeps its FIRST spelling and the later one is dropped — the chain's own rule
+   * (a chain never names a column twice) read over the tokens that spell it — so
+   * what this answers can always be handed to `applyChain'.
+   *
+   * `*none*' is the empty chain and takes no companions: a key that resolves
+   * outranks it, so `sort:*none* sort:title' is title. Every other refusal — a
+   * negation, an alternation, an unknown column, a direction that is neither
+   * word — drops its own key and says nothing about the chain, which is why a
+   * query holding those alone leaves the declared order standing.
    * @param {string} q  @param {string[]} keys  @param {(k: string) => boolean} known
-   * @returns {SortKey[]}
+   * @returns {SortKey[]|null}
    */
   function sortsIn(q, keys, known) {
     /** @type {SortKey[]} */
     const chain = [];
+    let none = false;
     for (const tok of parseQuery(q, keys)) {
       if (tok.key !== SORT_KEY) continue;
+      if (!tok.negated && tok.value.toLowerCase() === NONE_META) { none = true; continue; }
       const k = sortKeyOf(tok, known);
       if (k && !chain.some((c) => c.column === k.column)) chain.push(k);
     }
-    return chain;
+    if (chain.length) return chain;   // a key that resolves outranks `*none*'
+    return none ? chain : null;       // the empty chain, or nothing said at all
   }
 
   /** KEY as the token that spells it. @param {SortKey} key  @returns {string} */
@@ -902,6 +968,18 @@
   const ROW_H = 30;            // row height until a rendered row can be measured
   const CELL_PAD = 24;         // a cell's horizontal padding, both sides
   const PILL_CH = 2;           // a badge pill's ground, in characters
+  const BOX_CH = 3;            // the gutter's glyph, `[X]', in characters
+  // The two numbers the fill policy rests on, measured against a 12,674-headline
+  // Org corpus. COL_MAX is the ceiling a sized column may not pass: the widest
+  // non-title cell in that corpus is exactly 40 characters (one compact
+  // timestamp range; the tag runs top out at 33), so the cap costs the corpus
+  // nothing and bounds the pathological cell that would otherwise eat the
+  // title's share. TITLE_MIN is the fill column's floor, taken by the table's
+  // `min-width' rather than by the column, so a window too narrow for it
+  // SCROLLS instead of crushing the title to nothing; 40 characters shows 83%
+  // of that corpus's titles whole.
+  const COL_MAX_CH = 40;       // ceiling on a sized column, in characters
+  const TITLE_MIN_CH = 40;     // the fill column's floor, in characters
   const DEBOUNCE = 120;        // ms of quiet before a filter keystroke re-renders
   const SETTLE = 200;          // ms of quiet before the rows are taken to have settled
   const LONG_PRESS = 500;      // ms of a still finger before it means the row action
@@ -979,24 +1057,24 @@
   --tv-link:${LINK_LIGHT};
   --tv-frost:${FROST};--tv-chip-wash:45%;--tv-chip-edge:95%;--tv-mark-wash:8%;
   --tv-flag:${FLAG};--tv-flag-wash:8%;
-  --tv-col:${COL};--tv-col-wash:35%;--tv-cell-wash:60%;
+  --tv-col:${COL};--tv-col-wash:35%;--tv-cell-wash:60%;--tv-sort-wash:52%;
   color:var(--tv-fg);background:var(--tv-bg);font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   border:1px solid var(--tv-border);border-radius:8px;overflow:hidden;display:flex;flex-direction:column;max-height:100%}
 @media (prefers-color-scheme:dark){.tv-root{--tv-fg:#FFFFFF;--tv-muted:#A4C2EB;--tv-bg:#000000;
   --tv-alt:#21252B;--tv-border:#2a2d3d;--tv-accent:#4CB5F5;--tv-sel:#373D4F;
   --tv-link:${LINK_DARK};
   --tv-hover:#1F1F1F;--tv-chip-wash:18%;--tv-chip-edge:34%;--tv-mark-wash:30%;--tv-flag-wash:30%;
-  --tv-col-wash:8%;--tv-cell-wash:9%;}}
+  --tv-col-wash:8%;--tv-cell-wash:9%;--tv-sort-wash:18%;}}
 :root[data-theme="dark"] .tv-root{--tv-fg:#FFFFFF;--tv-muted:#A4C2EB;--tv-bg:#000000;
   --tv-alt:#21252B;--tv-border:#2a2d3d;--tv-accent:#4CB5F5;--tv-sel:#373D4F;
   --tv-link:${LINK_DARK};
   --tv-hover:#1F1F1F;--tv-chip-wash:18%;--tv-chip-edge:34%;--tv-mark-wash:30%;--tv-flag-wash:30%;
-  --tv-col-wash:8%;--tv-cell-wash:9%;}
+  --tv-col-wash:8%;--tv-cell-wash:9%;--tv-sort-wash:18%;}
 :root[data-theme="light"] .tv-root{--tv-fg:#000000;--tv-muted:#667071;--tv-bg:#FFFFFF;--tv-alt:#F8F8FF;
   --tv-border:#E3E6EA;--tv-accent:#31769F;--tv-sel:#F0FFF0;--tv-hover:#FAFAFA;
   --tv-link:${LINK_LIGHT};
   --tv-chip-wash:45%;--tv-chip-edge:95%;--tv-mark-wash:8%;--tv-flag-wash:8%;
-  --tv-col-wash:35%;--tv-cell-wash:60%}
+  --tv-col-wash:35%;--tv-cell-wash:60%;--tv-sort-wash:52%}
 .tv-bar{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--tv-border);flex-wrap:wrap}
 .tv-title{font-weight:600;font-size:14px;margin-right:auto}
 .tv-filter{font:inherit;padding:4px 8px;border:1px solid var(--tv-border);border-radius:6px;
@@ -1031,6 +1109,23 @@
 .tv-pal .tv-chip{color:var(--tv-fg);
   background:color-mix(in srgb,var(--tv-frost) var(--tv-chip-wash),transparent);
   border-color:color-mix(in srgb,var(--tv-frost) var(--tv-chip-edge),transparent)}
+/* An ORDERING's identity, washed the way the applied filter's is: the column
+   band's own amber, which already means COLUMN everywhere else here — the
+   crosshair, the selected band — and a sort token is about a column. The GROUND
+   carries the whole difference: one silhouette, the same ink, the same × and
+   the same hover, so ordering and narrowing are told apart by hue.
+
+   The two washes are the same WEIGHT, sitting within a step of each other in
+   distance from the page they are drawn on (light 24.7 against frost's 24.9,
+   dark 73.6 against 71.2), so neither chip reads as the louder. Amber is the
+   paler hue (luminance .899 against frost's .741), and the light theme's 52
+   against the chip's 45 is what that costs; over black the two travel alike, so
+   dark asks for the chip's own 18. The edge takes the chip's strength in either
+   theme, a hairline carrying no information. Only a token this renderer ACCEPTS
+   as sort wears it — "ordersRows" is that test. */
+.tv-pal .tv-chip-sort{
+  background:color-mix(in srgb,var(--tv-col) var(--tv-sort-wash),transparent);
+  border-color:color-mix(in srgb,var(--tv-col) var(--tv-chip-edge),transparent)}
 .tv-pal .tv-chip:not(.tv-chip-muted):hover{border-color:var(--tv-accent);color:var(--tv-accent)}
 .tv-chips{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
 /* One silhouette, spelled once, for every chip in the strip: a live filter
@@ -1086,6 +1181,45 @@
 .tv-ac-on{background:var(--tv-sel);color:var(--tv-fg);font-weight:600}
 .tv-scroll{overflow:auto;position:relative}
 .tv-table{border-collapse:collapse;width:100%}
+/* THE TITLE COLUMN FILLS; EVERY OTHER COLUMN IS EXACTLY ITS CONTENT.
+   table-layout:fixed is what makes that real. Under auto a col width is a hint
+   and the browser hands the window's slack to every column in proportion, so
+   the gutter and the date columns grew with the window while the one column
+   whose text runs long stayed as narrow as the rest. Fixed makes the col
+   widths authoritative and leaves the ONE column carrying no width — the
+   title's — to take what the others left; it is also what lets text-overflow
+   reach a cell at all. The table keeps a min-width, written by applyWidths, so
+   a window narrower than the sized columns plus the title's floor scrolls
+   sideways, which is what overflow:auto on the scroller already did. A view
+   with no title column has nothing to fill with and keeps the auto layout. */
+.tv-table.tv-fill{table-layout:fixed}
+/* A capped column, and a title narrower than its own text, end in an ellipsis
+   rather than spilling under the column beside them. The gutter stays out of
+   it: its glyph is exactly its width, so a rounding hair would eat the ]. */
+.tv-fill th:not(.tv-box),.tv-fill td:not(.tv-box){overflow:hidden;text-overflow:ellipsis}
+/* A header never widens its column: the cells set the width and a longer
+   header is squeezed into it. What gets squeezed is the
+   WORD — the pair is a flex row, the word shrinks to an ellipsis (min-width:0
+   is what lets a flex item go under its own text) and the mark declines to
+   shrink at all, so a sorted column always still says which way it is sorted
+   and where it sits in the chain. The row is a span inside the cell rather
+   than the cell itself because display:flex on a table-cell stops it being
+   one. Nothing here fires without .tv-fill: with no column to fill, the header
+   is paid for in the width and there is nothing to squeeze. */
+.tv-fill th .tv-hd{display:flex;align-items:baseline;min-width:0}
+.tv-fill th .tv-hn{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.tv-fill th .tv-arrow{flex:none}
+/* A flex row does not take the cell's text-align, so the one alignment a
+   column can declare is restated as the row's own. The CELLS are untouched —
+   nothing made them flex — so this is the header catching up with them. */
+.tv-fill th.tv-right .tv-hd{justify-content:flex-end}
+/* The gutter's own measure and nothing over it: [X] is three characters, and
+   24px is the cell padding both sides. The slack it used to carry was the auto
+   layout's share of the window, which the fixed layout above no longer hands
+   it. Written on the col because a cell's width is not what fixed layout
+   reads, and for the same reason the coarse-pointer target below has to be
+   restated here as a width — the min-width on the cell is inert under it. */
+.tv-fill col.tv-gut{width:calc(3ch + 24px)}
 .tv-table th,.tv-table td{padding:5px 12px;text-align:left;white-space:nowrap;
   border-bottom:1px solid var(--tv-border)}
 .tv-table th{position:sticky;top:0;background:var(--tv-bg);font-weight:600;color:var(--tv-muted);
@@ -1216,6 +1350,7 @@
 @media (pointer:coarse){
   .tv-table th,.tv-table td{padding:12px}
   .tv-table td.tv-box{min-width:44px}
+  .tv-fill col.tv-gut{width:max(calc(3ch + 24px),44px)}
   .tv-ac-item{padding:12px 12px}
   .tv-chip{padding:13px 8px 13px 12px}
   .tv-chips .tv-chip-muted{padding-right:12px}
@@ -1662,6 +1797,9 @@
     function columns() { return state.view.columns || []; }
     function actions() { return state.view.actions || []; }
     function colByKey(k) { return columns().find((c) => c.key === k); }
+    /** The columns a sort key may name: every one the view carries, `sortable'
+     *  gating the reader's gesture rather than the token. @param {string} k */
+    const namesColumn = (k) => !!colByKey(k);
 
     // ---- order: filter, sort, widths ---------------------------------------
 
@@ -1761,14 +1899,17 @@
     }
 
     /**
-     * The order in force under query Q: the keys Q names, else the order the
+     * The order in force under query Q: the chain Q names, else the order the
      * view was STATED in. So the declared sort is invisible until a reader
      * diverges from it, and taking the last sort token off is the way home.
+     * `sort:*none*' names the EMPTY chain, which is a divergence like any other
+     * — it replaces the declared order rather than falling back to it, and the
+     * rows are read in the order they arrived.
      * @param {string} q  @returns {SortKey[]}
      */
     function chainFor(q) {
-      const named = sortsIn(q, queryKeys(), (k) => !!colByKey(k));
-      return named.length ? named : stated;
+      const named = sortsIn(q, queryKeys(), namesColumn);
+      return named === null ? stated : named;
     }
 
     /**
@@ -1919,10 +2060,16 @@
       // answered here; the keyword half is what drops out, leaving an answer
       // the producer's own can only widen. `*inactive*' has no such term, an
       // empty cell not being done, and stays the literal it was.
-      if (col && col.type === "badge")
-        return v === ACTIVE_META
-          ? (r) => rowText(r).cells[i] === ""
-          : (r) => rowText(r).cells[i] === v;
+      if (col && col.type === "badge") {
+        if (v === ACTIVE_META) return (r) => rowText(r).cells[i] === "";
+        // A whole-value match reads through org's priority decoration, both
+        // ways: the cell is drawn `[#A]' and `A' is what a reader means, so
+        // `priority:A' and `priority:[#A]' are one query here and at the
+        // producer. BOTH SPELLINGS OF THE VALUE are worked out once, so the
+        // fold is a second string compare in the row loop rather than a regex.
+        const want = undecorated(v), worn = `[#${want}]`;
+        return (r) => { const c = rowText(r).cells[i]; return c === want || c === worn; };
+      }
       if (dateColumn(i)) return (r) => rowText(r).cells[i].startsWith(v);
       return (r) => rowText(r).cells[i].includes(v);
     }
@@ -2046,50 +2193,95 @@
     function matches(r) { return !orderTest || orderTest(r); }
 
     /**
-     * Column widths in characters: the widest cell in the filtered set, and the
-     * header (plus its sort arrow). @returns {number[]}
+     * Column widths in characters. Under the FILL POLICY the CELLS decide and a
+     * header widens nothing: a column of `[#A]' badges reads exactly as wide as
+     * `[#A]', and a header too long for that ellipsizes into it rather than
+     * pushing it open — which is the whole of what makes a badge column read
+     * tight. A column holding no cell at all has no content measure, so there
+     * the header is the only measure there is. Without a `title' column to fill,
+     * the header is content like any other and the width is what it always was:
+     * the widest cell, or the header and its mark.
+     * @returns {number[]}
      */
     function colWidths() {
       if (widths) return widths;
-      const cols = columns(), chain = sortChain();
-      // Every mark a header wears is paid for here, or the column it widens
-      // clips the word underneath it — the mark itself plus the space in front
-      // of it, measured off the very text `renderArrows' draws.
-      const w = cols.map((c) => {
-        const at = chain.findIndex(({ key }) => key.column === c.key);
-        return String(c.header || c.key).length
-          + (at === -1 ? 0 : sortMark(chain, at).length + 1);
-      });
+      const cols = columns(), chain = sortChain(), fill = titleColumn() !== -1;
+      /** The widest CELL each column holds, in characters; 0 where it holds none. */
+      const cell = cols.map(() => 0);
       for (const r of ordered()) {
         const len = rowText(r).len;
-        for (let i = 0; i < w.length; i++) if (len[i] > w[i]) w[i] = len[i];
+        for (let i = 0; i < cell.length; i++) if (len[i] > cell[i]) cell[i] = len[i];
       }
-      // A badge cell draws a pill around its text, whose padding the cached
-      // length knows nothing about.
-      for (let i = 0; i < cols.length; i++) if (cols[i].type === "badge") w[i] += PILL_CH;
-      // A tag cell needs no allowance: `:a:b:' and `a · b' are the same length,
-      // `:a:' is longer than `a', and the smaller type shrinks it further — the
-      // rendering never outgrows the raw text the widths were measured from.
-      widths = w;
-      return w;
+      widths = cols.map((c, i) => {
+        const at = chain.findIndex(({ key }) => key.column === c.key);
+        // Every mark a header wears is paid for here, or the column it widens
+        // clips the word underneath it — the mark itself plus the space in front
+        // of it, measured off the very text `renderArrows' draws. Under the fill
+        // policy it is paid for OUTSIDE the cells' measure, and the header's own
+        // box is what shrinks, so a squeezed header loses its word and keeps its
+        // mark (`.tv-hn' flexes, `.tv-arrow' declines to).
+        const mark = at === -1 ? 0 : sortMark(chain, at).length + 1;
+        const head = String(c.header || c.key).length;
+        // A badge cell draws a pill around its text, whose padding the cached
+        // length knows nothing about. A tag cell needs no allowance: `:a:b:' and
+        // `a · b' are the same length, `:a:' is longer than `a', and the smaller
+        // type shrinks it further — the rendering never outgrows the raw text
+        // the widths were measured from.
+        const pill = c.type === "badge" ? PILL_CH : 0;
+        return fill ? (cell[i] ? cell[i] + pill : head) + mark
+                    : Math.max(head + mark, cell[i]) + pill;
+      });
+      return widths;
     }
 
     /** Widen the cached widths for ROW (an upsert can only add text). */
     function growWidths(r) {
       if (!widths) return;
-      const len = rowText(r).len;
-      for (let i = 0; i < widths.length; i++) if (len[i] > widths[i]) widths[i] = len[i];
+      const len = rowText(r).len, cols = columns();
+      for (let i = 0; i < widths.length; i++) {
+        // The pill the measured pass allows for, allowed for again: a cell that
+        // arrives longer than every cell that was measured brings its ground
+        // with it. The mark rides outside the cells' measure and is not owed.
+        const n = len[i] + (len[i] && cols[i].type === "badge" ? PILL_CH : 0);
+        if (n > widths[i]) widths[i] = n;
+      }
     }
 
+    /**
+     * Write the measured widths onto the columns under the FILL POLICY: the
+     * `title' column takes every pixel the others leave and each other column is
+     * exactly as wide as its own widest cell, capped at `COL_MAX_CH'. The title
+     * gets no width at all — under the fixed layout the class turns on, the one
+     * column without one absorbs the remainder — so what is written here is the
+     * OTHERS, and the title's share is arithmetic the browser does on a resize
+     * for nothing. Only the table's `min-width' knows the title exists: it is
+     * the sized columns plus the title's floor, which is where a narrow window
+     * starts scrolling sideways instead of crushing the title.
+     *
+     * `ch' is exact in the monospace face the renderer sets, so every number
+     * here is resolution-independent and no measurement of the container is
+     * taken. A view carrying no `title' column keeps the widths as hints under
+     * the auto layout it always had.
+     */
     function applyWidths() {
-      const w = colWidths();
+      const w = colWidths(), at = titleColumn(), fill = at !== -1;
+      if (table.classList.contains("tv-fill") !== fill)
+        table.classList.toggle("tv-fill", fill);
+      // The floor and the gutter, in characters and in cells of padding. The
+      // gutter is counted at its fine-pointer measure; the coarse block's 44px
+      // floor is inert at this face and a few pixels short of the sum at a much
+      // smaller one, which moves only where the sideways scroll begins.
+      let ch = fill ? Math.min(w[at], TITLE_MIN_CH) : 0;
+      let cells = fill ? 1 : 0;
+      if (fill && chrome) { ch += BOX_CH; cells++; }
       for (let i = 0; i < colEls.length; i++) {
-        // `ch' is exact in the monospace face the renderer sets; a consumer that
-        // overrides it with a proportional font gets a hint, and the table's own
-        // min-content width still wins.
-        const px = `calc(${w[i]}ch + ${CELL_PAD}px)`;
+        const n = fill ? Math.min(w[i], COL_MAX_CH) : w[i];
+        const px = fill && i === at ? "" : `calc(${n}ch + ${CELL_PAD}px)`;
+        if (fill && i !== at) { ch += n; cells++; }
         if (colEls[i].style.width !== px) colEls[i].style.width = px;
       }
+      const min = fill ? `calc(${ch}ch + ${cells * CELL_PAD}px)` : "";
+      if (table.style.minWidth !== min) table.style.minWidth = min;
     }
 
     // ---- rendering ---------------------------------------------------------
@@ -2104,7 +2296,9 @@
       // and `arrowEls', which stay one entry per column the view declared, so
       // widths and sort arrows keep indexing what they always did.
       if (chrome) {
-        colgroup.appendChild(document.createElement("col"));
+        const gut = document.createElement("col");
+        gut.className = "tv-gut";   // pinned to the glyph's measure by the sheet
+        colgroup.appendChild(gut);
         const box = document.createElement("th");
         box.className = "tv-box";      // blank: the count is the hint line's
         headRow.appendChild(box);
@@ -2118,10 +2312,23 @@
         th.className = (c.sortable === true ? "tv-sortable" : "")
           + (c.align === "right" ? " tv-right" : "");
         th.dataset.key = c.key;
-        th.textContent = String(c.header || c.key);
+        // The word and its mark are two boxes, so a header wider than the cells
+        // under it loses the WORD and keeps the mark: under the fill policy the
+        // cells set the width and this pair is a flex row, the word shrinking to
+        // an ellipsis and the mark declining to shrink at all. Without a fill
+        // column the pair is inert — the header is paid for in the width there,
+        // so nothing is ever squeezed — and the text a reader copies out of the
+        // header is what it always was.
+        const hd = document.createElement("span");
+        hd.className = "tv-hd";
+        const label = document.createElement("span");
+        label.className = "tv-hn";
+        label.textContent = String(c.header || c.key);
         const arrow = document.createElement("span");
         arrow.className = "tv-arrow";
-        th.appendChild(arrow);
+        hd.appendChild(label);
+        hd.appendChild(arrow);
+        th.appendChild(hd);
         headRow.appendChild(th);
         arrowEls.push(arrow);
       }
@@ -3191,30 +3398,77 @@
     // twice, out of a second store that could describe an order the rows were
     // not in. Only a live chip carries `data-i', which is what the click
     // delegation reads the removable one by; history is no token to take off.
+    //
+    // A live chip that ORDERS says so in its class, and the class is what wears
+    // the column band's hue: the strip tells ordering from narrowing at a
+    // glance. A crumb is a LABEL rather than a token, so it takes no ordering
+    // class however it is spelled.
     function renderChips() {
       let html = "";
       for (const text of crumbStrip())
         html += `<span class="tv-chip tv-chip-muted">${esc(text)}</span>`;
       for (let i = 0; i < chips.length; i++)
-        html += `<span class="tv-chip" data-i="${i}" title="remove">${esc(chipText(chips[i]))}`
+        html += `<span class="tv-chip${ordersRows(chips[i]) ? " tv-chip-sort" : ""}"`
+              + ` data-i="${i}" title="remove">${esc(chipText(chips[i]))}`
               + `<i class="tv-chip-x">×</i></span>`;
       chipsEl.innerHTML = html;
       chipsEl.style.display = (crumbs.length || chips.length) ? "" : "none";
     }
 
     /**
-     * Put TOK on the strip, unless the strip already carries it as spelled.
+     * What TOK counts as the same token AS, for the strip's collapse. A
+     * predicate is itself as spelled: a near twin (`tag:game' beside
+     * `tag:games') asks a different question and stays a second chip.
+     *
+     * A SORT token is its COLUMN, whatever direction it wears and however that
+     * direction is spelled, because the chain keeps a column's first spelling
+     * and drops the rest. `sort:title' beside `sort:title:asc' is one ordering
+     * written twice, and `sort:title' beside `sort:title:desc' is an ordering
+     * beside a token that does nothing; either way the second chip describes an
+     * order the rows are not in, which is the one thing the strip may not do.
+     * A negated one is left as spelled — it is a refusal the reader typed, and
+     * the query carries it back to the producer verbatim.
+     * @param {string} tok  @returns {string}
+     */
+    function chipIdentity(tok) {
+      const t = parseQuery(tok, queryKeys())[0];
+      if (!t || t.key !== SORT_KEY || t.negated) return tok;
+      const at = t.value.indexOf(":");
+      return `${SORT_KEY}:${at === -1 ? t.value : t.value.slice(0, at)}`;
+    }
+
+    /**
+     * Whether TOK states an order this renderer READS: a sort key that resolves
+     * to a column, or `*none*', the empty chain. Those are the tokens `chainFor'
+     * builds the order out of, and the ones the strip may colour as an ordering.
+     *
+     * A refusal — a negation, an alternation, an unknown column, a direction
+     * that is neither word — is dropped from the chain, and no sort token is a
+     * predicate, so it orders no rows and narrows none. It keeps the ordinary
+     * chip: the strip promises an order where there is one, and shows what was
+     * typed where there is not. `sortable' gates the reader's GESTURE rather
+     * than the token, so a column that opts out still orders and still wears it.
+     * @param {string} tok  @returns {boolean}
+     */
+    function ordersRows(tok) {
+      const t = parseQuery(tok, queryKeys())[0];
+      if (!t || t.key !== SORT_KEY || t.negated) return false;
+      return t.value.toLowerCase() === NONE_META || !!sortKeyOf(t, namesColumn);
+    }
+
+    /**
+     * Put TOK on the strip, unless the strip already carries the same token.
      * Every token is idempotent under the one combination rule — a repeated
      * predicate narrows to what it narrowed, a repeated sort key is the position
      * it already holds — so a second copy is chrome the reader has to read past,
      * in the strip, in the URL and in what the producer is asked. The FIRST
-     * occurrence keeps its place, which is what makes precedence survive the
-     * collapse; a near-twin (`tag:game' beside `tag:games') is two tokens and
-     * stays two.
+     * occurrence keeps its place AND its spelling, which is what makes
+     * precedence survive the collapse.
      * @param {string} tok
      */
     function pushChip(tok) {
-      if (chips.indexOf(tok) === -1) chips.push(tok);
+      const id = chipIdentity(tok);
+      if (!chips.some((c) => chipIdentity(c) === id)) chips.push(tok);
     }
 
     /**
@@ -3435,13 +3689,17 @@
       const p = st.prefix.toLowerCase();
       const out = [];
       // `sort:' — the columns a reader may order by, `sortable' deciding which,
-      // and `asc'/`desc' once one is named in full. The offers finish the token,
-      // so each lands with the space that opens the next.
+      // and `asc'/`desc' once one is named in full, with `*none*' behind them.
+      // The offers finish the token, so each lands with the space that opens
+      // the next. What is offered is `sortable''s because completing IS the
+      // reader's gesture; the token a reader may WRITE is not gated by it, and
+      // a chain naming a column that opts out opens as written either way.
       if (st.stage === "sort") {
         const at = p.indexOf(":");
         const wantCol = at === -1 ? p : p.slice(0, at);
         const wantDir = at === -1 ? null : p.slice(at + 1);
-        const offer = (text) => out.push({ text, count: -1, full: true, dim: false });
+        const offer = (text, dim) =>
+          out.push({ text, count: -1, full: true, dim: !!dim });
         for (const c of columns()) {
           if (out.length >= AC_MAX) break;
           if (c.sortable !== true) continue;
@@ -3454,6 +3712,11 @@
             for (const d of ["asc", "desc"]) if (d.startsWith(wantDir)) offer(key + ":" + d);
           }
         }
+        // The empty chain, offered last and gated by nothing: it names no
+        // column, so there is no `sortable' to consult, and it wears no
+        // direction. Star-blind like every meta, so `non' reaches it, and drawn
+        // dim like every meta — vocabulary rather than a fact about a column.
+        if (wantDir === null && opensWith(NONE_META, wantCol)) offer(NONE_META, true);
         return out.slice(0, AC_MAX);
       }
       if (!st.col) {

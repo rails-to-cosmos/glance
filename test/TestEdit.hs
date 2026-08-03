@@ -3,7 +3,8 @@ module TestEdit (spec) where
 import Control.Exception (IOException, try)
 import Data.Bits ((.&.))
 import Data.List (sort, sortOn)
-import Data.Org
+-- The suite's own 'headlinesOf' is the oracle here; see 'TestDefaults'.
+import Data.Org hiding (headlinesOf)
 import Data.Org.Edit
 import Data.Text (Text)
 import System.Directory (listDirectory)

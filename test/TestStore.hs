@@ -860,4 +860,18 @@ debounceSpec = testGroup "Debounce"
             ["/o/notes.org", "/o/NOTES.ORG", "notes.org"]
       mapM_ (assertBool "should be ignored" . not . isWatchable)
             ["/o/notes.txt", "/o/notes.org~", "/o/.#notes.org", "/o/#notes.org#", "/o/org"]
+
+    -- BOTH sidecar shapes are exact, and only one of them is load-bearing.
+    -- `#notes.org#' is refused by its extension before the sidecar rule is
+    -- asked, so the `#' rule stands or falls on a name that IS an org file: a
+    -- hand-written `#inbox.org' is a document and must be walked and watched.
+    -- A leading `#' alone made every such file silently invisible.
+  , testCase "a hash-prefixed org file is a document of its own" $
+      -- The sidecar rule matches TWO EXACT SHAPES.  `#notes.org#' is refused by
+      -- its extension before the rule is asked, so the `#' half stands or falls
+      -- on a name that IS an org file: a hand-written `#inbox.org'.  A bare
+      -- leading `#' made every such file silently invisible to the walk and the
+      -- watch.  The two sidecar shapes are asserted in the case above.
+      mapM_ (assertBool "should be watched" . isWatchable)
+            ["/o/#inbox.org", "/o/#notes.org", "#one.org"]
   ]

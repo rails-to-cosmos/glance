@@ -6,11 +6,12 @@
 module TestServe (spec) where
 
 import Control.Monad (filterM, forM_, (<=<))
-import Data.Aeson ( FromJSON, Value (Bool, Null, Number, Object, String)
+import Data.Aeson ( FromJSON, Value (Array, Bool, Null, Number, Object, String)
                   , eitherDecode, encode, object, parseJSON, (.=) )
 import Data.Aeson.Types (parseEither)
 import Data.ByteString (ByteString)
-import Data.Char (isDigit)
+import Data.Char (isDigit, isLower)
+import Data.Foldable (toList)
 import Data.List (elemIndex, find, isInfixOf, nub, sort, sortOn)
 import Data.Maybe (fromMaybe, listToMaybe)
 import GHC.Clock (getMonotonicTime)
@@ -23,6 +24,7 @@ import Network.Wai.Test ( SRequest (SRequest)
 import System.Directory (createDirectoryIfMissing, doesFileExist, findExecutable)
 import System.Exit (ExitCode (ExitSuccess))
 import System.FilePath (takeDirectory, (</>))
+import System.IO (hPutStrLn, stderr)
 import System.Process (readProcessWithExitCode)
 import Test.Tasty (TestTree, testGroup, withResource)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
@@ -154,6 +156,25 @@ postTo application' path payload = runSession (srequest (SRequest req payload)) 
 headlinePath :: T.Text -> ByteString
 headlinePath rid = "/headline" <> renderQuery True [("id", Just (TE.encodeUtf8 rid))]
 
+-- | @\/headline?id=RID&child=K@: the K-th entry inside RID's subtree, which is
+-- the sub-addressing a sheet walks the outline by.
+childPath :: T.Text -> Int -> ByteString
+childPath rid k = "/headline" <> renderQuery True
+  [("id", Just (TE.encodeUtf8 rid)), ("child", Just (BSC.pack (show k)))]
+
+-- | A nested document: a row with two children and a grandchild under the
+-- first, so an index has both a level jump and a sibling to be right about.
+nestedDoc :: T.Text
+nestedDoc = T.unlines
+  [ "* TODO parent", ":PROPERTIES:", ":ORG_GLANCE_ID: top", ":END:"
+  , "parent body"
+  , "** child one"
+  , "SCHEDULED: <2026-08-05 Wed>"
+  , "one body"
+  , "*** grandchild"
+  , "** child two"
+  ]
+
 -- | A commit body: the subtree text and the digest it was materialized with.
 commitBody :: T.Text -> T.Text -> BL.ByteString
 commitBody org digest = encode (object ["org" .= org, "digest" .= digest])
@@ -268,6 +289,69 @@ sheetStamp = "<2026-08-01 Sat>"
 panelRows :: T.Text -> [[T.Text]] -> [[T.Text]]
 panelRows sched props =
   [["SCHEDULED", sched], ["DEADLINE", ""], ["CLOSED", ""]] <> props
+
+-- | The subtree the shell harness serves, in the two shapes @GET \/headline@
+-- hands it over in.  It carries one of every kind the document draws — a
+-- headline line, a planning entry, a property, two paragraphs and a child — so a
+-- case that asserts what a sync WROTE names the whole of it once here.
+fixtureOrg, fixtureBody :: T.Text
+fixtureOrg = "* TODO one\nSCHEDULED: <2026-08-01 Sat>\n:PROPERTIES:\n"
+  <> ":ORG_GLANCE_ID: r1\n:EFFORT: 0:30\n:END:\n:LOGBOOK:\n- moved here\n:END:\n"
+  <> "first para\n\nsecond para\n** two\nchild body\n"
+fixtureBody = "* TODO one\nfirst para\n\nsecond para\n** two\nchild body\n"
+
+-- | The harness's TABLED body with WAS replaced by NOW — the whole document, so
+-- a case asserting a one-line splice is asserting every other byte with it.
+tabledAfter :: T.Text -> T.Text -> T.Text
+tabledAfter was now = T.replace was now tabledBody
+
+-- | The body the @tabled@ act serves: a lead-in paragraph, a four-line table
+-- with a rule among its rows, a two-item list and a closing paragraph.
+tabledBody :: T.Text
+tabledBody = T.unlines
+  [ "* TODO one", "lead in", "| a | b |", "|---+---|", "| 1 | 2 |", "| 3 | 4 |"
+  , "", "- alpha", "- beta", "", "tail para", "** two", "child body" ]
+
+-- | The structured document as the sheet DREW it: one entry per element, its
+-- KIND and then its parts — a headline line as its four cells, a paragraph as
+-- its text.  Read off the draw rather than out of a model, since the draw is
+-- what a reader has in front of them.
+docOf :: Value -> IO [[T.Text]]
+docOf = traverse parts <=< listAt "doc"
+  where parts v = mapM text' =<< listOf v
+        listOf (Array xs) = pure (toList xs)
+        listOf v          = assertFailure ("expected an array, got " <> show v)
+        text' (String t)  = pure t
+        text' v           = assertFailure ("expected a string, got " <> show v)
+
+-- | The PARTS of every element of KIND in ROWS, each element's own joined by
+-- newlines — the texts a stop of that kind is showing.
+partsOf :: T.Text -> [[T.Text]] -> [T.Text]
+partsOf kind rows = [ T.intercalate "\n" (drop 1 r) | r <- rows, take 1 r == [kind] ]
+
+-- | Where the document's cursor is: the element, and which of its cells — @-1@
+-- for the whole-element look, which is what an element with no cells always has.
+pointOf :: Value -> IO (Int, Int)
+pointOf answer = (,) <$> intAt "dat" answer <*> intAt "dcol" answer
+
+-- | Which of the document's elements wear a deletion flag, by their place in it.
+flaggedOf :: Value -> IO [Int]
+flaggedOf = flaggedAt "dflagged"
+
+-- | The priority each posted @set-priority@ carried, in the order they went
+-- out: the LETTER, or 'Nothing' for the null that takes the token off.
+prioritiesOf :: Value -> IO [Maybe T.Text]
+prioritiesOf = traverse one <=< argsOf
+  where one v = spelled =<< field "priority" v
+        spelled Null       = pure Nothing
+        spelled (String t) = pure (Just t)
+        spelled other      = assertFailure ("expected a priority, got " <> show other)
+
+-- | A list of INDICES the harness reports under KEY.
+flaggedAt :: T.Text -> Value -> IO [Int]
+flaggedAt key = traverse whole <=< listAt key
+  where whole (Number n) = pure (round n)
+        whole v          = assertFailure ("expected a number, got " <> show v)
 
 -- | V's own field names.  An absent field is an answer here rather than a
 -- failure — @sort@ is the one the document order leaves out.
@@ -529,13 +613,13 @@ shellLives =
     -- The killing case: a `view-changed' close mid-edit.  The mount goes, and
     -- the text the reader had not saved comes back with it.
   , Live "view-changed mid-edit rebuilds the mount and keeps the sheet's text"
-      "" "Enter" "sheet:hello close:view-changed"
+      "" "Enter" "press:C-c press:' sheet:hello close:view-changed"
       (booted <> [reasked]) [] 2 "hello" "synced" "?q=state%3A*active*"
 
     -- And when the file moved under the open sheet, the restore says so rather
     -- than flushing over it later: the text stands, at `conflict'.
   , Live "a sheet restored over a moved file lands in the conflict flow"
-      "" "Enter" "sheet:hello rewritten close:view-changed"
+      "" "Enter" "press:C-c press:' sheet:hello rewritten close:view-changed"
       (booted <> [reasked]) [] 2 "hello" "conflict" "?q=state%3A*active*"
 
     -- A cleared filter is a `?q=' in the URL and nothing re-injects the default
@@ -893,7 +977,56 @@ sortKeySpec shell = testGroup "Shell sort"
 -- calls is told about rather than crashed into.
 markSpec :: IO T.Text -> TestTree
 markSpec shell = testGroup "Shell marks"
-  [ testCase "the mount asks for them" $
+  [ -- DEL'S FIRST RUNG: ERASE THE LAST STRUCTURE STANDING, which is the
+    -- backspace's own rhyme lifted one more level.  A MARKED SET is a structure
+    -- a reader put there, so while there are marks the key takes them off and
+    -- stops — the query is not touched, and the next press is the one that
+    -- reaches it.
+    testCase "DEL clears the marks first, and leaves the query alone" $ do
+      bootOf shell "?q=state%3ATODO+web" 500 "m m Backspace" "" $ \answer -> do
+        assertEqual "the marks are gone" ([] :: [T.Text]) =<< textsAt "marked" answer
+        assertEqual "and the query is untouched" "?q=state%3ATODO+web"
+          =<< textAt "url" answer
+        -- The pill names `unmark-all', which is the command that RAN: DEL
+        -- delegates to `U''s own implementation and says so.
+        assertEqual "the pill names the command that ran and counts it"
+                    "DEL → unmark-all (2)" =<< textAt "echo" answer
+
+      -- The SECOND press finds no marks and falls through to the rung it always
+      -- had, in silence — a rung with nothing under it does not speak.
+    , testCase "and the second DEL drops a token, as it always did" $
+        bootOf shell "?q=state%3ATODO+web" 500 "m m Backspace Backspace" "" $ \answer -> do
+          assertEqual "one token off" "?q=state%3ATODO" =<< textAt "url" answer
+          assertEqual "and the pill is the filter's again"
+                      "DEL → filter-drop-token (filter: \"state:TODO\")"
+            =<< textAt "echo" answer
+
+      -- FLAGS ARE NOT MARKS and the rung leaves them where they are: a flag is
+      -- the archive queue, and a backspace that emptied it would throw away a
+      -- set a reader built to write with.
+    , testCase "and the flags stand, being the archive queue rather than a mark" $
+        bootOf shell "?q=state%3ATODO+web" 500 "d m m Backspace" "" $ \answer -> do
+          assertEqual "the marks went" ([] :: [T.Text]) =<< textsAt "marked" answer
+          assertEqual "the flag stayed" ["r1"] =<< textsAt "flagged" answer
+
+      -- With NO marks the ladder is the one it always was, first press included.
+    , testCase "with nothing marked the first press is still the filter's" $
+        bootOf shell "?q=state%3ATODO+web" 500 "Backspace" "" $ \answer -> do
+          assertEqual "one token off" "?q=state%3ATODO" =<< textAt "url" answer
+          assertEqual "and it said so"
+                      "DEL → filter-drop-token (filter: \"state:TODO\")"
+            =<< textAt "echo" answer
+
+      -- An asset with no marks at all has no rung to run, and the key falls
+      -- through without saying anything about marks.
+    , testCase "an asset with no marks falls straight through" $
+        bootOf shell "?q=state%3ATODO+web" 500 "" "bare press:Backspace" $ \answer -> do
+          assertEqual "one token off" "?q=state%3ATODO" =<< textAt "url" answer
+          assertEqual "and the pill never mentioned marks"
+                      "DEL → filter-drop-token (filter: \"state:TODO\")"
+            =<< textAt "echo" answer
+
+  ,  testCase "the mount asks for them" $
       bootOf shell "" 500 "" "" $
         assertEqual "marks:true reached the renderer" True <=< boolAt "marksOn"
 
@@ -1353,7 +1486,63 @@ landingSpec shell = testGroup "Shell landing"
 -- @POST \/command@'s; nothing here re-states either.
 commandKeySpec :: IO T.Text -> TestTree
 commandKeySpec shell = testGroup "Shell commands"
-  [ testCase "D with nothing flagged archives the row at point" $
+  [ -- ORG'S PRIORITY RING, pressed.  Up runs `none → C → B → A → none' and down
+    -- the reverse, and the WRAP IS THROUGH NONE, which is what makes the key
+    -- that sets a priority the key that takes it off.
+    testCase "S-up cycles the priority, and wraps through none" $ do
+      bootOf shell "" 500 "S-ArrowUp" "" $ \answer -> do
+        assertEqual "an entry with none takes the lowest"
+                    [("set-priority", ["r1"])] =<< postedOf answer
+        assertEqual "which is C" [Just "C"] =<< prioritiesOf answer
+        assertEqual "and the pill names the command and the landing"
+                    "S-<up> → priority-up ([#C] · 1)" =<< textAt "echo" answer
+      bootOf shell "" 500 "" "priorities:C press:S-ArrowUp" $
+        assertEqual "C climbs to B" [Just "B"] <=< prioritiesOf
+      bootOf shell "" 500 "" "priorities:B press:S-ArrowUp" $
+        assertEqual "and B to A" [Just "A"] <=< prioritiesOf
+      bootOf shell "" 500 "" "priorities:A press:S-ArrowUp" $ \answer -> do
+        assertEqual "and A wraps to none" [Nothing] =<< prioritiesOf answer
+        assertEqual "which the pill spells as the meta it is"
+                    "S-<up> → priority-up (*empty* · 1)" =<< textAt "echo" answer
+
+  , testCase "and S-down runs the same ring the other way" $ do
+      bootOf shell "" 500 "S-ArrowDown" "" $
+        assertEqual "none wraps to the highest" [Just "A"] <=< prioritiesOf
+      bootOf shell "" 500 "" "priorities:A press:S-ArrowDown" $
+        assertEqual "A falls to B" [Just "B"] <=< prioritiesOf
+      bootOf shell "" 500 "" "priorities:B press:S-ArrowDown" $
+        assertEqual "and B to C" [Just "C"] <=< prioritiesOf
+      bootOf shell "" 500 "" "priorities:C press:S-ArrowDown" $
+        assertEqual "and C to none" [Nothing] <=< prioritiesOf
+
+    -- EACH ROW CYCLES FROM ITS OWN VALUE, which is org's per-entry semantics —
+    -- and the one thing a single request cannot carry, `args' being one object
+    -- for the call.  So a MIXED marked set is one command per landing value,
+    -- each over the rows that land there, and the set stays mixed.
+  , testCase "a mixed marked set is one command per landing, and stays mixed" $
+      bootOf shell "" 500 ""
+             "priorities:A,,C press:m press:m press:m press:S-ArrowUp" $ \answer -> do
+        assertEqual "three rows, three landings"
+                    [ ("set-priority", ["r1"]), ("set-priority", ["r2"])
+                    , ("set-priority", ["r3"]) ] =<< postedOf answer
+        assertEqual "A wrapped, none climbed to C, C climbed to B"
+                    [Nothing, Just "C", Just "B"] =<< prioritiesOf answer
+
+    -- A set that AGREES is the common press and costs one request.
+  , testCase "and a set that agrees is one" $
+      bootOf shell "" 500 ""
+             "priorities:B,B,B press:m press:m press:m press:S-ArrowUp" $ \answer -> do
+        assertEqual "one command over all three"
+                    [("set-priority", ["r1", "r2", "r3"])] =<< postedOf answer
+        assertEqual "at the one landing" [Just "A"] =<< prioritiesOf answer
+
+  , testCase "with no row the key says so and posts nothing" $
+      bootOf shell "" 0 "S-ArrowUp" "" $ \answer -> do
+        assertEqual "nothing posted" ([] :: [Value]) =<< listAt "commands" answer
+        assertEqual "and it said why" "S-<up> → priority-up (no row)"
+          =<< textAt "echo" answer
+
+  ,  testCase "D with nothing flagged archives the row at point" $
       bootOf shell "" 500 "D" "" $ \answer -> do
         assertEqual "one archive, over the selected row"
                     [("archive", ["r1"])] =<< postedOf answer
@@ -1987,7 +2176,8 @@ openKeySpec shell = testGroup "Shell open"
         -- `run\' says of the row — the command and its help — the way it does
         -- while the state palette is up.  The landing is the letter.
         assertEqual "under the same name"
-                    "! → org-glance-overview:open · follow this row\'s link; several list them"
+                    ("! → org-glance-overview:open · open links: the row here,"
+                       <> " the element in the sheet; several list them")
           =<< textAt "echo" answer
 
   , testCase "one link opens without asking" $
@@ -2369,9 +2559,19 @@ agendaSpec shell = testGroup "Shell agenda"
     -- The landing is armed for ONE boot: a second remount that nobody asked an
     -- agenda of must not re-sort and must not echo a count.
   , testCase "the landing is spent by the boot it was armed for" $
-      bootOf shell "?q=" 500 "a" "close:view-changed" $
+      bootOf shell "?q=" 500 "a" "close:view-changed" $ \answer -> do
         assertEqual "the remount behind the close echoed no agenda"
-                    "a → org-glance-agenda (agenda · 500 rows)" <=< textAt "echo"
+                    "a → org-glance-agenda (agenda · 500 rows)" =<< textAt "echo" answer
+        -- The echo pill's FINAL text cannot see this regression: it is
+        -- last-writer-wins, so an unspent landing re-runs the agenda and writes
+        -- the very string above.  Neither can the fetches — the remount
+        -- revalidates the APPLIED query either way — nor `sortCalls', the order
+        -- being a token of the query rather than a call.  The one trace a
+        -- second run leaves is a second WRITE, so the assertion is over the
+        -- echo's history.
+        wrote <- textsAt "echoes" answer
+        assertEqual ("the agenda landed once: " <> show wrote)
+                    1 (length (filter ("(agenda · " `T.isInfixOf`) wrote))
 
   , testCase "a held a remounts once" $
       bootOf shell "?q=" 500 "a" "repeat:a repeat:a repeat:a" $
@@ -2736,6 +2936,33 @@ whichKeySpec shell = testGroup "Shell which-key"
     -- an entry.  Over the tags popup's own field the press is the field's text
     -- editing and nothing else: it commits nothing, it does not reach the popup
     -- underneath, and the map's own DEL is already dead under `typing()'.
+    -- DEL ERASES THE LAST STRUCTURE STANDING, and over a popup that is the
+    -- popup: neither the link list nor the tag list has an inner ladder, so the
+    -- key closes it exactly as ESC does.  The backspace's own rhyme, one surface
+    -- in from the table's marks-then-token-then-crumb ladder.
+  , testCase "DEL closes a popup that has nothing inside it to erase" $ do
+      bootOf shell "" 500 "o" "press:Backspace" $ \answer -> do
+        assertEqual "the link popup is gone" "" =<< textAt "popup" answer
+        assertEqual "and the pill names the function that ran"
+                    "DEL → keyboard-quit" =<< textAt "echo" answer
+      bootOf shell "" 500 ":" "press:Backspace" $ \answer -> do
+        assertEqual "and so is the tag popup" "" =<< textAt "tagpop" answer
+        assertEqual "under the same line"
+                    "DEL → keyboard-quit" =<< textAt "echo" answer
+      -- IN NAV ALONE.  Inside an OPEN edit the key is the field's own erase: the
+      -- page declines it, which is what leaves the browser's default standing.
+      bootOf shell "" 500 "o" "press:Enter press:Backspace" $ \answer -> do
+        assertEqual "the popup stands" "on" =<< textAt "popup" answer
+        assertEqual "with its edit still open" True =<< boolAt "lopen" answer
+        assertEqual "and the target lost a character"
+                    "https://one.example/" =<< textAt "lurl" answer
+        assertBool "the key was left to the field"
+          . notElem "Backspace" =<< textsAt "prevented" answer
+      bootOf shell "" 500 ":" "press:Enter press:Backspace" $ \answer -> do
+        assertEqual "the tag popup stands" "on" =<< textAt "tagpop" answer
+        assertEqual "with its rename still open" True =<< boolAt "trename" answer
+        assertEqual "and the name lost a character" "we" =<< textAt "tname" answer
+
   , testCase "DEL fires nothing in a palette that has no clear" $
       bootOf shell "" 500 ":" "press:+ press:Backspace" $ \answer -> do
         assertEqual "no command went" [] =<< postedOf answer
@@ -2795,22 +3022,44 @@ whichKeySpec shell = testGroup "Shell which-key"
   ]
 
 -- | The sheet's two panes, driven through the keys a reader presses.  What is
--- asserted here is the half the page owns: what the panel shows, how it is
--- moved over and opened, how it grows, what an emptied key means, what a sync
--- sends, and which of the two shapes the sheet is in.  The cut between the
--- panes is the server's and is @TestQuery@'s subject; nothing here re-states it.
+-- asserted here is the half the page owns: what the DOCUMENT draws and how it is
+-- walked, what the PANEL shows and how it is opened and grown, what a sync sends,
+-- and which of the two shapes the sheet is in.  The cut between the panes is the
+-- server's and is @TestQuery@'s subject; nothing here re-states it.
 --
--- The panel is modal, so most of these open with @TAB@ into it: @pnav@ is the
--- panel holding the keys, @pat@ is the row its cursor is on, and @focus@ names
--- a field only while a row is open — in nav there is nothing focused at all.
+-- BOTH panes are modal and neither focuses anything: the document holds the keys
+-- when the sheet opens (@dactive@), @TAB@ crosses to the panel (@pnav@), and
+-- @focus@ names a field only while a row or an element is open.
 --
--- @Enter@ materializes the first row, which is where every case starts.
+-- @Enter@ materializes the first row, which is where every case starts.  The
+-- fixture subtree has a planning entry, one property, two paragraphs and one
+-- child, so every kind the document draws is in it.
 sheetSpec :: IO T.Text -> TestTree
 sheetSpec shell = testGroup "Shell sheet"
   [ testCase "materialize opens two panes over one subtree" $
       bootOf shell "" 500 "Enter" "" $ \answer -> do
-        assertEqual "the textarea holds the body, every region lifted out"
-                    "* TODO one\n" =<< textAt "sheet" answer
+        -- The left pane is the subtree's TEXT as its elements: the headline
+        -- line, the body's own paragraphs, and the child under it.  Every
+        -- headline line opens with its STARS, org-cleaned — every star but the
+        -- last drawn as a space, so the root reads `* ' and the child ` * ',
+        -- which is `org-hide-leading-stars' with `org-startup-indented'.  A part
+        -- the headline has NOT got renders nothing at all: this entry has no
+        -- priority and no tags, and there is no placeholder for either.
+        assertEqual "the document draws the headline, the paragraphs and the child"
+          [ ["head", "* ", "TODO", "one"]
+          , ["para", "first para"]
+          , ["para", "second para"]
+          , ["child", "  * ", "two", ":web:"] ] =<< docOf answer
+        assertEqual "with the cursor on the headline and no cell picked yet"
+                    (0, -1) =<< pointOf answer
+        assertEqual "and the document holding the keys" True =<< boolAt "dactive" answer
+        -- THE CRUMB STRIP STANDS: the row alone is one crumb, so the bar is a
+        -- place rather than something that appears on the way down.
+        assertEqual "the trail is the row, and it is where the reader stands"
+                    (["one"], [0]) =<< ((,) <$> textsAt "where" answer
+                                            <*> flaggedAt "whereAt" answer)
+        assertEqual "the textarea is behind it, empty until C-c '"
+                    "" =<< textAt "sheet" answer
         -- The three planning rows first, in org's own order and empty where the
         -- headline has no entry, then the drawer in file order.
         assertEqual "the panel holds the planning rows and then the drawer"
@@ -2823,10 +3072,775 @@ sheetSpec shell = testGroup "Shell sheet"
                     "- moved here" =<< textAt "logbook" answer
         assertEqual "and the sheet is in its two-pane shape" "" =<< textAt "shape" answer
         -- The panel is read-only text until it is crossed into: the keys are
-        -- the body's, and the cursor is waiting on the first row.
-        assertEqual "the keys are in the body pane" False =<< boolAt "pnav" answer
-        assertEqual "with the focus in it" "mtext" =<< textAt "focus" answer
+        -- the document's, and the panel's cursor is waiting on its first row.
+        assertEqual "the keys are in the document pane" False =<< boolAt "pnav" answer
+        assertEqual "with nothing focused, which is what frees the letters"
+                    "" =<< textAt "focus" answer
         assertEqual "and the panel's cursor at the top" 0 =<< intAt "pat" answer
+
+    -- MOVEMENT IS THE TABLE'S LETTERS EXACTLY, over the elements: both
+    -- spellings and the vertical arrows walk them, and the walk stops at the
+    -- ends rather than wrapping.
+  , testCase "the document walks its elements on n/p, j/k and the arrows" $ do
+      bootOf shell "" 500 "Enter" "press:n press:n" $
+        assertEqual "two elements down" (2, -1) <=< pointOf
+      bootOf shell "" 500 "Enter" "press:j press:j press:k" $
+        assertEqual "vi's pair walks the same elements" (1, -1) <=< pointOf
+      bootOf shell "" 500 "Enter" "press:ArrowDown press:ArrowDown press:ArrowUp" $
+        assertEqual "and so do the arrows" (1, -1) <=< pointOf
+      bootOf shell "" 500 "Enter" "press:p" $
+        assertEqual "the headline is the end of the walk up" (0, -1) <=< pointOf
+      bootOf shell "" 500 "Enter" "press:n press:n press:n press:n" $
+        assertEqual "and the child the end of the walk down" (3, -1) <=< pointOf
+
+    -- THE CURSOR CARRIES ITS PANE'S SCROLL, which is the table's own discipline
+    -- over the one scroller this page owns.  `#mdoc' clamps at the sheet's
+    -- bound, so an element under the fold is reachable by `n' and invisible
+    -- without this.
+    --
+    -- GEOMETRY IS BEYOND THE STUB: nothing in the harness has a layout, so
+    -- whether the element WAS out of view cannot be asked and is not asserted.
+    -- What is asserted is that the page ASKED — the same caveat, and the same
+    -- shape of pin, as the overlay's placing.
+  , testCase "the element under point asks its pane's scroller" $ do
+      bootOf shell "" 500 "Enter" "press:n press:n" $ \answer -> do
+        seen <- textsAt "scrolled" answer
+        assertEqual "the last ask was made on the element under point"
+                    (Just "de d-para dat") (listToMaybe (reverse seen))
+        -- `block:"nearest"' IS the scrolloff band as the platform spells it: an
+        -- element already in view stays where it is, one past an edge comes
+        -- just inside, and the pane never re-centres under a walk.
+        assertEqual "and it asked for the band, not a re-centring"
+                    (object [ "block" .= ("nearest" :: T.Text) ])
+          =<< field "scrollAsked" answer
+      -- Every draw carries it, the first one included, so a sheet reopened onto
+      -- a cursor left far down lands with it in view rather than at the top.
+      bootOf shell "" 500 "Enter" "" $ \answer -> do
+        seen <- textsAt "scrolled" answer
+        assertEqual "the materialize itself asked, on the headline"
+                    (Just "de d-head dat") (listToMaybe seen)
+
+    -- CELLS ARE THE TABLE'S TOO, and the stops are the parts that are THERE:
+    -- this entry has a state and a title and neither a priority nor tags, so it
+    -- is two stops and the absent pair are not walked onto at all.  Walking off
+    -- either end lands in the whole-element look rather than bumping, which is
+    -- the rule `f'/`b' keep over the table.
+  , testCase "f/b, l/h and the horizontal arrows walk the PRESENT cells" $ do
+      bootOf shell "" 500 "Enter" "press:f" $ \answer -> do
+        assertEqual "the first cell" (0, 0) =<< pointOf answer
+        assertEqual "named by its key" "f → next-column (state)"
+          =<< textAt "echo" answer
+      -- The second stop is the TITLE, not the priority the entry has not got.
+      bootOf shell "" 500 "Enter" "press:l press:l" $ \answer -> do
+        assertEqual "two across is the title" (0, 1) =<< pointOf answer
+        assertEqual "the absent priority was no stop" "l → next-column (title)"
+          =<< textAt "echo" answer
+      bootOf shell "" 500 "Enter" "press:l press:l press:l" $
+        assertEqual "and there is no third" (0, -1) <=< pointOf
+      bootOf shell "" 500 "Enter" "press:f press:b" $ \answer -> do
+        assertEqual "back off the left end is the whole element" (0, -1)
+          =<< pointOf answer
+        assertEqual "and says so" "b → next-column (element mode)"
+          =<< textAt "echo" answer
+      bootOf shell "" 500 "Enter" "press:ArrowRight press:ArrowRight" $
+        assertEqual "the arrows are the same walk" (0, 1) <=< pointOf
+      -- A paragraph has no cells at all, so the key says so and moves nothing.
+      bootOf shell "" 500 "Enter" "press:n press:f" $ \answer -> do
+        assertEqual "nothing moved" (1, -1) =<< pointOf answer
+        assertEqual "and the key said why" "f → next-column (no cells in this element)"
+          =<< textAt "echo" answer
+      -- And the column goes when the cursor leaves an element that had one.
+      bootOf shell "" 500 "Enter" "press:f press:n" $
+        assertEqual "the cell went with the element" (1, -1) <=< pointOf
+
+    -- A CURSOR IS ONLY DRAWN WHERE THE KEYS ARE, and its POSITION is not: the
+    -- wash is CSS gated on the pane that holds them, so what behaviour can say
+    -- is which pane wears the gate and that neither cursor MOVED while the other
+    -- had the keys.  The gating rules themselves are asserted as text in "Shell
+    -- glue" — nothing here has a stylesheet.
+  , testCase "each pane's cursor waits where it was while the other has the keys" $ do
+      -- Both cursors are somewhere from the moment the sheet opens; only the
+      -- document's is drawn.
+      bootOf shell "" 500 "Enter" "press:n" $ \answer -> do
+        assertEqual "the document has the keys" (True, False)
+          =<< ((,) <$> boolAt "dactive" answer <*> boolAt "pnav" answer)
+        assertEqual "its cursor moved" 1 =<< intAt "dat" answer
+        assertEqual "and the panel's is waiting at its top" 0 =<< intAt "pat" answer
+      -- Crossing hands the gate over and moves NEITHER position.
+      bootOf shell "" 500 "Enter" "press:n press:Tab press:n press:n" $ \answer -> do
+        assertEqual "the panel has them now" (False, True)
+          =<< ((,) <$> boolAt "dactive" answer <*> boolAt "pnav" answer)
+        assertEqual "the document's cursor is where it was left" 1
+          =<< intAt "dat" answer
+        assertEqual "and the panel's has moved under them" 2 =<< intAt "pat" answer
+      -- And back: the gate returns to the document and both are still there.
+      bootOf shell "" 500 "Enter" "press:n press:Tab press:n press:n press:Tab" $
+        \answer -> do
+          assertEqual "the document has them again" (True, False)
+            =<< ((,) <$> boolAt "dactive" answer <*> boolAt "pnav" answer)
+          assertEqual "with its cursor untouched" 1 =<< intAt "dat" answer
+          assertEqual "and the panel's kept where it got to" 2 =<< intAt "pat" answer
+
+    -- ONE GRID: THE CHILD'S STAR SITS IN THE PARENT'S BODY COLUMN.  That is the
+    -- whole of org-indent's arithmetic here — two spaces a level, so the stars
+    -- are indented TO the body level rather than beside it — and it is asserted
+    -- as the EQUALITY of two numbers this page produces independently: the
+    -- column the child's own prefix puts its star at, and the column the
+    -- paragraphs under the head are padded to.
+  , testCase "a child's star sits in the parent's body column" $
+      bootOf shell "" 500 "Enter" "" $ \answer -> do
+        rows <- docOf answer
+        body <- textAt "dindent" answer
+        let prefix = case [ r | r <- rows, take 1 r == ["child"] ] of
+                       ((_kind : p : _rest) : _more) -> p
+                       _none                         -> ""
+        assertEqual "the child's prefix is two spaces and its star" "  * " prefix
+        assertEqual "and its star stands in the column the body starts at"
+                    (Just (read (T.unpack body) :: Int)) (T.findIndex (== '*') prefix)
+
+    -- ORG-STARTUP-INDENTED'S OTHER HALF: content sits under the TITLE TEXT
+    -- rather than under the stars, so the column is the width of the head's own
+    -- star prefix.  The head is the ROOT of its own document whatever entry the
+    -- sheet walked into — it always draws `* ' — so the answer is the same two
+    -- at every depth; what this pins is that it is DERIVED from `dstars' rather
+    -- than a 2 spelled beside it, and the child case is where a hand-written
+    -- one would have gone wrong first.
+  , testCase "content lines start at the title's column, at either depth" $ do
+      bootOf shell "" 500 "Enter" "" $
+        assertEqual "the row's own document" "2" <=< textAt "dindent"
+      bootOf shell "" 500 "Enter" "press:n press:n press:n press:Enter" $
+        assertEqual "and a child, which is the root of its own" "2"
+          <=< textAt "dindent"
+
+    -- NO PLACEHOLDERS, EVER.  An absent part renders nothing in every state —
+    -- at rest, with the element under point, and with the cursor in a cell
+    -- beside it — so what a reader sees is the entry as org spells it and the
+    -- only thing that marks structure is the cursor.  Setting an absent part is
+    -- `t' and `:', below, rather than a cell that has to be drawn to be reached.
+  , testCase "an absent part renders nothing, in every state" $
+      mapM_ (\(what, keys) ->
+               bootOf shell "" 500 "Enter" keys $ \answer -> do
+                 rows <- docOf answer
+                 assertEqual (what <> ": the headline line, and nothing it lacks")
+                             ["head", "* ", "TODO", "one"] (head rows)
+                 assertEqual (what <> ": nor the child's")
+                             ["child", "  * ", "two", ":web:"] (last rows))
+            [ ("at rest", ""), ("on the element", "press:p")
+            , ("in the state cell", "press:f"), ("in the title cell", "press:f press:f")
+            , ("on the child", "press:n press:n press:n") ]
+
+    -- RET IS BY KIND, and a CHILD is the one that moves the sheet: it
+    -- re-materializes into that entry, which is the same route under the index
+    -- the server handed over.  The breadcrumb is what says where it landed.
+  , testCase "RET on a child materializes into it, and DEL climbs back" $ do
+      bootOf shell "" 500 "Enter" "press:n press:n press:n press:Enter" $ \answer -> do
+        -- The child is the ROOT of its own document, so its stars read `* ' and
+        -- the depth a reader sees is relative to the entry they are looking at.
+        assertEqual "the child's own document"
+          [ ["head", "* ", "two", ":web:"]
+          , ["para", "child body"] ] =<< docOf answer
+        assertEqual "the trail gained a crumb" ["one", "two"] =<< textsAt "where" answer
+        assertEqual "and the last one is where the reader stands" [1]
+          =<< flaggedAt "whereAt" answer
+        assertEqual "and the pill names what it opened"
+                    "RET → org-glance-overview:materialize (two)" =<< textAt "echo" answer
+      bootOf shell "" 500 "Enter"
+             "press:n press:n press:n press:Enter press:Backspace" $ \answer -> do
+        assertEqual "back at the row, one crumb again" ["one"] =<< textsAt "where" answer
+        assertEqual "with the cursor on the child it came out of" (3, -1)
+          =<< pointOf answer
+        assertEqual "and the pill names the climb"
+                    "DEL → org-glance-overview:up (one)" =<< textAt "echo" answer
+
+    -- At the top there is nothing above the row, so DEL is the sheet's door —
+    -- and the table's own DEL must not also fire, or the filter under the sheet
+    -- would lose a token to the same press.
+  , testCase "DEL at the top closes the sheet and nothing else" $
+      bootOf shell "" 500 "Enter" "press:Backspace" $ \answer -> do
+        assertEqual "the sheet is closed" "" =<< textAt "modal" answer
+        assertEqual "and the applied query is where it was"
+                    "?q=state%3A*active*" =<< textAt "url" answer
+
+    -- A PARAGRAPH opens as text, and its commit is `C-x C-s': RET is a newline
+    -- inside one, so `save-buffer' over the open edit is the only commit it has.
+    -- What goes back is the BODY with that block's own lines spliced over, every
+    -- other byte where it was.
+  , testCase "RET opens a paragraph as text, and C-x C-s writes it" $ do
+      bootOf shell "" 500 "Enter" "press:n press:Enter" $ \answer -> do
+        assertEqual "the block is open" True =<< boolAt "dparaopen" answer
+        assertEqual "with its text in the field" "first para" =<< textAt "dtext" answer
+        assertEqual "and the focus in it" "dtext" =<< textAt "focus" answer
+      bootOf shell "" 500 "Enter"
+             "press:n press:Enter dpara:rewritten press:C-x press:C-s" $ \answer -> do
+        assertEqual "one write, aimed at the row"
+                    ["r1"] =<< textsAt "wroteAt" answer
+        assertEqual "the body with that block replaced and nothing else"
+                    ["* TODO one\nrewritten\n\nsecond para\n** two\nchild body\n"]
+          =<< traverse (textAt "body") =<< listAt "writes" answer
+        assertEqual "and the sheet is synced" "synced" =<< textAt "state" answer
+
+    -- THE GRAIN IS A WALK, not a mode.  A list and a `#+begin_'/`#+end_' block
+    -- each take TWO KINDS OF STOP over the same bytes, laid out in document
+    -- order as `[whole, item1..itemN]' and inline among everything else — so
+    -- `n' from above meets the whole thing and then walks into it, and `p' from
+    -- below walks the items and meets the whole on the way out.
+    --
+    -- WHICH IS THE WHOLE MECHANISM.  There is no descend key and no ascend key,
+    -- no mode to be in and none to leave: `p' is `n' read backwards because the
+    -- sequence is one sequence.  RET stays pure edit at either grain, DEL stays
+    -- the sheet's own ladder, and `d' flags whatever the stop is.
+  , testCase "a list and a block are the whole thing, then their parts" $ do
+      bootOf shell "" 500 "" "grain press:Enter" $ \answer -> do
+        assertEqual "the walk, kind by kind"
+                    [ "head", "para", "comp:list", "item", "item", "item"
+                    , "comp:quote", "item", "item", "para", "child" ]
+          =<< map head <$> docOf answer
+        assertEqual "and the grain of each stop"
+                    [ "element", "element", "composite", "leaf", "leaf", "leaf"
+                    , "composite", "leaf", "leaf", "element", "element" ]
+          =<< textsAt "dgrains" answer
+        -- Each leaf hangs under the composite it was drawn inside, which is
+        -- what makes the two grains one range rather than two.
+        assertEqual "and who it hangs under" [-1, -1, -1, 2, 2, 2, -1, 6, 6, -1, -1]
+          =<< flaggedAt "downers" answer
+
+    -- AND `p' IS THAT SEQUENCE READ BACKWARDS, which is the whole reason the
+    -- composite sits AHEAD of its leaves rather than after them: coming down,
+    -- the reader meets the block and then walks into it; coming up, they walk
+    -- the parts and meet the whole on the way OUT.  One order serves both, so
+    -- neither direction needs a rule of its own.
+  , testCase "p walks the parts, then the whole, on the way out" $ do
+      let down9 = "press:n press:n press:n press:n press:n press:n press:n press:n press:n"
+      bootOf shell "" 500 "" ("grain press:Enter " <> down9 <> " press:p") $
+        assertEqual "up from the tail paragraph is the block's LAST part" (8, -1)
+          <=< pointOf
+      bootOf shell "" 500 ""
+             ("grain press:Enter " <> down9 <> " press:p press:p press:p") $
+        assertEqual "and three up is the block itself" (6, -1) <=< pointOf
+      -- Which is exactly what `n' saw coming the other way, in reverse.
+      bootOf shell "" 500 ""
+             "grain press:Enter press:n press:n press:n press:n press:n press:n" $
+        assertEqual "six down is the block, before its parts" (6, -1) <=< pointOf
+
+    -- AND AN ORG TABLE IS THAT SAME SHAPE, which is the whole of what it is: a
+    -- run of `|' lines is ONE COARSE STOP and then its rows, drawn inline in the
+    -- one sequence, so `n' from above meets the table and walks into it and `p'
+    -- from below walks the rows and meets it on the way out.  No cell grain and
+    -- no column awareness: 101 of the corpus's 6337 files hold table rows, so
+    -- the case for a second walk to teach is not there.
+    --
+    -- A LINE IS A LEAF, the `|---+---|' RULE included: a line is a line, and
+    -- editing or deleting one is the same act whichever kind of row it is.
+  , testCase "a table is one stop, then its rows" $
+      bootOf shell "" 500 "" "tabled press:Enter" $ \answer -> do
+        assertEqual "the walk, kind by kind, over a MIXED body"
+                    [ "head", "para", "comp:table", "item", "item", "item", "item"
+                    , "comp:list", "item", "item", "para", "child" ]
+          =<< map head <$> docOf answer
+        assertEqual "and the grain of each stop"
+                    [ "element", "element", "composite", "leaf", "leaf", "leaf"
+                    , "leaf", "composite", "leaf", "leaf", "element", "element" ]
+          =<< textsAt "dgrains" answer
+        -- Each row hangs under the table it was drawn inside, the way a list's
+        -- items hang under theirs.
+        assertEqual "and who each row hangs under"
+                    [-1, -1, -1, 2, 2, 2, 2, -1, 7, 7, -1, -1]
+          =<< flaggedAt "downers" answer
+        -- The rule is a stop like any other, and it shows what the file says.
+        assertEqual "the four rows, the rule among them"
+                    [["| a | b |"], ["|---+---|"], ["| 1 | 2 |"], ["| 3 | 4 |"]]
+          . map (drop 1) . take 4 . drop 3 =<< docOf answer
+
+  , testCase "the walk crosses a table in both directions" $ do
+      bootOf shell "" 500 "" "tabled press:Enter press:n press:n" $
+        assertEqual "n from the lead-in meets the WHOLE table first" (2, -1)
+          <=< pointOf
+      bootOf shell "" 500 "" "tabled press:Enter press:n press:n press:n" $
+        assertEqual "and then walks into its first row" (3, -1) <=< pointOf
+      let down7 = T.unwords (replicate 7 "press:n")
+      bootOf shell "" 500 "" ("tabled press:Enter " <> down7 <> " press:p") $
+        assertEqual "up from the list is the table's LAST row" (6, -1) <=< pointOf
+      bootOf shell "" 500 ""
+             ("tabled press:Enter " <> down7 <> " " <> T.unwords (replicate 5 "press:p")) $
+        assertEqual "and five up is the table itself" (2, -1) <=< pointOf
+
+    -- A ROW EDIT IS A LINE SPLICE, which is the decompose/recompose property one
+    -- grain in: the row remembers the line it came out of, so what goes back is
+    -- the body with that ONE line replaced and every other byte where it was —
+    -- the rule and the rows around it included.
+  , testCase "editing a table row splices that line and nothing else" $ do
+      bootOf shell "" 500 ""
+             ("tabled press:Enter " <> T.unwords (replicate 5 "press:n")
+                <> " press:Enter dpara:~9~9~ press:C-x press:C-s") $ \answer ->
+        assertEqual "the body with that row replaced and nothing else"
+                    [tabledAfter "| 1 | 2 |" "|9|9|"]
+          =<< traverse (textAt "body") =<< listAt "writes" answer
+      -- AND THE RULE IS EDITABLE THE SAME WAY: it is a leaf, so RET opens it and
+      -- the commit puts its own line back.
+      bootOf shell "" 500 ""
+             ("tabled press:Enter " <> T.unwords (replicate 4 "press:n")
+                <> " press:Enter dpara:~-+-~ press:C-x press:C-s") $ \answer ->
+        assertEqual "the rule replaced, and the rows around it untouched"
+                    [tabledAfter "|---+---|" "|-+-|"]
+          =<< traverse (textAt "body") =<< listAt "writes" answer
+      -- RET on the WHOLE table opens the whole block, which is the composite's
+      -- own rule and the reason both grains are stops.
+      bootOf shell "" 500 "" "tabled press:Enter press:n press:n press:Enter" $
+        assertEqual "the block whole, rule and all"
+                    "| a | b |\n|---+---|\n| 1 | 2 |\n| 3 | 4 |" <=< textAt "dtext"
+
+    -- ORG LINKS RENDER, and the rule is ORG'S OWN DISPLAY-VS-SOURCE MODEL: what
+    -- is SHOWN is the description — `[[T][D]]' shows `D', `[[T]]' shows `T', a
+    -- bare URL shows itself — and what `RET' opens is the RAW org, brackets and
+    -- all.  The display never becomes the source, so an edit is always over
+    -- what the file says.
+    --
+    -- NO SECOND PARSER.  The shown text is the server's `desc' verbatim and the
+    -- range is the server's `span': one scan, in `Glance.Query', and this page
+    -- does arithmetic on the answer.  Which is why a bare URL is drawn too —
+    -- it is in the same answer — and why one URL written twice is drawn twice,
+    -- each where it stands rather than wherever a search first found it.
+  , testCase "a paragraph shows its links' descriptions, in link ink" $
+      bootOf shell "" 500 "" "linky press:Enter" $ \answer -> do
+        segs <- pairsAt "dsegs" answer
+        -- `[[T][D]]' shows D and `[[T]]' shows T, each in its place, with the
+        -- text between them left exactly as written.
+        assertEqual "the paragraph, cut into text and links"
+          [ "dt:see ", "dl:alpha", "dt: and ", "dl:https://b.example/", "dt: here" ]
+          (segs !! 1)
+        -- A BARE URL is a link too, coming back in the same answer.  Written
+        -- TWICE it is marked ONCE: `/links' keeps the FIRST spelling of a
+        -- target and no other (`Glance.Query.orgLinks', so that `o' offers one
+        -- destination one letter), and this draw follows the SPANS it was
+        -- given rather than searching the text for what it just drew — so the
+        -- second occurrence is the text it is.  A consequence of the scan's
+        -- rule, visible here because the display is downstream of it.
+        assertEqual "the first spelling is marked, the second reads as text"
+          [ "dt:bare ", "dl:https://c.example/", "dt: then https://c.example/ twice" ]
+          (segs !! 2)
+        -- What the element READS as, once the pieces are put together: the
+        -- brackets are gone from the DISPLAY.  Where they are still there is
+        -- the file, and the next case is what opens it.
+        assertEqual "and reads as the descriptions"
+          ["para", "see alpha and https://b.example/ here"] . (!! 1) =<< docOf answer
+      -- What RET opens, spelled out: the display is not the source.
+  , testCase "RET opens the raw org, not what was shown" $
+      bootOf shell "" 500 "" "linky press:Enter press:n press:Enter" $
+        assertEqual "brackets and all"
+          "see [[https://a.example/][alpha]] and [[https://b.example/]] here"
+          <=< textAt "dtext"
+
+    -- THE TITLE CELL RENDERS THE SAME WAY, its links being in the same answer.
+    -- The server sends where the cell starts (`titleAt') because only it has
+    -- that sub-span; everything else is the same arithmetic.
+  , testCase "the headline's title cell shows its link too" $
+      bootOf shell "" 500 "" "linky press:Enter" $ \answer -> do
+        segs <- pairsAt "dsegs" answer
+        assertEqual "the title, cut the same way"
+                    ["dt:one ", "dl:the title link"] (head segs)
+
+    -- A LINK IS NOT A STOP and binds no mouse: `o' is the opener, here as over
+    -- the table, so the marks say "there is a reference in this text" and
+    -- nothing more.  The walk is the same walk it was.
+  , testCase "links are drawn, and are no stop" $
+      bootOf shell "" 500 "" "linky press:Enter press:n" $ \answer -> do
+        assertEqual "one step down is the paragraph, links and all" (1, -1)
+          =<< pointOf answer
+        assertEqual "nothing was opened by drawing them" [] =<< openedOf answer
+
+    -- `o' SCOPES TO THE STOP, whatever the grain: the span it asks over is the
+    -- element's own line range, so one item's links and the whole list's are
+    -- two different questions asked with one key.  The range is worked out on
+    -- this side — every lifted region sits above the paragraphs, so the body's
+    -- lines and the file's differ by one constant — which is why a new grain
+    -- needed no new server field.
+  , testCase "o asks over the stop the cursor is on" $ do
+      -- At the first ITEM there is one link inside it, so `o' opens it outright.
+      bootOf shell "" 500 ""
+             "grain grainlinks press:Enter press:n press:n press:n press:o" $
+        \answer -> do
+          assertEqual "the item's own link, opened"
+                      [("https://alpha.example/", "_blank", "noopener")]
+            =<< openedOf answer
+          assertEqual "and no popup was needed" "" =<< textAt "popup" answer
+      -- At the WHOLE LIST both are inside, so the same key raises the popup —
+      -- one gesture, and the stop is what decides which answer it has.
+      bootOf shell "" 500 ""
+             "grain grainlinks press:Enter press:n press:n press:o" $ \answer -> do
+        assertEqual "nothing opened outright" [] =<< openedOf answer
+        assertEqual "both links are listed" ["in alpha", "in beta"]
+          =<< map (!! 1) <$> pairsAt "llinks" answer
+      -- And at a stop with no link under it, the honest refusal.
+      bootOf shell "" 500 "" "grain grainlinks press:Enter press:n press:o" $
+        -- The pill names the COMMAND, and the sequence is the keymap row's own
+        -- spelling of it rather than the key that was pressed.
+        \answer -> assertEqual "the lead-in reaches neither"
+                               "RET → org-glance-overview:open (no links)"
+                     =<< textAt "echo" answer
+
+    -- ONE BLANK LINE STAYS IN A LIST    -- ONE BLANK LINE STAYS IN A LIST, which is org's rule and the corpus's:
+    -- 1173 item pairs are separated by exactly one.  `beta' after a blank is
+    -- the SAME list's second item rather than a second list, and the deeper
+    -- `- nested' rides inside `alpha' rather than taking a stop — v1's grain.
+  , testCase "a blank line and a nested item stay inside their list" $
+      bootOf shell "" 500 "" "grain press:Enter press:n press:n press:n" $ \answer -> do
+        assertEqual "three items, and the first carries what hangs under it"
+                    ["- alpha\n  more alpha\n  - nested", "- beta", "- gamma"]
+          =<< partsOf "item" . take 6 <$> docOf answer
+        assertEqual "the cursor is on the first of them" (3, -1) =<< pointOf answer
+
+    -- WHAT NO LEAF CLAIMS IS STILL DRAWN, and drawn inert: a block's own
+    -- `#+begin_'/`#+end_' lines are inside the composite and belong to no
+    -- paragraph in it, so they are on screen exactly once and nothing lands on
+    -- them.  The lens's one-owner-per-byte rule, one grain down.
+  , testCase "a block's delimiters are drawn, and are no stop" $
+      bootOf shell "" 500 "" "grain press:Enter" $ \answer -> do
+        rows <- docOf answer
+        assertEqual "the composite shows the delimiters and nothing else"
+                    ["#+begin_quote\n\n#+end_quote"] (partsOf "comp:quote" rows)
+        assertEqual "and its paragraphs are the stops inside it"
+                    ["quoted one", "quoted two"] (partsOf "item" (drop 6 rows))
+
+    -- RET IS PURE EDIT AT EITHER GRAIN: a leaf opens its own lines, a composite
+    -- opens the whole block's, and each commit splices exactly the range its
+    -- stop covers.
+  , testCase "RET edits a leaf's own lines, and splices only those" $ do
+      bootOf shell "" 500 "" "grain press:Enter press:n press:n press:n press:Enter" $
+        \answer -> assertEqual "the item, as it stands"
+                               "- alpha\n  more alpha\n  - nested"
+                     =<< textAt "dtext" answer
+      bootOf shell "" 500 ""
+             ("grain press:Enter press:n press:n press:n press:Enter dpara:-_ALPHA"
+              <> " press:C-x press:C-s") $ \answer -> do
+        body <- traverse (textAt "body") =<< listAt "writes" answer
+        assertEqual "the item's lines, and every other byte where it was"
+          [ "* TODO one\nlead in\n- ALPHA\n\n- beta\n- gamma\n\n#+begin_quote\n"
+            <> "quoted one\n\nquoted two\n#+end_quote\n\ntail para\n** two\nchild body\n" ]
+          body
+  , testCase "RET at the whole list edits the whole list" $ do
+      bootOf shell "" 500 "" "grain press:Enter press:n press:n press:Enter" $
+        \answer -> assertEqual "every line the composite covers"
+                               "- alpha\n  more alpha\n  - nested\n\n- beta\n- gamma"
+                     =<< textAt "dtext" answer
+      bootOf shell "" 500 ""
+             ("grain press:Enter press:n press:n press:Enter dpara:-_one|-_two"
+              <> " press:C-x press:C-s") $ \answer -> do
+        body <- traverse (textAt "body") =<< listAt "writes" answer
+        assertEqual "the list's whole range replaced, and nothing beyond it"
+          [ "* TODO one\nlead in\n- one\n- two\n\n#+begin_quote\n"
+            <> "quoted one\n\nquoted two\n#+end_quote\n\ntail para\n** two\nchild body\n" ]
+          body
+
+    -- `d' FLAGS WHATEVER THE STOP IS, which is the same rule at both grains and
+    -- is why the grain needed no key of its own: the reader is already standing
+    -- on the thing they mean.
+  , testCase "d flags one item, or the whole list" $ do
+      bootOf shell "" 500 "" "grain press:Enter press:n press:n press:n press:d" $
+        assertEqual "the item alone" [3] <=< flaggedOf
+      bootOf shell "" 500 "" "grain press:Enter press:n press:n press:d" $
+        assertEqual "or the composite alone" [2] <=< flaggedOf
+      -- And the delete splices the range the flag was laid on.
+      bootOf shell "" 500 "" "grain press:Enter press:n press:n press:d press:d" $
+        \answer -> do
+          body <- traverse (textAt "body") =<< listAt "writes" answer
+          assertEqual "the whole list is gone, the rest untouched"
+            [ "* TODO one\nlead in\n#+begin_quote\nquoted one\n\nquoted two\n"
+              <> "#+end_quote\n\ntail para\n** two\nchild body\n" ] body
+
+    -- ESC over an open element is the ELEMENT's and puts back what it held; the
+    -- next one reaches the sheet's own ladder.
+  , testCase "ESC puts an open paragraph back, and the next one closes the sheet" $ do
+      bootOf shell "" 500 "Enter" "press:n press:Enter dpara:rewritten press:Escape" $
+        \answer -> do
+          assertEqual "the overlay is gone" False =<< boolAt "dparaopen" answer
+          assertEqual "the sheet is still up" "on" =<< textAt "modal" answer
+          assertEqual "with nothing written" ([] :: [Value]) =<< listAt "writes" answer
+          assertEqual "and it said so" "ESC → keyboard-quit (element unchanged)"
+            =<< textAt "echo" answer
+      bootOf shell "" 500 "Enter" "press:n press:Enter press:Escape press:Escape" $
+        assertEqual "the second one is the sheet's" "" <=< textAt "modal"
+
+    -- THE DELETION GESTURE IS KIND-AWARE, and over the document it is the
+    -- paragraphs: `d' flags, a second `d' takes every flagged block out of the
+    -- body, and the write is one splice.
+  , testCase "d flags a paragraph and d again splices it out of the body" $ do
+      bootOf shell "" 500 "Enter" "press:n press:d" $ \answer -> do
+        assertEqual "the block wears the flag" [1] =<< flaggedOf answer
+        assertEqual "and nothing is written yet" ([] :: [Value])
+          =<< listAt "writes" answer
+        assertEqual "the pill says what the second press will do"
+                    "d → delete-flag (d again deletes)" =<< textAt "echo" answer
+      bootOf shell "" 500 "Enter" "press:n press:d press:d" $ \answer -> do
+        assertEqual "the body with the block and its blank line gone"
+                    ["* TODO one\nsecond para\n** two\nchild body\n"]
+          =<< traverse (textAt "body") =<< listAt "writes" answer
+        assertEqual "and the pill counted the set"
+                    "D → org-delete-element (1 flagged taken)" =<< textAt "echo" answer
+      -- A HELD `d' must not flag and delete from one press, which is the
+      -- confirmation the two-press shape exists to be.
+      bootOf shell "" 500 "Enter" "press:n press:d repeat:d" $ \answer -> do
+        assertEqual "the flag is still there" [1] =<< flaggedOf answer
+        assertEqual "and nothing was written" ([] :: [Value]) =<< listAt "writes" answer
+
+    -- A HEADLINE is refused: deleting an entry is not what this sheet is for,
+    -- and there is no command behind it.  It says so rather than doing nothing.
+  , testCase "a headline is not deleted from the document, and says so" $
+      bootOf shell "" 500 "Enter" "press:n press:n press:n press:D" $ \answer -> do
+        assertEqual "nothing written" ([] :: [Value]) =<< listAt "writes" answer
+        assertEqual "the log says why"
+          (Just "a headline is not deleted from the sheet — this writes elements only")
+          =<< lastLog answer
+
+    -- THE HEADLINE'S CELLS ARE THE ROW'S, and a row is what `/command'
+    -- addresses: the state cell raises the page's own value palette over THIS
+    -- row, and the tags cell raises the tags popup over it.
+  , testCase "RET on the state cell raises the palette over this row" $
+      bootOf shell "" 500 "Enter" "press:f press:Enter" $ \answer -> do
+        assertEqual "the palette is up" "on" =<< textAt "prompt" answer
+        assertEqual "named for the entry" "set state · one" =<< textAt "phead" answer
+        assertEqual "resolved for the row the sheet is on"
+                    ["/keywords?ids=r1"] =<< textsAt "resolved" answer
+
+  , testCase "and a letter there is one set-state over it" $
+      bootOf shell "" 500 "Enter" "press:f press:Enter press:d" $
+        assertEqual "the command it posted"
+          [("set-state", ["r1"])] <=< postedOf
+
+    -- `t' AND `:' WORK AT THE ELEMENT, which is what makes an ABSENT part
+    -- settable: this entry carries no tags, so there is no tags cell to walk
+    -- onto, and the question is asked of the headline instead.  No cell point is
+    -- needed and none is read.
+  , testCase "t and : fire from the element, whatever the cell point" $ do
+      bootOf shell "" 500 "Enter" "press:t" $ \answer -> do
+        assertEqual "the palette is up" "on" =<< textAt "prompt" answer
+        assertEqual "over the row the sheet is on" ["/keywords?ids=r1"]
+          =<< textsAt "resolved" answer
+      bootOf shell "" 500 "Enter" "press::" $ \answer -> do
+        assertEqual "the popup is up" "on" =<< textAt "tagpop" answer
+        assertEqual "named for the entry" "tags · one" =<< textAt "thead" answer
+      -- With a cell under point they mean the same thing: the element is what
+      -- they name, and the column is not read.
+      bootOf shell "" 500 "Enter" "press:f press:t" $
+        assertEqual "a cell point changes nothing" "on" <=< textAt "prompt"
+      -- And from a paragraph they say which line takes them.
+      bootOf shell "" 500 "Enter" "press:n press:t" $ \answer -> do
+        assertEqual "nothing raised" "" =<< textAt "prompt" answer
+        assertEqual "and it said where to stand"
+                    "the headline line takes this — n/p to it" =<< textAt "echo" answer
+
+    -- A POPUP RAISED FROM THE DOCUMENT GETS THE KEYS, and the document does not
+    -- keep them.  The sheet is the FLOOR of the surface stack — everything here
+    -- can be raised over it — so its listener declines while anything above it
+    -- is up.  Without that the document eats the very letter the palette was
+    -- raised to read: it ran its own binding for it AND claimed the press, so
+    -- the popup behind it saw a key already handled.
+  , testCase "a palette raised from the document has the letters, and it alone" $
+      bootOf shell "" 500 "Enter" "press:t press:d" $ \answer -> do
+        assertEqual "the letter committed" [("set-state", ["r1"])] =<< postedOf answer
+        -- `d' is the document's delete-flag key.  If the document had still been
+        -- listening it would have flagged the element under point on the way.
+        assertEqual "and flagged nothing on the way" ([] :: [Int])
+          =<< flaggedOf answer
+
+  , testCase "and the tags popup raised from it takes its own d, not the document's" $
+      bootOf shell "" 500 "Enter" "press:: press:d" $ \answer -> do
+        assertEqual "the popup is up" "on" =<< textAt "tagpop" answer
+        -- `d' is the flag key on BOTH surfaces, which is what makes it the
+        -- sharpest press to test with: it landed on the popup's tag.
+        assertEqual "the tag wears the flag" ["web"] =<< textsAt "tflagged" answer
+        assertEqual "and no element of the document does" ([] :: [Int])
+          =<< flaggedOf answer
+
+    -- THE SAME RULE FROM THE TABLE, which is the regression the reorder owes:
+    -- with no sheet open the floor is not up at all and nothing changes.
+  , testCase "and a palette raised from the TABLE still has them" $
+      bootOf shell "" 500 "t" "press:d" $ \answer -> do
+        assertEqual "the letter committed" [("set-state", ["r1"])] =<< postedOf answer
+        assertEqual "the sheet never opened" "" =<< textAt "modal" answer
+
+    -- THE TITLE IS A CELL A READER EDITS AS TEXT, so it opens in the shared
+    -- overlay and commits `set-title' — a span splice over the title's own
+    -- characters rather than a rewrite of the subtree around it.
+  , testCase "RET on the title cell opens it, and RET commits set-title" $ do
+      bootOf shell "" 500 "Enter" "press:f press:f press:Enter" $ \answer -> do
+        assertEqual "the overlay is open" True =<< boolAt "dopen" answer
+        assertEqual "the key names the cell" "title" =<< textAt "dkey" answer
+        assertEqual "and the value is the title" "one" =<< textAt "dval" answer
+        assertEqual "with the focus on the value" "dval" =<< textAt "focus" answer
+      bootOf shell "" 500 "Enter"
+             "press:f press:f press:Enter dval:renamed press:Enter" $ \answer -> do
+        assertEqual "one set-title over this row"
+                    [("set-title", ["r1"])] =<< postedOf answer
+        assertEqual "and the log named both ends"
+                    (Just "headline \"one\" retitled \"renamed\"") =<< lastLog answer
+        assertEqual "nothing went through the lens" ([] :: [Value])
+          =<< listAt "writes" answer
+
+    -- TWO KEYS COMMIT AN OPEN ELEMENT, and org's is one of them: `C-c C-c' is
+    -- `org-ctrl-c-ctrl-c', its own "do the thing here", and here the thing is
+    -- whatever element is open — the paragraph's textarea and the two-field
+    -- overlay alike.  `C-x C-s' keeps the half that is a BUFFER's: with nothing
+    -- open it flushes the sheet and on a conflict it overwrites, which is why
+    -- the two are not one row under two spellings.
+    --
+    -- `Ctrl+C' reaches the page — it is a page default action rather than a
+    -- chrome shortcut — and COPY is untouched, prefix opening being guarded by
+    -- `selecting()': with anything selected the first press is the browser's,
+    -- which is exactly when a reader means to copy.
+  , testCase "C-c C-c commits the open element, where C-x C-s does" $ do
+      -- The paragraph, both ways, writing the same body.
+      let wrote acts = bootOf shell "" 500 "Enter" acts $ \answer ->
+            assertEqual "the block replaced and nothing else"
+                        ["* TODO one\nrewritten\n\nsecond para\n** two\nchild body\n"]
+              =<< traverse (textAt "body") =<< listAt "writes" answer
+      wrote "press:n press:Enter dpara:rewritten press:C-x press:C-s"
+      wrote "press:n press:Enter dpara:rewritten press:C-c press:C-c"
+      -- And the overlay, likewise: the same command over the same row.
+      bootOf shell "" 500 "Enter"
+             "press:f press:f press:Enter dval:renamed press:C-c press:C-c" $
+        \answer -> do
+          assertEqual "one set-title over this row"
+                      [("set-title", ["r1"])] =<< postedOf answer
+          assertEqual "the overlay is closed" False =<< boolAt "dopen" answer
+      -- THE ECHO NAMES THE COMMAND THAT RAN, so the two keys are told apart by
+      -- what they say as well as by what they are.
+      bootOf shell "" 500 "Enter"
+             "press:n press:Enter press:C-c press:C-c" $
+        assertEqual "org's own name, on an element nothing changed in"
+                    "C-c C-c → org-ctrl-c-ctrl-c (paragraph unchanged)"
+          <=< textAt "echo"
+      bootOf shell "" 500 "Enter" "press:n press:Enter press:C-x press:C-s" $
+        assertEqual "and the buffer's name where that key ran"
+                    "C-x C-s → save-buffer (paragraph unchanged)" <=< textAt "echo"
+      -- With NOTHING open it is not the sheet's flush: that is `save-buffer''s
+      -- half, and this key stops where the element does.
+      bootOf shell "" 500 "Enter" "press:C-c press:C-c" $ \answer -> do
+        assertEqual "nothing was written" ([] :: [Value]) =<< listAt "writes" answer
+        assertEqual "and it said so"
+                    "C-c C-c → org-ctrl-c-ctrl-c (nothing open here)"
+          =<< textAt "echo" answer
+
+    -- EVERY COMMIT RE-READS THE ENTRY IT WROTE, so the model the reader is
+    -- looking at is the SERVER's reading of what landed rather than this page's
+    -- guess at it — and it re-reads the entry the sheet is standing on rather
+    -- than the row.
+  , testCase "a commit re-materializes the entry it wrote" $ do
+      bootOf shell "" 500 "Enter"
+             "press:n press:Enter dpara:rewritten press:C-x press:C-s" $
+        assertEqual "opened once, and read again on the answer"
+                    ["r1", "r1"] <=< textsAt "readAt"
+      bootOf shell "" 500 "Enter"
+             ("press:n press:n press:n press:Enter press:n press:Enter"
+                <> " dpara:reworded press:C-x press:C-s") $
+        assertEqual "the row, the child, and the child again"
+                    ["r1", "r1#0", "r1#0"] <=< textsAt "readAt"
+
+    -- A `/command' NEVER WRITES THE STORE — the watch does, a debounce later —
+    -- so a cell edit made from this sheet leaves it holding what the file said
+    -- before.  The frame naming this row is when there is something fresher to
+    -- read, which is the same channel the table's own rows arrive by.
+  , testCase "a socket frame naming this row re-reads the sheet" $ do
+      bootOf shell "" 500 "Enter" "frame:upsert=r1" $
+        assertEqual "opened once, then re-read on the frame"
+                    ["r1", "r1"] <=< textsAt "readAt"
+      -- Not while an edit is open: a re-read would pull the model out from
+      -- under the fields the reader is typing into.
+      bootOf shell "" 500 "Enter" "press:n press:Enter frame:upsert=r1" $
+        assertEqual "left alone under an open element" ["r1"] <=< textsAt "readAt"
+      -- Nor over an open PANEL row, nor over drawer work the reader has
+      -- committed to the model and not yet flushed: `reload' rebuilds `prows'
+      -- and re-pins `baseProps', so a re-read there throws the edit away under a
+      -- `synced' header — and the reader's own `t' or `S-<up>' from inside the
+      -- sheet is what CAUSES the frame, so it is the ordinary case rather than a
+      -- race.
+      bootOf shell "" 500 "Enter" "press:Tab press:Enter frame:upsert=r1" $
+        assertEqual "left alone under an open panel row" ["r1"] <=< textsAt "readAt"
+      bootOf shell "" 500 "Enter"
+             "press:Tab press:Enter pval:0=tomorrow press:Enter frame:upsert=r1" $
+        \answer -> do
+          assertEqual "and over a drawer edit nobody has flushed"
+                      ["r1"] =<< textsAt "readAt" answer
+          assertBool "with the edit still on screen"
+            . elem ["SCHEDULED", "tomorrow"] =<< pairsAt "props" answer
+      -- And a frame for some other row says nothing about this sheet.
+      bootOf shell "" 500 "Enter" "frame:upsert=r2" $
+        assertEqual "another row is not this one" ["r1"] <=< textsAt "readAt"
+
+    -- THE RING REACHES THE DOCUMENT, over the entry the sheet is standing on:
+    -- the same command and the same wrap, read off the ANSWER's own cells rather
+    -- than off a table row the page may not be showing.
+  , testCase "S-up cycles the priority of the entry the sheet is on" $ do
+      bootOf shell "" 500 "Enter" "press:S-ArrowUp" $ \answer -> do
+        assertEqual "one command over this row"
+                    [("set-priority", ["r1"])] =<< postedOf answer
+        assertEqual "the fixture entry has none, so it lands on C"
+                    [Just "C"] =<< prioritiesOf answer
+        assertEqual "and the pill names the key that ran it"
+                    "S-<up> → priority-up ([#C] · 1)" =<< textAt "echo" answer
+      -- Refused on a child, for its cells' own reason: no row id to name.
+      bootOf shell "" 500 "Enter"
+             "press:n press:n press:n press:Enter press:S-ArrowUp" $ \answer -> do
+        assertEqual "nothing posted" ([] :: [Value]) =<< listAt "commands" answer
+        assertEqual "and it said which key climbs out"
+                    "a child is not settable yet — DEL opens its parent"
+          =<< textAt "echo" answer
+
+    -- AND A HELD ONE ASKS ONCE.  This listener runs AHEAD of the dispatch and
+    -- claims what it takes, so the map's own ONCE list can never reach a key of
+    -- its own: without a guard here a leaned-on `S-<up>' was one `/command' per
+    -- repeat, each measured against a cell the answer before it had already
+    -- moved — a burst of 409s off one press.  Movement keeps its repeat, which
+    -- is how a reader crosses the pane.
+  , testCase "a held S-up cycles once" $ do
+      bootOf shell "" 500 "Enter"
+             "press:S-ArrowUp repeat:S-ArrowUp repeat:S-ArrowUp" $ \answer -> do
+        assertEqual "one command, however long the key is held"
+                    [("set-priority", ["r1"])] =<< postedOf answer
+      bootOf shell "" 500 "Enter" "press:n repeat:n repeat:n" $
+        assertEqual "and a held movement key still walks" 3 <=< intAt "dat"
+
+    -- RET ON THE PRIORITY CELL STILL REFUSES, and now for a reason rather than
+    -- for want of one: a ring of three is pressed, not picked from a list, so
+    -- there is no popup a cell could raise that the two keys do not already
+    -- answer faster.
+  , testCase "and RET on the priority cell still has no popup to raise" $
+      bootOf shell "" 500 "" "priorities:A press:Enter press:f press:f press:Enter" $
+        \answer -> do
+          assertEqual "nothing posted" ([] :: [Value]) =<< listAt "commands" answer
+          assertEqual "and the pill says the keys that do it"
+                      "RET → priority cycles on S-<up>/S-<down>"
+            =<< textAt "echo" answer
+
+    -- A CHILD'S cells are read-only in v1: a child has no row id, so no
+    -- `/command' can address it, and the echo says which key reaches the entry
+    -- that owns them.
+  , testCase "a child's cells are not settable yet, and the echo says so" $ do
+      bootOf shell "" 500 "Enter"
+             "press:n press:n press:n press:Enter press:f press:Enter" $ \answer -> do
+        assertEqual "nothing posted" ([] :: [Value]) =<< listAt "commands" answer
+        assertEqual "and the pill named the way out"
+          "RET → a child's title is not settable yet — DEL opens its parent"
+          =<< textAt "echo" answer
+      -- And the element keys are refused there for the same reason: a child has
+      -- no row id, so no `/command' can name it.
+      bootOf shell "" 500 "Enter" "press:n press:n press:n press:Enter press:t" $
+        \answer -> do
+          assertEqual "nothing raised" "" =<< textAt "prompt" answer
+          assertEqual "and it said which key climbs out"
+                      "a child is not settable yet — DEL opens its parent"
+            =<< textAt "echo" answer
+
+    -- A CHILD'S OWN PARTS are editable, through the lens that materialized it:
+    -- the write is aimed at that entry's extent rather than at the row's.
+  , testCase "a child's paragraph writes the child's own extent" $
+      bootOf shell "" 500 "Enter"
+             ("press:n press:n press:n press:Enter press:n press:Enter"
+                <> " dpara:reworded press:C-x press:C-s") $ \answer -> do
+        assertEqual "aimed at the entry, not the row" ["r1#0"]
+          =<< textsAt "wroteAt" answer
+        assertEqual "carrying the child's own body"
+                    ["** two :web:\nreworded\n"]
+          =<< traverse (textAt "body") =<< listAt "writes" answer
 
     -- The row id is the SERVER's: it never reaches this page, so there is no
     -- row to warn about and no note to draw.  The file still has it, which
@@ -2845,7 +3859,7 @@ sheetSpec shell = testGroup "Shell sheet"
                     "" =<< textAt "focus" answer
         assertEqual "and the cursor on its first row" 0 =<< intAt "pat" answer
       bootOf shell "" 500 "Enter" "press:Tab press:n press:Tab" $ \answer -> do
-        assertEqual "back in the body" "mtext" =<< textAt "focus" answer
+        assertEqual "back in the document" True =<< boolAt "dactive" answer
         assertEqual "the panel let go of the keys" False =<< boolAt "pnav" answer
         assertEqual "and kept where it had got to" 1 =<< intAt "pat" answer
       bootOf shell "" 500 "Enter" "press:Tab press:n press:Tab press:Tab" $
@@ -2857,7 +3871,7 @@ sheetSpec shell = testGroup "Shell sheet"
       bootOf shell "" 500 "Enter" "press:S-Tab" $
         assertEqual "into the panel" True <=< boolAt "pnav"
       bootOf shell "" 500 "Enter" "press:Tab press:S-Tab" $
-        assertEqual "and out of it" "mtext" <=< textAt "focus"
+        assertEqual "and out of it" True <=< boolAt "dactive"
 
     -- Nothing is focused in nav, so every printable key is free: both profiles'
     -- movement is bound at once, and the arrows ask for no profile at all.
@@ -2974,8 +3988,10 @@ sheetSpec shell = testGroup "Shell sheet"
              ("press:Tab press:n press:n press:n press:Enter pval:3=0:45"
                 <> " press:Enter press:C-x press:C-s") $
         \answer -> do
-          assertEqual "one write" ["* TODO one\n"] =<< traverse (textAt "body")
-                                                   =<< listAt "writes" answer
+          -- The BODY goes back whole, every byte of it: the panel moved and the
+          -- document did not, so nothing in the text was touched.
+          assertEqual "one write" [fixtureBody] =<< traverse (textAt "body")
+                                                =<< listAt "writes" answer
           -- The identity is the server's and is in neither list; the two empty
           -- planning rows are entries the headline has not got.
           assertEqual "carrying the drawer, edit and all"
@@ -3010,28 +4026,28 @@ sheetSpec shell = testGroup "Shell sheet"
   , testCase "C-c ' shows the raw subtree, and again shows the panes" $ do
       bootOf shell "" 500 "Enter" "press:C-c press:'" $ \answer -> do
         assertEqual "the whole subtree, every region spelled out"
-                    ("* TODO one\nSCHEDULED: <2026-08-01 Sat>\n:PROPERTIES:\n"
-                       <> ":ORG_GLANCE_ID: r1\n:EFFORT: 0:30\n:END:\n"
-                       <> ":LOGBOOK:\n- moved here\n:END:\n")
-                    =<< textAt "sheet" answer
+                    fixtureOrg =<< textAt "sheet" answer
         assertEqual "the panel is off the sheet" "raw" =<< textAt "shape" answer
         assertEqual "and the logbook strip with it" "" =<< textAt "logbook" answer
         assertEqual "and the pill says which way it went" "C-c ' → org-edit-special (raw org)"
                     =<< textAt "echo" answer
       bootOf shell "" 500 "Enter" "press:C-c press:' press:C-c press:'" $ \answer -> do
-        assertEqual "back to the body alone" "* TODO one\n" =<< textAt "sheet" answer
-        assertEqual "with the panel back" "" =<< textAt "shape" answer
-        assertEqual "the pill" "C-c ' → org-edit-special (properties panel)" =<< textAt "echo" answer
+        assertEqual "back to the document, and the textarea empty behind it"
+                    "" =<< textAt "sheet" answer
+        assertEqual "with both panes back" "" =<< textAt "shape" answer
+        assertEqual "the pill" "C-c ' → org-edit-special (structured document)"
+                    =<< textAt "echo" answer
 
     -- A re-read cannot carry unsaved work, and converting locally would need the
     -- parser this design exists to avoid.  So the toggle is refused, and says
     -- which key would let it through.
   , testCase "a dirty sheet is refused the toggle, in either pane" $ do
-      bootOf shell "" 500 "Enter" "sheet:hello press:C-c press:'" $ \answer -> do
-        assertEqual "the text stands" "hello" =<< textAt "sheet" answer
-        assertEqual "and the shape with it" "" =<< textAt "shape" answer
-        assertEqual "named the key" "C-c ' → org-edit-special (sync first — C-x C-s)"
-                    =<< textAt "echo" answer
+      bootOf shell "" 500 "Enter" "press:C-c press:' sheet:hello press:C-c press:'" $
+        \answer -> do
+          assertEqual "the text stands" "hello" =<< textAt "sheet" answer
+          assertEqual "and the shape with it" "raw" =<< textAt "shape" answer
+          assertEqual "named the key" "C-c ' → org-edit-special (sync first — C-x C-s)"
+                      =<< textAt "echo" answer
       bootOf shell "" 500 "Enter"
              ("press:Tab press:n press:n press:n press:Enter pval:3=0:45"
                 <> " press:Enter press:C-c press:'") $
@@ -3072,28 +4088,46 @@ sheetSpec shell = testGroup "Shell sheet"
         assertBool "nor the key off the browser"
           . notElem "Tab" =<< textsAt "prevented" answer
 
-    -- ONE FOCUS LANGUAGE, and the state it is drawn from is the panel's own
-    -- `on'.  The body pane takes a real focus and the panel holds the keys with
-    -- nothing focused at all, so the mark is the FRAME's on both sides — and it
-    -- has to leave when the keys do, whichever way they go.
+    -- AND A BLURRED RAW SHEET STILL HOLDS THEM.  Clicking the sheet's own
+    -- chrome takes the focus off its textarea without closing anything, and a
+    -- surface that stopped counting there left every `table' row live under an
+    -- open sheet — `d' among them, which flags the row BEHIND it for archiving.
+    -- The sheet is a surface whenever it is up, in either shape.
+  , testCase "a raw sheet keeps the keys with its textarea blurred" $ do
+      bootOf shell "" 500 "Enter" "press:C-c press:' blur press:d" $ \answer -> do
+        assertEqual "nothing focused" "" =<< textAt "focus" answer
+        assertEqual "and no row flagged behind the sheet"
+                    ([] :: [T.Text]) =<< textsAt "flagged" answer
+      -- What that costs is `q', which is scope `table': with a sheet up it is
+      -- dead, so the sheet's doors are ESC and the backdrop.
+      bootOf shell "" 500 "Enter" "press:C-c press:' blur press:q" $
+        assertEqual "and the sheet is still up" "on" <=< textAt "modal"
+
+    -- ONE FOCUS LANGUAGE ACROSS BOTH PANES, and NEITHER focuses anything: each
+    -- holds the keys with nothing focused, which is what leaves every printable
+    -- key free to be movement and a command.  So the mark is the FRAME's on both
+    -- sides — one class each — and it has to leave when the keys do, whichever
+    -- way they go.
   , testCase "the pane holding the keys wears it, and only while it does" $ do
       bootOf shell "" 500 "Enter" "" $ \answer -> do
-        assertEqual "the body pane opens with the keys" "mtext"
-          =<< textAt "focus" answer
+        assertEqual "the document opens with the keys" True
+          =<< boolAt "dactive" answer
         assertEqual "so the panel's frame is unmarked" False =<< boolAt "pnav" answer
+        assertEqual "and nothing is focused at all" "" =<< textAt "focus" answer
       bootOf shell "" 500 "Enter" "press:Tab" $ \answer -> do
         assertEqual "crossing marks the panel" True =<< boolAt "pnav" answer
-        assertEqual "and takes the focus off the textarea, so its own mark goes"
-                    "" =<< textAt "focus" answer
+        assertEqual "and unmarks the document" False =<< boolAt "dactive" answer
+        assertEqual "with nothing focused either way" "" =<< textAt "focus" answer
       bootOf shell "" 500 "Enter" "press:Tab press:Tab" $ \answer -> do
-        assertEqual "crossing back unmarks it" False =<< boolAt "pnav" answer
-        assertEqual "and the body pane has it again" "mtext" =<< textAt "focus" answer
+        assertEqual "crossing back unmarks the panel" False =<< boolAt "pnav" answer
+        assertEqual "and the document has it again" True =<< boolAt "dactive" answer
       -- The leak this closes: the sheet used to clear the nav FLAG and leave
       -- the class on, so a panel closed from nav stayed marked behind the
       -- backdrop until the next materialize redrew it.
       bootOf shell "" 500 "Enter" "press:Tab press:Escape" $ \answer -> do
         assertEqual "the sheet is closed" "" =<< textAt "modal" answer
-        assertEqual "and the panel's mark went with it" False =<< boolAt "pnav" answer
+        assertEqual "and both marks went with it" (False, False)
+          =<< ((,) <$> boolAt "pnav" answer <*> boolAt "dactive" answer)
 
     -- Where the cursor was left belongs to the sheet that was open: the next
     -- materialize is a fresh drawer, read-only and at the top of itself.
@@ -3284,7 +4318,7 @@ settingsSpec shell = testGroup "Shell settings"
   , testCase "the layers are a select: system first, then the tags in alphabet" $
       bootOf shell "" 500 "," "" $ \answer -> do
         assertEqual "system, then book, then film"
-                    ["system", "tag · book", "tag · film"] =<< textsAt "clayers" answer
+                    ["system", "tag:book", "tag:film"] =<< textsAt "clayers" answer
         assertEqual "opening on the first" "0" =<< textAt "cat" answer
         assertEqual "and the label names the file it is"
                     "system · /o/.org-glance/config/system.org · not created yet"
@@ -3296,7 +4330,7 @@ settingsSpec shell = testGroup "Shell settings"
       bootOf shell "" 500 "," "clayer:1" $ \answer -> do
         assertEqual "book's lines" "#+TODO: TODO READING | READ"
           =<< textAt "cshown" answer
-        assertEqual "and book's label" "tag · book · /o/.org-glance/config/tags/book.org"
+        assertEqual "and book's label" "tag:book · /o/.org-glance/config/tags/book.org"
           =<< textAt "clab" answer
         assertEqual "with nothing written" ([] :: [Value]) =<< listAt "configWrites" answer
 
@@ -3620,6 +4654,11 @@ logSpec shell = testGroup "Shell log"
   , testCase "every line is a stamp, a severity and a scope" $
       bootOf shell "" 500 "d q" "offline close:resync" $ \answer -> do
         strip <- logOf answer
+        -- Every assertion below is quantified over the strip, so an EMPTY one
+        -- passes all four.  The acts above write a `cmd', a `ws' and a boot
+        -- line, and the sweeps elsewhere in this file all guard the same way:
+        -- a gate that found nothing to check is not a gate that passed.
+        assertBool "the acts wrote lines to sweep" (length strip >= 3)
         assertBool ("stamped: " <> show strip)
                    (all (stamped . stampOf . snd) strip)
         assertEqual "the severity is the class it wears, upcased" []
@@ -3876,7 +4915,10 @@ bootWith :: IO T.Text -> T.Text -> T.Text -> Int -> T.Text -> T.Text
 bootWith shell store search total keys acts check = do
   node <- findExecutable "node"
   case node of
-    Nothing  -> pure ()
+    -- SAY SO.  331 of this file's cases route through here, and a machine with
+    -- no node ran every one of them green having asserted nothing at all.
+    -- 'TestDefaults.withCorpusSample' answers the same silence the same way.
+    Nothing  -> hPutStrLn stderr "\nSKIPPED - node is not on PATH: shell boot"
     Just exe -> withTempDir $ \dir -> do
       page <- shell
       glueOf page >>= TIO.writeFile (dir </> "shell.js")
@@ -3904,6 +4946,10 @@ onceNames = [ "filter-drop-token", "unmark-all", "mark-all"
               -- A held `@' is a remount per repeat, each leaving a crumb behind
               -- for DEL to walk back one at a time.
             , "org-glance-overview:relations"
+              -- A held priority key would walk the ring round and land wherever
+              -- the repeat count left it, which is the reversing key's problem
+              -- one ring wider.
+            , "priority-up", "priority-down"
               -- And a held `^' re-sorts per repeat and lands on whichever
               -- direction the parity of the count leaves it.
             , "toggle-sort" ]
@@ -3926,11 +4972,342 @@ glue label has = Glue label has []
 -- adding a line.
 glueSpec :: IO T.Text -> TestTree
 glueSpec shell = testGroup "Shell glue"
-  [ testCase glLabel $ do
-      b <- shell
-      holdsAll glLabel glHas b
-      holdsNone glLabel glGone b
-  | Glue{..} <- shellGlue ]
+  ([ testCase glLabel $ do
+       b <- shell
+       holdsAll glLabel glHas b
+       holdsNone glLabel glGone b
+   | Glue{..} <- shellGlue ]
+   <> [ groundSweep shell, tierSweep shell, gridSweep shell, editIndentSweep shell
+      , scrollSweep shell, containSweep shell, logColumnSweep shell ])
+
+-- | THE EDIT BOX IS THE BLOCK, WEARING A DIFFERENT GROUND.  `RET' over a
+-- paragraph must move NOTHING: the textarea takes the block's font, its line
+-- height, all four paddings — the grid inset and the title-column indent among
+-- them — its full width and no margin, and draws no border and no outline.  The
+-- ground and the caret are the whole of the signal.
+--
+-- Asserted as RELATIONS over the declarations rather than as copied strings: the
+-- box must READ the block's own expressions (`font:inherit', `--g-doc-pad',
+-- the indent `calc'), since a figure restated here is exactly the drift this
+-- exists to catch — a literal @13px\/1.5@ against the pane's
+-- @--g-doc-fs@\/@--g-doc-lh@ put every line after the first on another rhythm.
+-- A CSS sweep cannot measure geometry; it pins what the page DECLARES.
+editIndentSweep :: IO T.Text -> TestTree
+editIndentSweep shell = testCase "the paragraph's edit box is the block it covers" $ do
+  page <- shell
+  para <- need "the paragraph's indent"
+               (between "  .d-para,.d-comp{margin:.5em 0;\n    padding-left:" "}" page)
+  box <- need "the edit box's rule" (between "  #dpara textarea{" "}" page)
+  assertBool ("the box is indented by what the block is: " <> T.unpack box)
+             (("padding-left:" <> para) `T.isInfixOf` box)
+  -- The block's own type, read rather than restated.
+  assertBool ("the box takes the block's type: " <> T.unpack box)
+             ("font:inherit" `T.isInfixOf` box)
+  -- The block's own grid inset, on the axes the indent does not name, and the
+  -- block's own wrapping, so a long token breaks in the same place.
+  assertBool ("the box takes the grid inset: " <> T.unpack box)
+             ("padding:1px var(--g-doc-pad)" `T.isInfixOf` box)
+  assertBool ("the box takes the block's wrap: " <> T.unpack box)
+             ("overflow-wrap:anywhere" `T.isInfixOf` box)
+  -- And nothing of its own that would move the text or draw a line — a floor of
+  -- its own included, since `placeEdit' sizes the box off the block.
+  mapM_ (\decl -> assertBool ("the box declares " <> T.unpack decl <> ": " <> T.unpack box)
+                             (decl `T.isInfixOf` box))
+        ["width:100%", "margin:0", "border:none", "resize:none"]
+  assertEqual "a figure the box restates instead of reading" []
+              [ n | n <- ["13px", "12px", "1.5 var", "padding:1px 6px", "min-height:2em"]
+                  , n `T.isInfixOf` box ]
+  -- REGISTRATION, which the declarations above cannot give: the overlay is
+  -- absolutely positioned against the pane's PADDING box while the text it
+  -- covers sits inside the CONTENT box, so it has to answer for the pane's own
+  -- horizontal inset — and `placeEdit' has to take the pane's border and its
+  -- scroll offset back out of the vertical.  A bare delta put the box 10px left
+  -- and 1px high over `#mdoc', and walked it further on every scroll.
+  span' <- need "the document overlays' span" (between "  #dedit,#dpara{" "}" page)
+  assertEqual "the document overlays span the pane's content box"
+              "left:var(--g-doc-padx);right:var(--g-doc-padx)" span'
+  assertBool "the pane's inset is one name, read by both"
+             ("padding:var(--g-doc-pady) var(--g-doc-padx)" `T.isInfixOf` page)
+  assertBool "the placement takes the pane's border and scroll back out"
+             ("a.top - b.top - pane.clientTop + pane.scrollTop" `T.isInfixOf` page)
+  -- FOCUS DRAWS NO LINE.  The three CELL overlays keep their underline; the
+  -- document's box is read as text and must not grow one.
+  focus <- need "the box's focus rule" (between "  #dpara textarea:focus{" "}" page)
+  assertEqual "a line the document box would grow on focus" []
+              [ n | n <- ["border-bottom-color", "border-bottom:"], n `T.isInfixOf` focus ]
+  -- THE GROUND IS THE SIGNAL, and it is one the block is not already wearing:
+  -- the edit opens on the document CURSOR, which is `--g-sel' already.
+  ground <- need "the box's ground" (between "  #dpara{" "}" page)
+  assertEqual "the edit ground is the page's input surface"
+              "background:var(--g-surface)" ground
+  where need what = maybe (assertFailure ("no " <> what <> " in the page")) pure
+
+-- | THE LOG'S SEVERITY AND SCOPE ARE COLUMNS, each as wide as its own longest
+-- word, so every message in the strip starts at one x position.
+--
+-- Derived rather than copied: the words are gathered off the page's OWN
+-- @append@ calls and the longest of each is measured in characters, so a scope
+-- longer than @config@ — or a severity beyond @error@ — fails here rather than
+-- quietly wrapping the strip.  The vocabulary is not a list in the code, and
+-- this is what stands in for one.
+logColumnSweep :: IO T.Text -> TestTree
+logColumnSweep shell = testCase "the log's severity and scope are columns" $ do
+  page <- shell
+  let calls  = [ (scope, sev)
+               | rest <- drop 1 (T.splitOn "append(\"" page)
+               , (scope, more) <- [T.breakOn "\"" rest]
+               , Just after <- [T.stripPrefix "\", \"" more]
+               , (sev, _end) <- [T.breakOn "\"" after]
+               , not (T.null scope), T.all isLower scope
+               , not (T.null sev), T.all isLower sev ]
+      widest = maximum . map T.length
+  assertBool "the page makes log lines at all" (length calls > 4)
+  assertEqual "the severity column is as wide as the longest severity"
+              5 (widest (map snd calls))
+  assertEqual "and the scope column as wide as the longest scope"
+              6 (widest (map fst calls))
+  mapM_ (\needle -> assertContains "the column is declared" needle page)
+    [ "  #log .lv,#log .lc{display:inline-block}"
+    , "  #log .lv{width:5ch}", "  #log .lc{width:6ch}" ]
+
+-- | ONE @scrollIntoView@, AND IT IS THE DOCUMENT'S.  The call is forbidden over
+-- the TABLE's rows, which belong to the renderer — it owns their scroller,
+-- their page and their selection, so reaching into them that way is this page
+-- working around an interface it already has.  The document's rows are the
+-- SHELL's, drawn into a scroller this page declares, so the call is ordinary
+-- there and the movement code needs it.
+--
+-- The distinction is kept by COUNTING rather than by wording: one occurrence,
+-- and it is the document cursor's.  A second has nowhere legitimate to be, so
+-- it would have to be a reach into something this page does not own.
+scrollSweep :: IO T.Text -> TestTree
+scrollSweep shell = testCase "the one scrollIntoView is the document's own" $ do
+  page <- shell
+  code <- glueOf page
+  assertEqual "exactly one call site" 1 (T.count "scrollIntoView(" code)
+  assertEqual "named twice: the call, and the detect that guards it" 2
+              (T.count "scrollIntoView" code)
+  assertContains "and it is the document cursor's"
+    "        row.scrollIntoView({ block: \"nearest\" });" page
+  -- THE BAND IS CSS, which is what keeps that one call one call.  `nearest'
+  -- honours `scroll-margin', so the scrolloff is declared on the elements and
+  -- the movement code measures nothing.
+  assertContains "the band rides the elements" "  .de{scroll-margin-block:var(--g-doc-off);" page
+  -- And it is counted in the pane's OWN lines rather than in pixels, off the
+  -- two numbers the pane is set in — the same relation-not-copy discipline the
+  -- star gutter and the body indent are held to.
+  assertContains "three of the pane's lines"
+    "    --g-doc-off:calc(3 * var(--g-doc-fs) * var(--g-doc-lh));" page
+  assertContains "and the pane is set in those same two"
+    "    font:var(--g-doc-fs)/var(--g-doc-lh) var(--dk-mono);" page
+
+-- | A POPUP CLAMPS AT ITS BOUND AND SCROLLS INSIDE IT.  The bound is one figure
+-- and every tier reads it; what makes it hold is the CHAIN from the bounded box
+-- down to whichever element owns each scroll, and a chain is exactly what a
+-- stray declaration breaks silently — the box keeps its @max-height@ and the
+-- content paints straight past it.
+--
+-- Two links are pinned by their absence as much as their presence:
+--
+-- * The panes ROW carries @overflow:hidden@.  @flex:1;min-height:0@ lets the
+--   row be SIZED by the box; it does not stop the row's own content painting
+--   past that size.  Under @flex-wrap@ the flex LINE is content-sized and
+--   @align-items:stretch@ stretches the panes to the LINE rather than to the
+--   box, so a tall subtree grew the line and the line escaped — with the panes'
+--   own @overflow@ never coming into it, their heights never having been
+--   bounded.
+--
+-- * NO PANE CARRIES A FLOOR.  A @min-height@ on a flex child is a refusal to
+--   shrink, which is the classic way a bounded box is pushed open from inside.
+--   The floor is the BOX's (@.pop-wide@), where it is one number.
+containSweep :: IO T.Text -> TestTree
+containSweep shell = testCase "every popup clamps, and scrolls inside" $ do
+  page <- shell
+  -- THE BOUND IS CAPPED. A viewport tall enough makes the arithmetic exceed
+  -- what a reader can take in, so 90vh is the ceiling whatever it works out to.
+  assertContains "the bound caps at 90vh"
+    "    --g-pop-max:min(90vh," page
+  mapM_ (\(what, needle) -> assertContains what needle page)
+    [ -- The panes row: sized by the box, and CONTAINING what it is sized to.
+      ("the panes row clamps", "  #mpanes{flex:1;min-height:0;overflow:hidden;")
+      -- The document pane is its own scroller, and can shrink to be one.
+    , ("the document pane scrolls inside", "min-width:0;min-height:0;position:relative;")
+    , ("and owns that scroll", "    overflow:auto;padding:var(--g-doc-pady) var(--g-doc-padx);")
+      -- The panel hands its scroll to the mount inside it.
+    , ("the panel clamps", "    overflow:hidden;display:flex;flex-direction:column}")
+    , ("and its mount takes the scroll", "  #mptable{flex:1;min-height:0;display:flex}")
+      -- The link and tag tables, the same arrangement one tier up.
+    , ("the link and tag panes clamp", "  #tpane,#lpane{flex:1;position:relative;min-height:0;")
+    , ("and their mounts take the scroll"
+      , "  #ltable,#ttable{flex:1;min-height:0;display:flex;overflow:hidden}")
+      -- The settings sheet and the palette list scroll in their own right.
+    , ("the settings sheet scrolls", "z-index:101;overflow-y:auto;font-family:var(--dk-mono);")
+    , ("the palette's list scrolls", "  #plist{max-height:40vh;overflow-y:auto;font-size:12px}")
+      -- And the logbook strip, which is bounded rather than shrinkable.
+    , ("the sheet's log strip is bounded", "  #mlog{display:none;flex:0 0 auto;max-height:22vh;overflow:auto;")
+    ]
+  -- NO PANE HOLDS THE BOX OPEN.  The textarea is the one that did.
+  assertContains "the raw pane has no floor of its own" "  #mtext{min-height:0;" page
+  -- AND NEITHER HAS THE BOX.  A fixed height is the whole tier now, so a floor
+  -- anywhere would be a second opinion about the same measure.
+  assertEqual "a floor under the working box, whose height is fixed" []
+              [ line | line <- T.lines page, ".pop-sheet{" `T.isInfixOf` line
+                     , "min-height" `T.isInfixOf` line ]
+  assertEqual "and no pane declares a viewport floor at all" []
+    [ line | line <- T.lines page
+           , any (`T.isInfixOf` line) ["#mtext{", "#mdoc{", "#mprops{", "#mpanes{"]
+           , "min-height:" `T.isInfixOf` line
+           , not ("min-height:0" `T.isInfixOf` line) ]
+
+-- | ONE GRID, ONE BASE: the head's star gutter and a paragraph's indent are the
+-- SAME arithmetic rather than the same glyph count, so a bold or a fallback face
+-- with a different advance cannot move one without moving the other.
+--
+-- Asserted as the relation between the two declarations rather than as two
+-- copied strings: the paragraph's padding is the base plus the gutter, and the
+-- gutter is what the head's prefix is given outright.
+gridSweep :: IO T.Text -> TestTree
+gridSweep shell = testCase "the star gutter and the body indent are one arithmetic" $ do
+  page <- shell
+  gutter <- need "the head's star gutter" (between "  .d-head .ds{width:calc(" ")}" page)
+  para <- need "the paragraph's indent"
+                (between "  .d-para,.d-comp{margin:.5em 0;" "}" page)
+  base <- need "the document's base padding" (between "--g-doc-pad:" ";" page)
+  assertEqual "the paragraph is padded by the base plus the gutter"
+              ("padding-left:calc(var(--g-doc-pad) + " <> gutter <> ")")
+              (T.strip (T.replace "\n" "" (T.replace "  " "" para)))
+  -- And the element every one of them sits in is inset by that same base, so
+  -- the two are counted from one place.
+  assertContains "the base is the element's own inset"
+                 "    padding:1px var(--g-doc-pad);" page
+  assertBool ("the base is a length: " <> T.unpack base) (not (T.null base))
+  where need what = maybe (assertFailure ("no " <> what <> " in the page")) pure
+
+-- | POPUP SIZE IS A TIER, and this is what makes the rule enforceable rather
+-- than stated: every box wears exactly one of the three, and NO rule naming a
+-- box declares a width or a height.  Swept, so a popup that grew a size of its
+-- own fails here rather than being noticed by a reader with two windows open.
+--
+-- The sweep asserts what it swept first — every box found, every tier defined —
+-- so a renamed id or a dropped tier fails loudly rather than passing over
+-- nothing.
+tierSweep :: IO T.Text -> TestTree
+tierSweep shell = testCase "every popup wears one size tier, and declares none" $ do
+  page <- shell
+  -- Each box, and the tier it is dressed in.
+  mapM_ (\(box, tier) ->
+           assertContains "the box wears its tier"
+                          ("id=\"" <> box <> "\" class=\"" <> tier <> "\"") page)
+        tiers
+  -- The two are defined, once, and nothing else is — `pop-wide' included, which
+  -- was the third until fixing its height made its definition `pop-sheet''s
+  -- character for character.
+  mapM_ (\tier -> assertContains "the tier is defined" ("." <> tier <> "{") page)
+        (nub (map snd tiers))
+  assertEqual "no tier beyond the two the list names" []
+              [ t | t <- ["pop-wide", "pop-fullscreen", "pop-compact", "pop-eighty"]
+                  , ("." <> t <> "{") `T.isInfixOf` page ]
+  -- And no rule naming a BOX declares a size.  Read out of the rule's own body,
+  -- so a `min-height' inside a pane it holds is nobody's business here.
+  --
+  -- WHAT IT SWEPT IS ASSERTED FIRST, which is the half this was missing: the
+  -- selectors are GROUPED in the page, a literal `#pbox{' matched none of them,
+  -- and the `Just body <-' guard dropped three of the five boxes with no
+  -- complaint at all.  A box with no rule to read is now a failure rather than a
+  -- silent pass over nothing.
+  let swept = [ (box, body) | (box, _tier) <- tiers, Just body <- [ruleIn ("#" <> box) page] ]
+  assertEqual "the sweep found a rule for every box it names"
+              (map fst tiers) (map fst swept)
+  assertEqual "a box that declares its own size" []
+              [ (box, prop)
+              | (box, body) <- swept
+              , prop <- ["width:", "height:"]
+              , prop `T.isInfixOf` body ]
+  -- ONE TOP LINE, and every backdrop reads it.  A shallow palette and a tall
+  -- sheet open with their top borders on the same rule, so raising one after
+  -- another does not walk the reader's eye down the window; growth is downward
+  -- and every tier's ceiling is what the anchor leaves, so no box runs off the
+  -- bottom.  The four per-backdrop anchors this replaced are asserted GONE.
+  assertContains "the anchor is declared once" "--g-pop-top:5vh;" page
+  assertContains "and what it leaves is derived from it"
+                 "--g-pop-max:min(90vh," page
+  -- SYMMETRIC: the foot margin is the head's, derived from the anchor rather
+  -- than spelled as a second figure — a tall box stopping short of the bottom by
+  -- a different amount reads as one that ran out of room.
+  assertContains "and the bound is the anchor twice over"
+                 "calc(100vh - 2 * var(--g-pop-top))" page
+  assertEqual "no second figure under the box" []
+              [ n | n <- ["100vh - var(--g-pop-top) - var(--g-pop-pad)"]
+                  , n `T.isInfixOf` page ]
+  assertContains "every backdrop anchors its top, and none centres"
+                 "padding-top:var(--g-pop-top);" page
+  assertEqual "a backdrop that centres, or anchors at a line of its own" []
+              [ n | n <- ["align-items:center;justify-content:center"
+                        , "padding-top:15vh", "padding-top:12vh", "padding-top:8vh" ]
+                  , n `T.isInfixOf` page ]
+  -- And every tier's own bounds are measured against it rather than against the
+  -- window, which is what keeps the growth inside the room the anchor left.
+  mapM_ (\needle -> assertContains "a tier bounded by the anchor's room" needle page)
+        [ ".pop-band{width:min(560px,100%);max-height:var(--g-pop-max)}"
+        , ".pop-sheet{width:min(80vw,100%);height:var(--g-pop-max)}" ]
+  where
+    -- FOUR OF THE FIVE ARE WORKING SURFACES and wear the one tier for it: the
+    -- materialize sheet, the link and tag popups, and the settings sheet.  The
+    -- state palette is the odd one — a list of single words, which is what the
+    -- band is.  `pop-wide' stood between them until its height went fixed and
+    -- its definition became `pop-sheet''s outright.
+    tiers = [ ("pbox", "pop-band"), ("lbox", "pop-sheet"), ("tbox", "pop-sheet")
+            , ("sheet", "pop-sheet"), ("cbox", "pop-sheet") ]
+
+-- | EVERY SELECTION IN THE DOCUMENT IS A GROUND.  Swept rather than listed: the
+-- rules are cut out of the rendered page by their selectors and each body is
+-- asserted to name a background and nothing that draws a LINE — no underline, no
+-- border, no outline.  A locator that adds a line to a row of text moves the
+-- text, and a document is read as text; the table's own crosshair is two grounds
+-- for the same reason.
+--
+-- The sweep asserts what it swept first, so a selector renamed out from under it
+-- fails loudly rather than passing over nothing.
+groundSweep :: IO T.Text -> TestTree
+groundSweep shell = testCase "every document selection is a ground, never a line" $ do
+  page <- shell
+  let bodies = [ (sel, body) | sel <- selectors, Just body <- [ruleIn sel page] ]
+  assertEqual "the sweep found every rule it names"
+              (length selectors) (length bodies)
+  mapM_ (\(sel, body) -> do
+           assertBool (T.unpack sel <> " draws no ground: " <> T.unpack body)
+                      ("background" `T.isInfixOf` body)
+           mapM_ (\line -> assertBool
+                    (T.unpack sel <> " draws a " <> T.unpack line <> ": " <> T.unpack body)
+                    (not (line `T.isInfixOf` body)))
+                 ["underline", "outline", "border", "text-decoration", "box-shadow"])
+        bodies
+  where
+    -- The four states a document element or one of its cells can be in.
+    selectors = [".de.dat", ".de.dfl", ".de.dat.dfl", ".dc.don"]
+
+-- | The body of the first rule whose SELECTOR LIST names SEL, or 'Nothing' when
+-- no rule does.
+--
+-- GROUPED SELECTORS ARE THE POINT.  A literal @"#pbox{"@ match found NOTHING
+-- where the page writes @#pbox,#lbox,#tbox{...}@, and both sweeps read this
+-- through a @Just body <-@ pattern guard, so the box dropped out in SILENCE:
+-- three of the five boxes went unswept while the group's own comment claimed it
+-- asserted what it swept.  SEL counts as named when the character after it
+-- opens the body or ends a list entry, and only while no @}@ has intervened,
+-- which is what keeps a mention inside some other rule's body from answering
+-- for it.  One definition, since the two sweeps had a copy each.
+ruleIn :: T.Text -> T.Text -> Maybe T.Text
+ruleIn sel page
+  | T.null rest         = Nothing
+  | opens && inSelector = Just (T.takeWhile (/= '}') (T.drop 1 body))
+  | otherwise           = ruleIn sel after
+  where
+    rest         = snd (T.breakOn sel page)
+    after        = T.drop (T.length sel) rest
+    opens        = maybe False (\(c, _more) -> c == '{' || c == ',') (T.uncons after)
+    (list, body) = T.breakOn "{" after
+    inSelector   = not ("}" `T.isInfixOf` list)
 
 shellGlue :: [Glue]
 shellGlue =
@@ -4185,17 +5562,21 @@ shellGlue =
   -- fields, the tags popup one cell as a field over itself and the link popup
   -- two; the class, the anchor, the blur and the SNAPSHOT are one
   -- implementation, and a shape says what differs.
-  , Glue "the edit overlay is one mechanism the three surfaces declare a shape for"
+  , Glue "the edit overlay is one mechanism the four surfaces declare a shape for"
       [ "function openEdit(o, row) {"
       , "edit = { o, row };"
       , "el(o.box).className = \"on\";"
       , "o.fill(row);"
       , "o.focus(row);"
-      -- The anchor reads the mount's published root and the renderer's own
-      -- gutter class, for whichever surface is open, and the shape names BY KEY
-      -- which of the row's own cells the box covers — resolved against the
-      -- column list the server declared, so a column that moves takes the box.
-      , "const tr = m && m.el.querySelector(\"tbody tr.tv-sel\");"
+      -- The anchor is the SHAPE's: a mount names its published root and the
+      -- renderer's own selected row, and the structured document — which is no
+      -- mount — names the element under point.  One reader either way.
+      , "const anchorOf = (o) => {"
+      , "return m ? m.el.querySelector(\"tbody tr.tv-sel\") : null;"
+      , "const tr = anchorOf(o);"
+      -- And the shape names BY KEY which of the row's own cells the box covers,
+      -- resolved against the column list the server declared, so a column that
+      -- moves takes the box with it.
       , "const span = o.cells && cellSpan(o.cells, o.cols);"
       , "const tds = span && [...tr.querySelectorAll(\"td:not(.tv-box)\")];"
       , "const from = tds && tds[span[0]], to = tds && tds[span[1]];"
@@ -4207,34 +5588,93 @@ shellGlue =
       -- overlay OPENED over, never the cursor, so a click that moved the cursor
       -- under an open field cannot redirect the write.
       , "const r = edit.row;"
-      , "const pediting = () => !!edit && edit.o === PROW;"
+      , "const dediting = () => !!edit && edit.o === DROW;"
       -- SHARING THE STATE MUST NOT SHARE THE SHUTTER.  The tags popup can stand
       -- over an open materialize sheet — clicking the sheet's chrome blurs its
       -- textarea and every `table' row goes live again — so an unscoped shut
-      -- would let the sheet's `drawProps'/`shut' cancel an open tag rename. Each
+      -- would let the sheet's `fill'/`shut' cancel an open tag rename. Each
       -- caller names its own shape, which is the isolation the two hand-written
       -- shutters had.
       , "function shutEdit(o) {"
       , "if (!edit || edit.o !== o) return;"
-      , "shutEdit(PROW);"
+      , "shutEdit(DROW); shutEdit(DPARA);"
       , "shutEdit(TROW);"
       , "shutEdit(LROW);" ]
       -- The live cursor read the commit used to make, the per-surface copies of
       -- the gesture, and the unscoped shut that would reach across surfaces.
-      [ "prows[patAt()]", "function place()", "function shutRename"
+      [ "drows[docAt()]", "function place()", "function shutRename"
       , "shutEdit();" ]
 
-  -- ONE `d'/`D'/`u' GESTURE, likewise, and over THREE surfaces now: the
+  -- THE DOCUMENT'S OWN RULES, as the data they are.  What is DRIVEN is in
+  -- "Shell sheet"; what is read here is the three things behaviour cannot show
+  -- from the outside: that the body is cut at the child that owns it, that the
+  -- dispatch stands aside for a key this listener has already claimed, and that
+  -- the cursor carries a grain nothing spends yet.
+  , Glue "the document is elements, cut where the outline under it begins"
+      -- ONE OWNER PER BYTE, one level down: the lens hands over the whole
+      -- subtree's body, so the paragraphs stop at `ownLines' and the children
+      -- are drawn from the entries the server named.  Without the cut the same
+      -- lines would be a paragraph AND the child that owns them.
+      [ "function blocksIn(lines, own) {"
+      , "const own = h.ownLines === undefined ? dlines.length : h.ownLines;"
+      , "for (const b of blocksIn(dlines, own))"
+      -- The commit is a SPLICE: each paragraph remembers the line range it came
+      -- out of, so what goes back is the body with those lines replaced and
+      -- every other byte where it was.
+      , "function bodyText(drop) {"
+      , "out.splice(p.from, p.to - p.from, ...p.text.split(\"\\n\"));"
+      -- DEL IS UP, and at the top it is the sheet's door.
+      , "if (editing.child === null) { leaveSheet(); return; }"
+      , "headline(h.id, up === null ? undefined : up).then((fresh) => {"
+      -- A KEY THIS LISTENER CLAIMED IS NOT THE MAP'S.  `DEL' closes the sheet
+      -- from here, and without this the table's own `DEL' would strip a filter
+      -- token off the view underneath on the same press.
+      , "if (e.defaultPrevented) return;"
+      -- The cursor's GRAIN: one element today, and the field is what a future
+      -- expand-region moves rather than every reader of the cursor learning
+      -- about it twice.
+      , "let drows = [], dat = 0, dcol = null, dgrain = \"element\";"
+      , "dgrain = dcol === null ? \"element\" : \"cell\";"
+      -- A HEADLINE LINE IS LAID OUT AS ORG LAYS ONE OUT: the two headline kinds
+      -- are flex rows, the title takes the room the line has left, and the tags
+      -- are flushed to the far edge (`org-tags-column').  A paragraph beside
+      -- them is flowing text and takes none of it.
+      -- A CURSOR IS ONLY DRAWN WHERE THE KEYS ARE: both panes' cursor washes
+      -- are gated on the pane holding them, and the panel's costs two rules
+      -- because the wash it suppresses is the RENDERER's and the stripe under
+      -- it has to be put back.  A FLAG is not a cursor and keeps its ground
+      -- either way — it is a queue, and it has to read from the other pane.
+      , "#mdoc.on .de.dat{"
+      , "#mdoc.on .dc.don{"
+      , "#mprops:not(.on) .tv-table tbody tr.tv-sel{background:transparent}"
+      , "#mprops:not(.on) .tv-table tbody tr.tv-sel.tv-alt{background:var(--tv-alt)}"
+      , ".d-head,.d-child{display:flex;align-items:baseline}"
+      , ".dc-title{flex:1 1 auto;min-width:0}"
+      , "margin-left:auto;margin-right:0}"
+      -- And content sits under the TITLE TEXT, which is the other half of
+      -- `org-startup-indented'.  PADDING rather than a margin — a margin would
+      -- shrink the element's box and take the selection wash off the left of the
+      -- line — and the width is written onto the pane as a NUMBER, with the
+      -- arithmetic in the stylesheet, the way the log's cap is.
+      , "el(\"mdoc\").style.setProperty(\"--g-doc-indent\","
+      , "String(dstars(docLevel()).length));"
+      , "padding-left:calc(var(--g-doc-pad) + var(--g-doc-indent, 2) * 1ch)}" ]
+      -- The document is not a mount and never asks the renderer to draw it.
+      [ "TableView.mount(el(\"mdoc\")", "TableView.mount(el(\"dlist\")" ]
+
+  -- ONE `d'/`D'/`u' GESTURE, likewise, and over FOUR surfaces now: the
   -- two-press rule, the feature detection, the set-or-row choice, the spending
   -- of the flags and the walk after `u' are written once, and each surface names
   -- the phrases it says them in, the mount they live on, what "take these"
-  -- means and what it logs.
-  , Glue "the flag gesture is one implementation over three surfaces"
+  -- means and what it logs.  The document's `mount' is not a renderer's at all
+  -- — four calls over a Set of element ids — which is what says the gesture asks
+  -- a mount for four things and never what kind of mount it is.
+  , Glue "the flag gesture is one implementation over four surfaces"
       [ "function flagKey(k, s, say) {"
       , "if (k === \"D\" || (k === \"d\" && flags.indexOf(at) !== -1)) {"
       , "if (can(m, \"clearFlags\")) m.clearFlags();"
       , "say(s.unflag);", "say(s.flag);", "say(s.none);", "say(s.missing);"
-      , "none: \"org-delete-property (no row)\","
+      , "none: \"org-delete-element (no element)\","
       , "unflag: \"delete-unflag (flag cleared)\","
       , "none: \"org-toggle-tag (no tag)\","
       , "unflag: \"tag-unflag (flag cleared)\","
@@ -4242,7 +5682,7 @@ shellGlue =
       -- `said' spells the binding's command name: one gesture, two names.
       , "const XFLAGS = (b) => ({"
       , "flag: \"flagged — d again archives\","
-      , "flagKey(k, PFLAGS, keySaid(k))", "flagKey(k, TFLAGS, keySaid(k))"
+      , "flagKey(k, DFLAGS, keySaid(k))", "flagKey(k, TFLAGS, keySaid(k))"
       , "archiveFlag: (b) => flagKey(\"d\", XFLAGS(b), (what) => said(b, what)),"
       , "archiveRows: (b) => flagKey(\"D\", XFLAGS(b), (what) => said(b, what)),"
       , "flagKey(\"u\", XFLAGS(b), (what) => said(b, what)); return; }" ]
@@ -4250,7 +5690,7 @@ shellGlue =
       -- the table's — which was an `archiveFlag' of its own, a fork inside
       -- `archive' choosing between the flagged set and the row at point, and a
       -- flag branch inside `mark'.
-      [ "function pflag", "function tflag", "d → delete-flag (d again deletes)"
+      [ "function dflag", "function tflag", "d → delete-flag (d again deletes)"
       , "d → tag-flag (d again removes)"
       , "if (isFlagged(id)) { archive(b); return; }"
       , "said(b, \"flagged — d again archives\")"
@@ -4325,17 +5765,21 @@ shellGlue =
   , glue "a real remount carries the sheet and the palette across it"
       [ "function remount(after) { leaving = null; stash(); start(after); }"
       , "function stash() {"
-      , "sheet: editing && dirty()"
-      , "? { id: editing.id, raw, text: el(\"mtext\").value, props: props(),"
-      , "digest: editing.digest }"
+      -- A structured sheet is never dirty — every element commits on its own —
+      -- so what a remount would lose is where the reader was STANDING and
+      -- whatever an open edit is holding, and both ride across.
+      , "sheet: editing"
+      , "? { id: editing.id, child: editing.child, raw,"
+      , "at: drows[dat] ? drows[dat].id : null, col: dcol,"
+      , "open: openEditState(), digest: editing.digest }"
       , "palette: typedFilter(),"
       , "return box && document.activeElement === box ? box.value || \"\" : null;"
       , "function restore() {"
       , "if (box) { box.value = was.palette; box.focus(); }"
       , "if (was.sheet) reopen(was.sheet);"
-      , "headline(s.id).then((h) => {"
+      , "headline(s.id, s.child).then((h) => {"
       , "el(\"mtext\").value = s.text;"
-      , "if (!s.raw) drawProps(s.props, s.plan);"
+      , "if (s.open) reopenEdit(s.open);"
       , "if (h.digest !== s.digest) sync(\"conflict\");"
       -- The one place a new table appears, so the one place a restore belongs.
       , "restore();" ]
@@ -4362,18 +5806,26 @@ shellGlue =
   -- page reads `body' and `properties' off the route and hands them back the
   -- same way.  Nothing here looks for a drawer in org text — there is no parser
   -- on this side, and C-c ' re-materializes rather than converting locally.
-  , Glue "the sheet is a body pane and a property panel"
-      [ "<div id=\"mpanes\">", "<div id=\"mprops\"><div id=\"mptable\"></div>"
-      , "base = raw ? h.org : h.body;"
+  , Glue "the sheet is a structured document and a property panel"
+      [ "<div id=\"mpanes\">", "<div id=\"mdoc\"><div id=\"dlist\"></div>"
+      , "<div id=\"mprops\"><div id=\"mptable\"></div>"
+      , "base = raw ? h.org : \"\";"
+      , "if (raw) { drows = []; dlines = []; drawDoc(); } else docFrom(h);"
       , "drawProps(raw ? [] : h.properties || [], raw ? [] : h.planning || []);"
-      , "{ body: el(\"mtext\").value, properties: props(), planning: planning() }"
-      -- THE PANEL IS A MOUNT.  The renderer draws every list this page has, so
-      -- there is one implementation of a row, a cursor and a flag rather than
-      -- two — and the options say what the sheet asks of it.
+      , "{ body: bodyText(), properties: props(), planning: planning() }"
+      -- THE DOCUMENT IS NOT A MOUNT, and that is the doctrine line: the
+      -- renderer's list widget draws a list of RECORDS, one shape per row, and
+      -- this is a list of KINDS.  The model is `drows' and the whole view is one
+      -- draw.
+      , "drows.push({ id: \"H\", kind: \"head\", cells: cellsOf(h.cells) });"
+      , "kind: \"para\","
+      , "drows.push({ id: `C${c.index}`, kind: \"child\", index: c.index,"
+      , "function drawDoc() {"
+      -- THE PANEL IS ONE, and for the same reason read the other way: a drawer
+      -- is a list of records.  The model is this page's and the mount is a view
+      -- of it, every change going back through `setRows'.
       , "pmount = TableView.mount(el(\"mptable\"), { columns: PCOLS, rows: [] }, {"
       , "        flagHelp: \"d/D delete · u unflag\","
-      -- The model is this page's and the mount is a view of it: every change
-      -- goes back through `setRows'.
       , "      m.setRows(prowsOf());"
       , "prows.map((r) => ({ id: r.id, cells: { key: r.key, value: r.val } }));"
       , "function addProperty() {"
@@ -4390,26 +5842,26 @@ shellGlue =
       , ".split(\"\\n\").slice(1, -1).join(\"\\n\")"
       -- The toggle re-reads rather than converting, and refuses a dirty sheet.
       , "if (dirty()) { said(b, \"sync first — C-x C-s\"); return; }"
-      , "headline(h.id).then((fresh) => {"
+      , "headline(h.id, h.child).then((fresh) => {"
       -- The panel's own keys: TAB crosses the panes and hops the open row's two
       -- fields, nav movement is both spellings of the map's own letters and the
       -- arrows, and RET opens a row and commits it.  Movement is the MOUNT's
       -- step, so the cursor a reader moves is the renderer's.
       , "const k = keyName(e), crossing = k === \"TAB\" || k === \"S-TAB\";"
       , "const rowStep = (k) => (k === \"<down>\" || k === \"n\" || k === \"j\" ? 1"
-      , "else if (step) stepIn(pmount, step);"
-      , "} else if (crossing) leavePanel();"
+      , "else if (rowStep(k)) stepIn(pmount, rowStep(k));"
+      , "      } else if (pnav()) {"
       , "const pnav = () => el(\"mprops\").className === \"on\";"
-      , "el(\"mprops\").className = \"on\"; el(\"mtext\").blur();"
+      , "el(\"mprops\").className = \"on\"; el(\"mdoc\").className = \"\";"
       -- Nav holds the keys with nothing focused, so the map has to be told.  It
       -- is the FIRST of the modal surfaces, its listener registering ahead of
       -- the dispatch, and `typing()' reads that one list rather than naming any
       -- of them.
-      , "{ name: \"panel\", up: pnav, edit: pediting, shut: cancelRow },"
+      , "{ name: \"sheet\", up: docHolds, edit: sheetOpen, shut: cancelSheetEdit },"
       , "return SURFACES.some((s) => s.up())"
       -- The panel stacks under the text when there is no room beside it, which
       -- is a wrap rather than a second breakpoint to keep in step.
-      , "#mpanes{flex:1;min-height:0;display:flex;flex-wrap:wrap;gap:10px}"
+      , "#mpanes{flex:1;min-height:0;overflow:hidden;"
       , "#sheet.raw #mprops{display:none}"
       -- The pane hosts the mount and positions the overlay, and that is the
       -- whole of what it styles: `.tv-root' brings the frame and draws the rows.
@@ -4417,15 +5869,15 @@ shellGlue =
       , "#mptable .tv-root,#ltable .tv-root,#ttable .tv-root{flex:1;min-width:0;"
       -- The open row's fields sit OVER the row, since the mount rewrites its own
       -- rows as it scrolls, and they land on the text they replace.
-      , "#pedit,#tedit,#ledit{display:none;position:absolute;background:var(--g-sel)}"
-      , "#pedit input,#tedit input,#ledit input{font:13px/1.5 var(--dk-mono);"
+      , "#dedit,#dpara,#pedit,#tedit,#ledit{display:none;position:absolute;"
+      , "#dedit input,#pedit input,#tedit input,#ledit input,#dpara textarea{"
       -- A planning row's key is org's rather than the author's, and says so.
       , "#pkey[readonly]{color:var(--g-mute)}"
       -- ONE FOCUS LANGUAGE: whichever pane holds the keys wears the accent on
       -- its own frame.  Declared for both rather than left to the browser,
       -- which can only dress the one that takes a real focus.
       , "#mtext:focus{outline:none;border-color:var(--g-accent)}"
-      , "#mprops.on .tv-root{border-color:var(--g-accent)}" ]
+      , "#mprops.on .tv-root,#mdoc.on{border-color:var(--g-accent)}" ]
       -- No rows of this page's own: the row element, the stripe, the cursor
       -- class and the movement that painted them are the renderer's now, and a
       -- second spelling of any of them is the thing this replaced.  No tab index
@@ -4449,8 +5901,17 @@ shellGlue =
       -- The sheet asks for the author's Emacs font by name; the page keeps the
       -- stack it had.
       , "--dk-mono:\"Hack\", var(--glance-mono)"
-      , "font:14px/1.5 var(--glance-mono)" ]
-      ["--g-border:#BDC3C7", "--g-border:#223959"]
+      , "font:14px/1.5 var(--glance-mono)"
+      -- THE LINK INK IS THE RENDERER'S, hand-copied per theme the way the
+      -- hairline is: `--tv-link' is declared on `.tv-root' rather than on the
+      -- document element, so a live `var()' read resolves to nothing in a pane
+      -- beside the mount.
+      , "--g-link:#30739B;", "--g-link:#7CC9F8;" ]
+      -- ALIASED, NOT RESPELLED: every use reads the name.  A hex at a use site
+      -- is what makes a renderer change N edits instead of one, so the two
+      -- values may appear only where the palette declares them.
+      [ "--g-border:#BDC3C7", "--g-border:#223959"
+      , "color:#30739B", "color:#7CC9F8", "text-decoration:underline;color:#" ]
 
   -- One rule sets both widths, so the strip cannot drift from the table above
   -- it; the hairline, the radius and the surface tint are `.tv-root''s, which is
@@ -4695,6 +6156,145 @@ shellGlue =
   , glue "a binding with no handler names what it is waiting for"
       [ "arrives with daemon commands (M4)" ]
 
+  -- ONE ENVELOPE PER VERB.  The routes that read a value share the unwrap that
+  -- throws the server's own error, and the routes that write share the POST's
+  -- method, header and encoding — so what a refusal looks like and what a body
+  -- is sent as are each decided once.  `/config' assembles its own body inline
+  -- and is the one that does.
+  , Glue "the JSON verbs are written once"
+      [ "const unwrap = (r) => r.json().then((b) => {"
+      , "const getJSON = (url) => fetch(url).then(unwrap);"
+      , "const postJSON = (url, body, extra) =>"
+      , "headers: { \"content-type\": \"application/json\" },"
+      , "const outcome = (r) => r.json().then((b) => ({ status: r.status, body: b }));"
+      , "postJSON(at(id, child), { ...asked, digest }, extra);"
+      , "const postCommand = (body) => postJSON(\"/command\", body).then(unwrap);" ]
+      -- And no hand-rolled envelope left but `/config\''s, which assembles its
+      -- own body inline.
+      [ "method: \"POST\",\n  , \"        headers:" ]
+
+  -- THE SUBTREE WRITE'S ANSWER, once: a 200 re-pins the digest and hands the
+  -- caller its line, and under that is one ladder for a moved file, a refused
+  -- planning entry and a request that never landed.  `commitDoc' is
+  -- `commitDocWith' with the body rebuilt out of the model.
+  , glue "one ladder answers every subtree write"
+      [ "function landed(h, onOk) {"
+      , "const commitDoc = (what, drop) =>"
+      , "commitDocWith(bodyText(drop), () => { if (what) echo(`RET → ${what}`); });"
+      , "function commitDocWith(body, say) {"
+      , ".then((a) => { if (editing === h && landed(h, say)(a)) reload(); })"
+      , ".then(landed(h, () => {" ]
+
+  -- THE SHARED READINGS: a mount's cursor as an id, guarded once for the three
+  -- surfaces that ask; the TAB hop off the shape's own field list; and the log
+  -- verb as a table beside the route's names rather than a ladder inside the
+  -- one shared write path.
+  , Glue "the page reads a cursor, a hop and a verb in one place each"
+      [ "const selectedId = (mount) =>"
+      , "(can(mount, \"getSelection\") ? (mount.getSelection() || {}).id : null) || null;"
+      , "const patAt = () => prows.findIndex((r) => r.id === selectedId(pmount));"
+      , "const at = selectedId(lmount);"
+      , "const at = selectedId(tmount);"
+      , "function hop() {"
+      , "const at = ids.findIndex((id) => el(id) === document.activeElement);"
+      , "const VERBED = {"
+      , "const verbed = (name, args, verb) => (VERBED[name] || stated)(args, verb);"
+      , "const what = verbed(name, args, verb);"
+      -- Exclusivity is walked off the one list rather than restated by hand.
+      , "for (const s of SURFACES) if (s.momentary && s.up()) s.off();" ]
+      -- The hand-written copies these replaced.
+      [ "pmount.getSelection().id", "(lmount.getSelection() || {}).id"
+      , "(tmount.getSelection() || {}).id"
+      , "document.activeElement === el(\"pkey\") ? el(\"pval\")"
+      , "document.activeElement === el(\"ltitle\") ? el(\"lurl\")"
+      , "name === \"edit-link\" ? verb"
+      , "if (linking()) shutLinks();" ]
+
+  -- ONE LISTENER SHAPE FOR THE TWO BROWSING POPUPS, and the guard that was one
+  -- popup's is now both's: a key another listener has already CLAIMED is nobody
+  -- else's.  The `e.repeat' guard stays in the chain that owns it.
+  , Glue "the two browsing popups share one listener"
+      [ "function popupKeys(name, mount, o) {"
+      , "if (momentary() !== name || e.defaultPrevented) return;"
+      , "popupKeys(\"links\", () => lmount, {"
+      , "popupKeys(\"tags\", () => tmount, {"
+      , "flagKey(k, TFLAGS, keySaid(k))" ]
+      [ "if (momentary() !== \"links\") return;"
+      , "if (momentary() !== \"tags\" || e.defaultPrevented) return;" ]
+
+  -- THE FOLLOW GESTURE AND THE ASKING, each written once: `o' at the row's
+  -- grain and at the element's are one function over different sets, and the
+  -- two keys that ask before writing differ only in where the rows come from.
+  , glue "the follow gesture and the two askers are one each"
+      [ "function followLinks(b, id, a, links) {"
+      , "linksOf(id).then((a) => followLinks(b, id, a, a.links || []))"
+      , "followLinks(b, editing.id, { ...a, links }, links);"
+      , "function askState(b, ids, title) {"
+      , "function askTags(b, ids, title) {"
+      , "const docTargets = (b, label, k) =>"
+      , "k(b, [editing.id], `${label} · ${docTitle()}`);"
+      , "setState: (b) => overTargets(b, \"set state\", askState),"
+      , "manageTags: (b) => overTargets(b, \"tags\", askTags),"
+      , "docTargets(docBinding(\"org-glance-overview:todo\"), \"set state\", askState);"
+      , "docTargets(docBinding(\"org-agenda-set-tags\"), \"tags\", askTags);"
+      -- And the raise both palette doors take.
+      , "function raise(title, state, value, cls, foot) {" ]
+
+  -- THE DOCUMENT'S OWN ARITHMETIC.  Spans are CHAR offsets, so the pane counts
+  -- characters rather than UTF-16 units; the overlay is anchored to the element
+  -- the DRAW marked rather than to the `dat'-th child of the list, which a
+  -- composite's nested leaves make a different element; and the element ordinal
+  -- is the BUILD's, spent by a loop rather than kept in module scope.
+  , Glue "the document counts characters and anchors what it drew"
+      [ "const chars = (s) => Array.from(String(s));"
+      , "const clen = (s) => chars(s).length;"
+      , "const cslice = (s, a, b) => chars(s).slice(a, b).join(\"\");"
+      , "const bodyShift = () => clen(editing.org || \"\") - clen(editing.body || \"\");"
+      , "dlines.slice(0, line).reduce((n, l) => n + clen(l), 0) + line;"
+      , "for (const l of linksIn([at, at + n], links)) {"
+      , "part(into, \"span\", \"dt\", cslice(text, cut, a));"
+      , "const docElAt = () => dcursor;"
+      -- And the cell at point is READ rather than assumed: a stash put back over
+      -- a headline that has since lost one names a column that is not there.
+      , "const c = dcol === null ? null : shown(r)[dcol];"
+      , "let owner = null, seq = 0;"
+      , "const id = `B${seq++}`;" ]
+      -- The UTF-16 readings and the two positional reaches they replaced.
+      [ "(editing.org || \"\").length", "n + l.length, 0"
+      , "text.slice(cut, a)", "at + text.length"
+      , "el(\"dlist\").children || [])[dat]", "let dseq = 0" ]
+
+  -- THE BOX'S TIER SURVIVES A RAISE.  `#pbox' carries its size tier as a class
+  -- and the mode is a second one, so the mode is TOGGLED — a wholesale write
+  -- dropped the tier on the first raise, silently, since only a live page is a
+  -- size.  The markup still ships it, which `tierSweep' is what asserts.
+  , Glue "raising the palette keeps the box's tier"
+      [ "el(\"pbox\").classList.toggle(\"narrow\", cls === \"narrow\");" ]
+      [ "el(\"pbox\").className = cls;" ]
+
+  -- EVERY VEIL IS A DOOR.  The two sheets leave through their own ladder and
+  -- the two momentary popups are answered and gone, so what a backdrop click
+  -- does differs by surface — but every backdrop has one.
+  , glue "the momentary veils are backdrops too"
+      [ "for (const id of [\"modal\", \"config\"])"
+      , "if (e.target === el(id)) leaveSheet();"
+      , "for (const [id, off] of [[\"links\", shutLinks], [\"tags\", shutTags]])"
+      , "if (e.target === el(id)) off();" ]
+
+  -- ONE COMMAND AT A TIME where a press makes several: rows sharing a FILE are
+  -- written under ONE drift lock, so two requests fired together are each
+  -- measured against a digest the other is moving.
+  , Glue "a press that makes several commands sends them in turn"
+      [ "async function cyclePriority(b, step) {"
+      , "await fire(b, \"set-priority\", over, { priority: key || null },"
+      , "async function removeTags(list) {"
+      , "for (const tag of list)"
+        -- Guarded, so a refusal on one tag does not abandon the tags behind it:
+        -- `fire' throws on a whole-request refusal and the flags are already
+        -- spent by the time this runs.
+      , "await Promise.resolve(untag(tag)).catch(failed(tagging, \"remove-tag\"));" ]
+      [ "for (const tag of list) untag(tag);" ]
+
   , glue "the echo widget is mounted, in Emacs wording"
       [ "<div id=\"echo\"", "#echo{position:fixed", "is undefined", "timed out"
       , "Enter: \"RET\"", "Escape: \"ESC\"", "ArrowUp: \"<up>\"" ]
@@ -4713,8 +6313,11 @@ shellGlue =
       -- the fallback for an asset predating that call.
       , "tbody tr.tv-sel", "table.getVisible()", "table.select(id, column())", ".tv-filter"
       , "if (cells()) return table.getSelection().id;" ]
-      [ "tr.click()", "scrollIntoView", "rowEls("
+      [ "tr.click()", "rowEls("
       , "box-shadow:inset 2px 0 0 var(--tv-accent)", "tr.tv-sel{box-shadow" ]
+
+  -- `scrollIntoView' WAS on that forbidden list outright, and the document pane
+  -- took it off; `scrollSweep' below is where the rule went.
 
   , glue "the set is paged, and the brackets turn one"
       -- One number for the boot's limit and the renderer's page, so the first
@@ -4830,7 +6433,8 @@ shellGlue =
   -- everywhere else.  All of them in the one block, which is where every rule
   -- a touch device gets lives — the panes stacking there included.
   , glue "a coarse pointer gets fields iOS will not zoom into"
-      [ "#mtext,#pinput,#pedit input,#tedit input,#ledit input,"
+      [ "#mtext,#pinput,#dedit input,#pedit input,#tedit input,#ledit input,"
+      , "#dpara textarea,"
       , ".ctext,.cview{font-size:16px}}", "font:12px/1.5 var(--dk-mono)"
       , "#mpanes{flex-direction:column}" ]
 
@@ -5018,7 +6622,7 @@ bannerSpec = testGroup "Startup banner"
       assertEqual "every line but the first"
                   (tail (bannerLines "serve" opts True))
                   (tail (bannerLines "desktop" opts True))
-      assertBool "a missing renderer is not reported"
+      assertBool "a missing renderer is reported"
                  ("(missing — /headlines only)" `isInfixOf`
                     unlines (bannerLines "serve" opts False))
 
@@ -5590,6 +7194,97 @@ materializeSpec = testGroup "GET /headline"
                   (T.unlines ["* TODO parent", "** child", "child body", "*** grandchild"])
                   =<< textAt "body" v
 
+    -- SUB-ADDRESSING.  A child has no row of its own, so the ROW's id plus an
+    -- INDEX is the whole of how one is named — document order over the subtree,
+    -- which is what makes a grandchild one number away from the row rather than
+    -- a path a client has to walk.
+  , testCase "the row names the entries hanging under it, and how to reach them"
+      $ withTempDir $ \dir -> do
+      _ <- orgFile dir "tree.org" nestedDoc
+      (a, _hub) <- serverOver dir
+      v <- getFrom a (headlinePath "top") >>= decoded
+      assertEqual "standing on the row itself" Null =<< field "child" v
+      assertEqual "with nothing above it" Null =<< field "parent" v
+      assertEqual "the trail is the row alone" ["parent"] =<< textsAt "path" v
+      -- The DIRECT children, each with the index `?child=' names it by: the
+      -- grandchild hangs under the first and is not one of these.
+      assertEqual "its own two children, by index" [0, 2]
+        =<< traverse (intAt "index") =<< listAt "children" v
+      assertEqual "and their cells" ["child one", "child two"]
+        =<< traverse (textAt "title") =<< listAt "children" v
+      assertEqual "the levels org spells" [2, 2]
+        =<< traverse (intAt "level") =<< listAt "children" v
+
+  , testCase "a child materializes as its own subtree, under the file's digest"
+      $ withTempDir $ \dir -> do
+      _ <- orgFile dir "tree.org" nestedDoc
+      (a, _hub) <- serverOver dir
+      row <- getFrom a (headlinePath "top") >>= decoded
+      v <- getFrom a (childPath "top" 0) >>= decoded
+      assertEqual "status" 200 . status =<< getFrom a (childPath "top" 0)
+      assertEqual "the entry's own extent, its grandchild in it"
+                  (T.unlines ["** child one", "SCHEDULED: <2026-08-05 Wed>"
+                             , "one body", "*** grandchild"])
+        =<< textAt "org" v
+      assertEqual "its own planning line, lifted out"
+                  [["SCHEDULED", "<2026-08-05 Wed>"]] =<< pairsAt "planning" v
+      assertEqual "its own cells" "child one" =<< textAt "title" =<< field "cells" v
+      -- The id and the digest are the ROW's: one file, one lock, whichever
+      -- entry the sheet is standing on.
+      assertEqual "the row's id" "top" =<< textAt "id" v
+      rowDigest <- textAt "digest" row
+      assertEqual "and the file's digest" rowDigest =<< textAt "digest" v
+      assertEqual "the trail says where it is" ["parent", "child one"]
+        =<< textsAt "path" v
+      assertEqual "and the way back out is the row" Null =<< field "parent" v
+      assertEqual "with its own child under it, by index" [1]
+        =<< traverse (intAt "index") =<< listAt "children" v
+
+  , testCase "and the grandchild climbs back to the child, not to the row"
+      $ withTempDir $ \dir -> do
+      _ <- orgFile dir "tree.org" nestedDoc
+      (a, _hub) <- serverOver dir
+      v <- getFrom a (childPath "top" 1) >>= decoded
+      assertEqual "the entry" "*** grandchild\n" =<< textAt "org" v
+      assertEqual "which child it hangs under" (Number 0) =<< field "parent" v
+      assertEqual "the whole trail" ["parent", "child one", "grandchild"]
+        =<< textsAt "path" v
+
+    -- The body a client edits stops where the outline under it begins, or the
+    -- same bytes would be drawn twice — once as this entry's last paragraph and
+    -- once as the child that owns them.
+  , testCase "ownLines is where the entry's own body stops" $ withTempDir $ \dir -> do
+      _ <- orgFile dir "tree.org" nestedDoc
+      (a, _hub) <- serverOver dir
+      v <- getFrom a (headlinePath "top") >>= decoded
+      body <- textAt "body" v
+      own <- intAt "ownLines" v
+      assertEqual "the stars and the one paragraph under them" 2 own
+      assertEqual "which are these lines" ["* TODO parent", "parent body"]
+                  (take own (T.lines body))
+      child <- getFrom a (childPath "top" 0) >>= decoded
+      assertEqual "and the child's own stops at ITS child" 2
+        =<< intAt "ownLines" child
+
+  , testCase "a child index the subtree has no entry for is a 404"
+      $ withTempDir $ \dir -> do
+      _ <- orgFile dir "tree.org" nestedDoc
+      (a, _hub) <- serverOver dir
+      r <- getFrom a (childPath "top" 9)
+      assertEqual "status" 404 (status r)
+      assertContains "names what it holds" "holds 3" =<< textAt "error" =<< decoded r
+
+    -- A number that is not one is a 400 rather than a quiet fall back to the
+    -- row: a mistyped index that served the parent would look exactly like a
+    -- working request, and a write pinned to it would splice the wrong subtree.
+  , testCase "and a child that is not a number is a 400" $ withTempDir $ \dir -> do
+      _ <- orgFile dir "tree.org" nestedDoc
+      (a, _hub) <- serverOver dir
+      r <- getFrom a ("/headline" <> renderQuery True
+                        [("id", Just "top"), ("child", Just "x")])
+      assertEqual "status" 400 (status r)
+      assertContains "says what one is" "whole number" =<< textAt "error" =<< decoded r
+
     -- A row id with no ORG_GLANCE_ID is FILE#K, so it carries slashes and a
     -- HASH.  The hash is the one that would bite: spelled into a URL raw it
     -- opens a fragment and the id arrives truncated at the first slash-free
@@ -5674,6 +7369,61 @@ commitSpec = testGroup "POST /headline"
         expected <- digestOnDisk path
         assertEqual "the reported digest is the file's" expected fresh
 
+    -- A CHILD IS WRITTEN THE WAY THE ROW IS: the same route under a `child=',
+    -- splicing that entry's OWN extent and pinning the same file digest.  What
+    -- the assertion is about is the extent — everything ahead of the child and
+    -- everything past it is the string it was.
+  , testCase "a child commit splices the child's extent alone" $ withTempDir $ \dir -> do
+      path <- orgFile dir "tree.org" nestedDoc
+      (a, _hub) <- serverOver dir
+      v <- getFrom a (childPath "top" 0) >>= decoded
+      org <- textAt "org" v
+      digest <- textAt "digest" v
+      before <- document path
+      let edited = T.replace "one body" "one body, rewritten" org
+      r <- postTo a (childPath "top" 0) (commitBody edited digest)
+      assertEqual "status" 200 (status r)
+      after <- document path
+      assertEqual "the file is prefix + the child's new text + suffix"
+                  (T.replace org edited before) after
+      assertContains "the row's own headline is untouched" "* TODO parent\n" after
+      assertContains "and so is the sibling behind it" "** child two\n" after
+      expected <- digestOnDisk path
+      assertEqual "the digest it reports is the file's"
+                  expected =<< textAt "digest" =<< decoded r
+
+    -- The lens over a child is the lens: the parts go back the same way, and the
+    -- server's own regions are put back beside them.
+  , testCase "and its parts recompose into the same extent" $ withTempDir $ \dir -> do
+      path <- orgFile dir "tree.org" nestedDoc
+      (a, _hub) <- serverOver dir
+      v <- getFrom a (childPath "top" 0) >>= decoded
+      before <- document path
+      body <- textAt "body" v
+      digest <- textAt "digest" v
+      props <- pairsAt "properties" v
+      plan <- pairsAt "planning" v
+      r <- postTo a (childPath "top" 0)
+             (encode (object [ "body" .= body, "digest" .= digest
+                             , "properties" .= props, "planning" .= plan ]))
+      assertEqual "status" 200 (status r)
+      assertEqual "a round trip nobody edited is the file it was"
+                  before =<< document path
+
+  , testCase "a commit aimed at a child that is not there is a 404" $
+      withTempDir $ \dir -> do
+        _ <- orgFile dir "tree.org" nestedDoc
+        (a, _hub) <- serverOver dir
+        v <- getFrom a (headlinePath "top") >>= decoded
+        digest <- textAt "digest" v
+        before <- document (dir </> "tree.org")
+        r <- postTo a (childPath "top" 9) (commitBody "** nope\n" digest)
+        assertEqual "status" 404 (status r)
+        -- The NAME promises the commit did not land, and a status alone says
+        -- only that the answer was refused.  Every sibling refusal here asserts
+        -- the file too.
+        assertEqual "and nothing was written" before =<< document (dir </> "tree.org")
+
   , testCase "leaves the store alone — the watch is what updates rows" $
       withCommitted $ \a path before -> do
         org <- textAt "org" before
@@ -5686,7 +7436,7 @@ commitSpec = testGroup "POST /headline"
         assertEqual "the store's subtree" (Just org) . Just =<< textAt "org" after
         assertEqual "the store's digest" (Just digest) . Just =<< textAt "digest" after
         onDisk <- digestOnDisk path
-        assertBool "the file was not written" (onDisk /= digest)
+        assertBool "but the file was written" (onDisk /= digest)
 
   , testCase "a file rewritten behind the client is a conflict, and stays as it is" $
       withCommitted $ \a path v -> do
@@ -5830,11 +7580,14 @@ commitSpec = testGroup "POST /headline"
         assertEqual "and nothing was written" committable =<< document path
 
   , testCase "a body over the cap is refused before it is read" $
-      withCommitted $ \a _path _v -> do
+      withCommitted $ \a path _v -> do
         let huge = BL.fromStrict (BS.replicate (1024 * 1024 + 1) 0x78)
         r <- postTo a (headlinePath "first") huge
         assertEqual "status" 413 (status r)
         assertContains "the cap" "body over" (body r)
+        -- BEFORE IT IS READ is the claim, and a status cannot carry it: the
+        -- file standing untouched is what says the body never reached a write.
+        assertEqual "and nothing was written" committable =<< document path
 
   , testCase "an id no row carries is a 404, and no id a 400" $
       withCommitted $ \a _path _v -> do
@@ -5884,6 +7637,11 @@ keywordArg keyword = object ["keyword" .= keyword]
 -- comes off through the other command rather than through a null.
 tagArg :: T.Text -> Value
 tagArg tag = object ["tag" .= tag]
+
+-- | @set-title@'s argument.  Flat for @tagArg@'s reason: a headline with no
+-- title is a blank entry and no longer a row, so there is nothing to clear.
+titleArg :: T.Text -> Value
+titleArg title = object ["title" .= title]
 
 -- | @rename-tag@'s argument, which names both ends.
 renameArg :: T.Text -> T.Text -> Value
@@ -5939,6 +7697,36 @@ commandSpec = testGroup "POST /command"
                     (T.replace "* NEXT First" "* WAITING First" before) after
         onDisk <- digestOnDisk path
         assertEqual "the digest it reports is the file's" [onDisk] =<< digestsOf r
+
+    -- SET-TITLE, which is the one CELL a reader edits as text.  The span is the
+    -- title's own, so what the assertion is really about is what it did NOT
+    -- touch: the keyword in front of it and the tag run behind it.
+  , testCase "set-title replaces the title and nothing around it" $
+      withCommandable $ \a _hub path _other -> do
+        before <- document path
+        r <- postTo a "/command" (command "set-title" ["first"] (titleArg "Renamed"))
+        assertEqual "status" 200 (status r)
+        assertEqual "the row landed" [("first", True)] =<< outcomesOf r
+        after <- document path
+        assertEqual "one title replaced, the rest of the file untouched"
+                    (T.replace "* NEXT First" "* NEXT Renamed" before) after
+        onDisk <- digestOnDisk path
+        assertEqual "the digest it reports is the file's" [onDisk] =<< digestsOf r
+
+  , testCase "and refuses a title org would not read back as one" $
+      withCommandable $ \a _hub path _other -> do
+        before <- document path
+        mapM_ (\(what, title) -> do
+                 r <- postTo a "/command" (command "set-title" ["first"] (titleArg title))
+                 assertEqual (what <> ": status") 400 (status r)
+                 assertEqual (what <> ": nothing written") before =<< document path)
+              [("empty", ""), ("blank", "   "), ("two lines", "one\ntwo")]
+
+  , testCase "and a request with no title at all is a 400" $
+      withCommandable $ \a _hub _path _other -> do
+        r <- postTo a "/command" (command "set-title" ["first"] (object []))
+        assertEqual "status" 400 (status r)
+        assertContains "names the field" "\"title\"" =<< textAt "error" =<< decoded r
 
   , testCase "a keyword where there was none is inserted after the stars" $
       withCommandable $ \a _hub path _other -> do
@@ -6147,9 +7935,13 @@ commandSpec = testGroup "POST /command"
         assertEqual "one tag" 1 . T.count "ARCHIVE" =<< document path
 
   , testCase "a body over the cap is refused before it is read" $
-      withCommandable $ \a _hub _path _other -> do
+      withCommandable $ \a _hub path _other -> do
+        before <- document path
         r <- postTo a "/command" (BL.fromStrict (BS.replicate (1024 * 1024 + 1) 0x78))
         assertEqual "status" 413 (status r)
+        -- The cap outranks every other refusal, so nothing downstream of it
+        -- ran; the file is where that is readable.
+        assertEqual "and no row moved" before =<< document path
 
   , testCase "the route takes POST and nothing else" $
       withCommandable $ \a _hub _path _other -> do
@@ -7757,8 +9549,7 @@ pageSpec shell = testGroup "GET /"
             -- Dirty against the materialized original decides everything, and
             -- EITHER pane moving is dirty: a pristine close is no request at all.
             [ "const dirty = () => editing !== null"
-            , "&& (el(\"mtext\").value !== base"
-            , "|| (!raw && edited() !== baseProps));"
+            , "&& (raw ? el(\"mtext\").value !== base : edited() !== baseProps);"
             -- The close ladder is the SHEET's rather than this sheet's: one
             -- pristine/dirty/troubled rule over whichever of the two is up, and
             -- the subtree sheet's entry is where its own flush is pinned.
@@ -7770,7 +9561,7 @@ pageSpec shell = testGroup "GET /"
             -- The receipt chains: the 200's digest is the next flush's lock, and
             -- both baselines move to what was actually sent.
             , "h.digest = a.body.digest;"
-            , "base = raw ? sent.org : sent.body;"
+            , "base = raw ? sent.org : base;"
             , "baseProps = raw ? null : JSON.stringify([sent.properties, sent.planning]);"
             -- A conflict keeps the sheet open and names the two keys.
             , "if (a.status === 409 && a.body.reason !== \"planning\") sync(\"conflict\");"
@@ -7780,7 +9571,7 @@ pageSpec shell = testGroup "GET /"
             , "closed: \"closed without writing — the file is as it was\","
             -- And a tab closing on an edited sheet still owes the file.
             , "addEventListener(\"beforeunload\""
-            , "post(editing.id, editing.digest, asked(), { keepalive: true })" ] b
+            , "post(editing.id, editing.digest, asked(), { keepalive: true }, editing.child)" ] b
       -- One word carries a sheet's state, `note' is its only writer, and the
       -- states that wait for a key say which key.  No buttons to reach them
       -- with.  The retry line is one constant: three copies of it were three
@@ -7850,6 +9641,7 @@ pageSpec shell = testGroup "GET /"
         -- The structured commands, beside the keys that choose what they run
         -- over.
         , (["org-glance-overview:todo"], "state")
+        , (["priority-up", "priority-down"], "priority")
         , (["org-agenda-set-tags"], "tags")
         , (["org-glance-overview:schedule", "org-glance-overview:deadline"]
           , "schedule/deadline")
@@ -7868,7 +9660,7 @@ pageSpec shell = testGroup "GET /"
         -- The drill, named beside the key that walks back out of it: a reader
         -- shown only the way in has no way home.
         , (["org-glance-overview:relations"], "references")
-        , (["filter-drop-token"], "drop token/back")
+        , (["filter-drop-token"], "unmark/drop token/back")
         , (["customize"], "settings")
         , (["quit-window"], "quit")
         ] hints
@@ -7890,7 +9682,7 @@ pageSpec shell = testGroup "GET /"
       assertContains "mode" "JSON-only" (body r)
       assertContains "flag" "--assets" (body r)
       assertContains "endpoint" "/headlines" (body r)
-      assertBool "mounts a renderer it has not got"
+      assertBool "mounts no renderer it has not got"
                  (not ("TableView.mount(" `T.isInfixOf` body r))
   ]
 
@@ -7943,7 +9735,7 @@ expectedRows =
   , (["/"],          "/",       "filter-rows",                     Just "focusFilter",    "table",
        Just "summon the filter palette")
   , (["DEL"],        "DEL",     "filter-drop-token",               Just "filterDrop",     "table",
-       Just "drop the filter's last token")
+       Just "unmark all, else drop the filter's last token")
   , (["g"],          "g",       "apply-default-filter",            Just "applyDefault",   "table",
        Just "the view this tree opens on")
   , (["m"],          "m",       "mark-toggle",                     Just "markToggle",     "table",
@@ -7980,6 +9772,12 @@ expectedRows =
   -- does here is narrower than the name: the headline is tagged, never removed.
   , (["D"],          "D",       "org-glance-overview:delete",      Just "archiveRows",    "table",
        Just "archive the flagged rows, or the row at point \8212 never a delete")
+    -- Org's own priority keys, and they CYCLE: a ring of three plus none, so a
+    -- press is the answer where a palette would be a list of three to read.
+  , (["S-<up>"],     "S-<up>",  "priority-up",                     Just "priorityUp",     "table",
+       Just "cycle the priority of the marked rows, or the row at point")
+  , (["S-<down>"],   "S-<down>", "priority-down",                  Just "priorityDown",   "table",
+       Just "cycle the priority of the marked rows, or the row at point")
   , (["t"],          "t",       "org-glance-overview:todo",        Just "setState",       "table",
        Just "set the state of the marked rows, or the row at point")
   , (["C-c", "C-t"], "C-c C-t", "org-glance-overview:todo",        Just "setState",       "table",
@@ -8000,6 +9798,8 @@ expectedRows =
        Just "the settings sheet: general, theme, keyword cycles")
   , (["C-x", "C-s"], "C-x C-s", "save-buffer",                     Just "save",           "modal",
        Just "sync the sheet now; again to overwrite a conflict")
+  , (["C-c", "C-c"], "C-c C-c", "org-ctrl-c-ctrl-c",               Just "commitEdit",     "modal",
+       Just "commit the element being edited")
   , (["C-c", "'"],   "C-c '",   "org-edit-special",                Just "toggleRaw",      "modal",
        Just "the sheet as raw org, or as body and properties; sync an edited one first")
   , (["ESC"],        "ESC",     "keyboard-quit",                   Just "cancel",         "any",
@@ -8010,7 +9810,7 @@ expectedRows =
         topHelp   = Just "first row, again = page up"
         endHelp   = Just "last row, again = page down"
         planHelp  = Just "a date over the marked rows, or the row at point; empty clears it"
-        openHelp  = Just "follow this row's link; several list them"
+        openHelp  = Just "open links: the row here, the element in the sheet; several list them"
 
 -- | The keymap blob out of SHELL, parsed.  Everything the dispatch reads is in
 -- here, so the assertions below are over data rather than over the spelling of
@@ -8083,7 +9883,7 @@ keymapSpec shell = testGroup "Shell keymap"
       assertEqual "an arrow slot that is not the command" []
                   [ s | s <- slots, not ("${b.command}" `T.isPrefixOf` s) ]
       -- The one echo written without a binding in hand names its command too.
-      assertContains "ESC's own echo" "ESC → keyboard-quit (row unchanged)" inline
+      assertContains "ESC's own echo" "ESC → keyboard-quit (element unchanged)" inline
       rows <- keymapOf =<< shell
       assertEqual "a command name that cannot be typed as one" []
                   [ c | (_k, _s, c, _h, _sc, _help) <- rows, " " `T.isInfixOf` c ]

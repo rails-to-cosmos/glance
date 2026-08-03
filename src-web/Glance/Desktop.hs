@@ -34,10 +34,10 @@ import Data.Maybe (fromMaybe, listToMaybe)
 import System.Directory (doesFileExist, findExecutablesInDirectories, getPermissions, executable)
 import System.Environment (lookupEnv)
 import System.FilePath (getSearchPath, isPathSeparator)
-import System.IO (hFlush, stdout)
 import System.Process (ProcessHandle, createProcess, new_session, proc, waitForProcess)
 
 import Glance.Web (ServeOptions (soPort), serveAs)
+import Glance.Web.Watch (say)
 
 -- | What one desktop session runs: a server, and the window in front of it.
 data DesktopOptions = DesktopOptions
@@ -83,17 +83,12 @@ browserCandidates =
 resolveBrowser :: Maybe String -> Maybe String -> [FilePath] -> String
                -> IO (Maybe (FilePath, [String]))
 resolveBrowser env flag dirs url = case env <|> flag of
-  Just named -> do
-    found <- onPath dirs named
-    pure (Just (fromMaybe named found, [appFlag]))
-  Nothing -> do
-    browser <- firstOnPath dirs browserCandidates
-    case browser of
-      Just exe -> pure (Just (exe, [appFlag]))
-      Nothing  -> fmap plainTab <$> onPath dirs "xdg-open"
+  Just named -> Just . appMode . fromMaybe named <$> onPath dirs named
+  Nothing    -> firstJust (map candidate browserCandidates <> [opener])
   where
-    appFlag = "--app=" <> url
-    plainTab opener = (opener, [url])
+    appMode exe    = (exe, ["--app=" <> url])
+    candidate name = fmap appMode <$> onPath dirs name
+    opener         = fmap (\exe -> (exe, [url])) <$> onPath dirs "xdg-open"
 
 -- | NAME as something to run, looked for in DIRS.  A name carrying a separator
 -- is a path already and only has to exist and be executable.
@@ -105,12 +100,12 @@ onPath dirs name
       pure (if runnable then Just name else Nothing)
   | otherwise = listToMaybe <$> findExecutablesInDirectories dirs name
 
--- | The first of NAMES that DIRS holds.
-firstOnPath :: [FilePath] -> [String] -> IO (Maybe FilePath)
-firstOnPath _dirs []             = pure Nothing
-firstOnPath dirs (name : rest) = do
-  found <- onPath dirs name
-  maybe (firstOnPath dirs rest) (pure . Just) found
+-- | The first of ACTS to answer, or 'Nothing' when none does.  What makes the
+-- browser ladder one list: every rung is a lookup that may come up empty, and
+-- @xdg-open@ is the last of them rather than a case standing beside them.
+firstJust :: [IO (Maybe a)] -> IO (Maybe a)
+firstJust []           = pure Nothing
+firstJust (act : rest) = act >>= maybe (firstJust rest) (pure . Just)
 
 -- | How a resolved command reads in the banner and in @--dry-run@ alike, so
 -- the probe prints the line the run would.
@@ -131,16 +126,15 @@ dryRunLines cmd url =
 -- so and keeps going.
 openWindow :: Maybe (FilePath, [String]) -> IO ()
 openWindow cmd = do
-  putStrLn (windowLine cmd)
+  say [windowLine cmd]
   case cmd of
     Nothing -> pure ()
     Just (exe, args) -> do
       spawned <- try (spawn exe args)
       case spawned of
         Right handle -> void (forkIO (void (waitForProcess handle)))
-        Left err -> putStrLn ("  window:  failed to start " <> exe <> ": "
-                                <> displayException (err :: SomeException))
-  hFlush stdout
+        Left err -> say [ "  window:  failed to start " <> exe <> ": "
+                            <> displayException (err :: SomeException) ]
 
 -- | EXE ARGS in a session of its own, so a @Ctrl-C@ meant for the daemon does
 -- not reach the window through the terminal's process group.  'openWindow'

@@ -34,9 +34,10 @@ import Data.List (isPrefixOf)
 import Data.Maybe (isJust, isNothing)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (ExitFailure), exitWith)
-import System.IO (hFlush, hPutStrLn, stderr, stdout)
+import System.IO (hPutStrLn, stderr)
 
 import Glance.Desktop (DesktopOptions (..), desktop, desktopURL, dryRunLines)
+import Glance.Web.Watch (say)
 import Glance.Web (ServeOptions (soDir, soPort), serveAs)
 
 -- | What the window over DIR is called.  The directory is the session: two
@@ -127,12 +128,6 @@ runNative daemon window keep url = do
              | otherwise -> do
                  say ["  window closed — stopping the daemon."]
                  killThread server
-
--- | LINES to stdout, flushed.  Redirected stdout is block-buffered and this
--- process then blocks in a window: without the flush the log gets the lines
--- when it is over.
-say :: [String] -> IO ()
-say ls = mapM_ putStrLn ls >> hFlush stdout
 
 -- | ACT with whatever ended it named rather than dumped.  It runs on a thread
 -- of its own, where GHC's own report names no source and where the two ways it

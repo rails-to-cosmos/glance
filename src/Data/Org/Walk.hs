@@ -36,16 +36,14 @@ module Data.Org.Walk ( Found (..)
                      , findOrgFiles
                      , findOrgFilesWith
                      , isBlob
-                     , isCanonical
                      , isConfig
                      , isDerived
                      , isDocument
                      , isWalked
-                     , isOccurrence
-                     , isOrg
-                     , isSidecar
                      , mapFilesConcurrently
+                     , orgGlanceDir
                      , orgGlanceRoot
+                     , storeDir
                      ) where
 
 import Control.Concurrent (getNumCapabilities)
@@ -53,8 +51,8 @@ import Control.Concurrent.Async (replicateConcurrently)
 import Control.Exception (IOException, try)
 import Control.Monad (foldM)
 import Data.IORef (atomicModifyIORef', newIORef)
-import Data.List (sortOn, tails)
-import Data.Maybe (fromMaybe)
+import Data.List (isSuffixOf, sortOn, tails)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
 import System.FilePath (joinPath, splitDirectories, takeExtension, takeFileName, (</>))
@@ -94,10 +92,19 @@ defaultWalk = WalkOptions False
 derivedDirs :: [FilePath]
 derivedDirs = ["overviews", metaDir]
 
--- | org-glance's store layout, as the three names the rules below ask for: the
--- canonical store directory, the one directory inside a blob that is history
--- rather than the blob, and the file a blob keeps its entry in.
-storeDir, occurrenceDir, blobFile :: FilePath
+-- | org-glance's store layout, as the four names the rules below ask for: the
+-- directory a store puts everything under, the canonical store directory inside
+-- it, the one directory inside a blob that is history rather than the blob, and
+-- the file a blob keeps its entry in.
+--
+-- 'orgGlanceDir' and 'storeDir' are exported for the callers that ADDRESS a
+-- store rather than classify a path — the settings writer naming a config
+-- directory, the scan selecting the blobs an index covers.  A second spelling
+-- there is a green lie: rename the directory here and a hardcoded @data@ keeps
+-- matching nothing while every predicate below still collects, so the
+-- comparison reports zero disagreements over zero blobs.
+orgGlanceDir, storeDir, occurrenceDir, blobFile :: FilePath
+orgGlanceDir = ".org-glance"
 storeDir = "data"
 occurrenceDir = "occurrences"
 blobFile = "data.org"
@@ -118,7 +125,7 @@ blobFile = "data.org"
 orgGlanceTails :: FilePath -> [[FilePath]]
 orgGlanceTails path
   | not (namesOrgGlance path) = []
-  | otherwise = [ rest | ".org-glance" : rest <- tails (splitDirectories path) ]
+  | otherwise = [ rest | d : rest <- tails (splitDirectories path), d == orgGlanceDir ]
 
 -- | The @.org-glance@ directory PATH sits inside, or 'Nothing' when it sits in
 -- none.  'orgGlanceTails' with the other half kept: that one answers what is
@@ -132,9 +139,8 @@ orgGlanceTails path
 orgGlanceRoot :: FilePath -> Maybe FilePath
 orgGlanceRoot path
   | not (namesOrgGlance path) = Nothing
-  | otherwise = case [ n | (n, c) <- zip [0 :: Int ..] parts, c == ".org-glance" ] of
-      [] -> Nothing
-      ns -> Just (joinPath (take (last ns + 1) parts))
+  | otherwise = listToMaybe [ joinPath (reverse below)
+                            | below@(d : _above) <- tails (reverse parts), d == orgGlanceDir ]
   where parts = splitDirectories path
 
 -- | Does PATH spell @.org-glance@ anywhere in it, as characters rather than as
@@ -411,8 +417,13 @@ isOrg path = map Char.toLower (takeExtension path) == ".org"
 -- answers @ReadFailed@ — for the life of the process, since the watch filters
 -- the path out and no event ever arrives to clear it.  The auto-save fails
 -- 'isOrg' already and is named for the pair to be one rule.
+--
+-- BOTH SHAPES ARE EXACT.  The auto-save wants the closing @#@ as well as the
+-- opening one: a leading @#@ alone took every @.org@ file whose name starts with
+-- one, so a hand-written @#inbox.org@ was silently invisible to the walk, the
+-- watch and a capture target naming it.
 isSidecar :: FilePath -> Bool
-isSidecar path = take 2 name == ".#" || take 1 name == "#"
+isSidecar path = take 2 name == ".#" || (take 1 name == "#" && "#" `isSuffixOf` name)
   where name = takeFileName path
 
 -- | E's rendering, cut to its first line, as a one-line diagnostic.

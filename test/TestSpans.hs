@@ -1,7 +1,9 @@
 module TestSpans (spec) where
 
 import Data.Maybe (isJust)
-import Data.Org
+-- The suite's own 'headlinesOf' is the oracle these groups read; see
+-- 'TestDefaults'.
+import Data.Org hiding (headlinesOf)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Test.Tasty (TestTree, testGroup)

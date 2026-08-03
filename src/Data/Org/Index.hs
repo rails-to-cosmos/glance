@@ -35,7 +35,6 @@ module Data.Org.Index ( BlobEntry (..)
                       , IndexRecord (..)
                       , blobEntryOf
                       , driftOf
-                      , driftSamples
                       , foldSegments
                       , indexReportLines
                       , manifestFile

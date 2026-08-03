@@ -90,7 +90,8 @@ import Data.Text (Text)
 import qualified Data.Text as T
 
 import Glance.Query ( HeadlineRecord (hrActive, hrId, hrLinks, hrSearch)
-                    , archiveTag, cellSep, filterKeys, priorityLetter, refSpellings )
+                    , archiveTag, cellSep, filterKeys, priorityLetter, refSpellings
+                    , tagRunEntries )
 
 -- Grammar
 --
@@ -222,7 +223,7 @@ parseFilter = map resolve . scanQuery
 -- | The tags column's key, singular where its header is plural.  Spelled once:
 -- it is the column an archive query names ('namesArchive') and the one field of
 -- this view whose cell holds a list, which is what the whole-tag meta reads
--- ('cellValues').
+-- ('Glance.Query.tagRunEntries').
 tagsKey :: Text
 tagsKey = "tag"
 
@@ -347,11 +348,14 @@ storeEnv rows = FilterEnv resolve
 -- | Does a row match Q in ENV?  Q is parsed and compiled once, so
 -- @filter (matchesFilter env q)@ pays for the query per request rather than per
 -- row — the same reason 'Glance.Query.matchesSearch' takes its needle first.
+--
+-- An empty query compiles to no test and 'all' over none passes, so a reader
+-- who has said nothing is served every row.
 matchesFilter :: FilterEnv -> Text -> HeadlineRecord -> Bool
 matchesFilter env q = case compile env (parseFilter q) of
-  []      -> const True
-  [test]  -> test
-  tests   -> \r -> all ($ r) tests
+  []     -> const True
+  [test] -> test
+  tests  -> \r -> all ($ r) tests
 
 -- | What a token's key turned out to name: a column, at its field of the search
 -- text, the two date columns together ('plannedKey'), the link graph
@@ -418,15 +422,16 @@ termTest env t = fromMaybe (freeTest (folded t)) $ do
 
 -- | @KEY:VALUE@ as a row test: VALUE's alternatives, each read as KEY's own
 -- single value ('keyTest'), and a row passes on ANY of them.  With no
--- alternative left the predicate narrows nothing, which is what @key:@ means.
+-- alternative left the predicate narrows nothing, which is what @key:@ means —
+-- and it is the one arm that has to be spelled out, 'any' over no test failing
+-- where the rule passes.
 --
 -- The alternatives' tests are built here, before the rows are walked, so an
 -- alternation costs its alternatives once per request rather than once per row.
 predTest :: FilterEnv -> Text -> Field -> Text -> HeadlineRecord -> Bool
 predTest env key field value = case map (keyTest env key field) (alternatives value) of
-  []     -> const True
-  [test] -> test
-  tests  -> \r -> any ($ r) tests
+  []    -> const True
+  tests -> \r -> any ($ r) tests
 
 -- | VALUE as free text: a substring of the row as it displays, an empty value
 -- matching every row.
@@ -474,7 +479,7 @@ keyTest _env key field value
     -- paid for the alternative, and this pays for the column once beside it.
     tests = map cellTest cells
     cellTest i
-      | Just word <- tagMeta i = \r -> word `elem` cellValues (cell r)
+      | Just word <- tagMeta i = \r -> word `elem` tagRunEntries (cell r)
       | key == "state"         = state cell
       -- One letter, so exact — but the CELL wears org's own `[#A]' and the
       -- match reads THROUGH the brackets, on both sides: display wears the
@@ -492,7 +497,7 @@ keyTest _env key field value
     -- bare word is a substring of the cell: `tag:*archive*' is the tag ARCHIVE
     -- and `tag:arch' is any tag holding those letters.  It is the whole-tag
     -- reading the tag keys took with them, back as a meta on the one spelling,
-    -- and the renderer decides it identically off the same delimited cell —
+    -- and the renderer's own @tagsIn@ decides it identically off the same cell —
     -- `*empty*' is read first, so a tree tagged `:empty:' reaches that tag by
     -- its bare name alone.  Keyed by the CELL's index, so @planned@ — which
     -- names the date cells — can never reach it.
@@ -523,12 +528,6 @@ keyTest _env key field value
     state cell r | value == "*active*"   = hrActive r == Just True || T.null (cell r)
                  | value == "*inactive*" = hrActive r == Just False
                  | otherwise             = priorityLetter (cell r) == priorityLetter value
-
--- | CELL's values, for a cell that holds a list: org spells one @:a:b:@.  The
--- renderer's own @tagsIn@ — split on the delimiter, drop the empties — so the
--- whole-entry meta reads the same entries on both sides of the wire.
-cellValues :: Text -> [Text]
-cellValues = filter (not . T.null) . T.splitOn ":"
 
 -- | Field N of R's search text.
 cellOf :: Int -> HeadlineRecord -> Text

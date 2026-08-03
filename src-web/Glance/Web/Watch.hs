@@ -20,6 +20,7 @@ module Glance.Web.Watch
   , isWatchable
   , reload
   , reseed
+  , say
   , settle
   , watched
   , watchOrgTree
@@ -149,33 +150,48 @@ reseed opts dir hub paths = do
   fresh <- loadStoreWith opts dir
   frames <- publish hub (reseeded fresh)
   finished <- getMonotonicTime
-  putStrLn ("glance watch: " <> unwords (map show paths) <> " config reseed — "
-              <> summary frames <> " " <> millis (finished - started))
-  hFlush stdout
-  where
-    summary frames
-      | ViewChanged `elem` frames = "keywords changed — clients reconnect"
-      | otherwise = show (length [ () | UpsertRow _ <- frames ]) <> " upsert, "
-                 <> show (length [ () | DeleteRow _ <- frames ]) <> " delete"
+  say [ "glance watch: " <> unwords (map show paths) <> " config reseed — "
+          <> frameSummary frames <> " " <> millis (finished - started) ]
 
 -- | One line per event, when there was anything to say.  The elapsed time is
 -- the re-parse metric the persistence gate is decided on
 -- (docs/plan-org-console-web.md), so it is on every line that did work.
 report :: FilePath -> Maybe (Either LoadFailure [a]) -> [Frame] -> Double -> IO ()
-report path outcome frames elapsed = unless (null note && null frames) $ do
-  putStrLn ("glance watch: " <> path <> " " <> summary <> " " <> millis elapsed)
-  hFlush stdout
+report path outcome frames elapsed = unless (null note && null frames) $
+  say [ "glance watch: " <> path <> " " <> summary <> " " <> millis elapsed ]
   where
-    summary | not (null note)           = note
-            | ViewChanged `elem` frames = "keywords changed — clients reconnect"
-            | otherwise                 = show (length ups) <> " upsert, "
-                                       <> show (length frames - length ups) <> " delete"
-    ups  = [ () | UpsertRow _ <- frames ]
+    summary | null note = frameSummary frames
+            | otherwise = note
     note = case outcome of
       Just (Left ReadFailed)   -> "unreadable — rows kept"
       Just (Left DecodeFailed) -> "not UTF-8 — rows kept"
       Just (Left ParseFailed)  -> "parse failed — rows kept"
       _loaded                  -> ""
+
+-- | What FRAMES did, for the operator's log — one wording for the per-file line
+-- and the reseed's.
+--
+-- A moved palette is the whole answer: it closes every socket, and the store
+-- REPLACES a step's rows with it rather than sending both, so there is nothing
+-- else in the list to report.  Otherwise each op is counted as itself rather
+-- than by subtracting the upserts from the length, which would call any frame
+-- that is neither one a delete.
+frameSummary :: [Frame] -> String
+frameSummary frames
+  | ViewChanged `elem` frames = "keywords changed — clients reconnect"
+  | otherwise = count [ () | UpsertRow _ <- frames ] <> " upsert, "
+             <> count [ () | DeleteRow _ <- frames ] <> " delete"
+  where count = show . length
+
+-- | LINES to stdout, flushed.  Redirected stdout is block-buffered and every
+-- caller here then blocks — in the drain loop, in warp, in a window — so
+-- without the flush the log gets its lines when the run is over.
+--
+-- ONE spelling for the three modules of @glance-web@ that print and then block
+-- ('Glance.Desktop' and 'Glance.Desktop.Native' import it from here).  Every
+-- one of them sits above this module, so there is no cycle to close.
+say :: [String] -> IO ()
+say ls = mapM_ putStrLn ls >> hFlush stdout
 
 millis :: Double -> String
 millis seconds = "(" <> show (round (seconds * 1000) :: Int) <> " ms)"

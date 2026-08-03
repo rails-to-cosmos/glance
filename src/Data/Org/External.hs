@@ -59,7 +59,7 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Unsafe as BU
 import qualified Data.Time as Time
 
-import Data.Org (Element (EHeadline), Spanned (valueOf), defaultContext, identity, orgParse)
+import Data.Org (defaultContext, headlinesOf, identity, orgParse, spelled)
 import Data.Org.Index (metaDir)
 import Data.Org.Walk (isBlob, orgGlanceRoot)
 
@@ -87,7 +87,7 @@ externalPathOf path
 externalLine :: Text -> Time.UTCTime -> BS.ByteString
 externalLine ident at =
   BL.toStrict ("{\"id\":" <> encode ident <> ",\"at\":" <> encode (stamp at) <> "}\n")
-  where stamp = Time.formatTime Time.defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ"
+  where stamp = spelled "%Y-%m-%dT%H:%M:%SZ"
 
 -- | The @ORG_GLANCE_ID@ of DOC's first headline, which is the entry a blob
 -- holds.  FIRST rather than first-with-an-id, for 'Data.Org.Index.blobEntryOf's
@@ -99,7 +99,7 @@ externalLine ident at =
 -- still carries its drawer.  A document no parse reads yields no elements and
 -- therefore no id — the same silence as a blob whose entry claims none.
 blobIdOf :: Text -> Maybe Text
-blobIdOf doc = listToMaybe [ h | EHeadline h <- map valueOf elems ] >>= identity
+blobIdOf doc = listToMaybe (headlinesOf elems) >>= identity
   where (elems, _ctx, _err) = orgParse defaultContext doc
 
 -- | Note that PATH now holds WRITTEN.  A no-op unless PATH is a blob whose

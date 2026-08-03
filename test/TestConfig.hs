@@ -10,6 +10,7 @@ module TestConfig (spec) where
 import Control.Monad ((<=<))
 import Control.Concurrent.STM (readTVarIO)
 import Data.Bifunctor (first)
+import Data.List (sort)
 import Data.Text (Text)
 import System.Directory (createDirectoryIfMissing, removeFile)
 import System.FilePath ((</>))
@@ -442,29 +443,42 @@ reloadSpec = testGroup "Reload"
       assertEqual "and to org's own two"
                   (TodoKeywords ["TODO"] ["DONE"]) (storeKeywords next)
 
-  , testCase "an ordinary file in the same window is reseeded, not re-read twice" $
+    -- A CONFIG IN THE WINDOW IS A RESEED, and the unannounced file is what
+    -- observes it: `c.org' is written and never named to `settle', so it can
+    -- only be in the store if the step RE-WALKED the tree.  Asserting the two
+    -- announced files alone would pass under two ordinary per-file re-reads,
+    -- which is the mechanism this case exists to tell apart.
+  , testCase "a config among the paths reseeds the whole tree, once" $
       withTree (Just "#+TODO: TODO | DONE\n") [] [("a.org", "* STARTED one\n")] $ \dir -> do
       store <- loadStore dir
       hub <- newHub store
       let systemFile = fst (configPaths (configDirIn dir))
       TIO.writeFile systemFile "#+TODO: TODO STARTED | DONE\n"
       _ <- orgFile dir "b.org" "* STARTED two\n"
-      -- Both paths ripen together; the reseed covers the pair.
+      _ <- orgFile dir "c.org" "* STARTED unannounced\n"
+      -- Both announced paths ripen together; the reseed covers the pair.
       settle defaultWalk dir hub [dir </> "b.org", systemFile]
       next <- readTVarIO (hubStore hub)
-      assertEqual "both files, both recognized"
-                  [(Just "STARTED", Just True), (Just "STARTED", Just True)]
-                  (states (storeRecords next))
+      assertEqual "every file, every keyword recognized"
+                  (replicate 3 (Just "STARTED", Just True)) (states (storeRecords next))
+      assertEqual "the unannounced file arrived on the re-walk"
+                  ["one", "two", "unannounced"] (sort (titles (storeRecords next)))
 
+    -- The converse, observed the same way: with no config among the paths the
+    -- step touches the ONE file it was told about, so a file that appeared on
+    -- disk without an event stays out until something announces it.
   , testCase "an ordinary edit with no config among them is still one file" $
       withTree (Just "#+TODO: TODO STARTED | DONE\n") [] [("a.org", "* STARTED one\n")] $ \dir -> do
       store <- loadStore dir
       hub <- newHub store
       TIO.writeFile (dir </> "a.org") "* STARTED one renamed\n"
+      _ <- orgFile dir "c.org" "* STARTED unannounced\n"
       settle defaultWalk dir hub [dir </> "a.org"]
       next <- readTVarIO (hubStore hub)
       assertEqual "re-read under the store's own config"
                   [(Just "STARTED", Just True)] (states (storeRecords next))
+      -- One row, so `c.org' never arrived: a step with no config among its
+      -- paths touches the files it was told about and re-walks nothing.
       assertEqual "title" ["one renamed"] (titles (storeRecords next))
   ]
 

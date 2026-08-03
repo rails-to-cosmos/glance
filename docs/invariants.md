@@ -60,7 +60,11 @@ on.
   ~150 span-insensitive assertions span-sensitive unless added here. The route
   those assertions take is `TestDefaults`' `bare = map (stripSpans . valueOf)`,
   the suite's one span-blind lens over a parse; `bareParse` is the same thing
-  wrapped around `orgParse`. **test**
+  wrapped around `orgParse`. Every constructor is now SPELLED OUT with no
+  catch-all, so `-Wall`'s incomplete-pattern warning is the pin: the obligation
+  was unenforceable while a `stripSpans e = e` arm made the function total by
+  construction and a fifth constructor compiled clean and passed through
+  unstripped. **compiler + test**
 - **`Element` is a closed sum**, not an existential: `EHeadline`, `EPragma`,
   `ETimestamp`, `EToken`. That is what lets `stripSpans` and the `TextShow` /
   `Display` instances be written as total case analyses rather than dispatched
@@ -639,9 +643,11 @@ on.
   rather than refusing — touching edits are legal and insertions at one offset
   land as the caller named them. Both lines belong to the SYSTEM layer alone, so
   a tag layer's write drops them whatever the request said. One reader
-  (`lastPragmaValue`, last line wins) and one writer (`pragmaLineEdits`) serve
-  both, which is what makes "replace where it stands, insert under the header,
-  empty deletes" true of each without being written twice. **test**
+  (`settingOf`, over `lastPragmaValue`, last line wins) and one writer
+  (`settingEdits`, over `pragmaLineEdits`) serve both, which is what makes
+  "replace where it stands, insert under the header, empty deletes" true of each
+  without being written twice; each pragma NAME is one constant, folded for the
+  read and rendered for the write by one `settingPragma`. **test**
 - **The config write path is the ordinary write path.** `GET`/`POST /config`
   serve and replace one layer's `#+TODO:` block, and every rule the other two
   write routes keep is kept here rather than restated: the spans come from
@@ -1105,12 +1111,15 @@ on.
   answers "how many files claim this tag", which is what the filter vocabulary
   needs and is NOT a row count. Reading it as one overstates nothing and
   understates a lot. **none**
-- **`stDirErrs` is frozen at startup.** Written once by `loadStoreWith` from the
-  walk, read by `storeResult`, and touched by nothing in `putFile`,
-  `removeFile`, `guarded` or the watch. A directory that becomes unreadable
-  after the walk, or becomes readable again, is invisible until a restart. The
-  count in `X-Glance-*` therefore describes the startup walk, not the tree now.
-  **none**
+- **`stDirErrs` is written by `loadStoreWith` alone.** Set from the walk, read by
+  `storeResult`, and touched by nothing in `putFile`, `removeFile` or `guarded`
+  — so a per-file watch event never moves it. It DOES move on a config reseed:
+  `Watch.reseed` calls `loadStoreWith` for a fresh store and `reseeded` installs
+  that wholesale, walk included. A directory that becomes unreadable after the
+  walk, or becomes readable again, is therefore invisible until the next config
+  change or a restart, and the count in `X-Glance-*` describes the last full
+  walk rather than the tree now. `stPrint` is written by the same one writer and
+  has the same reach. **none**
 - **`storeKeywords` merges one record per file.** `listToMaybe . feRecords` over
   each entry, then one `mergeKeywords` across files — an N-file fold rather than
   an N-row one. It is sound because every row of a file shares that file's
@@ -2996,9 +3005,11 @@ on.
 - **A tag is FOLDED at commit, because presence is.** `/tags` reports what
   `tagsOfCell` reads and `tagged` matches the same way, so a popup that wrote
   `Work` would go on showing `work` and offering to add it again.
-- **Its keys are the FOURTH private listener, and two guards keep it off the
-  field raised OVER it.** While `prompting` is set the listener declines
-  outright, or a reader narrowing the add field would be flagging tags
+- **Its keys are a private listener, and two guards keep it off the
+  field raised OVER it.** The listener runs only while `momentary()` NAMES it,
+  and `+` raising the palette takes that name away — the palette's `SURFACES`
+  entry stands earlier in the list, so `momentary()` resolves the tie its way.
+  Without it a reader narrowing the add field would be flagging tags
   underneath it — `typing()` has killed the map's rows and there is nothing else
   between the two surfaces. And a key the palette has already CLAIMED is declined
   too (`e.defaultPrevented`): the palette's listener runs AHEAD of this one and
@@ -3200,6 +3211,17 @@ on.
   and the arrows in one place, so the two modal surfaces cannot drift from each
   other or from the map's own `n`/`p`/`j`/`k` rows.
   Evidence: `TestServe` "Shell open". **test**
+- **SINCE CLOSED — the surface list is ONE list now.** `SURFACES` holds
+  `prompt`, `links`, `tags` and `sheet` in that order, each entry naming its
+  `up`, its `off` and the open EDIT that is a rung under it, and FOUR readers
+  take everything off it: `momentary()`, `typing()`, `sole()` and `cancel`'s ESC
+  ladder. The property panel is NOT a member — it is the sheet's, reached
+  through `sheetOpen`. There is no `covered()` function and there never was one
+  in shipped code; a listener that must decline for a surface above it asks
+  `momentary() !== NAME`. What is still hand-maintained is the ORDER, and it is
+  load-bearing for exactly one pair (`+` over the tags popup leaves both
+  `prompt` and `tags` up). The entry below is the shape that argument was made
+  against, kept for its reasoning.
 - **KNOWN SHAPE, and the fourth surface has arrived: four private listeners,
   THREE hand-maintained copies of the surface list — two of them ORDERED — and
   now a STACK between two of them.** The value palette, the property panel, the link popup and the tags

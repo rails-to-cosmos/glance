@@ -18,6 +18,14 @@
 //
 //   close:REASON  the socket closes, the way the server closes one
 //   sheet:TEXT    TEXT typed into the open sheet's textarea
+//   dkey:TEXT     TEXT typed into the document's edit overlay, whose two fields
+//   dval:TEXT     are an element's key and its value; `RET' has to have opened
+//                 it over the element at point first
+//   dpara:TEXT    TEXT typed into the paragraph overlay, which is a textarea
+//                 over the block at point; `RET' opens one.  `_' is a space,
+//                 `|' a newline and `~' a literal bar — an org table row
+//                 spells itself `~a~b~'
+
 //   pkey:I=TEXT   TEXT typed into property row I's key field, the row having
 //                 been opened for editing first — a closed one has no fields
 //   pval:I=TEXT   TEXT typed into property row I's value field, likewise
@@ -47,6 +55,9 @@
 //                 function it is
 //   cells:K@C     the edit overlay's cell resolution run over the keys K
 //                 against the column keys C, likewise as the pure function
+//   priorities:P  per-row priority cells, positional and comma-separated:
+//                 `priorities:A,,C' is `[#A]', none, `[#C]' — which is the mixed
+//                 set org's per-entry cycle is about
 //   refuse        the next /command refuses — every row it named, or the
 //                 capture whole, which names none
 //   bare          the mounted handle loses its mark calls, the way an older
@@ -128,19 +139,147 @@ let tag = "\"t0\"";
 let unreferenced = false;
 let served = +total;
 // The subtree behind /headline, in the two shapes the route serves it in — the
-// raw text, and the body with the drawer lifted out — plus the digest a write
-// is pinned to.  The split is the server's, so what the sheet gets here is what
-// a real one would hand it.
+// raw text, and the body with the three regions lifted out — plus the cells of
+// the headline itself, the entries hanging under it, and the digest a write is
+// pinned to.  The split is the server's, so what the sheet gets here is what a
+// real one would hand it.
+//
 // `ORG_GLANCE_ID' is in the org text and NOT in the properties: it is a hidden
-// key the server keeps for itself, so the panel never sees it and never sends
+// key the server keeps for itself, so the sheet never sees it and never sends
 // it back.  The planning line and the logbook are the other two regions.
+//
+// IT HAS A CHILD, which is what the sub-addressing walks into: `?child=0' is the
+// entry `** two', and the row's own body stops where that child's stars begin —
+// `ownLines', so the same bytes are never drawn twice, once as a paragraph and
+// once as the child that owns them.
+// THE GRAINY BODY, which `grain' swaps in: a lead-in paragraph, a three-item
+// list with one item carrying a continuation line and a nested sub-item, a
+// `#+begin_quote' block of two paragraphs, and a closing paragraph.  Every stop
+// kind the walk has is in it, and in the order the walk meets them.
+//
+// The list's second item is separated by a BLANK LINE, which org lets stand
+// inside a list and 1173 item pairs of the corpus rely on — so the run is one
+// list rather than two.
+const grainBody = [ "* TODO one",
+                    "lead in",
+                    "- alpha",
+                    "  more alpha",
+                    "  - nested",
+                    "",
+                    "- beta",
+                    "- gamma",
+                    "",
+                    "#+begin_quote",
+                    "quoted one",
+                    "",
+                    "quoted two",
+                    "#+end_quote",
+                    "",
+                    "tail para",
+                    "** two",
+                    "child body", "" ].join("\n");
+// THE TABLED BODY, which `tabled' swaps in: a lead-in paragraph, a FOUR-LINE
+// org table with a `|---+---|' rule among its rows, a two-item list and a
+// closing paragraph.  MIXED on purpose — the count of stops end to end is what
+// says the table takes its place in the one walk rather than a walk of its own.
+//
+// A LINE IS A LEAF, rule included: the table is one coarse stop and then its
+// four rows, which is the list's shape with the item rule at a line.
+const tabledBody = [ "* TODO one",
+                     "lead in",
+                     "| a | b |",
+                     "|---+---|",
+                     "| 1 | 2 |",
+                     "| 3 | 4 |",
+                     "",
+                     "- alpha",
+                     "- beta",
+                     "",
+                     "tail para",
+                     "** two",
+                     "child body", "" ].join("\n");
+// THE LINKY BODY, which `linky' swaps in beside its `linkylinks': every shape
+// the display rule has to tell apart, in the two places that draw one.
+//
+//   line 0  the headline, whose TITLE holds `[[T][D]]'
+//   line 1  a paragraph with `[[T][D]]' and `[[T]]' in it
+//   line 3  a paragraph with a BARE url written TWICE — where the answer holds
+//           ONE entry, `/links' keeping the FIRST spelling of a target and no
+//           other (`Glance.Query.orgLinks'), so the second occurrence has no
+//           span and is drawn as the text it is
+//
+// The spans below are the ones a scan of this text measures, worked out once
+// and written down; `desc' is what `Glance.Query.linkShown' answers for each,
+// since the DISPLAY rule is the server's and the page only draws what it is
+// handed.
+const linkyBody = [ "* TODO one [[https://t.example/][the title link]]",
+                    "see [[https://a.example/][alpha]] and [[https://b.example/]] here",
+                    "",
+                    "bare https://c.example/ then https://c.example/ twice",
+                    "** two",
+                    "child body", "" ].join("\n");
+const linkyTitle = "one [[https://t.example/][the title link]]";
+const linkyLinks = [
+  { target: "https://t.example/", desc: "the title link", type: "https", span: [11, 49] },
+  { target: "https://a.example/", desc: "alpha", type: "https", span: [54, 83] },
+  { target: "https://b.example/", desc: "https://b.example/", type: "https", span: [88, 110] },
+  { target: "https://c.example/", desc: "https://c.example/", type: "https", span: [122, 140] },
+];
+let linky = false;
+let grainy = false;
+let tabled = false;
 const org = "* TODO one\nSCHEDULED: <2026-08-01 Sat>\n:PROPERTIES:\n"
-  + ":ORG_GLANCE_ID: r1\n:EFFORT: 0:30\n:END:\n:LOGBOOK:\n- moved here\n:END:\n";
-const body = "* TODO one\n";
+  + ":ORG_GLANCE_ID: r1\n:EFFORT: 0:30\n:END:\n:LOGBOOK:\n- moved here\n:END:\n"
+  + "first para\n\nsecond para\n** two\nchild body\n";
+const body = "* TODO one\nfirst para\n\nsecond para\n** two\nchild body\n";
 const properties = [["EFFORT", "0:30"]];
 const planning = [["SCHEDULED", "<2026-08-01 Sat>"]];
 const logbook = ":LOGBOOK:\n- moved here\n:END:\n";
 let digest = "d0";
+/** The priority the MATERIALIZED entry carries, which `priorities' moves with
+ * the store's own cell — the sheet reads its cells off the answer rather than
+ * off a table row, so a case about the document owes both. */
+let headPriority = null;
+/** What GET /headline answers with, for the ROW and for the one entry under it.
+ * The navigation fields are the whole of the sub-addressing contract: `child' is
+ * the index this answer is FOR, `parent' the one DEL climbs to (null being the
+ * row) and `children' the entries hanging under it with the index each answers
+ * to. */
+const subtree = (child) => (child === null
+  ? { id: "r1", file: "a.org", child: null, parent: null, path: ["one"],
+      cells: { state: "TODO", priority: headPriority,
+               title: linky ? linkyTitle : "one", tags: "" },
+      children: [ { index: 0, level: 2, state: null, priority: null,
+                    title: "two", tags: ":web:" } ],
+      level: 1, properties, planning, logbook, digest,
+      // Where the TITLE CELL starts in the file, which is what lets the page
+      // tell which of the row's links are inside that cell.  The server has the
+      // sub-span; this stands in for it.
+      titleAt: linky ? 7 : 11,
+      // THE SUBTREE'S OWN EXTENT, which is what turns an element's LINE range
+      // into the FILE range `o' filters links by.  The grainy body is served as
+      // its own org text, so the two differ by nothing and the arithmetic is
+      // readable in the case.
+      org: linky ? linkyBody : grainy ? grainBody : tabled ? tabledBody : org,
+      span: { start: 0,
+              end: (linky ? linkyBody : grainy ? grainBody
+                          : tabled ? tabledBody : org).length },
+      body: linky ? linkyBody : grainy ? grainBody : tabled ? tabledBody : body,
+      ownLines: grainy ? 16 : tabled ? 11 : 4 }
+  : { id: "r1", file: "a.org", child: 0, parent: null, path: ["one", "two"],
+      cells: { state: null, priority: null, title: "two", tags: ":web:" },
+      children: [],
+      org: "** two :web:\nchild body\n",
+      body: "** two :web:\nchild body\n", ownLines: 3, level: 2,
+      properties: [], planning: [], logbook: "", digest });
+/** Every subtree a POST was aimed at, as `id' or `id#child' — which is the whole
+ * of what says WHICH extent a commit named. */
+const wroteAt = [];
+/** And every subtree a GET asked for, the same way: the sheet re-reads itself
+ * after a commit and whenever a socket frame names the row it is standing on, so
+ * what says a re-read HAPPENED is the request rather than the answer — the
+ * canned one never moves. */
+const readAt = [];
 // Every POST /headline body, which is the whole of what a sync can be observed
 // to have written: the rows come back over a socket this harness does not run.
 const writes = [];
@@ -358,12 +497,20 @@ globalThis.fetch = (url, init) => {
     return send();
   }
   if (String(url).startsWith("/headline?")) {
+    const named = /[?&]child=(\d+)/.exec(String(url));
+    const child = named ? Number(named[1]) : null;
     if ((init || {}).method === "POST") {
       writes.push(JSON.parse((init || {}).body || "{}"));
-      return answer(200, { digest });
+      wroteAt.push(child === null ? "r1" : `r1#${child}`);
+      return refusing
+        ? answer(409, { reason: "drift", digest,
+                        error: "a.org changed on disk since this subtree was materialized" })
+        : answer(200, { digest });
     }
-    return answer(200,
-      { id: "r1", file: "a.org", org, body, properties, planning, logbook, digest });
+    if (child !== null && child !== 0)
+      return answer(404, { error: `r1 has no child ${child}; it holds 1` });
+    readAt.push(child === null ? "r1" : `r1#${child}`);
+    return answer(200, subtree(child));
   }
   return answer(404, {});
 };
@@ -379,19 +526,22 @@ globalThis.WebSocket = function () {
   // reconnect that never finished.
   setTimeout(() => { if (socket === this && this.onopen) this.onopen(); }, 0);
 };
-// FOUR MOUNTS.  The page builds the table in `#app', the property panel in the
-// sheet, the link popup in its own overlay and the tags popup in its own, so
-// everything a renderer holds PER MOUNT is held per instance here rather than
-// once for the page: the cursor and its column, the page, the marks, the flags,
-// the applied query and the crumb trail.  A remount replaces the table's
+// FOUR MOUNTS.  The page builds the table in `#app', the sheet's property panel
+// in `#mptable', the link popup in its own overlay and the tags popup in its
+// own, so everything a renderer holds PER MOUNT is held per instance here rather
+// than once for the page: the cursor and its column, the page, the marks, the
+// flags, the applied query and the crumb trail.  A remount replaces the table's
 // instance and leaves the other three standing, which is what the shell relies
 // on when it puts a sheet back up.
 //
+// The sheet's OTHER pane is not one of them: the structured document is the
+// page's own widget, drawn into `#dlist', and it is read here off what it DREW.
+//
 // They differ in ONE thing, and it is the rows.  The table's are the STORE's —
 // its `setRows' is a count and the rows it shows are `rows' above, which is what
-// lets an act move the store and the table follow.  The panel's and the two
-// popups' are the shell's own models and arrive through `setRows', so those
-// instances keep what they are handed.
+// lets an act move the store and the table follow.  The two popups' are the
+// shell's own models and arrive through `setRows', so those instances keep what
+// they are handed.
 let mounts = 0, sets = 0, raises = 0, pmounts = 0, psets = 0, lmounts = 0;
 let tmounts = 0, tsets = 0;
 // Every row count the shell has ever handed the TABLE, in order: one entry per
@@ -799,7 +949,9 @@ const fields = {};
 // The tag matters: `typing()' reads it off `document.activeElement' to decide
 // whether a key belongs to the table or to whatever has focus.
 const TAGS = { mtext: "textarea", filter: "input", pinput: "input",
-               pkey: "input", pval: "input", tname: "input", themesel: "select",
+               dkey: "input", dval: "input", dtext: "textarea",
+               pkey: "input", pval: "input",
+               tname: "input", themesel: "select",
                ltitle: "input", lurl: "input",
                cfilter: "input", ctarget: "input", clog: "input",
                // The keywords panel: one select over the layers and one box
@@ -817,6 +969,8 @@ const styleOf = () => ({
   getPropertyValue(name) { return this.custom[name] || ""; },
 });
 /** A stand-in element, enough of one for the page to build its own chrome in. */
+// Every `scrollIntoView' the page made, oldest first.  See the stub below.
+const scrolls = [];
 const make = (tag) => {
   const e = {
     tagName: String(tag).toUpperCase(),
@@ -843,21 +997,58 @@ const make = (tag) => {
       return child;
     },
     select() {},
+    // Geometry is beyond this stub — nothing here has a layout, so whether an
+    // element IS out of view can never be answered.  What can be answered is
+    // whether the page ASKED, which is the half that is this page's: the call
+    // is recorded with the class of what it was made on and the options it
+    // carried, and the tests pin that.  Same caveat as the overlay's placing.
+    scrollIntoView(opts) { scrolls.push({ className: this.className, opts }); },
+  };
+  // A real element's `classList', which the page uses where it means "set one
+  // class, keep the rest" — the sheet's shape flag riding beside its size tier.
+  // The document element models one already; this is the same three calls on
+  // every element, since a stub that answered "" to `toggle' would silently
+  // drop whichever class the page was keeping.
+  e.classList = {
+    contains: (name) => String(e.className).split(" ").indexOf(name) !== -1,
+    add: (name) => { if (!e.classList.contains(name)) e.className = `${e.className} ${name}`.trim(); },
+    remove: (name) => {
+      e.className = String(e.className).split(" ").filter((c) => c !== name).join(" ");
+    },
+    toggle: (name, force) => {
+      const on = force === undefined ? !e.classList.contains(name) : !!force;
+      if (on) e.classList.add(name); else e.classList.remove(name);
+      return on;
+    },
   };
   // The real one drops every child when it is set, which is how the panel is
   // cleared before it is drawn again.
   let text = "";
+  // Every value the text was SET to, in order.  A pill that is last-writer-wins
+  // on screen — the echo — leaves no trace of a second identical write, so a
+  // case asking "did this run twice" has nothing to read; the history is that
+  // trace, and it costs one push per set.
+  e.wrote = [];
   Object.defineProperty(e, "textContent", {
-    get: () => text,
-    set: (v) => { text = String(v); e.children.length = 0; },
+    // The real one is the whole SUBTREE's text, which is what an element drawn
+    // as segments — text, link, text — reads as.  Setting it drops the
+    // children, so the two halves never double-count.
+    get: () => text + e.children.map((c) => c.textContent).join(""),
+    set: (v) => { text = String(v); e.wrote.push(text); e.children.length = 0; },
   });
   return e;
 };
 const field = (id) => (fields[id] = fields[id] || make(TAGS[id] || "div"));
 const STATEFUL = [ "mtext", "mnote", "mfile", "modal", "mprops", "mlog", "sheet"
-                 // The property panel is a MOUNT: `mptable' is the element it
-                 // is given, which is how the stub tells the two apart, and the
-                 // three below are the edit overlay laid over the row at point.
+                 , "mwhere"
+                 // The structured document, which is the page's OWN widget
+                 // rather than a mount: `dlist' is the tree it draws its
+                 // elements into, and the four below are the two edit overlays
+                 // laid over the element at point.
+                 , "mdoc", "dlist", "dedit", "dkey", "dval", "dpara", "dtext"
+                 // And the property panel, which IS a mount: `mptable' is the
+                 // element it is given, and the three below are its own edit
+                 // overlay laid over the row at point.
                  , "mptable", "pedit", "pkey", "pval"
                  // The value palette: its list is a tree of key tokens and
                  // underlined words, so it has to hold one.
@@ -947,6 +1138,14 @@ const press = (name, repeating) => {
     preventDefault: () => { prevented.push(name); event.defaultPrevented = true; },
   };
   for (const handler of pressed) handler(event);
+  // And the browser's OWN default for the one key whose default a field needs:
+  // a `Backspace' no listener claimed erases a character out of whatever field
+  // has the focus.  Without it "the page left this key to the field" is
+  // indistinguishable from "nothing happened", which is exactly the rule a
+  // popup's nav-mode DEL has to be told apart from.
+  if (name === "Backspace" && !event.defaultPrevented && active
+      && (active.tagName === "INPUT" || active.tagName === "TEXTAREA"))
+    active.value = String(active.value).slice(0, -1);
 };
 const prevented = [];
 
@@ -967,19 +1166,25 @@ const typed = (box, text) => {
   box.fire("input", { target: box });
 };
 /**
+ * Type into one of the document's two edit overlays.  A closed one has no
+ * fields, so a script that types without pressing RET first is typing into
+ * nothing on a real page: say so rather than write where no reader could have.
+ */
+const typeIn = (box, which, text) => {
+  if (field(box).className !== "on")
+    throw new Error(`the document has no ${box} open: ${which}`);
+  typed(field(which), text);
+};
+/**
  * Type into the property panel's edit overlay: ARG is `INDEX=TEXT', INDEX being
  * the row the script means.  A closed panel has no fields, and an overlay open
- * over another row is a script that means nothing on a real page — say so
- * rather than write where no reader could have.
+ * over another row is a script that means nothing on a real page — say so rather
+ * than write where no reader could have.
  */
 const typeOver = (which, arg) => {
   const at = arg.indexOf("=");
   if (field("pedit").className !== "on")
     throw new Error(`no panel row is open for editing: ${which}:${arg}`);
-  // The overlay opens over the row at point and no KEY can move the cursor under
-  // it, so at the moment of typing the panel's cursor is the row being edited.
-  // A `click' afterwards can move it, which is the hazard the snapshot answers —
-  // so a script that means to test that types FIRST and clicks after.
   if (String(patAt()) !== arg.slice(0, at))
     throw new Error(`panel row ${patAt()} is open, not ${arg}`);
   typed(field(which), arg.slice(at + 1));
@@ -1006,30 +1211,96 @@ const cellsOf = (inst, keys) =>
 /** Which row wears INST's cursor, and -1 when there is no such mount yet — or
  * when nothing has been selected in it, which its own answer already is. */
 const curOf = (inst) => (inst ? inst.at() : -1);
-/** The property panel: a [key, value] pair per row. */
+/**
+ * THE STRUCTURED DOCUMENT, read off what it DREW.  It is the page's own widget
+ * rather than a mount, so there is no model to ask: `#dlist' holds one element
+ * per row, each wearing its KIND as a class and holding its parts as spans, and
+ * what a reader has in front of them is exactly that.
+ *
+ * An element reads as `[KIND, ...parts]' — a headline line as its four cells, a
+ * planning or property row as its key and its value, a paragraph as its text.
+ */
+const kindOf = (cls) => String(cls).split(" ")
+  .filter((c) => c.startsWith("d-")).map((c) => c.slice(2)).join(":");
+const wears = (e, cls) => String(e.className).split(" ").indexOf(cls) !== -1;
+/** THE WALK, FLATTENED OUT OF THE DRAW.  A composite is drawn ONCE with its
+ * leaves inside it, so the elements are a two-level tree on screen and a flat
+ * sequence to the cursor: a composite, then the leaves it holds, then the next
+ * element.  Reading it back this way is what lets every document case go on
+ * counting stops. */
+const flatRows = () => {
+  const out = [];
+  for (const row of field("dlist").children) {
+    out.push(row);
+    for (const kid of row.children) if (wears(kid, "de")) out.push(kid);
+  }
+  return out;
+};
+/** Which composite each stop hangs under, by place in the walk — -1 for a stop
+ * that is nobody's leaf. */
+const ownerOf = () => {
+  const out = []; let at = -1;
+  flatRows().forEach((row, i) => {
+    if (wears(row, "d-comp")) { at = i; out.push(-1); }
+    else out.push(wears(row, "d-item") ? at : -1);
+  });
+  return out;
+};
+/** Every drawn piece of ROW's text, as `CLASS:TEXT' in draw order — `dt' for
+ * plain text and `dl' for a link, so a test can read the interleaving.  An
+ * element with no link in it is drawn as text outright and has no pieces. */
+const segsOf = (row) => {
+  const out = [];
+  const walk = (e) => {
+    for (const kid of e.children) {
+      if (wears(kid, "dt") || wears(kid, "dl"))
+        out.push(`${wears(kid, "dl") ? "dl" : "dt"}:${kid.textContent}`);
+      else if (!wears(kid, "de")) walk(kid);
+    }
+  };
+  walk(row);
+  return out;
+};
+const docRows = () => flatRows().map((row) =>
+  [kindOf(row.className)].concat(row.children
+    .filter((p) => !wears(p, "de")).map((p) => p.textContent)));
+/** Which element wears the cursor, and which of its CELLS — -1 for neither.
+ * Counted over the `dc' parts alone: a headline line opens with its org-cleaned
+ * stars, which are chrome ahead of the first cell rather than a cell, so `f'/`b'
+ * walk straight past them and so does this. */
+const docAt = () => flatRows().findIndex((row) => wears(row, "dat"));
+const docCell = () => {
+  const row = flatRows()[docAt()];
+  if (!row) return -1;
+  return row.children.filter((p) => wears(p, "dc")).findIndex((p) => wears(p, "don"));
+};
+/** And which elements wear a deletion flag, by their place in the document. */
+const docFlagged = () => flatRows()
+  .map((row, i) => (wears(row, "dfl") ? i : -1))
+  .filter((i) => i !== -1);
+/** The property panel: a [key, value] pair per row, and where its cursor is. */
 const panel = () => cellsOf(pan, ["key", "value"]);
 const patAt = () => curOf(pan);
 /**
- * Which field of the sheet has the focus, named the way an act names one:
- * `mtext' for the body pane, and which of the overlay's two fields it is over
- * the row at point (`pkey:1', `pval:1') — the fields being one pair laid over
- * whichever row the panel's cursor is on.
+ * Which field has the focus, named the way an act names one: `mtext' for raw
+ * mode's textarea, and the document's or a popup's overlay fields by their own
+ * names.  Nothing focused is the state the document holds the keys in, which is
+ * what leaves every printable key free.
  */
+const FOCUSABLE = ["mtext", "dkey", "dval", "dtext", "ltitle", "lurl", "tname",
+                   "pinput"];
 const focused = () => {
   if (!active) return "";
-  if (active === field("mtext")) return "mtext";
-  // The link overlay's two fields, which have no row index to carry: the
-  // overlay opens over one link and `TAB' is the whole of what moves between
-  // them.
-  if (active === field("ltitle")) return "ltitle";
-  if (active === field("lurl")) return "lurl";
+  // The panel's two fields carry the row they are laid over, since the overlay
+  // is ONE pair over whichever row the panel's cursor is on.
   const which = active === field("pkey") ? "pkey"
     : active === field("pval") ? "pval" : "";
-  return which ? `${which}:${patAt()}` : "";
+  if (which) return `${which}:${patAt()}`;
+  return FOCUSABLE.find((id) => active === field(id)) || "";
 };
-/** Everything under E with CLS, by class the way `patAt' reads the property
- * panel: the producer labels each part, so one added later cannot be mistaken
- * for another. */
+/** Everything under E with CLS, by class the way `docRows' reads the document:
+ * the producer labels each part, so one added later cannot be mistaken for
+ * another. */
 const parts = (e, cls) =>
   e.children.filter((x) => x.className.split(" ").indexOf(cls) !== -1);
 /** A bare word where an entry is read: the header's column names, and the line
@@ -1211,14 +1482,14 @@ const ACTIONS = {
   },
   rewritten: () => { digest = "d1"; },
   press: (key) => press(key),
-  // A MOUSE CLICK landing on another row of a modal mount, which is the ONE
+  // A MOUSE CLICK landing on another row of a modal MOUNT, which is the ONE
   // thing that can move a cursor out from under an open edit overlay — no key
   // can, which is why every other act here is a key.  `click:2' is the reader
-  // clicking row 2 of whichever surface is up: the property panel while the
-  // materialize sheet is open, then the link popup, then the tags popup — one
-  // per surface that edits in place.  The renderer moves its
-  // own cursor and tells this page nothing, so what this measures is whether a
-  // commit still writes the row the overlay OPENED over.
+  // clicking row 2 of whichever popup is up: the link popup, then the tags one.
+  // The structured document is not a mount and binds no click at all, so it has
+  // no such hazard and no act for it.  The renderer moves its own cursor and
+  // tells this page nothing, so what this measures is whether a commit still
+  // writes the row the overlay OPENED over.
   click: (at) => {
     const m = field("modal").className === "on" ? pan
       : field("links").className === "on" ? lnk : tgs;
@@ -1265,10 +1536,21 @@ const ACTIONS = {
   // closed overlay has neither, for the rename's reason.
   ltitle: (text) => typeLink("ltitle", text),
   lurl: (text) => typeLink("lurl", text),
-  // Typing into the property panel: `pkey:1=EFFORT' is the key field over row 1,
-  // `pval:1=0:45' its value.  The panel's rows are the mount's and the edit is
-  // ONE overlay laid over the row at point, so the index says which row the
-  // script MEANT and is checked rather than looked up.
+  // Typing into the document's edit overlays: `dkey' and `dval' are the two
+  // fields an element opens as, and `dpara' is the textarea a paragraph opens
+  // as.  Each is laid over the element at point, so no index is owed — no key
+  // can move the cursor while one is open, and the document binds no click.
+  dkey: (text) => typeIn("dedit", "dkey", text),
+  dval: (text) => typeIn("dedit", "dval", text),
+  // ACTS SPLIT ON WHITESPACE, so a paragraph with a space or a line break in it
+  // is spelled `_' and `|' here and cooked back on the way in.  A stop the walk
+  // takes over several lines — a list item, a whole block — cannot be typed any
+  // other way.
+  // `_' is a space and `|' a newline, an act carrying neither; `~' is a
+  // LITERAL bar, put back after the newlines so an org table row can be typed
+  // into a paragraph that spells its own line breaks with the same character.
+  dpara: (text) => typeIn("dpara", "dtext",
+    String(text).replace(/_/g, " ").replace(/\|/g, "\n").replace(/~/g, "|")),
   pkey: (arg) => typeOver("pkey", arg),
   pval: (arg) => typeOver("pval", arg),
   // And into the settings sheet: `ctext:#+TODO:_A_|_B' is the keywords panel's
@@ -1298,6 +1580,36 @@ const ACTIONS = {
   // Every config layer moves out from under the sheet, which is the drift a
   // second writer causes.
   cmoved: () => { for (const l of layers) l.digest = "gone"; },
+  // Per-row priority cells, comma-separated and positional: `priorities:A,,C'
+  // gives row one `[#A]', row two none and row three `[#C]'.  A cell the store
+  // does not hold is what an entry with no priority IS, which is the ring's own
+  // `none' stop — so a MIXED set is one act.
+  priorities: (arg) => {
+    arg.split(",").forEach((p, i) => {
+      if (!rows[i]) return;
+      if (p) rows[i].cells.priority = `[#${p.toUpperCase()}]`;
+      else delete rows[i].cells.priority;
+      if (i === 0) headPriority = p ? `[#${p.toUpperCase()}]` : null;
+    });
+  },
+  // The body the GRAIN walk is measured over — see `grainBody'.  Set before the
+  // sheet opens, since the document is built out of the answer.
+  grain: () => { grainy = true; },
+  // And the body the TABLE grain is measured over — see `tabledBody'.  Set
+  // before the sheet opens, since the document is built out of the answer.
+  tabled: () => { tabled = true; },
+  // The body every link shape is in, and the scan that goes with it.
+  linky: () => { linky = true; links = linkyLinks; },
+  // Two links in the grainy body: one inside the list's FIRST item and one
+  // inside its second.  Which is what makes `o' at a leaf and `o' at the whole
+  // list two different questions — the same answer, narrowed by the stop's own
+  // extent.
+  grainlinks: () => {
+    links = [ { target: "https://alpha.example/", desc: "in alpha",
+                type: "https", span: [21, 40] },
+              { target: "https://beta.example/", desc: "in beta",
+                type: "https", span: [53, 58] } ];
+  },
   refuse: () => { refusing = true; },
   // Nothing refers to the row `@' names, which is the answer that leaves the
   // table standing rather than replacing it with an empty view.
@@ -1417,20 +1729,57 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     sheet: field("mtext").value, state: field("mnote").className,
     modal: field("modal").className,
     palette: field("filter").value,
+    // THE STRUCTURED DOCUMENT: every element it drew, where the cursor is and
+    // which cell of that element it is in, which elements wear a deletion flag,
+    // whether an edit overlay is open and what its fields hold, and the
+    // breadcrumb saying where in the outline the sheet is standing.
+    doc: docRows(), dat: docAt(), dcol: docCell(), dflagged: docFlagged(),
+    dopen: field("dedit").className === "on",
+    dparaopen: field("dpara").className === "on",
+    dkey: field("dkey").value, dval: field("dval").value,
+    dtext: field("dtext").value,
+    // The sheet's crumb strip: one entry per step of the descent, the LAST
+    // wearing the full-ink class that says where the reader stands.  Read as
+    // the parts it drew rather than as one string, since the bar is a row of
+    // chips and the ink is what tells the standing one from the trail.
+    where: field("mwhere").children.map((c) => c.textContent),
+    whereAt: field("mwhere").children
+      .map((c, i) => (wears(c, "wat") ? i : -1)).filter((i) => i !== -1),
+    // Which pane holds the keys: the document until TAB crosses, the panel
+    // after it, and each says so on its own frame.
+    dactive: field("mdoc").className === "on",
+    // The column CONTENT lines start at, written onto the pane as a number the
+    // stylesheet does the arithmetic over — the width of the head's own star
+    // prefix, so the content sits under the title text rather than under the
+    // stars (`org-startup-indented').
+    dindent: field("mdoc").style.getPropertyValue("--g-doc-indent"),
+    // Every element the page asked to be scrolled to, by class, and what the
+    // last one asked for.  Geometry is beyond the stub, so the CALL is the
+    // whole of what these pin.
+    // Which STOP KIND each element of the walk is: `element' for a plain
+    // paragraph and for the headline and child lines, `composite' for a whole
+    // list or block, `leaf' for one item or one paragraph inside one.
+    dgrains: flatRows().map((row) => (wears(row, "d-comp") ? "composite"
+      : wears(row, "d-item") ? "leaf" : "element")),
+    // And who each leaf hangs under, by place in the walk — `-1' for a stop
+    // that is nobody's leaf.
+    downers: ownerOf(),
+    // What the document drew as links, and how each element was cut up.
+    dsegs: flatRows().map(segsOf),
+    scrolled: scrolls.map((s) => s.className),
+    scrollAsked: scrolls.length ? scrolls[scrolls.length - 1].opts : null,
     // The sheet's other pane: every row the panel is showing, where its cursor
-    // is, whether it is the thing holding the keys, which field the focus is on
-    // if any, the lines it puts under a row, which shape the sheet is in, and
-    // every POST the syncs sent.
+    // is, whether it is the thing holding the keys, and which of its rows carry
+    // a delete flag — plus the mount options the gesture reads.
     props: panel(), pat: patAt(), pnav: field("mprops").className === "on",
-    focus: focused(),
-    // The panel is a mount of its own: how many times it was built, how many
-    // times the shell re-set its rows, and which of them carry a delete flag.
     pmounts, psets, pflagged: pan ? [...pan.flags] : [],
-    // And the options it was mounted with, which is where the deletion gesture
-    // gets its wash and its hint from.
     pmarks: pan ? pan.marksOn : null, pflags: pan ? pan.flagsOn : null,
     phints: pan ? pan.hintsOn : null,
     pflagHelp: pan ? pan.flagHelp : "", ppage: pan ? pan.pageSize : null,
+    focus: focused(),
+    // Every POST the syncs sent, and which SUBTREE each was aimed at — the row,
+    // or an entry inside it — beside every subtree a GET asked for.
+    wroteAt, readAt,
     // What holds the keyboard, as its tag — empty for nothing, which is the
     // state the table's own keys are live in.
     holding: active ? active.tagName : "",
@@ -1448,7 +1797,7 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     selected: main.at() === -1 ? null : main.onPage()[main.at()].id,
     col: main.selCol,
     page: main.pageAt + 1,
-    echo: field("echo").textContent,
+    echo: field("echo").textContent, echoes: field("echo").wrote,
     // The event strip, which is append-only: what is here is everything the
     // page has said since it booted, oldest first.
     log: logged(),

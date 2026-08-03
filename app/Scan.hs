@@ -4,9 +4,9 @@
 -- it indexes.
 module Scan (runScan) where
 
-import Control.Exception (IOException, SomeException, evaluate, try)
+import Control.Exception (SomeException, evaluate, try)
 import Control.Monad (filterM)
-import Data.List (foldl', isPrefixOf, nub, sort)
+import Data.List (foldl', isPrefixOf, mapAccumL, nub, sort)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Time (diffUTCTime, getCurrentTime)
@@ -25,11 +25,13 @@ import qualified TextShow as TS
 import Data.Org
 import Data.Org.Config ( ConfigLayers (clSeed), TodoKeywords (..), loadConfigDirs
                        , seedContext )
+import Data.Org.Edit (readBytes)
 import Data.Org.Index ( BlobEntry (..), IndexDrift, blobEntryOf, driftOf
                       , foldSegments, indexReportLines, manifestFile, metaDir
                       , openSegment, segmentNames )
 import Data.Org.Walk ( Found (..), WalkOptions (..), beatsForId, errText
-                     , findOrgFilesWith, isBlob, mapFilesConcurrently )
+                     , findOrgFilesWith, isBlob, mapFilesConcurrently, orgGlanceDir
+                     , storeDir )
 
 import qualified Data.Map.Strict as Map
 
@@ -75,8 +77,20 @@ runScan opts roots = do
 
 -- Per-file scan
 
+-- | The three ways a file fails to become elements, which is also the key its
+-- count and its capped sample live under.  'Ord' for the map alone; the report
+-- names them in this order.
+data Failure = FRead | FDecode | FParse
+  deriving (Eq, Ord, Show)
+
+-- | What the report calls FAILURE.
+failureLabel :: Failure -> Text
+failureLabel FRead = "read failures"
+failureLabel FDecode = "decode failures"
+failureLabel FParse = "parse failures"
+
 -- | Which bucket a file landed in, with the reason when it failed.
-data Bucket = BOk | BRead !Text | BDecode !Text | BParse !Text
+data Bucket = BOk | BFailed !Failure !Text
 
 -- | What one file contributed to the run.
 data FileResult = FileResult
@@ -93,25 +107,25 @@ data FileResult = FileResult
 -- it.
 scanFile :: Context -> FilePath -> IO FileResult
 scanFile seed path = do
-  raw <- try (BS.readFile path) :: IO (Either IOException BS.ByteString)
+  raw <- readBytes path
   case raw of
-    Left e -> pure (bare (BRead (errText e)))
+    Left why -> pure (bare (BFailed FRead why))
     Right bytes -> case TE.decodeUtf8' bytes of
-      Left e -> pure (bare (BDecode (errText e)))
+      Left e -> pure (bare (BFailed FDecode (errText e)))
       Right doc -> do
         outcome <- try (evaluate (forceResult (analyse seed path doc)))
         pure $ case outcome of
-          Left e  -> bare (BParse ("exception: " <> errText (e :: SomeException)))
+          Left e  -> bare (BFailed FParse ("exception: " <> errText (e :: SomeException)))
           Right r -> r
   where bare b = FileResult b 0 0 0 [] [] Nothing
 
 -- | Parse DOC from SEED and tally its elements, headlines and span violations.
 analyse :: Context -> FilePath -> Text -> FileResult
 analyse seed path doc = case orgParse seed doc of
-  (_elems, _ctx, Just err) -> FileResult (BParse (errorReason err)) 0 0 0 [] [] Nothing
+  (_elems, _ctx, Just err) -> FileResult (BFailed FParse (errorReason err)) 0 0 0 [] [] Nothing
   (elems, _ctx, Nothing)   ->
     let acc = foldl' (step path doc (T.length doc)) (Acc 0 0 0 [] (Cursor 0 doc)) elems
-        heads = [ h | EHeadline h <- map valueOf elems ]
+        heads = headlinesOf elems
     in FileResult BOk (accElements acc) (accHeadlines acc) (accViolations acc) (accSample acc)
                   [ T.copy i | h <- heads, Just i <- [identity h] ]
                   (if isBlob path then blobEntryOf path (map indexTerms heads) else Nothing)
@@ -207,12 +221,10 @@ headlineViolations path doc len cur h = (concat parts, cur')
 sliceAll :: Text -> Cursor
          -> [(Text, Span, Text -> Bool)]
          -> ([(Text, Span, Text -> Bool, Text)], Cursor)
-sliceAll doc = go
-  where go cur [] = ([], cur)
-        go cur ((label, sp, ok) : rest) =
-          let (txt, cur') = sliceWith doc cur sp
-              (more, cur'') = go cur' rest
-          in ((label, sp, ok, txt) : more, cur'')
+sliceAll doc cur parts = (sliced, cur')
+  where (cur', sliced) = mapAccumL cut cur parts
+        cut at (label, sp, ok) = let (txt, next) = sliceWith doc at sp
+                                 in (next, (label, sp, ok, txt))
 
 -- | Render a violation as "path:offset kind".
 note :: FilePath -> Span -> Text -> Text
@@ -220,21 +232,34 @@ note path sp kind = T.pack path <> ":" <> TS.showt (spanStart sp) <> " " <> kind
 
 -- Totals
 
+-- | HOW MANY, and a capped sample of them.  Five of this run's counts are a
+-- count paired with a listing, and each pair spelled apart is a pair that can
+-- be stepped apart: the count says one thing and the section under it another.
+data Tally a = Tally !Int ![a]
+
+emptyTally :: Tally a
+emptyTally = Tally 0 []
+
+-- | N more counted, with NEW offered to the sample as far as 'sampleLimit'
+-- allows.  N is separate from @length NEW@ because a file contributes one to
+-- the file counts and as many violations as it has.
+add :: Int -> [a] -> Tally a -> Tally a
+add n new (Tally seen sample) = Tally (seen + n) (capped sample new)
+
+tallyCount :: Tally a -> Int
+tallyCount (Tally n _sample) = n
+
+tallySample :: Tally a -> [a]
+tallySample (Tally _n sample) = sample
+
 data Totals = Totals
   { tOk         :: !Int
-  , tRead       :: !Int
-  , tDecode     :: !Int
-  , tParse      :: !Int
+  , tFailed     :: !(Map.Map Failure (Tally (FilePath, Text)))
   , tElements   :: !Int
   , tHeadlines  :: !Int
-  , tViolations :: !Int
-  , tReadErrs   :: ![(FilePath, Text)]
-  , tDecodeErrs :: ![(FilePath, Text)]
-  , tParseErrs  :: ![(FilePath, Text)]
-  , tViolSample :: ![Text]
+  , tViolations :: !(Tally Text)
   , tIds        :: !(Map.Map Text FilePath)  -- ^ every id seen, and the file that keeps it.
-  , tCollisions :: !Int
-  , tCollSample :: ![Text]
+  , tCollisions :: !(Tally Text)
     -- Every blob the walk parsed and what was read out of it, in REVERSE walk
     -- order; 'blobsOf' turns it back.  Undeduplicated on purpose — 'driftOf'
     -- keys these by id and that is where the tie rule belongs.
@@ -242,21 +267,21 @@ data Totals = Totals
   }
 
 emptyTotals :: Totals
-emptyTotals = Totals 0 0 0 0 0 0 0 [] [] [] [] Map.empty 0 [] []
+emptyTotals = Totals 0 Map.empty 0 0 emptyTally Map.empty emptyTally []
+
+-- | T's tally for FAILURE, empty where nothing landed in it.
+failed :: Failure -> Totals -> Tally (FilePath, Text)
+failed kind = Map.findWithDefault emptyTally kind . tFailed
 
 merge :: Totals -> FilePath -> FileResult -> Totals
 merge t path r = case frBucket r of
-  BRead why   -> t { tRead   = tRead t + 1
-                   , tReadErrs = capped (tReadErrs t) [(path, why)] }
-  BDecode why -> t { tDecode = tDecode t + 1
-                   , tDecodeErrs = capped (tDecodeErrs t) [(path, why)] }
-  BParse why  -> t { tParse  = tParse t + 1
-                   , tParseErrs = capped (tParseErrs t) [(path, why)] }
-  BOk         -> ids (blob (t { tOk         = tOk t + 1
-                              , tElements   = tElements t + frElements r
-                              , tHeadlines  = tHeadlines t + frHeadlines r
-                              , tViolations = tViolations t + frViolations r
-                              , tViolSample = capped (tViolSample t) (frSample r) }))
+  BFailed kind why -> t { tFailed = Map.insert kind (add 1 [(path, why)] (failed kind t))
+                                               (tFailed t) }
+  BOk              -> ids (blob (t { tOk         = tOk t + 1
+                                   , tElements   = tElements t + frElements r
+                                   , tHeadlines  = tHeadlines t + frHeadlines r
+                                   , tViolations = add (frViolations r) (frSample r)
+                                                       (tViolations t) }))
   where ids acc = foldl' (claim path) acc (frIds r)
         blob acc | isBlob path = acc { tBlobs = (path, frBlob r) : tBlobs acc }
                  | otherwise   = acc
@@ -270,9 +295,9 @@ claim path t i = case Map.lookup i (tIds t) of
   Just held -> seen (if beatsForId path held then (path, held) else (held, path))
     where seen (kept, dropped) = t
             { tIds        = Map.insert i kept (tIds t)
-            , tCollisions = tCollisions t + 1
-            , tCollSample = capped (tCollSample t)
-                              [i <> ": kept " <> T.pack kept <> ", dropped " <> T.pack dropped] }
+            , tCollisions = add 1 [ i <> ": kept " <> T.pack kept
+                                      <> ", dropped " <> T.pack dropped ]
+                                (tCollisions t) }
 
 -- The org-glance index
 
@@ -298,7 +323,7 @@ indexDrifts roots derived blobs = do
       manifest <- bytesOf (meta </> manifestFile)
       names <- filterM (doesFileExist . (meta </>)) (segmentNames manifest)
       segments <- mapM (\n -> (,) (n == openSegment) . orEmpty <$> bytesOf (meta </> n)) names
-      pure (driftOf store (foldSegments segments) (under (store </> "data")))
+      pure (driftOf store (foldSegments segments) (under (store </> storeDir)))
       where store = takeDirectory meta
     under dataDir = [ b | b@(path, _) <- blobs, (dataDir <> "/") `isPrefixOf` path ]
     orEmpty = fromMaybe BS.empty
@@ -313,14 +338,13 @@ blobsOf = reverse . tBlobs
 -- canonicalizes a root, so a store reached two ways is compared twice.
 storeMetaDirs :: [FilePath] -> [FilePath] -> [FilePath]
 storeMetaDirs roots derived =
-  nub ([ root </> ".org-glance" </> metaDir | root <- roots ]
+  nub ([ root </> orgGlanceDir </> metaDir | root <- roots ]
         ++ [ d | d <- derived, takeFileName d == metaDir ])
 
 -- | PATH's bytes, or 'Nothing' when it cannot be read.  The instrument never
 -- fails a scan: an index it cannot open is an index it says nothing about.
 bytesOf :: FilePath -> IO (Maybe BS.ByteString)
-bytesOf path = either (const Nothing) Just
-           <$> (try (BS.readFile path) :: IO (Either IOException BS.ByteString))
+bytesOf path = either (const Nothing) Just <$> readBytes path
 
 -- | OLD extended by NEW, truncated to 'sampleLimit' and forced.
 capped :: [a] -> [a] -> [a]
@@ -343,29 +367,30 @@ report roots files t dirErrs derived configDirs seed walkSecs secs drifts = do
     [ row "dirs scanned"    (num (length roots))
     , row "files"           (num files)
     , row "ok"              (num (tOk t))
-    , row "read failures"   (num (tRead t))
-    , row "decode failures" (num (tDecode t))
-    , row "parse failures"  (num (tParse t))
+    , row (failureLabel FRead)   (num (count FRead))
+    , row (failureLabel FDecode) (num (count FDecode))
+    , row (failureLabel FParse)  (num (count FParse))
     , row "unreadable dirs" (num (length dirErrs))
     , row "derived skipped" (num (length derived))
     , row "config skipped"  (num (length configDirs))
     , row "config keywords" (num (length keywords))
     , row "elements"        (num (tElements t))
     , row "headlines"       (num (tHeadlines t))
-    , row "span violations" (num (tViolations t))
-    , row "id collisions"   (num (tCollisions t))
+    , row "span violations" (num (tallyCount (tViolations t)))
+    , row "id collisions"   (num (tallyCount (tCollisions t)))
     , row "walk seconds"    (fixed 2 walkSecs)
     , row "wall seconds"    (fixed 2 secs)
     , row "files/sec"       (fixed 1 rate)
     ]
-  section "read failures" (tRead t + length dirErrs)
-          [T.pack p <> ": " <> why | (p, why) <- capped (tReadErrs t) dirErrs]
-  section "decode failures" (tDecode t)
-          [T.pack p <> ": " <> why | (p, why) <- tDecodeErrs t]
-  section "parse failures" (tParse t)
-          [T.pack p <> ": " <> why | (p, why) <- tParseErrs t]
-  section "span violations" (tViolations t) (tViolSample t)
-  section "id collisions" (tCollisions t) (tCollSample t)
+  -- The read-failure SECTION lists the unreadable directories beside the
+  -- unreadable files and totals both, where the rows above keep them apart.
+  -- The rows are per bucket and a directory is not a file in any of them.
+  section (failureLabel FRead) (count FRead + length dirErrs)
+          (paths (capped (tallySample (failed FRead t)) dirErrs))
+  section (failureLabel FDecode) (count FDecode) (paths (tallySample (failed FDecode t)))
+  section (failureLabel FParse) (count FParse) (paths (tallySample (failed FParse t)))
+  section "span violations" (tallyCount (tViolations t)) (tallySample (tViolations t))
+  section "id collisions" (tallyCount (tCollisions t)) (tallySample (tCollisions t))
   section "derived skipped" (length derived) (map T.pack (take sampleLimit derived))
   section "config skipped" (length configDirs) (map T.pack (take sampleLimit configDirs))
   section "config keywords" (length keywords) [T.unwords keywords]
@@ -374,6 +399,8 @@ report roots files t dirErrs derived configDirs seed walkSecs secs drifts = do
   where rate | secs > 0  = fromIntegral files / secs
              | otherwise = 0
         keywords = tkActive seed <> tkInactive seed
+        count kind = tallyCount (failed kind t)
+        paths entries = [ T.pack p <> ": " <> why | (p, why) <- entries ]
 
 section :: Text -> Int -> [Text] -> IO ()
 section title total entries

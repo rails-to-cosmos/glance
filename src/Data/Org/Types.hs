@@ -31,9 +31,11 @@ module Data.Org.Types ( Context (..)
                       , defaultContext
                       , defaultHeadline
                       , headlineSpanParts
+                      , headlinesOf
                       , hsFull
                       , identity
                       , inTodo
+                      , levelOf
                       , registerHeadline
                       , resolveHeadline
                       , setCategory
@@ -41,6 +43,7 @@ module Data.Org.Types ( Context (..)
                       , signChar
                       , sliceSpan
                       , spanFaults
+                      , spelled
                       , stripSpans
                       , tsBrackets
                       , typeChar
@@ -176,9 +179,24 @@ instance TextShow Element where
   showb (EToken a) = TS.showb a
 
 -- | Reset the spans an element carries, for span-insensitive comparison.
+--
+-- Every constructor is spelled out and there is NO catch-all, which is what
+-- makes the obligation enforceable: the suite reads elements through
+-- @bare = map (stripSpans . valueOf)@, so a fifth constructor carrying spans
+-- that fell through unstripped would turn ~150 span-insensitive assertions
+-- span-sensitive in silence.  Under @-Wall@ the compiler now asks for the arm.
 stripSpans :: Element -> Element
 stripSpans (EHeadline a) = EHeadline a { spans = emptyHeadlineSpans }
-stripSpans e = e
+stripSpans e@(EPragma _) = e
+stripSpans e@(ETimestamp _) = e
+stripSpans e@(EToken _) = e
+
+-- | The headlines among ELEMS, in document order.  One reading of the
+-- comprehension four callers wrote out — the scan, the index, the loader and
+-- the view — so a second 'Element' constructor carrying a headline extends this
+-- rather than four sites that would silently disagree.
+headlinesOf :: [Spanned Element] -> [Headline]
+headlinesOf elems = [ h | EHeadline h <- map valueOf elems ]
 
 -- Headline
 
@@ -249,10 +267,15 @@ headlineSpanParts h = [ (label, sp, slices label) | (label, sp) <- spanParts (sp
           "hsPriority" -> (== maybe "" showt (priority h))
           "hsTitle"    -> \t -> T.words t == T.words (showt (title h))
           "hsTags"     -> (== showt (tags h))
-          "hsSchedule" -> timestampSlice (schedule h)
-          "hsDeadline" -> timestampSlice (deadline h)
-          "hsClosed"   -> timestampSlice (closed h)
-          _hsProperties -> drawer
+          "hsSchedule"   -> timestampSlice (schedule h)
+          "hsDeadline"   -> timestampSlice (deadline h)
+          "hsClosed"     -> timestampSlice (closed h)
+          "hsProperties" -> drawer
+          -- A label 'spanParts' names and this does not.  The dispatch is over
+          -- text, so the compiler cannot ask for it; the answer that FAILS is
+          -- what makes the corpus scan report the omission as a slice mismatch,
+          -- where falling through to the drawer test passed it in silence.
+          _unspecified   -> const False
         drawer t = ":PROPERTIES:" `T.isPrefixOf` stripped && ":END:" `T.isSuffixOf` stripped
           where stripped = T.strip t
 
@@ -340,6 +363,11 @@ instance Monoid Indent where
 
 instance TextShow Indent where
   showb (Indent n) = TS.fromText (T.replicate n "*")
+
+-- | H's outline level: the number of stars it opens with.  The unwrapping three
+-- callers spelled by hand, including the @level == 1@ that decides a row.
+levelOf :: Headline -> Int
+levelOf h = case indent h of Indent n -> n
 
 -- Keyword
 
@@ -511,6 +539,13 @@ unitChar Weeks = 'w'
 unitChar Months = 'm'
 unitChar Years = 'y'
 
+-- | T under FMT in the default locale.  The one spelling of
+-- @formatTime defaultTimeLocale@, since every stamp this codebase writes — org's
+-- own @%Y-%m-%d %a@, a time of day, the index's ISO instant — is that call under
+-- a different format string.
+spelled :: Time.FormatTime t => String -> t -> Text
+spelled fmt = T.pack . Time.formatTime Time.defaultTimeLocale fmt
+
 -- | The time-of-day format M needs: seconds only when it carries them.
 tsTimeFormat :: TsMoment -> String
 tsTimeFormat (TsMoment time _hasTime)
@@ -521,14 +556,13 @@ tsTimeFormat (TsMoment time _hasTime)
 -- | Render M as org writes it: date, recomputed weekday, and a time of day
 -- only when the source carried one.
 tsFormat :: TsMoment -> Text
-tsFormat m@(TsMoment time hasTime) = T.pack (Time.formatTime Time.defaultTimeLocale fmt time)
+tsFormat m@(TsMoment time hasTime) = spelled fmt time
   where fmt | hasTime   = "%Y-%m-%d %a " <> tsTimeFormat m
             | otherwise = "%Y-%m-%d %a"
 
 -- | Render M's time of day alone: the tail of the compact range spelling.
 tsTimeOnly :: TsMoment -> Text
-tsTimeOnly m@(TsMoment time _hasTime) =
-  T.pack (Time.formatTime Time.defaultTimeLocale (tsTimeFormat m) time)
+tsTimeOnly m@(TsMoment time _hasTime) = spelled (tsTimeFormat m) time
 
 -- | Render INTERVAL the way org writes a repeater, e.g. ".+3d".
 repeaterFormat :: TimestampRepeaterInterval -> Text
@@ -548,6 +582,15 @@ instance TextShow Title where
 
 -- Todo
 
+-- | A headline's TODO keyword as the parser read it.
+--
+-- NAME is authoritative and verbatim.  ACTIVE is DECIDED AT PARSE TIME against
+-- whatever context the parse was seeded with, and NOTHING downstream reads it
+-- as the answer: classification is 'Data.Org.Config.classify', nearest scope
+-- wins, and the served @active@ flag comes from there.  The field survives
+-- because the parse-time reading is what keeps a keyword out of a title, and it
+-- is part of 'Todo''s 'Eq', which the suite compares on.  Treat it as a
+-- by-product of recognition rather than as a classification.
 data Todo = Todo { name :: Text, active :: Bool }
   deriving (Show, Eq)
 
