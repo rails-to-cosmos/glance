@@ -16,10 +16,11 @@ makes `book.org`'s `* Book` over `*** Notes` one template.  What is NOT
 here: org-glance's own renderer additionally rewrites the template
 heading's title from the capture's title, so a template whose heading
 carries a placeholder (`* Book`) keeps it and the typed line lands at
-`%?`.  Live limit worth knowing: fsnotify does not traverse INTO a
-directory it has just armed, so a fresh blob's `<shard>/<rest>/` pair
-leaves the blob unwatched until a restart or a config reseed — see
-`docs/invariants.md`, Walk.
+`%?`.  One thing this proposal did not know it needed: fsnotify does not
+traverse INTO a directory it has just armed, so a fresh blob's
+`<shard>/<rest>/` pair raises no event at all and the row waited for a
+restart.  The write nudges its own path into the watch's queue instead —
+see `docs/invariants.md`, Keyword config.
 
 Replace the flat inbox capture with org-glance's own flow: ask for a tag,
 expand that tag's capture template (or the default), create the entry **in

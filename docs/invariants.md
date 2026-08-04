@@ -734,36 +734,86 @@ on.
   comes off the store (`clDirs`, the config directories the walk met) — falling
   back to `configDirIn` of the served root when the walk met none, which is the
   only case where there is nothing yet to be right about. **test**
-- **KNOWN GAP (open): the first config directory in a tree that had none may not
-  be watched.** `mkdir -p .org-glance/config` and the write into it happen
-  microseconds apart, and fsnotify arms a watch on a new directory only after it
-  has seen it created — so the event for that first file is lost and the reseed
-  does not fire until the daemon restarts or a later config edit lands. Measured
-  2026-08-01: an external `echo > .org-glance/config/system.org` into a
-  freshly created directory is missed the same way, and a new subdirectory
-  written to a second later IS picked up, which is what makes it a race rather
-  than a rule about hidden or nested paths. It is the watch's property and not
-  the route's — any tool creating the directory and the file together loses the
-  same event. `GET /config` reads the files, so the settings sheet itself is
-  never wrong about them; it is the table that lags.
+- **THE DAEMON QUEUES EVERY PATH IT WRITES, because fsnotify will not.**
+  fsnotify arms a newly created directory but does not TRAVERSE INTO it, so
+  `mkdir -p a/b` leaves `b` unwatched permanently — a one-second pause before
+  the file is written does not help, and staging the creates (`mkdir a`, wait,
+  `mkdir a/b`, wait, write) IS picked up. Measured over a served temp tree,
+  2026-08-04: `data/aa/bbbb/data.org` written after one `mkdir -p` — no event;
+  the same with a second's pause between the directories and the file — no
+  event; `data/ee/data.org`, ONE new level under a watched directory — event. It
+  is a RULE rather than a race, and it is the watch's property rather than any
+  route's: any tool creating the directory and the file together loses the same
+  event.
 
-  **Re-measured 2026-08-04 and it is a RULE rather than a race, which is worse
-  than this entry said.** fsnotify arms a newly created directory but does not
-  TRAVERSE INTO it, so `mkdir -p a/b` leaves `b` unwatched permanently — a
-  one-second pause before the file is written does not help, and staging the
-  creates (`mkdir a`, wait, `mkdir a/b`, wait, write) IS picked up. Measured over
-  a served temp tree: `data/aa/bbbb/data.org` written after one `mkdir -p` — no
-  event; the same with a second's pause between the directories and the file — no
-  event; `data/ee/data.org`, ONE new level under a watched directory — event.
-  This is what a TAGGED CAPTURE hits every time: a blob's `<shard>/<rest>/` pair
-  is one `createDirectoryIfMissing True`, so the blob is written into a directory
-  fsnotify never armed and the row does not arrive until a restart or a config
-  reseed re-walks the tree. The blob itself is correct on disk and the
-  `EXTERNAL.jsonl` line is written, so nothing is lost — what is missing is the
-  live delivery. The fix is the watch's and is not taken: a directory-creation
-  event would have to be let through the predicate and answered with a nested
-  `watchTree` plus a sweep of what it holds, which is machinery in the one loop
-  whose seriality is the reseed's correctness argument. **live** (measured, open)
+  Two writes here mint territory of exactly that shape. A TAGGED CAPTURE's blob
+  is `data/<shard>/<rest>/data.org`, both levels from one
+  `createDirectoryIfMissing True`; the FIRST `.org-glance/config` in a tree is
+  two directories the same way. The daemon knows the path at write time, so it
+  says so: `Glance.Web.Watch.nudge` puts it into the watch's own debounce map
+  (`hubPending`, on the `Hub` for the reason `hubStore` is — two sides reach
+  it), and the existing serial drain loop answers it through the same `settle`
+  step an inotify event gets.
+
+  **THE RULE IS EVERY WRITE, and "the writes that CREATE" was the wrong cut.**
+  Being unwatched is a property of the PATH and it outlives the write that
+  caused it: the shard stays unwatched for the life of the daemon, so the
+  capture arrived and then every LATER write to that row was lost. Measured
+  before the widening: capture a `:work:` blob, `set-state STARTED` on it, and
+  the file reads `* STARTED …` while `/headlines` still says `TODO`, with one
+  watch line in the log instead of two. So all five write sites leave through
+  `Glance.Web.Watch.writeSpans` — `captureInbox`, `captureBlob`, `writeOne`
+  (every `/command` row write), `commit` (`POST /headline`) and `writeLayer`
+  (`POST /config`) — which is `replaceSpans` plus a nudge of the path it just
+  wrote, on the SUCCESS branch, so a drift or a refusal queues nothing. Nudging
+  a watched file costs nothing: the queue is keyed by path, so the nudge
+  coalesces with the inotify events landing microseconds behind it and the pair
+  is one parse. What that buys is a rule with no list to keep in step with the
+  routes, and the path spelled ONCE per write where a caller pairing
+  `replaceSpans` with a nudge of its own could name two different files.
+
+  FOUR THINGS THAT MAKE IT THE SAME MECHANISM RATHER THAN A SECOND ONE. `nudge`
+  is the ONE door into the queue — inotify's own handler goes through it too —
+  so `watched` filters a nudged path exactly as it filters an event and a route
+  can no more smuggle a derived mirror into the table than an event can. The
+  queue is keyed by path, so the debounce is unchanged. Nothing is loaded or
+  published at the door — `settle` on the drain loop remains the only writer of
+  the store, so `POST /command`, `POST /headline` and `POST /config` still never
+  touch it. And the loop stays ONE serial `forever`, which is what the reseed's
+  correctness argument rests on: `drain` is the loop's body lifted into a
+  function so a test can turn it, and it takes the ripe paths out in the
+  transaction before settling them, so a nudge arriving mid-parse waits a turn
+  rather than being lost.
+
+  Evidence: `TestStore` "Nudge" (the door filters, coalesces, writes no store
+  and streams nothing; a nudged path that fails to load keeps its rows),
+  `TestServe` "and the row arrives with no event behind it", "and so does a
+  later write to that same blob" and "the first config layer in a tree reseeds
+  it with no event behind it" — each hands `drain` the directory and the hub and
+  names no path, so they pass only because the write queued its own. Measured
+  live against a served temp tree the same day: the capture logs `1 upsert` and
+  `/headlines` carries the answer's `id`; a `set-state` and an `add-tag` behind
+  it log one line each and the table matches the file; the first `POST /config`
+  logs `config reseed`. **test** (+ live)
+- **KNOWN GAP (open): an EXTERNAL create into a fresh shard is still invisible.**
+  The nudge covers what THIS daemon writes and nothing else, so the control that
+  proves the mechanism is also the gap: a blob written into a `mkdir -p`'d shard
+  by another process raises no event and does not appear until a restart or a
+  config reseed re-walks the tree. org-glance's own Emacs side is a primary blob
+  writer, so this is not hypothetical. Closing it needs what was rejected here —
+  a directory-creation event let through the predicate and answered with a
+  nested `watchTree` plus a sweep of what it holds, which is machinery in the
+  one loop whose seriality is the reseed's correctness argument. An ordinary
+  edit to an EXISTING blob is unaffected either way: that directory was walked
+  at startup and is watched. **live** (measured, open)
+- **KNOWN CONSEQUENCE: the queue outlives the watch thread.** `hubPending` was a
+  local of `watchOrgTree` and died with it; on the `Hub` it does not. The walk
+  and watch run on one `forkIO`'d thread (`Glance.Web.indexTree`), so an
+  exception there leaves the daemon serving and writing with nothing draining,
+  and a tagged capture mints a fresh path per call — bounded by the tree's file
+  count for ordinary edits, unbounded for captures (~1.4 KB an entry; 10k
+  captures ≈ 14 MB). The honest fix is making a dead watch fatal rather than
+  capping the map, and neither is taken. **none**
 
 ## Walk
 
@@ -3068,9 +3118,11 @@ on.
   anchors are dropped by a commit and by a remount, for one reason: an anchor
   belongs to its view. KNOWN LIMIT, inherited rather than introduced: it is spent
   at the FIRST door, so an unrelated watch step landing between the capture's 200
-  and the delivery spends it and the cursor does not move — which is also what
-  the fsnotify gap above costs a tagged capture every time. Evidence: `TestServe`
-  "the captured row is where point lands when it arrives". **test**
+  and the delivery spends it and the cursor does not move. The delivery itself is
+  no longer in doubt — the write nudges its own path (Config, above), which is
+  what gave a TAGGED capture's landing anything to land on. Evidence:
+  `TestServe` "the captured row is where point lands when it arrives" and "a
+  tagged capture lands point on the blob when the watch delivers it". **test**
 - **The reschedule chords survive the browser, and `C-c C-t` still does not.**
   `Ctrl+S` and `Ctrl+D` are page DEFAULT ACTIONS — save-page and bookmark — so
   `preventDefault` on the completing chord reaches them, exactly as it does for

@@ -44,12 +44,13 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 
 import Data.Org.Edit (snapDigest, snapshotOf)
-import Glance.Query ( QueryResult (qrRecords), builtinFilter, linkColumns, loadDir
-                    , loadFile, tagColumns, viewJSON )
+import Glance.Query ( QueryResult (qrRecords), builtinFilter, defaultWalk
+                    , linkColumns, loadDir, loadFile, tagColumns, viewJSON )
 import Glance.Web ( ServeOptions (..), application, bannerLines, bootstrapWanted
                   , defaultPort, viewTitleFor )
 import Glance.Web.Store ( Hub, applyFile, finishLoading, loadStore, newHub
                        , newLoadingHub, publish )
+import Glance.Web.Watch (drain)
 
 -- Fixtures
 --
@@ -2085,6 +2086,27 @@ promptKeySpec shell = testGroup "Shell capture and reschedule"
       "+" "press:Enter type:milk press:Enter frame:upsert=r3 wait:300" $ \answer ->
         assertEqual "point is on the row the capture made" (Just "r3")
           =<< maybeTextAt "selected" answer
+
+    -- THE WHOLE CHAIN FOR A TAGGED CAPTURE, which is the one the daemon's nudge
+    -- unblocked: the blob it writes sits under directories fsnotify never
+    -- entered, so before the nudge no frame was coming and this landing had
+    -- nothing to land on until a restart.  Every link is asserted here — the
+    -- tag resolved, the command posted under it, the answer's id kept, the
+    -- frame delivering that very row, and point moving off the boot's row one
+    -- onto it.
+  , keyed shell "a tagged capture lands point on the blob when the watch delivers it"
+      "+" "type:book press:Enter type:Herbert press:Enter type:Dune press:Enter\
+          \ frame:upsert=r3 wait:300" $ \answer -> do
+        assertEqual "the tag was resolved off the server"
+                    ["/capture", "/capture?tag=book"] =<< textsAt "capturing" answer
+        assertEqual "one capture, under that tag" [Just "book"] =<< taggedOf answer
+        assertEqual "point left the row the boot landed on" (Just "r3")
+          =<< maybeTextAt "selected" answer
+        assertEqual "which is the third row" 2 =<< intAt "cursor" answer
+        -- The boot is the default view, so it is FILTERED: the frame schedules
+        -- the refetch rather than splicing, and the landing still holds across
+        -- it because `arriving' is spent at whichever of the three doors comes.
+        assertEqual "nothing was spliced under the filter" [] =<< textsAt "spliced" answer
 
     -- The chords survive the browser where `C-c C-t' does not, and what the
     -- page owes is the same: both halves claimed off it.
@@ -8459,6 +8481,19 @@ captureSpec = testGroup "POST /command capture"
         rows <- rowsOf =<< getFrom a "/headlines"
         assertBool ("the store spells the same id: " <> show (map rowId rows))
                    ((T.pack (dir </> "inbox.org") <> "#0") `elem` map rowId rows)
+
+    -- The inbox CREATES too, where the target is not there yet, so it queues
+    -- its path by the same rule the blob does.  The directory over it is the
+    -- served root and is watched, so the nudge is the redundant one of the two
+    -- — and that is the point: it is one rule for both shapes rather than a
+    -- special case for the one that needed it.
+  , testCase "a capture that creates its target delivers the row itself" $
+      withCaptureTree Nothing $ \a hub dir -> do
+        rid <- textAt "id" =<< decoded =<< ok =<< postTo a "/command" (capture "TODO Buy milk")
+        drain defaultWalk 0 dir hub
+        rows <- rowsOf =<< getFrom a "/headlines"
+        assertBool ("the captured row is there: " <> show (map rowId rows))
+                   (rid `elem` map rowId rows)
   ]
 
 -- | A TAGGED capture: the blob in the store, org-glance's own citizen.
@@ -8482,6 +8517,38 @@ blobCaptureSpec = testGroup "POST /command capture, under a tag"
         assertContains "the tag is on the headline" ("* Dune :book:") written
         assertContains "and the id is the drawer's" (":ORG_GLANCE_ID: " <> ident) written
         assertContains "beside the creation time" ":ORG_GLANCE_CREATION_TIME: [" written
+
+    -- THE ROW ARRIVES LIVE, and this case names no path to make it.  A blob's
+    -- `<shard>/<rest>/' pair is one `createDirectoryIfMissing True', which
+    -- fsnotify arms without traversing into, so no event is ever coming for it:
+    -- the daemon queues the path itself at write time and the drain loop reads
+    -- the QUEUE.  `drain' is handed the directory and the hub and nothing else,
+    -- so this passes only because the capture put its own blob there.
+  , testCase "and the row arrives with no event behind it" $
+      withStoreTree $ \a hub dir -> do
+        ident <- textAt "id" =<< decoded =<< ok =<< postTo a "/command" dune
+        drain defaultWalk 0 dir hub
+        rows <- rowsOf =<< getFrom a "/headlines"
+        assertBool ("the blob is a row: " <> show (map rowId rows))
+                   (ident `elem` map rowId rows)
+
+    -- AND SO DOES EVERY WRITE AFTER IT, which "the writes that CREATE" got
+    -- wrong: the shard is unwatched for the life of the daemon, so a state set
+    -- on the row the capture just made was written correctly to the file and
+    -- never reached the table.  Every write route leaves through
+    -- `Glance.Web.Watch.writeSpans', so the rule is the daemon queueing every
+    -- path it writes rather than a list of the ones that create.
+  , testCase "and so does a later write to that same blob" $
+      withStoreTree $ \a hub dir -> do
+        ident <- textAt "id" =<< decoded =<< ok =<< postTo a "/command" dune
+        drain defaultWalk 0 dir hub
+        assertOk =<< postTo a "/command" (encode (object
+          [ "name" .= ("set-state" :: T.Text), "ids" .= [ident]
+          , "args" .= object ["keyword" .= ("READING" :: T.Text)] ]))
+        drain defaultWalk 0 dir hub
+        rows <- rowsOf =<< getFrom a "/headlines"
+        state <- traverse (cellAt "state") [ r | r <- rows, rowId r == ident ]
+        assertEqual "the table caught up with the file" ["READING"] state
 
     -- The note rides the write door every other write leaves through, so a
     -- capture costs no rule of its own: blob first, line second.
@@ -8714,6 +8781,27 @@ configSpec = testGroup "GET and POST /config"
           =<< document (T.unpack (systemAt dir))
         v <- decoded =<< getFrom a "/config"
         assertEqual "and the next read says so" "tag:work" =<< textAt "filter" v
+
+    -- THE FIRST CONFIG DIRECTORY IN A TREE THAT HAD NONE, which was a known gap
+    -- and is now the same door a capture uses.  `.org-glance/config/' is two
+    -- directories minted at once, and fsnotify arms a new directory without
+    -- traversing into it, so nothing was ever going to deliver that write; the
+    -- route queues the path it wrote and the drain loop reads the QUEUE, which
+    -- is why this case names no path to `drain'.  A config path settles as a
+    -- RESEED, so what moves is the whole tree's classification.
+  , testCase "the first config layer in a tree reseeds it with no event behind it" $
+      withTempDir $ \dir -> do
+        _ <- orgFile dir "a.org" "* STARTED refactor\n"
+        (a, hub) <- serverOver dir
+        let stateCells = traverse (cellAt "state") <=< rowsOf <=< getFrom a
+        assertEqual "before, the word is title text" [""]
+          =<< stateCells "/headlines"
+        assertOk =<< postTo a "/config"
+                       (configBody (systemAt dir) ["#+TODO: TODO STARTED | DONE"] "")
+        drain defaultWalk 0 dir hub
+        assertEqual "after, it is a state" ["STARTED"] =<< stateCells "/headlines"
+        assertEqual "and the palette moved with it" ["TODO", "STARTED", "DONE"]
+          =<< badgeValues =<< decoded =<< getFrom a "/headlines"
 
   , testCase "an emptied default view takes the line away" $
       withConfigTree $ \a dir -> do

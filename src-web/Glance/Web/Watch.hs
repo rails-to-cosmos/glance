@@ -14,23 +14,33 @@
 -- path: it changes what every OTHER file parses, so the answer is a reseed —
 -- the config re-read and the whole tree re-walked ('reseed').  Expensive, and
 -- the only correct answer to a keyword that has just started existing.
+--
+-- Not every path this loop answers arrives from inotify.  fsnotify arms a newly
+-- created directory without traversing INTO it, so a file under one is unwatched
+-- for as long as the daemon runs and no event for it is ever coming.  Every
+-- write route therefore leaves through 'writeSpans', which queues the path it
+-- just wrote; the queue is the one inotify fills, and 'nudge' is its only door.
 module Glance.Web.Watch
   ( debounceDelay
+  , drain
   , due
   , isWatchable
+  , nudge
   , reload
   , reseed
   , say
   , settle
   , watched
   , watchOrgTree
+  , writeSpans
   ) where
 
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.STM ( atomically, modifyTVar', newTVarIO, readTVar
-                              , readTVarIO, writeTVar )
-import Control.Monad (forever, unless)
+import Control.Concurrent.STM ( atomically, modifyTVar', readTVar, readTVarIO
+                              , writeTVar )
+import Control.Monad (forever, unless, when)
 import Data.Map.Strict (Map)
+import Data.Text (Text)
 import GHC.Clock (getMonotonicTime)
 import System.Directory (doesFileExist)
 import System.IO (hFlush, stdout)
@@ -38,10 +48,11 @@ import System.IO (hFlush, stdout)
 import qualified Data.Map.Strict as Map
 import qualified System.FSNotify as FS
 
-import Glance.Query ( LoadFailure (..), WalkOptions (..), configPath, derivedPath
-                    , documentPath, loadFileWith )
-import Glance.Web.Store ( Frame (..), Hub (hubStore), Store (stConfig), applyFile
-                        , dropFile, loadStoreWith, publish, reseeded )
+import Glance.Query ( LoadFailure (..), Span, WalkOptions (..), WriteFailure
+                    , configPath, derivedPath, documentPath, loadFileWith
+                    , replaceSpans )
+import Glance.Web.Store ( Frame (..), Hub (hubPending, hubStore), Store (stConfig)
+                        , applyFile, dropFile, loadStoreWith, publish, reseeded )
 
 -- | How long a path must stay quiet before it is re-parsed, in seconds.  An
 -- editor's save is several events (truncate, write, rename, chmod) inside a few
@@ -59,21 +70,85 @@ tick = 25000
 -- asks for.  Blocks forever: the manager lives as long as this call, so run it
 -- in its own thread.
 watchOrgTree :: WalkOptions -> FilePath -> Hub -> IO ()
-watchOrgTree opts dir hub = do
-  pending <- newTVarIO Map.empty
+watchOrgTree opts dir hub =
   FS.withManager $ \mgr -> do
-    _stop <- FS.watchTree mgr dir (watched opts . FS.eventPath) (note pending)
-    forever $ do
-      threadDelay tick
-      now <- getMonotonicTime
-      paths <- atomically $ do
-        (ripe, rest) <- due debounceDelay now <$> readTVar pending
-        writeTVar pending rest
-        pure ripe
-      settle opts dir hub paths
-  where note pending event = do
-          now <- getMonotonicTime
-          atomically (modifyTVar' pending (Map.insert (FS.eventPath event) now))
+    _stop <- FS.watchTree mgr dir (watched opts . FS.eventPath) note
+    forever (threadDelay tick >> drain opts debounceDelay dir hub)
+  where note = nudge opts hub . FS.eventPath
+
+-- | One turn of the drain loop: whatever in HUB's queue has been quiet for
+-- DELAY, taken out of it and settled.
+--
+-- Taking and settling are two steps and the take is the transaction, so a path
+-- that arrives while 'settle' is running waits for the next turn rather than
+-- being lost — which is what lets a nudge be dropped in from a request thread
+-- while the loop is mid-parse.  Answering the queue rather than a caller's list
+-- is also what a test needs to check that the daemon put a path there itself.
+--
+-- A turn with nothing ripe writes nothing.  The loop takes 40 turns a second
+-- and request threads now write the same TVar, so an unconditional 'writeTVar'
+-- of the map it just read would dirty it 40 times a second and make a
+-- concurrent 'nudge' retry for no reason.
+drain :: WalkOptions -> Double -> FilePath -> Hub -> IO ()
+drain opts delay dir hub = do
+  now <- getMonotonicTime
+  paths <- atomically $ do
+    (ripe, rest) <- due delay now <$> readTVar (hubPending hub)
+    unless (null ripe) (writeTVar (hubPending hub) rest)
+    pure ripe
+  settle opts dir hub paths
+
+-- | Queue PATH for re-reading, as if an event had arrived for it.
+--
+-- The one door into the queue, which is what makes the rule total: inotify's
+-- own handler comes through here too, so a path is filtered by 'watched' on the
+-- way in whoever put it there and a nudge can no more smuggle a derived mirror
+-- into the table than an event can.  A path the walk declines is dropped in
+-- silence, which is the same answer the fsnotify predicate gives it.
+--
+-- What it buys is the path nothing is watching.  fsnotify arms a newly created
+-- directory but does not traverse into it, so a blob under
+-- @data\/\<shard>\/\<rest>\/@ raises no event ever — not for the capture that
+-- made it and not for any write after.  The daemon knows the path at write
+-- time, so it says so ('writeSpans'), and the row arrives the way every other
+-- row does.
+--
+-- The store is untouched here.  This drops a path in a map; 'settle' on the
+-- drain loop is still the only thing that loads a file or publishes a frame, so
+-- the watch stays the sole updater of the store and the debounce still holds —
+-- a real event landing after a nudge overwrites the timestamp and the pair
+-- costs one parse.
+nudge :: WalkOptions -> Hub -> FilePath -> IO ()
+nudge opts hub path = when (watched opts path) $ do
+  now <- getMonotonicTime
+  atomically (modifyTVar' (hubPending hub) (Map.insert path now))
+
+-- | EDITS spliced into PATH under DIGEST, and PATH queued where that worked.
+--
+-- THE ONE DOOR EVERY WRITE ROUTE LEAVES THROUGH, which is the whole rule: the
+-- daemon queues every path it writes.  Stating it as "the writes that CREATE"
+-- was a census rather than a rule and it was wrong — being unwatched is a
+-- property of the PATH and it outlives the write that caused it.  A blob's
+-- @data\/\<shard>\/\<rest>\/@ is minted by one @createDirectoryIfMissing True@
+-- and fsnotify never enters it, so the capture arrived and every LATER write to
+-- that row — a state, a tag, an archive, a materialize commit — was written
+-- correctly and never delivered.
+--
+-- Nudging a watched file costs nothing.  The queue is keyed by path, so the
+-- nudge coalesces with the inotify events landing microseconds behind
+-- it and the pair is one parse; 'nudge' drops what the walk declines, so a path
+-- the store was never given cannot arrive this way either.  What it buys is a
+-- rule with no list to keep in step with the routes.
+--
+-- Rides the success branch, so a drift or a refusal queues nothing — there is
+-- nothing new to read — and the path is spelled ONCE, where a caller pairing
+-- 'replaceSpans' with a nudge of its own could name two different files.
+writeSpans :: WalkOptions -> Hub -> FilePath -> Text -> [(Span, Text)]
+           -> IO (Either WriteFailure Text)
+writeSpans opts hub path digest edits = do
+  written <- replaceSpans path digest edits
+  either (const (pure ())) (const (nudge opts hub path)) written
+  pure written
 
 -- | The ripe PATHS folded into HUB: one reseed when any of them is a config
 -- file, one re-read each when none is.

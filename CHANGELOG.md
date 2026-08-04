@@ -741,6 +741,24 @@ section groups a feature arc, and its date is that arc's last commit.
   bright, being where a reader finds out why.
 
 ### Fixed
+- **Writes into a tagged capture's blob now reach the table, and the first
+  `.org-glance/config` in a tree reseeds it.** Both create their own directories,
+  and fsnotify arms a newly created directory without traversing into it —
+  measured: one new level under a watched directory fires an event, two do not,
+  and pausing between them does not help. A blob at
+  `data/<shard>/<rest>/data.org` therefore sat somewhere nothing was watching for
+  as long as the daemon ran, so the captured row never appeared AND every later
+  edit to it was lost too: setting a state wrote `* STARTED` to the file while
+  the table went on saying `TODO`. The first config layer in a tree was invisible
+  the same way. The daemon knows the path at write time, so every write now
+  queues the one it just wrote — into the watch's own debounce map, drained by
+  the same serial loop through the same step, so a nudge plus the real event
+  still costs one parse and the watch is still the only thing that updates the
+  store. A path the walk would decline is dropped at that door exactly as an
+  event is, so nothing can arrive by nudging that could not arrive by saving.
+  KNOWN GAP, stated rather than buried: this covers what the daemon itself
+  writes. A blob created into a fresh shard by ANOTHER process — org-glance's own
+  Emacs side — still waits for a restart.
 - **A property key may hold a digit, an underscore or a non-Latin letter, and
   the drawer survives.** `propertyKeyP` is org's own rule now — any run without
   whitespace or a colon — where it had been the narrow keyword charset, so

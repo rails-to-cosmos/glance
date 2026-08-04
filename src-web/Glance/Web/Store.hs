@@ -29,6 +29,7 @@ module Glance.Web.Store
   ( -- * The store
     Store (..)
   , FileEntry (..)
+  , emptyStore
   , loadStore
   , loadStoreWith
   , storeDocument
@@ -48,7 +49,7 @@ module Glance.Web.Store
   , frameText
   , bootstrapFrame
     -- * The hub
-  , Hub (hubStore, hubLoad)
+  , Hub (hubStore, hubLoad, hubPending)
   , LoadState (..)
   , Client
   , clientCapacity
@@ -485,14 +486,25 @@ bootstrapFrame = SetRows . map rowJSON . storeRecords
 
 -- The hub
 
--- | The live store and its sockets.  'hubLoad' says whether the store is the
--- directory yet: the server binds its socket before the walk runs, so every
--- route that reads the store has to be able to answer that it cannot.
+-- | The live store, its sockets, and the paths waiting to be re-read.
+-- 'hubLoad' says whether the store is the directory yet: the server binds its
+-- socket before the walk runs, so every route that reads the store has to be
+-- able to answer that it cannot.
+--
+-- 'hubPending' is the watch's debounce map, and it is HERE rather than inside
+-- the drain loop for the same reason 'hubStore' is: two sides reach it.  The
+-- watch fills it from inotify; every write route fills it directly on its way
+-- out ('Glance.Web.Watch.writeSpans'), because fsnotify arms a new directory
+-- without traversing into it and no event is ever coming for a path under one.
+-- What reads it is still the one serial drain loop, so a nudge is answered by
+-- the same 'Glance.Web.Watch.settle' step an event is, and a real event for a
+-- nudged path coalesces with it rather than costing a second parse.
 data Hub = Hub
   { hubStore   :: !(TVar Store)
   , hubClients :: !(TVar (Map Int Client))
   , hubNextId  :: !(TVar Int)
   , hubLoad    :: !(TVar LoadState)
+  , hubPending :: !(TVar (Map FilePath Double))  -- ^ path → when it was last touched, monotonic.
   }
 
 -- | How far the startup load got.  'Loading' carries the monotonic time it
@@ -546,6 +558,7 @@ newLoadingHub started = hubOver emptyStore (Loading started)
 hubOver :: Store -> LoadState -> IO Hub
 hubOver st load =
   Hub <$> newTVarIO st <*> newTVarIO Map.empty <*> newTVarIO 0 <*> newTVarIO load
+      <*> newTVarIO Map.empty
 
 -- | Install ST as HUB's store and open the store routes.  One transaction, so
 -- no request sees the new store still described as loading.  Nothing is

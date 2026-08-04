@@ -25,20 +25,21 @@ import qualified Data.Text as T
 import qualified Data.Time as Time
 
 import Glance.Query ( ConfigLayers, HeadlineRecord (hrDigest, hrFile, hrId)
-                    , Span (Span), WriteFailure (..)
+                    , Span (Span), WalkOptions, WriteFailure (..)
                     , addTagEdits, archiveEdits, bareTemplate, blobDocument
                     , blobPathIn, captureEdits, captureStamp
                     , captureTargetIn, captureTemplateIn, currentDocument
                     , editLinkEdits, expandTemplate, mintBlobId
                     , planningTimestamp, priorityText, readConfigLayers
                     , removeTagEdits
-                    , renameTagEdits, replaceSpans, rowIdIn, setPlanningEdits
+                    , renameTagEdits, rowIdIn, setPlanningEdits
                     , setPriorityEdits, setStateEdits, setTitleEdits
                     , storeRootIn, tagText, titleText )
 import Glance.Web.Base ( ServeOptions (soDir), answerWrite, bodyObject, captureMoved
-                       , jsonError, jsonResponse, noSuchRow, withBody )
+                       , jsonError, jsonResponse, noSuchRow, walkFor, withBody )
 import Glance.Web.Store ( Hub, Store (stConfig), configDirsIn, headlinesIn, hubStore
                         , recordsUnder, storeDocument, storeRecords )
+import Glance.Web.Watch (writeSpans)
 
 -- Commands
 
@@ -286,23 +287,24 @@ runCommand opts hub request = withBody request $ \raw -> do
     -- destructured HERE, once: what goes down to the planner is the edits
     -- themselves, so nothing below has an arm for a command that edits nothing.
     Right cmd -> case csEdits (cmdSpec cmd) of
-      Nothing -> captureInto opts st cmd
+      Nothing -> captureInto opts hub st cmd
       -- The clock is read ONCE per request, ahead of any row ('resolveDate'),
       -- and everything that can refuse is decided before a file is opened,
       -- leaving the 400 or the IO that writes.
       Just edits -> do
         stamp <- resolveDate cmd
         either (pure . jsonError status400) id
-               (stamp >>= \at -> overRows st at edits cmd)
+               (stamp >>= \at -> overRows opts hub st at edits cmd)
 
 -- | CMD's rows written, as the IO that writes them or the 400 that stops it.
 -- STAMP is @set-planning@'s date already worked out, and is nothing to every
 -- other name.
-overRows :: Store -> Maybe Text -> RowEdits -> Command -> Either Text (IO Response)
-overRows st stamp edits cmd = do
+overRows :: ServeOptions -> Hub -> Store -> Maybe Text -> RowEdits -> Command
+         -> Either Text (IO Response)
+overRows opts hub st stamp edits cmd = do
   (plans, said) <- planCommand st stamp edits cmd
   pure $ do
-    written <- mapM writeOne plans
+    written <- mapM (writeOne (walkFor opts) hub) plans
     -- Answered in the order the client named the ids, so a caller can zip the
     -- results against what it asked for.
     let outcomes = said <> concat written
@@ -344,16 +346,22 @@ resolveDate cmd = case join (agDate (cmdArgs cmd)) of
 -- offset and the lock describe one text.  Nothing here touches the store — the
 -- watch re-reads the file and streams the new row, as for a capture out of
 -- Emacs.
-captureInto :: ServeOptions -> Store -> Command -> IO Response
-captureInto opts st cmd =
+--
+-- Both leave through 'Glance.Web.Watch.writeSpans', like every other write
+-- here, so the path each wrote is queued for the drain loop.  That is a nudge
+-- into the watch's own queue rather than a store update — the loop still does
+-- the loading — and it is what makes a captured row arrive live rather than at
+-- the next restart.
+captureInto :: ServeOptions -> Hub -> Store -> Command -> IO Response
+captureInto opts hub st cmd =
   -- 'wantsText' has already put every @tag@ past 'tagText', which refuses the
   -- empty string and every character a tag may not hold, so ABSENT is the whole
   -- of what "no tag" means here and there is nothing left to strip or test.
-  maybe (captureInbox opts st cmd) (captureBlob opts st cmd) (agTag (cmdArgs cmd))
+  maybe (captureInbox opts hub st cmd) (captureBlob opts hub st cmd) (agTag (cmdArgs cmd))
 
 -- | @capture@ with no tag: CMD's line appended to the tree's capture target.
-captureInbox :: ServeOptions -> Store -> Command -> IO Response
-captureInbox opts st cmd = case captureTargetIn (soDir opts) (stConfig st) of
+captureInbox :: ServeOptions -> Hub -> Store -> Command -> IO Response
+captureInbox opts hub st cmd = case captureTargetIn (soDir opts) (stConfig st) of
   Left why   -> pure (jsonError status400 why)
   Right path -> do
     (doc, digest) <- maybe (currentDocument path) pure (storeDocument path st)
@@ -361,7 +369,7 @@ captureInbox opts st cmd = case captureTargetIn (soDir opts) (stConfig st) of
     case captureEdits doc (captureStamp now) (capturedText cmd) of
       Left why    -> pure (jsonError status400 why)
       Right edits -> answerWrite (captureMoved path) (landed path)
-                       <$> replaceSpans path digest edits
+                       <$> writeSpans (walkFor opts) hub path digest edits
   where
     -- The row the entry BECOMES, so the page can land its cursor on it when the
     -- watch delivers it.  A captured entry joins the END of the file and every
@@ -406,8 +414,8 @@ captureInbox opts st cmd = case captureTargetIn (soDir opts) (stConfig st) of
 -- @data\/@ is a blob, so 'Glance.Query.replaceSpans' appends the
 -- @EXTERNAL.jsonl@ line on its way out as it does for any other blob write.
 -- Blob first, line second, which is the order the contract asks for.
-captureBlob :: ServeOptions -> Store -> Command -> Text -> IO Response
-captureBlob opts st cmd tag = do
+captureBlob :: ServeOptions -> Hub -> Store -> Command -> Text -> IO Response
+captureBlob opts hub st cmd tag = do
   there <- doesDirectoryExist store
   if not there then pure (jsonError status400 noStore) else do
     layers <- readConfigLayers (configDirsIn (soDir opts) st)
@@ -420,8 +428,12 @@ captureBlob opts st cmd tag = do
                      >>= blobDocument tag ident (captureStamp now)
     case composed of
       Left why  -> pure (jsonError status400 why)
+      -- Every write leaves through 'writeSpans', which is what delivers this
+      -- one: a blob's @\<shard>\/\<rest>\/@ pair is one
+      -- @createDirectoryIfMissing True@, so it lands under a directory fsnotify
+      -- armed and never entered, and no event is coming for it now or later.
       Right doc -> answerWrite (captureMoved path) (landed path ident)
-                     <$> replaceSpans path "" [(Span 0 0, doc)]
+                     <$> writeSpans (walkFor opts) hub path "" [(Span 0 0, doc)]
   where
     store = storeRootIn (soDir opts)
     landed path ident fresh =
@@ -437,8 +449,9 @@ capturedText = fromMaybe "" . agText . cmdArgs
 -- | PLAN's file written once, and what that came to for each of its ids.  Both
 -- outcomes are shared by the whole group, because the write is: the batch lands
 -- or the file is untouched.
-writeOne :: FilePlan -> IO [(Text, Value)]
-writeOne plan = report <$> replaceSpans (fpPath plan) (fpDigest plan) spliced
+writeOne :: WalkOptions -> Hub -> FilePlan -> IO [(Text, Value)]
+writeOne opts hub plan =
+  report <$> writeSpans opts hub (fpPath plan) (fpDigest plan) spliced
   where
     spliced = concatMap snd (fpRows plan)
     report written = [ (rid, either (refused rid . why) (done rid) written)

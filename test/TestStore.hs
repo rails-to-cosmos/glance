@@ -7,7 +7,7 @@
 -- with a clock in it, the debounce, is a pure function over a map.
 module TestStore (spec) where
 
-import Control.Concurrent.STM (atomically)
+import Control.Concurrent.STM (STM, atomically, orElse, readTVarIO)
 import Control.Monad (replicateM_)
 import Data.Aeson (Value (Object, String))
 import Data.Maybe (listToMaybe)
@@ -29,11 +29,12 @@ import Glance.Query ( HeadlineRecord (hrDigest, hrFile, hrId, hrLinked, hrTitle)
                     , LoadFailure (..), QueryResult (..), TodoKeywords (..)
                     , WalkOptions (..), defaultWalk, loadDir, loadDirWith, loadFile
                     , noConfig, replaceSpans, rowJSON, setStateEdits, subtreeText )
-import Glance.Web.Store ( Frame (..), Store (stGen, stPrint), applyFile, bootstrapFrame
-                        , clientCapacity, dropFile, frameJSON, loadStore
+import Glance.Web.Store ( Client, Frame (..), Hub (hubPending, hubStore)
+                        , Store (stGen, stPrint), applyFile, bootstrapFrame
+                        , clientCapacity, dropFile, emptyStore, frameJSON, loadStore
                         , loadStoreWith, newHub, nextFrame, publish, storeKeywords
                         , storeRecords, storeResult, storeTags, subscribe )
-import Glance.Web.Watch (debounceDelay, due, isWatchable, watched)
+import Glance.Web.Watch (debounceDelay, drain, due, isWatchable, nudge, watched)
 
 -- Scaffolding
 --
@@ -110,7 +111,8 @@ stringAt _key _v = Nothing
 spec :: TestTree
 spec = testGroup "Store"
   [ diffSpec, failureSpec, generationSpec, fingerprintSpec, keywordSpec, tagSpec
-  , derivedSpec, sidecarSpec, sharedSpec, bootstrapSpec, hubSpec, debounceSpec ]
+  , derivedSpec, sidecarSpec, sharedSpec, bootstrapSpec, hubSpec, debounceSpec
+  , nudgeSpec ]
 
 -- | Emacs's sidecars, which the walk and the watch have to refuse together.
 -- The lock is the one that costs: it dangles, its extension is @.org@, and a
@@ -844,3 +846,107 @@ debounceSpec = testGroup "Debounce"
       mapM_ (assertBool "should be watched" . isWatchable)
             ["/o/#inbox.org", "/o/#notes.org", "#one.org"]
   ]
+
+-- | The nudge: a path put into the watch's queue by the daemon rather than by
+-- inotify, because fsnotify arms a newly created directory without traversing
+-- into it and no event is coming for what a write just made.
+--
+-- What is checked here is the DOOR — that it filters like an event, coalesces
+-- like an event and touches no store.  That every write route leaves through
+-- it is 'TestServe'.
+nudgeSpec :: TestTree
+nudgeSpec = testGroup "Nudge"
+  [ testCase "a nudged path joins the queue the way an event does" $
+      assertEqual "one path waiting" ["/o/notes.org"] =<< queued ["/o/notes.org"]
+
+    -- THE PREDICATE IS THE DOOR'S, not the caller's.  A route that nudged a
+    -- mirror would otherwise put in the table exactly what the walk declined,
+    -- which is the one thing the watch filter exists to stop.
+  , testCase "a path the walk declines is nudged into nothing" $
+      assertEqual "nothing waiting" [] =<< queued
+        [ "/o/notes.txt", "/o/.#notes.org", "/o/#notes.org#"
+        , "/o/.org-glance/overviews/c1f3/overview.org"
+        , "/o/.org-glance/meta/agenda.org" ]
+
+    -- The canonical store and the config are the two a write reaches through
+    -- unwatched directories: a blob is a row and a config layer is a reseed.
+  , testCase "a blob and a config layer both get through" $
+      assertEqual "both waiting"
+                  [ "/o/.org-glance/config/system.org"
+                  , "/o/.org-glance/data/ac/2ede/data.org" ]
+        =<< queued [ "/o/.org-glance/data/ac/2ede/data.org"
+                   , "/o/.org-glance/config/system.org" ]
+
+    -- THE DEBOUNCE STILL HOLDS.  The map is keyed by path, so a real event
+    -- landing behind a nudge overwrites the timestamp rather than adding a
+    -- second entry, and the pair costs ONE parse.  This is the whole reason the
+    -- door is the debounce map rather than a queue of its own.
+  , testCase "a nudge and an event for one path are one load" $ do
+      pending <- queue ["/o/notes.org", "/o/notes.org"]
+      assertEqual "one entry, not two" ["/o/notes.org"] (Map.keys pending)
+      assertEqual "and it comes due once" ["/o/notes.org"]
+                  (fst (due 0 (maximum (Map.elems pending)) pending))
+
+    -- A nudge is a note in a map.  Loading and streaming are the drain loop's,
+    -- which is what keeps the watch the sole updater of the store even though a
+    -- request thread can now reach the queue.
+  , testCase "nudging writes no store and streams nothing" $
+      withStoreOf [("a.org", "* TODO one\n")] $ \_dir path store -> do
+      hub <- newHub store
+      (_cid, client, _boot) <- atomically (subscribe hub)
+      TIO.writeFile path "* TODO one renamed\n"
+      nudge defaultWalk hub path
+      next <- readTVarIO (hubStore hub)
+      assertEqual "the store still says what it loaded"
+                  ["one"] (map hrTitle (storeRecords next))
+      assertBool "and the generation has not moved" (stGen next == stGen store)
+      assertEqual "nothing on the wire" Nothing =<< atomically (tryFrame client)
+
+    -- The drain is where it becomes a load, and it names no path: what it reads
+    -- is the queue, so this passes only because the nudge put the path there.
+  , testCase "the drain loop turns a nudge into the load" $
+      withStoreOf [("a.org", "* TODO one\n")] $ \dir path store -> do
+      hub <- newHub store
+      TIO.writeFile path "* TODO one renamed\n"
+      nudge defaultWalk hub path
+      drainNow dir hub
+      assertEqual "the row moved" ["one renamed"] . map hrTitle . storeRecords
+        =<< readTVarIO (hubStore hub)
+      assertEqual "and the queue is spent" [] . Map.keys
+        =<< readTVarIO (hubPending hub)
+
+    -- A nudged path is a path like any other once it is in the queue, so a file
+    -- that will not parse keeps its rows and says nothing, exactly as a saved
+    -- one does.  Nothing about the door makes a bad load louder.
+  , testCase "a nudged path that fails to load keeps its rows and streams nothing" $
+      withStoreOf [("a.org", "* TODO one\n")] $ \dir path store -> do
+      hub <- newHub store
+      (_cid, client, _boot) <- atomically (subscribe hub)
+      TIO.writeFile path "* A title with a :: double colon\n"
+      nudge defaultWalk hub path
+      drainNow dir hub
+      next <- readTVarIO (hubStore hub)
+      assertEqual "the rows it had" ["one"] (map hrTitle (storeRecords next))
+      assertBool "the generation moved on the outcome" (stGen next > stGen store)
+      assertEqual "and no row op behind it" Nothing =<< atomically (tryFrame client)
+  ]
+  where
+    -- PATHS nudged into a hub over no files, and what is waiting afterwards.
+    -- A path in the queue need be no path anything has read, so these cases
+    -- touch no disk at all.
+    queue paths = do
+      hub <- newHub emptyStore
+      mapM_ (nudge defaultWalk hub) paths
+      readTVarIO (hubPending hub)
+    queued = fmap Map.keys . queue
+
+-- | One turn of the drain loop over DIR's HUB with the debounce out of the way:
+-- everything queued is ripe, which is what a test wants and what the 25 ms poll
+-- would otherwise make it sleep for.
+drainNow :: FilePath -> Hub -> IO ()
+drainNow = drain defaultWalk 0
+
+-- | C's next frame if there is one already, without blocking on a socket that
+-- was never going to be written to.
+tryFrame :: Client -> STM (Maybe Frame)
+tryFrame c = nextFrame c `orElse` pure Nothing

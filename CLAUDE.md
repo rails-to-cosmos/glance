@@ -340,6 +340,27 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - A CONFIG RESEED BLOCKS THAT LOOP, so the 100 ms debounce above means "100 ms,
   or a full re-walk" — ~10 s over ~/sync. "No ceiling" is about the debounce and
   understates what a config edit costs every other pending path.
+- THE DAEMON NUDGES EVERY PATH IT WRITES, because fsnotify arms a newly
+  created directory and does not TRAVERSE INTO it — `mkdir -p a/b` leaves `b`
+  unwatched permanently (measured 2026-08-04: one new level under a watched
+  directory fires, two do not, and a pause between them does not help). Being
+  unwatched is the PATH's property and outlives the write that made it, so
+  "the writes that CREATE" was the wrong cut: a tagged capture's blob arrived
+  and then every LATER write to that row was lost — the file read `* STARTED`
+  while the table still said `TODO`. ALL FIVE write sites therefore leave
+  through `Watch.writeSpans` (`replaceSpans` + a nudge of the path just
+  written, on the SUCCESS branch): `captureInbox`, `captureBlob`, `writeOne`,
+  `commit` and `writeLayer`. Nudging a watched file costs nothing — the queue
+  is keyed by path, so it coalesces with the events landing behind it and the
+  pair is one parse — and the path is spelled ONCE per write. The queue is the
+  watch's debounce map, moved onto the `Hub` (`hubPending`) so a request thread
+  reaches it; `Watch.nudge` is the ONE door into it and inotify's own handler
+  goes through it too, so `watched` filters a nudge exactly as it filters an
+  event. Nothing loads or publishes at the door — `settle` on the serial loop
+  stays the sole store updater, and `drain` is that loop's body as a function,
+  taking the ripe paths out in the transaction before settling them. KNOWN GAP:
+  an EXTERNAL create into a fresh shard (org-glance's Emacs side) is still
+  invisible until a restart — the nudge covers what this daemon writes.
 - Deletion is decided by `doesFileExist` at reload time, not by the event kind.
 - `stTags` counts FILES, not rows: it is stepped by the set difference between
   a file's old and new projection, so a tag on forty rows of one file counts
@@ -510,7 +531,10 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   PLANNING LINE — from the title line instead it splices BETWEEN a headline and
   its `SCHEDULED:`, where the planning line stops being read as one. A template
   that expands to no headline is refused: the blob would carry no entry and
-  `blobIdOf` would read no id back out of it.
+  `blobIdOf` would read no id back out of it. The blob's shard is unwatched for
+  the daemon's life, so the capture AND every later write to that row reach the
+  table only because every write nudges its own path (see Watch) — which is what
+  the shell's `arriving` lands on.
 - A TAG'S CAPTURE TEMPLATE IS ITS CONFIG LAYER'S FIRST HEADING — the file that
   already carries its `#+TODO:` cycle, org-glance's own convention and no new
   file class. Read the way `org-glance-tag-config--entry` reads it: from the
@@ -2284,9 +2308,10 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   a keyword token is letters and `_`, so the group names cannot parse into one),
   an unknown path, a bad body — all 400; 409 on drift; 413 past 1 MiB. An empty
   `lines` deletes the layer's cycle.
-- KNOWN GAP: creating the FIRST `.org-glance/config` in a tree that had none
-  races fsnotify's watch-arming, so that one write does not reseed until a
-  restart or a later config edit. The watch's property, not the route's.
+- Creating the FIRST `.org-glance/config` in a tree that had none is two
+  directories at once, which fsnotify arms and never enters, so that write
+  reseeds because `writeLayer` goes through `Watch.writeSpans` like every other
+  write (see Watch) rather than because an event arrives.
 - Settings sheet = `,` (`customize`), the page's ONE place for a preference and
   the materialize sheet's own ladder over `/config`, which is the same code
   rather than a second copy of the shape: buttonless, ESC/backdrop syncs the
@@ -2358,9 +2383,14 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - `glance-web` exposes fourteen modules and has no `other-modules`, and inside
   it the dependency runs ONE way — `Glance.Web.Base` the floor, `Glance.Web`
   the door: `Base` → `Keymap`/`Page.Style`/`Page.Glue` → `Page` → `Routes` →
-  `Glance.Web` → `Glance.Desktop`(`.Native`), with `Commands` on
-  `Base` + `Store`, and `Routes` also reading `Filter`, `Sort`, `Store` and
-  `Page.Style`. `Base` holds exactly what more than one module above needs:
+  `Glance.Web` → `Glance.Desktop`(`.Native`), with `Watch` on `Store`,
+  `Commands` on `Base` + `Store` + `Watch`, and `Routes` also reading `Filter`,
+  `Sort`, `Store`, `Watch` and
+  `Page.Style`. `Watch` sits under both write routes because `writeSpans` — the
+  door every write leaves through — and the predicate filtering what it queues
+  are the watch's; it names nothing above itself, so there is no cycle to
+  close.
+  `Base` holds exactly what more than one module above needs:
   `ServeOptions`, the response constructors, the body reader and the
   write-refusal vocabulary (`answerWrite` and the sentences it chooses between)
   — the route table and the command table both answer through them, and a cycle

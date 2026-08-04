@@ -75,7 +75,7 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , configEdits, defaultFilter, defaultFilterOf
                     , headlineParts, keywordSources, linkShown, linkType
                     , planningKeywords, readConfigLayers, readsAsTimestamp
-                    , recomposedSubtree, replaceSpans
+                    , recomposedSubtree
                     , ownBodyLines, sortedForViewWith
                     , subtreeEntries, subtreeEntryAt, subtreeLinks
                     , subtreeText, systemSetting, tagsOfCell
@@ -84,7 +84,7 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
 import Glance.Web.Base ( ServeOptions (..), answerWrite, bodyObject, configMoved
                        , conflict, html, jsonError, jsonResponse, jsonType, noSuchRow
                        , plain, rendererAsset, reparsed, rewritten, sized, tenths
-                       , unreadable, viewTitleFor, withBody )
+                       , unreadable, viewTitleFor, walkFor, withBody )
 import Glance.Web.Commands (runCommand)
 import Glance.Web.Filter (archiveKey, matchesFilter, namesArchive, storeEnv)
 import Glance.Web.Page (assetsMissing, demoShell)
@@ -97,6 +97,7 @@ import Glance.Web.Store ( Client, Frame (ViewChanged), Hub, LoadState (..)
                         , storeKeywords
                         , storeRecords, storeResult
                         , storeTags, subscribe, unsubscribe )
+import Glance.Web.Watch (writeSpans)
 
 -- | The renderer, read at COMPILE time out of the repo's own @assets\/@ and
 -- carried in the binary, which is what makes a built @glance@ self-contained:
@@ -167,7 +168,7 @@ httpApp opts hub request respond = route >>= respond
       -- and commit it back.
       , (["headline"],  True,  jsonRefusal,
           [ (methodGet, materialize hub (queryId request) (queryChild request))
-          , (methodPost, commit hub (queryId request) (queryChild request) request) ])
+          , (methodPost, commit opts hub (queryId request) (queryChild request) request) ])
       -- @/command@ writes and only writes: there is nothing to read back, since
       -- the rows a command moved arrive over the socket like any other edit.
       , (["command"],   True,  jsonRefusal, [(methodPost, runCommand opts hub request)])
@@ -614,18 +615,21 @@ trailTo f = hrTitle (fcRow f) : reverse (climb (fcAt f))
 -- text itself is taken as given — org validity is the author's business, and a
 -- file that stops parsing keeps the rows it had (docs/invariants.md), exactly
 -- as when the text came from Emacs.
-commit :: Hub -> Maybe Text -> Either Text (Maybe Int) -> Request -> IO Response
-commit _hub Nothing _child _request = pure (jsonError status400 "POST /headline?id=<row id>")
+commit :: ServeOptions -> Hub -> Maybe Text -> Either Text (Maybe Int) -> Request
+       -> IO Response
+commit _opts _hub Nothing _child _request =
+  pure (jsonError status400 "POST /headline?id=<row id>")
 -- The cap outranks the lookup, so the id and the child index are resolved
 -- behind the body rather than in front of it.
-commit hub (Just rid) child request = withBody request $ \raw -> do
+commit opts hub (Just rid) child request = withBody request $ \raw -> do
   st <- readTVarIO (hubStore hub)
   case focusIn st rid child >>= \f ->
          (,) (focusHere f) <$> prepare raw (focusHere f) of
     Left refusal -> pure refusal
     Right (here, (digest, org)) ->
       answerWrite rewritten (\fresh -> ["digest" .= fresh])
-        <$> replaceSpans (hrFile here) digest [(hrSubtree here, org)]
+        <$> writeSpans (walkFor opts) hub (hrFile here) digest
+                       [(hrSubtree here, org)]
 
 -- | What writing R needs — the digest to pin and the text to splice — or the
 -- response refusing to.  Every refusal but the write's own is decided here, so
@@ -986,25 +990,33 @@ keywordsPair kw = ["active" .= tkActive kw, "inactive" .= tkInactive kw]
 -- ('Glance.Web.Watch.settle') and a change to one reseeds the whole tree, so
 -- the rows and the palette arrive by the path an editor saving the same file
 -- already takes.
+--
+-- A write that CREATES the layer says so, through the same door a capture uses
+-- ('Glance.Web.Watch.writeSpans'): the first @.org-glance\/config@ in a tree is two
+-- directories minted at once, which fsnotify arms without entering, so that one
+-- write used to reseed at the next restart and no sooner.  The nudge carries a
+-- config path, 'settle' reads it as a config path, and the answer is the reseed
+-- it always was.
 configWrite :: ServeOptions -> Hub -> Request -> IO Response
 configWrite opts hub request = withBody request $ \raw -> do
   st <- readTVarIO (hubStore hub)
   case parseConfigWrite raw of
     Left why   -> pure (jsonError status400 why)
-    Right want -> writeLayer (configDirsIn (soDir opts) st) want
+    Right want -> writeLayer opts hub (configDirsIn (soDir opts) st) want
 
 -- | WANT written into one of DIRS' layers, or the refusal.  The lookup that
 -- decides which file is the read the edits are then measured in, so the two
 -- cannot be describing different bytes.
-writeLayer :: [FilePath] -> (Text, [Text], ConfigParts, Text) -> IO Response
-writeLayer dirs (path, asked, parts, digest) = do
+writeLayer :: ServeOptions -> Hub -> [FilePath] -> (Text, [Text], ConfigParts, Text)
+           -> IO Response
+writeLayer opts hub dirs (path, asked, parts, digest) = do
   layers <- readConfigLayers dirs
   case find ((== path) . T.pack . lfPath) layers of
     Nothing -> pure (jsonError status400 (noSuchLayer path layers))
     Just f  -> case configEdits (lfText f) asked (scoped f parts) of
       Left why    -> pure (jsonError status400 why)
       Right edits -> answerWrite configMoved written
-                       <$> replaceSpans (lfPath f) digest edits
+                       <$> writeSpans (walkFor opts) hub (lfPath f) digest edits
   where
     -- Both tree-wide LINES are the SYSTEM layer's and no other's, so a tag
     -- layer's write leaves them alone whatever the request said.  The template
