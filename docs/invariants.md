@@ -2407,6 +2407,31 @@ on.
   parses the blob, compares it to a written-down map, checks the two uniqueness
   rules, asserts that both spellings of row and cell movement are present, and
   asserts that the profile machinery is absent from the page. **test**
+- **A letter binding names a PHYSICAL key, and the split is one function's.**
+  `keyName` is where every listener on the page — the dispatch, the sheet, the
+  value palette, the popups — turns a press into a name, so a rule spelled there
+  reaches all of them at once and cannot be half-applied. `e.code` matching
+  `KeyA`–`KeyZ` answers as that letter in lowercase, and `shiftKey` as the
+  UPPERCASE binding rather than an `S-` modifier: `d` flags and `D` archives, and
+  no layout can collapse the two into each other. A chord's second key is a
+  letter like any other, so `C-c C-t` completes on the physical `t` — the
+  reserved-chord rule is untouched, both presses still claimed. EVERYTHING ELSE
+  IS THE CHARACTER `e.key` reports: the named keys (`RET`, `TAB`, the arrows,
+  `DEL`), the function keys, and the PUNCTUATION — `^ : + < > [ ] / , ! @` sit at
+  a different position on every layout, so there is no position to bind and the
+  character is the honest answer. A press carrying no `code` at all falls back to
+  it whole, which is what a browser sending none gets and what every other case
+  in the suite presses. The reader this is for had the Cyrillic layout up and a
+  table that would not move: `т з о л` are now `n p j k`, `в`/`В` the archive
+  pair, `е` the `t` completing `C-c`. TWO CONSEQUENCES, named rather than worked
+  around: the map is QWERTY's POSITIONS, so a Latin layout that moves its letters
+  (AZERTY, Dvorak) reads its own `a` as this map's `q`; and a layout that spells
+  no `<` or `[` — the Russian one does not — cannot reach the punctuation half at
+  all, the letters still carrying movement, marks, states and the archive.
+  Evidence: `TestServe` "Shell layout", which presses `{key: "т", code: "KeyN"}`
+  and the rest through the harness, pins the fallback and the punctuation halves
+  as unmoved, and counts the readers of `keyName` so a fifth listener cannot
+  answer the question its own way. **test**
 - **`d` is dired's flag and dired's `dd`, and the flag IS the confirmation.** The
   first `d` on a row flags it for archiving and echoes `d → flagged — d again
   archives`; a second `d` on an ALREADY-FLAGGED row is `D`, and reaches `D`'s own

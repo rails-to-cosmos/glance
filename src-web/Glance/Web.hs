@@ -6794,11 +6794,45 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "      Backspace: \"DEL\", Delete: \"<delete>\", ArrowUp: \"<up>\", ArrowDown: \"<down>\","
   , "      ArrowLeft: \"<left>\", ArrowRight: \"<right>\", Home: \"<home>\", End: \"<end>\","
   , "      PageUp: \"<prior>\", PageDown: \"<next>\" };"
+    -- ONE NAME PER PRESS, and the SPLIT inside it is the whole layout rule.
+    -- Every listener on this page names a key through here, so the rule is
+    -- spelled once and the dispatch, the sheet, the palette and the popups
+    -- inherit it together.
+    --
+    -- A LETTER IS A PHYSICAL KEY.  `e.code' says where a key SITS — `KeyN' is
+    -- the one a Latin layout writes `n' on — so a reader on Cyrillic navigates
+    -- with `т з о л' and archives with `в', the letters landing where the
+    -- fingers already are.  SHIFT IS THE UPPERCASE BINDING rather than an `S-'
+    -- modifier, which is what keeps `d' and `D' the two rows they are; a chord
+    -- comes through the same door, so the `C-t' completing `C-c' is the
+    -- physical key too.  Shift ALONE decides the case, so a held CapsLock lands
+    -- on the lowercase row — the safe half of that pair, `d' flagging where `D'
+    -- writes.
+    --
+    -- EVERYTHING ELSE IS THE CHARACTER, `e.key' as it always was: the named
+    -- keys, the function keys, and the PUNCTUATION.  `^ : + < > [ ] / , ! @'
+    -- sit at different positions on every layout — there is no position to
+    -- bind — so the character is the honest answer, and a press carrying no
+    -- `code' at all falls back to it whole.
+    --
+    -- THE CHARACTER WINS WHERE IT IS ALREADY A LATIN LETTER: an AZERTY or
+    -- Dvorak hand reads its own labels, byte-unchanged from before this
+    -- branch existed.  The physical code steps in only when the layout speaks
+    -- another script — Cyrillic's `т' sits on KeyN and moves like `n'.  One
+    -- consequence remains, named rather than worked around: a layout that
+    -- spells NO `<' or `[' (the Russian one does not) cannot reach the
+    -- punctuation half; the letters carry movement, marks, states and the
+    -- archive, and the rest wants a layout that has the character.
+  , "    const LETTER = /^Key([A-Z])$/;"
   , "    function keyName(e) {"
   , "      let base = NAMED[e.key], special = base !== undefined;"
   , "      if (!special && /^F\\d{1,2}$/.test(e.key))"
   , "        { base = `<${e.key.toLowerCase()}>`; special = true; }"
-  , "      if (!special) { base = e.key; if (base.length !== 1) return null; }"
+  , "      if (!special) {"
+  , "        const sits = LETTER.exec(e.code || \"\");"
+  , "        base = sits ? (e.shiftKey ? sits[1] : sits[1].toLowerCase()) : e.key;"
+  , "        if (base.length !== 1) return null;"
+  , "      }"
   , "      let mods = \"\";"
   , "      if (e.ctrlKey) mods += \"C-\";"
   , "      if (e.altKey || e.metaKey) mods += \"M-\";"
@@ -7162,7 +7196,10 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     --
     -- Letter mode is bare letters only: `keyName' spells a chord `C-t' and a
     -- held shift `T', neither of which is a claimed letter, so both fall
-    -- through to whatever else wants them.
+    -- through to whatever else wants them.  It is `keyName' that names the
+    -- press here too, so the which-key letters are PHYSICAL keys the way the
+    -- map's are — the pool is a-z by construction (`whichKeys'), and a Cyrillic
+    -- press arrives already spelled in that alphabet.
     --
     -- `raising' IS NOT EXCLUSIVITY, which is why `sole' does not absorb it.
     -- Exclusivity is one surface closing ANOTHER at the door; `raising' is this

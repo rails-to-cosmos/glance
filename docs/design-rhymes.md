@@ -18,6 +18,10 @@ bound everywhere at once: a hand trained anywhere lands here already knowing
 the keys.  The property panel, the link and tag popups, and the material
 document all speak it.  Vertical wears the row wash; horizontal wears the
 crosshair's column hue — in the document as in the table.
+A letter is a PHYSICAL key, one rule in `keyName` that every listener
+inherits: `т з о л` on a Cyrillic layout are `n p j k`, since the fingers
+know where the letters sit rather than what the layout writes there.
+Punctuation stays the character — it sits nowhere in particular.
 
 **Movement never changes context.**  `n`/`p`, `f`/`b` and the grain walk only
 relocate attention: they never open, never close, never commit, never cross a

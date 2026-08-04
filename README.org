@@ -72,8 +72,10 @@ parser oracle rather than a view.
 (=n=/=j=, =f=/=l=) — carried into the page as a JSON blob that the dispatch, the
 echo pill and the resident key line all read. Press a key and the pill says
 =SEQ → command=; the last line of the page is the whole map's summary. Nothing
-is restated here, so a binding cannot go stale in this file. Two rules worth
-knowing off-page: =DEL= is a ladder (unmark all, else drop the query's last
+is restated here, so a binding cannot go stale in this file. A letter binding
+names the *physical key* rather than the character, so a Cyrillic layout
+navigates on =т з о л= and punctuation stays the character it types. Two rules
+worth knowing off-page: =DEL= is a ladder (unmark all, else drop the query's last
 token, else pop a drill's crumb), and =C-c C-t= is bound and correct but never
 completes in a browser, =Ctrl+T= belonging to the browser process — which is
 what the native window fixes and what the plain =t= works around.

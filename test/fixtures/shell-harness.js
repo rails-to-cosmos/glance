@@ -12,7 +12,9 @@
 // reports as `X-Glance-Total', which is what decides whether the boot pulls
 // the rest of the set in behind the first page.  KEYS is an optional
 // space-separated list of `KeyboardEvent.key' names pressed over the table once
-// the boot has settled.  Both overlays are opened through the page's own keys:
+// the boot has settled — a `%CODE' tail naming the physical key under the
+// character, the way a non-Latin layout delivers one (`т%KeyN').  Both overlays
+// are opened through the page's own keys:
 // `Enter' materializes the first row and `/' raises the filter palette.  ACTS
 // is what happens after that, one verb at a time, each settled before the next:
 //
@@ -40,7 +42,8 @@
 //   recolumn      the store moves and its columns move with it
 //   rewritten     the file behind the open sheet moves: a new digest
 //   press:KEY     KEY pressed, so a key can follow an act rather than precede
-//                 it; `C-x' and `S-Tab' spell the modifiers
+//                 it; `C-x' and `S-Tab' spell the modifiers and `т%KeyN' the
+//                 physical key under a character
 //   click:I       row I of the modal mount that is up clicked, which is the one
 //                 way a cursor moves out from under an open edit overlay
 //   theme:NAME    NAME picked in the settings sheet's theme select, event and all
@@ -1123,13 +1126,26 @@ eval(fs.readFileSync(dir + "/shell.js", "utf8"));
 // sheet's property panel, which the page tells from `Tab' by the modifier
 // alone.
 //
+// A `%CODE' tail is the PHYSICAL key under the character, which is the one
+// thing a layout changes: `т%KeyN' is the key a Latin layout writes `n' on,
+// pressed on a Cyrillic one, and `S-В%KeyD' is that key's shifted half.  A name
+// without one carries no `code' at all — the fallback a browser that sends none
+// leaves the page with, and what every other press here is.
+//
 // Whether the dispatch CLAIMED a key is recorded, because that is the half of
 // the reserved-chord rule behaviour can otherwise not show: a chord the page
-// leaves to the browser and one it takes both look like nothing happening.
+// leaves to the browser and one it takes both look like nothing happening.  It
+// is recorded under the name the script PRESSED, tail and all.
 const press = (name, repeating) => {
-  const ctrl = name.startsWith("C-"), shift = name.startsWith("S-");
+  // A tail wants both halves, so a `%' with nothing either side of it is the
+  // key it spells rather than a separator.
+  const cut = name.indexOf("%"), tailed = cut > 0 && cut < name.length - 1;
+  const code = tailed ? name.slice(cut + 1) : undefined;
+  const spelled = tailed ? name.slice(0, cut) : name;
+  const ctrl = spelled.startsWith("C-"), shift = spelled.startsWith("S-");
   const event = {
-    key: ctrl || shift ? name.slice(2) : name,
+    key: ctrl || shift ? spelled.slice(2) : spelled,
+    code,
     ctrlKey: ctrl, altKey: false, metaKey: false, shiftKey: shift,
     repeat: !!repeating, target: node,
     // The DOM's own record of "a listener has handled this", which the later
@@ -1143,7 +1159,7 @@ const press = (name, repeating) => {
   // has the focus.  Without it "the page left this key to the field" is
   // indistinguishable from "nothing happened", which is exactly the rule a
   // popup's nav-mode DEL has to be told apart from.
-  if (name === "Backspace" && !event.defaultPrevented && active
+  if (spelled === "Backspace" && !event.defaultPrevented && active
       && (active.tagName === "INPUT" || active.tagName === "TEXTAREA"))
     active.value = String(active.value).slice(0, -1);
 };

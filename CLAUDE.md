@@ -1234,6 +1234,21 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   twice or opens a longer one. Sequences and command names are org-glance's where
   org-glance has one; a row with no handler is recognized and says what will
   back it.
+  A LETTER BINDING NAMES A PHYSICAL KEY, and the split is `keyName`'s alone —
+  the one function every listener (dispatch, sheet, value palette, popups) names
+  a press through, so all of them inherit it together. `e.code` matching
+  `KeyA`–`KeyZ` answers as that letter, lowercase, and `shiftKey` as the
+  UPPERCASE binding rather than an `S-` modifier, which is what keeps `d` and
+  `D` two rows; a chord's second key comes through the same door, so `C-c C-t`
+  completes on the physical `t`. Everything else is the CHARACTER `e.key`
+  reports — the named keys, the function keys, and the PUNCTUATION (`^ : + < >
+  [ ] / , ! @`), which sits at a different position on every layout and so has
+  no position to bind. A press carrying no `code` falls back whole, which is
+  what the suite's own events are. Consequences, both named: the map is
+  QWERTY's POSITIONS, so a Latin layout that moves its letters (AZERTY, Dvorak)
+  reads its own `a` as this map's `q`; and a layout spelling no `<` or `[` —
+  the Russian one does not — cannot reach the punctuation half, the letters
+  still carrying movement, marks, states and the archive.
   `RESERVED` = `C-l`, `C-r`, `C-t`, `C-w`, `C-n`, `C-p`, `<f5>`: a reserved key
   reaches the browser UNLESS it completes a bound sequence. What the list
   actually buys is the abandoned prefix — without it a dead-end chord would be

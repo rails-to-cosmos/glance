@@ -453,7 +453,7 @@ spec = withResource (body <$> get assetsDir "/") (const (pure ())) $ \shell ->
     , bootstrapSpec, materializeSpec, commitSpec, commandSpec, planningSpec
     , tagCommandSpec, renameCommandSpec, tagsSpec, captureSpec
     , configSpec, keywordsSpec, linksSpec, editLinkSpec, indexingSpec
-    , pageSpec shell, keymapSpec shell
+    , pageSpec shell, keymapSpec shell, layoutSpec shell
     , glueSpec shell, bootSpec shell, liveSpec shell, washSpec shell
     , paletteSpec shell
     , moveSpec shell, sortKeySpec shell, markSpec shell, landingSpec shell
@@ -9835,6 +9835,105 @@ keymapSpec shell = testGroup "Shell keymap"
           TIO.writeFile path inline
           (code, _out, err) <- readProcessWithExitCode exe ["--check", path] ""
           assertEqual ("node --check said: " <> err) ExitSuccess code
+  ]
+
+-- | A LETTER IS A PHYSICAL KEY, so a keyboard writing another alphabet drives
+-- this page.  The rule lives in @keyName@ alone — the one function every
+-- listener names a press through — and the split it draws is the whole of it:
+-- @KeyA@..@KeyZ@ answer as the letter that key sits at, and everything else is
+-- the CHARACTER @e.key@ reported, punctuation included.
+--
+-- The presses here carry both halves the way a browser delivers them: @т%KeyN@
+-- is ЙЦУКЕН's @т@ on the key a Latin layout writes @n@ on.  Every OTHER case in
+-- this file presses a character with no @code@ at all, which is the fallback
+-- half — a browser that sends none, and the suite's own events.
+layoutSpec :: IO T.Text -> TestTree
+layoutSpec shell = testGroup "Shell layout"
+  [ -- The complaint this answers: a reader with the Cyrillic layout up pressed
+    -- `n' and the table sat there, `т' being no binding of anything.
+    keyed shell "a Cyrillic press moves on the key the letter sits at"
+      "т%KeyN т%KeyN" "" $ \answer -> do
+        rowIs "two rows down" "r3" answer
+        -- The pill speaks the BINDING's own spelling, which is what says the
+        -- press resolved to the map rather than to the character.
+        echoIs "under the map's own name for the key" "n → next-row" answer
+
+  , keyed shell "and both movement dialects are the keys they sit at"
+      "о%KeyJ о%KeyJ л%KeyK" "" $ \answer -> do
+        rowIs "down twice on vim's pair, back up once" "r2" answer
+        echoIs "the last press" "k → previous-row" answer
+
+    -- SHIFT IS THE UPPERCASE BINDING rather than an `S-' modifier, which is
+    -- what keeps `d' and `D' the two rows they are: one flags and the other
+    -- writes, and a layout must not be able to collapse them into each other.
+  , testCase "shift picks the uppercase binding, and the lowercase one stays its own" $ do
+      bootOf shell "" 500 "в%KeyD" "" $ \answer -> do
+        assertEqual "the row is flagged and nothing is written" [] =<< postedOf answer
+        assertEqual "the flag" ["r1"] =<< textsAt "flagged" answer
+        echoIs "dired's first press" "d → archive-flag (flagged — d again archives)" answer
+      bootOf shell "" 500 "S-В%KeyD" "" $ \answer -> do
+        assertEqual "the shifted half archives the row at point"
+                    [("archive", ["r1"])] =<< postedOf answer
+        echoIs "and names the command it ran"
+          "D → org-glance-overview:delete (archived · row)" answer
+
+    -- PUNCTUATION IS THE CHARACTER.  `:' is Shift+Semicolon on a US layout and
+    -- Shift+Digit6 on the Russian one — there is no position to bind — so the
+    -- character is the honest answer and the key reaches the tag palette from
+    -- either.
+  , keyed shell "punctuation answers to the character, whatever key it sits on"
+      "S-:%Digit6" "" $ \answer -> do
+        assertEqual "the tag popup is up" "on" =<< textAt "tagpop" answer
+        assertEqual "over the row at point" "tags · 1 row" =<< textAt "thead" answer
+
+    -- A chord's second key is a letter, so it comes through the same door: the
+    -- reserved-chord rule is unmoved and both presses are still claimed.
+  , keyed shell "a chord completes on the physical key too" "C-c C-е%KeyT" "" $ \answer -> do
+        assertEqual "the palette is up" "on" =<< textAt "prompt" answer
+        assertEqual "resolved for the row the command names"
+                    ["/keywords?ids=r1"] =<< textsAt "resolved" answer
+        assertEqual "and neither chord was left to the browser"
+                    ["C-c", "C-е%KeyT"] =<< textsAt "prevented" answer
+
+    -- The which-key letters are `keyName''s too, and the pool is a-z by
+    -- construction — so a Cyrillic press arrives already spelled in the
+    -- alphabet the palette assigned from, and the letter commits.
+  , keyed shell "a palette letter commits from a Cyrillic press"
+      "t" "press:е%KeyT" $ \answer -> do
+        assertEqual "one set-state over the row at point"
+                    [("set-state", ["r1"])] =<< postedOf answer
+        assertEqual "as the keyword that letter names" [Just "TODO"] =<< keywordsOf answer
+
+    -- A FIELD KEEPS ITS CHARACTERS.  The dispatch runs outside `typing()' and
+    -- the fallback field claims arrows and RET alone, so a letter over one is
+    -- neither a command nor a commit — it is text, and the page leaves the
+    -- press to it.
+  , keyed shell "a focused field is left the character it was sent"
+      "t /" "press:т%KeyN" $ \answer -> do
+        assertEqual "the palette is in its typing mode" "narrow" =<< textAt "pmode" answer
+        assertEqual "nothing was committed" [] =<< postedOf answer
+        rowIs "and the table under it never moved" "r1" answer
+        assertBool "the key was left to the field"
+          . notElem "т%KeyN" =<< textsAt "prevented" answer
+
+    -- The other half of the split, pressed: a `code' the rule does not read.
+  , keyed shell "a press carrying no code at all is the character it always was"
+      "n j" "" $ rowIs "two rows down" "r3"
+
+    -- The split is one function's, and this is what says so: the RAW event
+    -- fields are read inside `keyName' and nowhere else, so the dispatch, the
+    -- sheet, the value palette and the popups cannot answer the question their
+    -- own way — they name a press or they have no name for it.  Asserted as an
+    -- absence over the glue with that function cut out of it, which no count of
+    -- readers could say.
+  , testCase "the raw event is read in one place, and every listener inherits it" $ do
+      inline <- glueOf =<< shell
+      named <- maybe (assertFailure "no keyName in the glue") pure
+                     (between "function keyName(e) {" "\n    }" inline)
+      holdsAll "the letter rule" ["const LETTER = /^Key([A-Z])$/;"] inline
+      holdsAll "both halves of the split, in keyName" ["e.code", "e.key"] named
+      holdsNone "the glue outside keyName"
+        ["e.code", "e.key"] (T.replace named "" inline)
   ]
 
 -- | What a coarse pointer gets, and what a fine one is spared.  Keys are the
