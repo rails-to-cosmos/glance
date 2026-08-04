@@ -1095,18 +1095,78 @@ shellGlue wanted =
   , "        if (c.key === \"state\") cell.style.color = badgeColor(c.val);"
   , "      });"
   , "    }"
-    -- MOVEMENT: elements on the table's own row keys, cells on its own cell keys.
-    -- Walking off either end of the cells lands in the whole-element look rather
-    -- than bumping, which is the rule `moveCol' keeps over the table.
-  , "    const colStep = (k) => (k === \"<right>\" || k === \"f\" || k === \"l\" ? 1"
-  , "                          : k === \"<left>\" || k === \"b\" || k === \"h\" ? -1 : 0);"
+    -- MOVEMENT IS TWO AXES, the table's own habit read into the document:
+    -- `n'/`p' walk SIBLINGS at the current grain and never dive — a list is ONE
+    -- stop however many items it holds, so holding `n' skims the document at
+    -- reading grain — and `f'/`b' move the GRAIN itself, finer and broader.
+    -- `l'/`h' and the horizontal arrows stay the within-grain cell walk,
+    -- walking off either end into the whole-element look rather than bumping,
+    -- which is the rule `moveCol' keeps over the table.
+  , "    const colStep = (k) => (k === \"<right>\" || k === \"l\" ? 1"
+  , "                          : k === \"<left>\" || k === \"h\" ? -1 : 0);"
+  , "    const grainStep = (k) => (k === \"f\" ? 1 : k === \"b\" ? -1 : 0);"
   , "    const dcells = (r) => (r && (r.kind === \"head\" || r.kind === \"child\")"
   , "                            ? shown(r).length : 0);"
+    -- Siblings at the cursor's grain: a leaf steps only to its owner's other
+    -- leaves — they are contiguous behind their whole, so the neighbour row
+    -- decides — and the element grain steps over every leaf run whole.  Both
+    -- clamp at their ends, silently, the way the old walk clamped at the
+    -- document's.
   , "    function docStep(step) {"
   , "      if (!drows.length) return;"
-  , "      dat = Math.max(0, Math.min(drows.length - 1, dat + step));"
-  , "      if (!dcells(drows[dat])) { dcol = null; dgrain = \"element\"; }"
+  , "      const cur = drows[dat];"
+  , "      let i = dat + step;"
+  , "      if (cur && cur.grain === \"leaf\") {"
+  , "        const kin = drows[i];"
+  , "        if (!kin || kin.grain !== \"leaf\" || kin.owner !== cur.owner)"
+  , "          { drawDoc(); return; }"
+  , "        dat = i;"
+  , "      } else {"
+  , "        while (i >= 0 && i < drows.length && drows[i].grain === \"leaf\") i += step;"
+  , "        if (i < 0 || i >= drows.length) { drawDoc(); return; }"
+  , "        dat = i;"
+  , "      }"
+  , "      if (!dcells(drows[dat])) dcol = null;"
+  , "      dgrain = dcol !== null ? \"cell\""
+  , "             : drows[dat].grain === \"leaf\" ? \"leaf\" : \"element\";"
   , "      drawDoc();"
+  , "    }"
+    -- The grain keys.  `f' on a composite enters its leaves; on a headline it
+    -- enters the cells, which ARE that line's finer grain; at the finest it
+    -- refuses with an echo — finer that does not exist should say so.  `b' is
+    -- the mirror: a cell point broadens to the whole line in one press
+    -- (whatever the column — `l'/`h' keep the walk-off spelling), a leaf to
+    -- its composite whole, and the element grain is the floor: a no-op with an
+    -- echo, never a close, since going OUT of the sheet is `DEL''s and the
+    -- movement/context split dies the moment `b' can shut something.
+  , "    const leavesOf = (from) => {"
+  , "      let n = 0, i = from + 1;"
+  , "      while (i < drows.length && drows[i].grain === \"leaf\") { n += 1; i += 1; }"
+  , "      return n;"
+  , "    };"
+  , "    function docFiner(k) {"
+  , "      const say = keySaid(k), r = drows[dat];"
+  , "      if (!r) return;"
+  , "      if (r.grain === \"composite\") {"
+  , "        const kin = leavesOf(dat);"
+  , "        dat += 1; dgrain = \"leaf\"; drawDoc();"
+  , "        say(`grain-finer (${r.name || \"item\"} 1/${kin})`);"
+  , "      } else if (dcells(r)) { moveDocCol(k, 1); }"
+  , "      else if (r.grain === \"leaf\") say(\"grain-finer (at the finest)\");"
+  , "      else say(\"grain-finer (nothing finer here)\");"
+  , "    }"
+  , "    function docBroader(k) {"
+  , "      const say = keySaid(k), r = drows[dat];"
+  , "      if (!r) return;"
+  , "      if (dcol !== null) {"
+  , "        dcol = null; dgrain = \"element\"; drawDoc();"
+  , "        say(\"grain-broader (element)\");"
+  , "      } else if (r.grain === \"leaf\") {"
+  , "        let i = dat;"
+  , "        while (i > 0 && drows[i].grain === \"leaf\") i -= 1;"
+  , "        dat = i; dgrain = \"element\"; drawDoc();"
+  , "        say(`grain-broader (${drows[i].name || drows[i].kind})`);"
+  , "      } else say(\"grain-broader (at the element grain)\");"
   , "    }"
   , "    function moveDocCol(k, step) {"
   , "      const say = keySaid(k), n = dcells(drows[dat]);"
@@ -1874,8 +1934,10 @@ shellGlue wanted =
   , "        else if (!flagPress(k, e, PFLAGS)) return;"
   , "      } else if (crossing) enterPanel();"
   , "      else {"
-  , "        const step = rowStep(k), side = colStep(k);"
+  , "        const step = rowStep(k), side = colStep(k), depth = grainStep(k);"
   , "        if (step) docStep(step);"
+  , "        else if (depth > 0) docFiner(k);"
+  , "        else if (depth < 0) docBroader(k);"
   , "        else if (side) moveDocCol(k, side);"
   , "        else if (k === \"RET\") once(docEnter);"
   , "        else if (k === \"DEL\") once(docUp);"

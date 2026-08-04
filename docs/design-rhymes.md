@@ -23,16 +23,25 @@ inherits: `т з о л` on a Cyrillic layout are `n p j k`, since the fingers
 know where the letters sit rather than what the layout writes there.
 Punctuation stays the character — it sits nowhere in particular.
 
-**Movement never changes context.**  `n`/`p`, `f`/`b` and the grain walk only
+**Movement never changes context.**  `n`/`p`, `f`/`b` and the grain keys only
 relocate attention: they never open, never close, never commit, never cross a
 boundary a reader would have to come back out of.  `RET` and `DEL` are the
 context axis — `RET` goes deeper (opens the edit, enters the child, raises the
 thing's own popup) and `DEL` comes back out (unmark, token, frame, the sheet
 ladder, close).  A key that both moved and switched would make every press a
 risk to weigh; the split is what makes holding `n` safe anywhere on the page.
-It is also why the grains are a WALK rather than a descend key: a list is one
-stop then its items, inline in the sequence, so the reader crosses a grain by
-moving and nothing changes under them when they do.
+
+**Movement is two axes, and the table teaches both.**  `n`/`p` walk the
+COARSE axis and `f`/`b` the FINE one — rows and cells in the table, siblings
+and grain in the document.  One habit serves both surfaces: in the material
+document `n` steps composite-to-sibling (a list is one stop, so holding `n`
+skims at reading grain), `f` goes a grain finer (a composite's leaves, a
+headline's cells) and `b` a grain broader — `b` as in BROADER — with the
+refusals spoken rather than swallowed.  The grain keys are still movement:
+`b` at the floor is a no-op with an echo, never a close, because going out of
+the sheet belongs to `DEL`.  (This replaced the earlier one-walk grain, where
+`n` dived into every composite: elegant, but private to this pane, and the
+skim is what reading wants.)
 
 **Backwards is one gesture.**  `DEL` is the backspace key wearing its oldest
 meaning — erase the last thing you did — lifted from characters to

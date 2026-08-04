@@ -1830,13 +1830,18 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   PARAGRAPHS (blank-line separated, each remembering the line range it came out
   of), and the CHILD headlines collapsed to one line each. `drows` is the model
   and `drawDoc` is the whole view.
-- GRAINS ARE STOPS IN ONE WALK, never a mode. A LIST, a `#+begin_X`/`#+end_X`
-  BLOCK and an org TABLE each take TWO kinds of stop over the same bytes, laid
-  out in document
-  order as `[whole, leaf1..leafN]` and inline among everything else: `n` from
-  above meets the whole thing and then walks into it, `p` from below walks the
-  parts and meets the whole on the way out — one sequence read in both
-  directions, which is why there is no descend key and no ascend key. `RET` is
+- MOVEMENT IS TWO AXES, the table's habit read into the document (2026-08-04,
+  replacing the one-walk grain). A LIST, a `#+begin_X`/`#+end_X` BLOCK and an
+  org TABLE each still take TWO kinds of stop over the same bytes, laid out in
+  document order as `[whole, leaf1..leafN]` and inline among everything else —
+  the MODEL is unchanged; the WALK split: `n`/`p` step SIBLINGS at the cursor's
+  grain and never dive (a composite is ONE stop, holding `n` skims; a leaf
+  steps its owner's run, clamped at its ends), and `f`/`b` move the GRAIN —
+  `f` into a composite's leaves or a headline's cells (refusing with an echo
+  at the finest), `b` back to the whole in one press whatever the column,
+  a no-op with an echo at the element grain, NEVER a close (out of the sheet
+  stays `DEL`'s). `l`/`h` and the horizontal arrows stay the within-grain cell
+  walk, off either end into the whole-element look. `RET` is
   pure edit at either grain (a leaf opens its own lines, a composite the whole
   block's), `DEL` stays the sheet's ladder, and `d` flags whatever the stop is.
   `grain` on a row names its kind: `element`, `composite`, `leaf`.
@@ -1942,13 +1947,14 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   of scope outside a mount). No underline, no border, no outline in any of the
   four rules; `TestServe`'s ground sweep cuts them out of the page and asserts
   it, and asserts what it swept first.
-- Its movement is the TABLE's letters exactly: `n`/`p`, `j`/`k` and the vertical
-  arrows over elements; `f`/`b`, `l`/`h` and the horizontal ones over the cells
-  of the element that has any, walking OFF either end into the whole-element look
-  rather than bumping. `TAB` crosses to the panel and back, each pane keeping its
+- Its movement is the TABLE's two axes: `n`/`p`, `j`/`k` and the vertical
+  arrows walk siblings at the cursor's grain; `f`/`b` move the grain itself
+  (the bullet above); `l`/`h` and the horizontal arrows walk the cells of the
+  element that has any, off either end into the whole-element look rather than
+  bumping. `TAB` crosses to the panel and back, each pane keeping its
   own cursor and each wearing the accent on its own frame (`#mdoc.on`,
-  `#mprops.on`). The cursor carries a reserved `dgrain` (element today; a future
-  expand-region moves it).
+  `#mprops.on`). The cursor's `dgrain` names its level: `element`, `leaf` or
+  `cell`.
 - RET is BY KIND: a CHILD re-materializes into it (`?child=`), a PARAGRAPH opens
   as a textarea over itself, and the TITLE cell opens in the shared overlay and
   commits `set-title`. The STATE and TAGS cells raise the value palette and the

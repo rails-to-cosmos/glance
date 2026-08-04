@@ -3098,31 +3098,33 @@ sheetSpec shell =
         assertEqual "the materialize itself asked, on the headline"
                     (Just "de d-head dat") (listToMaybe seen)
 
-    -- CELLS ARE THE TABLE'S TOO, and the stops are the parts that are THERE:
-    -- this entry has a state and a title and neither a priority nor tags, so it
-    -- is two stops and the absent pair are not walked onto at all.  Walking off
-    -- either end lands in the whole-element look rather than bumping, which is
-    -- the rule `f'/`b' keep over the table.
-  , testCase "f/b, l/h and the horizontal arrows walk the PRESENT cells" $ do
+    -- CELLS ARE THE HEADLINE'S FINER GRAIN, and the stops are the parts that
+    -- are THERE: this entry has a state and a title and neither a priority nor
+    -- tags, so it is two stops and the absent pair are not walked onto at all.
+    -- `f' enters the grain, `l'/`h' and the arrows walk within it — off either
+    -- end into the whole-element look — and `b' broadens to the whole line in
+    -- ONE press, whatever the column.
+  , testCase "f enters the cells, l/h and the arrows walk the PRESENT ones" $ do
       insheet "press:f" $ \answer -> do
         assertEqual "the first cell" (0, 0) =<< pointOf answer
         echoIs "named by its key" "f → next-column (state)" answer
       -- The second stop is the TITLE, not the priority the entry has not got.
-      insheet "press:l press:l" $ \answer -> do
+      insheet "press:f press:l" $ \answer -> do
         assertEqual "two across is the title" (0, 1) =<< pointOf answer
         echoIs "the absent priority was no stop" "l → next-column (title)" answer
-      insheet "press:l press:l press:l" $
-        assertEqual "and there is no third" (0, -1) <=< pointOf
-      insheet "press:f press:b" $ \answer -> do
-        assertEqual "back off the left end is the whole element" (0, -1)
+      insheet "press:f press:l press:l" $
+        assertEqual "and off the right end is the whole element" (0, -1) <=< pointOf
+      insheet "press:f press:l press:b" $ \answer -> do
+        assertEqual "b broadens from any column in one press" (0, -1)
           =<< pointOf answer
-        echoIs "and says so" "b → next-column (element mode)" answer
-      insheet "press:ArrowRight press:ArrowRight" $
-        assertEqual "the arrows are the same walk" (0, 1) <=< pointOf
-      -- A paragraph has no cells at all, so the key says so and moves nothing.
+        echoIs "and says so" "b → grain-broader (element)" answer
+      insheet "press:f press:ArrowRight" $
+        assertEqual "the arrows are the within-grain walk" (0, 1) <=< pointOf
+      -- A paragraph has no finer grain at all, so the key says so and moves
+      -- nothing.
       insheet "press:n press:f" $ \answer -> do
         assertEqual "nothing moved" (1, -1) =<< pointOf answer
-        echoIs "and the key said why" "f → next-column (no cells in this element)" answer
+        echoIs "and the key said why" "f → grain-finer (nothing finer here)" answer
       -- And the column goes when the cursor leaves an element that had one.
       insheet "press:f press:n" $
         assertEqual "the cell went with the element" (1, -1) <=< pointOf
@@ -3250,16 +3252,15 @@ sheetSpec shell =
           =<< traverse (textAt "body") =<< listAt "writes" answer
         assertEqual "and the sheet is synced" "synced" =<< textAt "state" answer
 
-    -- THE GRAIN IS A WALK, not a mode.  A list and a `#+begin_'/`#+end_' block
-    -- each take TWO KINDS OF STOP over the same bytes, laid out in document
-    -- order as `[whole, item1..itemN]' and inline among everything else — so
-    -- `n' from above meets the whole thing and then walks into it, and `p' from
-    -- below walks the items and meets the whole on the way out.
-    --
-    -- WHICH IS THE WHOLE MECHANISM.  There is no descend key and no ascend key,
-    -- no mode to be in and none to leave: `p' is `n' read backwards because the
-    -- sequence is one sequence.  RET stays pure edit at either grain, DEL stays
-    -- the sheet's own ladder, and `d' flags whatever the stop is.
+    -- MOVEMENT IS TWO AXES, the table's habit read into the document.  A list
+    -- and a `#+begin_'/`#+end_' block each take TWO KINDS OF STOP over the same
+    -- bytes, laid out in document order as `[whole, item1..itemN]' and inline
+    -- among everything else — the MODEL is unchanged; what moved is the walk:
+    -- `n'/`p' step SIBLINGS at the cursor's grain and never dive, so a
+    -- composite is ONE stop and holding `n' skims, and `f'/`b' move the grain
+    -- itself — finer into the leaves, broader back to the whole.  RET stays
+    -- pure edit at either grain, DEL stays the sheet's own ladder, and `d'
+    -- flags whatever the stop is.
   , testCase "a list and a block are the whole thing, then their parts" $ do
       onTable "grain press:Enter" $ \answer -> do
         assertEqual "the walk, kind by kind"
@@ -3275,23 +3276,46 @@ sheetSpec shell =
         assertEqual "and who it hangs under" [-1, -1, -1, 2, 2, 2, -1, 6, 6, -1, -1]
           =<< flaggedAt "downers" answer
 
-    -- AND `p' IS THAT SEQUENCE READ BACKWARDS, which is the whole reason the
-    -- composite sits AHEAD of its leaves rather than after them: coming down,
-    -- the reader meets the block and then walks into it; coming up, they walk
-    -- the parts and meet the whole on the way OUT.  One order serves both, so
-    -- neither direction needs a rule of its own.
-  , testCase "p walks the parts, then the whole, on the way out" $ do
-      let down9 = "press:n press:n press:n press:n press:n press:n press:n press:n press:n"
-      onTable ("grain press:Enter " <> down9 <> " press:p") $
-        assertEqual "up from the tail paragraph is the block's LAST part" (8, -1)
+    -- THE SKIM: at the element grain a composite is ONE stop, so the whole
+    -- fixture — head, para, list of three, quote of two, para, child — is six
+    -- stops down, and `p' is that read backwards with no leaf ever walked.
+  , testCase "n skims the composites whole, and p is the skim reversed" $ do
+      onTable "grain press:Enter press:n press:n press:n" $
+        assertEqual "three down crosses the list whole to the quote" (6, -1)
+          <=< pointOf
+      onTable "grain press:Enter press:n press:n press:n press:n press:n" $
+        assertEqual "five down is the tail child, the document skimmed" (10, -1)
           <=< pointOf
       bootOf shell "" 500 ""
-             ("grain press:Enter " <> down9 <> " press:p press:p press:p") $
-        assertEqual "and three up is the block itself" (6, -1) <=< pointOf
-      -- Which is exactly what `n' saw coming the other way, in reverse.
-      bootOf shell "" 500 ""
-             "grain press:Enter press:n press:n press:n press:n press:n press:n" $
-        assertEqual "six down is the block, before its parts" (6, -1) <=< pointOf
+             "grain press:Enter press:n press:n press:n press:p" $
+        assertEqual "and p steps back over the list without entering it" (2, -1)
+          <=< pointOf
+
+    -- THE GRAIN AXIS: `f' on a composite enters its leaves and `n'/`p' then
+    -- walk THAT run, clamped to it; `b' re-selects the whole.  At the finest
+    -- and at the floor the keys refuse with an echo rather than move — going
+    -- OUT of the sheet stays DEL's.
+  , testCase "f enters a composite's leaves, n/p walk them, b re-selects the whole" $ do
+      onTable "grain press:Enter press:n press:n press:f" $ \answer -> do
+        assertEqual "f lands on the first item" (3, -1) =<< pointOf answer
+        echoIs "and says where it is" "f → grain-finer (list 1/3)" answer
+      onTable "grain press:Enter press:n press:n press:f press:n press:n" $
+        assertEqual "n walks the items" (5, -1) <=< pointOf
+      onTable "grain press:Enter press:n press:n press:f press:n press:n press:n" $
+        assertEqual "and clamps at the last rather than leaving the run" (5, -1)
+          <=< pointOf
+      onTable "grain press:Enter press:n press:n press:f press:p" $
+        assertEqual "p clamps at the first the same way" (3, -1) <=< pointOf
+      onTable "grain press:Enter press:n press:n press:f press:n press:b" $ \answer -> do
+        assertEqual "b is the whole list again, from any item" (2, -1)
+          =<< pointOf answer
+        echoIs "named by its kind" "b → grain-broader (list)" answer
+      onTable "grain press:Enter press:n press:n press:f press:f" $ \answer -> do
+        assertEqual "nothing finer than a leaf" (3, -1) =<< pointOf answer
+        echoIs "and the key says so" "f → grain-finer (at the finest)" answer
+      onTable "grain press:Enter press:b" $ \answer -> do
+        assertEqual "the element grain is the floor" (0, -1) =<< pointOf answer
+        echoIs "b never closes" "b → grain-broader (at the element grain)" answer
 
     -- AND AN ORG TABLE IS THAT SAME SHAPE, which is the whole of what it is: a
     -- run of `|' lines is ONE COARSE STOP and then its rows, drawn inline in the
@@ -3321,18 +3345,19 @@ sheetSpec shell =
                     [["| a | b |"], ["|---+---|"], ["| 1 | 2 |"], ["| 3 | 4 |"]]
           . map (drop 1) . take 4 . drop 3 =<< docOf answer
 
-  , testCase "the walk crosses a table in both directions" $ do
+  , testCase "the table is one stop, and f walks its rows" $ do
       onTable "tabled press:Enter press:n press:n" $
-        assertEqual "n from the lead-in meets the WHOLE table first" (2, -1)
+        assertEqual "n from the lead-in meets the WHOLE table" (2, -1)
           <=< pointOf
       onTable "tabled press:Enter press:n press:n press:n" $
-        assertEqual "and then walks into its first row" (3, -1) <=< pointOf
-      let down7 = T.unwords (replicate 7 "press:n")
-      onTable ("tabled press:Enter " <> down7 <> " press:p") $
-        assertEqual "up from the list is the table's LAST row" (6, -1) <=< pointOf
-      bootOf shell "" 500 ""
-             ("tabled press:Enter " <> down7 <> " " <> T.unwords (replicate 5 "press:p")) $
-        assertEqual "and five up is the table itself" (2, -1) <=< pointOf
+        assertEqual "and the next n crosses it whole to the list" (7, -1)
+          <=< pointOf
+      onTable "tabled press:Enter press:n press:n press:f" $
+        assertEqual "f enters the first row" (3, -1) <=< pointOf
+      onTable "tabled press:Enter press:n press:n press:f press:n press:n press:n" $
+        assertEqual "n walks the rows, the rule among them" (6, -1) <=< pointOf
+      onTable "tabled press:Enter press:n press:n press:f press:n press:b" $
+        assertEqual "and b is the table whole again" (2, -1) <=< pointOf
 
     -- A ROW EDIT IS A LINE SPLICE, which is the decompose/recompose property one
     -- grain in: the row remembers the line it came out of, so what goes back is
@@ -3340,7 +3365,7 @@ sheetSpec shell =
     -- the rule and the rows around it included.
   , testCase "editing a table row splices that line and nothing else" $ do
       bootOf shell "" 500 ""
-             ("tabled press:Enter " <> T.unwords (replicate 5 "press:n")
+             ("tabled press:Enter press:n press:n press:f press:n press:n"
                 <> " press:Enter dpara:~9~9~ press:C-x press:C-s") $ \answer ->
         assertEqual "the body with that row replaced and nothing else"
                     [tabledAfter "| 1 | 2 |" "|9|9|"]
@@ -3348,7 +3373,7 @@ sheetSpec shell =
       -- AND THE RULE IS EDITABLE THE SAME WAY: it is a leaf, so RET opens it and
       -- the commit puts its own line back.
       bootOf shell "" 500 ""
-             ("tabled press:Enter " <> T.unwords (replicate 4 "press:n")
+             ("tabled press:Enter press:n press:n press:f press:n"
                 <> " press:Enter dpara:~-+-~ press:C-x press:C-s") $ \answer ->
         assertEqual "the rule replaced, and the rows around it untouched"
                     [tabledAfter "|---+---|" "|-+-|"]
@@ -3427,7 +3452,7 @@ sheetSpec shell =
   , testCase "o asks over the stop the cursor is on" $ do
       -- At the first ITEM there is one link inside it, so `o' opens it outright.
       bootOf shell "" 500 ""
-             "grain grainlinks press:Enter press:n press:n press:n press:o" $
+             "grain grainlinks press:Enter press:n press:n press:f press:o" $
         \answer -> do
           assertEqual "the item's own link, opened"
                       [("https://alpha.example/", "_blank", "noopener")]
@@ -3448,12 +3473,12 @@ sheetSpec shell =
                                "RET → org-glance-overview:open (no links)"
                      =<< textAt "echo" answer
 
-    -- ONE BLANK LINE STAYS IN A LIST    -- ONE BLANK LINE STAYS IN A LIST, which is org's rule and the corpus's:
+    -- ONE BLANK LINE STAYS IN A LIST, which is org's rule and the corpus's:
     -- 1173 item pairs are separated by exactly one.  `beta' after a blank is
     -- the SAME list's second item rather than a second list, and the deeper
     -- `- nested' rides inside `alpha' rather than taking a stop — v1's grain.
   , keyed shell "a blank line and a nested item stay inside their list"
-      "" "grain press:Enter press:n press:n press:n" $ \answer -> do
+      "" "grain press:Enter press:n press:n press:f" $ \answer -> do
         assertEqual "three items, and the first carries what hangs under it"
                     ["- alpha\n  more alpha\n  - nested", "- beta", "- gamma"]
           =<< partsOf "item" . take 6 <$> docOf answer
@@ -3475,12 +3500,12 @@ sheetSpec shell =
     -- opens the whole block's, and each commit splices exactly the range its
     -- stop covers.
   , testCase "RET edits a leaf's own lines, and splices only those" $ do
-      onTable "grain press:Enter press:n press:n press:n press:Enter" $
+      onTable "grain press:Enter press:n press:n press:f press:Enter" $
         \answer -> assertEqual "the item, as it stands"
                                "- alpha\n  more alpha\n  - nested"
                      =<< textAt "dtext" answer
       bootOf shell "" 500 ""
-             ("grain press:Enter press:n press:n press:n press:Enter dpara:-_ALPHA"
+             ("grain press:Enter press:n press:n press:f press:Enter dpara:-_ALPHA"
               <> " press:C-x press:C-s") $ \answer -> do
         body <- traverse (textAt "body") =<< listAt "writes" answer
         assertEqual "the item's lines, and every other byte where it was"
@@ -3505,7 +3530,7 @@ sheetSpec shell =
     -- is why the grain needed no key of its own: the reader is already standing
     -- on the thing they mean.
   , testCase "d flags one item, or the whole list" $ do
-      onTable "grain press:Enter press:n press:n press:n press:d" $
+      onTable "grain press:Enter press:n press:n press:f press:d" $
         assertEqual "the item alone" [3] <=< flaggedOf
       onTable "grain press:Enter press:n press:n press:d" $
         assertEqual "or the composite alone" [2] <=< flaggedOf

@@ -741,6 +741,15 @@ section groups a feature arc, and its date is that arc's last commit.
   bright, being where a reader finds out why.
 
 ### Changed
+- **The material document walks on two axes.** `n`/`p` step siblings at the
+  cursor's grain and never dive — a list, block or table is ONE stop, so
+  holding `n` skims the document at reading grain — and `f`/`b` move the grain
+  itself: `f` enters a composite's leaves or a headline's cells (and refuses,
+  with an echo, at the finest), `b` re-selects the whole in one press and is a
+  spoken no-op at the element grain — never a close. `l`/`h` and the
+  horizontal arrows keep the within-grain cell walk. The table's own habit —
+  `n`/`p` rows, `f`/`b` cells — now serves both surfaces; the earlier one-walk
+  grain (where `n` stepped into every item) is retired.
 - **Capture is one form.** `+` used to run a chain of palettes — tag, each
   template prompt, the line — and every step closed and reopened the overlay,
   which read as a blink. One popup now holds the whole flow: the tag field
