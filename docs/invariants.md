@@ -236,18 +236,21 @@ on.
 
 ## Render
 
-- **`TextShow` is lossy by design.** Whitespace collapses to single spaces,
-  pragma keys uppercase, `#+TODO:` sets re-emit in Set (alphabetical) order.
-  `TestRoundtrip`'s `Fidelity` column — 23 rows, 22 `Exact` and 1 `Stable` — is
-  the documented budget: promoting a `Stable` case to `Exact` asserts fidelity
+- **`TextShow` is lossy by design.** Whitespace collapses to single spaces and
+  pragma keys uppercase. `TestRoundtrip`'s `Fidelity` column — 23 rows, all
+  `Exact` — is the documented budget: promoting a `Stable` case asserts fidelity
   the renderer lacks, so a promotion has to be measured first. Seven rows were
   measured and promoted on 2026-07-31 (multiple tokens, deep indent, the
   `#+CATEGORY:` and generic pragmas, the inactive and midnight timestamps, the
   `--` date range): each already re-rendered byte for byte, and the `Stable`
-  label was budgeting for losses the renderer does not have. What is left is the
-  one real loss, `#+TODO:` re-emitting its two keyword sets in Set order rather
-  than as the source wrote them. Write-back and the future wire contract must
-  never route through it — spans are the lossless channel. **test**
+  label was budgeting for losses the renderer does not have. The last one,
+  `#+TODO:` re-emitting its two keyword sets in Set order rather than as the
+  source wrote them, STOPPED BEING A LOSS when `PTodo` took ordered lists
+  (#67) — a keyword list is the tree's declared cycle everywhere else, and the
+  re-serializer got the fix for free. The budget is now empty; `Stable` stays as
+  the mechanism for a case that genuinely is. None of this makes `TextShow` a
+  write-back channel — the whitespace and casing losses are untouched, and spans
+  are still the lossless one. **test**
 - **`Ord Timestamp` ≠ `Eq Timestamp`.** Ord compares start moments only;
   Set/Map keys would deduplicate distinct timestamps sharing a start. **none**
 - **Planning stays out of the render.** `TextShow Headline` emits the title
@@ -490,6 +493,43 @@ on.
   Breaks: dropping the recognition seed re-scatters foreign-keyword headlines
   into titles; flipping the precedence moves every keyword's bucket.
   **test + corpus** (`scan` reports `config keywords`)
+- **A keyword list is ORDERED, and the order is the org files'.** A `#+TODO:`
+  line is a CYCLE — `TODO STARTED WAITING | DONE CANCELLED` names five states in
+  the order work moves through them — and that spelling is the only thing a tree
+  says about how its state column sorts and how a palette draws. So every
+  keyword list a reader meets is segmented by `keywordScopes` precedence
+  (`default`, `system`, the tag configs in walk order, `file`) and, inside a
+  segment, is that layer's own left-to-right declarations, a repeat keeping its
+  FIRST place. `Data.Org.Config.recognizedKeywords` is the one rule; `hrKeywords`
+  and `Store.storeKeywords` both come off it, so a file's palette and the whole
+  store's cannot order the same words differently. Sets answer RECOGNITION and
+  nothing else: `Context`'s `todoActive`/`todoInactive` stay `Set Text` because a
+  parse asks only whether a word is a keyword, and `seedContext` builds them from
+  the ordered lists at that boundary.
+  Until #67 (2026-08-04) three Sets stood between the line and the palette —
+  `PTodo` took `Set.fromList` at the parse, `declaredKeywords` read it back with
+  `Set.toAscList`, and `hrKeywords` was `Set.toAscList` over the parse's ending
+  context — so every list downstream was ALPHABETICAL and the `#+TODO:` line
+  governed nothing it was supposed to. Measured on ~/sync: `scan`'s
+  `config keywords` read `DELEGATED PENDING REVIEW STARTED TODO READING |
+  CANCELLED DONE ABANDONED READ` and now reads
+  `TODO STARTED PENDING DELEGATED REVIEW READING | DONE CANCELLED READ ABANDONED`,
+  which is the tree's actual cycle. Consequences that land with it: the state
+  column sorts by the cycle (`paletteRank` over `badges`), the value palette's
+  which-key letters are assigned over the declared order rather than a shuffled
+  one, `GET /keywords` answers ordered inside each source, and reordering a
+  `#+TODO:` line is now a palette move — so it closes the socket `view-changed`
+  and the table comes back in the new order. Evidence: `TestConfig` "Palette"
+  (multi-layer order, repeats keeping first position, "and reordering one
+  `#+TODO:` line reorders the palette"), "a reordered cycle reorders the table"
+  (the whole loop: splice, watch reseed, `sortedForViewWith`), "a shadowed
+  redeclaration is still in the union, in its first place"; `TestServe` "a
+  source's keywords arrive in the order its line spells them"; `TestTextShow`
+  "and its keywords keep the order they were declared in". Breaks: putting a Set
+  anywhere on the path from `PTodo` to `badges` re-alphabetizes every tree's
+  cycle, silently and with the suite green unless a fixture happens to spell one
+  against the alphabet.
+  **test + corpus** (`scan` reports `config keywords` in declared order)
 - **Widest-first is the DEFERRED BOUNDARY, and it inverts what a file's own
   `#+TODO:` buys.** The chain ran file > tags > system > builtin until
   2026-08-02 and now runs default > system > tags > file, for `classify` and

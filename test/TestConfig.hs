@@ -27,9 +27,10 @@ import Data.Org.Edit (Edit (Edit), applyEdits)
 import Glance.Query ( ConfigLayerFile (..), ConfigLayers (..), HeadlineRecord (..)
                     , QueryResult (..), WalkOptions (..), builtinFilter
                     , captureTargetIn, captureTargetOf, configEdits
-                    , configPath, defaultFilter, defaultFilterOf, defaultWalk, loadDir
+                    , configPath, defaultFilter, defaultFilterOf, defaultSortChain
+                    , defaultWalk, loadDir
                     , loadDirFilesSerially, loadDirWith, loadDirWithConfig, loadFile
-                    , noConfig, readConfigLayers, todoLines )
+                    , noConfig, readConfigLayers, sortedForViewWith, todoLines )
 import Glance.Web.Store ( Frame (..), Hub (hubStore), Store (stConfig, stGen, stPrint)
                         , loadStore, newHub, reseeded, storeKeywords, storeRecords )
 import Glance.Web.Watch (settle, watched)
@@ -133,7 +134,7 @@ discoverySpec = testGroup "Discovery"
       withTreeUnder "views" Nothing [("book.org", bookConfig)]
                     [("notes.org", "* READING War and Peace\n")] $ \dir -> do
       (cfg, rows) <- loaded dir
-      assertEqual "seed" (TodoKeywords ["READING", "TODO"] ["ABANDONED", "READ"]) (clSeed cfg)
+      assertEqual "seed" (TodoKeywords ["TODO", "READING"] ["READ", "ABANDONED"]) (clSeed cfg)
       assertEqual "the nested config still seeded the parse"
                   [(Just "READING", Just True)] (states rows)
 
@@ -144,11 +145,14 @@ discoverySpec = testGroup "Discovery"
 
   , testCase "the pragma lines are what is read, comments and all" $ do
       assertEqual "the live tag config"
-                  (TodoKeywords ["READING", "TODO"] ["ABANDONED", "READ"])
+                  (TodoKeywords ["TODO", "READING"] ["READ", "ABANDONED"])
                   (todoPragmas bookConfig)
       assertEqual "a commented pragma is not one"
                   (TodoKeywords ["TODO", "WATCHING"] ["WATCHED"])
                   (todoPragmas commentedConfig)
+      assertEqual "and the keywords keep the order the line spells them in"
+                  (TodoKeywords ["WAITING", "TODO"] ["CANCELLED", "DONE"])
+                  (todoPragmas "#+TODO: WAITING TODO | CANCELLED DONE\n")
       assertEqual "either casing, org takes both"
                   (TodoKeywords ["NEXT"] ["GONE"]) (todoPragmas "#+todo: NEXT | GONE\n")
       assertEqual "fast-access keys come off"
@@ -230,8 +234,24 @@ recognitionSpec = testGroup "Recognition"
   , testCase "the recognized set a row carries is the seed plus its own" $
       withRows Nothing [("book.org", bookConfig)] [("a.org", "#+TODO: LATER |\n* LATER one\n")] $
         \rows -> assertEqual "hrKeywords"
-                   [TodoKeywords ["LATER", "READING", "TODO"] ["ABANDONED", "DONE", "READ"]]
+                   [TodoKeywords ["TODO", "READING", "LATER"] ["DONE", "READ", "ABANDONED"]]
                    (map hrKeywords rows)
+
+    -- And a redeclaration is still RECOGNIZED once the union is ordered: the
+    -- file puts READING after the bar where book.org puts it before, and the
+    -- word stays in the union — in the ACTIVE half, where its first declaration
+    -- put it, since 'mergeKeywords' resolves a disagreement that way.  So the
+    -- headline is a state rather than the first word of a title.  Which bucket
+    -- the ROW lands in is 'classify''s separate question, answered here by the
+    -- file, this row carrying no tag that would reach book.org's opinion.
+  , testCase "a shadowed redeclaration is still in the union, in its first place" $
+      withRows Nothing [("book.org", bookConfig)]
+               [("a.org", "#+TODO: LATER | READING\n* READING one\n")] $ \rows -> do
+      assertEqual "hrKeywords"
+                  [TodoKeywords ["TODO", "READING", "LATER"] ["DONE", "READ", "ABANDONED"]]
+                  (map hrKeywords rows)
+      assertEqual "and the row is a state, on the file's own reading of it"
+                  [(Just "READING", Just False)] (states rows)
   ]
 
 -- Classification
@@ -349,23 +369,47 @@ classificationSpec = testGroup "Classification"
 -- | The badge palette is the union with the config leading, which is what
 -- makes its order — and so the state column's sort priority — independent of
 -- which file the walk reached first.
+--
+-- ORDER IS THE ORG FILES'.  Every list here is 'keywordScopes' precedence by
+-- segment — org's own pair, @system.org@, the tag configs by name, then
+-- whatever a file adds — and each layer's own left-to-right spelling inside its
+-- segment.  A repeat keeps its FIRST place, so a word two layers name sorts
+-- where the wider one put it.
 paletteSpec :: TestTree
 paletteSpec = testGroup "Palette"
   [ testCase "the config's keywords lead and the files add to them" $
       withTree (Just "#+TODO: TODO STARTED | DONE\n") [("book.org", bookConfig)]
                [("a.org", "#+TODO: LATER |\n* LATER one\n")] $ \dir -> do
       store <- loadStore dir
+      -- system spells TODO STARTED | DONE, book.org TODO READING | READ
+      -- ABANDONED, a.org LATER — and TODO is org's own, so it leads whoever
+      -- names it.
       assertEqual "system, then tags, then whatever a file adds"
-                  (TodoKeywords ["STARTED", "TODO", "READING", "LATER"]
-                                ["DONE", "ABANDONED", "READ"])
+                  (TodoKeywords ["TODO", "STARTED", "READING", "LATER"]
+                                ["DONE", "READ", "ABANDONED"])
                   (storeKeywords store)
+
+  , testCase "and reordering one #+TODO: line reorders the palette" $ do
+      -- One tree spelled twice, the two cycles differing only in their order.
+      -- The palette follows the line, which is the whole claim: the org file is
+      -- the state column's comparator config.
+      let spelled cycle' k =
+            withTree (Just cycle') [] [("a.org", "* STARTED one\n")] (k <=< loadStore)
+      spelled "#+TODO: STARTED WAITING | CANCELLED DONE\n" $
+        assertEqual "as the line spells it"
+                    (TodoKeywords ["TODO", "STARTED", "WAITING"] ["DONE", "CANCELLED"])
+          . storeKeywords
+      spelled "#+TODO: WAITING STARTED | DONE CANCELLED\n" $
+        assertEqual "and as it spells it the other way"
+                    (TodoKeywords ["TODO", "WAITING", "STARTED"] ["DONE", "CANCELLED"])
+          . storeKeywords
 
   , testCase "and a tree with no rows still has the states it configures" $
       withTree (Just "#+TODO: TODO STARTED | DONE\n") [] [] $ \dir -> do
       store <- loadStore dir
       assertEqual "rows" [] (map hrId (storeRecords store))
       assertEqual "badges all the same"
-                  (TodoKeywords ["STARTED", "TODO"] ["DONE"]) (storeKeywords store)
+                  (TodoKeywords ["TODO", "STARTED"] ["DONE"]) (storeKeywords store)
 
   , testCase "with no config the palette is the files', as it always was" $
       withTree Nothing [] [("a.org", "#+TODO: TODO WAITING | DONE\n* WAITING one\n")] $ \dir -> do
@@ -392,7 +436,7 @@ reloadSpec = testGroup "Reload"
       assertEqual "after, it is a state"
                   [(Just "STARTED", Just True)] (states (storeRecords next))
       assertEqual "the config the store carries moved"
-                  (TodoKeywords ["STARTED", "TODO"] ["DONE"]) (clSeed (stConfig next))
+                  (TodoKeywords ["TODO", "STARTED"] ["DONE"]) (clSeed (stConfig next))
       assertBool "the generation moved with it" (stGen next > stGen store)
 
   , testCase "and the palette move closes the socket rather than streaming rows" $
@@ -698,7 +742,34 @@ writeSpec = testGroup "Writing a layer"
       assertEqual "after, it is a state"
                   [(Just "STARTED", Just True)] (states (storeRecords next))
       assertEqual "and the palette carries it"
-                  (TodoKeywords ["STARTED", "TODO"] ["DONE"]) (storeKeywords next)
+                  (TodoKeywords ["TODO", "STARTED"] ["DONE"]) (storeKeywords next)
+
+    -- THE ORG FILE IS THE COMPARATOR CONFIG, end to end.  One tree, two writes
+    -- of one cycle differing only in the order it spells its two states: the
+    -- route's own splice lands it, the watch reseeds, the palette follows the
+    -- line and the table follows the palette.  The titles run the OTHER way in
+    -- both halves, so a sort settling on them would answer the same twice.
+  , testCase "a reordered cycle reorders the table" $
+      withTree Nothing [] [("a.org", "* STARTED beta\n* WAITING alpha\n")] $ \dir -> do
+      hub <- newHub =<< loadStore dir
+      let systemFile = systemFileIn dir
+          reseedWith line = do
+            written <- either (assertFailure . T.unpack) pure (spliced "" [line])
+            TIO.writeFile systemFile written
+            settle defaultWalk dir hub [systemFile]
+            st <- readTVarIO (hubStore hub)
+            let palette = storeKeywords st
+            pure ( palette
+                 , map hrTitle
+                       (sortedForViewWith palette defaultSortChain (storeRecords st)) )
+      assertEqual "the cycle as written, and the rows behind it"
+                  ( TodoKeywords ["TODO", "STARTED", "WAITING"] ["DONE"]
+                  , ["beta", "alpha"] )
+        =<< reseedWith "#+TODO: STARTED WAITING | DONE"
+      assertEqual "and spelled the other way round, both swap"
+                  ( TodoKeywords ["TODO", "WAITING", "STARTED"] ["DONE"]
+                  , ["alpha", "beta"] )
+        =<< reseedWith "#+TODO: WAITING STARTED | DONE"
   ]
 
 -- | DOC with LINES as its @#+TODO:@ block, spliced the way the route splices

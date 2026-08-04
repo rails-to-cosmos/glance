@@ -56,12 +56,12 @@ testCases =
       (initialState `withCategory` "Updated category")
 
   , ending "TODO pragma" ["#+TODO: TODO | CANCELLED", "* CANCELLED Mess"]
-      [ EPragma (PTodo (Set.fromList ["TODO"]) (Set.fromList ["CANCELLED"]))
+      [ EPragma (PTodo ["TODO"] ["CANCELLED"])
       , EHeadline (titled "Mess") { todo = Just Todo { name = "CANCELLED", active = False } } ]
       (initialState `withTodo` (["TODO"], ["DONE", "CANCELLED"]))
 
   , ending "TODO pragma (active only)" ["#+TODO: foo"]
-      [ EPragma (PTodo (Set.fromList ["foo"]) Set.empty) ]
+      [ EPragma (PTodo ["foo"] []) ]
       (initialState `withTodo` (["TODO", "foo"], ["DONE"]))
 
   , plain "Multiline" ["* foo", "* bar"]

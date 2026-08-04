@@ -13,6 +13,15 @@ import qualified TextShow as TS
 -- re-parsing the render yields the same elements; 'Exact' also pins the bytes.
 -- The split IS the documented render-lossiness budget: a 'Stable' input asserts
 -- fidelity the renderer lacks once promoted.
+--
+-- The budget is EMPTY — every case here is 'Exact'.  The last 'Stable' row was
+-- @#+TODO:@, whose two keyword sets re-emitted in Set order rather than as the
+-- source wrote them; ordering the keyword lists took that loss away and the row
+-- was measured and promoted.  'Stable' stays because the budget is a mechanism
+-- rather than a tally: a case whose render is genuinely lossy belongs here
+-- labelled, and asserting bytes it cannot hold is the failure this column
+-- prevents.  Whitespace collapse and uppercased pragma keys are still real
+-- losses, and no case in the table spells one.
 data Fidelity = Stable | Exact
 
 cases :: [(String, Text, Fidelity)]
@@ -29,7 +38,7 @@ cases =
     -- The one row the budget is actually spent on: '#+TODO:' re-emits its two
     -- keyword sets in Set order, so a source that wrote them in any other comes
     -- back re-ordered.
-  , ("Pragma TODO",             "#+TODO: TODO STARTED | DONE CANCELLED",          Stable)
+  , ("Pragma TODO",             "#+TODO: TODO STARTED | DONE CANCELLED",          Exact)
   , ("Generic pragma",          "#+TITLE: My Document",                           Exact)
   , ("Active timestamp",        "<2024-01-15 Mon 10:30>",                         Exact)
   , ("Inactive timestamp",      "[2024-06-01 Sat 09:00]",                         Exact)

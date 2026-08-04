@@ -89,6 +89,7 @@ module Glance.Query ( ConfigLayerFile (..)
                     , matchesSearch
                     , mergeKeywords
                     , noConfig
+                    , noKeywords
                     , orgLinks
                     , planningKeywords
                     , planningTimestamp
@@ -96,6 +97,7 @@ module Glance.Query ( ConfigLayerFile (..)
                     , priorityText
                     , readConfigLayers
                     , readsAsTimestamp
+                    , recognizedKeywords
                     , recomposedSubtree
                     , refSpellings
                     , refTargetOf
@@ -165,16 +167,16 @@ import Data.Org ( Context, Element (EHeadline), Headline
                 , TsMoment (tsmHasTime, tsmTime), archiveTag, deadline, defaultContext
                 , headlinesOf, hsFull, identity, isTagChar, levelOf, metaCategory
                 , orgParse, priority, schedule, sliceSpan, spans, spelled, tags, title
-                , todo, todoActive, todoInactive, tsBrackets )
+                , todo, tsBrackets )
 import Data.Org.Config ( ConfigLayerFile (..), ConfigLayers (..), TodoKeywords (..)
                        , builtinFilter, captureTargetEdits, captureTargetIn
                        , captureTargetOf, classify, configDirIn, declaredKeywords
                        , defaultCaptureFile, defaultFilter
                        , defaultFilterEdits, defaultFilterOf, isTodoPragma
                        , firstBy, keywordScopes
-                       , loadConfigDirs, mergeKeywords, noConfig, readConfigLayers
-                       , seedContext, systemSetting, todoLineEdits, todoLines
-                       , todoPragmas )
+                       , loadConfigDirs, mergeKeywords, noConfig, noKeywords
+                       , readConfigLayers, recognizedKeywords, seedContext
+                       , systemSetting, todoLineEdits, todoLines, todoPragmas )
 import Data.Org.Walk ( Found (..), WalkOptions (..), beatsForId, defaultWalk
                      , findOrgFilesWith, isConfig, isDerived, isDocument
                      , mapFilesConcurrently )
@@ -384,23 +386,33 @@ summarise dirErrs files =
 -- own children.
 --
 -- Two keyword values come out of one parse and they are not the same thing.
--- CTX's sets are what the parse RECOGNIZED, CFG's seed included, and they are
--- the file's palette contribution and the vocabulary a command may write.  The
--- file's own @#+TODO:@ declarations ('declaredKeywords' over the elements) are
--- the nearest scope a row's active-ness is CLASSIFIED by, are kept beside the
--- recognized set ('hrDeclared') because the two are not recoverable from each
--- other — a file redeclaring a seeded keyword the other way adds nothing to the
--- union it disagrees with — and they are read
+-- The file's own @#+TODO:@ declarations ('declaredKeywords' over the elements)
+-- are the nearest scope a row's active-ness is CLASSIFIED by, and they are read
 -- over the whole file rather than positionally: a document declaring one
 -- keyword two ways at two depths is not something org writes, and recognition
--- stays positional either way.
+-- stays positional either way.  RECOGNITION is CFG's chain closed over them
+-- ('recognizedKeywords') — the file's palette contribution and the vocabulary a
+-- command may write.  Both are kept ('hrDeclared' beside 'hrKeywords') because
+-- neither recovers the other: a file redeclaring a seeded keyword the other way
+-- adds nothing to the union it disagrees with.
+--
+-- The union is the chain's rather than CTX's, though CTX holds the same words:
+-- the chain is a list and answers in the order the org files spell it, where
+-- CTX is 'Data.Set' and answers alphabetically.  Palette order is sort order, so
+-- reading it off the parse's ending context was a tree's own cycle silently
+-- re-sorted.
 recordsOf :: ConfigLayers -> FilePath -> Text -> Text -> Context -> [Spanned Element]
           -> [HeadlineRecord]
 recordsOf cfg path doc digest ctx elems =
   [ recordOf cfg declared path ordinal doc digest category keywords h subtree
   | (ordinal, (h, subtree)) <- zip [0 ..] entries ]
   where category = detach (metaCategory ctx)
-        keywords = keywordsOf ctx
+        -- The recognized union, read off the CONFIG CHAIN rather than off CTX's
+        -- sets: the same words either way, in the order the org files spell them
+        -- rather than alphabetized ('recognizedKeywords').  Nothing is detached
+        -- here, since neither half is a slice of DOC — CFG's seed is the load's
+        -- own text and DECLARED is already copied out.
+        keywords = forcedKeywords (recognizedKeywords cfg declared)
         -- Forced here, once per file: it is STORED now ('hrDeclared'), and an
         -- unforced set is a thunk over ELEMS.
         declared = forcedKeywords (declaredKeywords elems)
@@ -1742,14 +1754,6 @@ subtreeSpans len heads = snd (foldl' place ([], []) (reverse (map extent heads))
             end = case closers of
               ((_lvl, next) : _rest) -> next
               []                     -> len
-
--- | CTX's keyword sets, forced and detached: one 'TodoKeywords' per file,
--- shared by every row that file contributes.  This is RECOGNITION — org's
--- TODO\/DONE, the config seed and the file's own @#+TODO:@ lines together —
--- which is why a row's active-ness is 'hrActive' rather than a lookup in here.
-keywordsOf :: Context -> TodoKeywords
-keywordsOf ctx = forcedKeywords (TodoKeywords (kept todoActive) (kept todoInactive))
-  where kept f = map detach (Set.toAscList (f ctx))
 
 -- | KW with both lists' spines and elements forced, which is what makes a
 -- keyword set safe to STORE.  A strict field buys WHNF and no more — the first

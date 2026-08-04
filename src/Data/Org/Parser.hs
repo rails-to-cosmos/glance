@@ -185,9 +185,12 @@ instance Parse Pragma where
                       void $ MPC.char '|' <* MPC.hspace
                       todoKw `MP.sepEndBy` MPC.hspace1
 
-        let (sActive, sInactive) = (Set.fromList active, Set.fromList inactive)
-        State.modify (setTodo sActive sInactive)
-        return $ PTodo sActive sInactive
+        -- TWO SHAPES, two questions.  The context takes SETS, because parsing a
+        -- headline asks whether a word is a keyword; the pragma keeps the LISTS,
+        -- because everything that shows a cycle asks what order the tree spells
+        -- it in and a set has already lost that.
+        State.modify (setTodo (Set.fromList active) (Set.fromList inactive))
+        return $ PTodo active inactive
 
       _ -> do
         val <- parse :: StatefulParser OrgLine

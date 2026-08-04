@@ -6,7 +6,7 @@
 -- being the tag.  Both are ordinary org documents and both are mostly an
 -- org-capture template; the only thing read here is their @#+TODO:@ lines.
 --
--- Two questions come out of that, answered differently on purpose.
+-- Three questions come out of that, answered differently on purpose.
 --
 -- RECOGNITION is a UNION.  A word any layer names parses as a TODO keyword in
 -- every file under the root, because the alternative is what the tree did
@@ -36,10 +36,21 @@
 -- is settable on no row that does not reach it ('Glance.Query.setStateEdits').
 -- Recognition is what keeps the word out of a title; the chain is what a reader
 -- is offered and shown.
+--
+-- ORDER is the org files' own spelling ('recognizedKeywords').  A @#+TODO:@ line
+-- is a CYCLE — @TODO STARTED WAITING | DONE CANCELLED@ names five states in the
+-- order work moves through them — and that order is the only thing a tree says
+-- about how its state column sorts and how a palette draws.  So every keyword
+-- list a reader meets is segmented by 'keywordScopes' precedence and ordered by
+-- each layer's own declarations inside its segment, first declaration keeping
+-- the place on a repeat.  Sets answer recognition and nothing else: 'Context'
+-- holds them because a parse asks only whether a word is a keyword, and the
+-- moment one reaches a palette a tree's cycle comes back alphabetized.
 module Data.Org.Config ( ConfigLayerFile (..)
                        , ConfigLayers (..)
                        , TodoKeywords (..)
                        , builtinFilter
+                       , builtinKeywords
                        , captureTargetEdits
                        , captureTargetIn
                        , captureTargetOf
@@ -59,6 +70,7 @@ module Data.Org.Config ( ConfigLayerFile (..)
                        , noConfig
                        , noKeywords
                        , readConfigLayers
+                       , recognizedKeywords
                        , seedContext
                        , systemSetting
                        , todoLineEdits
@@ -147,7 +159,10 @@ declaredKeywords :: [Spanned Element] -> TodoKeywords
 declaredKeywords elems = mergeKeywords
   [ TodoKeywords (copies active) (copies inactive)
   | EPragma (PTodo active inactive) <- map valueOf elems ]
-  where copies = map T.copy . Set.toAscList
+  -- In the order the lines spell them, which is the whole of what an org file
+  -- says about how its states sort.  'mergeKeywords' does the deduplicating, so
+  -- a word repeated on one line or across two keeps its FIRST place.
+  where copies = map T.copy
 
 -- | The keyword sets DOC's @#+TODO:@ lines declare.
 --
@@ -532,6 +547,25 @@ seedContext cfg = setTodo (Set.fromList (tkActive seed)) (Set.fromList (tkInacti
                           defaultContext
   where seed = clSeed cfg
 
+-- | Every keyword a file under CFG declaring FILEKW recognizes, IN THE ORDER A
+-- PALETTE SHOWS THEM: org's own pair, then @system.org@'s cycle, then the tag
+-- configs in the order the walk read them, then the file's own lines — with a
+-- repeat keeping its first place ('mergeKeywords').
+--
+-- The same set 'seedContext' parses with, ordered.  A parse asks whether a word
+-- is a keyword and answers out of 'Context'\'s sets, where order is meaningless
+-- and membership is the whole question; everything a READER meets — the badge
+-- palette, the state column's sort, the value palette's letters — asks which
+-- word comes first, and the answer is the org files' own spelling.  Deriving
+-- this from the parse's ending context is what lost it: 'Data.Set' had already
+-- alphabetized the tree's cycle before a palette could read it.
+--
+-- The segment order is 'keywordScopes'\' precedence with the tag layers already
+-- folded into 'clSeed' — so the chain a keyword is CLASSIFIED by and the order
+-- it is SHOWN in are one list read the same way round.
+recognizedKeywords :: ConfigLayers -> TodoKeywords -> TodoKeywords
+recognizedKeywords cfg fileKw = mergeKeywords [builtinKeywords, clSeed cfg, fileKw]
+
 -- | The scopes that answer for a headline carrying TAGS in a file whose own
 -- @#+TODO:@ lines declare FILEKW, WIDEST FIRST: org's own TODO\/DONE, then
 -- @system.org@, then the headline's tags IN ORDER, then the file's own
@@ -585,6 +619,11 @@ defaultSource = "default"
 -- is where org's built-in cycle is declared — and read HERE rather than at each
 -- of the two callers, so the scope 'classify' consults and the scope a palette
 -- shows cannot come to hold different words.
+--
+-- The one place a set still becomes a keyword LIST, and the one place that
+-- costs nothing: org's cycle is a single word each side of the bar, so
+-- ascending order IS declaration order.  A second built-in would need a list
+-- spelled here.
 builtinKeywords :: TodoKeywords
 builtinKeywords = TodoKeywords (Set.toAscList (todoActive defaultContext))
                                (Set.toAscList (todoInactive defaultContext))

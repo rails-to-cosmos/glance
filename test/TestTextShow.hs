@@ -39,7 +39,16 @@ spec = testGroup "TextShow"
 
     , testCase "TODO pragma" $
         assertEqual "" "#+TODO: TODO | DONE"
-          (showt $ PTodo (Set.fromList ["TODO"]) (Set.fromList ["DONE"]))
+          (showt $ PTodo ["TODO"] ["DONE"])
+
+      -- The cycle re-emits as the line SPELLS it.  It used to re-emit in Set
+      -- order, which put WAITING before the TODO it follows and CANCELLED
+      -- before the DONE it follows -- one of this re-serializer's documented
+      -- losses, and the one that stopped being one when the keyword lists
+      -- became ordered.
+    , testCase "and its keywords keep the order they were declared in" $
+        assertEqual "" "#+TODO: TODO WAITING | DONE CANCELLED"
+          (showt $ PTodo ["TODO", "WAITING"] ["DONE", "CANCELLED"])
 
     , testCase "Generic pragma" $
         assertEqual "" "#+TITLE: My Doc"

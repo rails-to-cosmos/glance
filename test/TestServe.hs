@@ -401,11 +401,16 @@ sortKeyOf row = (statePos (cellOf "state"), T.toCaseFold (cellOf "title"))
         _noCells -> ""
       _notARow -> ""
 
--- | The keywords @test\/fixtures\/view@ declares, in the order its @#+TODO:@
--- line spells them — which is the badge palette, and so the order the state
--- column sorts in.
+-- | The keywords @test\/fixtures\/view@ recognizes, in the order the badge
+-- palette carries them — and so the order the state column sorts in.
+--
+-- The chain, spelled out: org's own pair leads, then the fixture's
+-- @#+TODO: NEXT WAITING | CANCELLED@ in the order that line spells it.  This
+-- list read @NEXT TODO WAITING | CANCELLED DONE@ while the union was
+-- Set-shaped, which is alphabetical rather than declared and is the defect the
+-- ordered chain fixed.
 samplePalette :: [T.Text]
-samplePalette = ["NEXT", "TODO", "WAITING", "CANCELLED", "DONE"]
+samplePalette = ["TODO", "NEXT", "WAITING", "DONE", "CANCELLED"]
 
 -- | The state column's badge values, in palette order.
 badgeValues :: Value -> IO [T.Text]
@@ -8359,10 +8364,11 @@ configSpec = testGroup "GET and POST /config"
                     [[], ["#+TODO:  TODO READING | READ ABANDONED"], []]
           =<< traverse (textsAt "lines") layers
         -- The union is the store's own palette, so the preview and the badges
-        -- a reader is looking at cannot disagree.
+        -- a reader is looking at cannot disagree — including the ORDER, which
+        -- is org's own pair and then the line above spelled left to right.
         keywords <- field "keywords" v
-        assertEqual "active" ["READING", "TODO"] =<< textsAt "active" keywords
-        assertEqual "inactive" ["ABANDONED", "READ", "DONE"] =<< textsAt "inactive" keywords
+        assertEqual "active" ["TODO", "READING"] =<< textsAt "active" keywords
+        assertEqual "inactive" ["DONE", "READ", "ABANDONED"] =<< textsAt "inactive" keywords
 
     -- A tree that has never had a system layer still has the place for one, and
     -- the empty digest is what says so: it is the pin an absent file carries,
@@ -8740,6 +8746,25 @@ keywordsSpec = testGroup "GET /keywords"
           [ ("default", ["TODO"],    ["DONE"])
           , ("system",  ["STARTED"], ["SHELVED"])
           , ("system",  ["PLANNED"], []) ]
+          =<< sourcesOf =<< getFrom a "/keywords?ids=only"
+
+    -- The SOURCES are the chain's order and the WORDS INSIDE ONE are its
+    -- layer's own, left to right off the `#+TODO:' line.  Both cells here are
+    -- spelled against the alphabet on purpose: this answer is what the state
+    -- palette draws and what its letters are assigned over, so a sorted one
+    -- would move a reader's keys every time a tree added a word.
+  , testCase "a source's keywords arrive in the order its line spells them" $
+      withTempDir $ \dir -> do
+        writeLayers dir
+          [ (Nothing,     "#+TODO: STARTED PENDING DELEGATED | CANCELLED ABANDONED\n")
+          , (Just "book", "#+TODO: READING SHELVED | READ\n") ]
+        _ <- orgFile dir "a.org" (T.unlines
+               [ "* one :book:", ":PROPERTIES:", ":ORG_GLANCE_ID: only", ":END:" ])
+        (a, _hub) <- serverOver dir
+        assertEqual "each cell as its layer wrote it, never sorted"
+          [ ("default", ["TODO"],                            ["DONE"])
+          , ("system",  ["STARTED", "PENDING", "DELEGATED"], ["CANCELLED", "ABANDONED"])
+          , ("book",    ["READING", "SHELVED"],              ["READ"]) ]
           =<< sourcesOf =<< getFrom a "/keywords?ids=only"
   ]
 

@@ -701,13 +701,16 @@ keywordSpec = testGroup "Keyword palette"
       assertBool ("view change in " <> show frames) (ViewChanged `notElem` frames)
       assertEqual "palette" (storeKeywords store) (storeKeywords next)
 
+    -- Down to org's own pair rather than to nothing: TODO and DONE are
+    -- recognized under every root whatever a tree configures, so the palette an
+    -- empty store carries is the chain's first scope and not the empty list.
   , testCase "the last file declaring a keyword takes it with it"
       $ withStoreOf [("a.org", "#+TODO: TODO WAITING | DONE\n* WAITING one\n")]
       $ \_dir path store -> do
       removeFile path
       let (next, frames) = dropFile path store
       assertEqual "frames" [ViewChanged] frames
-      assertEqual "palette" (TodoKeywords [] []) (storeKeywords next)
+      assertEqual "palette" (TodoKeywords ["TODO"] ["DONE"]) (storeKeywords next)
   ]
 
 -- | What a socket sees before anything changes.

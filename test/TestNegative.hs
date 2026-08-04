@@ -152,7 +152,7 @@ spec = testGroup "Negative / Edge cases"
     [ testCase "Pragma with no value" $
         case orgParse defaultContext "#+TODO: " of
           (elems, ctx, _err) -> do
-            assertEqual "elements" [EPragma (PTodo Set.empty Set.empty)] (bare elems)
+            assertEqual "elements" [EPragma (PTodo [] [])] (bare elems)
             assertEqual "active keywords unchanged"
                         (todoActive defaultContext) (todoActive ctx)
             assertEqual "inactive keywords unchanged"

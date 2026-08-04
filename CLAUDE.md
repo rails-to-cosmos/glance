@@ -50,7 +50,11 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   empty title ran on and took the next line — its stars included — as its own,
   so `* ` above `* Delta` was ONE headline titled `* Delta`.
 - TODO keywords are matched case-sensitively and stored verbatim;
-  pragma/property KEYS are uppercased.
+  pragma/property KEYS are uppercased. `PTodo` carries the two halves as LISTS
+  in the line's order — a `#+TODO:` line is a cycle, and its spelling is the
+  tree's whole say over how states sort and how a palette draws. The parser
+  folds the same words into `Context`'s two `Set`s, which is where recognition
+  is answered and where order means nothing.
 - In `spannedContainerUntil` the end-parser branch precedes the hspace-eol
   branch (tags open with `hspace1` and lose it otherwise).
 - Trailing hspace terminates a container and stays unconsumed.
@@ -93,11 +97,14 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 ## Render
 
 - `TextShow` is a lossy REPL re-serializer (whitespace collapse, uppercased
-  pragma keys, Set-ordered keyword lists). Never use it for write-back or the
-  wire contract; spans are the only lossless channel. TestRoundtrip's
-  exact-vs-stable split IS the documented lossiness budget: 22 `Exact` rows and
-  1 `Stable`, the `#+TODO:` set ordering. The seven rows promoted on 2026-07-31
-  were measured to re-render byte for byte; the label had outrun the renderer.
+  pragma keys). Never use it for write-back or the wire contract; spans are the
+  only lossless channel. TestRoundtrip's exact-vs-stable split IS the documented
+  lossiness budget, and the budget is now EMPTY: 23 `Exact` rows and no
+  `Stable`. The seven rows promoted on 2026-07-31 were measured to re-render
+  byte for byte; the label had outrun the renderer. The last `Stable` row was
+  `#+TODO:`, re-emitting its keyword sets in Set order — ordering the keyword
+  lists (#67) took that loss away, and it was measured before promoting.
+  `Stable` stays as the mechanism for a case that genuinely is one.
 
 ## Scan
 
@@ -2072,6 +2079,27 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   may be set to. Letters fall out of it: `default` drawing first makes `TODO` =
   `t` and `DONE` = `d` in every tree, and a `DELEGATED` under any narrower scope
   cannot claim `d`.
+  A KEYWORD LIST IS ORDERED, and the order is the ORG FILES' OWN. Segments run
+  in `keywordScopes` precedence — `default`, `system`, the tag configs in walk
+  order, `file` — and inside a segment the words are that layer's `#+TODO:`
+  line left to right, a repeat keeping its FIRST place.
+  `Config.recognizedKeywords` is the one rule; `hrKeywords` and `storeKeywords`
+  both come off it, so one file's palette and the whole store's cannot order the
+  same words differently. Sets answer RECOGNITION alone: `Context`'s two
+  `Set Text` stay, `seedContext` builds them from the ordered lists, and that
+  boundary is the only place a keyword becomes a Set. Three of them used to sit
+  between the line and the palette (`PTodo`, `declaredKeywords`, `hrKeywords`
+  off the ending context) and every downstream list was alphabetical, so THE
+  `#+TODO:` LINE GOVERNED NOTHING — ~/sync's cycle read
+  `DELEGATED PENDING REVIEW STARTED TODO …` and now reads
+  `TODO STARTED PENDING DELEGATED REVIEW …`. What that buys, all of it live: the
+  state column sorts by the cycle, so `docs/proposal-sort-comparators.md`'s "the
+  org file IS the comparator config" is true rather than aspirational (option A,
+  delivered); the palette's which-key letters are assigned over the declared
+  order; `GET /keywords` answers ordered inside each source; and reordering a
+  `#+TODO:` line is a palette move, so it closes the socket `view-changed` and
+  the table comes back reordered. An empty store's palette is org's own pair
+  rather than nothing, `default` being the chain's first scope under every root.
   Config lives at `<root>/.org-glance/config/{system.org,tags/*.org}`,
   is never a row source, and a config change reseeds and reloads the
   world (debounced, view-changed follows). The chain is ONE list,
@@ -2097,8 +2125,10 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   One value shared per file, like the rest.
 - `clSeed` is stored, not derived: `clTags` keeps the FIRST config of each tag
   across directories while the seed unions every entry read, shadowed ones
-  included. Its only consumers are `seedContext` (the parse) and
-  `Store.storeKeywords` (the badge palette / config preview) — it is out of
+  included, in walk order — system layer first, then the tag files by name, so
+  the seed's own order is the chain's under `default`. Its only consumers are
+  `seedContext` (the parse) and `recognizedKeywords` (the badge palette, one
+  file's and the store's alike, and the config preview) — it is out of
   `keywordScopes`, so nothing classifies or authorizes by it.
 - `system.org` carries two TREE-WIDE lines beside its cycle —
   `#+GLANCE_DEFAULT_FILTER:` and `#+GLANCE_CAPTURE_TARGET:` — and each NAME is

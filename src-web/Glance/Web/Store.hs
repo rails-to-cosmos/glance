@@ -76,12 +76,13 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Text as T
 
-import Glance.Query ( ConfigLayers (clPrint, clSeed)
+import Glance.Query ( ConfigLayers (clPrint)
                     , HeadlineRecord (hrDigest, hrDoc, hrId, hrKeywords, hrTags)
                     , LoadFailure (..)
                     , QueryResult (..), TodoKeywords, WalkOptions, defaultWalk
                     , digestOfText, loadDirWithConfig, mergeKeywords, noConfig
-                    , resolveIds, rowJSON, tagsOfCell )
+                    , noKeywords, recognizedKeywords, resolveIds, rowJSON
+                    , tagsOfCell )
 
 -- The store
 
@@ -230,7 +231,7 @@ storeDocument path st = (\r -> (hrDoc r, hrDigest r)) <$> listToMaybe (recordsUn
 storeTags :: Store -> [Text]
 storeTags = Map.keys . stTags
 
--- | The palette the store's columns carry: the config's keywords, then
+-- | The palette the store's columns carry: the config chain's keywords, then
 -- whatever the files add.
 --
 -- One record per file is enough for the second half: every row of a file shares
@@ -242,8 +243,17 @@ storeTags = Map.keys . stTags
 -- are gone: an empty tree under a config still has the states its author
 -- configured, where deriving the palette from rows would answer that a
 -- configured keyword does not exist.
+--
+-- The head is 'recognizedKeywords' over a file declaring nothing, which is the
+-- very function each row's own palette starts with — so a tree's cycle sorts the
+-- same whether the answer came off the store or off one file's rows, and the
+-- order is the org files' spelling in 'Data.Org.Config.keywordScopes'
+-- precedence.  It is also why org's own pair is in an empty tree's palette:
+-- @TODO@ and @DONE@ are recognized under every root whatever a config says, so a
+-- palette that dropped them when the last file went described a tree the parser
+-- does not have.
 storeKeywords :: Store -> TodoKeywords
-storeKeywords st = mergeKeywords (clSeed (stConfig st) : perFile)
+storeKeywords st = mergeKeywords (recognizedKeywords (stConfig st) noKeywords : perFile)
   where perFile = mapMaybe (fmap hrKeywords . listToMaybe . feRecords)
                            (Map.elems (stFiles st))
 

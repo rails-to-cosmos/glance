@@ -379,13 +379,24 @@ instance TextShow Keyword where
 
 -- Pragma
 
+-- | A pragma line.  @#+TODO:@ has a constructor of its own because its keywords
+-- are read rather than shown: the two halves of the bar are what a tree
+-- configures.
+--
+-- Both halves are LISTS, in the order the line spells them, because that order
+-- is the org file's whole say over how the state column sorts and how a palette
+-- draws — a @Set@ here re-sorted every tree's cycle alphabetically before
+-- anything downstream could read it.  A word repeated on one line arrives
+-- twice; deduplicating is 'Data.Org.Config.mergeKeywords'\'s, one rule at the
+-- layer that merges layers.  RECOGNITION is unaffected: the parser folds these
+-- into 'Context'\'s sets, which is where a headline's keyword is matched.
 data Pragma = Pragma !Keyword !OrgLine
-            | PTodo !(Set Text) !(Set Text)
+            | PTodo ![Text] ![Text]
   deriving (Show, Eq)
 
 instance TextShow Pragma where
   showb (Pragma k v) = "#+" <> TS.showb k <> ": " <> TS.showb v
-  showb (PTodo active inactive) = "#+TODO:" <> TS.showbSpace <> TS.fromText (T.unwords (Set.toList active)) <> " | " <> TS.fromText (T.unwords (Set.toList inactive))
+  showb (PTodo active inactive) = "#+TODO:" <> TS.showbSpace <> TS.fromText (T.unwords active) <> " | " <> TS.fromText (T.unwords inactive)
 
 instance Display Pragma where
   display = showt
