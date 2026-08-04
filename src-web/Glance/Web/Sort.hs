@@ -23,8 +23,8 @@
 -- before the key: it covers every segment of the token rather than the first.
 --
 -- The refusals are the other half of "one column, one direction".  A negation, an
--- alternation, a column no view carries, a direction that is neither word, and a
--- column named twice are each a query this producer answers as an ERROR naming
+-- alternation, a column no view carries, and a direction that is neither word
+-- are each a query this producer answers as an ERROR naming
 -- the token — where a renderer, having nobody to refuse to, drops the key and
 -- leaves the token narrowing nothing.  That divergence is deliberate and is the
 -- loud half: the rows a refused query would have served are the rows it asked
@@ -99,9 +99,13 @@ sortChainIn q = case filter ((== Just sortKey) . tmKey) (parseFilter q) of
     orders Silent = False
     orders _named = True
     -- 'foldM' over 'Either' stops at the first refusal, so a query naming two
-    -- bad keys is answered by the one written first.
+    -- bad keys is answered by the one written first.  A REPEATED column is no
+    -- refusal on either side: the first spelling wins and the later key drops,
+    -- which is the renderer's own rule and what SCHEMA.md records — a duplicate
+    -- names an order the chain already has, so nothing a reader could have
+    -- meant is lost.
     extend keys (t, column, ascending)
-      | any ((== column) . fst) keys = Left (twice t column)
+      | any ((== column) . fst) keys = Right keys
       | otherwise                    = Right (keys <> [(column, ascending)])
 
 -- | What one segment of a @sort:@ token names.
@@ -151,9 +155,6 @@ refused t why = why <> ": " <> quoted (spelling t)
 
 -- | COLUMN named a second time, in this token or an earlier one — the dedup
 -- spans the segments and the token boundaries alike.
-twice :: Term -> Text -> Text
-twice t column = refused t ("the chain already sorts by " <> quoted column)
-
 -- | T as the reader wrote it, negation and all.
 spelling :: Term -> Text
 spelling t = (if tmNegated t then "-" else "") <> sortKey <> ":" <> tmValue t

@@ -6941,11 +6941,9 @@ sortQuerySpec = testGroup "GET /headlines?q=sort:"
         , ("sort:title|state",         "sort:title|state")
         , ("sort:nosuchcolumn",        "nosuchcolumn")
         , ("sort:title:sideways",      "sort:title:sideways")
-        , ("sort:title sort:title",    "title")
           -- A SEGMENT is refused the way the token it is one of would be, and
           -- the whole token as written is what comes back.
-        , ("sort:title-%3Enosuchcolumn", "nosuchcolumn")
-        , ("sort:title-%3Etitle",        "title") ]
+        , ("sort:title-%3Enosuchcolumn", "nosuchcolumn") ]
 
   , testCase "and a half-typed one is no refusal at all" $ do
       r <- ok =<< get assetsDir "/headlines?q=sort:"

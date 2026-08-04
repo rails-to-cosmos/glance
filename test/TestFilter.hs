@@ -480,20 +480,30 @@ sortSpec = testGroup "Sort tokens"
         , ("sort:title|state",        "sort:title|state")
         , ("sort:nosuchcolumn",       "nosuchcolumn")
         , ("sort:title:sideways",     "sort:title:sideways")
-        , ("sort:title sort:title",   "title")
-        , ("sort:title sort:title:desc", "title")
           -- Each refusal again as ONE token, the whole of it named back.  The
           -- negation covers every segment, being written before the key.
         , ("-sort:title->state",      "-sort:title->state")
         , ("sort:title|state->deadline", "sort:title|state->deadline")
         , ("sort:state->nosuchcolumn", "nosuchcolumn")
         , ("sort:nosuchcolumn->state", "nosuchcolumn")
-        , ("sort:state->title:sideways", "sort:state->title:sideways")
-          -- FIRST-WINS DEDUP SPANS THE SEGMENTS AND THE TOKEN BOUNDARIES ALIKE.
-        , ("sort:title->title",       "title")
-        , ("sort:title:desc->title",  "title")
-        , ("sort:title->state sort:title:desc", "title")
-        , ("sort:title sort:state->title",      "title") ]
+        , ("sort:state->title:sideways", "sort:state->title:sideways") ]
+
+    -- A REPEATED column is no refusal on either side: the first spelling wins
+    -- and the later key drops — the renderer's own rule, and SCHEMA.md's.  A
+    -- duplicate names an order the chain already has, so nothing a reader
+    -- could have meant is lost.  First-wins spans the segments and the token
+    -- boundaries alike.
+  , testCase "a repeated column folds to its first spelling" $
+      mapM_ (\(q, want) ->
+               case sortChainIn q of
+                 Left why    -> assertFailure (T.unpack q <> " refused: " <> T.unpack why)
+                 Right chain -> assertEqual (T.unpack q) want chain)
+        [ ("sort:title->title",                 [("title", True)])
+        , ("sort:title:desc->title",            [("title", False)])
+        , ("sort:title sort:title",             [("title", True)])
+        , ("sort:title sort:title:desc",        [("title", True)])
+        , ("sort:title->state sort:title:desc", [("title", True), ("state", True)])
+        , ("sort:title sort:state->title",      [("title", True), ("state", True)]) ]
 
   , testCase "a refusal is the whole query's, wherever the token sits" $ do
       assertBool "the good key does not rescue the bad one"
