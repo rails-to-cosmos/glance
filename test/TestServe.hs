@@ -8559,6 +8559,24 @@ blobCaptureSpec = testGroup "POST /command capture, under a tag"
         assertEqual "one line" 1 (length (T.lines noted))
         assertContains "naming the blob's own id" ("{\"id\":\"" <> ident <> "\"") noted
 
+    -- AND SO DOES A MATERIALIZE COMMIT, which is the fifth write site and the
+    -- one no case pinned: `POST /headline' leaves through the same door, so a
+    -- subtree rewritten inside a shard fsnotify never entered still reaches the
+    -- table.  `drain' is handed the directory and the hub and names no path.
+  , testCase "and so does a materialize commit into that shard" $
+      withStoreTree $ \a hub dir -> do
+        ident <- textAt "id" =<< decoded =<< ok =<< postTo a "/command" dune
+        drain defaultWalk 0 dir hub
+        before <- decoded =<< ok =<< getFrom a (headlinePath ident)
+        org <- textAt "org" before
+        digest <- textAt "digest" before
+        assertOk =<< postTo a (headlinePath ident)
+                       (commitBody (T.replace "* Dune" "* READING Dune" org) digest)
+        drain defaultWalk 0 dir hub
+        rows <- rowsOf =<< getFrom a "/headlines"
+        state <- traverse (cellAt "state") [ r | r <- rows, rowId r == ident ]
+        assertEqual "the table caught up with the commit" ["READING"] state
+
     -- The tag's TEMPLATE is what a blob is shaped by, and the answers ride in
     -- `fields'.
   , testCase "the tag's template is expanded, prompts and all" $
@@ -8593,6 +8611,31 @@ blobCaptureSpec = testGroup "POST /command capture, under a tag"
         r <- postTo a "/command" (captureAs "film" [] "Alien")
         assertEqual "status" 400 (status r)
         assertContains "naming the code" "%?" (body r)
+        assertEqual "and no blob was written" [] =<< blobsIn dir
+
+    -- THE ONE-HEADLINE WALL REACHES THE TAGGED PATH.  Both the line and every
+    -- `fields' answer are spliced into the same document, so a newline in either
+    -- lands a column-1 star the parser reads as a second entry — and a blob
+    -- holds ONE entry, the headline org-glance keys it by.
+  , testCase "a captured line carrying a newline is a 400, and writes nothing" $
+      withStoreTree $ \a _hub dir -> do
+        r <- postTo a "/command" (captureAs "book" [("Author", "Herbert")] "a\n* b")
+        assertEqual "status" 400 (status r)
+        assertContains "naming the shape" "one headline" (body r)
+        assertEqual "and no blob was written" [] =<< blobsIn dir
+
+  , testCase "and so is an answer carrying one, named by its prompt" $
+      withStoreTree $ \a _hub dir -> do
+        r <- postTo a "/command" (captureAs "book" [("Author", "H\n* b")] "Dune")
+        assertEqual "status" 400 (status r)
+        assertContains "naming the field" "Author" (body r)
+        assertEqual "and no blob was written" [] =<< blobsIn dir
+
+  , testCase "an answer stripped to nothing is refused too" $
+      withStoreTree $ \a _hub dir -> do
+        r <- postTo a "/command" (captureAs "book" [("Author", "   ")] "Dune")
+        assertEqual "status" 400 (status r)
+        assertContains "naming the field" "Author" (body r)
         assertEqual "and no blob was written" [] =<< blobsIn dir
 
   , testCase "a tag that is not one is refused with the request's shape" $

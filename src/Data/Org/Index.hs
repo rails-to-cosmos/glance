@@ -270,21 +270,27 @@ driftOf store folded blobs = IndexDrift
                   , not (T.null state && T.null arch) ]
     sample (i, state, arch) = [ i <> ": " <> note | note <- [state, arch], not (T.null note) ]
 
+-- | FIELD as the report names a disagreement between the WAL's value and the
+-- BLOB's, or empty where the two agree.  SHOWN is how that field spells a value.
+--
+-- One sentence for both fields the comparison asks about, so the two cannot
+-- come to word the same finding differently.
+disagreement :: Eq a => Text -> (a -> Text) -> a -> a -> Text
+disagreement field shown wal blob
+  | wal == blob = ""
+  | otherwise   = field <> " wal=" <> shown wal <> " blob=" <> shown blob
+
 -- | How REC and BLOB disagree about the TODO keyword, or empty when they do
 -- not.  A record naming no keyword and a headline carrying none both read @""@.
 stateNote :: IndexRecord -> BlobEntry -> Text
-stateNote rec blob
-  | irState rec == beState blob = ""
-  | otherwise = "state wal=" <> shown (irState rec) <> " blob=" <> shown (beState blob)
+stateNote rec blob = disagreement "state" shown (irState rec) (beState blob)
   where shown t = if T.null t then "none" else t
 
 -- | How REC and BLOB disagree about the archive flag, or empty when they agree
 -- or when the record predates the field.
 archiveNote :: IndexRecord -> BlobEntry -> Text
-archiveNote rec blob = case irArchived rec of
-  Just flag | flag /= beArchived blob ->
-    "archived wal=" <> yesNo flag <> " blob=" <> yesNo (beArchived blob)
-  _agreesOrAbsent -> ""
+archiveNote rec blob =
+  maybe "" (\flag -> disagreement "archived" yesNo flag (beArchived blob)) (irArchived rec)
   where yesNo b = if b then "true" else "false"
 
 -- Reporting

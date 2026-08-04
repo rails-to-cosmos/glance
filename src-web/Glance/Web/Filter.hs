@@ -61,7 +61,7 @@
 -- the whole string and a predicate searches one field of it ('cellAt'), which
 -- is the renderer's own @search@ and @cells@ — so the two agree by construction
 -- rather than by two implementations of @displayText@ staying in step.
-module Glance.Web.Filter ( FilterEnv (..)
+module Glance.Web.Filter ( FilterEnv
                          , Term (..)
                          , Token (..)
                          , alternatives

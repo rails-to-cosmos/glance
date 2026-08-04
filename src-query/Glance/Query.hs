@@ -32,7 +32,8 @@
 -- copy it, and leave the cells where they are.  'hrDoc' names the same text
 -- 'hrHeadline' already shares, so materialize costs a pointer per row and no
 -- array: the file was retained before the field existed.
-module Glance.Query ( ConfigLayerFile (..)
+module Glance.Query ( BlobSeed (..)
+                    , ConfigLayerFile (..)
                     , ConfigLayers (..)
                     , ConfigParts (..)
                     , HeadlineParts (..)
@@ -59,8 +60,8 @@ module Glance.Query ( ConfigLayerFile (..)
                     , builtinFilter
                     , captureCodes
                     , captureEdits
-                    , captureProperty
                     , captureStamp
+                    , captureText
                     , captureTargetIn
                     , captureTargetOf
                     , captureTemplateEdits
@@ -68,6 +69,7 @@ module Glance.Query ( ConfigLayerFile (..)
                     , captureTemplateOf
                     , cellSep
                     , configDirIn
+                    , configDirsIn
                     , configEdits
                     , configPath
                     , currentDocument
@@ -149,11 +151,10 @@ module Glance.Query ( ConfigLayerFile (..)
                     , uuidFrom
                     , viewJSON
                     , viewJSONTextWith
-                    , viewJSONWith
                     ) where
 
 import Control.Applicative ((<|>))
-import Control.Exception (IOException, evaluate, try)
+import Control.Exception (evaluate)
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Aeson.Text (encodeToLazyText)
 import Data.Aeson.Types (Pair)
@@ -165,11 +166,9 @@ import Data.Text (Text)
 import TextShow (showt)
 
 import qualified Data.Aeson.Key as Key
-import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Read as TR
 import qualified Data.Time as Time
@@ -181,13 +180,15 @@ import Data.Org ( Context, Element (EHeadline), Headline
                 , Timestamp (tsStart)
                 , TimestampStatus (TimestampActive, TimestampInactive), Todo (name)
                 , TsMoment (tsmHasTime, tsmTime), archiveTag, deadline, defaultContext
-                , headlineIdProperty, headlinesOf, hsFull, identity, isTagChar, levelOf
+                , firstHeadlineOf, headlineIdProperty, headlinesOf, hsFull, identity
+                , isTagChar, levelOf
                 , metaCategory
-                , orgParse, priority, schedule, sliceSpan, spans, spelled, tags, title
-                , todo, tsBrackets )
+                , orgParse, priority, schedule, shiftSpan, sliceSpan, spans, spelled
+                , tags, title, todo, tsBrackets )
 import Data.Org.Config ( ConfigLayerFile (..), ConfigLayers (..), TodoKeywords (..)
                        , builtinFilter, captureTargetEdits, captureTargetIn
-                       , captureTargetOf, classify, configDirIn, declaredKeywords
+                       , captureTargetOf, classify, configDirIn, configDirsIn
+                       , declaredKeywords
                        , defaultCaptureFile, defaultFilter
                        , defaultFilterEdits, defaultFilterOf, isTodoPragma
                        , firstBy, keywordScopes
@@ -195,14 +196,14 @@ import Data.Org.Config ( ConfigLayerFile (..), ConfigLayers (..), TodoKeywords (
                        , readConfigLayers, recognizedKeywords, seedContext
                        , systemSetting, todoLineEdits, todoLines, todoPragmas )
 import Data.Org.Blob (blobPathIn, mintBlobId, storeRootIn, uuidFrom)
-import Data.Org.Walk ( Found (..), WalkOptions (..), beatsForId, defaultWalk
-                     , findOrgFilesWith, isConfig, isDerived, isDocument
+import Data.Org.Walk ( Found (..), LoadFailure (..), WalkOptions (..), claimById
+                     , defaultWalk, findOrgFilesWith, isConfig, isDerived, isDocument
                      , mapFilesConcurrently )
 
 -- The line splitter and its span arithmetic are the write engine's: this
 -- module's regions are cut by whole lines and spliced back by char span, which
 -- is the currency 'Data.Org.Edit' owns.  Two spellings of it agreed by accident.
-import Data.Org.Edit (lineSpansIn, linesWith)
+import Data.Org.Edit (digestOfText, eolOf, lineSpansIn, linesWith, openingFor)
 
 import qualified Data.Org.Edit as Edit
 import qualified Data.Org.External as External
@@ -259,15 +260,6 @@ data IdCollision = IdCollision
   , icKept    :: !FilePath  -- ^ the file whose row the view carries.
   , icDropped :: !FilePath  -- ^ the file whose row it does not.
   } deriving (Eq, Show)
-
--- | Why one file yielded no rows.  A load reports these as counts; a watcher
--- reports them per file, and decides what to keep on the strength of which one
--- it got.
-data LoadFailure
-  = ReadFailed    -- ^ the bytes could not be read.
-  | DecodeFailed  -- ^ the bytes are not valid UTF-8.
-  | ParseFailed   -- ^ 'orgParse' rejected the document, which is all-or-nothing.
-  deriving (Eq, Show)
 
 emptyResult :: QueryResult
 emptyResult = QueryResult [] 0 0 0 0 []
@@ -356,21 +348,18 @@ loadFile = loadFileWith noConfig
 -- done by the worker that took the file, and a caller of any kind needs the
 -- document dropped rather than retained under an unevaluated cell
 -- (docs\/invariants.md, Scan).
+--
+-- The ladder itself is 'Edit.readParsed', which the corpus scan climbs too, so
+-- the digest a row is pinned by is of the very bytes the parse read.  Only the
+-- rung is kept here: a reason belongs to a report, and this side counts.
 loadFileWith :: ConfigLayers -> FilePath -> IO (Either LoadFailure [HeadlineRecord])
 loadFileWith cfg path = do
-  raw <- try (BS.readFile path) :: IO (Either IOException BS.ByteString)
-  evaluate $ case raw of
-    Left _err -> Left ReadFailed
-    Right bytes -> case TE.decodeUtf8' bytes of
-      Left _err -> Left DecodeFailed
-      Right doc -> case orgParse (seedContext cfg) doc of
-        (_elems, _ctx, Just _err) -> Left ParseFailed
-        (elems, ctx, Nothing)     -> forcing rs (Right rs)
-          -- The digest is of the very bytes these spans were computed against,
-          -- taken here rather than by a later read: a write pinned to a digest
-          -- read at some other moment would splice offsets into a document
-          -- they were never measured in.
-          where rs = recordsOf cfg path doc (Edit.digestOf bytes) ctx elems
+  parsed <- Edit.readParsed (seedContext cfg) path
+  evaluate $ case parsed of
+    Left (fault, _why) -> Left fault
+    Right pd -> forcing rs (Right rs)
+      where rs = recordsOf cfg path (Edit.pdText pd) (Edit.pdDigest pd)
+                           (Edit.pdContext pd) (Edit.pdElements pd)
 
 -- | FILES folded into one result, with DIRERRS unlistable directories already
 -- counted as read failures.
@@ -434,13 +423,24 @@ recordsOf cfg path doc digest ctx elems =
         -- Forced here, once per file: it is STORED now ('hrDeclared'), and an
         -- unforced set is a thunk over ELEMS.
         declared = forcedKeywords (declaredKeywords elems)
-        heads    = headlinesOf elems
         -- The position in THIS list is the row's ordinal ('rowId'), so BOTH
         -- filters run before the numbering: a child or a blank entry between
         -- two rows would otherwise consume an ordinal and shift every row
         -- behind it.
-        entries  = [ e | e@(h, _sub) <- zip heads (subtreeSpans (T.length doc) heads)
+        entries  = [ e | e@(h, _sub) <- outlineEntries doc elems
                        , topLevel h, not (blankEntry h) ]
+
+-- | DOC's headlines with the subtree extent of each, in document order.
+--
+-- The outline rule over a WHOLE document, which is what makes the extents tile:
+-- an entry runs to the next headline at its level or shallower.  Both readers
+-- filter this rather than the headlines ahead of it — the rows keep the top
+-- entries, the subtree lens keeps what lies inside one — because filtering
+-- first would end a kept entry at the next KEPT headline instead of the next
+-- shallower one.
+outlineEntries :: Text -> [Spanned Element] -> [(Headline, Span)]
+outlineEntries doc elems = zip heads (subtreeSpans (T.length doc) heads)
+  where heads = headlinesOf elems
 
 -- | Is H a top entry — one star, no ancestor?  Half of being a row; the other
 -- half is having something to show ('blankEntry').
@@ -660,8 +660,7 @@ subtreeLinks r = map (shiftLink (spanStart (hrSubtree r))) (orgLinks (subtreeTex
 
 -- | L moved BY characters along the text it was scanned in.
 shiftLink :: Int -> OrgLink -> OrgLink
-shiftLink by l = l { olSpan = Span (spanStart sp + by) (spanEnd sp + by) }
-  where sp = olSpan l
+shiftLink by l = l { olSpan = shiftSpan by (olSpan l) }
 
 -- | The links TEXT holds, in order of appearance, one per target.
 --
@@ -1013,7 +1012,7 @@ matchesSearch q
 -- are not two rows: the second would overwrite the first on every frame, and
 -- meanwhile the table shows the headline twice.
 --
--- Which one stays is decided by the path ('Data.Org.Walk.beatsForId'):
+-- Which one stays is decided by the path ('Data.Org.Walk.claimById'):
 -- org-glance's canonical store lives under @.org-glance\/data\/@ and everything
 -- else claiming that id is a copy of it, so a canonical path wins; between two
 -- paths of the same kind, walk order does, which is stable and is what the view
@@ -1027,9 +1026,9 @@ resolveIds records = (kept, reverse clashes)
     (winners, clashes) = foldl' pick (Map.empty, []) indexed
     pick (best, out) (i, r) = case Map.lookup (hrId r) best of
       Nothing -> (taken, out)
-      Just (_j, held)
-        | beatsForId (hrFile r) held -> (taken, collision (hrFile r) held : out)
-        | otherwise                  -> (best, collision held (hrFile r) : out)
+      Just (_j, held) -> case claimById (hrFile r) held of
+        (True, (win, lose))  -> (taken, collision win lose : out)
+        (False, (win, lose)) -> (best, collision win lose : out)
       where taken     = Map.insert (hrId r) (i, hrFile r) best
             collision = IdCollision (hrId r)
     kept = [ r | (i, r) <- indexed, fmap fst (Map.lookup (hrId r) winners) == Just i ]
@@ -1232,9 +1231,8 @@ subtreeEntries cfg r = case orgParse (seedContext cfg) doc of
     outer = hrSubtree r
     inside elems =
       [ (levelOf h, h, sub)
-      | (h, sub) <- zip heads (subtreeSpans (T.length doc) heads)
+      | (h, sub) <- outlineEntries doc elems
       , spanStart sub > spanStart outer, spanStart sub < spanEnd outer ]
-      where heads = headlinesOf elems
     made k (_lvl, h, sub) =
       (recordOf cfg (hrDeclared r) (hrFile r) k doc (hrDigest r)
                 (hrCategory r) (hrKeywords r) h sub)
@@ -1446,11 +1444,15 @@ knit ls = T.concat (zipWith close ls [1 :: Int ..])
 
 -- | SUBTREE with every span in SPANS taken out.  They are disjoint and in
 -- source order, which is what 'regionSpans' answers with.
+--
+-- A deletion is an edit with nothing in it, so the splice is
+-- 'Edit.applyEdits'\'s — the same one pass, and the overlap and bounds checks
+-- for free.  A batch it refuses cannot come out of 'regionSpans'; SUBTREE
+-- unchanged is what a caller sees if one ever does, which is the region left
+-- standing rather than a document cut at the wrong offsets.
 withoutSpans :: Text -> [Span] -> Text
-withoutSpans subtree = T.concat . go 0
-  where go at []         = [T.drop at subtree]
-        go at (sp : sps) = slice at (spanStart sp) : go (spanEnd sp) sps
-        slice from to = T.take (to - from) (T.drop from subtree)
+withoutSpans subtree sps =
+  fromRight subtree (Edit.applyEdits subtree [ Edit.Edit sp "" | sp <- sps ])
 
 -- | SLICES in source order, the ones a headline has no region for dropped.  The
 -- three are located once by the caller, each answer feeding the next
@@ -1531,9 +1533,8 @@ logbookSlice skip subtree = case break (opens . snd) own of
 localSpan :: HeadlineRecord -> Text -> Span -> Maybe Span
 localSpan r subtree sp
   | from < 0 || to > T.length subtree || from > to = Nothing
-  | otherwise                                      = Just (Span from to)
-  where from = spanStart sp - spanStart (hrSubtree r)
-        to   = spanEnd sp - spanStart (hrSubtree r)
+  | otherwise                                      = Just local
+  where local@(Span from to) = shiftSpan (negate (spanStart (hrSubtree r))) sp
 
 -- Planning
 
@@ -1554,7 +1555,7 @@ planningStyle subtree _body entries (Just sp) = PlanningStyle (indentOf line) (e
     raws = [ ((key, sliceSpan subtree at), raw)
            | (key, at) <- entries
            , Just raw <- [rawEntry key line (shifted at)] ]
-    shifted (Span s e) = Span (s - spanStart sp) (e - spanStart sp)
+    shifted = shiftSpan (negate (spanStart sp))
 
 -- | The text of the entry KEY opens in LINE, from its keyword to the end of
 -- AT.  'Nothing' where the keyword is not in front of the timestamp, which the
@@ -1606,10 +1607,9 @@ planningText style want
 -- thought they set is gone.  A value carrying a newline is refused outright —
 -- it would be a second line, and a planning line is one.
 readsAsTimestamp :: Text -> Bool
-readsAsTimestamp value = not (T.null trimmed) && not (T.any (== '\n') trimmed) && parses
+readsAsTimestamp value = either (const False) parses (oneLine () () value)
   where
-    trimmed = T.strip value
-    parses  = case orgParse defaultContext ("* probe\nSCHEDULED: " <> trimmed <> "\n") of
+    parses trimmed = case orgParse defaultContext ("* probe\nSCHEDULED: " <> trimmed <> "\n") of
       (elems, _ctx, Nothing) -> any planned elems
       _failed                -> False
     planned e = case valueOf e of
@@ -1725,12 +1725,6 @@ pastLine t at = maybe (T.length t) (\i -> at + i + 1) (T.findIndex (== '\n') (T.
 -- | The offset in T where the line offset AT sits on begins.
 lineStart :: Text -> Int -> Int
 lineStart t at = T.length (fst (T.breakOnEnd "\n" (T.take at t)))
-
--- | The line ending T's first line uses, @"\\n"@ when it has none.
-eolOf :: Text -> Text
-eolOf t = case T.breakOn "\n" t of
-  (before, rest) | not (T.null rest), "\r" `T.isSuffixOf` before -> "\r\n"
-  _plain                                                         -> "\n"
 
 -- | The horizontal space LINE opens with.
 indentOf :: Text -> Text
@@ -1864,16 +1858,6 @@ forceRecord r =
              : hrLinks r <> optional)
           (foldr seq r (hrActive r))
   where optional = catMaybes [hrState r, hrPriority r, hrScheduled r, hrDeadline r]
-
--- Digests
-
--- | The SHA-256 of TEXT's UTF-8 bytes, lowercase hex: the digest a record pins
--- its file with ('hrDigest'), over text a caller assembled itself.  Exported so
--- a consumer summarising a set of them — a store fingerprinting the tree it
--- loaded — hashes with the function that produced them rather than with one of
--- its own.
-digestOfText :: Text -> Text
-digestOfText = Edit.digestOf . TE.encodeUtf8
 
 -- Write-back
 
@@ -2133,12 +2117,23 @@ settableStates cfg r =
 titleSpan :: HeadlineRecord -> Maybe Span
 titleSpan = hsTitle . headlineSpans
 
-titleText :: Text -> Either Text Text
-titleText text
-  | T.null want          = Left "a headline needs a title: the text after the keyword"
-  | T.any (== '\n') want = Left "a title is one line: the rest of the headline's own line"
+-- | TEXT stripped, refused with EMPTY where nothing is left of it and with MANY
+-- where a newline is.
+--
+-- The wall three fields share — a title, a captured entry's text, a planning
+-- value — spelled once.  The SENTENCES stay the callers': what a reader is being
+-- told is about the field they typed into, and a shared one would name none of
+-- them.
+oneLine :: e -> e -> Text -> Either e Text
+oneLine empty many text
+  | T.null want          = Left empty
+  | T.any (== '\n') want = Left many
   | otherwise            = Right want
   where want = T.strip text
+
+titleText :: Text -> Either Text Text
+titleText = oneLine "a headline needs a title: the text after the keyword"
+                    "a title is one line: the rest of the headline's own line"
 
 -- | The span edits @set-title@ makes to R: TITLE in place of the one it carries.
 --
@@ -2661,12 +2656,18 @@ timedStamp brackets at = orgStamp brackets (Time.localDay at) (Just (spelled "%H
 captureProperty :: Text
 captureProperty = "ORG_GLANCE_CREATION_TIME"
 
+-- | NOW in the server's own zone, inside the brackets STATUS names.  The one
+-- reading of a wall clock into a stamp, so a creation time and a @%U@ in a
+-- capture template cannot come to spell one moment two ways.
+zonedStamp :: TimestampStatus -> Time.ZonedTime -> Text
+zonedStamp status = timedStamp (bracketsOf status) . Time.zonedTimeToLocalTime
+
 -- | NOW as 'captureProperty' spells a moment: org's INACTIVE timestamp,
 -- @[YYYY-MM-DD Day HH:MM]@, in the server's own zone.  Inactive because a
 -- creation time is a record of when a row was written rather than something to
 -- turn up on an agenda.
 captureStamp :: Time.ZonedTime -> Text
-captureStamp = timedStamp inactiveBrackets . Time.zonedTimeToLocalTime
+captureStamp = zonedStamp TimestampInactive
 
 -- | The span edits @capture@ makes to DOC — the capture target's text, @\"\"@
 -- for a file that is not there yet, where the entry is the whole file.
@@ -2682,30 +2683,38 @@ captureStamp = timedStamp inactiveBrackets . Time.zonedTimeToLocalTime
 -- the parser reads back with no rule about indentation.  Its lines end the way
 -- the target's own do ('eolOf'), so a capture into a CRLF file leaves one.
 captureEdits :: Text -> Text -> Text -> Either Text [(Span, Text)]
-captureEdits doc stamp text
-  | T.null typed          = Left "a capture needs a headline: the text that goes after the star"
-  | T.any (== '\n') typed = Left "a captured entry is one headline, so its text is one line"
-  | otherwise             = Right [(insertAt (T.length doc), opening <> entry)]
+captureEdits doc stamp text = written <$> captureText text
   where
-    typed = T.strip text
+    written typed = [(insertAt (T.length doc), openingFor doc eol <> entry typed)]
     eol   = eolOf doc
-    opening = openingFor doc eol
-    entry = T.concat [ line <> eol
-                     | line <- [ "* " <> typed
-                               , ":PROPERTIES:"
-                               , ":" <> captureProperty <> ": " <> stamp
-                               , ":END:" ] ]
+    entry typed = T.concat [ line <> eol
+                           | line <- [ "* " <> typed
+                                     , ":PROPERTIES:"
+                                     , ":" <> captureProperty <> ": " <> stamp
+                                     , ":END:" ] ]
+
+-- | TEXT as the one headline a capture promises, or why it is not one.
+--
+-- The wall BOTH capture paths take: the inbox entry is this text after a star,
+-- and a tagged capture puts it at its template's @%?@ — where a newline lands a
+-- column-1 star the parser reads as a second entry, and an empty line writes a
+-- template with a hole in it.  Every @fields@ answer takes it too, for the same
+-- reason: an answer is spliced into the same document.
+captureText :: Text -> Either Text Text
+captureText = oneLine "a capture needs a headline: the text that goes after the star"
+                      "a captured entry is one headline, so its text is one line"
 
 -- Capture templates
 
 -- | The @%@-codes a capture template expands, each with the one line that says
 -- what it does.
 --
--- ONE LIST, and it is the contract's window: 'templateParts' reads it as a
--- grammar, @GET \/capture@ serves it, and the settings box completes over what
--- it was served.  So what the completion offers is exactly what expands, and
--- what it omits copies through as written — org-capture's language is enormous
--- and this is the sliver the corpus uses.
+-- ONE LIST, and it is the contract's window: @GET \/capture@ serves it and the
+-- settings box completes over what it was served.  The scanner never consults
+-- it — 'templateParts' spells the same four codes out as a case — so the list
+-- and the grammar are two spellings kept in step by @TestQuery@\'s zip of one
+-- through the other.  What the list omits copies through as written:
+-- org-capture's language is enormous and this is the sliver the corpus uses.
 --
 -- @%^{PROMPT}@ carries its own braces because that is how a reader types it;
 -- the word inside is theirs.
@@ -2722,19 +2731,19 @@ captureCodes =
 -- literally, which is visible and refusable later where silently dropping it
 -- would not be.
 data TemplatePart
-  = TplText !Text    -- ^ written as it stands.
-  | TplPoint         -- ^ @%?@: the line the reader typed.
-  | TplStamp !Bool   -- ^ @%T@ (active) and @%U@ (inactive), the server's clock.
-  | TplAsk !Text     -- ^ @%^{PROMPT}@: the answer @fields@ carries for PROMPT.
+  = TplText !Text               -- ^ written as it stands.
+  | TplPoint                    -- ^ @%?@: the line the reader typed.
+  | TplStamp !TimestampStatus   -- ^ @%T@ and @%U@, the server's clock in org's two bracket kinds.
+  | TplAsk !Text                -- ^ @%^{PROMPT}@: the answer @fields@ carries for PROMPT.
   deriving (Eq, Show)
 
 -- | TEMPLATE as the pieces it expands to, in order.
 --
--- ONE left-to-right pass, and the ONE grammar three answers are read off:
--- 'templatePrompts' asks what it will want, 'templateAsks' whether it can be
--- filled at all, and 'expandTemplate' writes it.  A @%@ this knows nothing
--- about — @%^@ with no brace, an unclosed @%^{@, @%a@, a trailing @%@ — is text
--- and the scan goes on past it, so no template is unreadable.
+-- ONE left-to-right pass, and the ONE grammar two answers are read off:
+-- 'templatePrompts' asks what a template will want, and 'expandTemplate' writes
+-- it.  A @%@ this knows nothing about — @%^@ with no brace, an unclosed @%^{@,
+-- @%a@, a trailing @%@ — is text and the scan goes on past it, so no template is
+-- unreadable.
 templateParts :: Text -> [TemplatePart]
 templateParts = go
   where
@@ -2745,8 +2754,8 @@ templateParts = go
     code rest = case T.uncons rest of
       Nothing       -> [TplText "%"]
       Just ('?', t) -> TplPoint : go t
-      Just ('U', t) -> TplStamp False : go t
-      Just ('T', t) -> TplStamp True : go t
+      Just ('U', t) -> TplStamp TimestampInactive : go t
+      Just ('T', t) -> TplStamp TimestampActive : go t
       Just ('^', t) -> ask t
       Just (c, t)   -> TplText (T.pack ['%', c]) : go t
     ask t = case T.stripPrefix "{" t of
@@ -2773,11 +2782,10 @@ expandTemplate now answers text template
   where
     parts = templateParts template
     piece part = case part of
-      TplText t     -> Right t
-      TplPoint      -> Right text
-      TplStamp live -> Right (timedStamp (if live then activeBrackets else inactiveBrackets) at)
-      TplAsk want   -> maybe (Left (unanswered want)) Right (lookup want answers)
-    at = Time.zonedTimeToLocalTime now
+      TplText t       -> Right t
+      TplPoint        -> Right text
+      TplStamp status -> Right (zonedStamp status now)
+      TplAsk want     -> maybe (Left (unanswered want)) Right (lookup want answers)
     noPoint = "this capture template has no %?, so there is nowhere for the text to go"
     unanswered want = "this capture template asks " <> want
                         <> "; name it in args {\"fields\": {" <> want <> ": \"…\"}}"
@@ -2864,8 +2872,22 @@ captureTemplateEdits doc want
     notATemplate = "a capture template is one top entry: its first line opens with a\
                    \ single star, as \"* %?\" does"
 
--- | ENTRY as the document a blob holds: TAG on its first headline, and IDENT
--- and STAMP in that headline's own property drawer.
+-- | What a stored entry is stamped with beside the text its template expanded
+-- to: the tag it is filed under, the id org-glance keys it by, and when it was
+-- captured.
+--
+-- A record rather than three positional 'Text' arguments, for 'ConfigParts'\'
+-- reason: all three are text and two of them are opaque strings, so a
+-- transposed pair composes a blob filed under a timestamp and nothing refuses
+-- it.
+data BlobSeed = BlobSeed
+  { bsTag   :: !Text  -- ^ the org tag the entry wears.
+  , bsId    :: !Text  -- ^ its @ORG_GLANCE_ID@.
+  , bsStamp :: !Text  -- ^ its 'captureProperty' stamp, as 'captureStamp' spells one.
+  }
+
+-- | ENTRY as the document a blob holds: SEED's tag on its first headline, and
+-- its id and stamp in that headline's own property drawer.
 --
 -- The pieces org-glance keys a stored entry by, and the ONE place this repo
 -- assembles them.  Everything else about the entry is the template's — the
@@ -2882,8 +2904,8 @@ captureTemplateEdits doc want
 -- A template with no headline in it is refused rather than written: the blob
 -- would carry no entry, so the id would name nothing and
 -- 'Data.Org.External.blobIdOf' would read none back out of it.
-blobDocument :: Text -> Text -> Text -> Text -> Either Text Text
-blobDocument tag ident stamp given = case listToMaybe (headlinesOf elems) of
+blobDocument :: BlobSeed -> Text -> Either Text Text
+blobDocument seed given = case firstHeadlineOf elems of
   Nothing -> Left "this capture template expands to no headline, so there is no entry to store"
   Just h  -> spliced (spans h)
   where
@@ -2895,7 +2917,7 @@ blobDocument tag ident stamp given = case listToMaybe (headlinesOf elems) of
     (elems, _ctx, _err) = orgParse defaultContext entry
     spliced hs = either (Left . refused) Right
                         (Edit.applyEdits entry [ Edit.Edit sp new | (sp, new) <- edits hs ])
-    edits hs = addTagEditsIn (cellOf (hsTags hs)) tag hs <> drawerEdits hs
+    edits hs = addTagEditsIn (cellOf (hsTags hs)) (bsTag seed) hs <> drawerEdits hs
     refused err = "this capture template does not splice: " <> T.pack (show err)
     cellOf = maybe "" (sliceSpan entry)
 
@@ -2915,9 +2937,10 @@ blobDocument tag ident stamp given = case listToMaybe (headlinesOf elems) of
     -- entries where it has any, else its title line.  The three planning spans
     -- permute freely, so this is a maximum over the ends rather than a position.
     planningEnd hs = foldl' max (titleLineEnd hs)
-                       [ spanEnd sp | Just sp <- [hsSchedule hs, hsDeadline hs, hsClosed hs] ]
+                       [ spanEnd sp | (_key, sp) <- presentPlanning hs ]
     rows indent = T.concat [ indent <> ":" <> key <> ": " <> value <> eol
-                           | (key, value) <- [(headlineIdProperty, ident), (captureProperty, stamp)] ]
+                           | (key, value) <- [ (headlineIdProperty, bsId seed)
+                                             , (captureProperty, bsStamp seed) ] ]
 
 -- | The template a tagged capture expands when no layer names one — org-glance's
 -- own default stub, and the whole of what "the bare entry" means here.
@@ -2928,16 +2951,6 @@ blobDocument tag ident stamp given = case listToMaybe (headlinesOf elems) of
 -- described by the same three lines of grammar as any other.
 bareTemplate :: Text
 bareTemplate = "* %?"
-
--- | What an append to DOC owes before its own first line: EOL where DOC's last
--- line has no newline of its own, nothing otherwise.
---
--- ONE spelling, because getting it wrong is silent: text appended to a live line
--- joins it, so @* @ lands mid-paragraph and is no headline at all.
-openingFor :: Text -> Text -> Text
-openingFor doc eol
-  | T.null doc || "\n" `T.isSuffixOf` doc = ""
-  | otherwise                             = eol
 
 -- | Does TEXT open as a level-one heading?  'headingStars' over its first line,
 -- so what a template may BE and where a template is FOUND are one rule with one

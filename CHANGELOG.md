@@ -741,6 +741,18 @@ section groups a feature arc, and its date is that arc's last commit.
   bright, being where a reader finds out why.
 
 ### Fixed
+- **A CRLF config file keeps its own line endings.** `POST /config` spliced its
+  `#+TODO:` block with LF whatever the file used, so one settings write left a
+  CRLF `system.org` speaking two conventions with the line the reader had just
+  typed as the odd one out. The block and the opening a header-only file owes are
+  both the file's own ending now, read by the same `eolOf` a capture already used.
+- **A tagged capture refuses a line, or a template answer, that is not one
+  headline.** The untagged path has always refused an empty or multi-line
+  `text`; the tagged path took both straight to its template's `%?` and its
+  `%^{PROMPT}` holes, so a newline landed a column-1 star org reads as a second
+  entry — and a blob holds ONE entry, the headline org-glance keys it by. Both
+  the line and every `fields` answer now take that wall, and a refusal is a 400
+  naming the field with nothing written.
 - **Writes into a tagged capture's blob now reach the table, and the first
   `.org-glance/config` in a tree reseeds it.** Both create their own directories,
   and fsnotify arms a newly created directory without traversing into it —

@@ -21,6 +21,7 @@
 -- UUIDs, so an @ORG_GLANCE_ID@ is an OPAQUE STRING everywhere it is read.  This
 -- module only ever mints the current form.
 module Data.Org.Blob ( blobPathIn
+                     , metaDirIn
                      , mintBlobId
                      , storeRootIn
                      , uuidFrom
@@ -36,6 +37,7 @@ import qualified Crypto.Random.Entropy as Entropy
 import qualified Data.ByteString as BS
 import qualified Data.Text as T
 
+import Data.Org.Index (metaDir)
 import Data.Org.Walk (blobFile, orgGlanceDir, storeDir)
 
 -- | The store directory ROOT keeps, whether or not it is there.  One tree, one
@@ -56,6 +58,12 @@ blobPathIn store ident = under </> blobFile
           | otherwise          = data' </> unpack ident
     data' = store </> storeDir
     unpack = T.unpack
+
+-- | Where STORE keeps its index — the directory the scan folds and the one
+-- 'Data.Org.External' notes a blob write in.  Beside 'blobPathIn' and reading
+-- STORE the same way, so the two addressing rules take the same argument.
+metaDirIn :: FilePath -> FilePath
+metaDirIn store = store </> metaDir
 
 -- | A fresh @ORG_GLANCE_ID@: a random version-4 UUID, the form
 -- @org-id-uuid@ writes.

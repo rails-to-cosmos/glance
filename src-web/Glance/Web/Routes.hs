@@ -70,7 +70,7 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , Span (spanEnd, spanStart)
                     , SubtreeEntry (..)
                     , TodoKeywords (..)
-                    , archived, bareTemplate, builtinFilter, captureCodes
+                    , archived, builtinFilter, captureCodes, configDirsIn
                     , captureTargetOf, captureTemplateIn, captureTemplateOf
                     , configEdits, defaultFilter, defaultFilterOf
                     , headlineParts, keywordSources, linkShown, linkType
@@ -91,7 +91,7 @@ import Glance.Web.Page (assetsMissing, demoShell)
 import Glance.Web.Page.Style (fontAssets)
 import Glance.Web.Sort (sortChainIn)
 import Glance.Web.Store ( Client, Frame (ViewChanged), Hub, LoadState (..)
-                        , Store (stConfig, stGen, stPrint), configDirsIn, frameText
+                        , Store (stConfig, stGen, stPrint), frameText, layersFor
                         , hubLoad, hubStore, nextFrame
                         , headlinesIn
                         , storeKeywords
@@ -820,7 +820,7 @@ captureView opts hub request = do
   st <- readTVarIO (hubStore hub)
   template <- case queryText "tag" request of
     Nothing  -> pure Nothing
-    Just tag -> captureTemplateIn tag <$> readConfigLayers (configDirsIn (soDir opts) st)
+    Just tag -> captureTemplateIn tag <$> layersFor (soDir opts) st
   pure (jsonResponse status200
           [ "template" .= isJust template
           , "prompts"  .= maybe [] templatePrompts template
@@ -921,7 +921,7 @@ queryIds request =
 configView :: ServeOptions -> Hub -> IO Response
 configView opts hub = do
   st <- readTVarIO (hubStore hub)
-  layers <- readConfigLayers (configDirsIn (soDir opts) st)
+  layers <- layersFor (soDir opts) st
   pure (jsonResponse status200
           [ "layers"   .= map layerJSON layers
           , "keywords" .= keywordsJSON (storeKeywords st)
@@ -1002,22 +1002,22 @@ configWrite opts hub request = withBody request $ \raw -> do
   st <- readTVarIO (hubStore hub)
   case parseConfigWrite raw of
     Left why   -> pure (jsonError status400 why)
-    Right want -> writeLayer opts hub (configDirsIn (soDir opts) st) want
+    Right want -> writeLayer opts hub (configDirsIn (soDir opts) (stConfig st)) want
 
 -- | WANT written into one of DIRS' layers, or the refusal.  The lookup that
 -- decides which file is the read the edits are then measured in, so the two
 -- cannot be describing different bytes.
-writeLayer :: ServeOptions -> Hub -> [FilePath] -> (Text, [Text], ConfigParts, Text)
-           -> IO Response
-writeLayer opts hub dirs (path, asked, parts, digest) = do
+writeLayer :: ServeOptions -> Hub -> [FilePath] -> LayerWrite -> IO Response
+writeLayer opts hub dirs want = do
   layers <- readConfigLayers dirs
   case find ((== path) . T.pack . lfPath) layers of
     Nothing -> pure (jsonError status400 (noSuchLayer path layers))
-    Just f  -> case configEdits (lfText f) asked (scoped f parts) of
+    Just f  -> case configEdits (lfText f) (lwLines want) (scoped f (lwParts want)) of
       Left why    -> pure (jsonError status400 why)
       Right edits -> answerWrite configMoved written
-                       <$> writeSpans (walkFor opts) hub (lfPath f) digest edits
+                       <$> writeSpans (walkFor opts) hub (lfPath f) (lwDigest want) edits
   where
+    path = lwPath want
     -- Both tree-wide LINES are the SYSTEM layer's and no other's, so a tag
     -- layer's write leaves them alone whatever the request said.  The template
     -- is every layer's, which is the whole point of it being one.
@@ -1039,12 +1039,23 @@ noSuchLayer path layers =
 -- away, anything else writes it.  They ride in this one request because they are
 -- regions of the same file — four requests would be four writes under four
 -- digests, each invalidated by the one before it.
-parseConfigWrite :: BL.ByteString -> Either Text (Text, [Text], ConfigParts, Text)
+parseConfigWrite :: BL.ByteString -> Either Text LayerWrite
 parseConfigWrite = bodyObject "config write" shape
-  where shape o = (,,,) <$> o .: "path" <*> o .: "lines"
-                        <*> (ConfigParts <$> o .:? "filter" <*> o .:? "capture"
-                                         <*> o .:? "template")
-                        <*> o .: "digest"
+  where shape o = LayerWrite <$> o .: "path" <*> o .: "lines"
+                             <*> (ConfigParts <$> o .:? "filter" <*> o .:? "capture"
+                                              <*> o .:? "template")
+                             <*> o .: "digest"
+
+-- | One layer write as it arrives.  A record rather than the four-slot tuple it
+-- was: three of the four are 'Text' and the pattern binding them is written in
+-- another function, so a transposed pair would have been a path pinned by a
+-- digest of the lines.
+data LayerWrite = LayerWrite
+  { lwPath   :: !Text          -- ^ which layer, and it must be one @GET \/config@ listed.
+  , lwLines  :: ![Text]        -- ^ the @#+TODO:@ block, one entry per line.
+  , lwParts  :: !ConfigParts   -- ^ the three optional regions riding in the same write.
+  , lwDigest :: !Text          -- ^ the pin, empty for a layer that is not there yet.
+  }
 
 -- | The @id@ parameter of REQUEST, when it carries one with a value.
 queryId :: Request -> Maybe Text

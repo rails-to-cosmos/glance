@@ -34,41 +34,59 @@
 -- the write is a POLICY decision (whose permissions, whose directory for the
 -- temp file, what a link out of the tree means) and is deliberately not taken
 -- here.
+--
+-- The READ half is here too, and for the same reason the digest is: a caller
+-- measuring spans in a document and pinning its write to that document's digest
+-- needs one read to answer both.  'readParsed' is that read carried one rung
+-- further, into elements — the ladder the corpus scan and the store loader each
+-- used to spell for themselves, with their own answer to what an unreadable
+-- file is.
 module Data.Org.Edit ( Edit (..)
                      , EditError (..)
                      , EditIOError (..)
                      , EditReceipt (..)
+                     , ParsedDocument (..)
                      , Snapshot (..)
                      , applyEdits
                      , digestOf
+                     , digestOfText
                      , editFile
+                     , eolOf
                      , lineSpansIn
                      , linesWith
+                     , openingFor
                      , readBytes
                      , readDocument
+                     , readParsed
                      , snapshotOf
                      , takeSnapshot
                      ) where
 
-import Control.Exception (IOException, bracketOnError, try)
+import Control.Exception (IOException, SomeException, bracketOnError, evaluate, try)
 import Control.Monad (unless, void, when)
 import Control.Monad.Except (ExceptT (ExceptT), runExceptT, throwError)
 import Crypto.Hash (Digest, SHA256, hash)
 import Data.List (sortOn)
 import Data.Text (Text)
+import Data.Void (Void)
 import System.Directory ( copyPermissions, createDirectoryIfMissing, doesFileExist
                         , removeFile, renameFile )
 import System.FilePath (takeDirectory, takeFileName)
 import System.IO (hClose, hFlush, openBinaryTempFile)
 import System.Posix.IO (closeFd, handleToFd)
 import System.Posix.Unistd (fileSynchronise)
+import Text.Megaparsec (ParseErrorBundle, errorBundlePretty)
 
 import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 
-import Data.Org.Types (Span (..), spanFaults)
-import Data.Org.Walk (errText)
+import Data.Org.Parser (orgParse)
+import Data.Org.Types (Context, Element, Span (..), Spanned, spanFaults)
+-- Qualified because 'Walk.LoadFailure' spells two of its constructors the way
+-- 'EditIOError' spells two of its own, which is the accident of describing the
+-- same three IO troubles from the read side and the write side.
+import qualified Data.Org.Walk as Walk
 
 -- Edits
 
@@ -138,6 +156,25 @@ lineSpansIn :: Text -> [(Span, Text)]
 lineSpansIn t = go 0 (linesWith t)
   where go _at []      = []
         go at (l : ls) = (Span at (at + T.length l), l) : go (at + T.length l) ls
+
+-- | The line ending T's first line uses, @"\\n"@ when it has none.  Here beside
+-- the line splitting because it is the other half of it: text spliced into a
+-- document has to end its lines the way the document does, and a CRLF file
+-- spliced with LF speaks two conventions afterwards.
+eolOf :: Text -> Text
+eolOf t = case T.breakOn "\n" t of
+  (before, rest) | not (T.null rest), "\r" `T.isSuffixOf` before -> "\r\n"
+  _plain                                                         -> "\n"
+
+-- | What an append to DOC owes before its own first line: EOL where DOC's last
+-- line has no newline of its own, nothing otherwise.
+--
+-- ONE spelling, because getting it wrong is silent: text appended to a live line
+-- joins it, so @* @ lands mid-paragraph and is no headline at all.
+openingFor :: Text -> Text -> Text
+openingFor doc eol
+  | T.null doc || "\n" `T.isSuffixOf` doc = ""
+  | otherwise                             = eol
 
 -- | EDITS unchanged when no two of them overlap, else the offending pair.
 -- Expects them sorted by span.
@@ -216,7 +253,7 @@ readDocument path = do
 -- the bytes it parsed and need not read them twice; equal to a 'takeSnapshot'
 -- of the same file whenever DOC is what it holds.
 snapshotOf :: FilePath -> Text -> Snapshot
-snapshotOf path doc = Snapshot path (digestOf (TE.encodeUtf8 doc))
+snapshotOf path doc = Snapshot path (digestOfText doc)
 
 -- | The SHA-256 of BYTES, lowercase hex — the digest a 'Snapshot' pins.
 -- Exported for a loader holding the bytes it parsed: it pins the document it
@@ -224,6 +261,61 @@ snapshotOf path doc = Snapshot path (digestOf (TE.encodeUtf8 doc))
 -- the only way the offsets and the digest are guaranteed to describe one text.
 digestOf :: BS.ByteString -> Text
 digestOf bytes = T.pack (show (hash bytes :: Digest SHA256))
+
+-- | 'digestOf' over TEXT, which is the pin for a caller holding a document
+-- rather than the bytes it came from: the settings fingerprint, and every
+-- @\/config@ answer.  Here so that the encoding a digest is taken over is
+-- spelled once — UTF-8 is what 'editFile' writes back.
+digestOfText :: Text -> Text
+digestOfText = digestOf . TE.encodeUtf8
+
+-- Reading
+
+-- | A document read off disk and parsed: the text, the digest of the very bytes
+-- it was decoded from, and what the parse made of them.
+data ParsedDocument = ParsedDocument
+  { pdText     :: !Text                -- ^ the decoded document, which spans are offsets into.
+  , pdDigest   :: !Text                -- ^ 'digestOf' the bytes it was decoded from.
+  , pdElements :: ![Spanned Element]   -- ^ the parse, kept lazy: a caller forces what it counts.
+  , pdContext  :: !Context             -- ^ the context the document's own pragmas left behind.
+  }
+
+-- | PATH read, decoded and parsed from SEED, or which rung it fell off and why.
+--
+-- ONE ladder, because there is one: the corpus scan and the store loader each
+-- spelled these three steps out, and the digest, the decode failure and what
+-- counts as unreadable drifted between them by exactly the amount nobody
+-- looked.  The reason travels beside the rung for a caller that reports it; a
+-- caller that only counts outcomes ignores it.
+--
+-- The parse runs under 'evaluate' inside 'try', so a partial function reached
+-- through the parser is this file's failure rather than the run's.  It forces
+-- to WHNF — enough to decide whether 'orgParse' succeeded, which is the whole
+-- of the parse — and a caller wanting the ELEMENTS forced hardens its own fold.
+readParsed :: Context -> FilePath -> IO (Either (Walk.LoadFailure, Text) ParsedDocument)
+readParsed seed path = do
+  raw <- readBytes path
+  case raw of
+    Left why -> pure (Left (Walk.ReadFailed, why))
+    Right bytes -> case TE.decodeUtf8' bytes of
+      Left err -> pure (Left (Walk.DecodeFailed, Walk.errText err))
+      Right doc -> do
+        outcome <- try (evaluate (parsed bytes doc))
+        pure $ case outcome of
+          Left e  -> Left (Walk.ParseFailed
+                          , "exception: " <> Walk.errText (e :: SomeException))
+          Right r -> r
+  where
+    parsed bytes doc = case orgParse seed doc of
+      (_elems, _ctx, Just err) -> Left (Walk.ParseFailed, parseReason err)
+      (elems, ctx, Nothing)    -> Right (ParsedDocument doc (digestOf bytes) elems ctx)
+
+-- | Position plus the first diagnostic line of ERR's pretty rendering — one
+-- line, which is what a report lists a failure as.
+parseReason :: ParseErrorBundle Text Void -> Text
+parseReason err = T.unwords (take 1 ls ++ take 1 diagnostics)
+  where ls = map T.stripEnd (T.lines (T.pack (errorBundlePretty err)))
+        diagnostics = [l | l <- ls, any (`T.isPrefixOf` l) ["unexpected", "expecting"]]
 
 -- Writing
 
@@ -284,7 +376,7 @@ currentText snap = do
 -- that also wants the text decoded wants 'readDocument' instead.
 readBytes :: FilePath -> IO (Either Text BS.ByteString)
 readBytes path = report <$> (try (BS.readFile path) :: IO (Either IOException BS.ByteString))
-  where report = either (Left . errText) Right
+  where report = either (Left . Walk.errText) Right
 
 -- | Put BYTES at PATH without PATH ever holding anything else: a temp file in
 -- PATH's own directory, flushed and synced, its permissions copied from PATH,
@@ -314,4 +406,4 @@ writeAtomically path bytes = report <$> attempt
       ignoring (hClose h)  -- a no-op once 'handleToFd' has run.
       ignoring (removeFile tmp)
     ignoring act = void (try act :: IO (Either IOException ()))
-    report = either (Left . WriteFailed path . errText) Right
+    report = either (Left . WriteFailed path . Walk.errText) Right

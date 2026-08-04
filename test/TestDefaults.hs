@@ -26,7 +26,6 @@ module TestDefaults ( assertContains
                     , listAt
                     , maybeTextAt
                     , sparseAt
-                    , membersAt
                     , on
                     , orgFile
                     , parsedIn
@@ -357,13 +356,6 @@ textsAt :: Text -> Value -> IO [Text]
 textsAt k v = field k v >>= read'
   where read' x = either (\e -> assertFailure ("strings at " <> show k <> ": " <> e)) pure
                          (parseEither parseJSON x)
-
--- | The object at KEY of V, as its members by name.
-membersAt :: Text -> Value -> IO [(Text, Value)]
-membersAt k v = field k v >>= members
-  where members (Object o) = pure [ (Key.toText name', x) | (name', x) <- KM.toList o ]
-        members other = assertFailure ("expected an object at " <> show k
-                                         <> ", got " <> show other)
 
 -- | V's column keys, in view order.
 columnKeysOf :: Value -> IO [Text]

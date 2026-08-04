@@ -29,7 +29,6 @@ module Glance.Web.Base ( ServeOptions (..)
                        , configMoved
                        , captureMoved
                        , answerWrite
-                       , again
                          -- * Responses
                        , jsonType
                        , sized

@@ -1,8 +1,4 @@
 module Data.Org.Parser ( Parse (..)
-                       , StatefulParser
-                       , StatelessParser
-                       , OrgParser
-                       , OrgParserResult
                        , isTagChar
                        , orgParse
                        ) where

@@ -50,12 +50,12 @@ module Data.Org.Config ( ConfigLayerFile (..)
                        , ConfigLayers (..)
                        , TodoKeywords (..)
                        , builtinFilter
-                       , builtinKeywords
                        , captureTargetEdits
                        , captureTargetIn
                        , captureTargetOf
                        , classify
                        , configDirIn
+                       , configDirsIn
                        , configPaths
                        , declaredKeywords
                        , defaultCaptureFile
@@ -88,13 +88,12 @@ import System.FilePath (isAbsolute, splitDirectories, takeBaseName, (</>))
 
 import qualified Data.Set as Set
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
 
-import Data.Org.Edit (digestOf, lineSpansIn, readDocument)
+import Data.Org.Edit (digestOfText, eolOf, lineSpansIn, openingFor, readDocument)
 import Data.Org.Parser (orgParse)
 import Data.Org.Types ( Context, Element (EPragma), Pragma (PTodo), Span (..), Spanned (valueOf)
                       , defaultContext, setTodo, todoActive, todoInactive )
-import Data.Org.Walk (isDocument, isWalked, orgGlanceDir)
+import Data.Org.Walk (configDir, isDocument, isWalked, orgGlanceDir)
 
 -- Keywords
 
@@ -343,7 +342,11 @@ pragmaLineEdits mine doc new = case [ sp | (sp, line) <- lines', mine line ] of
   (sp : rest) -> (sp, block) : [ (r, "") | r <- rest ]
   where
     lines' = lineSpansIn doc
-    block  = if null new then "" else T.unlines new
+    -- The file's OWN line ending, for both the block and the opening: a CRLF
+    -- @system.org@ took an LF block spliced into it, so one write left the file
+    -- speaking two conventions and the line the reader typed was the odd one.
+    eol    = eolOf doc
+    block  = T.concat [ l <> eol | l <- new ]
     -- Past the header the file opens with, or at the very top when it opens
     -- with content; a file that is nothing but header takes it at the end.
     at = case dropWhile (T.isPrefixOf "#" . snd) lines' of
@@ -353,8 +356,7 @@ pragmaLineEdits mine doc new = case [ sp | (sp, line) <- lines', mine line ] of
     -- before it is a newline by construction.  The all-header case is the
     -- exception: it lands at the end of a document that need not close with
     -- one, and a block appended to a live line is not a pragma at all.
-    opening | at > 0, not ("\n" `T.isSuffixOf` T.take at doc) = "\n"
-            | otherwise                                       = ""
+    opening = openingFor (T.take at doc) eol
 
 -- The layers
 
@@ -403,7 +405,23 @@ noConfig = ConfigLayers noKeywords [] noKeywords Nothing Nothing "" []
 -- at the root that is being served.  In ~\/sync's own tree it does not: the
 -- walk root is @~\/sync@ and the store is @~\/sync\/views\/.org-glance@.
 configDirIn :: FilePath -> FilePath
-configDirIn root = root </> orgGlanceDir </> "config"
+configDirIn root = root </> orgGlanceDir </> configDir
+
+-- | Which config directories a reader of ROOT under CFG should read: the ones
+-- the walk MET, else the one 'configDirIn' would put there.
+--
+-- Only the walk can answer the first half — an org-glance store is not obliged
+-- to sit at the root being served, and in the author's own tree it does not.
+-- The second is a guess, the one case with nothing yet to be right about, and
+-- it is what makes @POST \/config@ able to create the first layer a tree has.
+--
+-- Beside 'configDirIn' rather than beside a caller: the @\/config@ route and
+-- @POST \/command capture@ both ask it, and one answer is what makes the layer a
+-- template is READ from the layer a settings sheet WRITES.
+configDirsIn :: FilePath -> ConfigLayers -> [FilePath]
+configDirsIn root cfg = case clDirs cfg of
+  []   -> [configDirIn root]
+  dirs -> dirs
 
 -- | What a config directory DIR holds: the system file and the per-tag
 -- directory.
@@ -527,7 +545,7 @@ tagOf = T.toLower . T.pack . takeBaseName
 fingerprint :: [(FilePath, Text)] -> Text
 fingerprint [] = ""
 fingerprint entries =
-  digestOf (TE.encodeUtf8 (T.unlines [ T.pack p <> "\t" <> d | (p, d) <- entries ]))
+  digestOfText (T.unlines [ T.pack p <> "\t" <> d | (p, d) <- entries ])
 
 -- Using the layers
 

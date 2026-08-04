@@ -5,12 +5,13 @@
 -- is adding a row rather than a name in a list, two guards and a case arm.  The
 -- edits themselves are 'Glance.Query''s: a headline's spans belong to the
 -- private sublibrary and this layer cannot see them.
-module Glance.Web.Commands (commands, commandNames, runCommand) where
+module Glance.Web.Commands (runCommand) where
 
 import Control.Concurrent.STM (readTVarIO)
 import Control.Monad (join)
+import Data.Bifunctor (first)
 import Data.Aeson (Object, Value, object, (.:), (.:!), (.:?), (.=))
-import Data.Aeson.Types (Parser)
+import Data.Aeson.Types (Pair, Parser)
 import Data.List (nub)
 import Data.Map.Strict (Map)
 import Data.Maybe (fromMaybe, isJust)
@@ -24,20 +25,21 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified Data.Time as Time
 
-import Glance.Query ( ConfigLayers, HeadlineRecord (hrDigest, hrFile, hrId)
+import Glance.Query ( BlobSeed (..), ConfigLayers
+                    , HeadlineRecord (hrDigest, hrFile, hrId)
                     , Span (Span), WalkOptions, WriteFailure (..)
                     , addTagEdits, archiveEdits, bareTemplate, blobDocument
-                    , blobPathIn, captureEdits, captureStamp
+                    , blobPathIn, captureEdits, captureStamp, captureText
                     , captureTargetIn, captureTemplateIn, currentDocument
                     , editLinkEdits, expandTemplate, mintBlobId
-                    , planningTimestamp, priorityText, readConfigLayers
+                    , planningTimestamp, priorityText
                     , removeTagEdits
                     , renameTagEdits, rowIdIn, setPlanningEdits
                     , setPriorityEdits, setStateEdits, setTitleEdits
                     , storeRootIn, tagText, titleText )
 import Glance.Web.Base ( ServeOptions (soDir), answerWrite, bodyObject, captureMoved
                        , jsonError, jsonResponse, noSuchRow, walkFor, withBody )
-import Glance.Web.Store ( Hub, Store (stConfig), configDirsIn, headlinesIn, hubStore
+import Glance.Web.Store ( Hub, Store (stConfig), headlinesIn, hubStore, layersFor
                         , recordsUnder, storeDocument, storeRecords )
 import Glance.Web.Watch (writeSpans)
 
@@ -357,16 +359,19 @@ captureInto opts hub st cmd =
   -- 'wantsText' has already put every @tag@ past 'tagText', which refuses the
   -- empty string and every character a tag may not hold, so ABSENT is the whole
   -- of what "no tag" means here and there is nothing left to strip or test.
-  maybe (captureInbox opts hub st cmd) (captureBlob opts hub st cmd) (agTag (cmdArgs cmd))
+  -- The 'Command' is read ONCE, here: neither path below asks anything of the
+  -- name or the ids, a capture naming no row.
+  maybe (captureInbox opts hub st args) (captureBlob opts hub st args) (agTag args)
+  where args = cmdArgs cmd
 
--- | @capture@ with no tag: CMD's line appended to the tree's capture target.
-captureInbox :: ServeOptions -> Hub -> Store -> Command -> IO Response
-captureInbox opts hub st cmd = case captureTargetIn (soDir opts) (stConfig st) of
+-- | @capture@ with no tag: ARGS' line appended to the tree's capture target.
+captureInbox :: ServeOptions -> Hub -> Store -> Args -> IO Response
+captureInbox opts hub st args = case captureTargetIn (soDir opts) (stConfig st) of
   Left why   -> pure (jsonError status400 why)
   Right path -> do
     (doc, digest) <- maybe (currentDocument path) pure (storeDocument path st)
     now <- Time.getZonedTime
-    case captureEdits doc (captureStamp now) (capturedText cmd) of
+    case captureEdits doc (captureStamp now) (capturedText args) of
       Left why    -> pure (jsonError status400 why)
       Right edits -> answerWrite (captureMoved path) (landed path)
                        <$> writeSpans (walkFor opts) hub path digest edits
@@ -386,8 +391,7 @@ captureInbox opts hub st cmd = case captureTargetIn (soDir opts) (stConfig st) o
     -- thousand rows per capture AND the wrong list — a row that lost an id
     -- collision is dropped from it, where the ordinal was handed out before any
     -- resolution ran.
-    landed path fresh = [ "ok" .= True, "file" .= path, "digest" .= fresh
-                        , "id" .= rowIdIn path (length (recordsUnder path st)) ]
+    landed path fresh = captured path fresh (rowIdIn path (length (recordsUnder path st)))
 
 -- | @capture@ under a TAG: a new blob in the served root's own store.
 --
@@ -414,18 +418,19 @@ captureInbox opts hub st cmd = case captureTargetIn (soDir opts) (stConfig st) o
 -- @data\/@ is a blob, so 'Glance.Query.replaceSpans' appends the
 -- @EXTERNAL.jsonl@ line on its way out as it does for any other blob write.
 -- Blob first, line second, which is the order the contract asks for.
-captureBlob :: ServeOptions -> Hub -> Store -> Command -> Text -> IO Response
-captureBlob opts hub st cmd tag = do
+captureBlob :: ServeOptions -> Hub -> Store -> Args -> Text -> IO Response
+captureBlob opts hub st args tag = do
   there <- doesDirectoryExist store
   if not there then pure (jsonError status400 noStore) else do
-    layers <- readConfigLayers (configDirsIn (soDir opts) st)
+    layers <- layersFor (soDir opts) st
     now <- Time.getZonedTime
     ident <- mintBlobId
     let template = fromMaybe bareTemplate (captureTemplateIn tag layers)
-        answers = Map.toList (fromMaybe Map.empty (agFields (cmdArgs cmd)))
         path = blobPathIn store ident
-        composed = expandTemplate now answers (capturedText cmd) template
-                     >>= blobDocument tag ident (captureStamp now)
+        composed = do
+          (text, answers) <- capturedParts args
+          expanded <- expandTemplate now answers text template
+          blobDocument (BlobSeed tag ident (captureStamp now)) expanded
     case composed of
       Left why  -> pure (jsonError status400 why)
       -- Every write leaves through 'writeSpans', which is what delivers this
@@ -436,15 +441,43 @@ captureBlob opts hub st cmd tag = do
                      <$> writeSpans (walkFor opts) hub path "" [(Span 0 0, doc)]
   where
     store = storeRootIn (soDir opts)
-    landed path ident fresh =
-      ["ok" .= True, "file" .= path, "digest" .= fresh, "id" .= ident]
+    landed path ident fresh = captured path fresh ident
     noStore = T.pack store <> " is not there, so this tree keeps no org-glance store;\
                                \ capture with no tag to file into the inbox instead"
 
--- | The line CMD captures, which every capture path writes and no path may be
+-- | The line ARGS captures, which every capture path writes and no path may be
 -- without ('wantsText').
-capturedText :: Command -> Text
-capturedText = fromMaybe "" . agText . cmdArgs
+capturedText :: Args -> Text
+capturedText = fromMaybe "" . agText
+
+-- | What a capture answers with: the FILE it wrote, that file's FRESH digest,
+-- and the id of the row it made.  One spelling for both paths, since a client
+-- reads one shape whichever it asked for; the id itself is each path's own —
+-- the blob's is minted, the inbox row's is an ordinal.
+captured :: FilePath -> Text -> Text -> [Pair]
+captured path fresh ident =
+  ["ok" .= True, "file" .= path, "digest" .= fresh, "id" .= ident]
+
+-- | ARGS' captured line and its @fields@ answers, each past the one-headline
+-- wall, or the whole request's refusal naming the field that failed it.
+--
+-- THE INBOX WALL REACHES THE TAGGED PATH TOO.  A template's @%?@ and each of
+-- its @%^{PROMPT}@ holes are spliced into the same document, so a newline in any
+-- of them lands a column-1 star the parser reads as a second entry — and a blob
+-- holds ONE entry, which is the headline org-glance keys it by.  An empty
+-- answer writes a template with a hole in it.
+--
+-- Answers come back in 'Data.Map.Strict' key order, which is what
+-- 'Glance.Query.expandTemplate' looks a prompt up in; order means nothing to a
+-- lookup.
+capturedParts :: Args -> Either Text (Text, [(Text, Text)])
+capturedParts args =
+  (,) <$> captureText (capturedText args)
+      <*> traverse answered (Map.toList (fromMaybe Map.empty (agFields args)))
+  where
+    answered (want, value) =
+      (,) want <$> first (\why -> "the answer to " <> want <> ": " <> why)
+                         (captureText value)
 
 -- | PLAN's file written once, and what that came to for each of its ids.  Both
 -- outcomes are shared by the whole group, because the write is: the batch lands

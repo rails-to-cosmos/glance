@@ -28,7 +28,7 @@
 module Glance.Web.Store
   ( -- * The store
     Store (..)
-  , FileEntry (..)
+  , FileEntry
   , emptyStore
   , loadStore
   , loadStoreWith
@@ -39,7 +39,7 @@ module Glance.Web.Store
   , storeResult
   , storeKeywords
   , storeTags
-  , configDirsIn
+  , layersFor
   , applyFile
   , dropFile
   , reseeded
@@ -79,14 +79,14 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Text as T
 
-import Glance.Query ( ConfigLayers (clDirs, clPrint)
+import Glance.Query ( ConfigLayerFile, ConfigLayers (clPrint)
                     , HeadlineRecord (hrDigest, hrDoc, hrId, hrKeywords, hrTags)
                     , LoadFailure (..)
-                    , QueryResult (..), TodoKeywords, WalkOptions, configDirIn
+                    , QueryResult (..), TodoKeywords, WalkOptions, configDirsIn
                     , defaultWalk
                     , digestOfText, loadDirWithConfig, mergeKeywords, noConfig
-                    , noKeywords, recognizedKeywords, resolveIds, rowJSON
-                    , tagsOfCell )
+                    , noKeywords, readConfigLayers, recognizedKeywords, resolveIds
+                    , rowJSON, tagsOfCell )
 
 -- The store
 
@@ -235,23 +235,16 @@ storeDocument path st = (\r -> (hrDoc r, hrDigest r)) <$> listToMaybe (recordsUn
 storeTags :: Store -> [Text]
 storeTags = Map.keys . stTags
 
--- | The config directories a settings client edits and a capture reads its
--- template out of: the ones the walk met, and the one ROOT WOULD hold when it
--- met none.
+-- | The config layers a settings client edits and a capture reads its template
+-- out of, read off disk under ROOT and ST.
 --
--- Only the walk can answer the first half: an org-glance store is not obliged to
--- sit at the root being served, and in the author's own tree it does not.  The
--- second half is a guess, the one case where there is nothing to be right about
--- yet.
---
--- It sits HERE rather than beside @\/config@ because @POST \/command capture@
--- asks the same question and 'Glance.Web.Routes' is above
--- 'Glance.Web.Commands': one answer, so the layer a template is read from is the
--- layer a settings sheet writes.
-configDirsIn :: FilePath -> Store -> [FilePath]
-configDirsIn root st = case clDirs (stConfig st) of
-  []   -> [configDirIn root]
-  dirs -> dirs
+-- Here rather than beside @\/config@ because @POST \/command capture@ asks the
+-- same question and 'Glance.Web.Routes' is above 'Glance.Web.Commands': one
+-- read, so the layer a template comes from is the layer a settings sheet
+-- writes.  WHICH directories is 'Glance.Query.configDirsIn'; the store supplies
+-- the one thing a read cannot, the ones the WALK met.
+layersFor :: FilePath -> Store -> IO [ConfigLayerFile]
+layersFor root st = readConfigLayers (configDirsIn root (stConfig st))
 
 -- | The palette the store's columns carry: the config chain's keywords, then
 -- whatever the files add.

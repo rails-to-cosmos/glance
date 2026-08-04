@@ -587,6 +587,22 @@ writeSpec = testGroup "Writing a layer"
       assertEqual "blank lines are not lines" (Right "#+TITLE: X\n")
                   (spliced "#+TITLE: X\n" ["", "  "])
 
+    -- A config file's own line ending, for the block AND for the opening a
+    -- header with no newline owes: an LF block spliced into a CRLF file left
+    -- one file speaking two conventions, with the line the reader just typed
+    -- the odd one out.
+  , testCase "a CRLF layer keeps its own line endings" $ do
+      assertEqual "the block replaced in place"
+                  (Right "#+TITLE: Book\r\n#+TODO: A | B\r\n\r\n* Book\r\n")
+                  (spliced "#+TITLE: Book\r\n#+TODO: TODO | DONE\r\n\r\n* Book\r\n"
+                           ["#+TODO: A | B"])
+      assertEqual "and inserted where there was none"
+                  (Right "#+TITLE: Book\r\n#+TODO: A | B\r\n\r\n* Book\r\n")
+                  (spliced "#+TITLE: Book\r\n\r\n* Book\r\n" ["#+TODO: A | B"])
+      assertEqual "the opening a live last line owes is the file's too"
+                  (Right "#+TITLE: X\r\n#+TITLE: Y\r\n#+TODO: A | B\r\n")
+                  (spliced "#+TITLE: X\r\n#+TITLE: Y" ["#+TODO: A | B"])
+
   , testCase "what a layer may say, and what it may not" $ do
       mapM_ (\(what, lines') ->
                assertBool what (either (const True) (const False)

@@ -4,13 +4,7 @@
 -- own command names, and 'keyBindingsJSON' is what the page parses for its own
 -- dispatch, so a key cannot be bound and undocumented and a hint cannot name a
 -- command this map does not carry.
-module Glance.Web.Keymap ( KeyBinding (..)
-                         , keyBindings
-                         , keyHints
-                         , reservedChords
-                         , onceCommands
-                         , keyBindingsJSON
-                         ) where
+module Glance.Web.Keymap (keyBindingsJSON) where
 
 import Data.Aeson (object, (.=))
 import Data.Text (Text)

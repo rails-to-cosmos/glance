@@ -4,7 +4,7 @@ import Data.List (isPrefixOf)
 import System.Environment
 import System.Exit
 
-import Data.Org (defaultContext, orgParse)
+import Data.Org (Context, defaultContext, orgParse)
 import Data.Org.Edit (readDocument)
 
 import Data.Text (Text)
@@ -54,11 +54,7 @@ greetings messages = do
 
 parse :: [String] -> IO a
 
-parse [] = do
-  settings <- replSettings
-  greetings []
-  runRepl settings defaultContext
-  exitSuccess
+parse [] = repl [] [] defaultContext
 
 parse ("scan":args) = do
   let derived = "--include-derived" `elem` args
@@ -71,7 +67,6 @@ parse ("serve":args) = run "serve" serveUsage serve (serveOptions args)
 parse ("desktop":args) = run "desktop" desktopUsage runDesktop (desktopOptions args)
 
 parse (filename:_) = do
-  settings <- replSettings
   -- 'readDocument' rather than a decode of this REPL's own: every other reader
   -- in the codebase takes UTF-8 through it, and the latin-1 round trip this
   -- replaces gave a non-ASCII file mojibake titles and latin-1 offsets where
@@ -85,17 +80,22 @@ parse (filename:_) = do
       -- names all three rather than claiming the first.
       hPutStrLn stderr ("glance: cannot read " <> filename <> " as UTF-8 org")
       exitFailure
-    Just (text, _digest) -> do
-      let (_elements, context, maybeErr) = orgParse defaultContext text
+    Just (text, _digest) ->
+      repl ["Additional context provided: " <> Text.pack filename]
+           [ Text.pack (errorBundlePretty err) | Just err <- [maybeErr] ]
+           context
+      where (_elements, context, maybeErr) = orgParse defaultContext text
 
-      greetings ["Additional context provided: " <> Text.pack filename]
-
-      case maybeErr of
-        Just err -> TIO.putStrLn $ Text.pack (errorBundlePretty err)
-        Nothing  -> pure ()
-
-      runRepl settings context
-      exitSuccess
+-- | Greet with MESSAGES, print NOTES under the banner and hand the terminal to
+-- the REPL under CONTEXT.  The four steps both entry points take, in the one
+-- order they take them.
+repl :: [Text] -> [Text] -> Context -> IO a
+repl messages notes context = do
+  settings <- replSettings
+  greetings messages
+  mapM_ TIO.putStrLn notes
+  runRepl settings context
+  exitSuccess
 
 -- | OPTIONS through ACT, or NAME's complaint and USAGE on stderr.
 run :: String -> String -> (a -> IO ()) -> Either String a -> IO b

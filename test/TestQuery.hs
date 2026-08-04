@@ -30,8 +30,8 @@ import Glance.Query ( ConfigLayerFile (..), ConfigLayers (..), HeadlineParts (..
                     , QueryResult (..), Span (..), SubtreeEntry (..)
                     , TodoKeywords (..), addTagEdits
                     , archiveEdits, archived
-                    , blobDocument, blobPathIn
-                    , captureEdits, captureStamp, captureTemplateEdits
+                    , BlobSeed (..), blobDocument, blobPathIn
+                    , captureCodes, captureEdits, captureStamp, captureTemplateEdits
                     , captureTemplateIn, captureTemplateOf
                     , defaultWalk, derivedPath, documentPath
                     , displayText, editLinkEdits, expandTemplate
@@ -2568,6 +2568,20 @@ captureSpec = testGroup "Capture"
 
       , testCase "and a % that opens nothing is a %" $
           assertEqual "trailing" (Right "* x %") (expanded [] "x" "* %? %")
+
+        -- THE LIST AND THE GRAMMAR ARE TWO SPELLINGS.  'captureCodes' is what
+        -- @GET /capture@ serves and the settings box completes over; the scan
+        -- spells the same four out as a case and never consults the list.  So
+        -- every code the list advertises is put through the scan here: one the
+        -- list gained and the scan did not would copy through as itself, which
+        -- is an expansion offered to a reader and written literally.
+      , testCase "every advertised code is one the scan expands" $
+          mapM_ (\(code, _means) ->
+                   assertBool (T.unpack code <> " copied through as itself")
+                              (either (const False) (not . T.isInfixOf code)
+                                      (expanded [("PROMPT", "answered")] "typed"
+                                                ("* %?" <> code))))
+                captureCodes
       ]
 
   , testGroup "What a template cannot do"
@@ -2591,7 +2605,7 @@ captureSpec = testGroup "Capture"
       , testCase "and a template that expands to no headline stores nothing" $
           assertBool "no entry to key by an id"
                      (either (T.isInfixOf "no headline") (const False)
-                             (blobDocument "book" "i" "[s]" "not a headline"))
+                             (blobDocument (BlobSeed "book" "i" "[s]") "not a headline"))
       ]
 
   , testGroup "Where a template lives"
@@ -2661,7 +2675,7 @@ captureSpec = testGroup "Capture"
                                         , ":ORG_GLANCE_ID: i-1"
                                         , ":ORG_GLANCE_CREATION_TIME: [2026-08-04 Tue 09:30]"
                                         , ":END:" ]))
-                      (blobDocument "book" "i-1" "[2026-08-04 Tue 09:30]" "* milk")
+                      (blobDocument (BlobSeed "book" "i-1" "[2026-08-04 Tue 09:30]") "* milk")
 
         -- A template carrying a drawer of its own keeps it, and the two
         -- properties join it rather than opening a second one.
@@ -2673,7 +2687,7 @@ captureSpec = testGroup "Capture"
                                         , ":ORG_GLANCE_CREATION_TIME: [s]"
                                         , ":AUTHOR: X"
                                         , ":END:" ]))
-                      (blobDocument "book" "i-1" "[s]"
+                      (blobDocument (BlobSeed "book" "i-1" "[s]")
                                     "* milk\n:PROPERTIES:\n:AUTHOR: X\n:END:\n")
 
       , testCase "a headline already wearing the tag costs no edit" $
@@ -2683,18 +2697,18 @@ captureSpec = testGroup "Capture"
                                         , ":ORG_GLANCE_ID: i-1"
                                         , ":ORG_GLANCE_CREATION_TIME: [s]"
                                         , ":END:" ]))
-                      (blobDocument "book" "i-1" "[s]" "* milk :book:web:")
+                      (blobDocument (BlobSeed "book" "i-1" "[s]") "* milk :book:web:")
 
       , testCase "and one wearing others joins the run's end" $
           assertBool "appended to the run"
                      (either (const False) (T.isInfixOf "* milk :web:book:")
-                             (blobDocument "book" "i-1" "[s]" "* milk :web:"))
+                             (blobDocument (BlobSeed "book" "i-1" "[s]") "* milk :web:"))
 
         -- The template's own children ride along: a blob is the whole entry.
       , testCase "the template's children are the entry's" $
           assertBool "the child survives"
                      (either (const False) (T.isInfixOf "*** Notes")
-                             (blobDocument "book" "i-1" "[s]" "* Book\n*** Notes\n    milk"))
+                             (blobDocument (BlobSeed "book" "i-1" "[s]") "* Book\n*** Notes\n    milk"))
 
         -- THE DRAWER GOES UNDER THE PLANNING LINE, which is where org puts one:
         -- spliced between the headline and its `SCHEDULED:' the planning line
@@ -2707,13 +2721,13 @@ captureSpec = testGroup "Capture"
                                         , ":ORG_GLANCE_ID: i-1"
                                         , ":ORG_GLANCE_CREATION_TIME: [s]"
                                         , ":END:" ]))
-                      (blobDocument "book" "i-1" "[s]"
+                      (blobDocument (BlobSeed "book" "i-1" "[s]")
                                     "* milk\nSCHEDULED: <2026-08-10 Mon>\n")
 
       , testCase "the document ends in a newline" $
           assertBool "an org file's last line is ended"
                      (either (const False) (T.isSuffixOf "\n")
-                             (blobDocument "book" "i-1" "[s]" "* milk"))
+                             (blobDocument (BlobSeed "book" "i-1" "[s]") "* milk"))
       ]
 
   , testGroup "Where a blob sits"

@@ -46,7 +46,6 @@ module Data.Org.External ( blobIdOf
 import Control.Exception (IOException, bracket, try)
 import Control.Monad (void)
 import Data.Aeson (encode)
-import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import Foreign.Ptr (castPtr)
 import System.Directory (createDirectoryIfMissing)
@@ -59,8 +58,8 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Unsafe as BU
 import qualified Data.Time as Time
 
-import Data.Org (defaultContext, headlinesOf, identity, orgParse, spelled)
-import Data.Org.Index (metaDir)
+import Data.Org (defaultContext, firstHeadlineOf, identity, orgParse, spelled)
+import Data.Org.Blob (metaDirIn)
 import Data.Org.Walk (isBlob, orgGlanceRoot)
 
 -- | The one file this repo writes under a store's @meta@ directory.
@@ -79,7 +78,7 @@ externalFile = "EXTERNAL.jsonl"
 externalPathOf :: FilePath -> Maybe FilePath
 externalPathOf path
   | not (isBlob path) = Nothing
-  | otherwise = (\store -> store </> metaDir </> externalFile) <$> orgGlanceRoot path
+  | otherwise = (\store -> metaDirIn store </> externalFile) <$> orgGlanceRoot path
 
 -- | The line naming IDENT, written AT.  Hand-assembled rather than encoded from
 -- an object, so the field ORDER is the contract's; only the values go through
@@ -99,7 +98,7 @@ externalLine ident at =
 -- still carries its drawer.  A document no parse reads yields no elements and
 -- therefore no id — the same silence as a blob whose entry claims none.
 blobIdOf :: Text -> Maybe Text
-blobIdOf doc = listToMaybe (headlinesOf elems) >>= identity
+blobIdOf doc = firstHeadlineOf elems >>= identity
   where (elems, _ctx, _err) = orgParse defaultContext doc
 
 -- | Note that PATH now holds WRITTEN.  A no-op unless PATH is a blob whose

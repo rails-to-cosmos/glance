@@ -29,9 +29,12 @@
 -- — nothing about them is derived, so nothing about them becomes truth by
 -- asking louder.
 module Data.Org.Walk ( Found (..)
+                     , LoadFailure (..)
                      , WalkOptions (..)
                      , beatsForId
                      , blobFile
+                     , claimById
+                     , configDir
                      , defaultWalk
                      , errText
                      , findOrgFiles
@@ -83,6 +86,19 @@ newtype WalkOptions = WalkOptions
 defaultWalk :: WalkOptions
 defaultWalk = WalkOptions False
 
+-- | Which rung of the read-decode-parse ladder a file fell off, and so why it
+-- yielded no elements.  Here rather than beside either reader because both of
+-- them climb 'Data.Org.Edit.readParsed': a load reports these as counts and the
+-- corpus scan as counted samples, and the two must be counting the same three
+-- things.  No reason travels in the constructor — the store compares load
+-- outcomes for equality to decide whether a file MOVED, and two unreadable
+-- moments differing only in their @errno@ text are the same outcome.
+data LoadFailure
+  = ReadFailed    -- ^ the bytes could not be read.
+  | DecodeFailed  -- ^ the bytes are not valid UTF-8.
+  | ParseFailed   -- ^ 'Data.Org.Parser.orgParse' rejected the document, which is all-or-nothing.
+  deriving (Eq, Ord, Show)
+
 -- | The directories under a @.org-glance@ one that hold derived buffers.
 -- @data@ is absent on purpose — it is the canonical store.
 --
@@ -93,21 +109,23 @@ defaultWalk = WalkOptions False
 derivedDirs :: [FilePath]
 derivedDirs = ["overviews", metaDir]
 
--- | org-glance's store layout, as the four names the rules below ask for: the
+-- | org-glance's store layout, as the five names the rules below ask for: the
 -- directory a store puts everything under, the canonical store directory inside
--- it, the one directory inside a blob that is history rather than the blob, and
--- the file a blob keeps its entry in.
+-- it, the directory of keyword and template configuration beside it, the one
+-- directory inside a blob that is history rather than the blob, and the file a
+-- blob keeps its entry in.
 --
--- 'orgGlanceDir', 'storeDir' and 'blobFile' are exported for the callers that
--- ADDRESS a store rather than classify a path — the settings writer naming a
--- config directory, the scan selecting the blobs an index covers,
--- 'Data.Org.Blob' composing the path a capture writes.  A second spelling
--- there is a green lie: rename the directory here and a hardcoded @data@ keeps
--- matching nothing while every predicate below still collects, so the
--- comparison reports zero disagreements over zero blobs.
-orgGlanceDir, storeDir, occurrenceDir, blobFile :: FilePath
+-- 'orgGlanceDir', 'storeDir', 'configDir' and 'blobFile' are exported for the
+-- callers that ADDRESS a store rather than classify a path — the settings
+-- writer naming a config directory, the scan selecting the blobs an index
+-- covers, 'Data.Org.Blob' composing the path a capture writes.  A second
+-- spelling there is a green lie: rename the directory here and a hardcoded
+-- @data@ keeps matching nothing while every predicate below still collects, so
+-- the comparison reports zero disagreements over zero blobs.
+orgGlanceDir, storeDir, configDir, occurrenceDir, blobFile :: FilePath
 orgGlanceDir = ".org-glance"
 storeDir = "data"
+configDir = "config"
 occurrenceDir = "occurrences"
 blobFile = "data.org"
 
@@ -176,11 +194,18 @@ namesOrgGlance [] = False
 -- meaning what it says: on, the walk reads everything org-glance wrote, history
 -- included, and an occurrence ties with its live blob again.
 isDerived :: FilePath -> Bool
-isDerived path = any mirror ts || any occurrenceTail ts
-  where
-    ts = orgGlanceTails path
-    mirror (d : _rest) = d `elem` derivedDirs
-    mirror []          = False
+isDerived = any derivedTail . orgGlanceTails
+
+-- | 'isDerived' over ONE tail: a mirror directory or a blob's history.  The
+-- rule itself, so the two callers that already hold a split — 'visit' and
+-- 'isWalked' — read it instead of splitting the path again.
+derivedTail :: [FilePath] -> Bool
+derivedTail t = mirrorTail t || occurrenceTail t
+
+-- | The mirror half of 'derivedTail' over ONE tail.
+mirrorTail :: [FilePath] -> Bool
+mirrorTail (d : _rest) = d `elem` derivedDirs
+mirrorTail []          = False
 
 -- | Is PATH one of a blob's occurrence snapshots — anything under an
 -- @occurrences@ directory inside the canonical store?
@@ -215,7 +240,12 @@ isBlob path = takeFileName path == blobFile && isCanonical path
 -- and they are never rows.  Unconditional, so @--include-derived@ leaves it
 -- standing.
 isConfig :: FilePath -> Bool
-isConfig path = or [ d == "config" | d : _rest <- orgGlanceTails path ]
+isConfig = any configTail . orgGlanceTails
+
+-- | 'isConfig' over ONE tail, beside 'derivedTail' and for the same callers.
+configTail :: [FilePath] -> Bool
+configTail (d : _rest) = d == configDir
+configTail []          = False
 
 -- | Is PATH inside org-glance's canonical store?  The one directory under
 -- @.org-glance@ holding documents rather than renders of them, so a headline
@@ -239,6 +269,18 @@ isCanonical path = not (any occurrenceTail ts)
 -- name the same winner.
 beatsForId :: FilePath -> FilePath -> Bool
 beatsForId a b = isCanonical a && not (isCanonical b)
+
+-- | CHALLENGER against the INCUMBENT holding an id both claim: whether the
+-- challenger took it, and the pair a report names — @(kept, dropped)@.
+--
+-- 'beatsForId' read as the fold step both id indexes are built by, so the scan's
+-- collision count and 'Glance.Query.resolveIds' cannot come to disagree about a
+-- winner or about which file a report blames.  A file against itself leaves the
+-- incumbent, which is what keeps the FIRST of two headlines in one file.
+claimById :: FilePath -> FilePath -> (Bool, (FilePath, FilePath))
+claimById challenger held
+  | beatsForId challenger held = (True, (challenger, held))
+  | otherwise                  = (False, (held, challenger))
 
 emptyFound :: Found
 emptyFound = Found [] [] [] []
@@ -309,8 +351,11 @@ visit opts dir acc name = do
     _notADirectory               -> pure $! file
   where
     path = dir </> name
-    config = isConfig path
-    derived = not (woIncludeDerived opts) && isDerived path
+    -- ONE split per entry, read by both decline rules: the walk asks this of
+    -- ~703k entries and 'orgGlanceTails' allocates a list of lists.
+    ts = orgGlanceTails path
+    config = any configTail ts
+    derived = not (woIncludeDerived opts) && any derivedTail ts
     document = isDocument path
     -- What a directory's NAME alone decides, counted where it is declined and
     -- 'Nothing' where the walk may go in.  A symlinked directory reads the same
@@ -409,7 +454,8 @@ mapFilesConcurrently act paths = case paths of
 -- caller that wrote to one would be writing where no row ever comes from
 -- ('Data.Org.Config.captureTargetIn' is that caller).
 isWalked :: FilePath -> Bool
-isWalked path = isDocument path && not (isConfig path || isDerived path)
+isWalked path = isDocument path && not (any declined (orgGlanceTails path))
+  where declined t = configTail t || derivedTail t
 
 -- | Is PATH a file this walk reads?  An @.org@ name that is not one of Emacs's
 -- sidecars.  The watch asks this same question of an inotify event, through the

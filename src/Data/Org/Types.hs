@@ -30,6 +30,7 @@ module Data.Org.Types ( Context (..)
                       , archiveTag
                       , defaultContext
                       , defaultHeadline
+                      , firstHeadlineOf
                       , headlineSpanParts
                       , headlinesOf
                       , hsFull
@@ -41,6 +42,7 @@ module Data.Org.Types ( Context (..)
                       , resolveHeadline
                       , setCategory
                       , setTodo
+                      , shiftSpan
                       , signChar
                       , sliceSpan
                       , spanFaults
@@ -54,7 +56,7 @@ module Data.Org.Types ( Context (..)
 import Data.List (find, foldl', intersperse, nub, sortOn)
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Maybe (maybeToList)
+import Data.Maybe (listToMaybe, maybeToList)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.String (IsString(..))
@@ -104,6 +106,13 @@ instance Display a => Display (Spanned a) where
 -- | Extract the text SPAN covers out of T.
 sliceSpan :: Text -> Span -> Text
 sliceSpan t (Span s e) = T.take (e - s) (T.drop s t)
+
+-- | SP moved BY characters along the text it was measured in — negative to
+-- read a document's span in a slice's own offsets.  Beside 'sliceSpan' because
+-- it is the other half of moving between two coordinate systems, and because
+-- three callers spelled the addition out for themselves.
+shiftSpan :: Int -> Span -> Span
+shiftSpan by (Span s e) = Span (s + by) (e + by)
 
 -- | Label every way SP is malformed against a document of LEN characters.
 spanFaults :: Int -> Span -> [Text]
@@ -199,6 +208,13 @@ stripSpans e@(EToken _) = e
 headlinesOf :: [Spanned Element] -> [Headline]
 headlinesOf elems = [ h | EHeadline h <- map valueOf elems ]
 
+-- | The FIRST headline among ELEMS, which is the entry a blob holds.  First
+-- rather than first-with-an-id: a child carrying an id of its own is not the
+-- document's, and the two readers of this — the write note and the blob
+-- composer — must agree about which headline a stored entry IS.
+firstHeadlineOf :: [Spanned Element] -> Maybe Headline
+firstHeadlineOf = listToMaybe . headlinesOf
+
 -- Headline
 
 data Headline = Headline { indent     :: !Indent
@@ -240,43 +256,59 @@ emptyHeadlineSpans = HeadlineSpans { hsStars      = Span 0 0
                                    , hsProperties = Nothing
                                    }
 
--- | HS's labelled sub-spans in source order.  The three planning entries sort
+-- | A headline's eight labelled sub-spans, as a key rather than a string.  One
+-- name per component, so the ordering below and the slice predicates of
+-- 'headlineSpanParts' are two total functions of ONE enumeration: a component
+-- named by the order and missed by the dispatch is a compile error where it
+-- used to be a silent fall-through.
+data SpanPart = SpTodo | SpPriority | SpTitle | SpTags
+              | SpSchedule | SpDeadline | SpClosed | SpProperties
+  deriving (Eq, Ord, Show)
+
+-- | What the corpus audit and the suite call PART.
+spanPartLabel :: SpanPart -> Text
+spanPartLabel SpTodo       = "hsTodo"
+spanPartLabel SpPriority   = "hsPriority"
+spanPartLabel SpTitle      = "hsTitle"
+spanPartLabel SpTags       = "hsTags"
+spanPartLabel SpSchedule   = "hsSchedule"
+spanPartLabel SpDeadline   = "hsDeadline"
+spanPartLabel SpClosed     = "hsClosed"
+spanPartLabel SpProperties = "hsProperties"
+
+-- | HS's keyed sub-spans in source order.  The three planning entries sort
 -- by offset: org writes SCHEDULED:, DEADLINE: and CLOSED: in any order on the
 -- planning line, and every consumer — the overlap check, 'hsFull', the ordering
 -- assertion — reads this one list as source order.
-spanParts :: HeadlineSpans -> [(Text, Maybe Span)]
+spanParts :: HeadlineSpans -> [(SpanPart, Maybe Span)]
 spanParts hs = before ++ sortOn (fmap spanStart . snd) planning ++ after
-  where before   = [ ("hsTodo", hsTodo hs), ("hsPriority", hsPriority hs)
-                   , ("hsTitle", hsTitle hs), ("hsTags", hsTags hs) ]
-        planning = [ ("hsSchedule", hsSchedule hs), ("hsDeadline", hsDeadline hs)
-                   , ("hsClosed", hsClosed hs) ]
-        after    = [ ("hsProperties", hsProperties hs) ]
+  where before   = [ (SpTodo, hsTodo hs), (SpPriority, hsPriority hs)
+                   , (SpTitle, hsTitle hs), (SpTags, hsTags hs) ]
+        planning = [ (SpSchedule, hsSchedule hs), (SpDeadline, hsDeadline hs)
+                   , (SpClosed, hsClosed hs) ]
+        after    = [ (SpProperties, hsProperties hs) ]
 
 -- | The extent of the headline itself: the stars through the end of the last
 -- component present, and never the whitespace after it.  Derived rather than
 -- stored, so it cannot come to disagree with 'spanParts' about which order the
 -- components run in — the ordering invariant is the structure here.
 hsFull :: HeadlineSpans -> Span
-hsFull hs = foldl' (<>) (hsStars hs) [ sp | (_label, Just sp) <- spanParts hs ]
+hsFull hs = foldl' (<>) (hsStars hs) [ sp | (_part, Just sp) <- spanParts hs ]
 
 -- | H's labelled sub-spans in source order, each paired with the predicate its
--- slice out of the source must satisfy.  Single source of the span spec.
+-- slice out of the source must satisfy.  Single source of the span spec: the
+-- order is 'spanParts'\' and the tests are 'slices'\', both total over
+-- 'SpanPart', so neither table can name a component the other has forgotten.
 headlineSpanParts :: Headline -> [(Text, Maybe Span, Text -> Bool)]
-headlineSpanParts h = [ (label, sp, slices label) | (label, sp) <- spanParts (spans h) ]
-  where slices label = case label of
-          "hsTodo"     -> (== maybe "" name (todo h))
-          "hsPriority" -> (== maybe "" showt (priority h))
-          "hsTitle"    -> \t -> T.words t == T.words (showt (title h))
-          "hsTags"     -> (== showt (tags h))
-          "hsSchedule"   -> timestampSlice (schedule h)
-          "hsDeadline"   -> timestampSlice (deadline h)
-          "hsClosed"     -> timestampSlice (closed h)
-          "hsProperties" -> drawer
-          -- A label 'spanParts' names and this does not.  The dispatch is over
-          -- text, so the compiler cannot ask for it; the answer that FAILS is
-          -- what makes the corpus scan report the omission as a slice mismatch,
-          -- where falling through to the drawer test passed it in silence.
-          _unspecified   -> const False
+headlineSpanParts h = [ (spanPartLabel p, sp, slices p) | (p, sp) <- spanParts (spans h) ]
+  where slices SpTodo       = (== maybe "" name (todo h))
+        slices SpPriority   = (== maybe "" showt (priority h))
+        slices SpTitle      = \t -> T.words t == T.words (showt (title h))
+        slices SpTags       = (== showt (tags h))
+        slices SpSchedule   = timestampSlice (schedule h)
+        slices SpDeadline   = timestampSlice (deadline h)
+        slices SpClosed     = timestampSlice (closed h)
+        slices SpProperties = drawer
         drawer t = ":PROPERTIES:" `T.isPrefixOf` stripped && ":END:" `T.isSuffixOf` stripped
           where stripped = T.strip t
 

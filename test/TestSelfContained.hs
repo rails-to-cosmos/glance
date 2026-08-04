@@ -19,6 +19,7 @@
 module TestSelfContained (spec) where
 
 import Control.Monad (filterM)
+import Data.List (isPrefixOf)
 import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
 import System.FilePath (takeExtension, (</>))
 import Test.Tasty (TestTree, testGroup)
@@ -46,7 +47,33 @@ spec = testGroup "Self-containment"
       makefile <- TIO.readFile "Makefile"
       mapM_ (holds makefile)
             ["sync-renderer:", "../table-view/web/table-view.js", "assets/table-view.js"]
+
+    -- THE WRITE DOOR IS ONE FUNCTION.  Every write this daemon makes leaves
+    -- through 'Glance.Web.Watch.writeSpans', which queues the path it just wrote
+    -- — a blob's shard is created and never watched, so a route splicing through
+    -- 'Glance.Query.replaceSpans' itself would write the file correctly and
+    -- deliver nothing until a restart.  Nothing in the types says so and the
+    -- import is one line, which is why the rule is swept for rather than relied
+    -- on.  Comments are exempt: four of them name the function to explain it.
+  , testCase "replaceSpans is spliced through the watch and nowhere else" $ do
+      files <- filter ("src-web/" `isPrefixOf`) <$> haskellSources
+      assertBool ("too few web sources swept: " <> show (length files)) (length files >= 12)
+      inWatch <- calls "src-web/Glance/Web/Watch.hs"
+      assertBool "the sweep missed the one legitimate call" (not (null inWatch))
+      hits <- concat <$> mapM calls [ f | f <- files, f /= "src-web/Glance/Web/Watch.hs" ]
+      assertEqual "web modules splicing outside the write door" [] hits
   ]
+
+-- | The lines of PATH that CALL @replaceSpans@ — every mention of it that is
+-- not a comment — each with its file and number.
+calls :: FilePath -> IO [String]
+calls path = report . T.lines <$> TIO.readFile path
+  where
+    report ls = [ path <> ":" <> show n <> ": " <> T.unpack stripped
+                | (n, l) <- zip [(1 :: Int) ..] ls
+                , let stripped = T.strip l
+                , "replaceSpans" `T.isInfixOf` stripped
+                , not ("--" `T.isPrefixOf` stripped) ]
 
 -- | WHAT is somewhere in HAYSTACK.
 holds :: T.Text -> T.Text -> Assertion

@@ -10,27 +10,25 @@ import Data.List (foldl', isPrefixOf, mapAccumL, nub, sort)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Time (diffUTCTime, getCurrentTime)
-import Data.Void (Void)
 import Numeric (showFFloat)
 import System.Directory (doesDirectoryExist, doesFileExist)
 import System.FilePath (takeDirectory, takeFileName, (</>))
-import Text.Megaparsec (ParseErrorBundle, errorBundlePretty)
 
 import qualified Data.ByteString as BS
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 import qualified TextShow as TS
 
 import Data.Org
 import Data.Org.Config ( ConfigLayers (clSeed), TodoKeywords (..), loadConfigDirs
                        , seedContext )
-import Data.Org.Edit (readBytes)
+import Data.Org.Blob (metaDirIn, storeRootIn)
+import Data.Org.Edit (ParsedDocument (..), readBytes, readParsed)
 import Data.Org.Index ( BlobEntry (..), IndexDrift, blobEntryOf, driftOf
                       , foldSegments, indexReportLines, manifestFile, metaDir
                       , openSegment, segmentNames )
-import Data.Org.Walk ( Found (..), WalkOptions (..), beatsForId, errText
-                     , findOrgFilesWith, isBlob, mapFilesConcurrently, orgGlanceDir
+import Data.Org.Walk ( Found (..), LoadFailure (..), WalkOptions (..), claimById
+                     , errText, findOrgFilesWith, isBlob, mapFilesConcurrently
                      , storeDir )
 
 import qualified Data.Map.Strict as Map
@@ -45,7 +43,7 @@ sampleLimit = 20
 -- summary report.
 --
 -- Every file is parsed from the same seed the loader uses — org's TODO\/DONE
--- plus every keyword the roots' @.org-glance\/config@ names ('loadConfigs') —
+-- plus every keyword the roots' @.org-glance\/config@ names ('loadConfigDirs') —
 -- so the counts describe the tree the daemon serves rather than a stricter
 -- reading of it.  Without it the scan would report a keyword the browser shows
 -- as a state as the first word of a title.
@@ -77,20 +75,16 @@ runScan opts roots = do
 
 -- Per-file scan
 
--- | The three ways a file fails to become elements, which is also the key its
--- count and its capped sample live under.  'Ord' for the map alone; the report
--- names them in this order.
-data Failure = FRead | FDecode | FParse
-  deriving (Eq, Ord, Show)
-
--- | What the report calls FAILURE.
-failureLabel :: Failure -> Text
-failureLabel FRead = "read failures"
-failureLabel FDecode = "decode failures"
-failureLabel FParse = "parse failures"
+-- | What the report calls FAILURE.  The three ways a file fails to become
+-- elements are 'LoadFailure'\'s — the loader's own rungs, so the scan counts
+-- what the daemon counts — and this is the only thing the report adds to them.
+failureLabel :: LoadFailure -> Text
+failureLabel ReadFailed = "read failures"
+failureLabel DecodeFailed = "decode failures"
+failureLabel ParseFailed = "parse failures"
 
 -- | Which bucket a file landed in, with the reason when it failed.
-data Bucket = BOk | BFailed !Failure !Text
+data Bucket = BOk | BFailed !LoadFailure !Text
 
 -- | What one file contributed to the run.
 data FileResult = FileResult
@@ -105,30 +99,33 @@ data FileResult = FileResult
 
 -- | Read, decode and parse PATH from SEED, forcing the result before returning
 -- it.
+--
+-- The ladder is 'readParsed', which the store loader climbs too; what stays here
+-- is the second hardening, around the TALLY — 'readParsed' forces only far
+-- enough to know the parse succeeded, and the fold below is what walks into
+-- every element.
 scanFile :: Context -> FilePath -> IO FileResult
 scanFile seed path = do
-  raw <- readBytes path
-  case raw of
-    Left why -> pure (bare (BFailed FRead why))
-    Right bytes -> case TE.decodeUtf8' bytes of
-      Left e -> pure (bare (BFailed FDecode (errText e)))
-      Right doc -> do
-        outcome <- try (evaluate (forceResult (analyse seed path doc)))
-        pure $ case outcome of
-          Left e  -> bare (BFailed FParse ("exception: " <> errText (e :: SomeException)))
-          Right r -> r
+  parsed <- readParsed seed path
+  case parsed of
+    Left (fault, why) -> pure (bare (BFailed fault why))
+    Right pd -> do
+      outcome <- try (evaluate (forceResult (analyse path pd)))
+      pure $ case outcome of
+        Left e  -> bare (BFailed ParseFailed ("exception: " <> errText (e :: SomeException)))
+        Right r -> r
   where bare b = FileResult b 0 0 0 [] [] Nothing
 
--- | Parse DOC from SEED and tally its elements, headlines and span violations.
-analyse :: Context -> FilePath -> Text -> FileResult
-analyse seed path doc = case orgParse seed doc of
-  (_elems, _ctx, Just err) -> FileResult (BFailed FParse (errorReason err)) 0 0 0 [] [] Nothing
-  (elems, _ctx, Nothing)   ->
-    let acc = foldl' (step path doc (T.length doc)) (Acc 0 0 0 [] (Cursor 0 doc)) elems
+-- | Tally PARSED's elements, headlines and span violations.
+analyse :: FilePath -> ParsedDocument -> FileResult
+analyse path pd =
+  FileResult BOk (accElements acc) (accHeadlines acc) (accViolations acc) (accSample acc)
+             [ T.copy i | h <- heads, Just i <- [identity h] ]
+             (if isBlob path then blobEntryOf path (map indexTerms heads) else Nothing)
+  where doc   = pdText pd
+        elems = pdElements pd
+        acc   = foldl' (step path doc (T.length doc)) (Acc 0 0 0 [] (Cursor 0 doc)) elems
         heads = headlinesOf elems
-    in FileResult BOk (accElements acc) (accHeadlines acc) (accViolations acc) (accSample acc)
-                  [ T.copy i | h <- heads, Just i <- [identity h] ]
-                  (if isBlob path then blobEntryOf path (map indexTerms heads) else Nothing)
 
 -- | H as the index comparison reads it: its id, its TODO keyword and whether it
 -- is archived, each copied out of the document so no blob entry pins the text
@@ -254,7 +251,7 @@ tallySample (Tally _n sample) = sample
 
 data Totals = Totals
   { tOk         :: !Int
-  , tFailed     :: !(Map.Map Failure (Tally (FilePath, Text)))
+  , tFailed     :: !(Map.Map LoadFailure (Tally (FilePath, Text)))
   , tElements   :: !Int
   , tHeadlines  :: !Int
   , tViolations :: !(Tally Text)
@@ -270,7 +267,7 @@ emptyTotals :: Totals
 emptyTotals = Totals 0 Map.empty 0 0 emptyTally Map.empty emptyTally []
 
 -- | T's tally for FAILURE, empty where nothing landed in it.
-failed :: Failure -> Totals -> Tally (FilePath, Text)
+failed :: LoadFailure -> Totals -> Tally (FilePath, Text)
 failed kind = Map.findWithDefault emptyTally kind . tFailed
 
 merge :: Totals -> FilePath -> FileResult -> Totals
@@ -292,7 +289,7 @@ merge t path r = case frBucket r of
 claim :: FilePath -> Totals -> Text -> Totals
 claim path t i = case Map.lookup i (tIds t) of
   Nothing   -> t { tIds = Map.insert i path (tIds t) }
-  Just held -> seen (if beatsForId path held then (path, held) else (held, path))
+  Just held -> seen (snd (claimById path held))
     where seen (kept, dropped) = t
             { tIds        = Map.insert i kept (tIds t)
             , tCollisions = add 1 [ i <> ": kept " <> T.pack kept
@@ -338,7 +335,7 @@ blobsOf = reverse . tBlobs
 -- canonicalizes a root, so a store reached two ways is compared twice.
 storeMetaDirs :: [FilePath] -> [FilePath] -> [FilePath]
 storeMetaDirs roots derived =
-  nub ([ root </> orgGlanceDir </> metaDir | root <- roots ]
+  nub ([ metaDirIn (storeRootIn root) | root <- roots ]
         ++ [ d | d <- derived, takeFileName d == metaDir ])
 
 -- | PATH's bytes, or 'Nothing' when it cannot be read.  The instrument never
@@ -367,9 +364,9 @@ report roots files t dirErrs derived configDirs seed walkSecs secs drifts = do
     [ row "dirs scanned"    (num (length roots))
     , row "files"           (num files)
     , row "ok"              (num (tOk t))
-    , row (failureLabel FRead)   (num (count FRead))
-    , row (failureLabel FDecode) (num (count FDecode))
-    , row (failureLabel FParse)  (num (count FParse))
+    , row (failureLabel ReadFailed)   (num (count ReadFailed))
+    , row (failureLabel DecodeFailed) (num (count DecodeFailed))
+    , row (failureLabel ParseFailed)  (num (count ParseFailed))
     , row "unreadable dirs" (num (length dirErrs))
     , row "derived skipped" (num (length derived))
     , row "config skipped"  (num (length configDirs))
@@ -385,10 +382,12 @@ report roots files t dirErrs derived configDirs seed walkSecs secs drifts = do
   -- The read-failure SECTION lists the unreadable directories beside the
   -- unreadable files and totals both, where the rows above keep them apart.
   -- The rows are per bucket and a directory is not a file in any of them.
-  section (failureLabel FRead) (count FRead + length dirErrs)
-          (paths (capped (tallySample (failed FRead t)) dirErrs))
-  section (failureLabel FDecode) (count FDecode) (paths (tallySample (failed FDecode t)))
-  section (failureLabel FParse) (count FParse) (paths (tallySample (failed FParse t)))
+  section (failureLabel ReadFailed) (count ReadFailed + length dirErrs)
+          (paths (capped (tallySample (failed ReadFailed t)) dirErrs))
+  section (failureLabel DecodeFailed) (count DecodeFailed)
+          (paths (tallySample (failed DecodeFailed t)))
+  section (failureLabel ParseFailed) (count ParseFailed)
+          (paths (tallySample (failed ParseFailed t)))
   section "span violations" (tallyCount (tViolations t)) (tallySample (tViolations t))
   section "id collisions" (tallyCount (tCollisions t)) (tallySample (tCollisions t))
   section "derived skipped" (length derived) (map T.pack (take sampleLimit derived))
@@ -420,8 +419,3 @@ num = TS.showt
 fixed :: Int -> Double -> Text
 fixed digits x = T.pack (showFFloat (Just digits) x "")
 
--- | Position plus the first diagnostic line of ERR's pretty rendering.
-errorReason :: ParseErrorBundle Text Void -> Text
-errorReason err = T.unwords (take 1 ls ++ take 1 diagnostics)
-  where ls = map T.stripEnd (T.lines (T.pack (errorBundlePretty err)))
-        diagnostics = [l | l <- ls, any (`T.isPrefixOf` l) ["unexpected", "expecting"]]

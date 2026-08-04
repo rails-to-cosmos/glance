@@ -4,8 +4,6 @@
 -- Styles are inline and the only asset a page names is the renderer, so a
 -- served document reaches nothing off this server (docs\/invariants.md).
 module Glance.Web.Page.Style ( page
-                             , themeBoot
-                             , monoStack
                              , fontAssets
                              , fontFace
                              ) where
