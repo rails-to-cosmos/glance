@@ -204,12 +204,7 @@ capturedStdout lock path act = do
 -- for the window is a launcher that never serves — so the test does the
 -- waiting the launcher refuses to.
 waitForFile :: FilePath -> IO T.Text
-waitForFile path = go (200 :: Int)
-  where
-    go 0 = TIO.readFile path  -- fails with the read error, which names the path
-    go n = do
-      there <- doesFileExist path
-      if there then TIO.readFile path else threadDelay 10000 >> go (n - 1)
+waitForFile path = waitUntil ("the file " <> path) (doesFileExist path) >> TIO.readFile path
 
 -- Dry run
 

@@ -13,7 +13,7 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
-import TestDefaults (columnKeysOf, field, maybeTextAt, viewDir, withDocDir)
+import TestDefaults (columnKeysOf, field, maybeTextAt, refusedNaming, viewDir, withDocDir)
 
 import qualified Data.Text as T
 
@@ -455,10 +455,7 @@ sortSpec = testGroup "Sort tokens"
                   (Right []) (sortChainIn "sort: sort:*none*")
 
   , testCase "and it admits no companion that orders anything" $
-      mapM_ (\q -> case sortChainIn q of
-               Right chain -> assertFailure (T.unpack q <> " was read as " <> show chain)
-               Left why    -> assertBool (T.unpack q <> ": " <> T.unpack why)
-                                         ("*none*" `T.isInfixOf` why))
+      mapM_ (\q -> refusedNaming (T.unpack q) ["*none*"] (sortChainIn q))
         [ "sort:*none* sort:title"
         , "sort:title sort:*none*"
         , "sort:*none* sort:*none*"
@@ -472,10 +469,7 @@ sortSpec = testGroup "Sort tokens"
         , "sort:*none*:desc->title" ]
 
   , testCase "one column, one direction: everything else is refused by name" $
-      mapM_ (\(q, named) -> case sortChainIn q of
-               Right chain -> assertFailure (T.unpack q <> " was read as " <> show chain)
-               Left why    -> assertBool (T.unpack q <> ": " <> T.unpack why)
-                                         (named `T.isInfixOf` why))
+      mapM_ (\(q, named) -> refusedNaming (T.unpack q) [named] (sortChainIn q))
         [ ("-sort:title",             "-sort:title")
         , ("sort:title|state",        "sort:title|state")
         , ("sort:nosuchcolumn",       "nosuchcolumn")

@@ -23,7 +23,8 @@ import Data.List (isPrefixOf)
 import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
 import System.FilePath (takeExtension, (</>))
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, testCase)
+import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
+import TestDefaults (holdsAll)
 
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -45,8 +46,9 @@ spec = testGroup "Self-containment"
     -- next reader runs into.
   , testCase "the vendored renderer has a target that refreshes it" $ do
       makefile <- TIO.readFile "Makefile"
-      mapM_ (holds makefile)
-            ["sync-renderer:", "../table-view/web/table-view.js", "assets/table-view.js"]
+      holdsAll "the Makefile no longer refreshes the vendored renderer"
+               ["sync-renderer:", "../table-view/web/table-view.js", "assets/table-view.js"]
+               makefile
 
     -- THE WRITE DOOR IS ONE FUNCTION.  Every write this daemon makes leaves
     -- through 'Glance.Web.Watch.writeSpans', which queues the path it just wrote
@@ -74,11 +76,6 @@ calls path = report . T.lines <$> TIO.readFile path
                 , let stripped = T.strip l
                 , "replaceSpans" `T.isInfixOf` stripped
                 , not ("--" `T.isPrefixOf` stripped) ]
-
--- | WHAT is somewhere in HAYSTACK.
-holds :: T.Text -> T.Text -> Assertion
-holds haystack what =
-  assertBool ("the Makefile does not mention " <> show what) (what `T.isInfixOf` haystack)
 
 -- | Every Haskell file this package builds from.  The vendored GTK bindings are
 -- out: they are upstream's, and are not built unless @-f native-window@ is.

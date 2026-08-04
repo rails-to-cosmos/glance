@@ -16,7 +16,8 @@ import System.FilePath ((</>))
 import System.Posix.Files (createSymbolicLink)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
-import TestDefaults (entry, entryAs, orgFile, recordsOf, withTempDir)
+import TestDefaults
+import TestWire (drainNow)
 
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
@@ -34,7 +35,7 @@ import Glance.Web.Store ( Client, Frame (..), Hub (hubPending, hubStore)
                         , clientCapacity, dropFile, emptyStore, frameJSON, loadStore
                         , loadStoreWith, newHub, nextFrame, publish, storeKeywords
                         , storeRecords, storeResult, storeTags, subscribe )
-import Glance.Web.Watch (debounceDelay, drain, due, isWatchable, nudge, watched)
+import Glance.Web.Watch (debounceDelay, due, isWatchable, nudge, watched)
 
 -- Scaffolding
 --
@@ -939,12 +940,6 @@ nudgeSpec = testGroup "Nudge"
       mapM_ (nudge defaultWalk hub) paths
       readTVarIO (hubPending hub)
     queued = fmap Map.keys . queue
-
--- | One turn of the drain loop over DIR's HUB with the debounce out of the way:
--- everything queued is ripe, which is what a test wants and what the 25 ms poll
--- would otherwise make it sleep for.
-drainNow :: FilePath -> Hub -> IO ()
-drainNow = drain defaultWalk 0
 
 -- | C's next frame if there is one already, without blocking on a socket that
 -- was never going to be written to.

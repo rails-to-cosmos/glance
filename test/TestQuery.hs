@@ -1471,10 +1471,7 @@ withRecord doc k = withDoc "command" "one.org" doc one
 -- Under 'noConfig', so the chain the legality check reads is the file's own
 -- @#+TODO:@ over org's built-in cycle and nothing else.
 setStateIs :: String -> Text -> Maybe Text -> Text -> Assertion
-setStateIs what doc keyword wanted = withRecord doc $ \r ->
-  case setStateEdits noConfig keyword r of
-    Left why    -> assertFailure (what <> ": refused: " <> T.unpack why)
-    Right edits -> assertEqual what wanted (splice doc edits)
+setStateIs what doc keyword = triedEditsAre what doc (setStateEdits noConfig keyword)
 
 -- | @set-state KEYWORD@ on R under 'layered' is refused, and the refusal spells
 -- the keyword it turned down, the row it turned it down for, and every word of
@@ -1509,6 +1506,15 @@ editsAre :: String -> Text -> (HeadlineRecord -> [(Span, Text)]) -> Text -> Asse
 editsAre what doc edits wanted =
   withRecord doc (assertEqual what wanted . splice doc . edits)
 
+-- | 'editsAre' for the commands whose span math can REFUSE: the refusal fails
+-- the case naming it, so a caller writes the landing and nothing else.
+triedEditsAre :: String -> Text -> (HeadlineRecord -> Either Text [(Span, Text)])
+              -> Text -> Assertion
+triedEditsAre what doc edits wanted = withRecord doc $ \r ->
+  case edits r of
+    Left why     -> assertFailure (what <> ": refused: " <> T.unpack why)
+    Right splices -> assertEqual what wanted (splice doc splices)
+
 -- | WHAT: DOC with @archive@ applied to its one headline is WANTED.
 archiveIs :: String -> Text -> Text -> Assertion
 archiveIs what doc = editsAre what doc archiveEdits
@@ -1524,12 +1530,10 @@ removeTagIs what doc tag = editsAre what doc (removeTagEdits tag)
 -- | WHAT: DOC with its FIRST link retargeted to TARGET under DESC is WANTED.
 -- The span is the scan's own, which is where a client's comes from.
 editLinkIs :: String -> Text -> Text -> Maybe (Maybe Text) -> Text -> Assertion
-editLinkIs what doc target desc wanted = withRecord doc $ \r ->
+editLinkIs what doc target desc = triedEditsAre what doc $ \r ->
   case subtreeLinks r of
-    []      -> assertFailure (what <> ": the document holds no link")
-    (l : _) -> case editLinkEdits (olSpan l) target desc r of
-      Left why    -> assertFailure (what <> ": refused: " <> T.unpack why)
-      Right edits -> assertEqual what wanted (splice doc edits)
+    []      -> Left "the document holds no link"
+    (l : _) -> editLinkEdits (olSpan l) target desc r
 
 -- | WHAT: DOC with @rename-tag FROM TO@ applied to its one headline is WANTED.
 renameTagIs :: String -> Text -> Text -> Text -> Text -> Assertion
@@ -2352,10 +2356,7 @@ commandSpec = testGroup "Commands"
 -- | WHAT: DOC with @set-planning KEYWORD STAMP@ applied to its one headline is
 -- WANTED.
 planningIs :: String -> Text -> Maybe Text -> Text -> Text -> Assertion
-planningIs what keyword stamp doc wanted = withRecord doc $ \r ->
-  case setPlanningEdits keyword stamp r of
-    Left why    -> assertFailure (what <> ": refused: " <> T.unpack why)
-    Right edits -> assertEqual what wanted (splice doc edits)
+planningIs what keyword stamp doc = triedEditsAre what doc (setPlanningEdits keyword stamp)
 
 -- | The day every relative date here is worked out from, and the moment every
 -- capture is stamped with: a Saturday, so @+1m@ lands on a different weekday and
@@ -2383,17 +2384,11 @@ captured doc text' = splice doc <$> captureEdits doc (captureStamp stampedAt) te
 
 -- | WHAT: DOC with @set-priority LETTER@ applied to its one headline is WANTED.
 setPriorityIs :: String -> Text -> Maybe Text -> Text -> Assertion
-setPriorityIs what doc letter wanted = withRecord doc $ \r ->
-  case setPriorityEdits letter r of
-    Left why    -> assertFailure (what <> ": refused: " <> T.unpack why)
-    Right edits -> assertEqual what wanted (splice doc edits)
+setPriorityIs what doc letter = triedEditsAre what doc (setPriorityEdits letter)
 
 -- | WHAT: DOC with @set-title TITLE@ applied to its one headline is WANTED.
 setTitleIs :: String -> Text -> Text -> Text -> Assertion
-setTitleIs what doc title wanted = withRecord doc $ \r ->
-  case setTitleEdits title r of
-    Left why    -> assertFailure (what <> ": refused: " <> T.unpack why)
-    Right edits -> assertEqual what wanted (splice doc edits)
+setTitleIs what doc title = triedEditsAre what doc (setTitleEdits title)
 
 -- Subtree entries
 --

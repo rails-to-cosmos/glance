@@ -21,8 +21,8 @@ import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.FilePath (takeDirectory, (</>))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
-import TestDefaults (document, entryAs, withTempDirNamed)
-import TestWire (postTo, serverWith, status)
+import TestDefaults (digestOnDisk, document, entryAs, withTempDirNamed)
+import TestWire (assertOk, capture, command, keywordArg, postTo, serverAt, status)
 
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.Text as T
@@ -32,8 +32,7 @@ import qualified Data.Time as Time
 
 import Data.Org.External (blobIdOf, externalFile, externalLine, externalPathOf)
 import Data.Org.Index (metaDir)
-import Glance.Query (Span (Span), WriteFailure, digestOfText, replaceSpans)
-import Glance.Web (ServeOptions (ServeOptions), defaultPort)
+import Glance.Query (Span (Span), WriteFailure, blobPathIn, replaceSpans, storeRootIn)
 
 -- Fixtures
 
@@ -42,17 +41,15 @@ import Glance.Web (ServeOptions (ServeOptions), defaultPort)
 entry :: Text -> Text -> Text
 entry ident state = entryAs ident (state <> " Entry " <> ident) <> "body\n"
 
--- | Write ID's blob under DIR's store, sharded the way org-glance shards one
--- (@data\/\<2\>\/\<rest\>\/data.org@), and answer its path.
+-- | Write ID's blob under DIR's store and answer its path.  The layout is the
+-- LIBRARY's ('Glance.Query.blobPathIn' over 'storeRootIn'), so a fixture and the
+-- writer it stands in for shard an id the same way.
 blobIn :: FilePath -> Text -> Text -> IO FilePath
 blobIn dir ident text = do
   createDirectoryIfMissing True (takeDirectory path)
   TIO.writeFile path text
   pure path
-  where
-    path = dir </> ".org-glance" </> "data"
-               </> T.unpack shard </> T.unpack rest </> "data.org"
-    (shard, rest) = T.splitAt 2 ident
+  where path = blobPathIn (storeRootIn dir) ident
 
 -- | A temp directory to stand a store up in.
 withStore :: (FilePath -> Assertion) -> Assertion
@@ -79,10 +76,6 @@ notedIds dir = map idOf <$> noteLines dir
   where idOf line = maybe ("MALFORMED: " <> TE.decodeUtf8 line) (T.takeWhile (/= '"'))
                           (T.stripPrefix "{\"id\":\"" (TE.decodeUtf8 line))
 
--- | The digest PATH holds right now, which is what a write to it pins.
-digestNow :: FilePath -> IO Text
-digestNow path = digestOfText <$> document path
-
 -- | The span NEEDLE occupies in TEXT, which is how these cases name an edit.
 spanOf :: Text -> Text -> Span
 spanOf text needle = Span at (at + T.length needle)
@@ -93,7 +86,7 @@ spanOf text needle = Span at (at + T.length needle)
 splice :: FilePath -> Text -> Text -> Assertion
 splice path from to = do
   text <- document path
-  digest <- digestNow path
+  digest <- digestOnDisk path
   landed =<< replaceSpans path digest [(spanOf text from, to)]
 
 -- | Fail unless a write landed.
@@ -127,7 +120,7 @@ doorSpec = testGroup "The write door"
       withStore $ \dir -> do
         path <- blobIn dir "abcdef" (entry "abcdef" "TODO" <> "** TODO Child\n")
         text <- document path
-        digest <- digestNow path
+        digest <- digestOnDisk path
         landed =<< replaceSpans path digest
                      [ (spanOf text "TODO Entry", "DONE Entry")
                      , (spanOf text "TODO Child", "DONE Child") ]
@@ -305,18 +298,15 @@ routeSpec = testGroup "The routes that write"
       withStore $ \dir -> do
         _ <- blobIn dir "abcdef" (entry "abcdef" "TODO")
         a <- serverOver dir
-        r <- postTo a "/command"
-               (encode (object [ "name" .= ("set-state" :: Text)
-                               , "ids" .= (["abcdef"] :: [Text])
-                               , "args" .= object ["keyword" .= ("DONE" :: Text)] ]))
-        assertEqual "status" 200 (status r)
+        assertOk =<< postTo a "/command"
+                       (command "set-state" ["abcdef"] (keywordArg (Just "DONE")))
         assertEqual "noted" ["abcdef"] =<< notedIds dir
 
   , testCase "POST /headline notes the blob it wrote" $
       withStore $ \dir -> do
         path <- blobIn dir "abcdef" (entry "abcdef" "TODO")
         a <- serverOver dir
-        digest <- digestNow path
+        digest <- digestOnDisk path
         r <- postTo a ("/headline" <> renderQuery True [("id", Just "abcdef")])
                (encode (object [ "org" .= entry "abcdef" "DONE", "digest" .= digest ]))
         assertEqual "status" 200 (status r)
@@ -328,17 +318,14 @@ routeSpec = testGroup "The routes that write"
       withStore $ \dir -> do
         _ <- blobIn dir "abcdef" (entry "abcdef" "TODO")
         a <- serverOver dir
-        r <- postTo a "/command"
-               (encode (object [ "name" .= ("capture" :: Text)
-                               , "args" .= object ["text" .= ("Fresh" :: Text)] ]))
-        assertEqual "status" 200 (status r)
+        assertOk =<< postTo a "/command" (capture "Fresh")
         assertEqual "nothing noted" [] =<< noteLines dir
   ]
 
 -- | A server over DIR, loaded the way @glance serve@ loads one.  No @--assets@:
 -- nothing here asks for a page.
 serverOver :: FilePath -> IO Application
-serverOver dir = fst <$> serverWith (ServeOptions dir defaultPort Nothing False)
+serverOver dir = fst <$> serverAt Nothing dir
 
 spec :: TestTree
 spec = testGroup "External" [doorSpec, formatSpec, pathSpec, appendSpec, routeSpec]

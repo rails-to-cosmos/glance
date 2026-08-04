@@ -14,6 +14,7 @@ module TestDefaults ( assertContains
                     , columnKeysOf
                     , columnOf
                     , compactTs
+                    , digestOnDisk
                     , document
                     , entry
                     , entryAs
@@ -25,6 +26,8 @@ module TestDefaults ( assertContains
                     , intAt
                     , listAt
                     , maybeTextAt
+                    , refusedNaming
+                    , sparseTextAt
                     , sparseAt
                     , on
                     , orgFile
@@ -37,6 +40,7 @@ module TestDefaults ( assertContains
                     , systemFileIn
                     , tagFileIn
                     , tagsDirIn
+                    , writeLayers
                     , textAt
                     , textsAt
                     , titled
@@ -66,8 +70,8 @@ import Data.Org.Walk (findOrgFiles, foundFiles)
 import Data.Text (Text)
 import Data.Time (UTCTime, defaultTimeLocale, parseTimeOrError)
 import Data.Unique (hashUnique, newUnique)
-import System.Directory ( createDirectory, doesDirectoryExist, getTemporaryDirectory
-                        , removeDirectoryRecursive )
+import System.Directory ( createDirectory, createDirectoryIfMissing, doesDirectoryExist
+                        , getTemporaryDirectory, removeDirectoryRecursive )
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
 import System.IO (hPutStrLn, stderr)
@@ -83,7 +87,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 
-import Glance.Query (HeadlineRecord, QueryResult (qrRecords), loadDir, loadFile)
+import Glance.Query (HeadlineRecord, QueryResult (qrRecords), digestOfText, loadDir, loadFile)
 
 -- Time
 
@@ -243,6 +247,15 @@ tagsDirIn = snd . configPaths . configDirIn
 tagFileIn :: FilePath -> FilePath -> FilePath
 tagFileIn dir tag = tagsDirIn dir </> tag <> ".org"
 
+-- | Write DIR's config LAYERS: 'Nothing' is @system.org@ and @Just TAG@ is that
+-- tag's file.  The directory is made first, so a tree that has never had a
+-- config takes the same call as one being edited.
+writeLayers :: FilePath -> [(Maybe FilePath, Text)] -> IO ()
+writeLayers dir layers = do
+  createDirectoryIfMissing True (tagsDirIn dir)
+  mapM_ (\(tag, text) -> TIO.writeFile (maybe (systemFileIn dir) (tagFileIn dir) tag) text)
+        layers
+
 -- Corpus
 
 -- | Run K over a sample of the org files under @GLANCE_CORPUS@, and answer how
@@ -339,17 +352,44 @@ sparseAt k v = assertFailure ("expected an object with " <> show k <> ", got " <
 
 -- | The string at KEY of V, where the key is there and its value may be null.
 maybeTextAt :: Text -> Value -> IO (Maybe Text)
-maybeTextAt k v = field k v >>= string
-  where string Null = pure Nothing
-        string (String t) = pure (Just t)
-        string other = assertFailure ("expected a string or null at " <> show k
+maybeTextAt k v = field k v >>= stringOrNull k
+
+-- | The string at KEY of V, 'Nothing' where the key is ABSENT as well as where
+-- it is null — the accessor for a field a producer emits only when it has
+-- something to say ('sparseAt' beside 'field' is the whole difference).
+sparseTextAt :: Text -> Value -> IO (Maybe Text)
+sparseTextAt k v = maybe (pure Nothing) (stringOrNull k) =<< sparseAt k v
+
+-- | V read as a string or a null, failing the case where it is neither.  The
+-- reading both accessors above share; they differ only in how an absent key is
+-- taken.
+stringOrNull :: Text -> Value -> IO (Maybe Text)
+stringOrNull _k Null = pure Nothing
+stringOrNull _k (String t) = pure (Just t)
+stringOrNull k other = assertFailure ("expected a string or null at " <> show k
                                         <> ", got " <> show other)
+
+-- | Fail unless OUTCOME is a refusal naming every one of WORDS.  WHAT labels
+-- the case; an outcome that LANDED is shown, since what it produced is what a
+-- reader needs to see.
+refusedNaming :: Show a => String -> [Text] -> Either Text a -> Assertion
+refusedNaming what words' outcome = case outcome of
+  Right landed -> assertFailure (what <> ": was read as " <> show landed)
+  Left why     -> mapM_ (\w -> assertBool (what <> ": " <> T.unpack why)
+                                          (w `T.isInfixOf` why)) words'
 
 -- | The array at KEY of V.
 listAt :: Text -> Value -> IO [Value]
 listAt k v = field k v >>= read'
   where read' x = either (\e -> assertFailure ("array at " <> show k <> ": " <> e)) pure
                          (parseEither parseJSON x)
+
+-- | The SHA-256 of the bytes PATH holds now.  Taken off the FILE rather than
+-- through a load: the digest a receipt reports is what a client pins its next
+-- edit to, and an oracle that re-runs the loader agrees with it whatever the
+-- loader digested.
+digestOnDisk :: FilePath -> IO Text
+digestOnDisk path = digestOfText <$> document path
 
 -- | The array of strings at KEY of V.
 textsAt :: Text -> Value -> IO [Text]

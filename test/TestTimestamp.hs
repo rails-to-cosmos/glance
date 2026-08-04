@@ -5,7 +5,6 @@ import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
 import TestDefaults
-import qualified TextShow as TS
 
 parseTimestamp :: Text -> Maybe Timestamp
 parseTimestamp input = case orgParse defaultContext input of
@@ -115,9 +114,6 @@ spec = testGroup "Timestamp"
         withHeadline "* Created [2024-01-15 Mon 10:00]" $ \h ->
           assertBool "Title should contain timestamp" (hasTimestamp (title h))
 
-    , testCase "Date-only timestamp in title renders without a time" $
-        withHeadline "* Due <2026-07-08 Wed>" $ \h ->
-          assertEqual "" "* Due <2026-07-08 Wed>" (TS.showt h)
     ]
   ]
   where

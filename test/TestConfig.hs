@@ -16,7 +16,7 @@ import System.Directory (createDirectoryIfMissing, removeFile)
 import System.FilePath ((</>))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
-import TestDefaults (orgFile, systemFileIn, tagsDirIn, withTempDirNamed)
+import TestDefaults (orgFile, refusedNaming, systemFileIn, tagsDirIn, withTempDirNamed)
 
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -675,9 +675,7 @@ writeSpec = testGroup "Writing a layer"
                   (Right "/o/inbox.org") (captureTargetIn "/o" (naming "  "))
       -- Three refusals, all textual the way every other path rule here is.
       mapM_ (\(what, target, needle) ->
-               case captureTargetIn "/o" (naming target) of
-                 Right path -> assertFailure (what <> ": wrote " <> path)
-                 Left why -> assertBool (what <> ": " <> T.unpack why) (needle `T.isInfixOf` why))
+               refusedNaming what [needle] (captureTargetIn "/o" (naming target)))
             [ ("an absolute path", "/etc/passwd.org", "absolute")
             , ("a path climbing out", "../elsewhere.org", "outside")
             , ("one deeper down", "notes/../../out.org", "outside")
