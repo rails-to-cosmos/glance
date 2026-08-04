@@ -1965,13 +1965,14 @@ archived = tagged archiveTag
 -- org's @org-tag-re@, because what this server writes has to reparse HERE: a
 -- tag carrying a character 'Data.Org.Parser.tagsP' declines does not end up in
 -- the tags run, it takes the whole run down into title text on the next load.
--- The two sets differ by @-@ and @%@ and the parser's is the one that binds.
+-- The sets differ by @-@ alone — org's charset plus the hyphen the wild corpus
+-- writes — and the parser's is the one that binds.
 tagText :: Text -> Either Text Text
 tagText text
   | T.null text            = Left "a tag is at least one character"
   | T.all isTagChar text   = Right text
   | otherwise              = Left (text <> " is not an org tag: a tag is letters,"
-                                     <> " digits, and _ - @ or #")
+                                     <> " digits, and _ - @ # or %")
 
 -- | The classification chain behind ROWS, made visible: one entry per SOURCE in
 -- precedence order, each holding the keywords it is the WIDEST to declare.

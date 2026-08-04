@@ -57,12 +57,35 @@ parseCases =
                                       (at "2024-01-15 11:30:00"))
              { tsInterval = Just (TimestampRepeaterInterval Restart 1 Weeks TRSPlus) } )
 
-    -- '-' opens both a range end and a negative repeater; only the time's
-    -- colon separates them, so "-1d" backtracks out of the range and stays a
-    -- repeater whether or not a space precedes it.
-  , ( "A negative repeater is not a range end", "<2024-01-15 Mon 10:30-1d>"
-    , Just (repeating (at "2024-01-15 10:30:00")
-                      (TimestampRepeaterInterval Restart 1 Days TRSMinus)) )
+    -- '-' opens both a range end and a warning cookie; only the time's colon
+    -- separates them, so "-1d" backtracks out of the range and stays a cookie
+    -- whether or not a space precedes it.  org's grammar: a lone "-1d" is the
+    -- agenda warning, never a repeater.
+  , ( "A warning cookie is not a range end", "<2024-01-15 Mon 10:30-1d>"
+    , Just ((plainTs TimestampActive (at "2024-01-15 10:30:00"))
+              { tsWarning = Just (TimestampWarningInterval False 1 Days) }) )
+
+    -- org's canonical two-cookie stamp: repeater and warning side by side —
+    -- the second cookie used to block the closing bracket, failing the whole
+    -- timestamp and, behind a planning keyword, demoting the line to body.
+  , ( "Repeater and warning together (test-org-element/timestamp-parser)"
+    , "<2024-01-15 Mon +1m -3d>"
+    , Just ((repeating (on "2024-01-15 00:00:00")
+                       (TimestampRepeaterInterval Restart 1 Months TRSPlus))
+              { tsWarning = Just (TimestampWarningInterval False 3 Days) }) )
+
+  , ( "First-only delay (test-org-element/timestamp-parser)"
+    , "<2024-01-15 Mon .+2d --7d>"
+    , Just ((repeating (on "2024-01-15 00:00:00")
+                       (TimestampRepeaterInterval Cumulative 2 Days TRSPlus))
+              { tsWarning = Just (TimestampWarningInterval True 7 Days) }) )
+
+    -- org-element reads the cookies in either order; the conventional
+    -- repeater-then-warning is what a re-render spells.
+  , ( "Warning written before the repeater", "<2024-01-15 Mon -3d +1m>"
+    , Just ((repeating (on "2024-01-15 00:00:00")
+                       (TimestampRepeaterInterval Restart 1 Months TRSPlus))
+              { tsWarning = Just (TimestampWarningInterval False 3 Days) }) )
 
   , ( "Weekly restart repeater", "<2024-01-01 +1w>"
     , Just (repeating (on "2024-01-01 00:00:00")

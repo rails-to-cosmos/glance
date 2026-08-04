@@ -63,6 +63,38 @@ testCases =
       [ EPragma (PTodo ["foo"] []) ]
       (initialState `withTodo` (["TODO", "foo"], ["DONE"]))
 
+    -- org's two older spellings of the same line (test-org/test-org-todo):
+    -- both configure the cycle exactly as #+TODO: does, so a headline below
+    -- recognizes the keyword.  Before the alias, each fell through to a
+    -- generic pragma and `* NEXT Foo' kept NEXT as title text.
+  , ending "SEQ_TODO pragma is the TODO line" ["#+SEQ_TODO: NEXT | SHIPPED", "* NEXT Foo"]
+      [ EPragma (PTodo ["NEXT"] ["SHIPPED"])
+      , EHeadline (titled "Foo") { todo = Just Todo { name = "NEXT", active = True } } ]
+      (initialState `withTodo` (["TODO", "NEXT"], ["DONE", "SHIPPED"]))
+
+  , ending "TYP_TODO pragma is the TODO line" ["#+TYP_TODO: Fred | DONE"]
+      [ EPragma (PTodo ["Fred"] ["DONE"]) ]
+      (initialState `withTodo` (["TODO", "Fred"], ["DONE"]))
+
+    -- The two-cookie stamp behind a planning keyword: the warning used to
+    -- block the closing bracket, fail the timestamp, and demote the LINE to
+    -- body — taking the drawer behind it out of the headline (the class the
+    -- Dutch weekday loss documented).  The planning line and the drawer both
+    -- survive it now.
+  , plain "Planning line survives a warning cookie"
+      [ "* Task", "SCHEDULED: <2024-01-01 Mon +1m -3d>"
+      , ":PROPERTIES:", ":MARKER: kept", ":END:" ]
+      [ EHeadline (titled "Task")
+          { schedule = Just (plainTs TimestampActive (on "2024-01-01 00:00:00"))
+              { tsInterval = Just (TimestampRepeaterInterval Restart 1 Months TRSPlus)
+              , tsWarning  = Just (TimestampWarningInterval False 3 Days) }
+          , properties = Properties [ Property (Keyword "MARKER")
+                                               (OrgLine [OrgLineToken "kept"]) ] } ]
+
+    -- org-tag-re carries `%' (test-org/tags): the run parses whole.
+  , plain "Percent in a tag" ["* Hello :50%:done:"]
+      [ EHeadline (titled "Hello") { tags = Tags ["50%", "done"] } ]
+
   , plain "Multiline" ["* foo", "* bar"]
       [EHeadline (titled "foo"), EHeadline (titled "bar")]
 

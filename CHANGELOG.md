@@ -741,6 +741,21 @@ section groups a feature arc, and its date is that arc's last commit.
   bright, being where a reader finds out why.
 
 ### Fixed
+- **A warning cookie no longer costs the planning line.** org's agenda
+  warning/delay (`<2026-01-01 Mon +1m -3d>`, first-only `--7d`) used to block
+  the timestamp's closing bracket: the stamp failed, the planning entry
+  backtracked, and the line — with the drawer and the id behind it — demoted to
+  body (the Dutch-weekday loss class). A timestamp now takes one repeater and
+  one warning cookie in either order, stores the warning (`tsWarning`), and
+  re-renders it byte for byte; a lone `-3d` is read as org reads it — a
+  warning, not a minus-signed repeater — with the render unchanged either way.
+- **`#+SEQ_TODO:` and `#+TYP_TODO:` configure the cycle.** org's two older
+  spellings fell through to a generic pragma, so `* NEXT Foo` under
+  `#+SEQ_TODO: NEXT | DONE` kept NEXT as title text. All three spellings land
+  in the same cycle now.
+- **Tags accept `%`.** org's own `org-tag-re` carries it; `:50%:` used to take
+  the whole tags run down into title text. The parser's set is now org's plus
+  the hyphen the wild corpus writes.
 - **The sheet cycles a bracketless priority cell like the table does.** `S-<up>`
   and `S-<down>` over the materialize sheet read the cell with a regexp of their
   own that accepted only `[#A]`, where the table's reading takes a bare letter

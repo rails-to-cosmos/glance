@@ -107,6 +107,7 @@ on t = TsMoment (strptime t) False
 plainTs :: TimestampStatus -> TsMoment -> Timestamp
 plainTs status moment = Timestamp { tsStatus = status
                                   , tsInterval = Nothing
+                                  , tsWarning = Nothing
                                   , tsStart = moment
                                   , tsEnd = Nothing
                                   , tsCompactRange = False }

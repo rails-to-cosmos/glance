@@ -52,7 +52,10 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - TODO keywords are matched case-sensitively and stored verbatim;
   pragma/property KEYS are uppercased. `PTodo` carries the two halves as LISTS
   in the line's order — a `#+TODO:` line is a cycle, and its spelling is the
-  tree's whole say over how states sort and how a palette draws. The parser
+  tree's whole say over how states sort and how a palette draws. `#+SEQ_TODO:`
+  and `#+TYP_TODO:` are org's older spellings of the same line and land in the
+  same `PTodo` (a re-render says `#+TODO:` — TextShow lossiness); fast-access
+  selectors (`TODO(t!)`) are consumed and dropped, the keyword stored bare. The parser
   folds the same words into `Context`'s two `Set`s, which is where recognition
   is answered and where order means nothing.
 - In `spannedContainerUntil` the end-parser branch precedes the hspace-eol
@@ -73,7 +76,13 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - A range is spelled `<a>--<b>` or compactly as `<date wd 10:30-11:30>`;
   `tsCompactRange` preserves which, and the renderer never canonicalizes one
   into the other (CLOCK lines are always `--`). A `-` before a time opens a
-  range end, before a unit it is a negative repeater.
+  range end, before a unit it is org's WARNING cookie (`-3d`, first-only
+  `--3d`), held in `tsWarning` — never a repeater, though `TRSMinus` still
+  exists unreached. A stamp takes at most one repeater and one warning, either
+  order, first of each kind winning; the render spells repeater-then-warning,
+  so a warning-first source re-renders conventionally (TextShow lossiness; the
+  span carries the spelling). The second cookie used to block the closing
+  bracket and demote the planning line to body, the Dutch-weekday loss class.
 - The planning line is the one line after the title line, before any drawer:
   `SCHEDULED:`/`DEADLINE:`/`CLOSED:` uppercase-only, any order, last-wins per
   keyword. `CLOCK:` is not one. The whole line backtracks when it is not a

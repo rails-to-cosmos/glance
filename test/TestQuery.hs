@@ -2045,15 +2045,16 @@ commandSpec = testGroup "Commands"
     [ testCase "each spelling, and whether it is one" $ mapM_ tagIs
         [ ("work", True), ("WORK", True), ("work_2", True), ("a-b", True)
         , ("@home", True), ("c#", True), ("2026", True)
-        -- Org's own set carries `%' and this parser's does not; the parser's is
-        -- the one that binds, since it is what reads the write back.
-        , ("50%", False)
+        -- Org's own set carries `%' (org-tag-re) and, since the parser reads
+        -- it, so does this wall; the hyphen above is the one divergence left,
+        -- kept because the wild corpus writes it.
+        , ("50%", True)
         , ("", False), ("two words", False), (":work:", False), ("a.b", False) ]
 
     , testCase "a refusal names what it turned down" $
-        case tagText "50%" of
+        case tagText "a.b" of
           Right kept -> assertFailure ("expected a refusal, got " <> show kept)
-          Left why   -> assertContains "names the input" "50%" why
+          Left why   -> assertContains "names the input" "a.b" why
     ]
 
     -- The date a key collects, worked out against a fixed today so the answers

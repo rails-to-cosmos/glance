@@ -19,6 +19,7 @@ module Data.Org.Types ( Context (..)
                       , Tags (..)
                       , Timestamp (..)
                       , TimestampRepeaterInterval (..)
+                      , TimestampWarningInterval (..)
                       , TimestampRepeaterSign (..)
                       , TimestampRepeaterType (..)
                       , TimestampStatus (..)
@@ -514,6 +515,7 @@ data TsMoment = TsMoment { tsmTime :: !Time.UTCTime
 -- other spelling is a spurious hunk.
 data Timestamp = Timestamp { tsStatus :: !TimestampStatus
                            , tsInterval :: !(Maybe TimestampRepeaterInterval)
+                           , tsWarning :: !(Maybe TimestampWarningInterval)
                            , tsStart :: !TsMoment
                            , tsEnd :: !(Maybe TsMoment)
                            , tsCompactRange :: !Bool
@@ -524,13 +526,18 @@ instance Ord Timestamp where
 
 instance TextShow Timestamp where
   showb ts = case tsEnd ts of
-    Just end | compactly end -> bracketed (tsFormat (tsStart ts) <> "-" <> tsTimeOnly end <> repeaterText)
-    Just end                 -> bracketed (tsFormat (tsStart ts) <> repeaterText)
+    Just end | compactly end -> bracketed (tsFormat (tsStart ts) <> "-" <> tsTimeOnly end <> cookieText)
+    Just end                 -> bracketed (tsFormat (tsStart ts) <> cookieText)
                              <> "--" <> bracketed (tsFormat end)
-    Nothing                  -> bracketed (tsFormat (tsStart ts) <> repeaterText)
+    Nothing                  -> bracketed (tsFormat (tsStart ts) <> cookieText)
     where bracketed body = fromText (T.cons open (T.snoc body close))
           (open, close) = tsBrackets (tsStatus ts)
-          repeaterText = maybe "" ((" " <>) . repeaterFormat) (tsInterval ts)
+          -- Repeater then warning — org's conventional order.  A source that
+          -- spelled them the other way round re-renders conventionally, which
+          -- is inside TextShow's documented lossiness; the span channel keeps
+          -- the source spelling.
+          cookieText = maybe "" ((" " <>) . repeaterFormat) (tsInterval ts)
+                    <> maybe "" ((" " <>) . warningFormat) (tsWarning ts)
           -- Both ends carrying a time on one day is what the compact spelling
           -- can express; guarded rather than assumed, so a hand-built
           -- timestamp cannot render its end date away.
@@ -572,6 +579,23 @@ typeChar :: TimestampRepeaterType -> Maybe Char
 typeChar CatchUp = Just '+'
 typeChar Restart = Nothing
 typeChar Cumulative = Just '.'
+
+-- | An agenda warning or delay cookie: @-3d@ moves the entry's agenda lead
+-- time, and the doubled @--3d@ applies to the first occurrence alone.  org's
+-- own grammar — a lone @-3d@ IS this cookie, never a repeater, and 'tsWarning'
+-- is where it lives.
+data TimestampWarningInterval = TimestampWarningInterval
+  { warningFirstOnly :: !Bool  -- ^ the @--@ spelling.
+  , warningValue :: !Int
+  , warningUnit :: !TimestampUnit
+  } deriving (Show, Eq)
+
+-- | Render W the way org writes it, e.g. @-3d@ or @--7d@.
+warningFormat :: TimestampWarningInterval -> Text
+warningFormat TimestampWarningInterval{..} =
+  (if warningFirstOnly then "--" else "-")
+    <> showt warningValue
+    <> T.singleton (unitChar warningUnit)
 
 data TimestampUnit = Days | Weeks | Months | Years
   deriving (Show, Eq, Enum, Bounded)

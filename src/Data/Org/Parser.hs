@@ -8,7 +8,7 @@ import Control.Monad.State (StateT)
 import qualified Control.Monad.State as State
 import Data.Char (isAlpha, isAlphaNum, isSpace)
 import Data.List (foldl')
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import Data.Org.Types
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -171,7 +171,12 @@ instance Parse Pragma where
     key@(Keyword kText) <- MPC.string "#+" *> parse <* MPC.char ':' <* MPC.space
 
     case kText of
-      "TODO" -> do
+      -- org's two older spellings configure the same cycle: @#+SEQ_TODO:@ is
+      -- the sequence semantics @#+TODO:@ already means, and @#+TYP_TODO:@'s
+      -- type distinction lives in org's cycling behaviour, not in the words —
+      -- so all three land in 'PTodo' and the chain reads them alike.  A
+      -- re-render spells @#+TODO:@, which is TextShow's documented lossiness.
+      k | k `elem` ["TODO", "SEQ_TODO", "TYP_TODO"] -> do
         -- Keywords register as written: org matches them case-sensitively.
         let todoKw = keywordTextP
                      <* optional (MPC.char '(' *> MP.takeWhileP Nothing (/= ')') *> MPC.char ')')
@@ -298,7 +303,7 @@ tagsP = do
 -- divergence predates the write path and the corpus depends on the first half
 -- of it.
 isTagChar :: Char -> Bool
-isTagChar c = isAlphaNum c || c == '_' || c == '-' || c == '@' || c == '#'
+isTagChar c = isAlphaNum c || c == '_' || c == '-' || c == '@' || c == '#' || c == '%'
 
 instance Parse Timestamp where
   parse = State.lift tsParser
@@ -331,10 +336,10 @@ instance Parse Token where
 tsParser :: StatelessParser Timestamp
 tsParser = do
   tsStatus <- tsStatusParser
-  (tsStart, compactEnd, tsInterval) <- tsBodyParser tsStatus
+  (tsStart, compactEnd, tsInterval, tsWarning) <- tsBodyParser tsStatus
   dashEnd <- MP.optional . MP.try $ do
     _ <- MPC.string "--" *> MPC.char (fst (tsBrackets tsStatus))
-    (moment, _compact, _interval) <- tsBodyParser tsStatus
+    (moment, _compact, _interval, _warning) <- tsBodyParser tsStatus
     return moment
   let (tsEnd, tsCompactRange) = case dashEnd of
         Just moment -> (Just moment, False)
@@ -346,29 +351,57 @@ tsStatusParser = (TimestampActive <$ MPC.char '<')
              <|> (TimestampInactive <$ MPC.char '[')
 
 -- | Parse one bracketed moment of STATUS, from the day through the closing
--- bracket: the moment, the compact range end it may carry, and its repeater.
-tsBodyParser :: TimestampStatus -> StatelessParser (TsMoment, Maybe TsMoment, Maybe TimestampRepeaterInterval)
+-- bracket: the moment, the compact range end it may carry, and its cookies —
+-- at most one repeater and one warning, in either order.
+tsBodyParser :: TimestampStatus
+             -> StatelessParser (TsMoment, Maybe TsMoment, Maybe TimestampRepeaterInterval, Maybe TimestampWarningInterval)
 tsBodyParser status = do
   day <- tsDayParser <* MPC.space
   void $ MP.optional (MP.try tsWeekdayParser) <* MPC.space
   time <- MP.optional (MP.try tsTimeParser)
-  -- A range end and a repeater both open with '-', so the end time is tried
-  -- first and only its colon tells them apart: "-1d" gets through 'MPL.decimal'
-  -- and fails at the missing ':', backtracking whole and leaving the repeater
-  -- its text.  No space may sit around the '-' — org writes none, and allowing
-  -- it would let " -1d" read as a range end.
+  -- A range end and a warning cookie both open with '-', so the end time is
+  -- tried first and only its colon tells them apart: "-1d" gets through
+  -- 'MPL.decimal' and fails at the missing ':', backtracking whole and leaving
+  -- the cookie its text.  No space may sit around the '-' — org writes none,
+  -- and allowing it would let " -1d" read as a range end.
   endTime <- if isJust time
              then MP.optional (MP.try (MPC.char '-' *> tsTimeParser))
              else return Nothing
   MPC.space
-  interval <- MP.optional . MP.try $ tsRepeaterParser <* MPC.space
+  cookies <- MP.many (tsCookieParser <* MPC.space)
   void $ MPC.char (snd (tsBrackets status))
   let atTime hasTime t = TsMoment { tsmTime = Time.UTCTime day (Time.timeOfDayToTime t)
                                   , tsmHasTime = hasTime }
   return ( atTime (isJust time) (fromMaybe midnight time)
          , atTime True <$> endTime
-         , interval )
+         , listToMaybe [ r | CookieRepeat r <- cookies ]
+         , listToMaybe [ w | CookieWarn w <- cookies ] )
   where midnight = Time.TimeOfDay 0 0 0
+
+-- | One agenda cookie: a repeater or a warning\/delay.  The warning arm is
+-- tried first, which is what re-homes a lone @-3d@ — org's warning cookie,
+-- which this parser used to read as a minus-signed repeater — without touching
+-- the repeater grammar: 'tsRepeaterParser' can still spell TRSMinus, but no
+-- input reaches it, since every @-@-opening cookie is a warning's.  First of
+-- each kind wins; org writes at most one of each, and a third cookie fails the
+-- bracket the way any stray text does.
+data TsCookie = CookieRepeat !TimestampRepeaterInterval
+              | CookieWarn !TimestampWarningInterval
+
+tsCookieParser :: StatelessParser TsCookie
+tsCookieParser = (CookieWarn <$> MP.try tsWarningParser)
+             <|> (CookieRepeat <$> MP.try tsRepeaterParser)
+
+-- | Parse a warning\/delay cookie: @-3d@, or @--3d@ spelled first-only.
+tsWarningParser :: StatelessParser TimestampWarningInterval
+tsWarningParser = do
+  void $ MPC.char '-'
+  firstOnly <- isJust <$> MP.optional (MPC.char '-')
+  value <- MPL.decimal
+  unit <- byChar (Just . unitChar)
+  return TimestampWarningInterval { warningFirstOnly = firstOnly
+                                  , warningValue = value
+                                  , warningUnit = unit }
 
 tsDayParser :: StatelessParser Time.Day
 tsDayParser = do

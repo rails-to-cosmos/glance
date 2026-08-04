@@ -8104,9 +8104,9 @@ tagCommandSpec = testGroup "POST /command add-tag and remove-tag"
   , testCase "a tag no parser reads refuses the request, naming it" $
       withCommandable $ \a _hub path _other -> do
         before <- document path
-        r <- postTo a "/command" (command "add-tag" ["first"] (tagArg "50%"))
+        r <- postTo a "/command" (command "add-tag" ["first"] (tagArg "a.b"))
         assertEqual "status" 400 (status r)
-        assertContains "names what it turned down" "50%" (body r)
+        assertContains "names what it turned down" "a.b" (body r)
         assertEqual "and nothing was written" before =<< document path
 
   , testCase "an empty tag is refused the same way" $
@@ -8225,7 +8225,7 @@ renameCommandSpec = testGroup "POST /command rename-tag"
                  assertEqual (T.unpack named <> ": status") 400 (status r)
                  assertContains "names what it turned down" named (body r)
                  assertEqual "and nothing was written" before =<< document path)
-            [("one", "50%", "50%"), ("50%", "one", "50%"), ("one", "", "")]
+            [("one", "a.b", "a.b"), ("a.b", "one", "a.b"), ("one", "", "")]
 
   , testCase "and a request naming only one end says what one wants" $
       mapM_ (\args -> withCommandable $ \a _hub _path _other -> do

@@ -179,11 +179,23 @@ on.
   which is exactly the retention the scan budget exists to prevent, and it
   cannot be seen from `cabal test`. `Span`'s own `Int` fields are strict
   independently. **comment**
-- **Range end versus negative repeater.** Both open with `-` and only the
+- **Range end versus warning cookie.** Both open with `-` and only the
   time's colon separates them. The end time is tried first: `-1d` gets through
   `MPL.decimal` and fails at the missing `:`, backtracking whole and leaving
-  the repeater its text. No space may sit around the `-`, or ` -1d` would read
+  the cookie its text. No space may sit around the `-`, or ` -1d` would read
   as an end time instead. **test**
+- **Two cookies, one slot each.** A stamp takes at most one repeater and one
+  warning/delay cookie (`-3d`, first-only `--3d` — org's grammar, so a lone
+  `-3d` is the warning and never a minus-signed repeater; `TRSMinus` survives
+  in the type unreached). `tsCookieParser` tries the warning arm first and
+  `many` accepts either order, first of each kind winning; the render spells
+  repeater-then-warning, so a warning-first source re-renders conventionally —
+  inside TextShow's documented lossiness, the span carrying the source. Before
+  the second slot, `<... +1m -3d>` failed the whole timestamp at the bracket
+  and a planning line demoted to body, taking the drawer and the id with it —
+  the Dutch-weekday class. **test** (TestTimestamp two-cookie cases,
+  TestParser "Planning line survives a warning cookie", TestRoundtrip
+  `Repeater and warning`/`First-only delay`/`Warning cookie alone`.)
 - **Planning line.** The one line right after a headline's title line, ahead of
   any drawer, fills `schedule`, `deadline` and `closed`. Keywords match
   uppercase-only, in any order, and a keyword repeated on the line keeps its
@@ -1823,9 +1835,9 @@ on.
   HERE, and a tag carrying a character the parser declines does not land in the
   tags run — it takes the whole run down into title text on the next load, and
   the entry the author set is gone with it. Org's own `org-tag-re` is
-  `[[:alnum:]_@#%]+`, so the two sets differ by `-` (here, not there) and `%`
-  (there, not here); the parser's is the one that binds, since it is what reads
-  the write. The refusal is the WHOLE request's, decided in `parseCommand` with
+  `[[:alnum:]_@#%]+`; this parser reads that set whole and adds `-`, the one
+  divergence left, kept because the wild corpus writes it — the parser's set
+  is the one that binds, since it is what reads the write. The refusal is the WHOLE request's, decided in `parseCommand` with
   the rest of the shape: a word that is not a tag is not a tag for any row.
   Both ends of `rename-tag` take the same wall, for the same reason: a `from`
   org could not have written names nothing, and a `to` it could not read takes

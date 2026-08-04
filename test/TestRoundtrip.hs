@@ -53,6 +53,12 @@ cases =
   , ("Compact range inactive",  "[2021-11-09 Tue 17:30-18:30]",                   Exact)
   , ("Compact range repeating", "<2024-01-15 Mon 10:30-11:30 +1w>",               Exact)
   , ("Compact range seconds",   "<2024-01-15 Mon 10:30:15-11:45:30>",             Exact)
+    -- org's two-cookie stamps, in the conventional repeater-then-warning
+    -- order that a re-render spells; the warning cookie alone rides the same
+    -- render rule.
+  , ("Repeater and warning",    "<2024-01-15 Mon +1m -3d>",                       Exact)
+  , ("First-only delay",        "[2024-01-15 Mon .+2d --7d]",                     Exact)
+  , ("Warning cookie alone",    "<2024-01-15 Mon -3d>",                           Exact)
   , ("Date-only in a title",    "* Due <2026-07-08 Wed>",                         Exact)
   ]
 
