@@ -47,6 +47,8 @@
 //   click:I       row I of the modal mount that is up clicked, which is the one
 //                 way a cursor moves out from under an open edit overlay
 //   theme:NAME    NAME picked in the settings sheet's theme select, event and all
+//   pinclick      the chip strip's pin button clicked, which is the touch door
+//                 to whatever the consumer wired into `onPin'
 //   type:TEXT     TEXT typed into the value palette's field, which narrows it —
 //                 `/' has to have put the palette in that mode first
 //   tname:TEXT    TEXT typed into the tags popup's rename overlay, which `RET'
@@ -673,6 +675,9 @@ const makeMount = (host, view, options, own) => {
     // falls back to the PLACE, clamped, when it is not.
     cursor: 0, rowId: null, selCol: null, pageAt: 0,
     marks: new Set(), flags: new Set(), crumbs: [],
+    // The pin button-badge: whether the badge is on, and the click the
+    // consumer wired.  `pinclick' is the act that presses it.
+    pinned: !!o.pinned, onPin: typeof o.onPin === "function" ? o.onPin : null,
   };
   /** Every row this mount holds: its own, or the store's. */
   const all = () => (m.own ? m.own : rows);
@@ -786,6 +791,7 @@ const makeMount = (host, view, options, own) => {
       keep();
     },
     getQuery: () => m.held,
+    setPinned: (on) => { m.pinned = !!on; },
     stripLastToken: () => {
       if (!m.held) return false;
       m.held = tokensOf(m.held).slice(0, -1).join(" ");
@@ -1610,6 +1616,13 @@ const ACTIONS = {
       throw new Error("no tag is open for renaming");
     typed(field("tname"), text);
   },
+  // The pin button: a click on the strip's far edge, reaching whatever the
+  // consumer wired.  A mount without the wire is a page without the button,
+  // so pressing it is a script error rather than a silent nothing.
+  pinclick: () => {
+    if (!main.onPin) throw new Error("no onPin was wired: pinclick");
+    main.onPin();
+  },
   // Typing into the capture form.  The tag and the line are its own markup; a
   // template's grown fields are page-made nodes, so `kf:' types into whichever
   // of them holds the focus — the way a reader reaches one.
@@ -1911,6 +1924,8 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     // the last sort a call asked for and how many were asked for, and the CHAIN
     // in force — which the query names and no call has to have made.
     linked, opened, sorted, sortCalls, chain: sortChain, tagged,
+    // The pin badge, as the consumer last set it.
+    pinned: main.pinned,
     // The capture form: whether it is up, its head, the tag field, the grown
     // template fields as [label, value] pairs, and the line.
     capture: field("capture").className, khead: field("khead").textContent,

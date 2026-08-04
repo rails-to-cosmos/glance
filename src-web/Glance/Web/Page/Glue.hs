@@ -285,6 +285,14 @@ shellGlue wanted =
       <> " `action: ${command}  id=${id}`),"
   , "        onLink: (target) => append(\"cmd\", \"info\", `link: ${target}`),"
   , "        onFilter: filter,   // the server narrows; the renderer shows what it is given"
+        -- The pin button-badge at the chip strip's far edge: the renderer
+        -- reports the click and wears the boolean, this page decides both —
+        -- `P''s own write, and `pinnedQuery' as the truth the badge compares
+        -- against.  An asset without the option draws nothing and `P' still
+        -- works, which is the key staying the spine and the button the touch
+        -- door.
+  , "        onPin: () => pinHere(),"
+  , "        pinned: query.trim() === pinnedQuery,"
   , "      });"
   , "      // An asset older than `initialQuery' drops it silently, which would"
   , "      // leave the page showing no filter over rows that are filtered."
@@ -401,6 +409,10 @@ shellGlue wanted =
   , "    // no `q' at all — and then it is a query like any other, committed to"
   , "    // the URL, shown as the renderer's chip and asked of the server."
   , "    const DEFAULT_QUERY = " <> jsonValue wanted <> ";"
+    -- What the pin badge compares against.  The page-embedded constant seeds
+    -- it; a successful pin moves it, since the constant describes the BOOT's
+    -- config and the pin has just changed the tree's.
+  , "    let pinnedQuery = DEFAULT_QUERY.trim();"
   , "    const bootQuery = () => (params().has(\"q\") ? urlQuery() : DEFAULT_QUERY);"
     -- The drill-down trail.  The STACK is the renderer's — it draws the crumbs,
     -- and `setView' drops them with the world they described — so this page
@@ -479,6 +491,9 @@ shellGlue wanted =
   , "      else p.set(\"crumbs\", JSON.stringify("
       <> " { trail: t, labels: crumbLabels, sels: selsFit() ? crumbSels : [] }));"
   , "      history.replaceState(null, \"\", `?${p.toString()}`);"
+    -- Every applied query passes through here, so here is where the badge
+    -- learns whether the view on show IS the pinned one.
+  , "      if (can(table, \"setPinned\")) table.setPinned(q.trim() === pinnedQuery);"
   , "    }"
     -- The trail as the address bar carries it.  A parameter a hand has been in
     -- is not worth a diagnostic: anything that does not parse into the two
@@ -4153,7 +4168,11 @@ shellGlue wanted =
   , "      if (crumbing()) table.setCrumbs([]);"
   , "      crumbLabels = {};"
   , "      crumbSels = [];"
-  , "      applyView(b, DEFAULT_QUERY);"
+    -- The LIVE default, not the boot-baked constant: a pin moves the tree's
+    -- default under a running page, and `g' a moment later must apply what
+    -- was just pinned — sort tokens and all — rather than what the page was
+    -- served with.
+  , "      applyView(b, pinnedQuery);"
   , "    }"
     -- THE PIN: the applied query — sort tokens and all, since the order is the
     -- grammar's — becomes `system.org''s `#+GLANCE_DEFAULT_FILTER:' line,
@@ -4162,19 +4181,34 @@ shellGlue wanted =
     -- write reseeds and the reseed re-embeds `DEFAULT_QUERY' into the served
     -- page, so the pin is the next boot's view; a refusal — a 409 for a config
     -- edited elsewhere — is one `cmd' error line and nothing pinned.
-  , "    function pinView(b) {"
+  , "    function pinCore(spoke) {"
   , "      const q = can(table, \"getQuery\") ? table.getQuery().trim() : \"\";"
-  , "      getJSON(\"/config\").then((a) => {"
+  , "      return getJSON(\"/config\").then((a) => {"
   , "        const sys = (a.layers || []).find((l) => !l.tag);"
-  , "        if (!sys) { said(b, \"no system layer to pin into\"); return; }"
+  , "        if (!sys) { spoke(\"no system layer to pin into\"); return; }"
   , "        return postJSON(\"/config\","
   , "                        { path: sys.path, digest: sys.digest, filter: q })"
   , "          .then(() => {"
-  , "            said(b, q ? `pinned · ${q}` : \"pinned · all rows\");"
+  , "            pinnedQuery = q;"
+    -- Compared, never assumed: the reader may have diverged while the write
+    -- was out, and a badge stamped true then would describe the wrong view.
+  , "            if (can(table, \"setPinned\"))"
+  , "              table.setPinned(table.getQuery().trim() === pinnedQuery);"
+  , "            spoke(q ? `pinned · ${q}` : \"pinned · all rows\");"
   , "            append(\"config\", \"info\","
   , "                   `default view pinned: ${JSON.stringify(q)}`);"
   , "          });"
-  , "      }).catch(failed(b, \"set-default-view\"));"
+  , "      });"
+  , "    }"
+  , "    function pinView(b) {"
+  , "      pinCore((w) => said(b, w)).catch(failed(b, \"set-default-view\"));"
+  , "    }"
+    -- The button's voice: no keymap row fired, so the echo spells the command
+    -- by hand the way the popups' listeners do.
+  , "    function pinHere() {"
+  , "      pinCore((w) => echo(`pin → set-default-view (${w})`))"
+  , "        .catch((e) => append(\"config\", \"error\","
+  , "                            `set-default-view failed: ${e.message}`));"
   , "    }"
     -- `@': the rows pointing AT the one at point.  A drill is a LOOK, so it
     -- takes the row at point and never the marked set — a mark is what a reader

@@ -32,6 +32,7 @@
  *   tv.pushCrumb({label, query});   // drilling in: leave a crumb behind
  *   tv.popCrumb();        // walking out: {label, query} or null — the consumer applies it
  *   tv.setCrumbs(list); tv.getCrumbs();
+ *   tv.setPinned(on);     // the chip strip's pin badge; drawn only under `onPin'
  *   tv.openFilter(); tv.closeFilter();   // summon and dismiss the filter
  *   tv.selectStep(+1);    // move a row, turning the page at either end -> bool
  *   tv.nextPage(); tv.previousPage();    // turn a page -> bool
@@ -421,7 +422,9 @@
  *             flagHelp?: string,
  *             pageSize?: number,
  *             initialQuery?: string,
- *             chipLabel?: (token: string) => string|null }} MountOptions
+ *             chipLabel?: (token: string) => string|null,
+ *             onPin?: () => void,
+ *             pinned?: boolean }} MountOptions
  * @typedef {{ el: HTMLElement,
  *             setView: (v: View) => void,
  *             setRows: (rows: Row[]) => void,
@@ -435,6 +438,7 @@
  *             getQuery: () => string,
  *             setCrumbs: (list: Crumb[]) => void,
  *             getCrumbs: () => Crumb[],
+ *             setPinned: (on: boolean) => void,
  *             pushCrumb: (c: Crumb) => number,
  *             popCrumb: () => Crumb|null,
  *             stripLastToken: () => boolean,
@@ -1200,6 +1204,11 @@
   background:transparent;cursor:default;padding-right:8px}
 .tv-chip-x{font-style:normal;opacity:.55;padding:0 3px}
 .tv-chip:hover .tv-chip-x{opacity:1}
+/* The pin button-badge: far edge of the strip, dim until it is true. */
+.tv-chips .tv-pin{margin-left:auto;cursor:pointer;opacity:.35;
+  font-size:12px;line-height:1.4;user-select:none;filter:grayscale(1)}
+.tv-chips .tv-pin:hover{opacity:.7}
+.tv-chips .tv-pin.tv-pinned{opacity:1;filter:none}
 /* The suggestion list hangs under the box, over the table. .tv-root clips with
    overflow:hidden, so it scrolls internally rather than growing past it. */
 .tv-ac{position:absolute;top:100%;left:0;min-width:100%;z-index:5;margin-top:2px;
@@ -1458,6 +1467,16 @@
      * @type {((token: string) => string|null)|null}
      */
     const chipLabel = typeof o.chipLabel === "function" ? o.chipLabel : null;
+    /**
+     * The PIN: a button-badge at the chip strip's far edge. Present only when
+     * a consumer passes `onPin' — the renderer knows nothing about what
+     * pinning MEANS, it reports the click and wears the boolean. `pinned'
+     * seeds the badge and `setPinned' moves it; the consumer decides both,
+     * since only it knows what the applied query is being compared against.
+     * @type {(() => void)|null}
+     */
+    const onPin = typeof o.onPin === "function" ? o.onPin : null;
+    let pinned = !!o.pinned;
     /**
      * How many chrome cells lead a row; what a column index has to skip. The
      * gutter is ONE cell serving both row states — the checkbox is drawn in it
@@ -3455,8 +3474,14 @@
         html += `<span class="tv-chip${ordersRows(chips[i]) ? " tv-chip-sort" : ""}"`
               + ` data-i="${i}" title="remove">${esc(chipText(chips[i]))}`
               + `<i class="tv-chip-x">×</i></span>`;
+      // The pin rides the strip's far edge and keeps the strip visible even
+      // with nothing applied: the badge is a BOOLEAN a reader can always see,
+      // and the click is the touch door to whatever the consumer pins.
+      if (onPin)
+        html += `<span class="tv-pin${pinned ? " tv-pinned" : ""}" title="${
+          pinned ? "this view is the default" : "pin this view as the default"}">📌</span>`;
       chipsEl.innerHTML = html;
-      chipsEl.style.display = (crumbs.length || chips.length) ? "" : "none";
+      chipsEl.style.display = (crumbs.length || chips.length || onPin) ? "" : "none";
     }
 
     /** The one token TOK spells, parsed. @param {string} tok  @returns {Token|undefined} */
@@ -4205,6 +4230,7 @@
     chipsEl.addEventListener("mousedown", (e) => e.preventDefault());   // box keeps focus
     chipsEl.addEventListener("click", (e) => {
       const t = hit(e);
+      if (t && t.closest(".tv-pin")) { if (onPin) onPin(); return; }
       const chip = t && /** @type {HTMLElement|null} */ (t.closest(".tv-chip"));
       // A crumb wears the chip's shape and carries no index, so it lands here
       // and has nothing to drop. Without the guard the index reads NaN and
@@ -4434,6 +4460,9 @@
        * @returns {Crumb[]}
        */
       getCrumbs() { return crumbs.map((c) => ({ label: c.label, query: c.query })); },
+      // The badge is the consumer's boolean: only it knows what the applied
+      // query is being measured against.
+      setPinned(on) { pinned = !!on; renderChips(); },
       /**
        * Push one crumb on the end. What a consumer does as it drills IN.
        * @param {Crumb} c  @returns {number} how deep the trail is now

@@ -705,6 +705,7 @@ page head' title body = T.unlines
   -- wrap rule would keep them side by side on a wide tablet.
   , "  @media (pointer:coarse){"
   , "    #app .tv-chips{min-height:44px;cursor:pointer}"
+  , "    #app .tv-pin{font-size:20px;padding:8px}"
   , "    #app .tv-chips:empty{display:flex!important;align-items:center}"
   , "    #app .tv-chips:empty::after{content:\"filter …\";color:var(--g-mute);"
   , "      font-size:12px}"

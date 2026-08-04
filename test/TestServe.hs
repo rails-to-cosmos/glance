@@ -4469,6 +4469,43 @@ settingsSpec shell =
           =<< textAt "served" answer
         echoIs "the pill names the pin"
           "P → set-default-view (pinned · state:*active*)" answer
+        assertEqual "and the badge is on" True =<< boolAt "pinned" answer
+
+    -- THE SORT RIDES THE PIN, because the order is the grammar's: a query
+    -- carrying `sort:' tokens pins whole, and `g' a moment later applies the
+    -- LIVE pinned query rather than the boot-baked constant — which is what
+    -- made a fresh pin look like it had dropped its sorting.
+  , keyedAt shell "?q=tag%3Awork%20sort%3Adeadline" 500
+      "the pinned view keeps its sort, and g applies it live"
+      "P" "press:g" $ \answer -> do
+        writes <- listAt "configWrites" answer
+        assertEqual "the write carries the order too" "tag:work sort:deadline"
+          =<< textAt "filter" (head writes)
+        urlIs "g applied the freshly pinned view, sort and all"
+          "?q=tag%3Awork+sort%3Adeadline" answer
+        assertEqual "and the badge held" True =<< boolAt "pinned" answer
+
+    -- THE BADGE IS A BOOLEAN OVER THE APPLIED VIEW: on while the view on show
+    -- is the pinned one, off the moment the query diverges — DEL's token drop
+    -- is a divergence like any other.
+  , keyedAt shell "?q=tag%3Awork" 500 "the badge follows the applied view"
+      "P" "press:Backspace" $ \answer ->
+        assertEqual "a diverged query takes the badge off" False
+          =<< boolAt "pinned" answer
+
+    -- THE BUTTON IS THE TOUCH DOOR: the renderer reports the click, this page
+    -- runs the same pin, and the echo spells the command by hand since no
+    -- keymap row fired.
+  , keyed shell "the pin button clicks through to the same write"
+      "" "pinclick" $ \answer -> do
+        writes <- listAt "configWrites" answer
+        assertEqual "one write" 1 (length writes)
+        assertEqual "carrying the applied query" "state:*active*"
+          =<< textAt "filter" (head writes)
+        assertEqual "the badge is on" True =<< boolAt "pinned" answer
+        assertEqual "and the echo names the command"
+                    "pin → set-default-view (pinned · state:*active*)"
+          =<< textAt "echo" answer
 
     -- Two sheets over one page would leave `C-x C-s' and `ESC' guessing which
     -- one they meant.  `typing()' is not what keeps them apart, which is the
@@ -6122,10 +6159,13 @@ shellGlue =
 
   -- The tree's own default view, embedded by the daemon and applied by `g'
   -- through the ordinary commit path: into the URL, then asked of the server.
+  -- `g' reads the LIVE default (`pinnedQuery', seeded from the constant and
+  -- moved by a pin), so a fresh pin is applied without a page reload.
   , Glue "the default view is the tree's, and `g' applies it"
       [ "const DEFAULT_QUERY = "
+      , "let pinnedQuery = DEFAULT_QUERY.trim();"
       , "const bootQuery = () => (params().has(\"q\") ? urlQuery() : DEFAULT_QUERY);"
-      , "applyView(b, DEFAULT_QUERY);"
+      , "applyView(b, pinnedQuery);"
       -- `g' is HOME, so it is not a step on the trail: the crumbs and the
       -- labels naming them go with it, where DEL walks back one rung at a time.
       , "if (crumbing()) table.setCrumbs([]);"
