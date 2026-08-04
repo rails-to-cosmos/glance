@@ -1036,7 +1036,7 @@ const make = (tag) => {
     on: {},
     addEventListener(type, fn) { (this.on[type] = this.on[type] || []).push(fn); },
     fire(type, event) { for (const fn of this.on[type] || []) fn(event); },
-    appendChild(child) { this.children.push(child); return child; },
+    appendChild(child) { child.up = this; this.children.push(child); return child; },
     // Nothing here has a layout or a real tree, so a selector finds nothing —
     // which is the honest answer, and the one every geometry read is written to
     // survive.
@@ -1309,27 +1309,28 @@ const kindOf = (cls) => String(cls).split(" ")
   .filter((c) => c.startsWith("d-")).map((c) => c.slice(2)).join(":");
 const wears = (e, cls) => String(e.className).split(" ").indexOf(cls) !== -1;
 /** THE WALK, FLATTENED OUT OF THE DRAW.  A composite is drawn ONCE with its
- * leaves inside it, so the elements are a two-level tree on screen and a flat
- * sequence to the cursor: a composite, then the leaves it holds, then the next
- * element.  Reading it back this way is what lets every document case go on
- * counting stops. */
+ * leaves inside it and a leaf with children draws THEM inside itself — the
+ * grain ladder — so the elements are a tree on screen and a flat sequence to
+ * the cursor.  Flattened recursively, in draw order, which is the builder's
+ * emission order. */
 const flatRows = () => {
   const out = [];
-  for (const row of field("dlist").children) {
-    out.push(row);
-    for (const kid of row.children) if (wears(kid, "de")) out.push(kid);
-  }
+  const walk = (e) => {
+    for (const kid of e.children)
+      if (wears(kid, "de")) { out.push(kid); walk(kid); }
+  };
+  walk(field("dlist"));
   return out;
 };
-/** Which composite each stop hangs under, by place in the walk — -1 for a stop
- * that is nobody's leaf. */
+/** Which row each stop hangs under, by place in the walk — the IMMEDIATE
+ * parent up the ladder, -1 for a top-level stop. */
 const ownerOf = () => {
-  const out = []; let at = -1;
-  flatRows().forEach((row, i) => {
-    if (wears(row, "d-comp")) { at = i; out.push(-1); }
-    else out.push(wears(row, "d-item") ? at : -1);
+  const rows = flatRows();
+  return rows.map((row) => {
+    for (let e = row.up; e; e = e.up)
+      if (rows.indexOf(e) !== -1) return rows.indexOf(e);
+    return -1;
   });
-  return out;
 };
 /** Every drawn piece of ROW's text, as `CLASS:TEXT' in draw order — `dt' for
  * plain text and `dl' for a link, so a test can read the interleaving.  An

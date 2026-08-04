@@ -1838,8 +1838,11 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   the MODEL is unchanged; the WALK split: `n`/`p` step SIBLINGS at the cursor's
   grain and never dive (a composite is ONE stop, holding `n` skims; a leaf
   steps its owner's run, clamped at its ends), and `f`/`b` move the GRAIN —
-  `f` into a composite's leaves or a headline's cells (refusing with an echo
-  at the finest), `b` back to the whole in one press whatever the column,
+  a LADDER, not two rungs: a list item carrying a nested run is itself a
+  parent, `f` descends one rung (a composite's items, an item's nested run, a
+  headline's cells — refusing with an echo at the finest), `b` climbs one —
+  to the IMMEDIATE owner by id, never a scan — and back to the whole line in
+  one press whatever the column,
   a no-op with an echo at the element grain, NEVER a close (out of the sheet
   stays `DEL`'s). `l`/`h` and the horizontal arrows stay the within-grain cell
   walk, off either end into the whole-element look. `RET` is

@@ -724,6 +724,14 @@ shellGlue wanted =
     -- expand-region moves — a paragraph's line, a subtree, the whole document —
     -- without every reader of the cursor learning about it twice.
   , "    let drows = [], dat = 0, dcol = null, dgrain = \"element\";"
+    -- id -> immediate owner id, the ladder the ancestor tests climb.
+  , "    let dparent = {};"
+  , "    const downersOf = (id) => {"
+  , "      const chain = [];"
+  , "      for (let o = dparent[id]; o; o = dparent[o]) chain.push(o);"
+  , "      return chain;"
+  , "    };"
+  , "    const descends = (id, of) => downersOf(id).indexOf(of) !== -1;"
   , "    let dlines = [];"
     -- The ELEMENT the draw put the cursor on, kept so the edit overlay can be
     -- anchored to it.  The `dat'-th child of `#dlist' is NOT that element: a
@@ -856,10 +864,33 @@ shellGlue wanted =
   , "      const out = [];"
   , "      const end = Math.max(0, Math.min(own, lines.length));"
   , "      const cut = (a, b) => lines.slice(a, b).join(\"\\n\");"
+    -- `up' is the leaf's IMMEDIATE parent as an index into OUT — the composite
+    -- for a top item, the item above for a nested one — which is what makes
+    -- the grain a LADDER rather than two rungs: `f' descends one step, `b'
+    -- ascends one, and the walk clamps to one parent's run.
   , "      const whole = (a, b, name, leaves) => {"
+  , "        const at = out.length;"
   , "        out.push({ from: a, to: b, text: cut(a, b), grain: \"composite\", name });"
   , "        for (const p of leaves)"
-  , "          out.push({ from: p.from, to: p.to, text: p.text, grain: \"leaf\" });"
+  , "          out.push({ from: p.from, to: p.to, text: p.text, grain: \"leaf\","
+  , "                     up: at });"
+  , "      };"
+    -- A list item's own DEEPER runs, as leaf nodes under it — the recursion
+    -- that makes `- alpha' with `  - nested' inside it one more rung down
+    -- rather than opaque text.  The item's range is untouched: the sub-leaves
+    -- are stops WITHIN it, and the draw and the splice both read the ladder.
+  , "      const pushItem = (from, to, up) => {"
+  , "        const at = out.length;"
+  , "        out.push({ from, to, text: cut(from, to), grain: \"leaf\", up });"
+  , "        const base = opener(lines[from])[1].length;"
+  , "        for (let n = from + 1; n < to; n += 1) {"
+  , "          const m = opener(lines[n]);"
+  , "          if (m && m[1].length > base) {"
+  , "            const run = listRun(lines, n, to);"
+  , "            for (const it of run.items) pushItem(it.from, it.to, at);"
+  , "            n = run.to - 1;"
+  , "          }"
+  , "        }"
   , "      };"
   , "      let i = 1;"
   , "      while (i < end) {"
@@ -886,8 +917,10 @@ shellGlue wanted =
   , "        }"
   , "        if (opener(lines[i])) {"
   , "          const run = listRun(lines, i, end);"
-  , "          whole(i, run.to, \"list\", run.items.map("
-  , "            (it) => ({ from: it.from, to: it.to, text: cut(it.from, it.to) })));"
+  , "          const at = out.length;"
+  , "          out.push({ from: i, to: run.to, text: cut(i, run.to),"
+  , "                     grain: \"composite\", name: \"list\" });"
+  , "          for (const it of run.items) pushItem(it.from, it.to, at);"
   , "          i = run.to; continue;"
   , "        }"
       -- A paragraph stops where the next STRUCTURE opens as readily as at a
@@ -930,14 +963,22 @@ shellGlue wanted =
       -- from the panel's, where `P<n>' is handed out once and nothing rebuilds
       -- the drawer under the reader.  The counter is the loop's, that being the
       -- whole of its life.
-  , "      let owner = null, seq = 0;"
+    -- `owner' is the IMMEDIATE parent's row id, off the builder's `up' index:
+    -- the composite for a top item, the item above for a nested one.  The
+    -- sibling walk, the ladder keys, the draw and the splice all read this
+    -- one field.
+  , "      let seq = 0;"
+  , "      const idOf = [];"
   , "      for (const b of blocksIn(dlines, own)) {"
   , "        const id = `B${seq++}`;"
-  , "        owner = b.grain === \"composite\" ? id : b.grain === \"leaf\" ? owner : null;"
+  , "        idOf.push(id);"
   , "        drows.push({ id, kind: \"para\", grain: b.grain, name: b.name || null,"
-  , "                     owner: b.grain === \"leaf\" ? owner : null,"
+  , "                     owner: b.up === undefined ? null : idOf[b.up],"
   , "                     from: b.from, to: b.to, text: b.text, was: b.text });"
   , "      }"
+  , "      dparent = {};"
+  , "      for (const r of drows)"
+  , "        if (r.kind === \"para\" && r.owner) dparent[r.id] = r.owner;"
   , "      for (const c of h.children || [])"
   , "        drows.push({ id: `C${c.index}`, kind: \"child\", index: c.index,"
   , "                     level: c.level, cells: cellsOf(c) });"
@@ -959,10 +1000,14 @@ shellGlue wanted =
     -- is going, answers for everything inside it and its leaves are left out.
     -- Which is why a reader flagging a list and one of its items still gets one
     -- deletion rather than a corrupted body.
-  , "      const spoken = new Set(drows.filter((r) => r.grain === \"composite\""
+    -- Spoken-for is TRANSITIVE down the ladder: a moved or going ancestor at
+    -- any rung answers for everything under it, so flagging an item and one
+    -- of its nested children is still one deletion.
+  , "      const spoken = new Set(drows.filter((r) => r.kind === \"para\""
   , "        && (gone.has(r.id) || r.text !== r.was)).map((r) => r.id));"
+  , "      const silenced = (r) => downersOf(r.id).some((o) => spoken.has(o));"
   , "      const paras = drows.filter((r) => r.kind === \"para\""
-  , "        && !spoken.has(r.owner)).slice().reverse();"
+  , "        && !silenced(r)).slice().reverse();"
   , "      for (const p of paras) {"
   , "        if (gone.has(p.id)) {"
   , "          const spare = p.to < out.length - 1 && String(out[p.to]).trim() === \"\";"
@@ -990,6 +1035,38 @@ shellGlue wanted =
   , "    const dclass = (r, here) => `de d-${r.grain === \"leaf\" ? \"item\""
   , "      : r.grain === \"composite\" ? `comp d-${r.name}` : r.kind}`"
   , "      + (here ? \" dat\" : \"\") + (dflags.has(r.id) ? \" dfl\" : \"\");"
+    -- PARENT's children drawn inside BOX, each child recursing for its own —
+    -- the ladder on screen.  What no child claims is drawn as an INERT run
+    -- (`dg'), so every byte the parent covers is on screen exactly once, the
+    -- lens's rule one grain down at every rung.  A child with children draws
+    -- its HEAD — the lines ahead of its first child — as its own live text,
+    -- and hands the rest to the recursion.  Returns the index past the
+    -- subtree it consumed.
+  , "    function drawKids(box, parent, from, at0) {"
+  , "      let at = at0 === undefined ? parent.from : at0, j = from;"
+  , "      while (j < drows.length && drows[j].kind === \"para\""
+  , "             && drows[j].owner === parent.id) {"
+  , "        const kid = drows[j];"
+  , "        if (kid.from > at)"
+  , "          part(box, \"div\", \"dg\", dlines.slice(at, kid.from).join(\"\\n\"));"
+  , "        const kbox = part(box, \"div\", dclass(kid, j === dat));"
+  , "        if (j === dat) dcursor = kbox;"
+  , "        const under = j + 1 < drows.length && drows[j + 1].owner === kid.id;"
+  , "        if (under) {"
+  , "          const head = drows[j + 1].from;"
+  , "          if (head > kid.from)"
+  , "            drawPara(kbox, { from: kid.from, to: head,"
+  , "                             text: dlines.slice(kid.from, head).join(\"\\n\") });"
+    -- The recursion's inert tracking starts where the head ENDED, or the
+    -- head's lines would be drawn twice — once live, once as a gap.
+  , "          j = drawKids(kbox, kid, j + 1, head);"
+  , "        } else { drawPara(kbox, kid); j += 1; }"
+  , "        at = kid.to;"
+  , "      }"
+  , "      if (at < parent.to)"
+  , "        part(box, \"div\", \"dg\", dlines.slice(at, parent.to).join(\"\\n\"));"
+  , "      return j;"
+  , "    }"
   , "    function drawDoc() {"
   , "      const list = el(\"dlist\");"
   , "      list.textContent = \"\";"
@@ -1008,19 +1085,7 @@ shellGlue wanted =
         -- composite covers is on screen exactly once, the lens's rule one grain
         -- down.
   , "        if (r.grain === \"composite\") {"
-  , "          let at = r.from, j = i + 1;"
-  , "          for (; j < drows.length && drows[j].owner === r.id; j += 1) {"
-  , "            const leaf = drows[j];"
-  , "            if (leaf.from > at)"
-  , "              part(row, \"div\", \"dg\", dlines.slice(at, leaf.from).join(\"\\n\"));"
-  , "            const box = part(row, \"div\", dclass(leaf, j === dat));"
-  , "            drawPara(box, leaf);"
-  , "            if (j === dat) dcursor = box;"
-  , "            at = leaf.to;"
-  , "          }"
-  , "          if (at < r.to)"
-  , "            part(row, \"div\", \"dg\", dlines.slice(at, r.to).join(\"\\n\"));"
-  , "          i = j - 1;"
+  , "          i = drawKids(row, r, i + 1) - 1;"
   , "        } else if (r.kind === \"para\") drawPara(row, r);"
   , "        else drawCells(row, r, here);"
   , "      }"
@@ -1132,9 +1197,18 @@ shellGlue wanted =
   , "      const cur = drows[dat];"
   , "      let i = dat + step;"
   , "      if (cur && cur.grain === \"leaf\") {"
-  , "        const kin = drows[i];"
-  , "        if (!kin || kin.grain !== \"leaf\" || kin.owner !== cur.owner)"
-  , "          { drawDoc(); return; }"
+    -- The sibling is the next row sharing MY owner — forward that means
+    -- stepping past my own descendants, whose owner chains lead through me.
+    -- A row outside the parent's subtree ends the run: clamp.
+  , "        while (i >= 0 && i < drows.length) {"
+  , "          const kin = drows[i];"
+  , "          if (kin.grain === \"leaf\" && kin.owner === cur.owner) break;"
+  , "          if (!(kin.grain === \"leaf\""
+  , "                && (descends(kin.id, cur.id) || descends(kin.id, cur.owner))))"
+  , "            { drawDoc(); return; }"
+  , "          i += step;"
+  , "        }"
+  , "        if (i < 0 || i >= drows.length) { drawDoc(); return; }"
   , "        dat = i;"
   , "      } else {"
   , "        while (i >= 0 && i < drows.length && drows[i].grain === \"leaf\") i += step;"
@@ -1154,18 +1228,19 @@ shellGlue wanted =
     -- its composite whole, and the element grain is the floor: a no-op with an
     -- echo, never a close, since going OUT of the sheet is `DEL''s and the
     -- movement/context split dies the moment `b' can shut something.
-  , "    const leavesOf = (from) => {"
-  , "      let n = 0, i = from + 1;"
-  , "      while (i < drows.length && drows[i].grain === \"leaf\") { n += 1; i += 1; }"
-  , "      return n;"
-  , "    };"
+    -- A row's DIRECT children: the rows owning it, counted for the echo and
+    -- probed for the descent.
+  , "    const kidsOf = (id) =>"
+  , "      drows.filter((r) => r.kind === \"para\" && r.owner === id).length;"
   , "    function docFiner(k) {"
   , "      const say = keySaid(k), r = drows[dat];"
   , "      if (!r) return;"
-  , "      if (r.grain === \"composite\") {"
-  , "        const kin = leavesOf(dat);"
+  , "      const kids = r.kind === \"para\" ? kidsOf(r.id) : 0;"
+  , "      if (kids) {"
+    -- The first child immediately follows its parent in emission order,
+    -- whether the parent is the composite or an item one rung up.
   , "        dat += 1; dgrain = \"leaf\"; drawDoc();"
-  , "        say(`grain-finer (${r.name || \"item\"} 1/${kin})`);"
+  , "        say(`grain-finer (${r.name || \"item\"} 1/${kids})`);"
   , "      } else if (dcells(r)) { moveDocCol(k, 1); }"
   , "      else if (r.grain === \"leaf\") say(\"grain-finer (at the finest)\");"
   , "      else say(\"grain-finer (nothing finer here)\");"
@@ -1177,10 +1252,15 @@ shellGlue wanted =
   , "        dcol = null; dgrain = \"element\"; drawDoc();"
   , "        say(\"grain-broader (element)\");"
   , "      } else if (r.grain === \"leaf\") {"
-  , "        let i = dat;"
-  , "        while (i > 0 && drows[i].grain === \"leaf\") i -= 1;"
-  , "        dat = i; dgrain = \"element\"; drawDoc();"
-  , "        say(`grain-broader (${drows[i].name || drows[i].kind})`);"
+    -- One rung up: the IMMEDIATE owner, an item or the composite, never a
+    -- scan to the nearest non-leaf — the ladder is climbed a step at a time.
+  , "        const i = drows.findIndex((x) => x.id === r.owner);"
+  , "        if (i === -1) { say(\"grain-broader (at the element grain)\"); return; }"
+  , "        dat = i;"
+  , "        dgrain = drows[i].grain === \"leaf\" ? \"leaf\" : \"element\";"
+  , "        drawDoc();"
+  , "        say(`grain-broader (${drows[i].name || (drows[i].grain === \"leaf\""
+  , "                              ? \"item\" : drows[i].kind)})`);"
   , "      } else say(\"grain-broader (at the element grain)\");"
   , "    }"
   , "    function moveDocCol(k, step) {"

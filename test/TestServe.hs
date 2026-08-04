@@ -3264,16 +3264,16 @@ sheetSpec shell =
   , testCase "a list and a block are the whole thing, then their parts" $ do
       onTable "grain press:Enter" $ \answer -> do
         assertEqual "the walk, kind by kind"
-                    [ "head", "para", "comp:list", "item", "item", "item"
+                    [ "head", "para", "comp:list", "item", "item", "item", "item"
                     , "comp:quote", "item", "item", "para", "child" ]
           =<< map head <$> docOf answer
         assertEqual "and the grain of each stop"
-                    [ "element", "element", "composite", "leaf", "leaf", "leaf"
+                    [ "element", "element", "composite", "leaf", "leaf", "leaf", "leaf"
                     , "composite", "leaf", "leaf", "element", "element" ]
           =<< textsAt "dgrains" answer
         -- Each leaf hangs under the composite it was drawn inside, which is
         -- what makes the two grains one range rather than two.
-        assertEqual "and who it hangs under" [-1, -1, -1, 2, 2, 2, -1, 6, 6, -1, -1]
+        assertEqual "and who it hangs under" [-1, -1, -1, 2, 3, 2, 2, -1, 7, 7, -1, -1]
           =<< flaggedAt "downers" answer
 
     -- THE SKIM: at the element grain a composite is ONE stop, so the whole
@@ -3281,10 +3281,10 @@ sheetSpec shell =
     -- stops down, and `p' is that read backwards with no leaf ever walked.
   , testCase "n skims the composites whole, and p is the skim reversed" $ do
       onTable "grain press:Enter press:n press:n press:n" $
-        assertEqual "three down crosses the list whole to the quote" (6, -1)
+        assertEqual "three down crosses the list whole to the quote" (7, -1)
           <=< pointOf
       onTable "grain press:Enter press:n press:n press:n press:n press:n" $
-        assertEqual "five down is the tail child, the document skimmed" (10, -1)
+        assertEqual "five down is the tail child, the document skimmed" (11, -1)
           <=< pointOf
       bootOf shell "" 500 ""
              "grain press:Enter press:n press:n press:n press:p" $
@@ -3300,9 +3300,9 @@ sheetSpec shell =
         assertEqual "f lands on the first item" (3, -1) =<< pointOf answer
         echoIs "and says where it is" "f → grain-finer (list 1/3)" answer
       onTable "grain press:Enter press:n press:n press:f press:n press:n" $
-        assertEqual "n walks the items" (5, -1) <=< pointOf
+        assertEqual "n walks the items" (6, -1) <=< pointOf
       onTable "grain press:Enter press:n press:n press:f press:n press:n press:n" $
-        assertEqual "and clamps at the last rather than leaving the run" (5, -1)
+        assertEqual "and clamps at the last rather than leaving the run" (6, -1)
           <=< pointOf
       onTable "grain press:Enter press:n press:n press:f press:p" $
         assertEqual "p clamps at the first the same way" (3, -1) <=< pointOf
@@ -3310,8 +3310,19 @@ sheetSpec shell =
         assertEqual "b is the whole list again, from any item" (2, -1)
           =<< pointOf answer
         echoIs "named by its kind" "b → grain-broader (list)" answer
+      -- `f' on an item WITH a nested run descends one more rung — the ladder —
+      -- and the walk clamps to that run; `b' climbs back to the item, and one
+      -- more to the list.
       onTable "grain press:Enter press:n press:n press:f press:f" $ \answer -> do
-        assertEqual "nothing finer than a leaf" (3, -1) =<< pointOf answer
+        assertEqual "the nested item is one rung down" (4, -1) =<< pointOf answer
+        echoIs "counted under its parent" "f → grain-finer (item 1/1)" answer
+      onTable "grain press:Enter press:n press:n press:f press:f press:n" $
+        assertEqual "a run of one clamps at once" (4, -1) <=< pointOf
+      onTable "grain press:Enter press:n press:n press:f press:f press:b" $ \answer -> do
+        assertEqual "b climbs to the item" (3, -1) =<< pointOf answer
+        echoIs "named as one" "b → grain-broader (item)" answer
+      onTable "grain press:Enter press:n press:n press:f press:n press:f" $ \answer -> do
+        assertEqual "nothing finer than a childless leaf" (5, -1) =<< pointOf answer
         echoIs "and the key says so" "f → grain-finer (at the finest)" answer
       onTable "grain press:Enter press:b" $ \answer -> do
         assertEqual "the element grain is the floor" (0, -1) =<< pointOf answer
@@ -3479,9 +3490,11 @@ sheetSpec shell =
     -- `- nested' rides inside `alpha' rather than taking a stop — v1's grain.
   , keyed shell "a blank line and a nested item stay inside their list"
       "" "grain press:Enter press:n press:n press:f" $ \answer -> do
-        assertEqual "three items, and the first carries what hangs under it"
-                    ["- alpha\n  more alpha\n  - nested", "- beta", "- gamma"]
-          =<< partsOf "item" . take 6 <$> docOf answer
+        -- The item's OWN text is its head — the nested run is a stop of its
+        -- own one rung down, drawn inside it.
+        assertEqual "four stops: alpha's head, the nested run, beta, gamma"
+                    ["- alpha\n  more alpha", "  - nested", "- beta", "- gamma"]
+          =<< partsOf "item" . take 7 <$> docOf answer
         assertEqual "the cursor is on the first of them" (3, -1) =<< pointOf answer
 
     -- WHAT NO LEAF CLAIMS IS STILL DRAWN, and drawn inert: a block's own
@@ -3494,7 +3507,7 @@ sheetSpec shell =
         assertEqual "the composite shows the delimiters and nothing else"
                     ["#+begin_quote\n\n#+end_quote"] (partsOf "comp:quote" rows)
         assertEqual "and its paragraphs are the stops inside it"
-                    ["quoted one", "quoted two"] (partsOf "item" (drop 6 rows))
+                    ["quoted one", "quoted two"] (partsOf "item" (drop 7 rows))
 
     -- RET IS PURE EDIT AT EITHER GRAIN: a leaf opens its own lines, a composite
     -- opens the whole block's, and each commit splices exactly the range its
@@ -6343,7 +6356,7 @@ shellGlue =
       -- And the cell at point is READ rather than assumed: a stash put back over
       -- a headline that has since lost one names a column that is not there.
       , "const c = dcol === null ? null : shown(r)[dcol];"
-      , "let owner = null, seq = 0;"
+      , "owner: b.up === undefined ? null : idOf[b.up],"
       , "const id = `B${seq++}`;" ]
       -- The UTF-16 readings and the two positional reaches they replaced.
       [ "(editing.org || \"\").length", "n + l.length, 0"

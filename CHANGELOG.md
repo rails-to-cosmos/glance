@@ -748,6 +748,14 @@ section groups a feature arc, and its date is that arc's last commit.
   read-only now: composing a query belongs to the table's own widget, and the
   field shows what is pinned.
 
+### Fixed
+- **`f` recurses into a nested list.** A deeper item used to ride inside its
+  parent as opaque text, so the grain stopped one rung short. The grain is a
+  LADDER now: an item carrying a nested run is itself a parent — `f` descends
+  one rung, `b` climbs to the immediate owner, `n`/`p` clamp to one parent's
+  run, a flag on any rung deletes its whole range, and the draw shows each
+  rung inside the one above it.
+
 ### Changed
 - **The material document walks on two axes.** `n`/`p` step siblings at the
   cursor's grain and never dive — a list, block or table is ONE stop, so
