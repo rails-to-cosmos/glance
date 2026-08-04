@@ -181,7 +181,7 @@ commands =
   where
     -- A shape that has nothing to say about HOW MANY rows were named, which is
     -- nine of the ten.
-    overIds owed = const owed
+    overIds = const
     word field = fromMaybe "" . field
     tagOf = word agTag
     -- The one command whose keyword may be NULL: that is how a state comes off,

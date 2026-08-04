@@ -2817,7 +2817,7 @@ headingAt doc = listToMaybe [ spanStart sp | (sp, line) <- lineSpansIn doc
 -- a bare @*@ could be written and never read again.
 headingStars :: Text -> Maybe Int
 headingStars line = case T.span (== '*') line of
-  (stars, rest) | not (T.null stars), maybe False horizontal (fst <$> T.uncons rest)
+  (stars, rest) | not (T.null stars), maybe False (horizontal . fst) (T.uncons rest)
                   -> Just (T.length stars)
   _notAHeading    -> Nothing
 
