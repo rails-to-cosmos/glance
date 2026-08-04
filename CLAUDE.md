@@ -1367,7 +1367,8 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   key moves. This page keeps no record of an order and asks for none: `sortBy`
   is gone from the shell with the agenda's call, the canned view carrying
   `sort:scheduled` in its query instead.
-  `g` is `apply-default-filter`, `a`
+  `g` is `apply-default-filter`, `P` is `set-default-view` (the pin: the
+  applied query becomes the tree's default, ONCE), `a`
   is `org-glance-agenda`, `,`
   is `customize`, `:` is `org-agenda-set-tags` — the AGENDA's own key for the
   same question over there — `o` and `!` are `org-glance-overview:open`, `@` is
@@ -2331,8 +2332,10 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `settingPragma`, so a fold that drifted from a render can no longer rewrite a
   line nothing reads. Carried by `clFilter` and `clCapture`, and spliced in the
   SAME `configEdits` call as the block — with the layer's TEMPLATE, so four
-  regions of one file ride one write, since four writes would be four digests. A tag layer names neither. The settings sheet edits them as two
-  fields under the system layer. `Config.systemSetting` is the ONE "first system
+  regions of one file ride one write, since four writes would be four digests.
+  A tag layer names neither. The settings sheet shows both under the system
+  layer and EDITS the capture target alone; the default view is read-only
+  there, pinned from the table by `P`. `Config.systemSetting` is the ONE "first system
   layer that names one" fold, over the `ConfigLayerFile` list `readConfigLayers`
   returns, and both the load and the settings route call it.
 - The DEFAULT VIEW is `system.org`'s `#+GLANCE_DEFAULT_FILTER:` line, read into
@@ -2341,10 +2344,14 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   line wins. The system layer alone, and the first config directory that names
   one — a default view belongs to a tree rather than to a tag. The daemon embeds
   it into the served page as `DEFAULT_QUERY` (off the store, per request), the
-  bare-boot injection and `g` both read it, and the settings sheet edits it as
-  one field beside the system layer's cycle: `POST /config` takes an optional
-  `filter` and splices it in the SAME call as the `#+TODO:` block, since they are
-  lines of one file and two calls would be two writes under two digests.
+  bare-boot injection and `g` both read it. WRITING it is `P`
+  (`set-default-view`, ONCE): the applied query — sort tokens and all, the
+  order being the grammar's — goes to `POST /config` as the optional `filter`
+  under the digest `GET /config` just served, spliced in the SAME call as the
+  `#+TODO:` block since they are lines of one file. Composing stays the
+  table's widget (badges, completion); the settings sheet's field is
+  READ-ONLY, showing what is pinned. The write reseeds, the reseed re-embeds
+  `DEFAULT_QUERY`, so the pin is the next boot's view.
 - `GET`/`POST /config` serve and replace ONE layer's `#+TODO:` block AND its
   capture template through the ordinary write path — `configEdits` for the spans,
   `replaceSpans` for the drift-locked atomic write — so a `#+TITLE:` and a

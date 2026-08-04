@@ -157,8 +157,11 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   -- constants the server answers with — the value cannot change while the page
   -- is up, so nothing carries it into the glue and back out per sheet-open.
   , "      <div id=\"cgen\" class=\"cpart\">"
+  -- Read-only: composing a query belongs to the table's own widget, and `P'
+  -- pins the applied view as the default — this row shows what is pinned.
   , crow (clab "default view")
-         (cinput "cfilter" "" ("the view g applies; empty is " <> builtinFilter))
+         (cinput "cfilter" " readonly"
+                 ("pinned from the table with P; empty is " <> builtinFilter))
   , crow (clab "capture target")
          (cinput "ctarget" ""
                  ("where + captures; empty is " <> T.pack defaultCaptureFile))

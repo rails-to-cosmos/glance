@@ -109,6 +109,12 @@ keyBindings =
   -- The default view, as the tree configures it (@#+GLANCE_DEFAULT_FILTER:@).
   , bind ["g"]          "apply-default-filter"            (Just "applyDefault")   "table"
       `helps` "the view this tree opens on"
+    -- The pin: the applied query — sort tokens and all — becomes the tree's
+    -- `#+GLANCE_DEFAULT_FILTER:' line, through the settings write the sheet
+    -- already rides.  Composing stays the table's widget; the sheet's field
+    -- shows what is pinned.
+  , bind ["P"]          "set-default-view"                (Just "pinView")        "table"
+      `helps` "pin the applied view as the tree's default"
   , bind ["m"]          "mark-toggle"                     (Just "markToggle")     "table"
       `helps` "toggle this row's mark, then step down"
   , bind ["u"]          "unmark"                          (Just "unmarkRow")      "table"
@@ -248,6 +254,9 @@ reservedChords = ["C-l", "C-r", "C-t", "C-w", "C-n", "C-p", "<f5>"]
 onceCommands :: [Text]
 onceCommands = [ "filter-drop-token", "unmark-all", "mark-all"
                , "archive-flag", "org-glance-overview:delete"
+                 -- One write per press: a held pin is a config write, a reseed
+                 -- and a view-changed remount per repeat.
+               , "set-default-view"
                  -- Neither writes a file, and both are ruinous held down: a
                  -- leaned-on `o' is a browser tab per repeat, a leaned-on `a' a
                  -- remount per repeat.  `@' remounts and leaves a crumb, so a

@@ -3804,9 +3804,10 @@ shellGlue wanted =
   , "        el(\"clog\").value = logPref.get();"
   , "        cnote(\"synced\");"
   , "        el(\"config\").className = \"on\";"
-    -- The top of the sheet, which is the general panel's first field: the sheet
-    -- opens where a reader reads it from, and Tab walks down from there.
-  , "        el(\"cfilter\").focus();"
+    -- The top of the sheet, which is the general panel's first EDITABLE field
+    -- (the default view above it is read-only, pinned from the table by `P'):
+    -- the sheet opens where a reader can type, and Tab walks down from there.
+  , "        el(\"ctarget\").focus();"
   , "      }).catch((e) => {"
   , "        settings = false;"
   , "        append(\"config\", \"error\", `settings failed: ${e.message}`);"
@@ -3822,17 +3823,19 @@ shellGlue wanted =
   , "        o.value = String(i);"
   , "      });"
   , "      showLayer(0);"
-    -- The general panel's two fields are `system.org''s two tree-wide LINES, so
-    -- they are bound to the system layer's row and go out in its write: one file,
-    -- one digest, one splice, wherever on the sheet they are drawn.  The FIRST
+    -- The capture target is `system.org''s tree-wide LINE, bound to the system
+    -- layer's row and out in its write: one file, one digest, one splice,
+    -- wherever on the sheet it is drawn.  The FIRST
     -- system layer, which `/config' always serves and always leads with — a tree
     -- with none is a server that broke its own contract, and the throw lands in
     -- `openSettings''s catch as a settings failure rather than as a sheet that
-    -- silently drops what a reader types into these two.
+    -- silently drops what a reader types.  The DEFAULT VIEW beside it is
+    -- READ-ONLY here: composing a query belongs to the table's own widget —
+    -- badges, completion, the grammar — and `P' pins the applied view as the
+    -- default, so this field shows what is pinned and never rides a write.
   , "      const view = el(\"cfilter\"), cap = el(\"ctarget\");"
   , "      view.value = b.filter || \"\"; cap.value = b.capture || \"\";"
   , "      const sys = crows.find((r) => r.tag === null);"
-  , "      sys.view = view; sys.viewBase = view.value;"
   , "      sys.cap = cap; sys.capBase = cap.value;"
   , "      const kw = b.keywords || {};"
   , "      el(\"ceff\").textContent ="
@@ -4151,6 +4154,27 @@ shellGlue wanted =
   , "      crumbLabels = {};"
   , "      crumbSels = [];"
   , "      applyView(b, DEFAULT_QUERY);"
+  , "    }"
+    -- THE PIN: the applied query — sort tokens and all, since the order is the
+    -- grammar's — becomes `system.org''s `#+GLANCE_DEFAULT_FILTER:' line,
+    -- through the same drift-locked `/config' write the settings sheet rides.
+    -- Composing stays the table's widget; nothing here parses the query.  The
+    -- write reseeds and the reseed re-embeds `DEFAULT_QUERY' into the served
+    -- page, so the pin is the next boot's view; a refusal — a 409 for a config
+    -- edited elsewhere — is one `cmd' error line and nothing pinned.
+  , "    function pinView(b) {"
+  , "      const q = can(table, \"getQuery\") ? table.getQuery().trim() : \"\";"
+  , "      getJSON(\"/config\").then((a) => {"
+  , "        const sys = (a.layers || []).find((l) => !l.tag);"
+  , "        if (!sys) { said(b, \"no system layer to pin into\"); return; }"
+  , "        return postJSON(\"/config\","
+  , "                        { path: sys.path, digest: sys.digest, filter: q })"
+  , "          .then(() => {"
+  , "            said(b, q ? `pinned · ${q}` : \"pinned · all rows\");"
+  , "            append(\"config\", \"info\","
+  , "                   `default view pinned: ${JSON.stringify(q)}`);"
+  , "          });"
+  , "      }).catch(failed(b, \"set-default-view\"));"
   , "    }"
     -- `@': the rows pointing AT the one at point.  A drill is a LOOK, so it
     -- takes the row at point and never the marked set — a mark is what a reader
@@ -4565,7 +4589,7 @@ shellGlue wanted =
   , "      archiveFlag: (b) => flagKey(\"d\", XFLAGS(b), (what) => said(b, what)),"
   , "      priorityUp: (b) => cyclePriority(b, 1),"
   , "      priorityDown: (b) => cyclePriority(b, -1),"
-  , "      applyDefault, relations, focusFilter, toggleRaw, openSettings,"
+  , "      applyDefault, pinView, relations, focusFilter, toggleRaw, openSettings,"
     -- One `save-buffer' over two sheets: `saveSheet' asks `activeSheet' which
     -- is up, so there is nothing to choose between here.
   , "      save: saveSheet,"

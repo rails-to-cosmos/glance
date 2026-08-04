@@ -4446,14 +4446,29 @@ settingsSpec shell =
       "," "ccap:notes/in.org press:C-x press:C-s" $
         assertEqual "the field shows what was typed" "notes/in.org" <=< textAt "ccap"
 
-    -- The default view is the other one, and it takes the same road: a general
-    -- field, the system layer's write.
-  , keyed shell "the default view is the other general field, on the same write"
+    -- The default view is the other general field and it is READ-ONLY here:
+    -- composing a query belongs to the table's own widget, so the sheet SHOWS
+    -- what is pinned and a typed value never rides a write.
+  , keyed shell "the default view field is read-only, and rides no write"
       "," "cview:tag:work press:Escape" $ \answer -> do
+        assertEqual "nothing was written for it" ([] :: [Value])
+          =<< listAt "configWrites" answer
+
+    -- `P' IS THE PIN: the applied query — sort tokens and all — becomes the
+    -- system layer's own line, through the same drift-locked `/config' write
+    -- the sheet rides, under the digest `/config' just served.
+  , keyed shell "P pins the applied view as the tree's default"
+      "" "press:P" $ \answer -> do
         writes <- listAt "configWrites" answer
-        assertEqual "one write" 1 (length writes)
-        assertEqual "carrying the view" "tag:work" =<< textAt "filter" (head writes)
-        assertEqual "and the server holds it now" "tag:work" =<< textAt "served" answer
+        assertEqual "one write, for the system layer" 1 (length writes)
+        assertEqual "at the system path" "/o/.org-glance/config/system.org"
+          =<< textAt "path" (head writes)
+        assertEqual "carrying the applied query" "state:*active*"
+          =<< textAt "filter" (head writes)
+        assertEqual "and the server holds it now" "state:*active*"
+          =<< textAt "served" answer
+        echoIs "the pill names the pin"
+          "P → set-default-view (pinned · state:*active*)" answer
 
     -- Two sheets over one page would leave `C-x C-s' and `ESC' guessing which
     -- one they meant.  `typing()' is not what keeps them apart, which is the
@@ -4926,6 +4941,9 @@ atBoot page label check = testCase label (reading check =<< page)
 onceNames :: [T.Text]
 onceNames = [ "filter-drop-token", "unmark-all", "mark-all"
             , "archive-flag", "org-glance-overview:delete"
+              -- A held pin is a config write, a reseed and a remount per
+              -- repeat.
+            , "set-default-view"
             , "org-glance-overview:open", "org-glance-agenda"
               -- A held `@' is a remount per repeat, each leaving a crumb behind
               -- for DEL to walk back one at a time.
@@ -10087,6 +10105,8 @@ expectedRows =
        Just "unmark all, else drop the filter's last token")
   , (["g"],          "g",       "apply-default-filter",            Just "applyDefault",   "table",
        Just "the view this tree opens on")
+  , (["P"],          "P",       "set-default-view",                Just "pinView",        "table",
+       Just "pin the applied view as the tree's default")
   , (["m"],          "m",       "mark-toggle",                     Just "markToggle",     "table",
        Just "toggle this row's mark, then step down")
   , (["u"],          "u",       "unmark",                          Just "unmarkRow",      "table",

@@ -740,6 +740,14 @@ section groups a feature arc, and its date is that arc's last commit.
   or the reconnect. The status corner, the event log and the key line stay
   bright, being where a reader finds out why.
 
+### Added
+- **`P` pins the applied view as the tree's default.** The query on screen —
+  filter tokens and sort tokens alike — becomes `system.org`'s
+  `#+GLANCE_DEFAULT_FILTER:` line, through the same drift-locked `/config`
+  write the settings sheet rides. The sheet's "default view" field is
+  read-only now: composing a query belongs to the table's own widget, and the
+  field shows what is pinned.
+
 ### Changed
 - **The material document walks on two axes.** `n`/`p` step siblings at the
   cursor's grain and never dive — a list, block or table is ONE stop, so
