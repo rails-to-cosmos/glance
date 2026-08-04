@@ -3372,12 +3372,13 @@ sheetSpec shell =
           [ "dt:see ", "dl:alpha", "dt: and ", "dl:https://b.example/", "dt: here" ]
           (segs !! 1)
         -- A BARE URL is a link too, coming back in the same answer.  Written
-        -- TWICE it is marked ONCE: `/links' keeps the FIRST spelling of a
-        -- target and no other (`Glance.Query.orgLinks', so that `o' offers one
-        -- destination one letter), and this draw follows the SPANS it was
-        -- given rather than searching the text for what it just drew — so the
-        -- second occurrence is the text it is.  A consequence of the scan's
-        -- rule, visible here because the display is downstream of it.
+        -- TWICE under one look it is marked ONCE: `/links' dedups by the
+        -- (target, shown) pair (`Glance.Query.orgLinks') and a bare URL shows
+        -- itself, so its repeats collapse to the first — and this draw follows
+        -- the SPANS it was given rather than searching the text for what it
+        -- just drew, so the second occurrence is the text it is.  A
+        -- consequence of the scan's rule, visible here because the display is
+        -- downstream of it.
         assertEqual "the first spelling is marked, the second reads as text"
           [ "dt:bare ", "dl:https://c.example/", "dt: then https://c.example/ twice" ]
           (segs !! 2)

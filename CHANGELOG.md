@@ -741,6 +741,13 @@ section groups a feature arc, and its date is that arc's last commit.
   bright, being where a reader finds out why.
 
 ### Fixed
+- **A link listed under two descriptions serves both.** `/links` deduplicated
+  by target alone, so one `elisp:` command written under `pnl` and under
+  `alpha:grafana` served the first and silently swallowed the second — which
+  read as the link not parsing. The dedup key is now the (target, shown) pair a
+  reader can see: repeats under one look still collapse to the first spelling
+  (and its span), distinct looks are distinct entries in the popup, the
+  document render, and `o`.
 - **A warning cookie no longer costs the planning line.** org's agenda
   warning/delay (`<2026-01-01 Mon +1m -3d>`, first-only `--7d`) used to block
   the timestamp's closing bracket: the stamp failed, the planning entry

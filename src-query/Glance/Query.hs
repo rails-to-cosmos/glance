@@ -662,21 +662,25 @@ subtreeLinks r = map (shiftLink (spanStart (hrSubtree r))) (orgLinks (subtreeTex
 shiftLink :: Int -> OrgLink -> OrgLink
 shiftLink by l = l { olSpan = shiftSpan by (olSpan l) }
 
--- | The links TEXT holds, in order of appearance, one per target.
+-- | The links TEXT holds, in order of appearance, one per (target, shown)
+-- pair.
 --
 -- Two forms, which is what org writes and what 'displayText' already reads: the
 -- bracket link, described by its @DESC@ where it has one and by its target
 -- where it does not ('linkAt'), and the plain URL, which is its own description.
--- A target spelled twice keeps the FIRST occurrence — its description AND its
--- SPAN: the second is the same destination under another name, and a palette
--- offering it twice would be offering one place two letters.  So an edit made
--- through a deduplicated link edits the FIRST spelling of it, wherever the
--- others sit; the others are untouched and still point where they did.
+-- The dedup key is the pair a reader can SEE: a target respelled under the
+-- SAME description keeps the first occurrence — span and all, so an edit
+-- through it edits the first spelling — while the same target under another
+-- description is another entry.  The key was the target alone, and a tree
+-- writing one @elisp:@ command under the descriptions @pnl@ and
+-- @alpha:grafana@ served the first and silently swallowed the second, which
+-- read as the link not parsing at all.
 -- A plain URL can only be in the text BETWEEN bracket links, which is what
 -- 'linkParts' hands over separately — so @[[https://…][x]]@ never also reports
 -- its own target as a bare one.
 orgLinks :: Text -> [OrgLink]
-orgLinks = firstBy olTarget . concatMap (either (uncurry plainLinks) pure) . linkParts
+orgLinks = firstBy (\l -> (olTarget l, linkShown l))
+         . concatMap (either (uncurry plainLinks) pure) . linkParts
 
 -- | The schemes a bare URL is recognized by.  org's plain-link set is wider;
 -- these three are the ones a browser is asked to open, and a scheme this does

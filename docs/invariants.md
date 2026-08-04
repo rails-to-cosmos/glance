@@ -2440,7 +2440,8 @@ on.
   than routed. **test** (`TestServe`)
 - **`GET /links?id=ROW` is where a row points, and the rule is the DISPLAY
   rule.** `{digest, links: [{target, desc, type, span}]}`, extracted from the
-  row's SUBTREE in order of appearance and one entry per target. Two forms,
+  row's SUBTREE in order of appearance and one entry per (target, shown)
+  pair. Two forms,
   which is what org writes:
   the bracket link, described by its `DESC` and by its target where it has none
   — `Glance.Query.linkAt` is the grammar and `linkShown` the display rule, the
@@ -2451,10 +2452,14 @@ on.
   `xhttp://a` is not one, and the sentence punctuation `.,;:!?'"()[]{}<>` comes
   off its tail so `(https://x.org)` points where it reads as pointing. The scan
   is one left-to-right pass over the bracket links, so a `[[https://x][y]]`
-  never also reports its own target as a bare URL. A target spelled twice keeps
-  the FIRST occurrence — its description AND its span, so an edit made through a
-  deduplicated link edits the first spelling and the others go on pointing where
-  they did. It is
+  never also reports its own target as a bare URL. The dedup key is the pair a
+  reader can SEE: a target respelled under the SAME description keeps the FIRST
+  occurrence — its span, so an edit through it edits the first spelling and the
+  others go on pointing where they did — while the same target under ANOTHER
+  description is another entry. Keyed on the target alone, a tree writing one
+  `elisp:` command under `pnl` and `alpha:grafana` served pnl and swallowed the
+  second, which read as the link not parsing (2026-08-04, the real blob that
+  found it). It is
   SERVER-side because it is org text work: the page holds no org parser and must
   not grow one, and a JS copy of the bracket grammar would be a second grammar
   to keep in step with SCHEMA.md's link rule. The SUBTREE rather than the cells,

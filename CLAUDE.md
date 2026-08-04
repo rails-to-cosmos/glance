@@ -820,9 +820,11 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `/keywords`'.
 - `GET /links?id=ROW` is where a row points: `{digest, links: [{target, desc,
   type, span}]}`, out of the row's SUBTREE, in order of appearance and one entry
-  per target (the FIRST occurrence kept — its description AND its span, so an
-  edit through a deduplicated link edits the first spelling and the others
-  stand). The rule is the DISPLAY rule — `Glance.Query.linkAt` is the grammar
+  per (target, shown) PAIR — a repeat under the same description keeps the
+  FIRST occurrence and its span, so an edit through it edits the first
+  spelling; the same target under another description is its own entry (keyed
+  by target alone, `pnl` swallowed `alpha:grafana` and the elisp link read as
+  unparsed). The rule is the DISPLAY rule — `Glance.Query.linkAt` is the grammar
   `displayText` reads a cell with and `linkShown` the display rule over it, so a
   bracket link is described by its `DESC` and by its target where it has none —
   plus bare `http(s)`/`mailto:` URLs,
@@ -1869,10 +1871,10 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   a non-overlap guarantee that only `subtreeLinks` can give and that nothing
   checks: overlapping spans out of the scanner lose segments here with no
   complaint. A bare URL is drawn because it is in the same answer. SPAN-driven,
-  never search-driven, which has one visible consequence: `/links` keeps the
-  FIRST spelling of a target and no other (`orgLinks`, so `o` offers one
-  destination one letter), so a URL written twice is MARKED ONCE and the later
-  occurrences read as the text they are. The
+  never search-driven, which has one visible consequence: `/links` keeps one
+  entry per (target, shown) pair (`orgLinks`), so a URL written twice under one
+  look is MARKED ONCE and the later occurrences read as the text they are —
+  while the same target under two descriptions is two entries and both mark. The
   paragraph/leaf elements and the headline's TITLE cell render alike; the title
   needs `titleAt` (the server's `Glance.Query.titleSpan`, `Span` rather than the
   internal `HeadlineSpans`) because only the server has that sub-span, and a

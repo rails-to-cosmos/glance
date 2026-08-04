@@ -216,15 +216,26 @@ linkSpec = testGroup "Links"
         (map olShape (orgLinks
            "[[file:a][readme]] [[file:b]] [[file:c][]] https://x.org"))
 
-    -- A target spelled twice is ONE entry, and the entry is the FIRST spelling:
-    -- its description and its SPAN.  So an edit made through a deduplicated link
-    -- edits the first one, and the others go on pointing where they did.
-  , testCase "one entry per target, keeping the first description and its span" $ do
-      assertEqual "deduped" [("https://x.org", "first")]
-                  (shown "[[https://x.org][first]] and [[https://x.org][second]]")
-      assertEqual "the span is the first spelling's"
-        ["[[https://x.org][first]]"]
-        (spelled "[[https://x.org][first]] and [[https://x.org][second]]")
+    -- The dedup key is the pair a reader can SEE.  One target under two
+    -- descriptions is two entries — the descriptions are what the popup lists,
+    -- and keying on the target alone swallowed every spelling after the first
+    -- (a tree writing one elisp: command under `pnl' and `alpha:grafana'
+    -- served pnl and read as the second link not parsing).  The same target
+    -- under the SAME description is still one entry, the FIRST: its span, so
+    -- an edit through it edits the first spelling and the others stand.
+  , testCase "one entry per (target, shown) pair, keeping the first spelling" $ do
+      assertEqual "distinct descriptions are distinct entries"
+        [("https://x.org", "first"), ("https://x.org", "second")]
+        (shown "[[https://x.org][first]] and [[https://x.org][second]]")
+      assertEqual "the same description dedups to the first span"
+        ["[[https://x.org][x]]"]
+        (spelled "[[https://x.org][x]] and [[https://x.org][x]]")
+
+  , testCase "one command under two descriptions serves both (the elisp pair)" $ do
+      let cmd = "elisp:(browse-url (string-trim (shell-command-to-string \"~/t/cluster-url alpha grafana\")))"
+          text = "[[" <> cmd <> "][pnl]]\n[[" <> cmd <> "][alpha:grafana]]"
+      assertEqual "both spellings listed, in order"
+        [(cmd, "pnl"), (cmd, "alpha:grafana")] (shown text)
 
   , testCase "the subtree is what is read, body and children included" $
       withRecordsOf (T.unlines
