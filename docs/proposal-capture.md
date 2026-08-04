@@ -1,6 +1,25 @@
 # Proposal — capture as org-glance does it
 
-**Status:** draft · **Date:** 2026-08-03
+**Status:** delivered 2026-08-04 · **Date:** 2026-08-03
+
+Delivered as proposed, with the three open decisions taken: the cursor
+lands on the new row (and stays where it is when the view has not got
+it), `%^{PROMPT}` asks one palette per prompt in template order, and the
+untagged inbox path stays bare `* text` + creation drawer, byte for byte
+what it was.  Two things the proposal did not know, both found against
+org-glance's source and this corpus and both followed: an
+`ORG_GLANCE_ID` is a bare `org-id-uuid` with no tag prefix (the
+`Password-…` spellings are three superseded generations, still read as
+opaque strings), and a tag config's template runs from its first heading
+to the END of the file rather than to the next heading — which is what
+makes `book.org`'s `* Book` over `*** Notes` one template.  What is NOT
+here: org-glance's own renderer additionally rewrites the template
+heading's title from the capture's title, so a template whose heading
+carries a placeholder (`* Book`) keeps it and the typed line lands at
+`%?`.  Live limit worth knowing: fsnotify does not traverse INTO a
+directory it has just armed, so a fresh blob's `<shard>/<rest>/` pair
+leaves the blob unwatched until a restart or a config reseed — see
+`docs/invariants.md`, Walk.
 
 Replace the flat inbox capture with org-glance's own flow: ask for a tag,
 expand that tag's capture template (or the default), create the entry **in

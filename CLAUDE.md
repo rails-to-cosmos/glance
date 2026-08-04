@@ -464,7 +464,12 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   which in the table is the entry with no row function, so `{"ids": …}` is not
   owed and the rows-are-named rule does not reach it — `runCommand` reads the
   `Maybe` once and hands the edits themselves down. The
-  answer is `{ok, file, digest}`. WHERE comes off the config
+  answer is `{ok, file, digest, id}`, `id` being the row it MADE. WHERE it goes
+  is the optional `tag`: ABSENT is the inbox, PRESENT is a blob in the store.
+  `tag` takes the ordinary `tagText` wall with the rest of the request's SHAPE,
+  so past `wantsText` the field is absent or a real tag and `captureInto` is one
+  `maybe` with nothing to strip or test.
+  UNTAGGED, WHERE comes off the config
   (`Glance.Query.captureTargetIn`), never the request; the entry is `* <text>`
   plus a drawer holding `:ORG_GLANCE_CREATION_TIME:` — org's INACTIVE stamp,
   server clock, at column 1, lines ending the way the target's own do
@@ -475,7 +480,74 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   the capture creates it under the empty pin). The text is raw org, refused when
   empty or carrying a newline: a captured entry is ONE headline. Both stamps —
   the creation time and a planning timestamp — are rendered by one `orgStamp`,
-  which differ only in their brackets and both compute the weekday.
+  which differ only in their brackets and both compute the weekday. The `id` is
+  `rowIdIn path K` with K the count of `recordsUnder` — the store's rows for that
+  FILE, never `storeRecords`, which is `resolveIds` over the whole store and
+  drops a collision loser the ordinal was handed out before. A race, honestly:
+  `/command` never writes the store, so K is what the last load saw.
+- A TAGGED capture is a BLOB, org-glance's own layout verified against its source
+  and this corpus (2026-08-04). Store root = the SERVED root's own `.org-glance`,
+  and a tree that keeps none is a 400 naming the directory rather than a daemon
+  making one. The id is `Data.Org.Blob.mintBlobId` = `org-id-uuid`'s form, a
+  random v4 UUID, 36 characters, lowercase, `8-4-4-4-12`; the path is
+  `blobPathIn` = `data/<FIRST TWO CHARACTERS OF THE WHOLE ID, unfolded>/<the
+  entire remainder>/data.org`, with an id of two characters or fewer unsharded.
+  READING an id is a different question: ~/sync's 6073 blobs carry four
+  superseded generations beside 45 UUIDs and shard under `Pa`, `Pe` and `al`
+  alike, so an `ORG_GLANCE_ID` is an OPAQUE STRING everywhere it is read.
+  `Data.Org.Blob` is a module because Walk CLASSIFIES a path that is there and
+  this CONSTRUCTS one; it imports Walk's three layout names, and keeping the mint
+  out of Walk keeps crypto and IO off the walk's hot path. NO RESERVATION — the
+  write goes out under the EMPTY digest, so a path that already holds a file
+  DRIFTS rather than being overwritten, and an id that is not written is one
+  nobody sees. The `EXTERNAL.jsonl` line costs nothing: `data.org` under a store's
+  `data/` is `isBlob`, so `replaceSpans` appends it on the way out as for any
+  other blob write — blob first, line second, the order the contract asks for.
+  `blobDocument` composes the blob out of the EXPANDED template and its two rules
+  are the command layer's own: the tag through `addTagEditsIn` (the very function
+  `add-tag` runs, factored out of `addTagEdits`), and the drawer joining an
+  existing `:PROPERTIES:` under its OWN indentation else written whole under the
+  PLANNING LINE — from the title line instead it splices BETWEEN a headline and
+  its `SCHEDULED:`, where the planning line stops being read as one. A template
+  that expands to no headline is refused: the blob would carry no entry and
+  `blobIdOf` would read no id back out of it.
+- A TAG'S CAPTURE TEMPLATE IS ITS CONFIG LAYER'S FIRST HEADING — the file that
+  already carries its `#+TODO:` cycle, org-glance's own convention and no new
+  file class. Read the way `org-glance-tag-config--entry` reads it: from the
+  first `^\*+ ` LINE to the END of the file, right-trimmed, rather than as the
+  outline extent — so ~/sync's `book.org` (`* Book` over `*** Notes`) is ONE
+  template. Everything ABOVE that heading is the pragmas and comments the
+  `#+TODO:` splice and the two settings lines own, so the regions cannot overlap.
+  `captureTemplateIn`: the tag's own layer (the FIRST configuring it, `clTags`'
+  rule), then the system layer's (`systemSetting`'s), then `bareTemplate` = `*
+  %?` — a CONSTANT rather than a branch, so every case takes ONE path through
+  `expandTemplate`. Read at capture time through the same `readConfigLayers`
+  `/config` uses, so what the settings sheet shows is what a capture expands.
+  ONE HEADING PREDICATE, `headingStars` (`^\*+ `: stars then HORIZONTAL SPACE, so
+  a bare star run is body text here where the PARSER reads it as an empty
+  headline), asked by both `headingAt` and `topEntry`; the one-star wall is the
+  WRITER's alone and keeps a blob's first headline the entry org-glance keys it
+  by. With two predicates the sheet was handed a `** Notes` template it would
+  then refuse to write back.
+- THE EXPANSION SUBSET IS ONE LIST AND ONE GRAMMAR. `captureCodes` is `%?`, `%U`,
+  `%T` and `%^{PROMPT}` with a line of meaning each; `templateParts` is the
+  left-to-right scan, and `templatePrompts` (the asks in order, one spelled twice
+  asked once) and `expandTemplate` are two answers off that one scan. EVERYTHING
+  ELSE COPIES THROUGH — `%^` with no brace, an unclosed `%^{`, `%a`, a trailing
+  `%` — so no template is unreadable and an unknown code is captured literally.
+  Two refusals, both the WHOLE request's: no `%?` (nowhere for the line) and an
+  ask nobody answered. The clock is read ONCE per request, so `%U` twice is one
+  moment. KNOWN DIVERGENCE from org-glance, deliberate: its renderer also
+  rewrites the template heading's TITLE from the capture's title, so a template
+  whose heading carries a placeholder keeps it and the line lands at `%?`.
+- `GET /capture[?tag=NAME]` is what a client reads before it can ASK anything:
+  `{template, prompts, tags, codes}` — whether a layer configures one, its asks
+  IN TEMPLATE ORDER, the tree's whole tag vocabulary, and the subset with its
+  meanings. NO tag is the untagged path's own shape (no template, no prompts):
+  the inbox capture stays bare, so there is nothing to resolve and the answer
+  says so rather than refusing. `tags` is here rather than on `/tags` because
+  that route answers about ROWS a caller names and a capture names none. Needs a
+  loaded store; read-only, so POST is 405.
 - The capture target is `#+GLANCE_CAPTURE_TARGET:` in `system.org`, resolved
   against the SERVED ROOT; absent means `<root>/inbox.org`. An absolute path,
   one climbing out through `..`, and a name the walk would not COLLECT are
@@ -1288,6 +1360,27 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   chords reach the page where `C-c C-t` does not: `Ctrl+S` and `Ctrl+D` are page
   default actions rather than chrome shortcuts, so `preventDefault` on the
   completing chord is the whole of what they need.
+- `+` IS A CHAIN OF PROMPTS and ESC anywhere ends it with nothing sent: which tag
+  (`askFrom` over the tree's vocabulary, `*empty*` LEADING the list so an
+  immediate RET is the untagged inbox path exactly as it was, and a name of one's
+  own committable through `freely`, the charset wall being the server's), then
+  one field per `%^{PROMPT}` the tag's template asks in the order the server
+  named them, then the line. Abandoning is the ABSENCE of machinery: each step
+  raises the next from its own commit, so a step nobody committed never calls the
+  one behind it. This page holds no template grammar — what it asks is what
+  `/capture?tag=` said to ask. `askOn` is the one thing the chain owes, clearing
+  the raising guard for a prompt raised from inside another prompt's commit
+  (`askFrom`'s own rule: that press has been handled already, so the guard would
+  decline the reader's NEXT key).
+- A CAPTURE SAYS WHERE POINT IS OWED, and `arriving`/`arrived()` is `leaving`'s
+  mirror: the answer names the row the write made, and the same three doors that
+  spend the archive's anchor spend this one. It is `land`'s ordinary rule asked
+  ONLY where there is something to land on — a filter that hides the new row, a
+  page it is not on, or a watch step that has not delivered it leave point where
+  it stands, since `land` falls through to an INDEX and there is no honest index
+  here. Both are dropped by a commit and by a remount: an anchor belongs to its
+  view. KNOWN LIMIT, inherited: it is spent at the FIRST door, so an unrelated
+  watch step landing between the capture's 200 and the delivery spends it.
 - `d` is dired's FLAG and dired's `dd`, in two presses: the first flags the row
   at point (`archive-flag`, echo `d → flagged — d again archives`) and a second
   `d` on an already-flagged row IS `D` — it calls the same handler, so it
@@ -2169,10 +2262,18 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   one field beside the system layer's cycle: `POST /config` takes an optional
   `filter` and splices it in the SAME call as the `#+TODO:` block, since they are
   lines of one file and two calls would be two writes under two digests.
-- `GET`/`POST /config` serve and replace ONE layer's `#+TODO:` block through the
-  ordinary write path — `configEdits` for the spans, `replaceSpans` for the
-  drift-locked atomic write — so a `#+TITLE:`, a comment and the capture
-  template come back byte for byte. The route never writes the store; the watch
+- `GET`/`POST /config` serve and replace ONE layer's `#+TODO:` block AND its
+  capture template through the ordinary write path — `configEdits` for the spans,
+  `replaceSpans` for the drift-locked atomic write — so a `#+TITLE:` and a
+  comment come back byte for byte. The optional parts are `ConfigParts`, a RECORD
+  rather than three positional `Maybe Text` (all three the same type, so a caller
+  swapping two would compile), each three-valued the same way: absent leaves that
+  part, empty takes it off, anything else writes it. `filter` and `capture` are
+  the SYSTEM layer's alone and `writeLayer` scopes them; the TEMPLATE is every
+  layer's. The client names a part only where it MOVED — sending the template
+  unconditionally put every layer's own first heading back through the
+  one-top-entry wall on every write, so a file whose heading is deeper than one
+  could no longer have its cycle edited at all. The route never writes the store; the watch
   reseeds. `GET` reads the files (the digest handed out is the lock), and its
   layer list IS the POST allowlist and the read the edits are measured in.
   Which directories comes off `clDirs`, falling back to `configDirIn` of the
@@ -2215,17 +2316,24 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - KNOWN GAP: the gear was the coarse pointer's ONLY settings door, and it went
   with the corner. A touch reader can filter and read; `,` cannot be typed
   there, so they cannot open the settings.
-- The KEYWORDS panel is ONE `<select id="clayer">` over the layers and ONE
-  `<textarea id="ctext">`, with `#clab` naming the selected layer
+- The KEYWORDS panel is ONE `<select id="clayer">` over the layers and TWO
+  boxes — `<textarea id="ctext">` for the cycle and `<textarea id="ctpl">` for
+  that layer's CAPTURE TEMPLATE, a region of the same file riding in the same
+  write — with `#clab` naming the selected layer
   (`system · PATH` / `tag · book · PATH`, ` · not created yet` where the digest
   is empty) and `#clerr` carrying what the server last said about a write to it.
   Order is system first, then the tag layers by `localeCompare` (`byLayer`);
   `sort` is stable, so two system layers keep the server's order, which is the
-  walk's. The text lives on the LAYER (`crows[i].text`) and the box is a VIEW of
-  `crows[cat]`: `takeLayer()` copies the box back to its layer and every door
-  calls it first — the select's `change`, `cdirty`, `flushConfig` — so an edit
-  outlives every switch and a switch asks the server nothing. `cmoved(r)` is
-  `r.text !== r.base` plus the two general fields bound to the system layer.
+  walk's. Both texts live on the LAYER (`crows[i].text`, `crows[i].tpl`) and the
+  boxes are VIEWS of `crows[cat]`: `takeLayer()` copies both back to their layer
+  and every door calls it first — the select's `change`, `cdirty`, `flushConfig`
+  — so an edit outlives every switch and a switch asks the server nothing.
+  `cmoved(r)` is `r.text !== r.base || r.tpl !== r.tplBase` plus the two general
+  fields bound to the system layer, and a part is SENT only where it moved.
+  `%` in the template box raises the value palette in its field mode over the
+  SERVER's code list (read once per sheet open off `/capture`), so the completion
+  cannot come to offer a code the expansion does not know; an answer that never
+  lands leaves `%` typing itself.
   Still one drift-locked `POST /config` per FILE that moved, each awaited, each
   under its own digest. A refusal SELECTS its layer: `flushConfig` remembers the
   FIRST refused index and `showLayer`s it, so the box shows the file the message

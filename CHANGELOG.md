@@ -402,6 +402,44 @@ section groups a feature arc, and its date is that arc's last commit.
   harness drives both sheets through pristine, dirty, conflict and discard.
 
 ### Added
+- **`+` CAPTURES INTO THE STORE, under a tag and through that tag's own
+  template.** The key is a chain of prompts now — which tag, whatever that tag's
+  capture template asks (`%^{PROMPT}`, one field per prompt in template order),
+  then the line — and ESC at any of them ends the whole thing with nothing sent.
+  A TAGGED capture writes a real org-glance blob: a minted `ORG_GLANCE_ID`
+  (`org-id-uuid`'s own version-4 form), org-glance's sharded
+  `data/<2>/<rest>/data.org` path, the tag on the headline, the creation stamp in
+  the drawer, and the `meta/EXTERNAL.jsonl` line that makes `M-x
+  org-glance-graph:refresh-external` adopt it — so a capture from a phone lands
+  as a first-class org-glance headline and Emacs sees it on its next refresh.
+  Leaving the tag EMPTY is the inbox capture exactly as it was, bare `* text`
+  plus a creation drawer, byte for byte.
+- **A tag's capture template is the first heading of its config layer**, which is
+  the file that already carries its `#+TODO:` cycle — org-glance's own
+  convention, read the way `org-glance-tag-config--entry` reads it (from the
+  first `*` line to the end of the file, right-trimmed), so `book.org`'s `* Book`
+  over `*** Notes` is ONE template. `system.org`'s is the tree's default, and a
+  tag no layer configures takes the bare `* %?`. The expansion subset is `%?`
+  (where the typed line lands, and a template without it is refused naming it),
+  `%U`/`%T` (the moment of capture, inactive and active, one clock read per
+  request) and `%^{PROMPT}`; **everything else copies through verbatim**, so a
+  template using a code this server has never heard of captures it literally
+  rather than being silently emptied.
+- **`GET /capture[?tag=NAME]`** — what a capture will ask for before it asks it:
+  `{template, prompts, tags, codes}`. `prompts` are the template's own asks in
+  template order (one spelled twice is asked once), `tags` is the tree's whole
+  vocabulary for the tag prompt to complete over, and `codes` is the expansion
+  subset with a line of meaning each. The subset is spelled ONCE, server-side:
+  what this route serves is what expands and what the settings box completes.
+- **The settings sheet's selected layer gains its capture template**, verbatim,
+  beside its cycle — the server slices the heading's extent and splices what
+  comes back, in the SAME `/config` write, so a layer is still one file, one
+  digest, one splice. `%` in the box raises the code list the server served.
+- The answer to a capture names **the row it made** — the minted id for a blob,
+  the target file's `FILE#K` ordinal for an inbox line — and the cursor lands on
+  it when the watch delivers it. A row the view has not got (a filter that hides
+  it, a watch step that has not arrived) leaves point exactly where it stands.
+
 - LINKS ARE WRITEABLE, which is the write boundary the popup was waiting on.
   `GET /links` now carries a per-link `span` — the half-open CHAR range the link
   occupies in the FILE — and the file's `digest`, and `POST /command` implements

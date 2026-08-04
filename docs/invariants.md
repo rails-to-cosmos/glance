@@ -745,7 +745,25 @@ on.
   than a rule about hidden or nested paths. It is the watch's property and not
   the route's — any tool creating the directory and the file together loses the
   same event. `GET /config` reads the files, so the settings sheet itself is
-  never wrong about them; it is the table that lags. **none**
+  never wrong about them; it is the table that lags.
+
+  **Re-measured 2026-08-04 and it is a RULE rather than a race, which is worse
+  than this entry said.** fsnotify arms a newly created directory but does not
+  TRAVERSE INTO it, so `mkdir -p a/b` leaves `b` unwatched permanently — a
+  one-second pause before the file is written does not help, and staging the
+  creates (`mkdir a`, wait, `mkdir a/b`, wait, write) IS picked up. Measured over
+  a served temp tree: `data/aa/bbbb/data.org` written after one `mkdir -p` — no
+  event; the same with a second's pause between the directories and the file — no
+  event; `data/ee/data.org`, ONE new level under a watched directory — event.
+  This is what a TAGGED CAPTURE hits every time: a blob's `<shard>/<rest>/` pair
+  is one `createDirectoryIfMissing True`, so the blob is written into a directory
+  fsnotify never armed and the row does not arrive until a restart or a config
+  reseed re-walks the tree. The blob itself is correct on disk and the
+  `EXTERNAL.jsonl` line is written, so nothing is lost — what is missing is the
+  live delivery. The fix is the watch's and is not taken: a directory-creation
+  event would have to be let through the predicate and answered with a nested
+  `watchTree` plus a sweep of what it holds, which is machinery in the one loop
+  whose seriality is the reseed's correctness argument. **live** (measured, open)
 
 ## Walk
 
@@ -1452,7 +1470,8 @@ on.
   comes out of the config.** Every other name here edits a headline a client can
   point at; this one MAKES one, so the rule that a command names rows is written
   around it (`rowlessCommand`) rather than relaxed for everything. The answer is
-  its own shape, `{ok, file, digest}`, since there is no per-id result to give.
+  its own shape, `{ok, file, digest, id}`, since there is no per-id result to
+  give — and `id` is the row it MADE, which is what the cursor lands on.
   The entry is `* <text>` and a drawer holding `:ORG_GLANCE_CREATION_TIME:`
   under it, appended at the END of the target so every byte already in the file
   stays where it was; a target whose last line has no newline gets one first, or
@@ -1462,6 +1481,128 @@ on.
   which makes the entry something other than the ONE headline the command
   promises. Evidence: `TestQuery` "capture", `TestServe` "POST /command capture".
   **test + live**
+- **A TAG TURNS A CAPTURE INTO A BLOB, and absent is the whole of what "no tag"
+  means.** `capture`'s `tag` is optional and takes the ordinary charset wall
+  (`tagText`, refused with the rest of the request's SHAPE, since a word that is
+  not a tag is not a tag for any tree), so past `wantsText` the field is either
+  absent or a real tag and `captureInto` is one `maybe` with nothing to strip or
+  test. Absent files into `#+GLANCE_CAPTURE_TARGET:`'s inbox exactly as it always
+  did; present writes a new blob in the SERVED root's own `.org-glance`, and a
+  tree that keeps no store is a 400 naming the directory rather than a daemon
+  deciding a tree is an org-glance store by making one. Evidence: `TestServe`
+  "POST /command capture, under a tag". **test + live**
+- **A BLOB IS ORG-GLANCE'S LAYOUT, VERIFIED AGAINST ITS SOURCE AND THIS CORPUS**
+  (2026-08-04). `Data.Org.Blob.mintBlobId` is `org-id-uuid`'s own form — a random
+  version-4 UUID, 36 characters, lowercase, `8-4-4-4-12`, the version and variant
+  nibbles stamped whatever the bytes say — and `blobPathIn` shards it the way
+  `org-glance-graph:headline-data-path` does: the FIRST TWO CHARACTERS of the
+  WHOLE id, verbatim and UNFOLDED, with the entire remainder as the next
+  component, then `data.org`. An id of two characters or fewer is not sharded at
+  all, which is the case `Data.Org.Walk.isOccurrence` already leaves its depth
+  open for. READING an id is a different question from writing one: ~/sync's 6073
+  blobs carry four superseded generations (`Article-20210511-<md5>`,
+  `<tag>-<time>-<md5>`, `<tag>-<md5>`, 128-char hex) beside 45 modern UUIDs, and
+  the store's own shard directories spell `Pa`, `Pe` and `al` side by side — so an
+  `ORG_GLANCE_ID` is an OPAQUE STRING everywhere it is read and this module only
+  ever mints the current form. `Data.Org.Blob` is a module rather than three
+  functions in `Data.Org.Walk` because Walk CLASSIFIES a path that is there and
+  this CONSTRUCTS one; it imports Walk's three layout names rather than respelling
+  them, and keeping the mint out of Walk keeps `Crypto.Random.Entropy` and an `IO`
+  off the walk's hot path. Evidence: `TestQuery` "Where a blob sits", "The id it
+  is keyed by". **test + corpus**
+- **No reservation, and the WRITE is the collision check.** org-glance mints by
+  rejection against the directory it then creates; this side writes under the
+  EMPTY digest, which creates the file and the directories over it and DRIFTS
+  rather than overwrites should anything already sit there. 122 random bits make
+  the question unreachable either way. The id is minted before the last refusal
+  on purpose: nothing reserves anything, so an id that is not written is an id
+  nobody ever sees. **test**
+- **The `EXTERNAL.jsonl` note costs the capture nothing, because a blob write is
+  a blob write.** `data.org` under a store's `data/` is `Data.Org.Walk.isBlob`,
+  so `Glance.Query.replaceSpans` appends the line on its way out exactly as it
+  does for a browser edit of an existing blob — blob first, line second, which is
+  the order the cross-repo contract asks for (`Data.Org.External`). A capture
+  therefore adds no rule to that door and cannot come to disagree with it.
+  Evidence: `TestServe` "and one EXTERNAL.jsonl line naming it". **test + live**
+- **`blobDocument` composes the blob out of the EXPANDED template, and its two
+  rules are the command layer's own one grain lower.** The tag goes on through
+  `addTagEditsIn` — the very function `add-tag` runs, factored out of
+  `addTagEdits` so the insertion point cannot come to differ between a capture and
+  a command — and a headline already spelling the tag costs no edit. The drawer
+  joins an existing `:PROPERTIES:` block under its OWN indentation and is written
+  whole under the PLANNING LINE otherwise: measured from the title line instead it
+  splices BETWEEN a headline and its `SCHEDULED:`, where the planning line is no
+  longer the line after the title and stops being read as one at all. Both
+  properties are written whatever the template said, since a template spelling
+  `ORG_GLANCE_ID` would be claiming an identity the store hands out. A template
+  that expands to no headline is refused rather than written — the blob would
+  carry no entry, so the id would name nothing and `Data.Org.External.blobIdOf`
+  would read none back out of it. Evidence: `TestQuery` "The blob a tagged capture
+  composes". **test**
+- **A TAG'S CAPTURE TEMPLATE IS ITS CONFIG LAYER'S FIRST HEADING, and no new file
+  class.** The file that carries a tag's `#+TODO:` cycle carries its template
+  too, which is org-glance's own convention; `captureTemplateSpan` reads it the
+  way `org-glance-tag-config--entry` reads it — from the first `^\*+ ` LINE to
+  the END of the file, right-trimmed — rather than as the outline extent, so
+  ~/sync's own `book.org` (`* Book` over `*** Notes`) is ONE template. Everything
+  ABOVE that heading is the file's pragmas and comments, which the `#+TODO:`
+  splice and the two settings lines own between them, so the regions of a config
+  file cannot overlap. Resolution is `captureTemplateIn`: the tag's own layer (the
+  FIRST file configuring it, `clTags`' rule), then the system layer's
+  (`systemSetting`'s), then `bareTemplate` = `* %?` — a CONSTANT rather than a
+  branch, so a tag with no config, a tag whose config has no heading and a tag
+  spelling a template all take ONE path through `expandTemplate`. Read at capture
+  time through the same `readConfigLayers` `GET /config` uses, so what a settings
+  sheet shows is what a capture expands. Evidence: `TestQuery` "Where a template
+  lives". **test**
+- **ONE HEADING PREDICATE for the reader and the writer.** `headingStars` is
+  org-glance's `^\*+ ` — a star run and then HORIZONTAL SPACE, so a bare star run
+  is body text here where the PARSER reads it as an empty headline — and both
+  `headingAt` (where a template starts) and `topEntry` (what a template may be)
+  ask it. With two predicates the sheet was handed a `** Notes` template it would
+  then refuse to write back, and a bare `*` could be written and never read again.
+  The one-star wall is the writer's alone and is what keeps a blob's first
+  headline the entry org-glance keys it by. Evidence: `TestQuery` "Editing a
+  template". **test**
+- **THE EXPANSION SUBSET IS ONE LIST AND ONE GRAMMAR.** `captureCodes` is the
+  four codes with a line of meaning each — `%?`, `%U`, `%T`, `%^{PROMPT}` — and
+  `templateParts` is the left-to-right scan that reads them; `templatePrompts`
+  (what a template will ask, in order, one spelled twice asked once) and
+  `expandTemplate` are two answers off that one scan. **EVERYTHING ELSE COPIES
+  THROUGH**: `%^` with no brace, an unclosed `%^{`, `%a`, a trailing `%` are all
+  text and the scan goes on past them, so no template is unreadable and a code
+  this server has never heard of is captured literally — honest, visible, and
+  refusable later where a silent drop would not be. Two refusals, both the WHOLE
+  request's: a template with no `%?` has nowhere for the line to go, and an ask
+  nobody answered would write an entry with a hole in it. The clock is read once
+  per request, so a template spelling `%U` twice stamps one moment. **KNOWN
+  DIVERGENCE from org-glance**, deliberate and named: its own renderer
+  additionally rewrites the template heading's TITLE from the capture's title, so
+  a corpus template whose heading carries a placeholder (`* Book`) keeps it here
+  and the typed line lands at `%?`. Evidence: `TestQuery` "The expansion subset",
+  "What a template cannot do". **test + corpus**
+- **`GET /capture[?tag=NAME]` is what a client reads before it can ASK anything.**
+  `{template, prompts, tags, codes}` — whether a layer configures one, its
+  `%^{PROMPT}` asks IN TEMPLATE ORDER, the tree's whole tag vocabulary for the tag
+  prompt to complete over, and the expansion subset with its meanings. With NO tag
+  it is the untagged path's own shape (no template, no prompts): the inbox capture
+  stays bare on purpose, so there is nothing to resolve and the answer says so
+  rather than being a refusal. `tags` is here rather than on `/tags` because that
+  route answers about ROWS a caller names and a capture names none. A read, so
+  POST is 405 and it needs a loaded store. Evidence: `TestServe` "GET /capture".
+  **test**
+- **The capture template is a REGION of a config layer and rides in its ONE
+  write.** `configEdits` takes `ConfigParts` — a record rather than three
+  positional `Maybe Text`, since all three have the same type and a caller
+  swapping two would compile — and each of its three is three-valued the same way:
+  absent leaves that part, empty takes it off, anything else writes it. `filter`
+  and `capture` are the SYSTEM layer's alone and `writeLayer` scopes them; the
+  template is EVERY layer's, which is the whole point of it being one. The client
+  names a part only where it MOVED: sending the template unconditionally put every
+  layer's own first heading back through the one-top-entry wall on every write, so
+  a file whose heading is deeper than one could no longer have its cycle edited at
+  all. Evidence: `TestServe` "each layer's capture template is served verbatim",
+  "and written back in the same call as the block". **test**
 - **The creation stamp is org-glance's own property, in org's INACTIVE form.**
   `:ORG_GLANCE_CREATION_TIME: [YYYY-MM-DD Day HH:MM]`, on the server's clock and
   in its zone, at column 1 like the stars. Inactive because a creation time is a
@@ -2901,6 +3042,35 @@ on.
   line whole; the two chords send it as `date`, where an EMPTY line is the null
   that clears the entry, so the key that sets a date is the key that takes one
   off. Evidence: `TestServe` "Shell capture and reschedule". **test**
+- **`+` IS A CHAIN OF PROMPTS, and ESC anywhere ends it with nothing sent.**
+  Which tag first (`askFrom` over the tree's vocabulary, `*empty*` LEADING the
+  list so an immediate RET is the untagged inbox path exactly as it was, and a
+  name of one's own committable through `freely` since the charset wall is the
+  server's), then one field per `%^{PROMPT}` the tag's template asks in the order
+  the server named them, then the line. Abandoning a step is the ABSENCE of
+  machinery rather than a rule: each step raises the next from its own commit, so
+  a step nobody committed never calls the one behind it. The page holds no
+  template grammar — what it asks is what `/capture?tag=` said to ask. `askOn` is
+  the one thing the chain owes: a prompt raised from inside another prompt's
+  commit clears the raising guard, since the press that committed has already
+  been handled by the surface it came from and the guard would decline the
+  reader's NEXT key (`askFrom`'s own rule). Evidence: `TestServe` "+ asks which
+  tag first", "a tag's template asks its prompts, one field at a time", the three
+  ESC cases. **test**
+- **A capture SAYS WHERE POINT IS OWED, and `arriving`/`arrived()` is `leaving`'s
+  mirror.** The answer names the row the write made, the shell keeps it as a
+  one-shot, and the same three doors that spend the archive's anchor spend this
+  one: the filtered refetch, the unfiltered splice, and a reconnect's repaint.
+  It is `land`'s ordinary rule asked ONLY where there is something to land on — a
+  filter that hides the new row, a page it is not on, or a watch step that has
+  not delivered it yet all leave point exactly where it stands, since `land`
+  falls through to an INDEX and there is no honest index to fall to here. Both
+  anchors are dropped by a commit and by a remount, for one reason: an anchor
+  belongs to its view. KNOWN LIMIT, inherited rather than introduced: it is spent
+  at the FIRST door, so an unrelated watch step landing between the capture's 200
+  and the delivery spends it and the cursor does not move — which is also what
+  the fsnotify gap above costs a tagged capture every time. Evidence: `TestServe`
+  "the captured row is where point lands when it arrives". **test**
 - **The reschedule chords survive the browser, and `C-c C-t` still does not.**
   `Ctrl+S` and `Ctrl+D` are page DEFAULT ACTIONS — save-page and bookmark — so
   `preventDefault` on the completing chord reaches them, exactly as it does for
