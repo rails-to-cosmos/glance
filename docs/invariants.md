@@ -673,9 +673,11 @@ on.
   "GET and POST /config" and "the served page carries the tree's default view".
   **test**
 - **Both tree-wide lines ride in the layer's own write.** `POST /config` takes an
-  optional `filter` and an optional `capture` beside `lines` and splices all
-  three in ONE `configEdits` call under ONE digest, because they are lines of one
-  file: three requests would be three writes and each would drift against a
+  optional `filter`, an optional `capture` and an optional `template` beside
+  `lines` and splices all
+  four in ONE `configEdits` call under ONE digest, because they are regions of
+  one
+  file: four requests would be four writes and each would drift against a
   digest the one before it had just invalidated. Absent leaves a line exactly as
   it is, empty takes it away (which is the tree going back to the built-in view,
   and to `inbox.org`), and anything else writes it. Three absent pragmas insert
@@ -784,6 +786,12 @@ on.
   function so a test can turn it, and it takes the ripe paths out in the
   transaction before settling them, so a nudge arriving mid-parse waits a turn
   rather than being lost.
+
+  A TURN WITH NOTHING RIPE WRITES THE TVar NOTHING, and that is a contention
+  guard rather than tidiness: the loop takes 40 turns a second and request
+  threads now write the same var, so an unconditional `writeTVar` of the map it
+  had just read would dirty it 40 times a second and make every concurrent
+  `nudge` retry for no reason.
 
   Evidence: `TestStore` "Nudge" (the door filters, coalesces, writes no store
   and streams nothing; a nudged path that fails to load keeps its rows),
@@ -1354,8 +1362,9 @@ on.
 
   ONE DOOR. The note is taken in `Glance.Query.replaceSpans` and nowhere else,
   because that is the one function every write in this program leaves through —
-  a structured command, a materialize commit, a capture and a config edit are
-  four callers of it, and `Data.Org.Edit.editFile` has no other caller. So a
+  the FIVE write sites (`captureInbox`, `captureBlob`, `writeOne`, `commit`,
+  `writeLayer`) reach it through `Glance.Web.Watch.writeSpans`, which adds the
+  nudge and nothing else, and `Data.Org.Edit.editFile` has no other caller. So a
   command over several rows of ONE blob is one `editFile` and therefore one
   line: the id names the entry rather than the edit. It costs one parse of the text
   just written, and it cannot fail the write — by the time it runs the rename
@@ -1380,10 +1389,12 @@ on.
   append-only including the concurrent case, and the three write routes.
   **test**
 - **The command layer is one route, and its unit of work is a FILE.**
-  `POST /command` takes `{name, id | ids, args, digests?}` and implements eight
+  `POST /command` takes `{name, id | ids, args, digests?}` and implements ten
   names — `set-state {"keyword": KW | null}`,
   `set-planning {"keyword": "SCHEDULED" | "DEADLINE", "date": TEXT | null}`,
-  `archive {}`, `capture {"text": …}`, `add-tag {"tag": …}`,
+  `set-title {"title": …}`, `set-priority {"priority": LETTER | null}`,
+  `archive {}`, `capture {"text": …, "tag": … | absent, "fields": {…} | absent}`,
+  `add-tag {"tag": …}`,
   `remove-tag {"tag": …}`, `rename-tag {"from": …, "to": …}` and
   `edit-link {"span": [S, E], "target": …, "desc": … | null}`. The ids it is
   given are grouped by the file their rows came from, and each file is written
@@ -1518,8 +1529,10 @@ on.
   another after it is a trap for whoever reads it next. **test**
 - **`capture` is the one command that names no rows, and the one whose target
   comes out of the config.** Every other name here edits a headline a client can
-  point at; this one MAKES one, so the rule that a command names rows is written
-  around it (`rowlessCommand`) rather than relaxed for everything. The answer is
+  point at; this one MAKES one, and the mechanism is the command table's own
+  `csEdits :: Maybe RowEdits` — `runCommand` destructures that `Maybe` ONCE and
+  hands the edits themselves down, so nothing below it has an arm for a command
+  that edits no row and the rows-are-named rule is never relaxed. The answer is
   its own shape, `{ok, file, digest, id}`, since there is no per-id result to
   give — and `id` is the row it MADE, which is what the cursor lands on.
   The entry is `* <text>` and a drawer holding `:ORG_GLANCE_CREATION_TIME:`
@@ -1527,9 +1540,15 @@ on.
   stays where it was; a target whose last line has no newline gets one first, or
   the stars would land on a live line and be no headline at all. The text is raw
   org, written as spelled — `TODO Buy milk :errands:` captures a keyword, a title
-  and a tag — and is refused when it is empty or carries a newline, either of
-  which makes the entry something other than the ONE headline the command
-  promises. Evidence: `TestQuery` "capture", `TestServe` "POST /command capture".
+  and a tag — and it takes the ONE-HEADLINE WALL, which is BOTH capture paths'
+  (`Glance.Query.captureText`, over `oneLine`): empty after stripping, or
+  carrying a newline, is refused, either of which makes the entry something other
+  than the one headline the command promises. Under a TAG that wall covers every
+  `fields` answer too — the line lands at the template's `%?` and an answer at a
+  `%^{PROMPT}`, both spliced into ONE document, so a newline in either lands a
+  column-1 star the parser reads as a second entry and a blob would hold two.
+  A refusal there is the whole request's 400 naming the field, with nothing
+  written. Evidence: `TestQuery` "capture", `TestServe` "POST /command capture".
   **test + live**
 - **A TAG TURNS A CAPTURE INTO A BLOB, and absent is the whole of what "no tag"
   means.** `capture`'s `tag` is optional and takes the ordinary charset wall
@@ -1539,8 +1558,12 @@ on.
   test. Absent files into `#+GLANCE_CAPTURE_TARGET:`'s inbox exactly as it always
   did; present writes a new blob in the SERVED root's own `.org-glance`, and a
   tree that keeps no store is a 400 naming the directory rather than a daemon
-  deciding a tree is an org-glance store by making one. Evidence: `TestServe`
-  "POST /command capture, under a tag". **test + live**
+  deciding a tree is an org-glance store by making one. THE REFUSALS ARE
+  ORDERED, coarsest first and every one of them ahead of a byte: the store
+  directory (the one answer that does not depend on what the reader typed), then
+  the line and every `fields` answer against the one-headline wall, then the
+  expansion's two, then a template that expands to no headline. Evidence:
+  `TestServe` "POST /command capture, under a tag". **test + live**
 - **A BLOB IS ORG-GLANCE'S LAYOUT, VERIFIED AGAINST ITS SOURCE AND THIS CORPUS**
   (2026-08-04). `Data.Org.Blob.mintBlobId` is `org-id-uuid`'s own form — a random
   version-4 UUID, 36 characters, lowercase, `8-4-4-4-12`, the version and variant
@@ -1558,7 +1581,10 @@ on.
   functions in `Data.Org.Walk` because Walk CLASSIFIES a path that is there and
   this CONSTRUCTS one; it imports Walk's three layout names rather than respelling
   them, and keeping the mint out of Walk keeps `Crypto.Random.Entropy` and an `IO`
-  off the walk's hot path. Evidence: `TestQuery` "Where a blob sits", "The id it
+  off the walk's hot path. `uuidFrom` is TOTAL on a short byte string — it pads
+  to sixteen with zeros rather than answering a string of the wrong length — so
+  the shape is a pure function of the bytes and the suite pins it without a
+  running entropy source. Evidence: `TestQuery` "Where a blob sits", "The id it
   is keyed by". **test + corpus**
 - **No reservation, and the WRITE is the collision check.** org-glance mints by
   rejection against the directory it then creates; this side writes under the
@@ -1575,7 +1601,11 @@ on.
   therefore adds no rule to that door and cannot come to disagree with it.
   Evidence: `TestServe` "and one EXTERNAL.jsonl line naming it". **test + live**
 - **`blobDocument` composes the blob out of the EXPANDED template, and its two
-  rules are the command layer's own one grain lower.** The tag goes on through
+  rules are the command layer's own one grain lower.** IT ENDS THE TEXT FIRST AND
+  MEASURES AFTERWARDS: a template is stored right-trimmed, so a title line with
+  no newline of its own would take the drawer onto the end of itself, and every
+  offset below is measured in the text that actually gets written. The tag goes
+  on through
   `addTagEditsIn` — the very function `add-tag` runs, factored out of
   `addTagEdits` so the insertion point cannot come to differ between a capture and
   a command — and a headline already spelling the tag costs no edit. The drawer
@@ -1597,8 +1627,11 @@ on.
   ~/sync's own `book.org` (`* Book` over `*** Notes`) is ONE template. Everything
   ABOVE that heading is the file's pragmas and comments, which the `#+TODO:`
   splice and the two settings lines own between them, so the regions of a config
-  file cannot overlap. Resolution is `captureTemplateIn`: the tag's own layer (the
-  FIRST file configuring it, `clTags`' rule), then the system layer's
+  file cannot overlap. Resolution is `captureTemplateIn`, which FOLDS THE TAG while the
+  headline wears it VERBATIM: config file names are lowercase (`clTags`' own
+  rule), so `:Book:` and `:book:` reach one template while the entry keeps the
+  spelling the request asked for. The chain is the tag's own layer (the
+  FIRST file configuring it), then the system layer's
   (`systemSetting`'s), then `bareTemplate` = `* %?` — a CONSTANT rather than a
   branch, so a tag with no config, a tag whose config has no heading and a tag
   spelling a template all take ONE path through `expandTemplate`. Read at capture
@@ -1614,9 +1647,16 @@ on.
   The one-star wall is the writer's alone and is what keeps a blob's first
   headline the entry org-glance keys it by. Evidence: `TestQuery` "Editing a
   template". **test**
-- **THE EXPANSION SUBSET IS ONE LIST AND ONE GRAMMAR.** `captureCodes` is the
-  four codes with a line of meaning each — `%?`, `%U`, `%T`, `%^{PROMPT}` — and
-  `templateParts` is the left-to-right scan that reads them; `templatePrompts`
+- **THE EXPANSION SUBSET IS ONE LIST AND ONE SCAN, AND THEY ARE TWO SPELLINGS.**
+  `captureCodes` is the
+  four codes with a line of meaning each — `%?`, `%U`, `%T`, `%^{PROMPT}` — and it
+  is the CONTRACT's window: `GET /capture` serves it and the settings box
+  completes over it. `templateParts` is the left-to-right scan, and it never
+  consults the list: it spells the same four out as a case. So the two are kept
+  in step by a case that puts every advertised code THROUGH the scan (`TestQuery`
+  "every advertised code is one the scan expands") — a code the list gained alone
+  would be offered to a reader as an expansion and written as its own text.
+  `templatePrompts`
   (what a template will ask, in order, one spelled twice asked once) and
   `expandTemplate` are two answers off that one scan. **EVERYTHING ELSE COPIES
   THROUGH**: `%^` with no brace, an unclosed `%^{`, `%a`, a trailing `%` are all
@@ -1625,7 +1665,10 @@ on.
   refusable later where a silent drop would not be. Two refusals, both the WHOLE
   request's: a template with no `%?` has nowhere for the line to go, and an ask
   nobody answered would write an entry with a hole in it. The clock is read once
-  per request, so a template spelling `%U` twice stamps one moment. **KNOWN
+  per request AND covers BOTH stamps a capture writes — one `getZonedTime` is
+  handed to `expandTemplate` for `%U`/`%T` and to `captureStamp` for the drawer,
+  so a template naming the moment and the creation time it is filed under can
+  never name two. **KNOWN
   DIVERGENCE from org-glance**, deliberate and named: its own renderer
   additionally rewrites the template heading's TITLE from the capture's title, so
   a corpus template whose heading carries a placeholder (`* Book`) keeps it here
@@ -1711,13 +1754,18 @@ on.
   parser's own rule (Parser, "Timestamps") reached from the writing side. Two
   hand-rolled renderers twenty lines apart is how a creation stamp and a planning
   entry come to disagree about a shape org fixed. **test**
-- **A written line ends the way the file's own lines do.** `captureEdits` and
-  `setPlanningEdits`' grown planning line both take their line ending from
-  `eolOf`, so a capture into a CRLF file leaves a CRLF file rather than one with
-  two kinds of line in it. The lens already did this for a drawer and a planning
-  line it rewrites (`drawerStyle`, `planningStyle`); the commands now do it for
-  the ones they add. **test** (`TestQuery` "into a CRLF file, the entry is CRLF
-  too")
+- **A written line ends the way the file's own lines do.** `captureEdits`,
+  `setPlanningEdits`' grown planning line and `pragmaLineEdits`' `#+TODO:` block
+  all take their line ending from `eolOf`, so a write into a CRLF file leaves a
+  CRLF file rather than one with two kinds of line in it. The lens already did
+  this for a drawer and a planning line it rewrites (`drawerStyle`,
+  `planningStyle`). The config splice was the one that did NOT: it wrote the
+  block and the opening a header-only file owes with `\n` whatever the file
+  used, so one settings write left `system.org` speaking two conventions with the
+  line the reader had just typed the odd one out. `eolOf` and `openingFor` are
+  `Data.Org.Edit`'s now, beside the line splitting they are the other half of.
+  **test** (`TestQuery` "into a CRLF file, the entry is CRLF too"; `TestConfig`
+  "a CRLF layer keeps its own line endings")
 - **Archiving IS adding one tag, so there is one insertion rule.**
   `archiveEdits = addTagEdits archiveTag`, and `addTagEdits` is the whole of the
   placement: `TAG:` at `spanEnd hsTags` where the headline has a run — the span

@@ -141,8 +141,10 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   (`isBlob` — `data.org` in the canonical store; documents, config, overviews,
   occurrences note nothing) appends `{"id","at"}` to `meta/EXTERNAL.jsonl` —
   the blob's FIRST headline's `ORG_GLANCE_ID`, no id no line, one `editFile` one
-  line. The note rides `replaceSpans`' success branch (the one door all four
-  write paths leave through; `Data.Org.External` owns format/path/append, by
+  line. The note rides `replaceSpans`' success branch, which the five write
+  sites reach through `Watch.writeSpans` — `captureInbox`, `captureBlob`,
+  `writeOne`, `commit` and `writeLayer` (`Data.Org.External` owns
+  format/path/append, by
   `openFd` append + one `fdWriteBuf` — `BS.appendFile` measurably LOSES lines
   under concurrency). The daemon appends only, never truncates, never touches
   another `meta/` file. Emacs's `org-glance-graph:refresh-external` adopts each
@@ -331,8 +333,14 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   leading edge: a path taking events faster than every 100 ms is deferred for
   as long as that lasts.
 - THE DRAIN LOOP IS SERIAL, and that is the correctness argument for reseed.
-  `Watch.settle` is ONE `forever` loop, so nothing else is settling while a step
-  runs. `reseed` builds the fresh store OUTSIDE the transaction and `reseeded`
+  ONE `forever` of `drain`, whose body is `settle`, so nothing else is settling
+  while a step runs. `drain` is the loop's body lifted into a function — that is
+  what lets a test turn it — and it takes the ripe paths OUT in the transaction
+  before settling them, so a nudge arriving mid-parse waits a turn rather than
+  being lost. A TURN WITH NOTHING RIPE WRITES THE TVar NOTHING: the loop takes
+  40 turns a second and request threads write the same var, so an unconditional
+  `writeTVar` of the map it just read would dirty it 40 times a second and make
+  a concurrent `nudge` retry for no reason. `reseed` builds the fresh store OUTSIDE the transaction and `reseeded`
   installs it wholesale, discarding the live store's rows — sound only because
   the events queued during that walk are re-drained afterwards. Make the loop
   concurrent, which is the obvious fix for the stall below, and any edit that
@@ -439,7 +447,8 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   entries: `set-state {keyword: KW | null}`, `set-planning {keyword:
   SCHEDULED|DEADLINE, date: TEXT | null}`, `set-title {title}`,
   `set-priority {priority: LETTER | null}`, `archive {}`,
-  `capture {text}`, `add-tag {tag}`, `remove-tag {tag}`, `rename-tag {from, to}`
+  `capture {text, tag?, fields?}`, `add-tag {tag}`, `remove-tag {tag}`,
+  `rename-tag {from, to}`
   and `edit-link {span: [S, E], target, desc: TEXT | null}`.
   `rename-tag` names both ends rather than reusing `tag` for one of them, and it
   is a command rather than a remove and an add a client fires in turn: those two
@@ -498,8 +507,13 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   target's own digest (the store's where it holds the file, else a fresh
   `currentDocument` read, which is `Data.Org.Edit.readDocument` under the
   absent-file convention and answers `("","")` for a file that is not there, so
-  the capture creates it under the empty pin). The text is raw org, refused when
-  empty or carrying a newline: a captured entry is ONE headline. Both stamps —
+  the capture creates it under the empty pin). The text is raw org.
+  THE ONE-HEADLINE WALL IS BOTH PATHS' (`Glance.Query.captureText`, over
+  `oneLine`): the line is refused empty-after-strip or carrying a newline, and
+  under a TAG so is every `fields` answer — the line goes to the template's `%?`
+  and an answer to a `%^{PROMPT}`, both spliced into ONE document, where a
+  newline lands a column-1 star the parser reads as a second entry. A refusal is
+  the whole request's 400 naming the field, with nothing written. Both stamps —
   the creation time and a planning timestamp — are rendered by one `orgStamp`,
   which differ only in their brackets and both compute the weekday. The `id` is
   `rowIdIn path K` with K the count of `recordsUnder` — the store's rows for that
@@ -518,20 +532,34 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   alike, so an `ORG_GLANCE_ID` is an OPAQUE STRING everywhere it is read.
   `Data.Org.Blob` is a module because Walk CLASSIFIES a path that is there and
   this CONSTRUCTS one; it imports Walk's three layout names, and keeping the mint
-  out of Walk keeps crypto and IO off the walk's hot path. NO RESERVATION — the
+  out of Walk keeps crypto and IO off the walk's hot path. `uuidFrom` is TOTAL
+  on a short byte string — it pads to sixteen with zeros rather than answering a
+  string of the wrong length — so the shape is a function of the bytes and a
+  test can pin it without a running entropy source. NO RESERVATION — the
   write goes out under the EMPTY digest, so a path that already holds a file
   DRIFTS rather than being overwritten, and an id that is not written is one
   nobody sees. The `EXTERNAL.jsonl` line costs nothing: `data.org` under a store's
   `data/` is `isBlob`, so `replaceSpans` appends it on the way out as for any
   other blob write — blob first, line second, the order the contract asks for.
-  `blobDocument` composes the blob out of the EXPANDED template and its two rules
+  `blobDocument` ENDS THE TEXT FIRST and measures afterwards: a template is
+  stored right-trimmed, so a title line with no newline of its own would take the
+  drawer onto the end of itself, and every offset below is measured in the text
+  that gets written. It composes the blob out of the EXPANDED template and its
+  two rules
   are the command layer's own: the tag through `addTagEditsIn` (the very function
   `add-tag` runs, factored out of `addTagEdits`), and the drawer joining an
   existing `:PROPERTIES:` under its OWN indentation else written whole under the
   PLANNING LINE — from the title line instead it splices BETWEEN a headline and
   its `SCHEDULED:`, where the planning line stops being read as one. A template
   that expands to no headline is refused: the blob would carry no entry and
-  `blobIdOf` would read no id back out of it. The blob's shard is unwatched for
+  `blobIdOf` would read no id back out of it. THE REFUSALS ARE ORDERED, coarsest
+  first and all of them ahead of a byte: the store directory, then the line and
+  every `fields` answer against the one-headline wall (`captureText`), then the
+  expansion's own two, then a template that expands to no headline. ONE CLOCK
+  READ covers BOTH stamps — `Time.getZonedTime` once per request, handed to
+  `expandTemplate` for `%U`/`%T` and to `captureStamp` for the drawer — so a
+  template spelling a stamp and the creation time it is filed under name one
+  moment. The blob's shard is unwatched for
   the daemon's life, so the capture AND every later write to that row reach the
   table only because every write nudges its own path (see Watch) — which is what
   the shell's `arriving` lands on.
@@ -542,8 +570,11 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   outline extent — so ~/sync's `book.org` (`* Book` over `*** Notes`) is ONE
   template. Everything ABOVE that heading is the pragmas and comments the
   `#+TODO:` splice and the two settings lines own, so the regions cannot overlap.
-  `captureTemplateIn`: the tag's own layer (the FIRST configuring it, `clTags`'
-  rule), then the system layer's (`systemSetting`'s), then `bareTemplate` = `*
+  `captureTemplateIn` FOLDS THE TAG to find the layer and the HEADLINE wears it
+  verbatim: config file names are lowercase (`clTags`' own rule), so `:Book:` and
+  `:book:` reach one template while the entry keeps the spelling the request
+  asked for. The chain is the tag's own layer (the FIRST configuring it), then
+  the system layer's (`systemSetting`'s), then `bareTemplate` = `*
   %?` — a CONSTANT rather than a branch, so every case takes ONE path through
   `expandTemplate`. Read at capture time through the same `readConfigLayers`
   `/config` uses, so what the settings sheet shows is what a capture expands.
@@ -553,9 +584,13 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   WRITER's alone and keeps a blob's first headline the entry org-glance keys it
   by. With two predicates the sheet was handed a `** Notes` template it would
   then refuse to write back.
-- THE EXPANSION SUBSET IS ONE LIST AND ONE GRAMMAR. `captureCodes` is `%?`, `%U`,
-  `%T` and `%^{PROMPT}` with a line of meaning each; `templateParts` is the
-  left-to-right scan, and `templatePrompts` (the asks in order, one spelled twice
+- THE EXPANSION SUBSET IS ONE LIST AND ONE SCAN, and they are TWO SPELLINGS.
+  `captureCodes` is `%?`, `%U`, `%T` and `%^{PROMPT}` with a line of meaning each
+  — what `GET /capture` serves and the settings box completes over; the scan
+  (`templateParts`) spells the same four out as a case and never consults the
+  list, so a `TestQuery` case puts every advertised code through the scan and a
+  code the list gained alone would come back as its own text.
+  `templatePrompts` (the asks in order, one spelled twice
   asked once) and `expandTemplate` are two answers off that one scan. EVERYTHING
   ELSE COPIES THROUGH — `%^` with no brace, an unclosed `%^{`, `%a`, a trailing
   `%` — so no template is unreadable and an unknown code is captured literally.
@@ -2271,8 +2306,8 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   deletes). The reader folds the key and the writer renders it, off one
   `settingPragma`, so a fold that drifted from a render can no longer rewrite a
   line nothing reads. Carried by `clFilter` and `clCapture`, and spliced in the
-  SAME `configEdits` call as the block, since three writes would be three
-  digests. A tag layer names neither. The settings sheet edits them as two
+  SAME `configEdits` call as the block — with the layer's TEMPLATE, so four
+  regions of one file ride one write, since four writes would be four digests. A tag layer names neither. The settings sheet edits them as two
   fields under the system layer. `Config.systemSetting` is the ONE "first system
   layer that names one" fold, over the `ConfigLayerFile` list `readConfigLayers`
   returns, and both the load and the settings route call it.
