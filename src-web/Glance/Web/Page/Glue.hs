@@ -6,11 +6,12 @@
 -- (docs\/invariants.md).
 module Glance.Web.Page.Glue (shellGlue) where
 
+import Data.Aeson (Value, object, (.=))
 import Data.Text (Text)
 
 import qualified Data.Text as T
 
-import Glance.Query (followableTypes, linkColumns, planningKeywords, tagColumns)
+import Glance.Query (captureCodes, followableTypes, linkColumns, planningKeywords, tagColumns)
 import Glance.Web.Base (jsonValue, logLinesDefault, logLinesMax, logLinesMin)
 
 -- | The shell's @\<script\>@ element, WANTED being the tree's default view.
@@ -411,10 +412,8 @@ shellGlue wanted =
     -- rows on screen.  Keyed by the token, so one map answers both readers —
     -- `chipLabel' aliasing the live chip, and the crumb a further drill leaves.
   , "    let crumbLabels = {};"
-  , "    const crumbing = () => !!table && typeof table.pushCrumb === \"function\""
-  , "      && typeof table.popCrumb === \"function\""
-  , "      && typeof table.getCrumbs === \"function\""
-  , "      && typeof table.setCrumbs === \"function\";"
+  , "    const crumbing = () => can(table, \"pushCrumb\") && can(table, \"popCrumb\")"
+  , "      && can(table, \"getCrumbs\") && can(table, \"setCrumbs\");"
   , "    const trail = () => (crumbing() ? table.getCrumbs() : []);"
     -- The selection each crumb was pushed FROM, one entry per crumb.  It rides
     -- BESIDE the trail rather than inside it, the renderer's `crumbOf' keeping a
@@ -439,7 +438,7 @@ shellGlue wanted =
     -- from the next press of itself.  After a REMOUNT there is no column to keep
     -- and `column()' answers null, the whole-row look this landed on before.
   , "    function land(sel, back) {"
-  , "      if (!table || typeof table.select !== \"function\") return;"
+  , "      if (!can(table, \"select\")) return;"
   , "      const rows = visible();"
   , "      if (!rows.length) return;"
   , "      if (sel && sel.id"
@@ -532,11 +531,9 @@ shellGlue wanted =
   , "    // chips showing it: a shell-side strip would leave them on screen"
   , "    // spelling a filter that is no longer applied.  An asset too old to"
   , "    // have the pair says so rather than growing a second implementation."
-  , "    const strips = () => table && typeof table.stripLastToken === \"function\""
-  , "      && typeof table.getQuery === \"function\";"
+  , "    const strips = () => can(table, \"stripLastToken\") && can(table, \"getQuery\");"
   , "    // Whether the mounted renderer is carrying Q as its own query."
-  , "    const holds = (q) => typeof table.getQuery === \"function\""
-  , "      && table.getQuery() === q;"
+  , "    const holds = (q) => can(table, \"getQuery\") && table.getQuery() === q;"
   , "    // The renderer's filter field, wherever its mode puts it: the palette's"
   , "    // input in palette mode, the resident box in an asset predating one."
   , "    // Named once, since three callers want it and none of them may reach"
@@ -1272,9 +1269,7 @@ shellGlue wanted =
   , "    function cycleHere(step) {"
   , "      const b = docBinding(step > 0 ? \"priority-up\" : \"priority-down\","
   , "                           step > 0 ? \"S-<up>\" : \"S-<down>\");"
-  , "      const cell = String((editing.cells || {}).priority || \"\").trim();"
-  , "      const m = /^\\[#(.)\\]$/.exec(cell);"
-  , "      const want = cycled(m ? m[1].toUpperCase() : null, step);"
+  , "      const want = cycled(priorityIn((editing.cells || {}).priority), step);"
   , "      fire(b, \"set-priority\", [editing.id], { priority: want },"
   , "           want ? `[#${want}]` : EMPTY);"
   , "    }"
@@ -1289,28 +1284,37 @@ shellGlue wanted =
     -- server's own `parent', null being the row — and lands the cursor back on
     -- the child it came out of.  At the top there is nothing above the row, so
     -- the key is the sheet's door.
+    -- A RE-MATERIALIZE of the sheet's own row under CHILD, with K run over the
+    -- entry it was standing on and the fresh answer.  Four presses ask for one
+    -- (`DEL' up, `RET' into a child, the re-read a commit lands on, and `C-c \''
+    -- swapping the shape) and each owes the SAME two guards: the sheet may have
+    -- moved on while the read was out, in which case the answer is dropped, and
+    -- a read that never came back is the sheet's own `stuck'.
+  , "    function reread(child, k) {"
+  , "      if (!editing) return;"
+  , "      const h = editing;"
+  , "      headline(h.id, child).then((fresh) => { if (editing === h) k(h, fresh); })"
+  , "        .catch((e) => stuck(subtreeSheet, e.message));"
+  , "    }"
   , "    function docUp() {"
   , "      if (!editing) return;"
   , "      if (editing.child === null) { leaveSheet(); return; }"
-  , "      const h = editing, up = h.parent;"
-  , "      headline(h.id, up === null ? undefined : up).then((fresh) => {"
-  , "        if (editing !== h) return;"
+  , "      const up = editing.parent;"
+  , "      reread(up === null ? undefined : up, (h, fresh) => {"
   , "        show(fresh, raw);"
   , "        const back = drows.findIndex((r) => r.kind === \"child\" && r.index === h.child);"
   , "        if (back !== -1) { dat = back; drawDoc(); }"
   , "        echo(`DEL → org-glance-overview:up (${docWhere(fresh)})`);"
-  , "      }).catch((e) => stuck(subtreeSheet, e.message));"
+  , "      });"
   , "    }"
     -- And RET on a child is DOWN: the sheet re-materializes INTO it, which is the
     -- same route under a `child=' the server handed over.  The subtree the lens
     -- is over moves; the row, the file and the digest do not.
   , "    function into(index) {"
-  , "      const h = editing;"
-  , "      headline(h.id, index).then((fresh) => {"
-  , "        if (editing !== h) return;"
+  , "      reread(index, (_h, fresh) => {"
   , "        show(fresh, raw);"
   , "        echo(`RET → org-glance-overview:materialize (${docWhere(fresh)})`);"
-  , "      }).catch((e) => stuck(subtreeSheet, e.message));"
+  , "      });"
   , "    }"
   , "    const docWhere = (h) => (h.path || []).slice(-1)[0] || h.id;"
     -- WHAT A SUBTREE WRITE ANSWERS, shared by the three that make one: a 200
@@ -1350,13 +1354,11 @@ shellGlue wanted =
     -- through, exactly as it is for the table.
   , "    function reload() {"
   , "      if (!editing) return;"
-  , "      const h = editing;"
-  , "      headline(h.id, h.child).then((fresh) => {"
-  , "        if (editing !== h) return;"
+  , "      reread(editing.child, (_h, fresh) => {"
   , "        editing = fresh;"
   , "        fill(fresh);"
   , "        sync(\"synced\");"
-  , "      }).catch((e) => stuck(subtreeSheet, e.message));"
+  , "      });"
   , "    }"
     -- THE EDIT OVERLAY, ONE mechanism over four surfaces.  The renderer owns its
     -- rows and rewrites them as it scrolls, so an edit cannot live inside one:
@@ -1656,12 +1658,22 @@ shellGlue wanted =
   , "    const PCOLS = [ { key: \"key\", header: \"Key\" },"
   , "                    { key: \"value\", header: \"Value\" } ];"
   , "    let pmount = null, prows = [], pseq = 0;"
-    -- Mounted once and kept: a mount per sheet would leave a theme listener
-    -- behind each time the reader opened one.  `setRows' is how a new drawer
-    -- arrives.
+    -- A MOUNT THIS PAGE KEEPS, made on the first ask and handed back afterwards:
+    -- a mount per raise would leave a theme listener behind every time the
+    -- reader opened a sheet or followed a row.  PANE is the scroller the edit
+    -- overlay is anchored inside — caught in the CAPTURE phase, which reaches it
+    -- without this page naming the element that scrolls; the window resizing is
+    -- the other half and is registered once, with `placeEdit'.  Three surfaces
+    -- mount this way and differ only in their host, their columns and their
+    -- options.
+  , "    function mountOnce(host, cols, opts, pane) {"
+  , "      const m = TableView.mount(el(host), { columns: cols, rows: [] }, opts);"
+  , "      el(pane).addEventListener(\"scroll\", placeEdit, true);"
+  , "      return m;"
+  , "    }"
   , "    function mounted() {"
   , "      if (pmount) return pmount;"
-  , "      pmount = TableView.mount(el(\"mptable\"), { columns: PCOLS, rows: [] }, {"
+  , "      pmount = mountOnce(\"mptable\", PCOLS, {"
         -- No bar and no resident filter: five rows of a drawer are not something
         -- a reader narrows, and the overlay this leaves behind is never raised.
   , "        palette: true,"
@@ -1671,12 +1683,7 @@ shellGlue wanted =
         -- The key line under the table already names every key, once.
   , "        actionHints: false,"
   , "        flagHelp: \"d/D delete · u unflag\","
-  , "      });"
-        -- The overlay is anchored to the row it opened over, so this pane's own
-        -- scrolling has to move it — caught in the CAPTURE phase, which reaches
-        -- it without this page naming the element that scrolls.  The window
-        -- resizing is the other half and is registered once, with `placeEdit'.
-  , "      el(\"mprops\").addEventListener(\"scroll\", placeEdit, true);"
+  , "      }, \"mprops\");"
   , "      return pmount;"
   , "    }"
   , "    const prowsOf = () =>"
@@ -1864,9 +1871,7 @@ shellGlue wanted =
   , "        else if (k === \"RET\") once(openRow);"
   , "        else if (k === \"+\") addProperty();"
   , "        else if (rowStep(k)) stepIn(pmount, rowStep(k));"
-  , "        else if (k === \"d\" || k === \"D\" || k === \"u\")"
-  , "          { if (!e.repeat) flagKey(k, PFLAGS, keySaid(k)); }"
-  , "        else return;"
+  , "        else if (!flagPress(k, e, PFLAGS)) return;"
   , "      } else if (crossing) enterPanel();"
   , "      else {"
   , "        const step = rowStep(k), side = colStep(k);"
@@ -1889,9 +1894,7 @@ shellGlue wanted =
       -- of a column point.  They are the table's own keys, over one row.
   , "        else if (k === \"t\") once(() => atElement(stateHere));"
   , "        else if (k === \":\") once(() => atElement(tagsHere));"
-  , "        else if (k === \"d\" || k === \"D\" || k === \"u\")"
-  , "          { if (!e.repeat) flagKey(k, DFLAGS, keySaid(k)); }"
-  , "        else return;"
+  , "        else if (!flagPress(k, e, DFLAGS)) return;"
   , "      }"
   , "      e.preventDefault();"
   , "    });"
@@ -1988,6 +1991,18 @@ shellGlue wanted =
     -- How a surface with no binding in its hand speaks: the key, the arrow, and
     -- the phrase whole.
   , "    const keySaid = (k) => (what) => echo(`${k} → ${what}`);"
+    -- THE GESTURE'S THREE KEYS AS ONE PRESS, over whichever SHAPE the surface
+    -- declares, and false for a key that is not one of them so a caller's chain
+    -- goes on past it.  The HELD-key guard is here rather than on each surface:
+    -- `ONCE' governs dispatch rows and these three live in listeners the
+    -- dispatch does not own, so a repeat that survived would flag a row and take
+    -- it in ONE press — which is the confirmation the two-press shape exists to
+    -- be.
+  , "    const flagPress = (k, e, shape) => {"
+  , "      if (k !== \"d\" && k !== \"D\" && k !== \"u\") return false;"
+  , "      if (!e.repeat) flagKey(k, shape, keySaid(k));"
+  , "      return true;"
+  , "    };"
     -- What a flush sends: the subtree whole in raw mode, the two panes apart
     -- otherwise.  The server joins them, so this page never spells a drawer.
   , "    const asked = () => raw"
@@ -2111,15 +2126,14 @@ shellGlue wanted =
   , "    function toggleRaw(b) {"
   , "      if (!editing) return;"
   , "      if (dirty()) { said(b, \"sync first — C-x C-s\"); return; }"
-  , "      const h = editing, want = !raw;"
-  , "      headline(h.id, h.child).then((fresh) => {"
-  , "        if (editing !== h) return;   // the sheet moved on while this was out"
+  , "      const want = !raw;"
+  , "      reread(editing.child, (_h, fresh) => {"
   , "        editing = fresh; raw = want;"
   , "        fill(fresh);"
   , "        sync(\"synced\");"
   , "        if (raw) el(\"mtext\").focus(); else el(\"mtext\").blur();"
   , "        said(b, raw ? \"raw org\" : \"structured document\");"
-  , "      }).catch((e) => stuck(subtreeSheet, e.message));"
+  , "      });"
   , "    }"
   , "    // A tab closing on an edited sheet still owes the file the text:"
   , "    // `keepalive' outlives the document, and a pristine sheet sends nothing."
@@ -2152,7 +2166,7 @@ shellGlue wanted =
     -- `getVisible()' is one page's worth, so index arithmetic here would stop
     -- dead at a boundary.  An asset predating the call has no pages either, so
     -- the old walk over the visible ids is exactly right for it.
-  , "    const steps = () => !!table && typeof table.selectStep === \"function\";"
+  , "    const steps = () => can(table, \"selectStep\");"
   , "    function move(step) {"
   , "      if (steps()) {"
   , "        if (visible().length) table.selectStep(step);"
@@ -2174,8 +2188,7 @@ shellGlue wanted =
     -- Pages.  The turn is the renderer's, and the bracket says where it landed
     -- rather than repeating the key: `] → next-page (page 3/129)' reads the
     -- same at a stop as at a turn.
-  , "    const pager = () => !!table && typeof table.nextPage === \"function\""
-  , "      && typeof table.pageInfo === \"function\";"
+  , "    const pager = () => can(table, \"nextPage\") && can(table, \"pageInfo\");"
     -- WHICH page is showing, 1 for an asset with no pages: `visible()' is one
     -- page's worth, so anything asking what the view still holds has to know
     -- which page it asked about.
@@ -2190,7 +2203,7 @@ shellGlue wanted =
     -- and the server is asked for the order it is about to be sent.  This page
     -- keeps no record of the chain: the handle publishes it (getSort) and the
     -- query spells it.
-  , "    const sorts = () => !!table && typeof table.sortPromote === \"function\";"
+  , "    const sorts = () => can(table, \"sortPromote\");"
   , "    function turnPage(b, step) {"
   , "      if (!pager()) { said(b, \"this table-view.js has no pager\"); return; }"
   , "      if (step > 0) table.nextPage(); else table.previousPage();"
@@ -2237,7 +2250,7 @@ shellGlue wanted =
   , "    // movement, and goes when the selection that holds it goes.  A whole-row"
   , "    // selection has none, and the first horizontal key lands on the first"
   , "    // column whichever direction asked."
-  , "    const cells = () => !!table && typeof table.getSelection === \"function\";"
+  , "    const cells = () => can(table, \"getSelection\");"
   , "    const column = () => (cells() ? table.getSelection().col : null);"
   , "    function moveCol(b, step) {"
   , "      if (!cells()) { said(b, \"this table-view.js has no cell selection\"); return; }"
@@ -2257,7 +2270,7 @@ shellGlue wanted =
     -- which rows are marked, how many there are and what a mark survives are all
     -- its answers.  Dired's advance is this page's — the key that marks is the
     -- key that walks, which makes a held `m' a run down a column.
-  , "    const marking = () => !!table && typeof table.toggleMark === \"function\";"
+  , "    const marking = () => can(table, \"toggleMark\");"
     -- Archive flags are the renderer's for the same reason marks are: a flag has
     -- to outlive a `setRows', a filter hiding its row and a page it is not on,
     -- and only the thing that draws the rows can do that.  An asset predating
@@ -2272,9 +2285,12 @@ shellGlue wanted =
     -- in neither is named by its id, a lookup failure a reader can still act on.
     -- `displayText' is the renderer's own link rule, so what the line spells is
     -- what the cell shows.
+    -- The row ID names, out of the two lists this page has in hand — the page on
+    -- screen, and the unfiltered baseline behind it — or an empty one, so a
+    -- caller reads a cell off the answer rather than guarding the lookup.
+  , "    const rowOf = (id) => visible().concat(all).find((r) => r.id === id) || {};"
   , "    const titleOf = (id) => {"
-  , "      const row = visible().concat(all).find((r) => r.id === id);"
-  , "      const cell = row && (row.cells || {}).title;"
+  , "      const cell = (rowOf(id).cells || {}).title;"
   , "      const shown = typeof TableView.displayText === \"function\""
   , "        ? TableView.displayText(cell) : String(cell || \"\");"
   , "      return shown || id;"
@@ -2573,15 +2589,18 @@ shellGlue wanted =
   , "      const n = PRIORITY_RING.length;"
   , "      return PRIORITY_RING[((at === -1 ? 0 : at) + (step > 0 ? 1 : n - 1)) % n];"
   , "    };"
-    -- A row's priority as the RING spells it: the cell wears org's brackets and
+    -- A priority CELL as the RING spells it: the cell wears org's brackets and
     -- the ring holds the letter, so this is `priorityLetter' on the page's side
-    -- of the wire — the same reading the filter and the comparator make.
-  , "    const priorityOf = (id) => {"
-  , "      const row = visible().concat(all).find((r) => r.id === id);"
-  , "      const cell = String((row && (row.cells || {}).priority) || \"\").trim();"
-  , "      const m = /^\\[#(.)\\]$/.exec(cell);"
-  , "      return m ? m[1].toUpperCase() : (cell ? cell.toUpperCase() : null);"
+    -- of the wire — the same reading the filter and the comparator make, and a
+    -- BRACKETLESS cell is taken as the letter it is.  ONE function, because the
+    -- table's ring and the sheet's each had their own regexp and the sheet's
+    -- refused what this accepts.
+  , "    const priorityIn = (cell) => {"
+  , "      const t = String(cell || \"\").trim();"
+  , "      const m = /^\\[#(.)\\]$/.exec(t);"
+  , "      return m ? m[1].toUpperCase() : (t ? t.toUpperCase() : null);"
   , "    };"
+  , "    const priorityOf = (id) => priorityIn((rowOf(id).cells || {}).priority);"
     -- EACH ROW CYCLES FROM ITS OWN VALUE, org's per-entry semantics and the one
     -- thing a single request cannot carry: `args' is one object for the whole
     -- call, so a marked set of MIXED priorities is one command per landing value,
@@ -3080,10 +3099,12 @@ shellGlue wanted =
   , "        .find((b) => b.value === keyword) || {}).color || \"\";"
     -- ONE parameter per id rather than the comma list a caller types by hand:
     -- the fallback row id is a path and a comma in one would split it, and
-    -- percent-encoding cannot help — the server splits after decoding.
-  , "    const keywordSources = (ids) =>"
-  , "      getJSON(\"/keywords?\""
+    -- percent-encoding cannot help — the server splits after decoding.  Both
+    -- id-taking routes ask it the same way, so the rule is spelled once.
+  , "    const askIds = (route, ids) =>"
+  , "      getJSON(route + \"?\""
   , "        + ids.map((i) => \"ids=\" + encodeURIComponent(i)).join(\"&\"));"
+  , "    const keywordSources = (ids) => askIds(\"/keywords\", ids);"
     -- Where a row points, out of the server's reading of its subtree.  This
     -- page holds no org parser, so the bracket grammar stays where the display
     -- rule already lives — one link is `[[TARGET][DESC]]' shown as DESC, and a
@@ -3096,10 +3117,8 @@ shellGlue wanted =
     -- What the rows a tag command names are tagged with, and what else the tree
     -- holds.  Per row rather than as a union, because WHICH rows lack a tag is
     -- what decides where an add is sent; the union and its partial counts are
-    -- worked out here, off that.  One parameter per id, for `/keywords'' reason.
-  , "    const tagsOf = (ids) =>"
-  , "      getJSON(\"/tags?\""
-  , "        + ids.map((i) => \"ids=\" + encodeURIComponent(i)).join(\"&\"));"
+    -- worked out here, off that.
+  , "    const tagsOf = (ids) => askIds(\"/tags\", ids);"
     -- What a browser tab can be pointed at, which is http(s) and nothing else.
     -- Org writes plenty of other link types and `/links' reports them all —
     -- `mailto:', `file:', org's `id:', org-glance's own protocols, a bare
@@ -3116,6 +3135,12 @@ shellGlue wanted =
     -- the warm hues to, so what reads as followable and what opens cannot come
     -- apart.
   , "    const FOLLOWABLE = " <> jsonValue followableTypes <> ";"
+    -- THE EXPANSION SUBSET, spliced in like `FOLLOWABLE' rather than fetched:
+    -- it is a property of the BUILD rather than of the tree, so the binary that
+    -- expands a template is the binary that says what it expands, and a stale
+    -- list has no way to exist.  `GET \/capture' still carries it — that is the
+    -- wire contract, and a client this page is not still reads it there.
+  , "    const CODES = " <> jsonValue codeList <> ";"
   , "    const followable = (l) => FOLLOWABLE.indexOf(l.type) !== -1;"
     -- A target in a log line, kept to a width the strip can show: an org link
     -- target runs to a hash and a path, and the line has other words in it.
@@ -3181,11 +3206,9 @@ shellGlue wanted =
   , "    const linking = () => !!opening;"
   , "    function linksMounted() {"
   , "      if (lmount) return lmount;"
-  , "      lmount = TableView.mount(el(\"ltable\"), { columns: LCOLS, rows: [] },"
-  , "        { palette: true, marks: false, flags: false, actionHints: false });"
-      -- The edit overlay's scroll listener, for the property panel's reason;
-      -- the resize is `placeEdit''s own, once.
-  , "      el(\"lpane\").addEventListener(\"scroll\", placeEdit, true);"
+  , "      lmount = mountOnce(\"ltable\", LCOLS,"
+  , "        { palette: true, marks: false, flags: false, actionHints: false },"
+  , "        \"lpane\");"
   , "      return lmount;"
   , "    }"
     -- The answer as rows, under B — the binding that asked — for the row ID.
@@ -3207,9 +3230,8 @@ shellGlue wanted =
   , "      const m = linksMounted();"
   , "      m.setRows(lrows.map((r) => ({ id: r.id,"
   , "        cells: { type: r.link.type, title: r.link.desc, url: r.link.target } })));"
-  , "      el(\"lhead\").textContent = `open · ${links.length} links`;"
-  , "      el(\"lfoot\").textContent = \"RET edits · o opens it · ESC leaves\";"
-  , "      el(\"links\").className = \"on\";"
+  , "      showPopup(\"links\", \"l\", `open · ${links.length} links`,"
+  , "                \"RET edits · o opens it · ESC leaves\");"
   , "      opening = b;"
   , "      if (lrows.length) m.select(lrows[0].id);"
   , "    }"
@@ -3220,6 +3242,18 @@ shellGlue wanted =
     -- function and each caller adds only the state whose emptiness IS its
     -- `up()': `opening' for the links, `tagging' for the tags.
   , "    function shutPopup(id, shape) { shutEdit(shape); el(id).className = \"\"; }"
+    -- And RAISED alike: the head takes the words this raise gives it, the foot
+    -- takes them where the surface has one to say, and the class goes on.  P
+    -- names the parts (`lhead'/`lfoot', `thead'/`tfoot'), so a third popup
+    -- joins by naming its own prefix.  `sole()' stays each caller's FIRST line
+    -- and not this function's: it closes every momentary surface including the
+    -- one being raised, so run from here it would wipe the state the caller has
+    -- just written.
+  , "    function showPopup(id, p, head, foot) {"
+  , "      el(p + \"head\").textContent = head;"
+  , "      if (foot !== undefined) el(p + \"foot\").textContent = foot;"
+  , "      el(id).className = \"on\";"
+  , "    }"
   , "    function shutLinks() {"
   , "      shutPopup(\"links\", LROW);"
   , "      opening = null; lfor = null; lpin = \"\";"
@@ -3326,12 +3360,10 @@ shellGlue wanted =
     -- Mounted once and kept, for the panel's reason.
   , "    function tagsMounted() {"
   , "      if (tmount) return tmount;"
-  , "      tmount = TableView.mount(el(\"ttable\"), { columns: TCOLS, rows: [] },"
+  , "      tmount = mountOnce(\"ttable\", TCOLS,"
   , "        { palette: true, marks: false, flags: true, actionHints: false,"
-  , "          flagHelp: \"d/D remove · u unflag\" });"
-      -- The rename overlay's scroll listener, for the property panel's reason;
-      -- the resize is `placeEdit''s own, once.
-  , "      el(\"tpane\").addEventListener(\"scroll\", placeEdit, true);"
+  , "          flagHelp: \"d/D remove · u unflag\" },"
+  , "        \"tpane\");"
   , "      return tmount;"
   , "    }"
     -- THE UNION over the target rows, FIRST-SEEN: each row's tags in the order
@@ -3392,8 +3424,7 @@ shellGlue wanted =
       -- Written ONCE, here: the title is the count of the ids the command was
       -- aimed at and cannot move while the popup is up, so a repaint has no
       -- business restating it.
-  , "      el(\"thead\").textContent = title;"
-  , "      el(\"tags\").className = \"on\";"
+  , "      showPopup(\"tags\", \"t\", title);"
   , "      repaintTags(tagUnion()[0]);"
   , "    }"
     -- Nothing to blur once the rename is shut: the popup holds the keys with no
@@ -3598,12 +3629,6 @@ shellGlue wanted =
     -- `crows[cat]' rather than the place the text lives, which is what makes a
     -- switch cost nothing.
   , "    let settings = false, crows = [], cat = 0;"
-    -- The expansion subset, as the server spells it.  Read once per sheet open
-    -- beside the layers and kept for the sheet's life: it is a property of the
-    -- BUILD rather than of the tree, so a stale one is a daemon that has been
-    -- replaced under an open page, which every other part of this page treats
-    -- the same way.  Empty is the honest fallback — `%' then types itself.
-  , "    let ccodes = [];"
     -- The settings sheet's half of the pair the ladder drives ('subtreeSheet'
     -- is the other): the same four verbs, over the config layers and their own
     -- digests, filed under its own log scope.
@@ -3644,10 +3669,6 @@ shellGlue wanted =
   , "        settings = false;"
   , "        append(\"config\", \"error\", `settings failed: ${e.message}`);"
   , "      });"
-    -- The code list rides in beside the layers rather than gating the sheet on
-    -- it: a completion nobody has pressed `%' for yet is not worth a spinner,
-    -- and a fetch that never lands leaves `%' typing itself.
-  , "      captureShape(null).then((a) => { ccodes = a.codes || []; }).catch(quiet);"
   , "    }"
   , "    const config = () => getJSON(\"/config\");"
   , "    function drawLayers(b) {"
@@ -3743,11 +3764,11 @@ shellGlue wanted =
     -- and ESC writes nothing — and a literal one is the field's own line, since
     -- a line matching no entry commits as written (`freely').
   , "    el(\"ctpl\").addEventListener(\"keydown\", (e) => {"
-  , "      if (keyName(e) !== \"%\" || !ccodes.length) return;"
+  , "      if (keyName(e) !== \"%\") return;"
   , "      e.preventDefault();"
   , "      const box = el(\"ctpl\"), at = box.selectionStart, to = box.selectionEnd;"
   , "      askFrom(\"capture template · which code\","
-  , "              ccodes.map((c) => ({ label: c.code, hint: c.means, tag: c.code })),"
+  , "              CODES.map((c) => ({ label: c.code, hint: c.means, tag: c.code })),"
   , "              \"RET writes it · C-n/C-p walks · ESC leaves\","
   , "              (c) => insertCode(at, to, String(c.tag || \"\")));"
   , "    });"
@@ -3789,21 +3810,18 @@ shellGlue wanted =
   , "        // and never written, and the sheet would close on it silently."
   , "        const sent = r.text, tpl = r.tpl, view = r.view && r.view.value;"
   , "        const cap = r.cap && r.cap.value;"
-  , "        const a = await fetch(\"/config\", {"
-  , "          method: \"POST\","
-  , "          headers: { \"content-type\": \"application/json\" },"
-  , "          body: JSON.stringify({ path: r.path, lines: sent.split(\"\\n\"),"
+  , "        const a = await postJSON(\"/config\","
+  , "          { path: r.path, lines: sent.split(\"\\n\"),"
       -- The template is named only where it MOVED, which is the absent arm of
       -- the server's three-valued rule.  Sending it unconditionally would put
       -- every layer's own first heading back through the one-top-entry wall on
       -- every write, so a file whose heading is deeper than one — legal org,
       -- and no business of this box — could no longer have its cycle edited at
       -- all.  The two lines under it have kept this shape all along.
-  , "                                 ...(tpl !== r.tplBase ? { template: tpl } : {}),"
-  , "                                 ...(r.view ? { filter: view } : {}),"
-  , "                                 ...(r.cap ? { capture: cap } : {}),"
-  , "                                 digest: r.digest }),"
-  , "        }).then(outcome)"
+  , "            ...(tpl !== r.tplBase ? { template: tpl } : {}),"
+  , "            ...(r.view ? { filter: view } : {}),"
+  , "            ...(r.cap ? { capture: cap } : {}),"
+  , "            digest: r.digest }).then(outcome)"
   , "          .catch((e) => ({ status: 0, body: { error: e.message } }));"
   , "        if (a.status === 200) {"
   , "          r.digest = a.body.digest; r.base = sent; r.tplBase = tpl; r.err = \"\";"
@@ -3847,7 +3865,7 @@ shellGlue wanted =
   , "    // elsewhere it takes the box already on the page — so the shell asks for"
   , "    // it rather than reaching into the chrome.  An asset predating the call"
   , "    // has a resident box; focusing that is how this worked before."
-  , "    const summons = () => !!table && typeof table.openFilter === \"function\";"
+  , "    const summons = () => can(table, \"openFilter\");"
   , "    const focusFilter = () => {"
   , "      if (summons()) { table.openFilter(); return; }"
   , "      const box = filterBox();"
@@ -4073,11 +4091,20 @@ shellGlue wanted =
   , "    // this page's own variables and the renderer's overrides both key off."
   , "    // The head has already applied the stored choice; this keeps the"
   , "    // control and the storage in step with it."
-  , "    const themed = {"
-  , "      get() { try { return localStorage.getItem(\"glance-theme\") || \"auto\"; }"
-  , "              catch (e) { return \"auto\"; } },"
-  , "      set(v) { try { localStorage.setItem(\"glance-theme\", v); } catch (e) { /* denied */ } },"
-  , "    };"
+    -- A STORED PREFERENCE, and there are two.  DEF is what a reader gets back
+    -- when nothing is stored and when storage is denied.  An EMPTIED value is a
+    -- preference that is not there, so it is REMOVED rather than written as the
+    -- empty string: what the reader asked for is the default, and a stored `""'
+    -- would be a preference spelling one.
+  , "    const pref = (key, def) => ({"
+  , "      get() { try { return localStorage.getItem(key) || def; }"
+  , "              catch (e) { return def; } },"
+  , "      set(v) {"
+  , "        try { if (v) localStorage.setItem(key, v);"
+  , "              else localStorage.removeItem(key); } catch (e) { /* denied */ }"
+  , "      },"
+  , "    });"
+  , "    const themed = pref(\"glance-theme\", \"auto\");"
   , "    function setTheme(name) {"
   , "      if (name === \"auto\") delete document.documentElement.dataset.theme;"
   , "      else document.documentElement.dataset.theme = name;"
@@ -4113,17 +4140,7 @@ shellGlue wanted =
   , "      if (!t) return LOG.def;"
   , "      return /^[0-9]+$/.test(t) && +t >= LOG.min && +t <= LOG.max ? +t : null;"
   , "    };"
-    -- An EMPTIED field is a preference that is not there, so it is REMOVED
-    -- rather than stored as the empty string: what the reader asked for is the
-    -- default, and a stored `""' would be a preference spelling one.
-  , "    const logPref = {"
-  , "      get() { try { return localStorage.getItem(LOG.key) || \"\"; }"
-  , "              catch (e) { return \"\"; } },"
-  , "      set(v) {"
-  , "        try { if (v) localStorage.setItem(LOG.key, v);"
-  , "              else localStorage.removeItem(LOG.key); } catch (e) { /* denied */ }"
-  , "      },"
-  , "    };"
+  , "    const logPref = pref(LOG.key, \"\");"
   , "    const setLogLines = (n) =>"
   , "      el(\"log\").style.setProperty(\"--g-logn\", String(n));"
   , "    setLogLines(logLines(logPref.get()) || LOG.def);"
@@ -4394,7 +4411,7 @@ shellGlue wanted =
     -- `M' marks the whole loaded set, which is the renderer's call because the
     -- set is the renderer's: a page it is not showing is still marked.
   , "      markAll: (b) => {"
-  , "        if (!marking() || typeof table.markAll !== \"function\")"
+  , "        if (!marking() || !can(table, \"markAll\"))"
   , "          { said(b, \"this table-view.js has no mark-all\"); return; }"
   , "        table.markAll();"
   , "        said(b, `marked · ${table.markedCount()}`);"
@@ -4709,9 +4726,7 @@ shellGlue wanted =
   , "      keys: (k, e) => {"
   , "        if (k === \"RET\") openRename();"
   , "        else if (k === \"+\") addFlow();"
-  , "        else if (k === \"d\" || k === \"D\" || k === \"u\")"
-  , "          { if (!e.repeat) flagKey(k, TFLAGS, keySaid(k)); }"
-  , "        else return false;"
+  , "        else if (!flagPress(k, e, TFLAGS)) return false;"
   , "        return true;"
   , "      },"
   , "    });"
@@ -4886,3 +4901,10 @@ shellGlue wanted =
   , "    start();"
   , "  </script>"
   ]
+
+-- | 'captureCodes' as the objects the page's own completion reads: the code and
+-- the one line saying what it does, in the order the list declares them.  The
+-- same shape @GET \/capture@ serves, so a client that reads it there and this
+-- page's spliced copy cannot come to describe two different subsets.
+codeList :: [Value]
+codeList = [ object ["code" .= code, "means" .= means] | (code, means) <- captureCodes ]

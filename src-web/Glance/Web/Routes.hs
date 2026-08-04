@@ -531,8 +531,7 @@ subtreeJSON f =
   , "planning"   .= [ [key, value] | (key, value) <- hpPlanning parts ]
   , "logbook"    .= hpLogbook parts
   , "digest"     .= hrDigest here
-  , "span"       .= object [ "start" .= spanStart (hrSubtree here)
-                           , "end"   .= spanEnd (hrSubtree here) ]
+  , "span"       .= extentJSON here
     -- WHERE THE TITLE CELL STARTS, in the same FILE coordinates @\/links@
     -- answers in.  A title may hold org links and the client draws that cell
     -- itself, so this is what lets it tell which of the row's links are inside
@@ -567,9 +566,14 @@ cells r = [ "state"    .= hrState r
 -- that a repeated URL would fool.
 childJSON :: Int -> SubtreeEntry -> Value
 childJSON i e = object ([ "index" .= i, "level" .= seLevel e
-                        , "span" .= object [ "start" .= spanStart (hrSubtree (seRecord e))
-                                           , "end"   .= spanEnd (hrSubtree (seRecord e)) ] ]
+                        , "span" .= extentJSON (seRecord e) ]
                         <> cells (seRecord e))
+
+-- | R's subtree extent on the wire, in the FILE coordinates @\/links@ answers
+-- in.  One spelling, so the headline in focus and each child under it describe
+-- their extents the same way.
+extentJSON :: HeadlineRecord -> Value
+extentJSON r = object [ "start" .= spanStart (hrSubtree r), "end" .= spanEnd (hrSubtree r) ]
 
 -- | The entries hanging DIRECTLY under the headline in focus, each with the
 -- index @?child=@ names it by.

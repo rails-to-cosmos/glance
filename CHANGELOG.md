@@ -741,6 +741,11 @@ section groups a feature arc, and its date is that arc's last commit.
   bright, being where a reader finds out why.
 
 ### Fixed
+- **The sheet cycles a bracketless priority cell like the table does.** `S-<up>`
+  and `S-<down>` over the materialize sheet read the cell with a regexp of their
+  own that accepted only `[#A]`, where the table's reading takes a bare letter
+  too — so an entry whose priority cell had lost its brackets started every
+  cycle from `none`. One reading now (`priorityIn`), and both keys call it.
 - **A CRLF config file keeps its own line endings.** `POST /config` spliced its
   `#+TODO:` block with LF whatever the file used, so one settings write left a
   CRLF `system.org` speaking two conventions with the line the reader had just

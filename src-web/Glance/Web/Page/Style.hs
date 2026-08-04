@@ -85,16 +85,8 @@ page head' title body = T.unlines
   -- alias, and a renderer change to any of them needs a matching edit nothing
   -- detects.
   , "  :root{--glance-mono:" <> monoStack <> ";"
-  , "    --g-bg:#FFFFFF;--g-fg:#000000;--g-border:#E3E6EA;--g-mute:#7F8C8D;"
-  , "    --g-surface:#F8F8FF;--g-sel:#FFD600;--g-accent:#4CB5F5;"
-    -- THE LINK INK, hand-copied from the renderer's `--tv-link' the way
-    -- `--g-border' and `--g-sel' are: it is declared on `.tv-root' rather than
-    -- the document element, so a live `var()' read resolves to nothing outside
-    -- the mount.  ALIASED — one name per theme, every use reading
-    -- `var(--g-link)' — so a renderer change is one edit here rather than one
-    -- per link.
-  , "    --g-link:#30739B;"
-  , "    --g-col:#FFF3D0;--g-cell-wash:60%;--g-doc-pad:6px;"
+  , "    " <> lightVars <> ";--g-accent:#4CB5F5;"
+  , "    --g-col:#FFF3D0;--g-doc-pad:6px;"
       -- The document pane's own inset, named because the overlays laid over it
       -- have to answer for it: an absolutely positioned box is placed against
       -- the PADDING box and the text it covers sits inside the content box.
@@ -118,19 +110,10 @@ page head' title body = T.unlines
   , "    --g-pop-top:5vh;--g-pop-pad:24px;"
   , "    --g-pop-max:min(90vh,"
   , "      calc(100vh - 2 * var(--g-pop-top)));"
-  , "    --g-ok:#27AE60;--g-warn:#FFA500;--g-bad:#E74C3C}"
-  , "  @media (prefers-color-scheme:dark){:root{--g-bg:#000000;--g-fg:#FFFFFF;"
-  , "    --g-border:#2A2D3D;--g-mute:#A4C2EB;--g-surface:#21252B;--g-sel:#373D4F;"
-  , "    --g-link:#7CC9F8;"
-      -- The band's hue does not move between themes; what moves is how far it
-      -- washes, since dark's ink has less room over a lit ground.
-  , "    --g-cell-wash:9%;--g-ok:#B6E63E}}"
-  , "  :root[data-theme=\"light\"]{--g-bg:#FFFFFF;--g-fg:#000000;--g-border:#E3E6EA;"
-  , "    --g-mute:#7F8C8D;--g-surface:#F8F8FF;--g-sel:#FFD600;--g-cell-wash:60%;"
-  , "    --g-link:#30739B;--g-ok:#27AE60}"
-  , "  :root[data-theme=\"dark\"]{--g-bg:#000000;--g-fg:#FFFFFF;--g-border:#2A2D3D;"
-  , "    --g-mute:#A4C2EB;--g-surface:#21252B;--g-sel:#373D4F;--g-cell-wash:9%;"
-  , "    --g-link:#7CC9F8;--g-ok:#B6E63E}"
+  , "    --g-warn:#FFA500;--g-bad:#E74C3C}"
+  , "  @media (prefers-color-scheme:dark){:root{" <> darkVars <> "}}"
+  , "  :root[data-theme=\"light\"]{" <> lightVars <> "}"
+  , "  :root[data-theme=\"dark\"]{" <> darkVars <> "}"
   , "  body{margin:0;font:14px/1.5 var(--glance-mono);"
   , "    background:var(--g-bg);color:var(--g-fg);"
   -- One column, exactly the viewport tall: the table at the height it asks for,
@@ -229,9 +212,16 @@ page head' title body = T.unlines
   -- the room, and the fifth left over is what says there is a table under this
   -- rather than a page of its own.  The `min' keeps it inside the backdrop's
   -- padding on a window too narrow for the share to fit.
-  , "  #sheet{display:flex;flex-direction:column;gap:8px;padding:14px;border-radius:6px;"
-  , "    position:relative;z-index:101;font-family:var(--dk-mono);"
+    -- ONE BOX RULE for every working surface: the sheet, the three popup boxes
+    -- and the settings sheet are the same card — a column at the sheet z-level,
+    -- in the sheet font, over the page ground and inside the page border — and
+    -- they differ only in how much room they leave inside themselves.  A sixth
+    -- surface joins by adding a selector and a gap.
+  , "  #sheet,#cbox,#pbox,#lbox,#tbox{display:flex;flex-direction:column;"
+  , "    border-radius:6px;position:relative;z-index:101;"
+  , "    font-family:var(--dk-mono);"
   , "    background:var(--g-bg);color:var(--g-fg);border:1px solid var(--g-border)}"
+  , "  #sheet{gap:8px;padding:14px}"
     -- THE TWO SHEETS WEAR ONE HEADER: name left, state word right.  Declared
     -- once, the same widget over different files — the state RULES below cannot
     -- join them, `#mnote''s spelling being pinned by the suite.
@@ -513,10 +503,7 @@ page head' title body = T.unlines
   -- adding a selector, which is what `#modal,#prompt,#config,#links' above does
   -- for the band.  What they no longer differ in is SIZE: that is a TIER now,
   -- worn as a class, and no box declares one of its own.
-  , "  #pbox,#lbox,#tbox{display:flex;flex-direction:column;gap:6px;padding:10px;"
-  , "    border-radius:6px;position:relative;z-index:101;"
-  , "    font-family:var(--dk-mono);"
-  , "    background:var(--g-bg);color:var(--g-fg);border:1px solid var(--g-border)}"
+  , "  #pbox,#lbox,#tbox{gap:6px;padding:10px}"
   , "  #phead,#lhead,#thead{font-size:12px;color:var(--g-mute)}"
   , "  #pfoot,#lfoot,#tfoot,#cfoot,#ctplf{font-size:11px;color:var(--g-mute)}"
   , "  #pinput{font:12px/1.5 var(--dk-mono);padding:5px 7px;border-radius:4px;"
@@ -572,9 +559,7 @@ page head' title body = T.unlines
   , "  #plist .pat .pw{color:var(--g-fg)!important}"
   -- The settings sheet, third in the same two bands: panels down a column, each
   -- a header over its rows, its top line the shared anchor's.
-  , "  #cbox{display:flex;flex-direction:column;gap:10px;padding:14px;border-radius:6px;"
-  , "    position:relative;z-index:101;overflow-y:auto;font-family:var(--dk-mono);"
-  , "    background:var(--g-bg);color:var(--g-fg);border:1px solid var(--g-border)}"
+  , "  #cbox{gap:10px;padding:14px;overflow-y:auto}"
   , "  #cnote{text-align:right;color:var(--g-ok)}"
   , "  #cnote.syncing{color:var(--g-mute)}"
   , "  #cnote.conflict,#cnote.error{color:var(--g-bad)}"
@@ -734,3 +719,19 @@ themeBoot = T.concat
   [ "try{var t=localStorage.getItem(\"glance-theme\");"
   , "if(t===\"light\"||t===\"dark\")document.documentElement.dataset.theme=t}"
   , "catch(e){}" ]
+
+-- | The page palette, once per theme.  Every rule below reads these through
+-- @var()@, so a hue is spelled in exactly one place; the LIGHT set is what
+-- @:root@ opens with and what @data-theme=\"light\"@ puts back over a dark
+-- system, and the DARK set answers the media query and the attribute alike.
+-- Spelled twice each, they were two places for a renderer change to be
+-- half-applied.
+lightVars, darkVars :: Text
+lightVars = "--g-bg:#FFFFFF;--g-fg:#000000;--g-border:#E3E6EA;--g-mute:#7F8C8D;\
+            \--g-surface:#F8F8FF;--g-sel:#FFD600;--g-cell-wash:60%;\
+            \--g-link:#30739B;--g-ok:#27AE60"
+-- The band's hue does not move between themes; what moves is how far it washes,
+-- since dark's ink has less room over a lit ground.
+darkVars  = "--g-bg:#000000;--g-fg:#FFFFFF;--g-border:#2A2D3D;--g-mute:#A4C2EB;\
+            \--g-surface:#21252B;--g-sel:#373D4F;--g-cell-wash:9%;\
+            \--g-link:#7CC9F8;--g-ok:#B6E63E"

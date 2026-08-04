@@ -390,7 +390,12 @@ const captureCodes = [
   { code: "%?", means: "where the text you type lands" },
   { code: "%U", means: "the moment of capture, inactive" },
 ];
+// A tag whose layer configures a template ASKS nothing unless its template
+// spells a `%^{PROMPT}', so `template' and a non-empty `prompts' are two facts
+// — the server answers them apart and this stub does too.  `film' is the tag
+// with a template and no ask.
 const capturePrompts = { book: ["Author"] };
+const captureTemplates = ["book", "film"];
 // Every /capture URL asked for, which is what says whether the chain resolved
 // the tag before it asked the reader anything.
 const captureAsked = [];
@@ -470,7 +475,7 @@ globalThis.fetch = (url, init) => {
     const at = /[?&]tag=([^&]*)/.exec(String(url));
     const tag = at ? decodeURIComponent(at[1]) : null;
     return answer(200, {
-      template: !!(tag && capturePrompts[tag]),
+      template: !!(tag && captureTemplates.indexOf(tag) !== -1),
       prompts: tag ? (capturePrompts[tag] || []) : [],
       tags: vocabulary,
       codes: captureCodes,

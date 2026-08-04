@@ -5100,13 +5100,20 @@ containSweep shell = testCase "every popup clamps, and scrolls inside" $ do
   --
   -- WHAT IT SWEPT IS ASSERTED FIRST, so a renamed or regrouped selector fails
   -- loudly rather than passing over nothing.
-  let swept = [ (sel, body) | (sel, _decls) <- clamps, Just body <- [ruleIn sel page] ]
+  --
+  -- EVERY rule the selector appears in, not the first: a box's declarations are
+  -- split between the card rule every working surface SHARES and the short one
+  -- saying what only it wants, and the question is what the selector ends up
+  -- declaring.
+  let swept = [ (sel, bodies) | (sel, _decls) <- clamps
+              , let bodies = rulesIn sel page, not (null bodies) ]
   assertEqual "the sweep found a rule for every selector it names"
               (map fst clamps) (map fst swept)
-  mapM_ (\((sel, decls), (_sel, body)) ->
+  mapM_ (\((sel, decls), (_sel, bodies)) ->
            mapM_ (\d -> assertBool
-                    (T.unpack (sel <> " no longer declares " <> d <> ": " <> body))
-                    (d `T.isInfixOf` body))
+                    (T.unpack (sel <> " no longer declares " <> d <> ": "
+                                 <> T.intercalate " | " bodies))
+                    (any (d `T.isInfixOf`) bodies))
                  decls)
         (zip clamps swept)
   -- AND NEITHER HAS THE BOX.  A fixed height is the whole tier now, so a floor
@@ -5283,10 +5290,15 @@ groundSweep shell = testCase "every document selection is a ground, never a line
 -- which is what keeps a mention inside some other rule's body from answering
 -- for it.  One definition, since the two sweeps had a copy each.
 ruleIn :: T.Text -> T.Text -> Maybe T.Text
-ruleIn sel page
-  | T.null rest         = Nothing
-  | opens && inSelector = Just (T.takeWhile (/= '}') (T.drop 1 body))
-  | otherwise           = ruleIn sel after
+ruleIn sel = listToMaybe . rulesIn sel
+
+-- | The body of EVERY rule in PAGE whose selector list names SEL, in source
+-- order.
+rulesIn :: T.Text -> T.Text -> [T.Text]
+rulesIn sel page
+  | T.null rest         = []
+  | opens && inSelector = T.takeWhile (/= '}') (T.drop 1 body) : rulesIn sel after
+  | otherwise           = rulesIn sel after
   where
     rest         = snd (T.breakOn sel page)
     after        = T.drop (T.length sel) rest
@@ -5408,7 +5420,7 @@ shellGlue =
   -- control resident; this shell is off it.
   , Glue "the filter is summoned rather than resident"
       [ "palette: true,"
-      , "const summons = () => !!table && typeof table.openFilter === \"function\";"
+      , "const summons = () => can(table, \"openFilter\");"
       , "if (summons()) { table.openFilter(); return; }"
       -- An asset predating the call has a resident box; focus that.  The field
       -- is named once, since the fallback, the restore and the stash all want
@@ -5519,9 +5531,9 @@ shellGlue =
   -- because the suite's page has no layout for a geometry read to find.
   , Glue "the tags popup is a mutable mount with a rename overlay"
       [ "const TCOLS = "
-      , "tmount = TableView.mount(el(\"ttable\"), { columns: TCOLS, rows: [] },"
+      , "tmount = mountOnce(\"ttable\", TCOLS,"
       , "{ palette: true, marks: false, flags: true, actionHints: false,"
-      , "flagHelp: \"d/D remove · u unflag\" });"
+      , "flagHelp: \"d/D remove · u unflag\" },"
       -- The overlay is the SHARED mechanism over one cell: the popup declares a
       -- shape and nothing about the gesture is spelled twice.
       , "cells: [\"title\"], cols: TCOLS,"
@@ -5615,7 +5627,7 @@ shellGlue =
       , "out.splice(p.from, p.to - p.from, ...p.text.split(\"\\n\"));"
       -- DEL IS UP, and at the top it is the sheet's door.
       , "if (editing.child === null) { leaveSheet(); return; }"
-      , "headline(h.id, up === null ? undefined : up).then((fresh) => {"
+      , "reread(up === null ? undefined : up, (h, fresh) => {"
       -- A KEY THIS LISTENER CLAIMED IS NOT THE MAP'S.  `DEL' closes the sheet
       -- from here, and without this the table's own `DEL' would strip a filter
       -- token off the view underneath on the same press.
@@ -5672,7 +5684,7 @@ shellGlue =
       -- `said' spells the binding's command name: one gesture, two names.
       , "const XFLAGS = (b) => ({"
       , "flag: \"flagged — d again archives\","
-      , "flagKey(k, DFLAGS, keySaid(k))", "flagKey(k, TFLAGS, keySaid(k))"
+      , "flagPress(k, e, DFLAGS)", "flagPress(k, e, TFLAGS)"
       , "archiveFlag: (b) => flagKey(\"d\", XFLAGS(b), (what) => said(b, what)),"
       , "archiveRows: (b) => flagKey(\"D\", XFLAGS(b), (what) => said(b, what)),"
       , "flagKey(\"u\", XFLAGS(b), (what) => said(b, what)); return; }" ]
@@ -5814,7 +5826,7 @@ shellGlue =
       -- THE PANEL IS ONE, and for the same reason read the other way: a drawer
       -- is a list of records.  The model is this page's and the mount is a view
       -- of it, every change going back through `setRows'.
-      , "pmount = TableView.mount(el(\"mptable\"), { columns: PCOLS, rows: [] }, {"
+      , "pmount = mountOnce(\"mptable\", PCOLS, {"
       , "        flagHelp: \"d/D delete · u unflag\","
       , "      m.setRows(prowsOf());"
       , "prows.map((r) => ({ id: r.id, cells: { key: r.key, value: r.val } }));"
@@ -5832,7 +5844,7 @@ shellGlue =
       , ".split(\"\\n\").slice(1, -1).join(\"\\n\")"
       -- The toggle re-reads rather than converting, and refuses a dirty sheet.
       , "if (dirty()) { said(b, \"sync first — C-x C-s\"); return; }"
-      , "headline(h.id, h.child).then((fresh) => {"
+      , "reread(editing.child, (_h, fresh) => {"
       -- The panel's own keys: TAB crosses the panes and hops the open row's two
       -- fields, nav movement is both spellings of the map's own letters and the
       -- arrows, and RET opens a row and commits it.  Movement is the MOUNT's
@@ -5994,8 +6006,7 @@ shellGlue =
       , ":root[data-theme=\"dark\"]{--g-bg:#000000"
       , "if (name === \"auto\") delete document.documentElement.dataset.theme;"
       , "else document.documentElement.dataset.theme = name;"
-      , "localStorage.getItem(\"glance-theme\")"
-      , "localStorage.setItem(\"glance-theme\", v)"
+      , "const themed = pref(\"glance-theme\", \"auto\");"
       , "el(\"themesel\").addEventListener(\"change\""
       -- And the head applies it before anything paints.
       , "<script>try{var t=localStorage.getItem(\"glance-theme\");" ]
@@ -6010,8 +6021,8 @@ shellGlue =
       , "const LOG = { key: \"glance-log\", def: 7, min: 1, max: 50 };"
       , "if (!t) return LOG.def;"
       , "return /^[0-9]+$/.test(t) && +t >= LOG.min && +t <= LOG.max ? +t : null;"
-      , "localStorage.getItem(LOG.key)"
-      , "localStorage.setItem(LOG.key, v)"
+      , "const logPref = pref(LOG.key, \"\");"
+      , "localStorage.setItem(key, v)"
       , "el(\"log\").style.setProperty(\"--g-logn\", String(n));"
       , "setLogLines(logLines(logPref.get()) || LOG.def);"
       -- Applied as it is TYPED, so the field is a knob rather than a form.
@@ -6020,7 +6031,7 @@ shellGlue =
       -- And the sheet draws the preference back over a value that was refused.
       , "el(\"clog\").value = logPref.get();"
       -- An EMPTIED field is a preference that is not there.
-      , "else localStorage.removeItem(LOG.key); } catch (e)" ]
+      , "else localStorage.removeItem(key); } catch (e)" ]
 
   -- THE KEYWORDS PANEL IS ONE SELECT AND ONE BOX.  A tree has as many config
   -- files as it has tags, and a stack of boxes was as tall as that number.  The
@@ -6048,7 +6059,8 @@ shellGlue =
       -- A layer with nothing to send drops the refusal it was carrying, since
       -- the edit that earned it has been taken back.
       , "if (!cmoved(r)) { r.err = \"\"; continue; }"
-      , "body: JSON.stringify({ path: r.path, lines: sent.split(\"\\n\"),"
+      , "postJSON(\"/config\","
+      , "{ path: r.path, lines: sent.split(\"\\n\"),"
       -- A refusal brings its layer with it, since one box shows one file; a
       -- flush that refused nothing redraws what sits AROUND the box and leaves
       -- the box alone, since `C-x C-s' syncs mid-edit and a redraw there would
@@ -6115,7 +6127,7 @@ shellGlue =
       -- list spliced in rather than a regex this page runs over the target a
       -- second time.  What the mount was given and what the foot says are the
       -- popup cases' business, which read them off behaviour.
-      , "lmount = TableView.mount(el(\"ltable\"), { columns: LCOLS, rows: [] },"
+      , "lmount = mountOnce(\"ltable\", LCOLS,"
       , "const followable = (l) => FOLLOWABLE.indexOf(l.type) !== -1;" ]
       -- No bracket grammar here: `[[T][D]]' is read where `displayText' is.  No
       -- which-key letters either: the popup replaced them, so nothing assigns
@@ -6214,7 +6226,7 @@ shellGlue =
       , "if (momentary() !== name || e.defaultPrevented) return;"
       , "popupKeys(\"links\", () => lmount, {"
       , "popupKeys(\"tags\", () => tmount, {"
-      , "flagKey(k, TFLAGS, keySaid(k))" ]
+      , "flagPress(k, e, TFLAGS)" ]
       [ "if (momentary() !== \"links\") return;"
       , "if (momentary() !== \"tags\" || e.defaultPrevented) return;" ]
 
@@ -6303,7 +6315,7 @@ shellGlue =
   -- background: the accent stripe this page drew over it is a superseded design
   -- (#26), a second mark for the same fact.
   , Glue "row movement drives the renderer's own selection"
-      [ "const steps = () => !!table && typeof table.selectStep === \"function\";"
+      [ "const steps = () => can(table, \"selectStep\");"
       , "if (visible().length) table.selectStep(step);"
       -- Which row is on is the renderer's answer too, with the DOM read left as
       -- the fallback for an asset predating that call.
@@ -6328,8 +6340,8 @@ shellGlue =
       , "if (step > 0) table.nextPage(); else table.previousPage();"
       , "said(b, `page ${at.page}/${at.pages}`);"
       -- An asset without a pager says so rather than throwing.
-      , "typeof table.nextPage === \"function\""
-      , "typeof table.pageInfo === \"function\""
+      , "can(table, \"nextPage\")"
+      , "can(table, \"pageInfo\")"
       , "this table-view.js has no pager" ]
 
   -- The buffer ends climb: the page's end row first, and the same key again
@@ -6359,7 +6371,7 @@ shellGlue =
       , "const at = column(), want = at === null ? 0 : at + step;"
       , "table.select(id, want)"
       -- An asset without cell selection says so rather than throwing.
-      , "typeof table.getSelection === \"function\""
+      , "can(table, \"getSelection\")"
       , "this table-view.js has no cell selection"
       -- The row is handed to its handler so the echo can open the same way.
       , "if (handler) handler(b);" ]
@@ -9850,7 +9862,7 @@ pageSpec shell = testGroup "GET /"
             [ "initialQuery: query,"
             -- An asset predating the option drops it silently, so the mount
             -- asks whether it took and stuffs the box when it did not.
-            , "const holds = (q) => typeof table.getQuery === \"function\""
+            , "const holds = (q) => can(table, \"getQuery\")"
             , "&& table.getQuery() === q;"
             , "if (query && !holds(query)) showQuery();"
             , "function showQuery() {" ] b
@@ -9869,7 +9881,7 @@ pageSpec shell = testGroup "GET /"
             , "filterDrop: (b) => {", "said(b, \"no filter\")"
             , "said(b, left ? `filter: ${JSON.stringify(left)}` : \"filter cleared\");"
             -- An asset without the pair says so instead of guessing.
-            , "typeof table.stripLastToken === \"function\""
+            , "can(table, \"stripLastToken\")"
             , "this table-view.js has no filter tokens"
             -- One press, one token: a held DEL claims the key and runs once,
             -- where held movement keeps repeating.  The table is the blob's.
