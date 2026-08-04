@@ -23,11 +23,12 @@
  *
  *   tv.sortBy(col, asc);  // state an order, replacing the chain -> bool
  *   tv.sortPromote(col);  // `^': COL to the head of the chain, or flip it,
- *                         // written into the query as `sort:' tokens -> bool
+ *                         // written into the query as one `sort:a->b' -> bool
  *   tv.getSort(); tv.setSort(chain);     // read and replace the whole chain
  *
  *   tv.getQuery();        // the query as last delivered
- *   tv.stripLastToken();  // drop the typed text, else the last chip -> bool
+ *   tv.stripLastToken();  // drop the typed text, else the last chip (a sort
+ *                         // chain gives up one key per press) -> bool
  *   tv.pushCrumb({label, query});   // drilling in: leave a crumb behind
  *   tv.popCrumb();        // walking out: {label, query} or null — the consumer applies it
  *   tv.setCrumbs(list); tv.getCrumbs();
@@ -821,6 +822,15 @@
   const SORT_DIRS = { "": true, asc: true, desc: false };
 
   /**
+   * The separator that CHAINS one sort token's columns:
+   * `sort:title->priority:desc' is `sort:title sort:priority:desc' written once.
+   * Sugar, and ONE semantics — a token's segments are read as exactly the tokens
+   * they compose, so nothing downstream can tell the two spellings apart and
+   * every rule the grammar has about repeats reaches across the arrow unchanged.
+   */
+  const SORT_ARROW = "->";
+
+  /**
    * The meta that spells the EMPTY CHAIN. `sort:*none*' NAMES a sort key, so it
    * replaces the view's declared `sort' the way any other sort token does — with
    * nothing, leaving the rows in the order they arrived. It is what a reader has
@@ -836,25 +846,35 @@
   const NONE_META = "*none*";
 
   /**
-   * TOKEN as a sort key, or null where nothing orderable is spelled. KNOWN is
+   * SEGMENT as a sort key, or null where nothing orderable is spelled. KNOWN is
    * the columns a key may name.
    *
-   * A sort token names ONE column in ONE direction: a negation, an alternation,
-   * a column the view does not carry and a direction that is neither `asc' nor
-   * `desc' each yield null. A producer refuses those (SCHEMA: the query is an
-   * error and is answered as one); a renderer, which has nobody to refuse to,
-   * drops the key and leaves the token narrowing nothing like every other sort
-   * token.
-   * @param {Token} tok  @param {(k: string) => boolean} known
+   * A segment names ONE column in ONE direction: an alternation, a column the
+   * view does not carry and a direction that is neither `asc' nor `desc' each
+   * yield null, and a negation is the whole token's (`sortSegments'). A producer
+   * refuses those (SCHEMA: the query is an error and is answered as one); a
+   * renderer, which has nobody to refuse to, drops the key and leaves the token
+   * narrowing nothing like every other sort token.
+   * @param {string} seg  @param {(k: string) => boolean} known
    * @returns {SortKey|null}
    */
-  function sortKeyOf(tok, known) {
-    if (tok.negated || tok.value.indexOf(ALT) !== -1) return null;
-    const at = tok.value.indexOf(":");
-    const column = at === -1 ? tok.value : tok.value.slice(0, at);
-    const dir = at === -1 ? "" : tok.value.slice(at + 1).toLowerCase();
+  function sortKeyOf(seg, known) {
+    if (seg.indexOf(ALT) !== -1) return null;
+    const at = seg.indexOf(":");
+    const column = at === -1 ? seg : seg.slice(0, at);
+    const dir = at === -1 ? "" : seg.slice(at + 1).toLowerCase();
     if (!column || !known(column) || !(dir in SORT_DIRS)) return null;
     return { column, ascending: SORT_DIRS[dir], nullsFirst: false };
+  }
+
+  /**
+   * The segments TOK chains, in written order, each read as a sort token's whole
+   * value is. A NEGATED token chains none: the `-' covers everything after it,
+   * so a refusal reaches every segment rather than the first.
+   * @param {Token} tok  @returns {string[]}
+   */
+  function sortSegments(tok) {
+    return tok.negated ? [] : tok.value.split(SORT_ARROW);
   }
 
   /**
@@ -865,16 +885,19 @@
    * KNOWN is the columns a key may name.
    *
    * Written order is precedence and repeats compose, so `sort:deadline
-   * sort:title' opens on deadline with title behind it. A column named twice
-   * keeps its FIRST spelling and the later one is dropped — the chain's own rule
-   * (a chain never names a column twice) read over the tokens that spell it — so
-   * what this answers can always be handed to `applyChain'.
+   * sort:title' opens on deadline with title behind it — and `->' spells that
+   * same chain in one token, the segments read exactly where the tokens were. A
+   * column named twice keeps its FIRST spelling and the later one is dropped —
+   * the chain's own rule (a chain never names a column twice) read over the
+   * segments that spell it, wherever the token boundaries fall — so what this
+   * answers can always be handed to `applyChain'.
    *
    * `*none*' is the empty chain and takes no companions: a key that resolves
-   * outranks it, so `sort:*none* sort:title' is title. Every other refusal — a
-   * negation, an alternation, an unknown column, a direction that is neither
-   * word — drops its own key and says nothing about the chain, which is why a
-   * query holding those alone leaves the declared order standing.
+   * outranks it, so `sort:*none* sort:title' and `sort:*none*->title' are both
+   * title. Every other refusal — a negation, an alternation, an unknown column,
+   * a direction that is neither word — drops its own key and says nothing about
+   * the chain, which is why a query holding those alone leaves the declared
+   * order standing.
    * @param {string} q  @param {string[]} keys  @param {(k: string) => boolean} known
    * @returns {SortKey[]|null}
    */
@@ -884,17 +907,29 @@
     let none = false;
     for (const tok of parseQuery(q, keys)) {
       if (tok.key !== SORT_KEY) continue;
-      if (!tok.negated && tok.value.toLowerCase() === NONE_META) { none = true; continue; }
-      const k = sortKeyOf(tok, known);
-      if (k && !chain.some((c) => c.column === k.column)) chain.push(k);
+      for (const seg of sortSegments(tok)) {
+        if (seg.toLowerCase() === NONE_META) { none = true; continue; }
+        const k = sortKeyOf(seg, known);
+        if (k && !chain.some((c) => c.column === k.column)) chain.push(k);
+      }
     }
     if (chain.length) return chain;   // a key that resolves outranks `*none*'
     return none ? chain : null;       // the empty chain, or nothing said at all
   }
 
-  /** KEY as the token that spells it. @param {SortKey} key  @returns {string} */
-  function sortToken(key) {
-    return `${SORT_KEY}:${key.column}${key.ascending ? "" : ":desc"}`;
+  /** KEY as the segment that spells it. @param {SortKey} key  @returns {string} */
+  function sortSegment(key) {
+    return `${key.column}${key.ascending ? "" : ":desc"}`;
+  }
+
+  /**
+   * CHAIN as the ONE token that spells it — the CANONICAL form, and what every
+   * door that writes an order into a query emits. `:asc' is not written, an
+   * unspelled direction already meaning it.
+   * @param {SortKey[]} chain  @returns {string}
+   */
+  function sortToken(chain) {
+    return SORT_KEY + ":" + chain.map(sortSegment).join(SORT_ARROW);
   }
 
   /** The superscript digits, so a precedence mark is one character per digit. */
@@ -1126,6 +1161,14 @@
 .tv-pal .tv-chip-sort{
   background:color-mix(in srgb,var(--tv-col) var(--tv-sort-wash),transparent);
   border-color:color-mix(in srgb,var(--tv-col) var(--tv-chip-edge),transparent)}
+/* THE ARROWS ARE DRAWN, not spelled. A chained sort chip carries "->" between
+   its columns and the renderer's face is monospace, so a coding font with
+   contextual alternates (JetBrains Mono, Fira Code, Cascadia) ligates the pair
+   into one arrow and the chip reads as the chain it is. Asked for explicitly
+   because it is a fact about this chip rather than a default to inherit: a page
+   that turns ligatures off wholesale would otherwise turn this one off with
+   them, and a face without the alternate loses nothing but the join. */
+.tv-chip-sort{font-variant-ligatures:contextual}
 .tv-pal .tv-chip:not(.tv-chip-muted):hover{border-color:var(--tv-accent);color:var(--tv-accent)}
 .tv-chips{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
 /* One silhouette, spelled once, for every chip in the strip: a live filter
@@ -3143,11 +3186,12 @@
      * with a prefix argument — `C-u ^' appends a tie-breaker at the bottom —
      * which a page has no spelling for; ordered presses are the web's answer.
      *
-     * The chain is WRITTEN INTO THE QUERY (`sort:COL', `sort:COL:desc') and
-     * delivered like any other filter change, so one representation carries the
-     * order everywhere: the chips show it, DEL takes a key off, the URL a
-     * consumer writes carries it, and a producer that filters server-side is
-     * told what order to answer in. `deliver' is what then puts it in force.
+     * The chain is WRITTEN INTO THE QUERY as ONE arrow-form token
+     * (`sort:title->state:desc') and delivered like any other filter change, so
+     * one representation carries the order everywhere: the chip shows it, DEL
+     * takes a key off, the URL a consumer writes carries it, and a producer that
+     * filters server-side is told what order to answer in. `deliver' is what
+     * then puts it in force.
      *
      * What it composes onto is the order IN FORCE, declared chain and all, so
      * only the promoted key ever moves: a view opening on `state → scheduled'
@@ -3177,15 +3221,15 @@
 
     /**
      * Put CHAIN into the applied query: the sort tokens it already carries come
-     * off, the chain goes on the end in precedence order, and the query is
-     * delivered. The tail is where they land because the strip reads left to
+     * off, the chain goes on the end as ONE arrow-form token, and the query is
+     * delivered. The tail is where it lands because the strip reads left to
      * right as what is on show and then what ORDER it is in.
      * @param {SortKey[]} chain
      */
     function writeSort(chain) {
       const keys = queryKeys();
       chips = chips.filter((c) => !parseQuery(c, keys).some((t) => t.key === SORT_KEY));
-      for (const k of chain) pushChip(sortToken(k));
+      if (chain.length) pushChip(sortToken(chain));
       renderChips();
       deliver();
     }
@@ -3415,27 +3459,8 @@
       chipsEl.style.display = (crumbs.length || chips.length) ? "" : "none";
     }
 
-    /**
-     * What TOK counts as the same token AS, for the strip's collapse. A
-     * predicate is itself as spelled: a near twin (`tag:game' beside
-     * `tag:games') asks a different question and stays a second chip.
-     *
-     * A SORT token is its COLUMN, whatever direction it wears and however that
-     * direction is spelled, because the chain keeps a column's first spelling
-     * and drops the rest. `sort:title' beside `sort:title:asc' is one ordering
-     * written twice, and `sort:title' beside `sort:title:desc' is an ordering
-     * beside a token that does nothing; either way the second chip describes an
-     * order the rows are not in, which is the one thing the strip may not do.
-     * A negated one is left as spelled — it is a refusal the reader typed, and
-     * the query carries it back to the producer verbatim.
-     * @param {string} tok  @returns {string}
-     */
-    function chipIdentity(tok) {
-      const t = parseQuery(tok, queryKeys())[0];
-      if (!t || t.key !== SORT_KEY || t.negated) return tok;
-      const at = t.value.indexOf(":");
-      return `${SORT_KEY}:${at === -1 ? t.value : t.value.slice(0, at)}`;
-    }
+    /** The one token TOK spells, parsed. @param {string} tok  @returns {Token|undefined} */
+    const asToken = (tok) => parseQuery(tok, queryKeys())[0];
 
     /**
      * Whether TOK states an order this renderer READS: a sort key that resolves
@@ -3451,9 +3476,23 @@
      * @param {string} tok  @returns {boolean}
      */
     function ordersRows(tok) {
-      const t = parseQuery(tok, queryKeys())[0];
-      if (!t || t.key !== SORT_KEY || t.negated) return false;
-      return t.value.toLowerCase() === NONE_META || !!sortKeyOf(t, namesColumn);
+      const t = asToken(tok);
+      if (!t || t.key !== SORT_KEY) return false;
+      return sortSegments(t).some((s) => s.toLowerCase() === NONE_META
+                                      || !!sortKeyOf(s, namesColumn));
+    }
+
+    /**
+     * The ONE token spelling the order query Q names, in canonical arrow form.
+     * `sortsIn' is what decides it, so the strip cannot describe an order the
+     * rows are not in: it is the same reading `applyChain' is handed. Called
+     * behind `ordersRows', so Q always names an order and the empty answer is
+     * the meta Q spelled rather than a query that said nothing.
+     * @param {string} q  @returns {string}
+     */
+    function sortChip(q) {
+      const chain = sortsIn(q, queryKeys(), namesColumn);
+      return chain && chain.length ? sortToken(chain) : `${SORT_KEY}:${NONE_META}`;
     }
 
     /**
@@ -3461,14 +3500,31 @@
      * Every token is idempotent under the one combination rule — a repeated
      * predicate narrows to what it narrowed, a repeated sort key is the position
      * it already holds — so a second copy is chrome the reader has to read past,
-     * in the strip, in the URL and in what the producer is asked. The FIRST
-     * occurrence keeps its place AND its spelling, which is what makes
-     * precedence survive the collapse.
+     * in the strip, in the URL and in what the producer is asked. A predicate is
+     * itself as spelled, so a near twin (`tag:game' beside `tag:games') asks a
+     * different question and stays a second chip.
+     *
+     * ONE ORDER, ONE CHIP. Every token that STATES an order folds into the chip
+     * already stating one, and what lands is the canonical arrow form of the
+     * chain the two name together: `sort:title sort:priority' is the single chip
+     * `sort:title->priority', which is what the URL then carries and what the
+     * producer is asked. First-wins dedup rides in `sortsIn', so a column already
+     * chained keeps its place and its spelling however the twin is written and
+     * whichever side of an arrow it falls. A token this renderer reads NO order
+     * from — a negation, an unknown column, a direction that is neither word —
+     * folds into nothing: it stays its own chip as spelled, and the query carries
+     * it back to the producer verbatim, which is the whole of how a refusal is
+     * ever answered.
      * @param {string} tok
      */
     function pushChip(tok) {
-      const id = chipIdentity(tok);
-      if (!chips.some((c) => chipIdentity(c) === id)) chips.push(tok);
+      if (ordersRows(tok)) {
+        const at = chips.findIndex(ordersRows);
+        const folded = sortChip(at === -1 ? tok : chips[at] + " " + tok);
+        if (at === -1) chips.push(folded); else chips[at] = folded;
+        return;
+      }
+      if (!chips.some((c) => c === tok)) chips.push(tok);
     }
 
     /**
@@ -3538,6 +3594,12 @@
      * point, and leaves focus alone — the caller owns that. False when there
      * was nothing left to take off, so a consumer can walk the query down and
      * know when it has hit the end.
+     *
+     * A SORT CHIP IS A CHAIN, and its last unit is its last KEY: the chain gives
+     * up one tie-breaker per press and the chip goes with the last of them. The
+     * arrow form put a reader's whole order on one chip, and without this the
+     * press that used to walk it back a key at a time would undo every promotion
+     * at once.
      * @returns {boolean}
      */
     function stripLastToken() {
@@ -3549,7 +3611,12 @@
         return true;
       }
       if (!chips.length) return false;
-      dropChip(chips.length - 1);
+      const at = chips.length - 1, last = asToken(chips[at]);
+      const segs = last && ordersRows(chips[at]) ? sortSegments(last) : [];
+      if (segs.length < 2) { dropChip(at); return true; }
+      chips[at] = SORT_KEY + ":" + segs.slice(0, -1).join(SORT_ARROW);
+      renderChips();
+      deliver();
       return true;
     }
 
@@ -3657,8 +3724,14 @@
       if (t.key !== null) {
         // `sort' has a domain of its own and it is no column's: the columns a
         // reader may order by, and the direction behind whichever one is named.
-        if (t.key === SORT_KEY)
-          return { stage: "sort", tok: t, col: null, prefix: t.value.toLowerCase() };
+        // A `->' RE-OPENS that domain the way a `|' re-opens a value's — the
+        // prefix is what follows the LAST arrow, so a chain is completed one
+        // column at a time and the committed token stays one token.
+        if (t.key === SORT_KEY) {
+          const v = t.value.toLowerCase(), arrow = v.lastIndexOf(SORT_ARROW);
+          return { stage: "sort", tok: t, col: null,
+                   prefix: arrow === -1 ? v : v.slice(arrow + SORT_ARROW.length) };
+        }
         // `planned' takes no value list: what follows it is a date prefix over
         // several columns at once, which is no domain to enumerate. It is the
         // one key with no column behind it, so every other one has a domain.
@@ -3698,12 +3771,19 @@
         const at = p.indexOf(":");
         const wantCol = at === -1 ? p : p.slice(0, at);
         const wantDir = at === -1 ? null : p.slice(at + 1);
+        // What the token ALREADY chains — every segment but the one being typed.
+        // A chain never names a column twice, so past an arrow the domain is the
+        // columns left to order by, and a reader is offered no tie-breaker that
+        // would be dropped the moment it was accepted.
+        const chained = sortSegments(st.tok).slice(0, -1)
+          .map((s) => s.split(":")[0].toLowerCase());
         const offer = (text, dim) =>
           out.push({ text, count: -1, full: true, dim: !!dim });
         for (const c of columns()) {
           if (out.length >= AC_MAX) break;
           if (c.sortable !== true) continue;
           const key = String(c.key), lower = key.toLowerCase();
+          if (chained.indexOf(lower) !== -1) continue;
           if (wantDir === null) {
             if (!lower.startsWith(wantCol)) continue;
             offer(key);
@@ -3716,7 +3796,10 @@
         // column, so there is no `sortable' to consult, and it wears no
         // direction. Star-blind like every meta, so `non' reaches it, and drawn
         // dim like every meta — vocabulary rather than a fact about a column.
-        if (wantDir === null && opensWith(NONE_META, wantCol)) offer(NONE_META, true);
+        // Not past an arrow: a token that has named a column has already said
+        // the order is not the empty one, and `*none*' takes no companions.
+        if (wantDir === null && !chained.length && opensWith(NONE_META, wantCol))
+          offer(NONE_META, true);
         return out.slice(0, AC_MAX);
       }
       if (!st.col) {
@@ -3964,16 +4047,19 @@
      *
      * A value keeps everything through the token's LAST bar, so completing
      * inside an alternation appends one more alternative and the token stays
-     * one token. The bar is looked for in the RAW text rather than in the
-     * token's value, which has had its quotes taken out and no longer lines up
-     * with the box.
+     * one token; a SORT segment keeps everything through the last ARROW, which
+     * is the same rule over the same shape and is what makes a chain one token
+     * too. Both are looked for in the RAW text rather than in the token's value,
+     * which has had its quotes taken out and no longer lines up with the box.
      */
     function acceptAc(item) {
       if (!ac) return;
       const v = input.value, t = ac.tok;
       const bar = v.lastIndexOf(ALT, t.end - 1);
+      const arrow = ac.stage === "sort" ? v.lastIndexOf(SORT_ARROW, t.end - 1) : -1;
       const head = ac.stage === "key" ? (t.negated ? "-" : "")
-                                      : v.slice(t.start, Math.max(t.sep + 1, bar + 1));
+        : v.slice(t.start, Math.max(t.sep + 1, bar + 1,
+                                    arrow === -1 ? 0 : arrow + SORT_ARROW.length));
       const ins = head + item.text + (item.full || ac.stage === "value" ? " " : "");
       input.value = v.slice(0, t.start) + ins + v.slice(t.end);
       const caret = t.start + ins.length;

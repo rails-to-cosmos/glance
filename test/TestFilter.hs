@@ -353,6 +353,7 @@ sortSpec = testGroup "Sort tokens"
       every <- matching ""
       mapM_ (`matches` every)
         [ "sort:deadline", "sort:deadline:desc", "sort:state sort:title"
+        , "sort:state->title", "sort:state->title:desc", "sort:deadline->"
         , "sort:", "sort:nosuchcolumn", "sort:deadline:sideways" ]
 
   , testCase "and never as free text, which is what would narrow" $ do
@@ -410,8 +411,37 @@ sortSpec = testGroup "Sort tokens"
                   (Right [("state", True), ("title", True)])
                   (sortChainIn "sort:state tag:web sort:title")
 
-  , testCase "a half-typed key orders nothing and refuses nothing" $
+  -- @->@ chains a token's columns, and it is the tokens said once.  SUGAR, so
+  -- every case here is asserted against the spelling it is sugar FOR: what is
+  -- pinned is that the two are one query rather than that either is right.
+  , testCase "an arrow chains one token's columns" $
+      mapM_ (\(chained, spelled') ->
+               assertEqual (T.unpack chained <> " vs " <> T.unpack spelled')
+                           (sortChainIn spelled') (sortChainIn chained))
+        [ ("sort:state->title",            "sort:state sort:title")
+        , ("sort:state->title:desc",       "sort:state sort:title:desc")
+        , ("sort:state:desc->title",       "sort:state:desc sort:title")
+        , ("sort:state->title->deadline",  "sort:state sort:title sort:deadline")
+          -- The two spellings mix, and precedence reads straight through.
+        , ("sort:state sort:title->deadline",
+           "sort:state sort:title sort:deadline")
+        , ("sort:state->title tag:web sort:deadline",
+           "sort:state sort:title tag:web sort:deadline")
+          -- A segment half typed is the `key:' rule, like the token it is one of.
+        , ("sort:state->",                 "sort:state sort:")
+        , ("sort:->state",                 "sort: sort:state")
+        , ("sort:->",                      "sort: sort:") ]
+
+  , testCase "and the chain it names is the chain, arrow or no arrow" $ do
+      assertEqual "three keys"
+                  (Right [("state", True), ("title", False), ("deadline", True)])
+                  (sortChainIn "sort:state->title:desc->deadline")
+      assertEqual "a half-typed segment orders nothing"
+                  (Right [("state", True)]) (sortChainIn "sort:state->")
+
+  , testCase "a half-typed key orders nothing and refuses nothing" $ do
       assertEqual "the key: rule" (Right []) (sortChainIn "sort:")
+      assertEqual "and so does a half-typed segment" (Right []) (sortChainIn "sort:->")
 
   -- `*none*' is the query's whole vocabulary for document order, and it
   -- replaced `?order=document'.  It is a STARRED META like `*active*' and
@@ -433,7 +463,13 @@ sortSpec = testGroup "Sort tokens"
         , "sort:title sort:*none*"
         , "sort:*none* sort:*none*"
           -- The empty chain has no key in it to reverse.
-        , "sort:*none*:desc" ]
+        , "sort:*none*:desc"
+          -- A SEGMENT is a companion like any other, so the same pair written
+          -- once is the same refusal.
+        , "sort:*none*->title"
+        , "sort:title->*none*"
+        , "sort:*none*->*none*"
+        , "sort:*none*:desc->title" ]
 
   , testCase "one column, one direction: everything else is refused by name" $
       mapM_ (\(q, named) -> case sortChainIn q of
@@ -445,12 +481,27 @@ sortSpec = testGroup "Sort tokens"
         , ("sort:nosuchcolumn",       "nosuchcolumn")
         , ("sort:title:sideways",     "sort:title:sideways")
         , ("sort:title sort:title",   "title")
-        , ("sort:title sort:title:desc", "title") ]
+        , ("sort:title sort:title:desc", "title")
+          -- Each refusal again as ONE token, the whole of it named back.  The
+          -- negation covers every segment, being written before the key.
+        , ("-sort:title->state",      "-sort:title->state")
+        , ("sort:title|state->deadline", "sort:title|state->deadline")
+        , ("sort:state->nosuchcolumn", "nosuchcolumn")
+        , ("sort:nosuchcolumn->state", "nosuchcolumn")
+        , ("sort:state->title:sideways", "sort:state->title:sideways")
+          -- FIRST-WINS DEDUP SPANS THE SEGMENTS AND THE TOKEN BOUNDARIES ALIKE.
+        , ("sort:title->title",       "title")
+        , ("sort:title:desc->title",  "title")
+        , ("sort:title->state sort:title:desc", "title")
+        , ("sort:title sort:state->title",      "title") ]
 
-  , testCase "a refusal is the whole query's, wherever the token sits" $
+  , testCase "a refusal is the whole query's, wherever the token sits" $ do
       assertBool "the good key does not rescue the bad one"
                  (either (const True) (const False)
                          (sortChainIn "sort:title -sort:state"))
+      assertBool "nor the good segment the bad one beside it"
+                 (either (const True) (const False)
+                         (sortChainIn "sort:title->nosuchcolumn"))
   ]
 
 -- | Which queries turn the served view's archive exclusion off

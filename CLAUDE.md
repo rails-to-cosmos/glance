@@ -750,13 +750,31 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   nothing either way. `?order=` was the older half and is GONE: present at all it
   is a 400 naming its replacement, because a parameter silently ignored would
   serve the default order and look exactly like a working request.
+- `->` CHAINS ONE TOKEN'S COLUMNS and is SUGAR: `sort:state->title:desc` parses
+  to exactly the chain `sort:state sort:title:desc` composes. ONE semantics —
+  `segmentsOf` splits the value and `nameOf` reads each segment where a whole
+  token's value was read, so the segments and the tokens are one sequence and no
+  rule below knows which spelling it came from. Written order is still
+  precedence, first-wins dedup spans the segments AND the token boundaries, a
+  refusal is the SEGMENT's and refuses the whole request naming the token as
+  written, `sort:COL->` is a segment half typed and is the `key:` rule, and
+  `*none*` admits no companion wherever in a chain it stands. NEGATION is the one
+  rule that stays the token's, because the `-` is written before the key: it
+  covers every segment rather than the first. The renderer's canonical form is
+  that one token with `:asc` unwritten, and its chip door folds every sort token
+  of an applied query into it — so the query this producer is asked carries one
+  arrow-form token, and the shell never spells the `*none*`-with-companion the
+  400 exists for.
 - ONE COLUMN, ONE DIRECTION: a negation, an alternation, a column no view
   carries, a direction that is neither `asc` nor `desc`, and a column named
   twice are each the whole request's 400 naming the token. `sort:` half-typed
   orders nothing and refuses nothing (the `key:` rule). The renderer cannot
   refuse, so it DROPS the key and the token goes on narrowing nothing: a
-  divergence in the loud direction, blessed by SCHEMA.md, and the only one
-  where the producer is stricter rather than wider.
+  divergence in the loud direction, and the only one where the producer is
+  stricter rather than wider. SCHEMA.md blesses it for four of the five and
+  says the twice-named column is "no error on either side", which this side has
+  refused since the tokens landed: a live disagreement with the contract, in the
+  same loud direction, and one of the two documents owes an edit.
 - The view declares a SORT CHAIN and is served in it: `defaultSortChain` is
   state, title, deadline, scheduled, every key ascending — state by the badge
   PALETTE, which is the declared `#+TODO:` cycle, so the table opens in org's
@@ -894,13 +912,15 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
     there, so the renderer answers the rows in another order where this answers
     nothing. Deliberate — an order nobody can give is worth saying, and the
     query the shell writes never spells one, promotion composing the chain from
-    the columns the view carries. What is TERM FOR TERM is the reading: one
-    column, one direction, `:` splitting the value, written order the
-    precedence, `sort:` half-typed narrowing and ordering nothing, and the token
-    narrowing nothing in either polarity (`Glance.Web.Sort.sortChainIn` against
-    `sortsIn`/`sortKeyOf`). `fixtures/parity/sort-tokens.json` runs the shared
-    half over the browser renderer; `TestFilter`'s "Sort tokens" runs the same
-    table here.
+    the columns the view carries and the chip door folding what a reader typed.
+    What is TERM FOR TERM is the reading: one column, one direction, `:`
+    splitting a segment, `->` splitting the value, written order the precedence,
+    `sort:` and `sort:COL->` half-typed narrowing and ordering nothing, a
+    negation covering every segment, and the token narrowing nothing in either
+    polarity (`Glance.Web.Sort.sortChainIn`'s `segmentsOf`/`nameOf` against
+    `sortSegments`/`sortKeyOf`). `fixtures/parity/sort-tokens.json` runs the
+    shared half over the browser renderer; `TestFilter`'s "Sort tokens" runs the
+    same table here.
   - PRIORITY WEARS ORG'S BRACKETS, and the fold is the divergence. The cell is
     `[#A]`, the column is a BADGE column, and its three badges are danneskjold's
     org-priority hues (`[#A]` #E74C3C, `[#B]` #FFCC00, `[#C]` #27AE60 — three and
@@ -1188,10 +1208,11 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `f` does. Ends
   are `<` and `>`, plus vi's `G` beside `>`. `^` is `toggle-sort` — the cell
   selection's column, sortable-honoring — and it is a QUERY EDIT: the renderer
-  composes the chain, writes it into the applied query as `sort:` tokens and
-  delivers it, so the press arrives as an ordinary commit (URL, refetch, the
-  server asked for the order it was just told about) and `DEL` walks the keys
-  back off one at a time. What it composes onto is the chain IN FORCE, so the
+  composes the chain, writes it into the applied query as ONE arrow-form `sort:`
+  token and delivers it, so the press arrives as an ordinary commit (URL,
+  refetch, the server asked for the order it was just told about) and `DEL` walks
+  the keys back off one at a time — the chain is one chip, so the renderer gives
+  up its last key per press rather than the whole order. What it composes onto is the chain IN FORCE, so the
   first press is where the declared chain becomes tokens and only the promoted
   key moves. This page keeps no record of an order and asks for none: `sortBy`
   is gone from the shell with the agenda's call, the canned view carrying

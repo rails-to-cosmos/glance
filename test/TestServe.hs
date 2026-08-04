@@ -6876,6 +6876,19 @@ sortQuerySpec = testGroup "GET /headlines?q=sort:"
       v <- get assetsDir "/headlines?q=sort:deadline:desc" >>= decoded
       assertEqual "the chain declared" [("deadline", False)] =<< chainDeclaredBy v
 
+    -- The arrow form is SUGAR, so what is asserted is that the answer is the
+    -- answer to the spelling it is sugar for — rows and declaration both.
+  , testCase "an arrow-chained token is the tokens it is sugar for" $ do
+      a <- app assetsDir
+      let asked q = do r <- getFrom a ("/headlines?q=" <> q)
+                       v <- decoded r
+                       (,) <$> (map rowId <$> rowsOf r) <*> chainDeclaredBy v
+      chained <- asked "sort:deadline:desc-%3Etitle"
+      assertEqual "the two spellings answer alike" chained
+        =<< asked "sort:deadline:desc%20sort:title"
+      assertEqual "and the chain declared is the chain named"
+                  [("deadline", False), ("title", True)] (snd chained)
+
   , testCase "and the rows come back in it" $ do
       a <- app assetsDir
       whole <- rowsOf =<< getFrom a "/headlines?q=sort:deadline&limit=6"
@@ -6928,11 +6941,17 @@ sortQuerySpec = testGroup "GET /headlines?q=sort:"
         , ("sort:title|state",         "sort:title|state")
         , ("sort:nosuchcolumn",        "nosuchcolumn")
         , ("sort:title:sideways",      "sort:title:sideways")
-        , ("sort:title sort:title",    "title") ]
+        , ("sort:title sort:title",    "title")
+          -- A SEGMENT is refused the way the token it is one of would be, and
+          -- the whole token as written is what comes back.
+        , ("sort:title-%3Enosuchcolumn", "nosuchcolumn")
+        , ("sort:title-%3Etitle",        "title") ]
 
   , testCase "and a half-typed one is no refusal at all" $ do
       r <- ok =<< get assetsDir "/headlines?q=sort:"
       assertEqual "rows" 6 . length =<< rowsOf r
+      half <- ok =<< get assetsDir "/headlines?q=sort:title-%3E"
+      assertEqual "a half-typed segment either" 6 . length =<< rowsOf half
 
     -- The empty chain is a sort token like any other, so it is refused for the
     -- same reason a column named twice is: two orders in one query.
@@ -6940,6 +6959,9 @@ sortQuerySpec = testGroup "GET /headlines?q=sort:"
       r <- get assetsDir "/headlines?q=sort:title%20sort:*none*"
       assertEqual "status" 400 (status r)
       assertContains "names the meta" "*none*" (body r)
+      mid <- get assetsDir "/headlines?q=sort:title-%3E*none*"
+      assertEqual "mid-chain is the same refusal" 400 (status mid)
+      assertContains "and names the meta" "*none*" (body mid)
   ]
 
 -- | The chain VIEW declares, highest priority first — the @sort@ array, or none

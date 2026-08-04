@@ -4888,11 +4888,12 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- `sortBy'.  Named with the rest of the optional calls, since this is where
     -- a reader greps for which renderer calls are feature-detected.
     --
-    -- `sortPromote' composes the chain and WRITES IT INTO THE QUERY as `sort:'
-    -- tokens, which comes back through `onFilter' like any other query change —
-    -- so the URL carries the order, DEL takes a key off it, and the server is
-    -- asked for the order it is about to be sent.  This page keeps no record of
-    -- the chain: the handle publishes it (getSort) and the query spells it.
+    -- `sortPromote' composes the chain and WRITES IT INTO THE QUERY as ONE
+    -- arrow-form `sort:' token (`sort:state->title:desc'), which comes back
+    -- through `onFilter' like any other query change — so the URL carries the
+    -- order, DEL takes a key off it, and the server is asked for the order it is
+    -- about to be sent.  This page keeps no record of the chain: the handle
+    -- publishes it (getSort) and the query spells it.
   , "    const sorts = () => !!table && typeof table.sortPromote === \"function\";"
   , "    function turnPage(b, step) {"
   , "      if (!pager()) { said(b, \"this table-view.js has no pager\"); return; }"
@@ -6963,10 +6964,11 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
     -- order — the web's spelling of table-view.el's C-u ^.
     --
     -- IT IS A QUERY EDIT.  The renderer writes the new chain into the applied
-    -- query as `sort:' tokens and delivers it, so the press lands here as an
-    -- ordinary filter commit: the rows in hand re-order at once, the URL is
-    -- rewritten, the server is asked for that order and answers page one in it,
-    -- and DEL walks the keys back off one at a time.  Nothing on this page
+    -- query as ONE arrow-form `sort:' token and delivers it, so the press lands
+    -- here as an ordinary filter commit: the rows in hand re-order at once, the
+    -- URL is rewritten, the server is asked for that order and answers page one
+    -- in it, and DEL walks the keys back off one at a time — the chain being one
+    -- chip, the renderer gives up its last key per press.  Nothing on this page
     -- remembers a sort.
   , "      toggleSort: (b) => {"
   , "        if (!sorts()) { said(b, \"this table-view.js has no sort\"); return; }"
