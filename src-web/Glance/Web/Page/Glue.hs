@@ -229,6 +229,12 @@ shellGlue wanted =
     -- row to land on and `at' its place among the survivors; null whenever point
     -- was NOT on a leaving row, since nothing is owed then.
   , "    let leaving = null;"
+    -- AND WHERE POINT GOES WHEN A CAPTURE MAKES ONE.  The mirror of `leaving',
+    -- and the other half of one rule: a write that moves the view says where
+    -- point is owed and the arriving rows spend it.  A capture is the one write
+    -- that MAKES a row, and the id is the answer's — a minted `ORG_GLANCE_ID' for
+    -- a blob, the target file's ordinal for an inbox line.
+  , "    let arriving = null;"
   , "    // The tag the last answer carried, which is what makes a reconnect"
   , "    // cheap: an unmoved store answers the revalidation 304 and no rows"
   , "    // cross the wire at all."
@@ -517,7 +523,7 @@ shellGlue wanted =
   , "    function commit(q) {"
   , "      if (q === query) return;"
   , "      query = q;"
-  , "      leaving = null;   // the anchor belonged to the view being left"
+  , "      leaving = arriving = null;   // both belonged to the view being left"
   , "      remember(q);"
   , "      fetchRows();"
   , "    }"
@@ -2476,12 +2482,25 @@ shellGlue wanted =
     -- the page the anchor was taken on, where `visible()' can say nothing about
     -- whether that row is still in the view.
   , "    function settled() {"
+  , "      arrived();"
   , "      const want = leaving;"
   , "      leaving = null;"
   , "      if (!want || !table) return;"
   , "      if (pageNow() !== want.on) return;"
   , "      if (visible().some((r) => r.id === want.from)) return;"
   , "      land({ id: want.id, col: column() }, want.at);"
+  , "    }"
+    -- The capture's landing, at those same doors and spent the same way, and
+    -- `land''s ordinary rule asked only where there is something to land ON: a
+    -- filter that hides the new row, a page it is not on, or a watch step that
+    -- has not delivered it yet all leave point exactly where it stands.  Asking
+    -- unguarded would pull the cursor to row one, since `land' falls through to
+    -- an index and there is no honest index to fall to here.
+  , "    function arrived() {"
+  , "      const want = arriving;"
+  , "      arriving = null;"
+  , "      if (!want || !table) return;"
+  , "      if (visible().some((r) => r.id === want)) land({ id: want, col: column() });"
   , "    }"
     -- Archiving: the tag goes on, the headline stays, and the default view stops
     -- showing it.  WHICH ROWS is `flagKey''s — the FLAGGED set when there is one
@@ -2599,11 +2618,76 @@ shellGlue wanted =
     -- a keyword, a title and a tag — and the server decides WHERE, out of the
     -- tree's own `#+GLANCE_CAPTURE_TARGET:'.  The row comes back over the socket
     -- once the watch has read the file it was written to, like every write here.
-  , "    function captureRow(b, text) {"
+    -- THE CHAIN `+' IS, and every step of it is one prompt: WHICH TAG, then one
+    -- field per `%^{PROMPT}' the tag's template asks, then the line itself.  ESC
+    -- at any of them ends the whole thing with nothing sent, which is the absence
+    -- of machinery rather than a rule — a step that is abandoned never calls the
+    -- one behind it.
+    --
+    -- The tag list is the server's (`/capture' carries the tree's vocabulary),
+    -- and `*empty*' LEADS it: a name of one's own is committable (`freely', the
+    -- charset wall being the server's) and the meta is what an immediate RET
+    -- lands on, which is the untagged inbox path exactly as it was.  It wears the
+    -- stars every reserved value on this page wears, and it is first because that
+    -- is the answer a reader who pressed `+' to jot a line means.
+  , "    function captureFlow(b) {"
+  , "      captureShape(null).then((a) => {"
+  , "        const list = [{ label: EMPTY, tag: \"\" }].concat("
+  , "          (a.tags || []).map((t) => ({ label: t, tag: t })));"
+  , "        askFrom(\"capture · which tag\", list,"
+  , "                `RET picks it · a name of your own works · ${EMPTY} is the inbox`,"
+  , "                (c) => captureUnder(b, tagFrom(c)));"
+  , "      }).catch(failed(b, \"capture\"));"
+  , "    }"
+    -- WHAT THE TEMPLATE ASKS is the server's too, so this page holds no template
+    -- grammar: it reads the prompt list off `/capture?tag=' and puts them to the
+    -- reader in the order it was given.  The untagged path asks nothing and goes
+    -- straight to the line.
+  , "    function captureUnder(b, tag) {"
+  , "      if (!tag) { captureText(b, \"\", {}); return; }"
+  , "      captureShape(tag).then((a) =>"
+  , "        askFields(b, tag, (a.prompts || []).slice(), {}))"
+  , "        .catch(failed(b, \"capture\"));"
+  , "    }"
+    -- One prompt at a time, the answers gathering in FIELDS.  Recursive because
+    -- the list is consumed one head at a time and each step is a callback: there
+    -- is no loop that could run ahead of a reader.
+  , "    function askFields(b, tag, left, fields) {"
+  , "      if (!left.length) { captureText(b, tag, fields); return; }"
+  , "      const want = left[0];"
+  , "      askOn(`capture · ${want}`, \"RET answers it · ESC leaves\", (c) => {"
+  , "        fields[want] = c.text;"
+  , "        askFields(b, tag, left.slice(1), fields);"
+  , "      });"
+  , "    }"
+  , "    function captureText(b, tag, fields) {"
+  , "      askOn(tag ? `capture · :${tag}:` : \"capture · a headline for the inbox\","
+  , "            \"RET captures it · ESC leaves\","
+  , "            (c) => captureRow(b, c.text, tag, fields));"
+  , "    }"
+    -- A prompt raised from inside another prompt's COMMIT.  The press that
+    -- committed has already been handled by the surface it came from, so the
+    -- raising guard would decline the reader's NEXT key rather than that one —
+    -- `askFrom''s own rule, spelled once here for the chain that needs it most.
+  , "    function askOn(title, foot, commit) {"
+  , "      askText(title, foot, \"\", commit);"
+  , "      prompting.raising = false;"
+  , "    }"
+    -- And the write.  The line is raw org — `TODO Buy milk :errands:' captures a
+    -- keyword, a title and a tag — and the server decides WHERE: the tree's own
+    -- `#+GLANCE_CAPTURE_TARGET:' with no tag, a blob in the store with one.  The
+    -- row comes back over the socket once the watch has read the file, like every
+    -- write here, and the id the answer carries is what point lands on when it
+    -- does.
+  , "    function captureRow(b, text, tag, fields) {"
   , "      const typed = text.trim();"
   , "      if (!typed) { said(b, \"nothing to capture\"); return; }"
-  , "      postCommand({ name: \"capture\", args: { text: typed } }).then((a) => {"
-  , "        said(b, `captured · ${a.file}`);"
+  , "      const args = { text: typed };"
+  , "      if (tag) args.tag = tag;"
+  , "      if (fields && Object.keys(fields).length) args.fields = fields;"
+  , "      postCommand({ name: \"capture\", args }).then((a) => {"
+  , "        arriving = a.id || null;"
+  , "        said(b, tag ? `captured · :${tag}:` : `captured · ${a.file}`);"
   , "        append(\"cmd\", \"info\","
       <> " `headline ${JSON.stringify(typed)} captured into ${a.file}`);"
   , "      }).catch(failed(b, \"capture\"));"
@@ -2617,6 +2701,12 @@ shellGlue wanted =
     -- rows, pluralised: every surface naming a set of them says it the same way,
     -- so the rule sits here rather than at each of them.
   , "    const rowsWord = (n) => `${n} row${n === 1 ? \"\" : \"s\"}`;"
+    -- A TAG AS A PALETTE HANDS IT BACK, folded and trimmed.  Presence is folded
+    -- everywhere on this page, so the three surfaces that take a tag off a
+    -- palette — the capture chain, the tags popup's add, its rename — read it
+    -- through one function rather than three copies of the same two calls.
+  , "    const foldTag = (t) => String(t || \"\").trim().toLowerCase();"
+  , "    const tagFrom = (c) => foldTag(c.tag);"
     -- The rows a keyed write runs over, and the title that names them: the two
     -- keys that ask something before writing count them the same way.
   , "    function overTargets(b, label, k) {"
@@ -2999,6 +3089,10 @@ shellGlue wanted =
     -- rule already lives — one link is `[[TARGET][DESC]]' shown as DESC, and a
     -- bare URL is its own description.
   , "    const linksOf = (id) => getJSON(`/links?id=${encodeURIComponent(id)}`);"
+    -- What a capture under TAG will ask for, and the vocabulary and codes that
+    -- come with every answer.  A null tag is the untagged path's own shape.
+  , "    const captureShape = (tag) =>"
+  , "      getJSON(tag === null ? \"/capture\" : `/capture?tag=${encodeURIComponent(tag)}`);"
     -- What the rows a tag command names are tagged with, and what else the tree
     -- holds.  Per row rather than as a union, because WHICH rows lack a tag is
     -- what decides where an add is sent; the union and its partial counts are
@@ -3366,7 +3460,7 @@ shellGlue wanted =
   , "    const addFlow = () => askFrom(`add a tag · ${rowsWord(ttargets.length)}`,"
   , "      addable(), \"RET adds it · C-n/C-p walks · ESC leaves\", addTag);"
   , "    function addTag(c) {"
-  , "      const tag = String(c.tag || \"\").trim().toLowerCase();"
+  , "      const tag = tagFrom(c);"
   , "      if (!managing() || !tag) return;"
   , "      const over = ttargets.filter((r) => r.tags.indexOf(tag) === -1);"
   , "      if (!over.length) { said(tagging, `:${tag}: is on every row already`); return; }"
@@ -3411,7 +3505,7 @@ shellGlue wanted =
     -- snapshot before the overlay comes down: a click that moved the cursor under
     -- an open field must not rename the tag the reader landed on.
   , "    function renameTag(from, typed) {"
-  , "      const to = String(typed || \"\").trim().toLowerCase();"
+  , "      const to = foldTag(typed);"
   , "      shutEdit(TROW);"
   , "      if (!from || !to || to === from) { said(tagging, \"unchanged\"); return; }"
   , "      const over = carriers(from);"
@@ -3504,6 +3598,12 @@ shellGlue wanted =
     -- `crows[cat]' rather than the place the text lives, which is what makes a
     -- switch cost nothing.
   , "    let settings = false, crows = [], cat = 0;"
+    -- The expansion subset, as the server spells it.  Read once per sheet open
+    -- beside the layers and kept for the sheet's life: it is a property of the
+    -- BUILD rather than of the tree, so a stale one is a daemon that has been
+    -- replaced under an open page, which every other part of this page treats
+    -- the same way.  Empty is the honest fallback — `%' then types itself.
+  , "    let ccodes = [];"
     -- The settings sheet's half of the pair the ladder drives ('subtreeSheet'
     -- is the other): the same four verbs, over the config layers and their own
     -- digests, filed under its own log scope.
@@ -3544,6 +3644,10 @@ shellGlue wanted =
   , "        settings = false;"
   , "        append(\"config\", \"error\", `settings failed: ${e.message}`);"
   , "      });"
+    -- The code list rides in beside the layers rather than gating the sheet on
+    -- it: a completion nobody has pressed `%' for yet is not worth a spinner,
+    -- and a fetch that never lands leaves `%' typing itself.
+  , "      captureShape(null).then((a) => { ccodes = a.codes || []; }).catch(quiet);"
   , "    }"
   , "    const config = () => getJSON(\"/config\");"
   , "    function drawLayers(b) {"
@@ -3582,6 +3686,10 @@ shellGlue wanted =
   , "      path: layer.path, tag: layer.tag, digest: layer.digest,"
   , "      base: (layer.lines || []).join(\"\\n\"),"
   , "      text: (layer.lines || []).join(\"\\n\"), err: \"\","
+      -- The capture template is the layer's SECOND box and is kept the way the
+      -- first one is: on the row rather than in the box, so switching layers
+      -- costs no request and loses no edit.
+  , "      tpl: layer.template || \"\", tplBase: layer.template || \"\","
   , "      view: null, viewBase: null, cap: null, capBase: null,"
   , "    });"
     -- SYSTEM FIRST, then the tags in their own alphabet.  The server's order is
@@ -3597,7 +3705,11 @@ shellGlue wanted =
     -- The box is a VIEW of one layer, so the box's text goes back to the layer
     -- it came from before anything else reads or replaces it.  Every door does
     -- this first: a switch, a dirty check, a flush.
-  , "    const takeLayer = () => { if (crows[cat]) crows[cat].text = el(\"ctext\").value; };"
+  , "    function takeLayer() {"
+  , "      if (!crows[cat]) return;"
+  , "      crows[cat].text = el(\"ctext\").value;"
+  , "      crows[cat].tpl = el(\"ctpl\").value;"
+  , "    }"
     -- What sits AROUND the box, and the only two things a write moves: the label
     -- carries the digest, so a layer this sheet just CREATED stops saying it is
     -- not there yet, and the line under it carries the layer's last refusal.
@@ -3613,6 +3725,7 @@ shellGlue wanted =
   , "      cat = Math.max(0, Math.min(i, crows.length - 1));"
   , "      el(\"clayer\").value = String(cat);"
   , "      el(\"ctext\").value = crows[cat] ? crows[cat].text : \"\";"
+  , "      el(\"ctpl\").value = crows[cat] ? crows[cat].tpl : \"\";"
   , "      showAround();"
   , "    }"
     -- Switching layers is a READ, so it writes nothing and asks nobody: the text
@@ -3622,10 +3735,36 @@ shellGlue wanted =
   , "      takeLayer();"
   , "      showLayer(Number(e.target.value));"
   , "    });"
+    -- `%' IN THE TEMPLATE BOX RAISES THE CODE LIST, which is this page's own
+    -- value palette in its field mode and no widget of its own.  What it offers
+    -- is the SERVER's list (`/capture' carries it beside the prompts), so the
+    -- completion cannot come to offer a code the expansion does not know or
+    -- omit one it does.  The `%' is not typed — committing writes the whole code
+    -- and ESC writes nothing — and a literal one is the field's own line, since
+    -- a line matching no entry commits as written (`freely').
+  , "    el(\"ctpl\").addEventListener(\"keydown\", (e) => {"
+  , "      if (keyName(e) !== \"%\" || !ccodes.length) return;"
+  , "      e.preventDefault();"
+  , "      const box = el(\"ctpl\"), at = box.selectionStart, to = box.selectionEnd;"
+  , "      askFrom(\"capture template · which code\","
+  , "              ccodes.map((c) => ({ label: c.code, hint: c.means, tag: c.code })),"
+  , "              \"RET writes it · C-n/C-p walks · ESC leaves\","
+  , "              (c) => insertCode(at, to, String(c.tag || \"\")));"
+  , "    });"
+    -- Back into the box at the caret it was raised from, and the model takes it:
+    -- the palette blurred the textarea on its way up, so the selection this
+    -- restores is the one the reader left rather than whatever the browser kept.
+  , "    function insertCode(at, to, code) {"
+  , "      const box = el(\"ctpl\"), text = box.value;"
+  , "      box.value = text.slice(0, at) + code + text.slice(to);"
+  , "      box.focus();"
+  , "      box.setSelectionRange(at + code.length, at + code.length);"
+  , "      takeLayer();"
+  , "    }"
     -- The same four words the other sheet wears, through the same writer.
   , "    const cnote = (next, message) => note(configSheet, next, message);"
   , "    const cdirty = () => (takeLayer(), crows.some(cmoved));"
-  , "    const cmoved = (r) => r.text !== r.base"
+  , "    const cmoved = (r) => r.text !== r.base || r.tpl !== r.tplBase"
   , "      || (r.view !== null && r.view.value !== r.viewBase)"
   , "      || (r.cap !== null && r.cap.value !== r.capBase);"
     -- Every layer that moved, one POST each and each awaited — still one
@@ -3648,19 +3787,26 @@ shellGlue wanted =
   , "        // What was SENT, taken before the await: a keystroke landing while"
   , "        // the write is in flight would otherwise be marked as the file's"
   , "        // and never written, and the sheet would close on it silently."
-  , "        const sent = r.text, view = r.view && r.view.value;"
+  , "        const sent = r.text, tpl = r.tpl, view = r.view && r.view.value;"
   , "        const cap = r.cap && r.cap.value;"
   , "        const a = await fetch(\"/config\", {"
   , "          method: \"POST\","
   , "          headers: { \"content-type\": \"application/json\" },"
   , "          body: JSON.stringify({ path: r.path, lines: sent.split(\"\\n\"),"
+      -- The template is named only where it MOVED, which is the absent arm of
+      -- the server's three-valued rule.  Sending it unconditionally would put
+      -- every layer's own first heading back through the one-top-entry wall on
+      -- every write, so a file whose heading is deeper than one — legal org,
+      -- and no business of this box — could no longer have its cycle edited at
+      -- all.  The two lines under it have kept this shape all along.
+  , "                                 ...(tpl !== r.tplBase ? { template: tpl } : {}),"
   , "                                 ...(r.view ? { filter: view } : {}),"
   , "                                 ...(r.cap ? { capture: cap } : {}),"
   , "                                 digest: r.digest }),"
   , "        }).then(outcome)"
   , "          .catch((e) => ({ status: 0, body: { error: e.message } }));"
   , "        if (a.status === 200) {"
-  , "          r.digest = a.body.digest; r.base = sent; r.err = \"\";"
+  , "          r.digest = a.body.digest; r.base = sent; r.tplBase = tpl; r.err = \"\";"
   , "          if (r.view) r.viewBase = view;"
   , "          if (r.cap) r.capBase = cap;"
   , "        } else {"
@@ -3820,7 +3966,7 @@ shellGlue wanted =
       -- `commit'.  Without that, an anchor still armed when a `view-changed'
       -- close or `g' rebuilt the table would fire on the next socket frame and
       -- pull the cursor off the row the new view had just landed it on.
-  , "    function remount(after) { leaving = null; stash(); start(after); }"
+  , "    function remount(after) { leaving = arriving = null; stash(); start(after); }"
     -- `g': the view this tree configures, applied the way every other query is —
     -- written into the URL and asked of the server.  It goes through the mount
     -- because the chips are the renderer's and only a mount can be handed a query
@@ -4278,11 +4424,10 @@ shellGlue wanted =
     -- tags is several ops over one set where setting a state is one, and closing
     -- after each would make the second op a fresh press and a fresh resolution.
   , "      manageTags: (b) => overTargets(b, \"tags\", askTags),"
-    -- `+' is the minibuffer and nothing else: what it collects goes straight to
-    -- the server, which knows the file.
-  , "      capture: (b) =>"
-  , "        askText(\"capture · a headline for the inbox\","
-  , "                \"RET captures it · ESC leaves\", \"\", (c) => captureRow(b, c.text)),"
+    -- `+' is a CHAIN of prompts and nothing else: which tag, whatever that tag's
+    -- template asks, then the line.  What it collects goes straight to the
+    -- server, which knows the file and holds the template.
+  , "      capture: (b) => captureFlow(b),"
     -- `o' FOLLOWS the row, and how many links it holds decides the whole gesture:
     -- none is a refusal, one opens, several raise the popup.  The count is the
     -- server's answer, so the popup can only go up behind the request, which is

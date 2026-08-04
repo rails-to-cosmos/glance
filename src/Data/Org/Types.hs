@@ -33,6 +33,7 @@ module Data.Org.Types ( Context (..)
                       , headlineSpanParts
                       , headlinesOf
                       , hsFull
+                      , headlineIdProperty
                       , identity
                       , inTodo
                       , levelOf

@@ -20,7 +20,8 @@ import Network.HTTP.Types ( HeaderName, RequestHeaders, methodDelete, methodPost
 import Network.Wai (Application, defaultRequest, requestHeaders, requestMethod)
 import Network.Wai.Test ( SResponse (simpleBody, simpleHeaders)
                         , request, runSession, setPath )
-import System.Directory (createDirectoryIfMissing, doesFileExist, findExecutable)
+import System.Directory ( createDirectoryIfMissing, doesDirectoryExist, doesFileExist
+                        , findExecutable, listDirectory )
 import System.Exit (ExitCode (ExitSuccess))
 import System.FilePath (takeDirectory, (</>))
 import System.IO (hPutStrLn, stderr)
@@ -28,7 +29,8 @@ import System.Process (readProcessWithExitCode)
 import Test.Tasty (TestTree, testGroup, withResource)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
 import TestDefaults ( assertContains, boolAt, document, field, holdsAll, holdsNone
-                    , intAt, listAt, maybeTextAt, orgFile, systemFileIn, tagFileIn
+                    , intAt, listAt, maybeTextAt, orgFile, sparseAt
+                    , systemFileIn, tagFileIn
                     , tagsDirIn, textAt, textsAt, viewDir, withTempDir )
 import TestWire (postTo, serverWith, status)
 
@@ -456,6 +458,7 @@ spec = withResource (body <$> get assetsDir "/") (const (pure ())) $ \shell ->
     , orderSpec, sortQuerySpec, archiveViewSpec
     , bootstrapSpec, materializeSpec, commitSpec, commandSpec, planningSpec
     , tagCommandSpec, renameCommandSpec, tagsSpec, captureSpec
+    , blobCaptureSpec, captureViewSpec
     , configSpec, keywordsSpec, linksSpec, editLinkSpec, indexingSpec
     , pageSpec shell, keymapSpec shell, layoutSpec shell
     , glueSpec shell, bootSpec shell, liveSpec shell, washSpec shell
@@ -2002,12 +2005,15 @@ tagsPosted = traverse (textAt "tag") <=< argsOf
 -- date grammar is the server's and is @TestQuery@'s subject.
 promptKeySpec :: IO T.Text -> TestTree
 promptKeySpec shell = testGroup "Shell capture and reschedule"
-  [ keyed shell "+ raises a line to type and RET captures it"
-      "+" "type:milk press:Enter" $ \answer -> do
-        assertEqual "the palette said what it is for" "capture · a headline for the inbox"
-          =<< textAt "phead" answer
+    -- `+' OPENS WITH THE TAG, and `*empty*' leads the list: an immediate RET is
+    -- the untagged inbox path exactly as it was before the chain existed.
+  [ keyed shell "+ asks which tag first, and *empty* is the inbox"
+      "+" "press:Enter type:milk press:Enter" $ \answer -> do
+        assertEqual "the vocabulary came off the server" ["/capture"]
+          =<< textsAt "capturing" answer
         assertEqual "one capture, naming no rows" ["capture"] =<< namesOf answer
         assertEqual "carrying the line as typed" ["milk"] =<< capturedOf answer
+        assertEqual "and no tag with it" [Nothing] =<< taggedOf answer
         echoIs "the pill names the file it landed in"
           "+ → org-glance-overview:capture (captured · /o/inbox.org)" answer
         assertEqual "and the log names the headline"
@@ -2015,23 +2021,70 @@ promptKeySpec shell = testGroup "Shell capture and reschedule"
           =<< lastLog answer
         assertEqual "the overlay is down" "" =<< textAt "prompt" answer
 
-    -- The palette is up with a field in it, so `typing()' is true: every table
-    -- row is dead and the keys are the field's.
-  , keyed shell "and ESC leaves it having written nothing"
-      "+" "type:milk press:Escape" $ \answer -> do
+    -- A TAG WITH A TEMPLATE asks that template's own prompts, in the order the
+    -- server named them, and the answers ride in `fields'.  This page holds no
+    -- template grammar: what it asks is what `/capture?tag=' said to ask.
+  , keyed shell "a tag's template asks its prompts, one field at a time"
+      "+" "type:book press:Enter type:Herbert press:Enter type:Dune press:Enter"
+      $ \answer -> do
+        assertEqual "the tag was resolved before the reader was asked anything"
+                    ["/capture", "/capture?tag=book"] =<< textsAt "capturing" answer
+        assertEqual "one capture" ["capture"] =<< namesOf answer
+        assertEqual "the line as typed" ["Dune"] =<< capturedOf answer
+        assertEqual "under the tag it was filed with" [Just "book"] =<< taggedOf answer
+        assertEqual "and the template's ask answered"
+                    [Just "Herbert"] =<< answeredOf "Author" answer
+        echoIs "the pill names the tag rather than a file"
+          "+ → org-glance-overview:capture (captured · :book:)" answer
+
+    -- A tag NOBODY configured asks nothing: the server answers no prompts and
+    -- the chain goes straight to the line.
+  , keyed shell "a tag with no template goes straight to the line"
+      "+" "type:web press:Enter type:milk press:Enter" $ \answer -> do
+        assertEqual "resolved all the same" ["/capture", "/capture?tag=web"]
+          =<< textsAt "capturing" answer
+        assertEqual "the line as typed" ["milk"] =<< capturedOf answer
+        assertEqual "under the tag" [Just "web"] =<< taggedOf answer
+
+    -- ESC ANYWHERE ENDS THE WHOLE CHAIN with nothing sent, and it is the absence
+    -- of machinery rather than a rule: a step that is abandoned never calls the
+    -- one behind it.
+  , keyed shell "ESC at the tag prompt writes nothing"
+      "+" "press:Escape" $ \answer -> do
         assertEqual "no command went" [] =<< namesOf answer
         assertEqual "the overlay is down" "" =<< textAt "prompt" answer
 
-  , keyed shell "an empty line captures nothing and says so" "+" "press:Enter" $ \answer -> do
+  , keyed shell "ESC at a template's own prompt writes nothing"
+      "+" "type:book press:Enter type:Herbert press:Escape" $ \answer -> do
+        assertEqual "the tag was resolved" ["/capture", "/capture?tag=book"]
+          =<< textsAt "capturing" answer
+        assertEqual "no command went" [] =<< namesOf answer
+        assertEqual "the overlay is down" "" =<< textAt "prompt" answer
+
+  , keyed shell "and ESC at the line leaves it having written nothing"
+      "+" "press:Enter type:milk press:Escape" $ \answer -> do
+        assertEqual "no command went" [] =<< namesOf answer
+        assertEqual "the overlay is down" "" =<< textAt "prompt" answer
+
+  , keyed shell "an empty line captures nothing and says so"
+      "+" "press:Enter press:Enter" $ \answer -> do
         assertEqual "no command went" [] =<< namesOf answer
         echoIs "the pill says why" "+ → org-glance-overview:capture (nothing to capture)" answer
 
   , keyed shell "a refused capture is one cmd error line"
-      "" "refuse press:+ type:milk press:Enter" $ \answer -> do
+      "" "refuse press:+ press:Enter type:milk press:Enter" $ \answer -> do
         assertEqual "the command still went" ["capture"] =<< namesOf answer
         assertEqual "and the log carries the server's own words"
                     (Just "capture failed: #+GLANCE_CAPTURE_TARGET: /x.org is an absolute path")
           =<< lastLog answer
+
+    -- THE LANDING: the answer names the row the write made, and point goes to it
+    -- when the watch delivers it.  `land''s ordinary rule and no second one — a
+    -- row the view has not got leaves the cursor where it stands.
+  , keyed shell "the captured row is where point lands when it arrives"
+      "+" "press:Enter type:milk press:Enter frame:upsert=r3 wait:300" $ \answer ->
+        assertEqual "point is on the row the capture made" (Just "r3")
+          =<< maybeTextAt "selected" answer
 
     -- The chords survive the browser where `C-c C-t' does not, and what the
     -- page owes is the same: both halves claimed off it.
@@ -2087,6 +2140,25 @@ argsOf answer = traverse (field "args") =<< listAt "commands" answer
 -- | The line each posted capture carried.
 capturedOf :: Value -> IO [T.Text]
 capturedOf = traverse (textAt "text") <=< argsOf
+
+-- | The tag each posted @capture@ filed under, 'Nothing' for the inbox path —
+-- a SPARSE field, absent rather than null where there is none.
+taggedOf :: Value -> IO [Maybe T.Text]
+taggedOf = traverse (sparseTextAt "tag") <=< argsOf
+
+-- | What each posted command answered for the template prompt NAME, 'Nothing'
+-- where its args carried no @fields@ at all or no answer for that one.
+answeredOf :: T.Text -> Value -> IO [Maybe T.Text]
+answeredOf name = traverse one <=< argsOf
+  where one v = maybe (pure Nothing) (sparseTextAt name) =<< sparseAt "fields" v
+
+-- | The string at KEY of V, 'Nothing' where the key is absent or null.
+sparseTextAt :: T.Text -> Value -> IO (Maybe T.Text)
+sparseTextAt k v = maybe (pure Nothing) string =<< sparseAt k v
+  where string Null = pure Nothing
+        string (String t) = pure (Just t)
+        string other = assertFailure ("expected a string or null at " <> show k
+                                        <> ", got " <> show other)
 
 -- | The keyword and date each posted @set-planning@ carried.
 plannedOf :: Value -> IO [(T.Text, Maybe T.Text)]
@@ -5659,7 +5731,7 @@ shellGlue =
   -- so a file that moved underneath opens the conflict flow instead of being
   -- overwritten by the restore.
   , glue "a real remount carries the sheet and the palette across it"
-      [ "function remount(after) { leaving = null; stash(); start(after); }"
+      [ "function remount(after) { leaving = arriving = null; stash(); start(after); }"
       , "function stash() {"
       -- A structured sheet is never dirty — every element commits on its own —
       -- so what a remount would lose is where the reader was STANDING and
@@ -5940,10 +6012,16 @@ shellGlue =
       -- is the walk's.
       , "const byLayer = (a, b) => (a.tag === null ? 0 : 1) - (b.tag === null ? 0 : 1)"
       , "|| String(a.tag).localeCompare(String(b.tag));"
-      , "const takeLayer = () => { if (crows[cat]) crows[cat].text = el(\"ctext\").value; };"
+      , "crows[cat].text = el(\"ctext\").value;"
       , "el(\"clayer\").addEventListener(\"change\""
       , "const cdirty = () => (takeLayer(), crows.some(cmoved));"
-      , "const cmoved = (r) => r.text !== r.base"
+      , "const cmoved = (r) => r.text !== r.base || r.tpl !== r.tplBase"
+      -- The layer's SECOND box: the capture template, a region of the same file
+      -- riding in the same write, kept on the layer the way its cycle is.
+      , "<textarea id=\"ctpl\" class=\"ctext\""
+      , "crows[cat].tpl = el(\"ctpl\").value;"
+      , "tpl: layer.template || \"\", tplBase: layer.template || \"\","
+      , "...(tpl !== r.tplBase ? { template: tpl } : {}),"
       -- One POST per layer that moved, each awaited, each under its own digest.
       -- A layer with nothing to send drops the refusal it was carrying, since
       -- the edit that earned it has been taken back.
@@ -8368,7 +8446,199 @@ captureSpec = testGroup "POST /command capture"
   , testCase "it names no rows, and is not refused for that" $
       withCaptureTree Nothing $ \a _hub _dir -> do
         assertOk =<< postTo a "/command" (capture "no ids here")
+
+    -- THE ID THE ANSWER CARRIES is where point lands when the watch delivers
+    -- the row, so it has to be the id the next load spells: the target file's
+    -- path and the ordinal behind the rows the store already holds.
+  , testCase "the answer names the row the capture made" $
+      withCaptureTree Nothing $ \a hub dir -> do
+        r <- ok =<< postTo a "/command" (capture "TODO Buy milk")
+        assertEqual "the file's own path and the next ordinal"
+                    (T.pack (dir </> "inbox.org") <> "#0") =<< textAt "id" =<< decoded r
+        watchStep hub (dir </> "inbox.org")
+        rows <- rowsOf =<< getFrom a "/headlines"
+        assertBool ("the store spells the same id: " <> show (map rowId rows))
+                   ((T.pack (dir </> "inbox.org") <> "#0") `elem` map rowId rows)
   ]
+
+-- | A TAGGED capture: the blob in the store, org-glance's own citizen.
+--
+-- What is pinned here is the whole path from the request to the two files it
+-- leaves — the sharded blob and the @EXTERNAL.jsonl@ line naming it — plus the
+-- refusals, which are decided before a byte is written.
+blobCaptureSpec :: TestTree
+blobCaptureSpec = testGroup "POST /command capture, under a tag"
+  [ testCase "writes a blob at org-glance's own sharded path" $
+      withStoreTree $ \a _hub dir -> do
+        v <- decoded =<< ok =<< postTo a "/command" dune
+        ident <- textAt "id" v
+        path <- textAt "file" v
+        assertEqual "sharded by the id's first two characters"
+                    (T.pack (dir </> ".org-glance/data") <> "/" <> T.take 2 ident
+                       <> "/" <> T.drop 2 ident <> "/data.org")
+                    path
+        assertEqual "the id is a UUID" [8, 4, 4, 4, 12] (map T.length (T.splitOn "-" ident))
+        written <- document (T.unpack path)
+        assertContains "the tag is on the headline" ("* Dune :book:") written
+        assertContains "and the id is the drawer's" (":ORG_GLANCE_ID: " <> ident) written
+        assertContains "beside the creation time" ":ORG_GLANCE_CREATION_TIME: [" written
+
+    -- The note rides the write door every other write leaves through, so a
+    -- capture costs no rule of its own: blob first, line second.
+  , testCase "and one EXTERNAL.jsonl line naming it" $
+      withStoreTree $ \a _hub dir -> do
+        ident <- textAt "id" =<< decoded =<< ok =<< postTo a "/command" dune
+        noted <- document (dir </> ".org-glance/meta/EXTERNAL.jsonl")
+        assertEqual "one line" 1 (length (T.lines noted))
+        assertContains "naming the blob's own id" ("{\"id\":\"" <> ident <> "\"") noted
+
+    -- The tag's TEMPLATE is what a blob is shaped by, and the answers ride in
+    -- `fields'.
+  , testCase "the tag's template is expanded, prompts and all" $
+      withStoreTree $ \a _hub _dir -> do
+        v <- decoded =<< ok =<< postTo a "/command"
+                                  (captureAs "book" [("Author", "Herbert")] "Dune")
+        written <- document . T.unpack =<< textAt "file" v
+        assertContains "the point took the line" "Dune" written
+        assertContains "the ask took its answer" ":AUTHOR: Herbert" written
+        assertContains "and the template's own child came with it" "*** Notes" written
+
+  , testCase "a tag no layer configures takes the bare template" $
+      withStoreTree $ \a _hub _dir -> do
+        v <- decoded =<< ok =<< postTo a "/command" (captureAs "web" [] "a link")
+        written <- document . T.unpack =<< textAt "file" v
+        assertEqual "one entry and its drawer, and nothing else"
+                    [ "* a link :web:", ":PROPERTIES:", ":END:" ]
+                    [ l | l <- T.lines written, not (":ORG_GLANCE_" `T.isPrefixOf` l) ]
+
+    -- THREE REFUSALS, each of them the whole request's and each of them ahead of
+    -- any write.
+  , testCase "an unanswered prompt is a 400 naming it, and writes nothing" $
+      withStoreTree $ \a _hub dir -> do
+        r <- postTo a "/command" (captureAs "book" [] "Dune")
+        assertEqual "status" 400 (status r)
+        assertContains "naming the prompt" "Author" (body r)
+        assertEqual "and no blob was written" [] =<< blobsIn dir
+
+  , testCase "a template with no %? is a 400 naming what it lacks" $
+      withStoreTree $ \a _hub dir -> do
+        TIO.writeFile (tagFileIn dir "film") "#+TITLE: Film\n\n* nothing here\n"
+        r <- postTo a "/command" (captureAs "film" [] "Alien")
+        assertEqual "status" 400 (status r)
+        assertContains "naming the code" "%?" (body r)
+        assertEqual "and no blob was written" [] =<< blobsIn dir
+
+  , testCase "a tag that is not one is refused with the request's shape" $
+      withStoreTree $ \a _hub dir -> do
+        r <- postTo a "/command" (captureAs "not a tag" [] "x")
+        assertEqual "status" 400 (status r)
+        assertEqual "and no blob was written" [] =<< blobsIn dir
+
+    -- A tree with no store is not made into one by asking: those directories
+    -- are org-glance's and a daemon that made them would be deciding for it.
+  , testCase "a tree with no store refuses a tagged capture, naming it" $
+      withCaptureTree Nothing $ \a _hub dir -> do
+        r <- postTo a "/command" (captureAs "book" [] "Dune")
+        assertEqual "status" 400 (status r)
+        assertContains "naming the directory" ".org-glance" (body r)
+        assertEqual "and no blob was written" [] =<< blobsIn dir
+
+    -- The untagged path is untouched by all of it, which is the whole point of
+    -- the tag being optional.
+  , testCase "and with no tag it is still the inbox, bare" $
+      withStoreTree $ \a _hub dir -> do
+        v <- decoded =<< ok =<< postTo a "/command" (capture "TODO Buy milk")
+        assertEqual "the tree's inbox" (T.pack (dir </> "inbox.org")) =<< textAt "file" v
+        assertEqual "no blob at all" [] =<< blobsIn dir
+        written <- document (dir </> "inbox.org")
+        assertEqual "the entry the bare path has always written"
+                    [ "* TODO Buy milk", ":PROPERTIES:", ":END:" ]
+                    [ l | l <- T.lines written, not (":ORG_GLANCE_" `T.isPrefixOf` l) ]
+  ]
+
+-- | @GET \/capture@: what a capture will ask for before it asks it.
+captureViewSpec :: TestTree
+captureViewSpec = testGroup "GET /capture"
+  [ testCase "a tag's template names its prompts, in template order" $
+      withStoreTree $ \a _hub _dir -> do
+        v <- decoded =<< ok =<< getFrom a "/capture?tag=book"
+        assertEqual "there is one" True =<< boolAt "template" v
+        assertEqual "and this is what it asks" ["Author"] =<< textsAt "prompts" v
+
+  , testCase "a tag with no layer has no template and asks nothing" $
+      withStoreTree $ \a _hub _dir -> do
+        v <- decoded =<< ok =<< getFrom a "/capture?tag=web"
+        assertEqual "none" False =<< boolAt "template" v
+        assertEqual "and nothing to ask" [] =<< textsAt "prompts" v
+
+    -- With no tag it is the untagged path's own shape: the inbox capture stays
+    -- bare, so there is nothing to resolve and the answer says so.
+  , testCase "with no tag at all it is the bare shape" $
+      withStoreTree $ \a _hub _dir -> do
+        v <- decoded =<< ok =<< getFrom a "/capture"
+        assertEqual "no template" False =<< boolAt "template" v
+        assertEqual "no prompts" [] =<< textsAt "prompts" v
+
+    -- The vocabulary is what the tag prompt completes over, and it is the
+    -- TREE's rather than any row's — a capture names no rows to ask about.
+  , testCase "the tag vocabulary is the tree's" $
+      withStoreTree $ \a _hub _dir ->
+        assertEqual "every tag the store holds" ["book"]
+          =<< textsAt "tags" =<< decoded =<< getFrom a "/capture"
+
+    -- ONE spelling of the expansion subset: what this serves is what expands and
+    -- what the settings box completes over.
+  , testCase "the codes are the expansion subset, each with its meaning" $
+      withStoreTree $ \a _hub _dir -> do
+        codes <- listAt "codes" =<< decoded =<< getFrom a "/capture"
+        assertEqual "the four v1 knows" ["%?", "%U", "%T", "%^{PROMPT}"]
+          =<< traverse (textAt "code") codes
+        assertBool "and each says what it does"
+          . all (not . T.null) =<< traverse (textAt "means") codes
+
+  , testCase "and it is a read: POST is a 405" $
+      withStoreTree $ \a _hub _dir -> do
+        r <- postTo a "/capture" "{}"
+        assertEqual "status" 405 (status r)
+  ]
+
+-- | Run K over a server whose tree keeps an org-glance store and a @book@ layer
+-- carrying a capture template with an ask in it.
+withStoreTree :: (Application -> Hub -> FilePath -> Assertion) -> Assertion
+withStoreTree k = withTempDir $ \dir -> do
+  createDirectoryIfMissing True (tagsDirIn dir)
+  createDirectoryIfMissing True (dir </> ".org-glance" </> "data")
+  TIO.writeFile (tagFileIn dir "book")
+    "#+TITLE: Book\n#+TODO: TODO READING | READ\n\n\
+    \* %?\n:PROPERTIES:\n:AUTHOR: %^{Author}\n:END:\n*** Notes\n"
+  _ <- orgFile dir "notes.org" "* TODO Already here :book:\n"
+  (a, hub) <- serverOver dir
+  k a hub dir
+
+-- | Every file under DIR's store, which is how a refusal is checked to have
+-- written nothing.  Spelled out rather than taken off the walk: the walk is the
+-- subject of other cases here, and an oracle derived from it would agree with
+-- any change to it.
+blobsIn :: FilePath -> IO [FilePath]
+blobsIn dir = under (dir </> ".org-glance" </> "data")
+  where
+    under at = do
+      isDir <- doesDirectoryExist at
+      if not isDir then pure [ at | at /= dir </> ".org-glance" </> "data" ] else
+        concat <$> (mapM (under . (at </>)) . sort =<< listDirectory at)
+
+-- | The fixture's own tagged capture, with its template's one ask answered.
+dune :: BL.ByteString
+dune = captureAs "book" [("Author", "Herbert")] "Dune"
+
+-- | A capture as the shell sends a TAGGED one: the tag, the answers its
+-- template asked for, and the line.
+captureAs :: T.Text -> [(T.Text, T.Text)] -> T.Text -> BL.ByteString
+captureAs tag answers text' = encode (object
+  [ "name" .= ("capture" :: T.Text)
+  , "args" .= object ([ "text" .= text', "tag" .= tag ]
+                        <> [ "fields" .= object [ Key.fromText k .= v | (k, v) <- answers ]
+                           | not (null answers) ]) ])
 
 -- | A capture as the shell sends one: no ids at all, and one line of org.
 capture :: T.Text -> BL.ByteString
@@ -8456,6 +8726,56 @@ configSpec = testGroup "GET and POST /config"
                    (not ("GLANCE_DEFAULT_FILTER" `T.isInfixOf` after))
         assertEqual "so the built-in answers again" "state:*active*"
           =<< textAt "filter" =<< decoded =<< getFrom a "/config"
+
+    -- THE CAPTURE TEMPLATE is a REGION of the same file, so it is served beside
+    -- the lines and written in the same drift-locked call: one file, one digest.
+    -- Every layer may carry one, which is what tells it from the two tree-wide
+    -- lines beside it.
+  , testCase "each layer's capture template is served verbatim" $
+      withConfigTree $ \a _dir -> do
+        layers <- listAt "layers" =<< decoded =<< getFrom a "/config"
+        assertEqual "the first heading of each, to the end of the file"
+                    ["", "* Book", "* %?"] =<< traverse (textAt "template") layers
+
+  , testCase "and written back in the same call as the block" $
+      withConfigTree $ \a dir -> do
+        digest <- digestOnDisk (T.unpack (tagAt dir "book"))
+        assertOk =<< postTo a "/config"
+          (templateBody (tagAt dir "book") ["#+TODO: TODO READING | READ ABANDONED"]
+                        Nothing Nothing (Just "* %?\n:PROPERTIES:\n:AUTHOR: %^{Author}\n:END:")
+                        digest)
+        after <- document (T.unpack (tagAt dir "book"))
+        assertEqual "the pragmas above it keep their bytes, and the template moved"
+                    "#+TITLE: Book\n#+TODO: TODO READING | READ ABANDONED\n\n\
+                    \* %?\n:PROPERTIES:\n:AUTHOR: %^{Author}\n:END:\n"
+                    after
+        assertEqual "and the read answers with what was written"
+                    "* %?\n:PROPERTIES:\n:AUTHOR: %^{Author}\n:END:"
+          =<< textAt "template" . (!! 1) =<< listAt "layers" =<< decoded =<< getFrom a "/config"
+
+  , testCase "an empty template takes the heading away" $
+      withConfigTree $ \a dir -> do
+        digest <- digestOnDisk (T.unpack (tagAt dir "book"))
+        assertOk =<< postTo a "/config"
+          (templateBody (tagAt dir "book") ["#+TODO: TODO READING | READ ABANDONED"]
+                        Nothing Nothing (Just "") digest)
+        assertEqual "the pragmas survive alone"
+                    "#+TITLE: Book\n#+TODO: TODO READING | READ ABANDONED\n\n"
+          =<< document (T.unpack (tagAt dir "book"))
+
+    -- ONE WALL, and it is what keeps a blob's first headline the entry
+    -- org-glance keys it by.
+  , testCase "a template that is not one top entry is a 400 that writes nothing" $
+      withConfigTree $ \a dir -> do
+        before <- document (T.unpack (tagAt dir "book"))
+        digest <- digestOnDisk (T.unpack (tagAt dir "book"))
+        r <- postTo a "/config"
+               (templateBody (tagAt dir "book") ["#+TODO: TODO READING | READ ABANDONED"]
+                             Nothing Nothing (Just "** %?") digest)
+        assertEqual "status" 400 (status r)
+        assertContains "naming the rule" "top entry" (body r)
+        assertEqual "and the file is untouched" before
+          =<< document (T.unpack (tagAt dir "book"))
 
     -- A default view belongs to a TREE rather than to a tag, so a tag layer's
     -- write leaves the line alone whatever it named.
@@ -9257,10 +9577,17 @@ captureBody path lines' = layerBody path lines' Nothing
 -- | A layer write over all three of its lines.  Absent leaves a line alone; the
 -- three ride in one request because they are lines of one file.
 layerBody :: T.Text -> [T.Text] -> Maybe T.Text -> Maybe T.Text -> T.Text -> BL.ByteString
-layerBody path lines' want target digest = encode (object
+layerBody path lines' want target = templateBody path lines' want target Nothing
+
+-- | 'layerBody' also naming the layer's CAPTURE TEMPLATE, which is a region of
+-- the same file and rides in the same drift-locked write.
+templateBody :: T.Text -> [T.Text] -> Maybe T.Text -> Maybe T.Text -> Maybe T.Text
+             -> T.Text -> BL.ByteString
+templateBody path lines' want target template digest = encode (object
   ([ "path" .= path, "lines" .= lines', "digest" .= digest ]
      <> [ "filter" .= f | Just f <- [want] ]
-     <> [ "capture" .= c | Just c <- [target] ]))
+     <> [ "capture" .= c | Just c <- [target] ]
+     <> [ "template" .= t | Just t <- [template] ]))
 
 -- | Archived rows are out of the view unless the query asks for them.  @D@
 -- archives rather than deletes, so this is what keeps the default table from

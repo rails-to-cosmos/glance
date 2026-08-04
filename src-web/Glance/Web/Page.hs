@@ -185,6 +185,15 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
          ("<textarea id=\"ctext\" class=\"ctext\" spellcheck=\"false\""
             <> " placeholder=\"#+TODO: TODO STARTED | DONE\"></textarea>"
             <> "<div id=\"clerr\" class=\"cerr\"></div>")
+  -- The same layer's CAPTURE TEMPLATE, which is a region of the same file and
+  -- rides in the same write.  Verbatim, because the page has no org parser: the
+  -- server slices the first heading's extent and splices what comes back over
+  -- it.  `%' in the box raises the code list the server serves, so what the
+  -- completion offers is what a capture expands.
+  , crow (clab "capture template")
+         ("<textarea id=\"ctpl\" class=\"ctext\" spellcheck=\"false\""
+            <> " placeholder=\"* %?\"></textarea>"
+            <> "<div id=\"ctplf\">% offers the codes a capture expands</div>")
   , "      </div>"
   , "      <div id=\"ceff\"></div>"
   , "      <div id=\"cfoot\">read-only: the union every file is parsed with."

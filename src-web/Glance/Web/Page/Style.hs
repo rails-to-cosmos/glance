@@ -520,7 +520,7 @@ page head' title body = T.unlines
   , "    font-family:var(--dk-mono);"
   , "    background:var(--g-bg);color:var(--g-fg);border:1px solid var(--g-border)}"
   , "  #phead,#lhead,#thead{font-size:12px;color:var(--g-mute)}"
-  , "  #pfoot,#lfoot,#tfoot,#cfoot{font-size:11px;color:var(--g-mute)}"
+  , "  #pfoot,#lfoot,#tfoot,#cfoot,#ctplf{font-size:11px;color:var(--g-mute)}"
   , "  #pinput{font:12px/1.5 var(--dk-mono);padding:5px 7px;border-radius:4px;"
   , "    border:1px solid var(--g-border);background:transparent;color:inherit}"
   , "  #pbox:not(.narrow) #pinput{display:none}"

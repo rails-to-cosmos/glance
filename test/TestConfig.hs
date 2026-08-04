@@ -24,13 +24,15 @@ import qualified Data.Text.IO as TIO
 import Data.Org.Config ( TodoKeywords (..), classify, configDirIn, noKeywords
                        , todoPragmas )
 import Data.Org.Edit (Edit (Edit), applyEdits)
-import Glance.Query ( ConfigLayerFile (..), ConfigLayers (..), HeadlineRecord (..)
+import Glance.Query ( ConfigLayerFile (..), ConfigLayers (..), ConfigParts (..)
+                    , HeadlineRecord (..)
                     , QueryResult (..), WalkOptions (..), builtinFilter
                     , captureTargetIn, captureTargetOf, configEdits
                     , configPath, defaultFilter, defaultFilterOf, defaultSortChain
                     , defaultWalk, loadDir
                     , loadDirFilesSerially, loadDirWith, loadDirWithConfig, loadFile
-                    , noConfig, readConfigLayers, sortedForViewWith, todoLines )
+                    , noConfig, noParts, readConfigLayers, sortedForViewWith
+                    , todoLines )
 import Glance.Web.Store ( Frame (..), Hub (hubStore), Store (stConfig, stGen, stPrint)
                         , loadStore, newHub, reseeded, storeKeywords, storeRecords )
 import Glance.Web.Watch (settle, watched)
@@ -588,7 +590,7 @@ writeSpec = testGroup "Writing a layer"
   , testCase "what a layer may say, and what it may not" $ do
       mapM_ (\(what, lines') ->
                assertBool what (either (const True) (const False)
-                                       (configEdits bookConfig lines' Nothing Nothing)))
+                                       (configEdits bookConfig lines' noParts)))
             [ ("a headline is not a pragma", ["* TODO not a pragma"])
             , ("nor is a title", ["#+TITLE: no"])
             , ("a pragma declaring nothing", ["#+TODO:"])
@@ -605,7 +607,7 @@ writeSpec = testGroup "Writing a layer"
             , ("and a starred word beside real ones", ["#+TODO: TODO *x* | DONE"]) ]
       assertBool "a cycle with fast-access keys is a block"
                  (either (const False) (const True)
-                         (configEdits bookConfig ["#+TODO: TODO(t) | DONE(d)"] Nothing Nothing))
+                         (configEdits bookConfig ["#+TODO: TODO(t) | DONE(d)"] noParts))
 
     -- The two tree-wide lines of `system.org'.  One reader finds either
     -- ('lastPragmaValue') and one splice writes either ('pragmaLineEdits'), so
@@ -793,7 +795,7 @@ splicedCapture doc lines' = splicing doc lines' Nothing
 -- | 'spliced' over both of the system layer's tree-wide lines.
 splicing :: Text -> [Text] -> Maybe Text -> Maybe Text -> Either Text Text
 splicing doc lines' want target = do
-  edits <- configEdits doc lines' want target
+  edits <- configEdits doc lines' noParts { cpFilter = want, cpCapture = target }
   first (T.pack . show) (applyEdits doc [ Edit sp new | (sp, new) <- edits ])
 
 -- | The system layer's two tree-wide lines: each spelled key, two values of the

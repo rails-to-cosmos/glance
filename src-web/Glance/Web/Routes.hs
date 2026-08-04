@@ -61,7 +61,7 @@ import qualified Data.Text.Lazy.Encoding as TLE
 import qualified Data.Text.Read as TR
 import qualified Network.WebSockets as WS
 
-import Glance.Query ( ConfigLayerFile (..), ConfigLayers (clDirs)
+import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , HeadlineParts (..)
                     , HeadlineRecord ( hrDigest, hrFile, hrId, hrPriority, hrState
                                      , hrSubtree, hrTags, hrTitle )
@@ -70,15 +70,16 @@ import Glance.Query ( ConfigLayerFile (..), ConfigLayers (clDirs)
                     , Span (spanEnd, spanStart)
                     , SubtreeEntry (..)
                     , TodoKeywords (..)
-                    , archived, builtinFilter, captureTargetOf
-                    , configDirIn, configEdits, defaultFilter, defaultFilterOf
+                    , archived, bareTemplate, builtinFilter, captureCodes
+                    , captureTargetOf, captureTemplateIn, captureTemplateOf
+                    , configEdits, defaultFilter, defaultFilterOf
                     , headlineParts, keywordSources, linkShown, linkType
                     , planningKeywords, readConfigLayers, readsAsTimestamp
                     , recomposedSubtree, replaceSpans
                     , ownBodyLines, sortedForViewWith
                     , subtreeEntries, subtreeEntryAt, subtreeLinks
                     , subtreeText, systemSetting, tagsOfCell
-                    , titleSpan
+                    , templatePrompts, titleSpan
                     , todoLines, viewJSONTextWith )
 import Glance.Web.Base ( ServeOptions (..), answerWrite, bodyObject, configMoved
                        , conflict, html, jsonError, jsonResponse, jsonType, noSuchRow
@@ -90,7 +91,7 @@ import Glance.Web.Page (assetsMissing, demoShell)
 import Glance.Web.Page.Style (fontAssets)
 import Glance.Web.Sort (sortChainIn)
 import Glance.Web.Store ( Client, Frame (ViewChanged), Hub, LoadState (..)
-                        , Store (stConfig, stGen, stPrint), frameText
+                        , Store (stConfig, stGen, stPrint), configDirsIn, frameText
                         , hubLoad, hubStore, nextFrame
                         , headlinesIn
                         , storeKeywords
@@ -175,6 +176,10 @@ httpApp opts hub request respond = route >>= respond
       , (["config"],    True,  jsonRefusal,
           [ (methodGet, configView opts hub)
           , (methodPost, configWrite opts hub request) ])
+      -- @/capture@ is what a client has to read before it can ASK anything: the
+      -- tag's template, its prompts, and the codes the settings box completes
+      -- over.  A read, and the write is @POST /command capture@.
+      , (["capture"],   True,  textRefusal, [(methodGet, captureView opts hub request)])
       , (["keywords"],  True,  textRefusal, [(methodGet, keywordsView hub request)])
       , (["links"],     True,  textRefusal, [(methodGet, linksView hub (queryId request))])
       , (["tags"],      True,  textRefusal, [(methodGet, tagsView hub request)])
@@ -777,6 +782,49 @@ tagRowCounts rows = Map.fromListWith (+)
   [ (tag, 1 :: Int) | r <- rows, not (T.null (hrTags r))
                     , tag <- nub (tagsOfCell (hrTags r)) ]
 
+-- Capture
+
+-- | @GET \/capture[?tag=NAME]@: what a capture under that tag will ask for.
+--
+-- @{"template": BOOL, "prompts": […], "tags": […], "codes": [{"code": …,
+-- "means": …}]}@.  @template@ says whether a layer configures one — @false@ is
+-- the bare @* %?@, which asks for nothing but the line — and @prompts@ is its
+-- @%^{PROMPT}@ asks IN TEMPLATE ORDER, which is the order the shell puts them to
+-- the reader.  A prompt spelled twice is asked once
+-- ('Glance.Query.templatePrompts').
+--
+-- WITH NO TAG it is the untagged path's own shape: no template, no prompts.  The
+-- inbox capture stays bare on purpose, so there is nothing to resolve and the
+-- answer says so rather than being a refusal.
+--
+-- @tags@ is the tree's whole tag vocabulary, the same list @\/tags@ serves —
+-- what the tag prompt completes over, and here rather than there because
+-- @\/tags@ answers about ROWS a caller names and a capture names none.
+--
+-- @codes@ is the expansion subset with its one-line meanings
+-- ('Glance.Query.captureCodes'), served whatever the tag: the settings box
+-- completes over it, so what the completion offers is what the server expands
+-- and the contract has ONE spelling.  The client needs all of this before it can
+-- ask anything, which is the whole reason the route is a read of its own rather
+-- than a field of @\/config@ — a capture asks it per press and a settings sheet
+-- does not.
+--
+-- Needs a loaded store for the config directories the walk met.  Read-only, so
+-- POST is a 405.
+captureView :: ServeOptions -> Hub -> Request -> IO Response
+captureView opts hub request = do
+  st <- readTVarIO (hubStore hub)
+  template <- case queryText "tag" request of
+    Nothing  -> pure Nothing
+    Just tag -> captureTemplateIn tag <$> readConfigLayers (configDirsIn (soDir opts) st)
+  pure (jsonResponse status200
+          [ "template" .= isJust template
+          , "prompts"  .= maybe [] templatePrompts template
+          , "tags"     .= storeTags st
+          , "codes"    .= [ object ["code" .= code, "means" .= means]
+                          | (code, means) <- captureCodes ]
+          ])
+
 -- Links
 
 -- | @GET \/links?id=ROW@: where that row points.
@@ -848,18 +896,6 @@ queryIds request =
 
 -- Config
 
--- | The config directories a settings client edits: the ones the walk met, and
--- the one the served root WOULD hold when it met none.
---
--- Only the walk can answer the first half: an org-glance store is not obliged
--- to sit at the root being served, and in the author's own tree it does not.
--- The second half is a guess, the one case where there is nothing to be right
--- about yet.
-configDirsOf :: ServeOptions -> Store -> [FilePath]
-configDirsOf opts st = case clDirs (stConfig st) of
-  []   -> [configDirIn (soDir opts)]
-  dirs -> dirs
-
 -- | @GET \/config@: the keyword layers a settings client edits, and the union
 -- they add up to.
 --
@@ -881,7 +917,7 @@ configDirsOf opts st = case clDirs (stConfig st) of
 configView :: ServeOptions -> Hub -> IO Response
 configView opts hub = do
   st <- readTVarIO (hubStore hub)
-  layers <- readConfigLayers (configDirsOf opts st)
+  layers <- readConfigLayers (configDirsIn (soDir opts) st)
   pure (jsonResponse status200
           [ "layers"   .= map layerJSON layers
           , "keywords" .= keywordsJSON (storeKeywords st)
@@ -907,12 +943,17 @@ configView opts hub = do
 servedFilter :: [ConfigLayerFile] -> Text
 servedFilter layers = fromMaybe builtinFilter (systemSetting defaultFilterOf layers)
 
+-- | One layer as a settings client holds it.  @template@ is the layer's capture
+-- template, verbatim, empty where it has none — a REGION of the same file rather
+-- than a line of it, and it rides in this one answer and this one write for the
+-- reason the two settings lines do.
 layerJSON :: ConfigLayerFile -> Value
 layerJSON f = object
-  [ "path"   .= lfPath f
-  , "tag"    .= lfTag f
-  , "lines"  .= todoLines (lfText f)
-  , "digest" .= lfDigest f
+  [ "path"     .= lfPath f
+  , "tag"      .= lfTag f
+  , "lines"    .= todoLines (lfText f)
+  , "template" .= fromMaybe "" (captureTemplateOf (lfText f))
+  , "digest"   .= lfDigest f
   ]
 
 keywordsJSON :: TodoKeywords -> Value
@@ -950,25 +991,26 @@ configWrite opts hub request = withBody request $ \raw -> do
   st <- readTVarIO (hubStore hub)
   case parseConfigWrite raw of
     Left why   -> pure (jsonError status400 why)
-    Right want -> writeLayer (configDirsOf opts st) want
+    Right want -> writeLayer (configDirsIn (soDir opts) st) want
 
 -- | WANT written into one of DIRS' layers, or the refusal.  The lookup that
 -- decides which file is the read the edits are then measured in, so the two
 -- cannot be describing different bytes.
-writeLayer :: [FilePath] -> (Text, [Text], Maybe Text, Maybe Text, Text) -> IO Response
-writeLayer dirs (path, asked, want, target, digest) = do
+writeLayer :: [FilePath] -> (Text, [Text], ConfigParts, Text) -> IO Response
+writeLayer dirs (path, asked, parts, digest) = do
   layers <- readConfigLayers dirs
   case find ((== path) . T.pack . lfPath) layers of
     Nothing -> pure (jsonError status400 (noSuchLayer path layers))
-    Just f  -> case configEdits (lfText f) asked (systemOnly f want)
-                                (systemOnly f target) of
+    Just f  -> case configEdits (lfText f) asked (scoped f parts) of
       Left why    -> pure (jsonError status400 why)
       Right edits -> answerWrite configMoved written
                        <$> replaceSpans (lfPath f) digest edits
   where
-    -- Both tree-wide lines are the SYSTEM layer's and no other's, so a tag
-    -- layer's write leaves them alone whatever the request said.
-    systemOnly f v = maybe v (const Nothing) (lfTag f)
+    -- Both tree-wide LINES are the SYSTEM layer's and no other's, so a tag
+    -- layer's write leaves them alone whatever the request said.  The template
+    -- is every layer's, which is the whole point of it being one.
+    scoped f p | Just _tag <- lfTag f = p { cpFilter = Nothing, cpCapture = Nothing }
+               | otherwise            = p
     written fresh = ["path" .= path, "digest" .= fresh]
 
 noSuchLayer :: Text -> [ConfigLayerFile] -> Text
@@ -979,19 +1021,26 @@ noSuchLayer path layers =
 -- | RAW as a layer write, or what is wrong with it.  @lines@ is an array
 -- because a layer can spell its cycle over more than one @#+TODO:@ line, and a
 -- client editing them as text splits on its own newlines rather than asking
--- this server to.  @filter@ and @capture@ are the default view and the capture
--- target the same file names, both optional: absent leaves that line as it is,
--- empty takes it away, anything else writes it.  They ride in this one request
--- because they are lines of the same file — three requests would be three
--- writes under three digests, each invalidated by the one before it.
-parseConfigWrite :: BL.ByteString -> Either Text (Text, [Text], Maybe Text, Maybe Text, Text)
+-- this server to.  @filter@, @capture@ and @template@ are the default view, the
+-- capture target and the layer's capture template, all optional and all
+-- three-valued the same way: absent leaves that part as it is, empty takes it
+-- away, anything else writes it.  They ride in this one request because they are
+-- regions of the same file — four requests would be four writes under four
+-- digests, each invalidated by the one before it.
+parseConfigWrite :: BL.ByteString -> Either Text (Text, [Text], ConfigParts, Text)
 parseConfigWrite = bodyObject "config write" shape
-  where shape o = (,,,,) <$> o .: "path" <*> o .: "lines"
-                         <*> o .:? "filter" <*> o .:? "capture" <*> o .: "digest"
+  where shape o = (,,,) <$> o .: "path" <*> o .: "lines"
+                        <*> (ConfigParts <$> o .:? "filter" <*> o .:? "capture"
+                                         <*> o .:? "template")
+                        <*> o .: "digest"
 
 -- | The @id@ parameter of REQUEST, when it carries one with a value.
 queryId :: Request -> Maybe Text
-queryId request = case lookup "id" (queryString request) of
+queryId = queryText "id"
+
+-- | NAME's parameter in REQUEST, when it carries one with a value.
+queryText :: BS.ByteString -> Request -> Maybe Text
+queryText name request = case lookup name (queryString request) of
   Just (Just raw) -> either (const Nothing) Just (TE.decodeUtf8' raw)
   _absent         -> Nothing
 

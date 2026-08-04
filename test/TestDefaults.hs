@@ -25,6 +25,7 @@ module TestDefaults ( assertContains
                     , intAt
                     , listAt
                     , maybeTextAt
+                    , sparseAt
                     , membersAt
                     , on
                     , orgFile
@@ -327,6 +328,15 @@ boolAt k v = field k v >>= flag
   where flag (Bool b) = pure b
         flag other = assertFailure ("expected a boolean at " <> show k
                                       <> ", got " <> show other)
+
+-- | V's value at KEY, 'Nothing' where V carries no such key at all.
+--
+-- The accessor for a SPARSE field — one a producer emits only when it has
+-- something to say, the way a row's @linked@ and a capture's @tag@ are emitted —
+-- where 'field' fails on the absence and 'maybeTextAt' reads a null.
+sparseAt :: Text -> Value -> IO (Maybe Value)
+sparseAt k (Object o) = pure (KM.lookup (Key.fromText k) o)
+sparseAt k v = assertFailure ("expected an object with " <> show k <> ", got " <> show v)
 
 -- | The string at KEY of V, where the key is there and its value may be null.
 maybeTextAt :: Text -> Value -> IO (Maybe Text)

@@ -32,11 +32,13 @@ module Glance.Web.Store
   , loadStore
   , loadStoreWith
   , storeDocument
+  , recordsUnder
   , headlinesIn
   , storeRecords
   , storeResult
   , storeKeywords
   , storeTags
+  , configDirsIn
   , applyFile
   , dropFile
   , reseeded
@@ -76,10 +78,11 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Text as T
 
-import Glance.Query ( ConfigLayers (clPrint)
+import Glance.Query ( ConfigLayers (clDirs, clPrint)
                     , HeadlineRecord (hrDigest, hrDoc, hrId, hrKeywords, hrTags)
                     , LoadFailure (..)
-                    , QueryResult (..), TodoKeywords, WalkOptions, defaultWalk
+                    , QueryResult (..), TodoKeywords, WalkOptions, configDirIn
+                    , defaultWalk
                     , digestOfText, loadDirWithConfig, mergeKeywords, noConfig
                     , noKeywords, recognizedKeywords, resolveIds, rowJSON
                     , tagsOfCell )
@@ -230,6 +233,24 @@ storeDocument path st = (\r -> (hrDoc r, hrDigest r)) <$> listToMaybe (recordsUn
 -- answer can never be one the old vocabulary produced.
 storeTags :: Store -> [Text]
 storeTags = Map.keys . stTags
+
+-- | The config directories a settings client edits and a capture reads its
+-- template out of: the ones the walk met, and the one ROOT WOULD hold when it
+-- met none.
+--
+-- Only the walk can answer the first half: an org-glance store is not obliged to
+-- sit at the root being served, and in the author's own tree it does not.  The
+-- second half is a guess, the one case where there is nothing to be right about
+-- yet.
+--
+-- It sits HERE rather than beside @\/config@ because @POST \/command capture@
+-- asks the same question and 'Glance.Web.Routes' is above
+-- 'Glance.Web.Commands': one answer, so the layer a template is read from is the
+-- layer a settings sheet writes.
+configDirsIn :: FilePath -> Store -> [FilePath]
+configDirsIn root st = case clDirs (stConfig st) of
+  []   -> [configDirIn root]
+  dirs -> dirs
 
 -- | The palette the store's columns carry: the config chain's keywords, then
 -- whatever the files add.

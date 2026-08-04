@@ -17,6 +17,7 @@ import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import Network.HTTP.Types (status200, status400)
 import Network.Wai (Request, Response)
+import System.Directory (doesDirectoryExist)
 
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Map.Strict as Map
@@ -25,16 +26,19 @@ import qualified Data.Time as Time
 
 import Glance.Query ( ConfigLayers, HeadlineRecord (hrDigest, hrFile, hrId)
                     , Span (Span), WriteFailure (..)
-                    , addTagEdits, archiveEdits, captureEdits, captureStamp
-                    , captureTargetIn, currentDocument, editLinkEdits
-                    , planningTimestamp, priorityText, removeTagEdits
-                    , renameTagEdits, replaceSpans, setPlanningEdits
+                    , addTagEdits, archiveEdits, bareTemplate, blobDocument
+                    , blobPathIn, captureEdits, captureStamp
+                    , captureTargetIn, captureTemplateIn, currentDocument
+                    , editLinkEdits, expandTemplate, mintBlobId
+                    , planningTimestamp, priorityText, readConfigLayers
+                    , removeTagEdits
+                    , renameTagEdits, replaceSpans, rowIdIn, setPlanningEdits
                     , setPriorityEdits, setStateEdits, setTitleEdits
-                    , tagText, titleText )
+                    , storeRootIn, tagText, titleText )
 import Glance.Web.Base ( ServeOptions (soDir), answerWrite, bodyObject, captureMoved
                        , jsonError, jsonResponse, noSuchRow, withBody )
-import Glance.Web.Store ( Hub, Store (stConfig), headlinesIn, hubStore
-                        , storeDocument, storeRecords )
+import Glance.Web.Store ( Hub, Store (stConfig), configDirsIn, headlinesIn, hubStore
+                        , recordsUnder, storeDocument, storeRecords )
 
 -- Commands
 
@@ -49,13 +53,14 @@ data Command = Command
   , cmdDigests :: !(Map Text Text)  -- ^ id to the digest the client holds for its file.
   }
 
--- | The @args@ object, read once for every command that takes one.  Eleven
+-- | The @args@ object, read once for every command that takes one.  Twelve
 -- fields between them, and a request naming one command leaves the rest absent:
 -- @keyword@ is @set-state@'s state and @set-planning@'s planning keyword (one
 -- field, the wire spelling both that way), @date@ the timestamp text, @text@
--- the line @capture@ writes, @tag@ the one @add-tag@ and @remove-tag@ move,
--- @from@\/@to@ @rename-tag@'s pair, and @span@, @target@ and @desc@
--- @edit-link@'s three.
+-- the line @capture@ writes, @tag@ the one @add-tag@ and @remove-tag@ move AND
+-- the one @capture@ files under, @fields@ the answers @capture@ carries for its
+-- template's @%^{PROMPT}@ asks, @from@\/@to@ @rename-tag@'s pair, and @span@,
+-- @target@ and @desc@ @edit-link@'s three.
 --
 -- The nested 'Maybe's are the distinction the whole command layer turns on:
 -- ABSENT said nothing, NULL asked for the value to come off.  An absent
@@ -75,6 +80,7 @@ data Args = Args
   , agTitle    :: !(Maybe Text)
   , agPriority :: !(Maybe (Maybe Text))
   , agTag     :: !(Maybe Text)
+  , agFields  :: !(Maybe (Map Text Text))
   , agFrom    :: !(Maybe Text)
   , agTo      :: !(Maybe Text)
   , agSpan    :: !(Maybe Span)
@@ -117,7 +123,8 @@ data CommandSpec = CommandSpec
 -- | The commands this route implements, which is also the whole of what @args@
 -- can mean: @set-state@ @{"keyword": "DONE"}@ or @{"keyword": null}@,
 -- @set-planning@ @{"keyword": "SCHEDULED", "date": "+3d"}@ or a null date,
--- @capture@ @{"text": "TODO Buy milk :errands:"}@, @add-tag@ and @remove-tag@
+-- @capture@ @{"text": "TODO Buy milk :errands:"}@ with an optional @tag@ and
+-- the @fields@ its template asks for, @add-tag@ and @remove-tag@
 -- @{"tag": "work"}@, @rename-tag@ @{"from": "work", "to": "projects"}@,
 -- @edit-link@ @{"span": [S, E], "target": "https:\/\/x", "desc": "…"}@, and
 -- @archive@ nothing.
@@ -188,9 +195,14 @@ commands =
       | Nothing <- agDate args =
           Just "set-planning wants a date, or a null one to take the entry off"
       | otherwise = Nothing
+    -- @capture@'s @tag@ is optional and its charset is the ordinary tag wall:
+    -- absent files into the tree's inbox, present files a BLOB into the store.
+    -- A word that is not a tag names no directory to write and no vocabulary to
+    -- join, so it is refused with the rest of the request's shape.
     wantsText args
       | Nothing <- agText args =
           Just "capture wants args {\"text\": \"TODO Buy milk :errands:\"}"
+      | Just given <- agTag args = either Just (const Nothing) (tagText given)
       | otherwise = Nothing
     -- A link points SOMEWHERE, so an empty target is refused with the rest of
     -- the request's shape: it is no more a link for one row than for another.
@@ -313,11 +325,17 @@ resolveDate cmd = case join (agDate (cmdArgs cmd)) of
     pure (Just <$> planningTimestamp today text)
   _nothingToResolve -> pure (Right Nothing)
 
--- | @capture@: CMD's line appended to the tree's capture target as a top entry.
+-- | @capture@: CMD's line written as a new top entry, and WHERE decides which
+-- of the two shapes it takes.
 --
--- The target comes out of the config ('Glance.Query.captureTargetIn'), which
--- also refuses a target this daemon will not write to, so a misspelled pragma
--- is a 400 naming itself rather than a file written outside the tree.
+-- NO TAG is the tree's inbox, unchanged and deliberately bare: the target comes
+-- out of the config ('Glance.Query.captureTargetIn'), which also refuses a
+-- target this daemon will not write to, so a misspelled pragma is a 400 naming
+-- itself rather than a file written outside the tree; the entry is @* TEXT@
+-- under a creation stamp, no template consulted, which is what keeps the
+-- quick-jot path one keystroke and one line.
+--
+-- A TAG is a BLOB in the store, org-glance's own citizen ('captureBlob').
 --
 -- The document and the digest come off the STORE where it holds the file, that
 -- being the text this server last read, and off a fresh read where it does not:
@@ -327,16 +345,94 @@ resolveDate cmd = case join (agDate (cmdArgs cmd)) of
 -- watch re-reads the file and streams the new row, as for a capture out of
 -- Emacs.
 captureInto :: ServeOptions -> Store -> Command -> IO Response
-captureInto opts st cmd = case captureTargetIn (soDir opts) (stConfig st) of
+captureInto opts st cmd =
+  -- 'wantsText' has already put every @tag@ past 'tagText', which refuses the
+  -- empty string and every character a tag may not hold, so ABSENT is the whole
+  -- of what "no tag" means here and there is nothing left to strip or test.
+  maybe (captureInbox opts st cmd) (captureBlob opts st cmd) (agTag (cmdArgs cmd))
+
+-- | @capture@ with no tag: CMD's line appended to the tree's capture target.
+captureInbox :: ServeOptions -> Store -> Command -> IO Response
+captureInbox opts st cmd = case captureTargetIn (soDir opts) (stConfig st) of
   Left why   -> pure (jsonError status400 why)
   Right path -> do
     (doc, digest) <- maybe (currentDocument path) pure (storeDocument path st)
     now <- Time.getZonedTime
-    case captureEdits doc (captureStamp now) (fromMaybe "" (agText (cmdArgs cmd))) of
+    case captureEdits doc (captureStamp now) (capturedText cmd) of
       Left why    -> pure (jsonError status400 why)
       Right edits -> answerWrite (captureMoved path) (landed path)
                        <$> replaceSpans path digest edits
-  where landed path fresh = ["ok" .= True, "file" .= path, "digest" .= fresh]
+  where
+    -- The row the entry BECOMES, so the page can land its cursor on it when the
+    -- watch delivers it.  A captured entry joins the END of the file and every
+    -- ordinal ahead of it is already spent, so K is how many rows the store
+    -- holds for this file ('Glance.Query.rowIdIn', one spelling of the
+    -- separator).  A RACE, and an honest one: @\/command@ never writes the
+    -- store, so this counts what the last load saw, and an entry appended by
+    -- another writer between that load and this one shifts the answer by one.
+    -- The cost is a cursor that does not move, the shell landing nothing for a
+    -- row its view has not got.
+    --
+    -- 'recordsUnder' rather than a filter over 'storeRecords': that one is
+    -- 'Glance.Query.resolveIds' over the WHOLE store, which is a pass over ten
+    -- thousand rows per capture AND the wrong list — a row that lost an id
+    -- collision is dropped from it, where the ordinal was handed out before any
+    -- resolution ran.
+    landed path fresh = [ "ok" .= True, "file" .= path, "digest" .= fresh
+                        , "id" .= rowIdIn path (length (recordsUnder path st)) ]
+
+-- | @capture@ under a TAG: a new blob in the served root's own store.
+--
+-- FOUR REFUSALS, all of them decided before a byte is written.  The store root
+-- is the SERVED root's own @.org-glance@ and has to be there — a capture that
+-- MADE one would be this daemon deciding a tree is an org-glance store — and it
+-- is asked first, being the coarsest thing that can be wrong and the one answer
+-- that does not depend on what the reader typed.  The tag's template comes off
+-- the config layers, read HERE rather than off the loaded config, so what a
+-- settings sheet shows is what a capture expands
+-- ('Glance.Query.captureTemplateIn'); a tag no layer configures takes
+-- 'Glance.Query.bareTemplate', which is @* %?@ and goes through the same
+-- expansion as any other.  That expansion refuses a template with no @%?@ and an
+-- ask nobody answered ('Glance.Query.expandTemplate'), and the composition
+-- refuses a template that expands to no headline at all.
+--
+-- The id is minted and the path is org-glance's sharded one; the write goes out
+-- under the EMPTY digest, which creates the file and the directories over it and
+-- DRIFTS rather than overwrites should anything already sit there.  Minting
+-- ahead of the last refusal costs nothing — this side reserves no directory, so
+-- an id that is not written is an id nobody ever sees.
+--
+-- The note to org-glance costs nothing either: @data.org@ under a store's
+-- @data\/@ is a blob, so 'Glance.Query.replaceSpans' appends the
+-- @EXTERNAL.jsonl@ line on its way out as it does for any other blob write.
+-- Blob first, line second, which is the order the contract asks for.
+captureBlob :: ServeOptions -> Store -> Command -> Text -> IO Response
+captureBlob opts st cmd tag = do
+  there <- doesDirectoryExist store
+  if not there then pure (jsonError status400 noStore) else do
+    layers <- readConfigLayers (configDirsIn (soDir opts) st)
+    now <- Time.getZonedTime
+    ident <- mintBlobId
+    let template = fromMaybe bareTemplate (captureTemplateIn tag layers)
+        answers = Map.toList (fromMaybe Map.empty (agFields (cmdArgs cmd)))
+        path = blobPathIn store ident
+        composed = expandTemplate now answers (capturedText cmd) template
+                     >>= blobDocument tag ident (captureStamp now)
+    case composed of
+      Left why  -> pure (jsonError status400 why)
+      Right doc -> answerWrite (captureMoved path) (landed path ident)
+                     <$> replaceSpans path "" [(Span 0 0, doc)]
+  where
+    store = storeRootIn (soDir opts)
+    landed path ident fresh =
+      ["ok" .= True, "file" .= path, "digest" .= fresh, "id" .= ident]
+    noStore = T.pack store <> " is not there, so this tree keeps no org-glance store;\
+                               \ capture with no tag to file into the inbox instead"
+
+-- | The line CMD captures, which every capture path writes and no path may be
+-- without ('wantsText').
+capturedText :: Command -> Text
+capturedText = fromMaybe "" . agText . cmdArgs
 
 -- | PLAN's file written once, and what that came to for each of its ids.  Both
 -- outcomes are shared by the whole group, because the write is: the batch lands
@@ -417,7 +513,7 @@ parseCommand raw = bodyObject "command" command raw >>= checked
       sp <- fmap (uncurry Span) <$> (a .:? "span" :: Parser (Maybe (Int, Int)))
       parsed <- Args <$> a .:! "keyword" <*> a .:! "date" <*> a .:? "text"
                      <*> a .:? "title" <*> a .:! "priority" <*> a .:? "tag"
-                     <*> a .:? "from" <*> a .:? "to"
+                     <*> a .:? "fields" <*> a .:? "from" <*> a .:? "to"
                      <*> pure sp <*> a .:? "target" <*> a .:! "desc"
       pure ( name :: Text, nub (maybe [] pure one <> fromMaybe [] several)
            , parsed, fromMaybe Map.empty digests )

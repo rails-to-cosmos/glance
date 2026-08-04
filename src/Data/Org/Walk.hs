@@ -31,6 +31,7 @@
 module Data.Org.Walk ( Found (..)
                      , WalkOptions (..)
                      , beatsForId
+                     , blobFile
                      , defaultWalk
                      , errText
                      , findOrgFiles
@@ -97,9 +98,10 @@ derivedDirs = ["overviews", metaDir]
 -- it, the one directory inside a blob that is history rather than the blob, and
 -- the file a blob keeps its entry in.
 --
--- 'orgGlanceDir' and 'storeDir' are exported for the callers that ADDRESS a
--- store rather than classify a path — the settings writer naming a config
--- directory, the scan selecting the blobs an index covers.  A second spelling
+-- 'orgGlanceDir', 'storeDir' and 'blobFile' are exported for the callers that
+-- ADDRESS a store rather than classify a path — the settings writer naming a
+-- config directory, the scan selecting the blobs an index covers,
+-- 'Data.Org.Blob' composing the path a capture writes.  A second spelling
 -- there is a green lie: rename the directory here and a hardcoded @data@ keeps
 -- matching nothing while every predicate below still collects, so the
 -- comparison reports zero disagreements over zero blobs.

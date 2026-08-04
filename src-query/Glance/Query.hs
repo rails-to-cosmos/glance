@@ -34,6 +34,7 @@
 -- array: the file was retained before the field existed.
 module Glance.Query ( ConfigLayerFile (..)
                     , ConfigLayers (..)
+                    , ConfigParts (..)
                     , HeadlineParts (..)
                     , HeadlineRecord (..)
                     , IdCollision (..)
@@ -52,12 +53,19 @@ module Glance.Query ( ConfigLayerFile (..)
                     , archiveEdits
                     , archiveTag
                     , archived
+                    , bareTemplate
+                    , blobDocument
+                    , blobPathIn
                     , builtinFilter
+                    , captureCodes
                     , captureEdits
                     , captureProperty
                     , captureStamp
                     , captureTargetIn
                     , captureTargetOf
+                    , captureTemplateEdits
+                    , captureTemplateIn
+                    , captureTemplateOf
                     , cellSep
                     , configDirIn
                     , configEdits
@@ -72,6 +80,7 @@ module Glance.Query ( ConfigLayerFile (..)
                     , displayText
                     , documentPath
                     , editLinkEdits
+                    , expandTemplate
                     , filterKeys
                     , followableTypes
                     , headlineParts
@@ -90,8 +99,10 @@ module Glance.Query ( ConfigLayerFile (..)
                     , loadFileWith
                     , matchesSearch
                     , mergeKeywords
+                    , mintBlobId
                     , noConfig
                     , noKeywords
+                    , noParts
                     , orgLinks
                     , planningKeywords
                     , planningTimestamp
@@ -108,6 +119,7 @@ module Glance.Query ( ConfigLayerFile (..)
                     , renameTagEdits
                     , replaceSpans
                     , resolveIds
+                    , rowIdIn
                     , rowJSON
                     , setPlanningEdits
                     , setPriorityEdits
@@ -123,6 +135,7 @@ module Glance.Query ( ConfigLayerFile (..)
                     , sortedForView
                     , sortedForViewWith
                     , sortedTagsCell
+                    , storeRootIn
                     , subtreeLinks
                     , subtreeText
                     , systemSetting
@@ -131,7 +144,9 @@ module Glance.Query ( ConfigLayerFile (..)
                     , tagText
                     , tagged
                     , tagsOfCell
+                    , templatePrompts
                     , todoLines
+                    , uuidFrom
                     , viewJSON
                     , viewJSONTextWith
                     , viewJSONWith
@@ -166,7 +181,8 @@ import Data.Org ( Context, Element (EHeadline), Headline
                 , Timestamp (tsStart)
                 , TimestampStatus (TimestampActive, TimestampInactive), Todo (name)
                 , TsMoment (tsmHasTime, tsmTime), archiveTag, deadline, defaultContext
-                , headlinesOf, hsFull, identity, isTagChar, levelOf, metaCategory
+                , headlineIdProperty, headlinesOf, hsFull, identity, isTagChar, levelOf
+                , metaCategory
                 , orgParse, priority, schedule, sliceSpan, spans, spelled, tags, title
                 , todo, tsBrackets )
 import Data.Org.Config ( ConfigLayerFile (..), ConfigLayers (..), TodoKeywords (..)
@@ -178,6 +194,7 @@ import Data.Org.Config ( ConfigLayerFile (..), ConfigLayers (..), TodoKeywords (
                        , loadConfigDirs, mergeKeywords, noConfig, noKeywords
                        , readConfigLayers, recognizedKeywords, seedContext
                        , systemSetting, todoLineEdits, todoLines, todoPragmas )
+import Data.Org.Blob (blobPathIn, mintBlobId, storeRootIn, uuidFrom)
 import Data.Org.Walk ( Found (..), WalkOptions (..), beatsForId, defaultWalk
                      , findOrgFilesWith, isConfig, isDerived, isDocument
                      , mapFilesConcurrently )
@@ -1300,7 +1317,7 @@ ownBodyLines r body first' = case first' of
 -- and 'recomposedSubtree' puts their original lines back, so extending it is
 -- one edit here and none anywhere else.
 hiddenProperties :: [Text]
-hiddenProperties = ["ORG_GLANCE_ID", captureProperty]
+hiddenProperties = [headlineIdProperty, captureProperty]
 
 -- | Is KEY one the server owns?  Folded and stripped, since a drawer spells its
 -- keys however the file that holds it does.
@@ -1805,8 +1822,15 @@ forcedKeywords kw = forcing (tkActive kw <> tkInactive kw) kw
 -- collide — one row is kept and the other is reported, so a pathological tree
 -- costs a row and never points an id at the wrong one.
 rowId :: FilePath -> Int -> Headline -> Text
-rowId path ordinal h = maybe fallback detach (identity h)
-  where fallback = T.pack path <> "#" <> T.pack (show ordinal)
+rowId path ordinal h = maybe (rowIdIn path ordinal) detach (identity h)
+
+-- | The id a row with no @ORG_GLANCE_ID@ answers to: PATH and its ORDINAL.
+--
+-- Exported because @capture@ has to NAME the row it just made and the store has
+-- not read the file yet ('Glance.Web.Commands'), so the daemon spells an id the
+-- next load will spell back.  ONE spelling of the separator either way.
+rowIdIn :: FilePath -> Int -> Text
+rowIdIn path ordinal = T.pack path <> "#" <> T.pack (show ordinal)
 
 -- | TS's start as the wire spells a date: @"YYYY-MM-DD"@, plus @" HH:MM"@ when
 -- the source carried a time of day.  A computed value rather than a slice: ISO
@@ -2202,11 +2226,20 @@ afterKeyword hs = maybe (spanEnd (hsStars hs)) spanEnd (hsTodo hs)
 -- @:Work:@ is not given a second @:work:@; a row with no tag at all takes the
 -- spelling the caller sent.
 addTagEdits :: Text -> HeadlineRecord -> [(Span, Text)]
-addTagEdits tag r
-  | tagged tag r         = []
+addTagEdits tag r = addTagEditsIn (hrTags r) tag (headlineSpans r)
+
+-- | 'addTagEdits' over a headline's own two pieces — the tags CELL as the file
+-- spells it, and the spans — rather than over a loaded record.
+--
+-- Exported to nobody and shared with 'blobDocument', which composes a blob out
+-- of an expanded template and has no record to hand over.  ONE insertion rule,
+-- the way 'archiveEdits' is one: a capture and an @add-tag@ that disagreed about
+-- where a tag goes would be two spellings of org's grammar.
+addTagEditsIn :: Text -> Text -> HeadlineSpans -> [(Span, Text)]
+addTagEditsIn cell tag hs
+  | T.toLower tag `elem` tagsOfCell cell = []
   | Just sp <- hsTags hs = [ (insertAt (spanEnd sp), tag <> ":") ]
   | otherwise            = [ (insertAt (titleLineEnd hs), " :" <> tag <> ":") ]
-  where hs = headlineSpans r
 
 -- | The span edits @remove-tag@ makes to R: TAG cut out of its tag list.  A row
 -- that does not carry it costs no edit, which is the other half of the pair's
@@ -2656,15 +2689,261 @@ captureEdits doc stamp text
   where
     typed = T.strip text
     eol   = eolOf doc
-    -- A file whose last line has no newline would otherwise take the stars onto
-    -- the end of that line, where they are no headline at all.
-    opening | T.null doc || "\n" `T.isSuffixOf` doc = ""
-            | otherwise                             = eol
+    opening = openingFor doc eol
     entry = T.concat [ line <> eol
                      | line <- [ "* " <> typed
                                , ":PROPERTIES:"
                                , ":" <> captureProperty <> ": " <> stamp
                                , ":END:" ] ]
+
+-- Capture templates
+
+-- | The @%@-codes a capture template expands, each with the one line that says
+-- what it does.
+--
+-- ONE LIST, and it is the contract's window: 'templateParts' reads it as a
+-- grammar, @GET \/capture@ serves it, and the settings box completes over what
+-- it was served.  So what the completion offers is exactly what expands, and
+-- what it omits copies through as written — org-capture's language is enormous
+-- and this is the sliver the corpus uses.
+--
+-- @%^{PROMPT}@ carries its own braces because that is how a reader types it;
+-- the word inside is theirs.
+captureCodes :: [(Text, Text)]
+captureCodes =
+  [ ("%?", "where the text you type lands — a template without it cannot be filled")
+  , ("%U", "the moment of capture, inactive: [2026-08-04 Tue 09:30]")
+  , ("%T", "the moment of capture, active: <2026-08-04 Tue 09:30>")
+  , ("%^{PROMPT}", "asks PROMPT before capturing and writes the answer here")
+  ]
+
+-- | One piece of a capture template.  'TplText' is everything that copies
+-- through, an unknown @%@-code included: a template using one captures it
+-- literally, which is visible and refusable later where silently dropping it
+-- would not be.
+data TemplatePart
+  = TplText !Text    -- ^ written as it stands.
+  | TplPoint         -- ^ @%?@: the line the reader typed.
+  | TplStamp !Bool   -- ^ @%T@ (active) and @%U@ (inactive), the server's clock.
+  | TplAsk !Text     -- ^ @%^{PROMPT}@: the answer @fields@ carries for PROMPT.
+  deriving (Eq, Show)
+
+-- | TEMPLATE as the pieces it expands to, in order.
+--
+-- ONE left-to-right pass, and the ONE grammar three answers are read off:
+-- 'templatePrompts' asks what it will want, 'templateAsks' whether it can be
+-- filled at all, and 'expandTemplate' writes it.  A @%@ this knows nothing
+-- about — @%^@ with no brace, an unclosed @%^{@, @%a@, a trailing @%@ — is text
+-- and the scan goes on past it, so no template is unreadable.
+templateParts :: Text -> [TemplatePart]
+templateParts = go
+  where
+    go t = case T.breakOn "%" t of
+      (before, rest)
+        | T.null rest -> [ TplText before | not (T.null before) ]
+        | otherwise   -> [ TplText before | not (T.null before) ] <> code (T.drop 1 rest)
+    code rest = case T.uncons rest of
+      Nothing       -> [TplText "%"]
+      Just ('?', t) -> TplPoint : go t
+      Just ('U', t) -> TplStamp False : go t
+      Just ('T', t) -> TplStamp True : go t
+      Just ('^', t) -> ask t
+      Just (c, t)   -> TplText (T.pack ['%', c]) : go t
+    ask t = case T.stripPrefix "{" t of
+      Just body | (want, closed) <- T.breakOn "}" body, not (T.null closed)
+                  -> TplAsk want : go (T.drop 1 closed)
+      _notAnAsk   -> TplText "%^" : go t
+
+-- | What TEMPLATE will ask for, in the order it asks, a prompt spelled twice
+-- counted once — one question, both places filled.
+templatePrompts :: Text -> [Text]
+templatePrompts t = nub [ want | TplAsk want <- templateParts t ]
+
+-- | TEMPLATE with TEXT at its point, ANSWERS at its asks and NOW at its stamps,
+-- or why this request cannot fill it.
+--
+-- Two refusals, and both are the whole request's: a template with no @%?@ has
+-- nowhere for the text to go, and an ask nobody answered would otherwise write
+-- an entry with a hole in it.  The clock is read once by the caller, so a
+-- template spelling @%U@ twice stamps one moment.
+expandTemplate :: Time.ZonedTime -> [(Text, Text)] -> Text -> Text -> Either Text Text
+expandTemplate now answers text template
+  | TplPoint `notElem` parts = Left noPoint
+  | otherwise                = T.concat <$> traverse piece parts
+  where
+    parts = templateParts template
+    piece part = case part of
+      TplText t     -> Right t
+      TplPoint      -> Right text
+      TplStamp live -> Right (timedStamp (if live then activeBrackets else inactiveBrackets) at)
+      TplAsk want   -> maybe (Left (unanswered want)) Right (lookup want answers)
+    at = Time.zonedTimeToLocalTime now
+    noPoint = "this capture template has no %?, so there is nowhere for the text to go"
+    unanswered want = "this capture template asks " <> want
+                        <> "; name it in args {\"fields\": {" <> want <> ": \"…\"}}"
+
+-- | Where DOC's capture template sits — from its FIRST heading LINE to the end
+-- of the file, trailing whitespace left out.
+--
+-- org-glance's own convention and no new file class: a tag's template is the
+-- first @*@ heading of @config\/tags\/\<tag\>.org@, the same file that carries
+-- the tag's @#+TODO:@ cycle, and the tree's default is @system.org@'s.
+--
+-- TO THE END, which is @org-glance-tag-config--entry@'s rule verbatim
+-- (@buffer-substring (line-beginning-position) (point-max)@, right-trimmed),
+-- rather than the outline extent: everything under a config file's first
+-- heading is its template, so @* Book@ over @*** Notes@ is ONE template — which
+-- is what ~\/sync's own @book.org@ spells.  Everything ABOVE the heading is the
+-- file's pragmas and comments, which the @#+TODO:@ splice and the two settings
+-- lines own between them, so the regions of a config file cannot overlap.
+--
+-- The heading is found the way org-glance finds it (@^\\*+ @): stars then a
+-- SPACE, so a bare star run and a @*bold*@ line are body text here as they are
+-- to the parser.
+captureTemplateSpan :: Text -> Maybe Span
+captureTemplateSpan doc = (\from -> Span from (T.length (T.stripEnd doc))) <$> headingAt doc
+
+-- | Where DOC's first heading LINE begins, or 'Nothing' when it has none.
+headingAt :: Text -> Maybe Int
+headingAt doc = listToMaybe [ spanStart sp | (sp, line) <- lineSpansIn doc
+                            , isJust (headingStars line) ]
+
+-- | How many stars LINE opens a heading with, or 'Nothing' when it opens none.
+--
+-- org-glance's own rule verbatim (@^\\*+ @): a run of stars and then HORIZONTAL
+-- SPACE, so a bare star run is body text here where the parser reads it as an
+-- empty headline.  ONE predicate for the reader and the writer — with two, the
+-- sheet was handed a @** Notes@ template it would then refuse to write back, and
+-- a bare @*@ could be written and never read again.
+headingStars :: Text -> Maybe Int
+headingStars line = case T.span (== '*') line of
+  (stars, rest) | not (T.null stars), maybe False horizontal (fst <$> T.uncons rest)
+                  -> Just (T.length stars)
+  _notAHeading    -> Nothing
+
+-- | DOC's capture template, verbatim, or 'Nothing' where it holds no heading.
+captureTemplateOf :: Text -> Maybe Text
+captureTemplateOf doc = sliceSpan doc <$> captureTemplateSpan doc
+
+-- | The template a capture under TAG expands, given the config LAYERS, or
+-- 'Nothing' for the bare entry.
+--
+-- The tag's own layer first, then the system layer's, then nothing.  The tag's
+-- layer is the FIRST file configuring it, which is 'Data.Org.Config.clTags''s
+-- rule, and the system half is 'systemSetting''s, so a template is resolved
+-- exactly the way the keywords beside it are.
+captureTemplateIn :: Text -> [ConfigLayerFile] -> Maybe Text
+captureTemplateIn tag layers = mine <|> systemSetting captureTemplateOf layers
+  where
+    mine = captureTemplateOf . lfText =<< listToMaybe [ f | f <- layers, lfTag f == Just folded ]
+    folded = T.toLower tag
+
+-- | The span edits setting DOC's capture template to WANT, or why WANT is not a
+-- template.
+--
+-- The same whole-region splice a pragma line gets, one grain up: a template
+-- already there is its own extent, one a file lacks joins the END, and an EMPTY
+-- value takes it away.  The extent runs to the end of the file, so this is the
+-- one region here whose write cannot disturb a byte of anything else — there is
+-- nothing after it.
+--
+-- ONE WALL: a template is one top entry.  A blob's first headline is the entry
+-- org-glance keys by id, so a template that is body text or opens at a deeper
+-- level writes a blob with no entry in it, and the refusal is here rather than
+-- at the capture that would discover it.
+captureTemplateEdits :: Text -> Text -> Either Text [(Span, Text)]
+captureTemplateEdits doc want
+  | T.null value         = Right [ (Span from (T.length doc), "") | Just from <- [headingAt doc] ]
+  | not (topEntry value) = Left notATemplate
+  | otherwise            = Right [ maybe appended written (captureTemplateSpan doc) ]
+  where
+    value = T.stripEnd want
+    written sp = (sp, value)
+    appended = (insertAt (T.length doc), openingFor doc eol <> value <> eol)
+    eol = eolOf doc
+    notATemplate = "a capture template is one top entry: its first line opens with a\
+                   \ single star, as \"* %?\" does"
+
+-- | ENTRY as the document a blob holds: TAG on its first headline, and IDENT
+-- and STAMP in that headline's own property drawer.
+--
+-- The pieces org-glance keys a stored entry by, and the ONE place this repo
+-- assembles them.  Everything else about the entry is the template's — the
+-- expansion has already run, so what arrives here is the org a reader will see.
+--
+-- TWO RULES, and the tag's is 'addTagEditsIn' — the very function @add-tag@
+-- runs, so the insertion point cannot come to differ between a capture and a
+-- command.  The drawer joins an existing @:PROPERTIES:@ block under its own
+-- indentation, and is written whole under the PLANNING LINE otherwise — org's
+-- own place for one, and where the parser reads it back.  Both properties are
+-- written whatever the template said: a template spelling @ORG_GLANCE_ID@ would
+-- be claiming an identity the store hands out.
+--
+-- A template with no headline in it is refused rather than written: the blob
+-- would carry no entry, so the id would name nothing and
+-- 'Data.Org.External.blobIdOf' would read none back out of it.
+blobDocument :: Text -> Text -> Text -> Text -> Either Text Text
+blobDocument tag ident stamp given = case listToMaybe (headlinesOf elems) of
+  Nothing -> Left "this capture template expands to no headline, so there is no entry to store"
+  Just h  -> spliced (spans h)
+  where
+    eol = eolOf given
+    -- ENDED FIRST, because a template is stored right-trimmed: a title line with
+    -- no newline of its own takes the drawer onto the end of itself, and every
+    -- offset below is measured in the text that gets written.
+    entry = given <> openingFor given eol
+    (elems, _ctx, _err) = orgParse defaultContext entry
+    spliced hs = either (Left . refused) Right
+                        (Edit.applyEdits entry [ Edit.Edit sp new | (sp, new) <- edits hs ])
+    edits hs = addTagEditsIn (cellOf (hsTags hs)) tag hs <> drawerEdits hs
+    refused err = "this capture template does not splice: " <> T.pack (show err)
+    cellOf = maybe "" (sliceSpan entry)
+
+    -- INSIDE an existing drawer, under its own indentation, else a whole drawer
+    -- on the line under the PLANNING LINE — which is where org puts one and
+    -- where the parser looks for it.  Measuring from the title line instead
+    -- would splice the drawer BETWEEN the headline and its @SCHEDULED:@, where
+    -- the planning line is no longer the line after the title and stops being
+    -- read as one at all.
+    drawerEdits hs = case hsProperties hs of
+      Just sp -> [ (insertAt (pastLine entry (spanStart sp))
+                   , rows (indentOf (T.drop (lineStart entry (spanStart sp)) entry))) ]
+      Nothing -> [ (insertAt (pastLine entry (planningEnd hs))
+                   , T.concat [ ":PROPERTIES:" <> eol, rows "", ":END:" <> eol ]) ]
+
+    -- Where the headline's last LINE ends before a drawer would go: its planning
+    -- entries where it has any, else its title line.  The three planning spans
+    -- permute freely, so this is a maximum over the ends rather than a position.
+    planningEnd hs = foldl' max (titleLineEnd hs)
+                       [ spanEnd sp | Just sp <- [hsSchedule hs, hsDeadline hs, hsClosed hs] ]
+    rows indent = T.concat [ indent <> ":" <> key <> ": " <> value <> eol
+                           | (key, value) <- [(headlineIdProperty, ident), (captureProperty, stamp)] ]
+
+-- | The template a tagged capture expands when no layer names one — org-glance's
+-- own default stub, and the whole of what "the bare entry" means here.
+--
+-- A CONSTANT rather than a branch: with it, a tag with no config, a tag whose
+-- config has no heading and a tag whose config spells a template all take ONE
+-- path through 'expandTemplate', and the entry a bare capture writes is
+-- described by the same three lines of grammar as any other.
+bareTemplate :: Text
+bareTemplate = "* %?"
+
+-- | What an append to DOC owes before its own first line: EOL where DOC's last
+-- line has no newline of its own, nothing otherwise.
+--
+-- ONE spelling, because getting it wrong is silent: text appended to a live line
+-- joins it, so @* @ lands mid-paragraph and is no headline at all.
+openingFor :: Text -> Text -> Text
+openingFor doc eol
+  | T.null doc || "\n" `T.isSuffixOf` doc = ""
+  | otherwise                             = eol
+
+-- | Does TEXT open as a level-one heading?  'headingStars' over its first line,
+-- so what a template may BE and where a template is FOUND are one rule with one
+-- number between them.
+topEntry :: Text -> Bool
+topEntry text = headingStars (T.takeWhile (/= '\n') text) == Just 1
 
 -- | The span edits writing LINES as the @#+TODO:@ block of a config file
 -- holding DOC, or why LINES are not a block.
@@ -2686,25 +2965,27 @@ captureEdits doc stamp text
 -- into one either.  The message says so, since that is the refusal a reader
 -- typing the group name gets.
 --
--- WANT and TARGET are the default view and the capture target the same file
--- names, both of which the system layer carries and a tag layer never does:
--- 'Nothing' leaves that line exactly as it is, @Just \"\"@ takes it away, and
--- anything else writes it.  They ride in this one call because they are lines of
--- the same file, and three calls would be three writes under three digests, each
--- of which the one before it had just invalidated.
+-- PARTS is everything of the layer besides its cycle, and each of its three is
+-- the same three-valued thing: 'Nothing' leaves that part exactly as it is,
+-- @Just \"\"@ takes it away, and anything else writes it.  They ride in this one
+-- call because they are regions of the same file, and four calls would be four
+-- writes under four digests, each of which the one before it had just
+-- invalidated.
 --
--- The spans are the file's own lines ('Data.Org.Config.todoLineEdits'), so
--- everything a config file is besides its cycle — the @#+TITLE:@, the comments,
--- the capture template — is bytes this never names.
-configEdits :: Text -> [Text] -> Maybe Text -> Maybe Text -> Either Text [(Span, Text)]
-configEdits doc asked want target
+-- The spans are the file's own lines ('Data.Org.Config.todoLineEdits') and its
+-- first heading ('captureTemplateEdits'), so everything else a config file is —
+-- the @#+TITLE:@, the comments, a second heading — is bytes this never names.
+configEdits :: Text -> [Text] -> ConfigParts -> Either Text [(Span, Text)]
+configEdits doc asked parts
   | not (null strange) = Left ("not a #+TODO: line: " <> T.intercalate " · " strange)
-  | null lines'        = Right (todoLineEdits doc [] <> lineEdits)
+  | null lines'        = block []
   | null declared      = Left declaresNothing
-  | otherwise          = Right (todoLineEdits doc lines' <> lineEdits)
+  | otherwise          = block lines'
   where
-    lineEdits = maybe [] (defaultFilterEdits doc) want
-             <> maybe [] (captureTargetEdits doc) target
+    block ls = (todoLineEdits doc ls <>) <$> partEdits
+    partEdits = (lineEdits <>) <$> maybe (Right []) (captureTemplateEdits doc) (cpTemplate parts)
+    lineEdits = maybe [] (defaultFilterEdits doc) (cpFilter parts)
+             <> maybe [] (captureTargetEdits doc) (cpCapture parts)
     lines'   = filter (not . T.null . T.strip) asked
     -- A LINE, and the pragma test is a prefix one: an entry carrying a newline
     -- of its own would pass it and write everything past that newline into the
@@ -2712,6 +2993,22 @@ configEdits doc asked want target
     strange  = filter (\l -> not (isTodoPragma l) || T.isInfixOf "\n" l) lines'
     keywords = todoPragmas (T.unlines lines')
     declared = tkActive keywords <> tkInactive keywords
+
+-- | Everything a @POST \/config@ asks of a layer BESIDES its @#+TODO:@ block —
+-- three regions of one file, each three-valued the same way: absent leaves it,
+-- empty takes it off, anything else writes it.
+--
+-- A record rather than three positional 'Maybe Text' arguments, since all three
+-- have the same type and a caller swapping two would compile.
+data ConfigParts = ConfigParts
+  { cpFilter   :: !(Maybe Text)  -- ^ @#+GLANCE_DEFAULT_FILTER:@, the system layer's alone.
+  , cpCapture  :: !(Maybe Text)  -- ^ @#+GLANCE_CAPTURE_TARGET:@, likewise.
+  , cpTemplate :: !(Maybe Text)  -- ^ the capture template, which EVERY layer may carry.
+  } deriving (Eq, Show)
+
+-- | A layer write asking for nothing but its cycle.
+noParts :: ConfigParts
+noParts = ConfigParts Nothing Nothing Nothing
 
 declaresNothing :: Text
 declaresNothing =

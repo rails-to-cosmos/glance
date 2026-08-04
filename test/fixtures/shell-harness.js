@@ -300,11 +300,12 @@ let refusing = false;
 // in their own alphabet, so a fixture already in order could not tell the two
 // apart.
 let layers = [
-  { path: "/o/.org-glance/config/system.org", tag: null, lines: [], digest: "" },
+  { path: "/o/.org-glance/config/system.org", tag: null, lines: [],
+    template: "", digest: "" },
   { path: "/o/.org-glance/config/tags/film.org", tag: "film",
-    lines: ["#+TODO: WATCHING | WATCHED"], digest: "f1" },
+    lines: ["#+TODO: WATCHING | WATCHED"], template: "", digest: "f1" },
   { path: "/o/.org-glance/config/tags/book.org", tag: "book",
-    lines: ["#+TODO: TODO READING | READ"], digest: "c1" },
+    lines: ["#+TODO: TODO READING | READ"], template: "* %?", digest: "c1" },
 ];
 const configWrites = [];
 let configTick = 1;
@@ -377,6 +378,22 @@ let viewQuery = "state:*active*";
 // capture reports back and the log names.
 let captureLine = "";
 const captureTarget = "/o/inbox.org";
+// The row a capture makes, which is what point lands on when the watch delivers
+// it: a minted `ORG_GLANCE_ID' for a blob, the target file's ordinal for a line
+// in the inbox.
+const capturedId = "r3";
+// What `/capture' answers.  The codes are the expansion subset the settings box
+// completes over, and the prompts are what a tag's own template asks — `book'
+// has one, every other tag has none, so the chain can be walked with a step in
+// the middle and without one.
+const captureCodes = [
+  { code: "%?", means: "where the text you type lands" },
+  { code: "%U", means: "the moment of capture, inactive" },
+];
+const capturePrompts = { book: ["Author"] };
+// Every /capture URL asked for, which is what says whether the chain resolved
+// the tag before it asked the reader anything.
+const captureAsked = [];
 
 globalThis.location = { search, protocol: "http:", host: "h", pathname: "/" };
 globalThis.history = {
@@ -439,11 +456,24 @@ globalThis.fetch = (url, init) => {
     if (sent.name === "capture")
       return refusing
         ? answer(400, { error: "#+GLANCE_CAPTURE_TARGET: /x.org is an absolute path" })
-        : answer(200, { ok: true, file: captureTarget, digest: "d1" });
+        : answer(200, { ok: true, file: captureTarget, digest: "d1", id: capturedId });
     return answer(200, {
       results: (sent.ids || []).map((id) =>
         refusing ? { id, ok: false, error: "a.org changed on disk" }
                  : { id, ok: true, digest: "d1" }),
+    });
+  }
+  // Not gated on `refusing': what that flag stands for is a WRITE the server
+  // turns down, and a chain that could not resolve its tag would never reach one.
+  if (String(url) === "/capture" || String(url).startsWith("/capture?")) {
+    captureAsked.push(url);
+    const at = /[?&]tag=([^&]*)/.exec(String(url));
+    const tag = at ? decodeURIComponent(at[1]) : null;
+    return answer(200, {
+      template: !!(tag && capturePrompts[tag]),
+      prompts: tag ? (capturePrompts[tag] || []) : [],
+      tags: vocabulary,
+      codes: captureCodes,
     });
   }
   if (String(url).startsWith("/keywords?ids=")) {
@@ -959,7 +989,7 @@ const TAGS = { mtext: "textarea", filter: "input", pinput: "input",
                cfilter: "input", ctarget: "input", clog: "input",
                // The keywords panel: one select over the layers and one box
                // showing the selected one's lines.
-               clayer: "select", ctext: "textarea" };
+               clayer: "select", ctext: "textarea", ctpl: "textarea" };
 /**
  * Enough of a `CSSStyleDeclaration': a named property is an ordinary field the
  * page writes and reads back (the palette's badge hues), and a CUSTOM property
@@ -1072,7 +1102,10 @@ const STATEFUL = [ "mtext", "mnote", "mfile", "modal", "mprops", "mlog", "sheet"
                  // knob, which is this page's own preference — and the keywords
                  // panel's select, box, label and refusal line.
                  , "config", "cnote", "ceff", "csecs", "cfilter", "ctarget"
-                 , "clog", "clayer", "ctext", "clab", "clerr"
+                 // `ctpl' is the layer's capture template — a REGION of the
+                 // same file, kept on the layer like its cycle and riding in
+                 // the same write.
+                 , "clog", "clayer", "ctext", "ctpl", "clab", "clerr"
                  // The event strip: a line per entry, each a row of spans, so it
                  // has to hold a tree rather than answer "" to everything.
                  , "log"
@@ -1885,7 +1918,8 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     csecs: field("csecs").children.map((s) => parts(s, "chdr")[0].textContent),
     // What the two tree-wide fields are showing, and what the server holds now.
     cview: field("cfilter").value, ccap: field("ctarget").value,
-    served: viewQuery, servedCapture: captureLine,
+    served: viewQuery, servedCapture: captureLine, capturing: captureAsked,
+    ctpl: field("ctpl").value,
     ceff: field("ceff").textContent, configWrites,
     // The log knob: what the field holds, what was stored under it, and the
     // number the page wrote onto the strip — which is the cap taking effect.

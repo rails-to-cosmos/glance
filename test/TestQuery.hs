@@ -24,23 +24,29 @@ import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified Data.Time as Time
 
-import Glance.Query ( ConfigLayers (..), HeadlineParts (..), HeadlineRecord (..)
+import Glance.Query ( ConfigLayerFile (..), ConfigLayers (..), HeadlineParts (..)
+                    , HeadlineRecord (..)
                     , LinkShape (..), LoadFailure (..), OrgLink (..)
                     , QueryResult (..), Span (..), SubtreeEntry (..)
                     , TodoKeywords (..), addTagEdits
                     , archiveEdits, archived
-                    , captureEdits, captureStamp, defaultWalk, derivedPath, documentPath
-                    , displayText, editLinkEdits, headlineParts, hiddenProperties
+                    , blobDocument, blobPathIn
+                    , captureEdits, captureStamp, captureTemplateEdits
+                    , captureTemplateIn, captureTemplateOf
+                    , defaultWalk, derivedPath, documentPath
+                    , displayText, editLinkEdits, expandTemplate
+                    , headlineParts, hiddenProperties
                     , keywordSources, loadDir
                     , loadDirFilesSerially, loadDirFilesWith, matchesSearch
-                    , noConfig, orgLinks
+                    , mintBlobId, noConfig, orgLinks
                     , planningTimestamp, readsAsTimestamp, recomposedSubtree
                     , linkColumns, linkShown, linkType, removeTagEdits, renameTagEdits
                     , priorityText, rowJSON, setPlanningEdits, setPriorityEdits
                     , setStateEdits, setTitleEdits
                     , settableStates, sortedForView, sortedForViewWith, sortedTagsCell
+                    , storeRootIn
                     , subtreeEntries, subtreeEntryAt, subtreeLinks, subtreeText
-                    , tagText, tagged, titleText, viewJSON )
+                    , tagText, tagged, templatePrompts, titleText, uuidFrom, viewJSON )
 
 -- Fixtures
 
@@ -131,7 +137,7 @@ spec :: TestTree
 spec = testGroup "Query"
   [ loadSpec, walkSpec, levelSpec, blankSpec, parallelSpec, cellSpec, searchSpec
   , linkSpec
-  , viewSpec, schemaSpec, commandSpec, lensSpec, entrySpec ]
+  , viewSpec, schemaSpec, commandSpec, lensSpec, entrySpec, captureSpec ]
 
 -- | Where a row points: what @GET \/links@ serves, as the pure function under
 -- it.
@@ -2514,3 +2520,267 @@ entrySpec = testGroup "Subtree entries"
             assertEqual "tags" ":web:x:" (hrTags rec')
           [] -> assertFailure "expected one entry"
   ]
+
+-- | CAPTURE: the template grammar, the blob a tagged capture composes, and the
+-- store layout it writes to.
+--
+-- The expansion subset is the whole of what this repo reads out of
+-- org-capture's language, so every code it names has a case and so does the
+-- rule for everything it does not.
+captureSpec :: TestTree
+captureSpec = testGroup "Capture"
+  [ testGroup "The expansion subset"
+      [ testCase "%? is where the typed line lands" $
+          assertEqual "the point" (Right "* milk") (expanded [] "milk" "* %?")
+
+      , testCase "%U and %T are the two brackets of one moment" $ do
+          assertEqual "inactive" (Right "* x [2026-08-04 Tue 09:30]")
+                      (expanded [] "x" "* %? %U")
+          assertEqual "active" (Right "* x <2026-08-04 Tue 09:30>")
+                      (expanded [] "x" "* %? %T")
+
+        -- The weekday is COMPUTED, like every other stamp this library writes,
+        -- and the two differ in their brackets and in nothing else.
+      , testCase "a template spelling one twice stamps one moment" $
+          assertEqual "one clock read per request"
+                      (Right "* x [2026-08-04 Tue 09:30] [2026-08-04 Tue 09:30]")
+                      (expanded [] "x" "* %? %U %U")
+
+      , testCase "%^{PROMPT} takes its answer out of the fields" $
+          assertEqual "the answer, verbatim" (Right "* x\n:AUTHOR: Frank Herbert")
+                      (expanded [("Author", "Frank Herbert")] "x" "* %?\n:AUTHOR: %^{Author}")
+
+        -- One question, both places filled: a prompt spelled twice is asked once
+        -- and answered everywhere it stands.
+      , testCase "a prompt spelled twice is one ask and two fills" $ do
+          assertEqual "asked once" ["Author"] (templatePrompts "* %? %^{Author} %^{Author}")
+          assertEqual "filled twice" (Right "* x a a")
+                      (expanded [("Author", "a")] "x" "* %? %^{Author} %^{Author}")
+
+        -- EVERYTHING ELSE COPIES THROUGH, which is the rule that keeps a
+        -- template using a code this server has never heard of readable rather
+        -- than silently emptied.
+      , testCase "a code outside the subset is written as it stands" $
+          mapM_ (\template ->
+                   assertEqual (T.unpack template) (Right ("* x" <> T.drop 4 template))
+                               (expanded [] "x" template))
+                [ "* %?%a", "* %?%^g", "* %?%^{unclosed", "* %?%%", "* %?%" ]
+
+      , testCase "and a % that opens nothing is a %" $
+          assertEqual "trailing" (Right "* x %") (expanded [] "x" "* %? %")
+      ]
+
+  , testGroup "What a template cannot do"
+      [ testCase "a template with no %? is refused, naming what it lacks" $
+          assertEqual "nowhere for the line to go"
+                      (Left "this capture template has no %?, so there is nowhere for the text to go")
+                      (expanded [] "milk" "* nothing here")
+
+      , testCase "an ask nobody answered is refused, naming the prompt" $
+          assertBool "the prompt is named"
+                     (either (T.isInfixOf "Author") (const False)
+                             (expanded [] "x" "* %? %^{Author}"))
+
+        -- The refusal is the WHOLE request's: half an entry with a hole in it is
+        -- worse than none of one.
+      , testCase "one unanswered ask refuses the whole expansion" $
+          assertBool "refused"
+                     (either (const True) (const False)
+                             (expanded [("A", "a")] "x" "* %? %^{A} %^{B}"))
+
+      , testCase "and a template that expands to no headline stores nothing" $
+          assertBool "no entry to key by an id"
+                     (either (T.isInfixOf "no headline") (const False)
+                             (blobDocument "book" "i" "[s]" "not a headline"))
+      ]
+
+  , testGroup "Where a template lives"
+      [ testCase "the first heading of a layer file, to the end of it" $
+          assertEqual "everything under the heading is the template"
+                      (Just "* Book\n*** Notes\n    %?")
+                      (captureTemplateOf bookLayer)
+
+      , testCase "a file with no heading has none" $
+          assertEqual "pragmas alone" Nothing (captureTemplateOf "#+TITLE: Book\n#+TODO: A | B\n")
+
+        -- The tag's own layer first, the system layer's next, and nothing after
+        -- that: the same chain the keywords beside it are resolved by.
+      , testCase "the tag's layer beats the system layer" $ do
+          assertEqual "the tag's own" (Just "* Book\n*** Notes\n    %?")
+                      (captureTemplateIn "book" layers)
+          assertEqual "and the system layer answers for a tag with no template"
+                      (Just "* %? %U") (captureTemplateIn "film" layers)
+          assertEqual "as it does for a tag with no layer at all"
+                      (Just "* %? %U") (captureTemplateIn "nosuch" layers)
+
+      , testCase "a tag is resolved folded, like every other tag here" $
+          assertEqual "Book is book" (captureTemplateIn "book" layers)
+                      (captureTemplateIn "BOOK" layers)
+      ]
+
+  , testGroup "Editing a template"
+        -- The file's own last newline is OUTSIDE the extent, so a replacement
+        -- leaves it: what the sheet edits is the template, never the byte that
+        -- ends the file.
+      [ testCase "a template already there is replaced where it stands" $
+          assertEqual "the pragmas above it keep their bytes"
+                      (Right "#+TITLE: Book\n#+TODO: TODO | DONE\n\n* %? %U\n")
+                      (templated bookLayer "* %? %U")
+
+      , testCase "a file with none takes it at the end" $
+          assertEqual "appended" (Right "#+TITLE: Book\n* %?\n")
+                      (templated "#+TITLE: Book\n" "* %?")
+
+      , testCase "an empty value takes the heading and everything under it" $
+          assertEqual "the pragmas survive" (Right "#+TITLE: Book\n#+TODO: TODO | DONE\n\n")
+                      (templated bookLayer "")
+
+      , testCase "and clearing a file that has none costs no edit" $
+          assertEqual "no edit" (Right []) (captureTemplateEdits "#+TITLE: Book\n" "")
+
+        -- ONE WALL, and it is what keeps a blob's first headline the entry
+        -- org-glance keys it by.
+      , testCase "a template that is not one top entry is refused" $
+          mapM_ (\want -> assertBool (T.unpack want)
+                            (either (const True) (const False)
+                                    (captureTemplateEdits bookLayer want)))
+                ["body text", "** %?", "*%?", "  * %?"]
+
+        -- A ROUND TRIP: what the settings sheet is shown is what it can write
+        -- back, byte for byte.
+      , testCase "read then written back leaves the file alone" $
+          assertEqual "byte for byte" (Right bookLayer)
+                      (templated bookLayer (fromMaybe "" (captureTemplateOf bookLayer)))
+      ]
+
+  , testGroup "The blob a tagged capture composes"
+      [ testCase "the tag joins the headline and the drawer carries the id" $
+          assertEqual "org-glance's own two properties"
+                      (Right (T.unlines [ "* milk :book:"
+                                        , ":PROPERTIES:"
+                                        , ":ORG_GLANCE_ID: i-1"
+                                        , ":ORG_GLANCE_CREATION_TIME: [2026-08-04 Tue 09:30]"
+                                        , ":END:" ]))
+                      (blobDocument "book" "i-1" "[2026-08-04 Tue 09:30]" "* milk")
+
+        -- A template carrying a drawer of its own keeps it, and the two
+        -- properties join it rather than opening a second one.
+      , testCase "a drawer the template wrote is joined rather than doubled" $
+          assertEqual "one drawer"
+                      (Right (T.unlines [ "* milk :book:"
+                                        , ":PROPERTIES:"
+                                        , ":ORG_GLANCE_ID: i-1"
+                                        , ":ORG_GLANCE_CREATION_TIME: [s]"
+                                        , ":AUTHOR: X"
+                                        , ":END:" ]))
+                      (blobDocument "book" "i-1" "[s]"
+                                    "* milk\n:PROPERTIES:\n:AUTHOR: X\n:END:\n")
+
+      , testCase "a headline already wearing the tag costs no edit" $
+          assertEqual "the run keeps its bytes"
+                      (Right (T.unlines [ "* milk :book:web:"
+                                        , ":PROPERTIES:"
+                                        , ":ORG_GLANCE_ID: i-1"
+                                        , ":ORG_GLANCE_CREATION_TIME: [s]"
+                                        , ":END:" ]))
+                      (blobDocument "book" "i-1" "[s]" "* milk :book:web:")
+
+      , testCase "and one wearing others joins the run's end" $
+          assertBool "appended to the run"
+                     (either (const False) (T.isInfixOf "* milk :web:book:")
+                             (blobDocument "book" "i-1" "[s]" "* milk :web:"))
+
+        -- The template's own children ride along: a blob is the whole entry.
+      , testCase "the template's children are the entry's" $
+          assertBool "the child survives"
+                     (either (const False) (T.isInfixOf "*** Notes")
+                             (blobDocument "book" "i-1" "[s]" "* Book\n*** Notes\n    milk"))
+
+        -- THE DRAWER GOES UNDER THE PLANNING LINE, which is where org puts one:
+        -- spliced between the headline and its `SCHEDULED:' the planning line
+        -- stops being the line after the title and is read as body text.
+      , testCase "a template with a planning line keeps it under the title" $
+          assertEqual "planning first, drawer second"
+                      (Right (T.unlines [ "* milk :book:"
+                                        , "SCHEDULED: <2026-08-10 Mon>"
+                                        , ":PROPERTIES:"
+                                        , ":ORG_GLANCE_ID: i-1"
+                                        , ":ORG_GLANCE_CREATION_TIME: [s]"
+                                        , ":END:" ]))
+                      (blobDocument "book" "i-1" "[s]"
+                                    "* milk\nSCHEDULED: <2026-08-10 Mon>\n")
+
+      , testCase "the document ends in a newline" $
+          assertBool "an org file's last line is ended"
+                     (either (const False) (T.isSuffixOf "\n")
+                             (blobDocument "book" "i-1" "[s]" "* milk"))
+      ]
+
+  , testGroup "Where a blob sits"
+      [ testCase "sharded by the id's first two characters, verbatim" $
+          assertEqual "org-glance's own layout"
+                      "/o/.org-glance/data/04/a14d10-41c1-4a3d/data.org"
+                      (blobPathIn "/o/.org-glance" "04a14d10-41c1-4a3d")
+
+        -- NOT FOLDED: org-glance's own store carries `Pa', `Pe' and `al' shards
+        -- side by side, an id being an opaque string wherever it is read.
+      , testCase "the shard is not folded" $
+          assertEqual "Password- shards under Pa"
+                      "/o/.org-glance/data/Pa/ssword-1/data.org"
+                      (blobPathIn "/o/.org-glance" "Password-1")
+
+      , testCase "an id of two characters or fewer is not sharded" $ do
+          assertEqual "two" "/s/data/ab/data.org" (blobPathIn "/s" "ab")
+          assertEqual "three" "/s/data/ab/c/data.org" (blobPathIn "/s" "abc")
+
+      , testCase "the store root is the served root's own" $
+          assertEqual "one tree, one store" "/o/.org-glance" (storeRootIn "/o")
+
+        -- A blob path is one this walk COLLECTS and this note-taker names, which
+        -- is what makes the row arrive and the EXTERNAL line get written.
+      , testCase "a composed path is a blob the walk keeps" $
+          assertBool "walked and not derived"
+                     (documentPath (blobPathIn (storeRootIn "/o") "abcdef")
+                        && not (derivedPath (blobPathIn (storeRootIn "/o") "abcdef")))
+      ]
+
+  , testGroup "The id it is keyed by"
+      [ testCase "a version-4 UUID, lowercase, 8-4-4-4-12" $
+          assertEqual "the shape org-id-uuid writes"
+                      "00010203-0405-4607-8809-0a0b0c0d0e0f"
+                      (uuidFrom (BS.pack [0 .. 15]))
+
+      , testCase "the version and variant nibbles are stamped whatever the bytes" $ do
+          assertEqual "all ones" "ffffffff-ffff-4fff-bfff-ffffffffffff"
+                      (uuidFrom (BS.replicate 16 0xff))
+          assertEqual "all zeros" "00000000-0000-4000-8000-000000000000"
+                      (uuidFrom (BS.replicate 16 0))
+
+      , testCase "and a short string is padded rather than answering short" $
+          assertEqual "36 characters either way" 36 (T.length (uuidFrom BS.empty))
+
+      , testCase "a minted id is one of those" $ do
+          ident <- mintBlobId
+          assertEqual "36 characters" 36 (T.length ident)
+          assertEqual "four hyphens" [8, 4, 4, 4, 12] (map T.length (T.splitOn "-" ident))
+          assertBool "and no two are the same"
+            . (\ids -> length (nub ids) == 8) =<< replicateM 8 mintBlobId
+      ]
+  ]
+  where
+    -- ONE clock for every expansion case, so a stamp is an assertion rather than
+    -- a moving target.
+    noon = Time.ZonedTime (Time.LocalTime (Time.fromGregorian 2026 8 4)
+                                          (Time.TimeOfDay 9 30 0))
+                          Time.utc
+    expanded answers text = expandTemplate noon answers text
+    -- The module's own splice, which every other command case here asserts
+    -- through: an oracle that shared the write engine would agree with a wrong
+    -- offset.
+    templated doc want = splice doc <$> captureTemplateEdits doc want
+    bookLayer = "#+TITLE: Book\n#+TODO: TODO | DONE\n\n* Book\n*** Notes\n    %?\n"
+    layers =
+      [ ConfigLayerFile "/o/.org-glance/config/system.org" Nothing "s" "#+TITLE: X\n* %? %U\n"
+      , ConfigLayerFile "/o/.org-glance/config/tags/book.org" (Just "book") "b" bookLayer
+      , ConfigLayerFile "/o/.org-glance/config/tags/film.org" (Just "film") "f" "#+TODO: A | B\n"
+      ]

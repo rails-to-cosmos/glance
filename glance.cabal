@@ -48,6 +48,7 @@ library glance-internal
   visibility: private
   exposed-modules:
       Data.Org
+      Data.Org.Blob
       Data.Org.Config
       Data.Org.Edit
       Data.Org.External
