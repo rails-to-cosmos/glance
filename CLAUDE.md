@@ -1199,7 +1199,8 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   and corrects nothing. Its baseline is a remembered unfiltered paint, and a
   boot that had none — a `?q=` link, or the default view — arms it with `arm`'s
   own unfiltered fetch and re-runs the check the boot could not.
-- The shell's keymap is `Glance.Web`'s `keyBindings` and nothing else — ONE map,
+- The shell's keymap is `Glance.Web.Keymap`'s `keyBindings` and nothing else — ONE
+  map,
   no profiles: the page carries it as a JSON blob (`{rows, hints, reserved,
   once}`) and its own dispatch parses that blob. Each row carries `kbKeys`,
   `kbCommand`, `kbScope` (`table`, `modal` or `any` — where it is live) and an
@@ -2238,7 +2239,7 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - `glance.cabal` is hand-maintained; package.yaml/hpack removed — do not
   regenerate.
 - `assets/table-view.js` is a committed BUILD INPUT: in `extra-source-files`,
-  read by `Glance.Web`'s `embedFile` splice (`addDependentFile` recompiles on
+  read by `Glance.Web.Routes`'s `embedFile` splice (`addDependentFile` recompiles on
   change). Refresh it with `make sync-renderer`, never by hand.
 - Components: private sublibrary `glance-internal` (`src/`), public library
   `glance` (`src-query/`, `Glance.Query` only), private sublibrary
@@ -2246,9 +2247,21 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `glance-desktop-native` (`src-desktop-native/`) on `base` alone, one CLI
   dispatching to three sublibraries, one suite naming the three that carry
   testable code. A new web or daemon target depends on the public library alone.
-- `glance-web` exposes seven modules and has no `other-modules`:
-  `Glance.Desktop`, `Glance.Desktop.Native`, `Glance.Web`, `Glance.Web.Filter`,
-  `Glance.Web.Sort`, `Glance.Web.Store`, `Glance.Web.Watch`.
+- `glance-web` exposes fourteen modules and has no `other-modules`, and inside
+  it the dependency runs ONE way — `Glance.Web.Base` the floor, `Glance.Web`
+  the door: `Base` → `Keymap`/`Page.Style`/`Page.Glue` → `Page` → `Routes` →
+  `Glance.Web` → `Glance.Desktop`(`.Native`), with `Commands` on
+  `Base` + `Store`, and `Routes` also reading `Filter`, `Sort`, `Store` and
+  `Page.Style`. `Base` holds exactly what more than one module above needs:
+  `ServeOptions`, the response constructors, the body reader and the
+  write-refusal vocabulary (`answerWrite` and the sentences it chooses between)
+  — the route table and the command table both answer through them, and a cycle
+  is what putting either above the other costs. The TH renderer splice is in
+  `Routes` beside the asset serving that reads it, so `Routes` alone carries
+  `TemplateHaskell`. `Glance.Web` is a facade: `serve`/`serveAs`, the banner,
+  the indexing thread, and re-exports of `ServeOptions (..)`, `defaultPort`,
+  `application`, `bootstrapWanted` and `viewTitleFor`, so `TestServe`,
+  `TestWire` and `TestExternal` name one module as they always did.
 - `glance-desktop-native` exposes `Glance.Desktop.WebKit` alone and is the ONLY
   stanza the `native-window` flag reaches: `if flag(native-window)` adds
   `-DNATIVE_WINDOW` and

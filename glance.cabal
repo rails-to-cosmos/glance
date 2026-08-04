@@ -118,7 +118,14 @@ library glance-web
       Glance.Desktop
       Glance.Desktop.Native
       Glance.Web
+      Glance.Web.Base
+      Glance.Web.Commands
       Glance.Web.Filter
+      Glance.Web.Keymap
+      Glance.Web.Page
+      Glance.Web.Page.Glue
+      Glance.Web.Page.Style
+      Glance.Web.Routes
       Glance.Web.Sort
       Glance.Web.Store
       Glance.Web.Watch

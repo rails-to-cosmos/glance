@@ -2349,8 +2349,8 @@ on.
   name this server serves. Evidence: `TestServe` "no page this server serves
   reaches off it" — neither page contains `http://`, `https://` or `@import`.
   **test**
-- **The shell's keymap is data, and there is ONE of it.** `Glance.Web`'s
-  `keyBindings` is the one table; the page carries it as a
+- **The shell's keymap is data, and there is ONE of it.**
+  `Glance.Web.Keymap.keyBindings` is the one table; the page carries it as a
   `<script type="application/json">` blob — `{rows, hints, reserved, once}` — and
   its own dispatch parses that blob, so a binding cannot exist in the handler and
   not in the map. The movement PROFILES are gone, and with them a selector in the
@@ -2564,7 +2564,8 @@ on.
   under the table already says and says for every command rather than for the
   one. One place, asserted through the harness rather than by grepping the glue.
   **test**
-- **The echo widget's key hints are data too.** `Glance.Web.keyHints` is a table
+- **The echo widget's key hints are data too.** `Glance.Web.Keymap.keyHints` is a
+  table
   of key-list/label pairs serialized into the same JSON blob the dispatch reads,
   under `hints`, and rendered into the resident key line from there. So the line
   cannot offer a key nothing is bound to, and a new binding that should appear
@@ -4252,8 +4253,8 @@ on.
   the build). Do not reintroduce without making it authoritative again.
 - **`assets/table-view.js` is a build input, and `make sync-renderer` is how it
   moves.** The renderer's home is the sibling `table-view` repository; the copy
-  here is committed, listed in `extra-source-files`, and read by `Glance.Web`'s
-  `embedFile` splice — so `file-embed`'s `addDependentFile` recompiles the
+  here is committed, listed in `extra-source-files`, and read by
+  `Glance.Web.Routes`'s `embedFile` splice — so `file-embed`'s `addDependentFile` recompiles the
   module when the asset changes, and `cabal sdist` carries it. `sync-renderer`
   copies `../table-view/web/table-view.js` over it and prints
   `git diff --stat --no-index`; with no sibling checkout it says so and copies
@@ -4269,9 +4270,16 @@ on.
   the three that carry testable code
   (`glance:{glance, glance-internal, glance-web}`, which pins internals in the
   older modules and exercises the facade alone in
-  `TestQuery`/`TestServe`/`TestStore`). `glance-web` exposes six modules and
-  declares no `other-modules`: `Glance.Desktop`, `Glance.Desktop.Native`,
-  `Glance.Web`, `Glance.Web.Filter`, `Glance.Web.Store`, `Glance.Web.Watch`. It
+  `TestQuery`/`TestServe`/`TestStore`). `glance-web` exposes fourteen modules
+  and declares no `other-modules`: `Glance.Desktop`, `Glance.Desktop.Native`,
+  `Glance.Web`, `Glance.Web.Base`, `Glance.Web.Commands`, `Glance.Web.Filter`,
+  `Glance.Web.Keymap`, `Glance.Web.Page`, `Glance.Web.Page.Glue`,
+  `Glance.Web.Page.Style`, `Glance.Web.Routes`, `Glance.Web.Sort`,
+  `Glance.Web.Store`, `Glance.Web.Watch`. Inside the component the dependency
+  runs one way, `Glance.Web.Base` at the floor and `Glance.Web` at the door, and
+  the floor is exactly what more than one module above needs: `ServeOptions`,
+  the response constructors, the body reader and the write-refusal vocabulary,
+  which the route table and the command table both answer through. It
   gained every one of them past `Glance.Web` without gaining a direction — what
   they needed, per-file loading, row JSON, the keyword merge, the derived and
   org path predicates, was added to `Glance.Query` rather than reached for

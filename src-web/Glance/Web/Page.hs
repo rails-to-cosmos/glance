@@ -1,0 +1,230 @@
+-- | The two documents this server serves: the shell, and the page that says
+-- there is no renderer to mount.
+module Glance.Web.Page (demoShell, assetsMissing) where
+
+import Data.Text (Text)
+
+import qualified Data.Text as T
+
+import Glance.Query (builtinFilter, defaultCaptureFile)
+import Glance.Web.Base ( ServeOptions (..), escape, logLinesBand, logLinesDefault
+                       , rendererAsset, viewTitleFor )
+import Glance.Web.Keymap (keyBindingsJSON)
+import Glance.Web.Page.Glue (shellGlue)
+import Glance.Web.Page.Style (fontFace, page)
+
+-- | The page a browser gets: load the renderer, fetch a page of the view, mount
+-- it, then hold a socket open and apply what it sends.  WANTED is the tree's
+-- default view, which the glue boots on when the URL names no query.
+--
+-- The markup is the DOM the glue addresses, and nothing else: one mount point,
+-- the event strip, the key line, and the overlays — sheet, palettes, settings —
+-- that stand over them.  The page is one column the height of the viewport and
+-- does not scroll; the table keeps the height it asks for, the log takes what
+-- is left under the settings sheet's cap, and both scroll inside themselves, so
+-- the key line holds its place whatever arrives.
+--
+-- The log is an event strip: connection, sync outcomes, the parity warning,
+-- errors.  What is loaded is the renderer's hint line and what the keys are is
+-- the resident key line's, so neither is repeated there.  The frame is
+-- resident, so the first event to arrive does not shift the key line under it.
+--
+-- There is no status corner: the socket's state is the stale wash and the
+-- strip's own @ws@ lines, and every preference is a panel of the settings sheet
+-- @,@ raises.
+
+demoShell :: ServeOptions -> Maybe FilePath -> Text -> Text
+demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlines $
+  -- No heading: the view title is already the tab's, and printing it a second
+  -- time here put it on screen twice.  In palette mode the renderer carries no
+  -- bar either, so the page opens on the table itself.
+  -- There is NO status corner.  The stale wash — the whole page fading back the
+  -- moment a change can no longer reach it — and the `ws' lines still there to
+  -- scroll to already say it, so a dot would be a third spelling costing a fixed
+  -- box, a z-level and a top padding to keep clear of.
+  [ "  <div id=\"app\"></div>"
+  , "  <div id=\"log\"></div>"
+  , "  <div id=\"kbd\"></div>"
+  , "  <div id=\"modal\">"
+  , "    <div id=\"sheet\" class=\"pop-sheet\">"
+  , "      <div id=\"mhead\"><span id=\"mfile\"></span><span id=\"mnote\"></span></div>"
+  -- Where in the outline the sheet is standing: the titles from the ROW down to
+  -- the headline on screen, the server's own `path'.  One line, empty over a
+  -- row, so a sheet that never left the row it was opened on looks as it did.
+  , "      <div id=\"mwhere\"></div>"
+  -- TWO PANES over one subtree: the STRUCTURED DOCUMENT on the left, the
+  -- property panel on the right.  The cut between them is the server's
+  -- (`GET /headline' hands both), so neither pane is derived here.
+  --
+  -- The document stands where the textarea did and draws the subtree's TEXT as
+  -- the elements it is made of: the headline line with its cells, the body's
+  -- paragraphs, the children under it.  The textarea is still there as raw mode
+  -- and the escape hatch, shown by `C-c '', with `#sheet.raw' deciding which is
+  -- up.  The document is hand-drawn rather than a table-view mount — the
+  -- doctrine line, since the renderer's list widget draws a list of RECORDS, one
+  -- shape per row, where this is a list of KINDS.  The panel beside it IS a
+  -- mount, the same reason read the other way: a drawer is a list of records.
+  -- Each pane carries its own edit overlay, since the mount rewrites its rows as
+  -- it scrolls and the document redraws whole on every move — an edit living
+  -- inside a row would be thrown away by the next frame.
+  , "      <div id=\"mpanes\">"
+  , "        <textarea id=\"mtext\" spellcheck=\"false\"></textarea>"
+  , "        <div id=\"mdoc\"><div id=\"dlist\"></div>"
+      <> "<div id=\"dedit\"><input id=\"dkey\" spellcheck=\"false\">"
+      <> "<input id=\"dval\" spellcheck=\"false\"></div>"
+      <> "<div id=\"dpara\"><textarea id=\"dtext\" spellcheck=\"false\"></textarea></div>"
+      <> "</div>"
+  , "        <div id=\"mprops\"><div id=\"mptable\"></div>"
+      <> "<div id=\"pedit\"><input id=\"pkey\" spellcheck=\"false\">"
+      <> "<input id=\"pval\" spellcheck=\"false\"></div></div>"
+  , "      </div>"
+  -- The logbook, read-only and full width under both panes, and the server's:
+  -- shown so a reader can see what the row has been through, never sent back,
+  -- and out of Tab and out of `dirty()' because nothing here can move it.
+  , "      <pre id=\"mlog\"></pre>"
+  , "    </div>"
+  , "  </div>"
+  -- The tags popup, hosting the page's FOURTH table-view mount and the only
+  -- MUTABLE one.  What a set of rows is tagged with is a list of RECORDS — a
+  -- name, a coverage over the set, a weight in the tree — so it takes the link
+  -- popup's shape rather than the value palette's, and carries what a read-only
+  -- mount does not: the rename overlay, the property panel's edit model over
+  -- one cell.  `#tpane' positions it, as `#mdoc' does the document's.
+  , "  <div id=\"tags\">"
+  , "    <div id=\"tbox\" class=\"pop-sheet\">"
+  , "      <div id=\"thead\"></div>"
+  , "      <div id=\"tpane\"><div id=\"ttable\"></div>"
+      <> "<div id=\"tedit\"><input id=\"tname\" spellcheck=\"false\"></div></div>"
+  , "      <div id=\"tfoot\"></div>"
+  , "    </div>"
+  , "  </div>"
+  -- The value palette.  Letter mode is the resident one and its field is
+  -- hidden, so the box carries the mode: `#pbox.narrow' is the completing-read
+  -- `/' falls back to, and `+' over the tags popup is its other door.  The foot
+  -- names the keys the list itself cannot draw.
+  , "  <div id=\"prompt\">"
+  , "    <div id=\"pbox\" class=\"pop-band\">"
+  , "      <div id=\"phead\"></div>"
+  , "      <input id=\"pinput\" spellcheck=\"false\" autocomplete=\"off\">"
+  , "      <div id=\"plist\"></div>"
+  , "      <div id=\"pfoot\"></div>"
+  , "    </div>"
+  , "  </div>"
+  -- The link popup, hosting the page's THIRD table-view mount.  A list of links
+  -- is a TABLE — what each one is, what the entry calls it, where it points —
+  -- and this page has one list widget, so it draws that table rather than a
+  -- hand-made list under hand-assigned letters.  A sibling of `#app' sharing the
+  -- two z levels with the sheets and the value palette, so the four values still
+  -- stand.  `#lpane' is the edit overlay's positioning parent, the way `#tpane'
+  -- is the rename's: `RET' lays two fields over the row's title and url cells,
+  -- and the mount rewrites its rows as it scrolls, so an edit living inside one
+  -- would be thrown away by the next frame.
+  , "  <div id=\"links\">"
+  , "    <div id=\"lbox\" class=\"pop-sheet\">"
+  , "      <div id=\"lhead\"></div>"
+  , "      <div id=\"lpane\"><div id=\"ltable\"></div>"
+      <> "<div id=\"ledit\"><input id=\"ltitle\" spellcheck=\"false\">"
+      <> "<input id=\"lurl\" spellcheck=\"false\"></div></div>"
+  , "      <div id=\"lfoot\"></div>"
+  , "    </div>"
+  , "  </div>"
+  -- The settings sheet: the page's ONE place for a preference, in PANELS.
+  -- General, theme, keywords — a header over the rows that belong to it, drawn
+  -- from the `SECTIONS' list below, so a fourth panel is one entry there and the
+  -- markup it wraps.  A sibling of `#app' like the other two overlays, so a
+  -- remount leaves it standing — which this one needs most, writing a layer
+  -- being itself what moves the columns.  The panel BODIES are declared here,
+  -- each wearing `cpart', and `SECTIONS' wraps them at boot: the list owns the
+  -- headers and the order, the markup owns what is under them, and the
+  -- stylesheet reads the class rather than a roll of ids.
+  , "  <div id=\"config\">"
+  , "    <div id=\"cbox\" class=\"pop-sheet\">"
+  , "      <div id=\"chead\"><span id=\"ctitle\">settings</span>"
+      <> "<span id=\"cnote\"></span></div>"
+  , "      <div id=\"csecs\"></div>"
+  -- GENERAL: the two tree-wide lines of `system.org'.  They are that layer's
+  -- own bytes and ride in that layer's own write, so which panel shows them is
+  -- a matter of reading rather than of where the splice goes.  Each field's
+  -- fallback when emptied is its placeholder here, off the same Haskell
+  -- constants the server answers with — the value cannot change while the page
+  -- is up, so nothing carries it into the glue and back out per sheet-open.
+  , "      <div id=\"cgen\" class=\"cpart\">"
+  , "        <div class=\"crow\"><div class=\"clab\">default view</div>"
+      <> "<input id=\"cfilter\" class=\"cview\" spellcheck=\"false\" placeholder=\""
+      <> escape ("the view g applies; empty is " <> builtinFilter) <> "\"></div>"
+  , "        <div class=\"crow\"><div class=\"clab\">capture target</div>"
+      <> "<input id=\"ctarget\" class=\"cview\" spellcheck=\"false\" placeholder=\""
+      <> escape ("where + captures; empty is " <> T.pack defaultCaptureFile)
+      <> "\"></div>"
+  -- The log's height, and the one field on this sheet that asks no server: it
+  -- is a `localStorage' preference like the theme, and the panel says where a
+  -- reader READS a preference rather than what writes it.  `cmoved' never sees
+  -- it, so it costs no request and cannot make a pristine sheet dirty.
+  , "        <div class=\"crow\"><div class=\"clab\">log lines</div>"
+      <> "<input id=\"clog\" class=\"cview\" spellcheck=\"false\" inputmode=\"numeric\""
+      <> " placeholder=\"" <> escape ("how tall the log grows, " <> logLinesBand
+      <> "; empty is " <> T.pack (show logLinesDefault)) <> "\"></div>"
+  , "      </div>"
+  -- THEME: three values, one `localStorage' key, and the pre-paint boot in the
+  -- head that reads it — a preference like every other one on this sheet, which
+  -- is why it is here.  It wears `cview' with the fields above, taking their
+  -- border, radius and font and the coarse-pointer rule that stops iOS zooming
+  -- in on a focused control.
+  , "      <div id=\"ctheme\" class=\"cpart\">"
+  , "        <div class=\"crow\"><div class=\"clab\">colour theme</div>"
+      <> "<select id=\"themesel\" class=\"cview\" title=\"colour theme\">"
+      <> "<option value=\"auto\">auto</option><option value=\"light\">light</option>"
+      <> "<option value=\"dark\">dark</option></select></div>"
+  , "      </div>"
+  -- KEYWORDS: ONE LAYER AT A TIME.  A tree has as many config files as it has
+  -- tags, and a stack of boxes made the panel as tall as that number — the
+  -- reader scrolled past every layer they were not editing to reach the one they
+  -- were.  So the layers are a `select' with one box under it, holding the
+  -- SELECTED layer's `#+TODO:' lines verbatim; a switch must not cost an edit,
+  -- so every layer's text is kept in memory whether or not it is on screen and
+  -- the sync writes all of them.  The select is the sheet's own chrome and takes
+  -- the sheet's focus rules: inside a popup, so it keeps the focus it is given
+  -- and native tabbing walks it in DOM order with the rest.
+  , "      <div id=\"clayers\" class=\"cpart\">"
+  , "        <div class=\"crow\"><div class=\"clab\">layer</div>"
+      <> "<select id=\"clayer\" class=\"cview\" title=\"config layer\"></select></div>"
+  -- The label is the SELECTED layer's — where the file is, and whether it is
+  -- there at all.  A layer with no digest is not a file yet; saying so is what
+  -- makes creating the first one an edit rather than a mystery.
+  , "        <div class=\"crow\"><div id=\"clab\" class=\"clab\"></div>"
+      <> "<textarea id=\"ctext\" class=\"ctext\" spellcheck=\"false\""
+      <> " placeholder=\"#+TODO: TODO STARTED | DONE\"></textarea>"
+      <> "<div id=\"clerr\" class=\"cerr\"></div></div>"
+  , "      </div>"
+  , "      <div id=\"ceff\"></div>"
+  , "      <div id=\"cfoot\">read-only: the union every file is parsed with."
+      <> " A file's own #+TODO: line adds to it and outranks these for that"
+      <> " file's own headlines.</div>"
+  , "    </div>"
+  , "  </div>"
+  , "  <div id=\"echo\" role=\"status\" aria-live=\"polite\"></div>"
+  , "  <script id=\"keys\" type=\"application/json\">" <> keyBindingsJSON <> "</script>"
+  , "  <script src=\"" <> T.pack rendererAsset <> "\"></script>"
+  ]
+  <> shellGlue wanted
+
+-- | The page a browser gets when DIR — the @--assets@ directory — holds no
+-- renderer: what still works, and the two ways out.  Reachable under that flag
+-- alone; drop it and 'Glance.Web.Routes.embeddedRenderer' serves, so a default run never sees
+-- this page.
+assetsMissing :: ServeOptions -> FilePath -> Text
+assetsMissing opts dir = page "" "glance — JSON only" $ T.unlines
+  [ "  <h1>glance — JSON-only mode</h1>"
+  , "  <p>No <code>" <> T.pack rendererAsset <> "</code> under <code>"
+      <> escape (T.pack dir) <> "</code>, and <code>--assets</code> replaces the"
+      <> " renderer this binary carries, so there is no table to render here."
+      <> " The server is otherwise complete:</p>"
+  , "  <p><code>curl -s localhost:" <> T.pack (show (soPort opts))
+      <> "/headlines | jq '.rows | length'</code></p>"
+  , "  <p>Drop <code>--assets</code> to get the built-in renderer back, or point"
+      <> " it at a directory holding <code>" <> T.pack rendererAsset
+      <> "</code> (the <code>web/</code> directory of a table-view checkout):</p>"
+  , "  <p><code>glance serve --dir " <> escape (T.pack (soDir opts))
+      <> " --assets /path/to/table-view/web</code></p>"
+  ]
+
