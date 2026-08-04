@@ -15,18 +15,16 @@ import Data.Aeson (encode, object, (.=))
 import Data.ByteString (ByteString)
 import Data.List (sort)
 import Data.Text (Text)
-import Network.HTTP.Types (methodPost, renderQuery, statusCode)
-import Network.Wai (Application, defaultRequest, requestHeaders, requestMethod)
-import Network.Wai.Test ( SRequest (SRequest), SResponse (simpleStatus)
-                        , runSession, setPath, srequest )
+import Network.HTTP.Types (renderQuery)
+import Network.Wai (Application)
 import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.FilePath (takeDirectory, (</>))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
-import TestDefaults (document, withTempDirNamed)
+import TestDefaults (document, entryAs, withTempDirNamed)
+import TestWire (postTo, serverWith, status)
 
 import qualified Data.ByteString.Char8 as BC
-import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
@@ -35,21 +33,14 @@ import qualified Data.Time as Time
 import Data.Org.External (blobIdOf, externalFile, externalLine, externalPathOf)
 import Data.Org.Index (metaDir)
 import Glance.Query (Span (Span), WriteFailure, digestOfText, replaceSpans)
-import Glance.Web (ServeOptions (..), application, defaultPort)
-import Glance.Web.Store (loadStore, newHub)
+import Glance.Web (ServeOptions (ServeOptions), defaultPort)
 
 -- Fixtures
 
--- | An entry as org-glance stores one: a level-one headline whose drawer names
--- the id the index keys its record by.
+-- | An entry as org-glance stores one: a level-one headline in STATE whose
+-- drawer names the id IDENT the index keys its record by, over a line of body.
 entry :: Text -> Text -> Text
-entry ident state = T.unlines
-  [ "* " <> state <> " Entry " <> ident
-  , ":PROPERTIES:"
-  , ":ORG_GLANCE_ID: " <> ident
-  , ":END:"
-  , "body"
-  ]
+entry ident state = entryAs ident (state <> " Entry " <> ident) <> "body\n"
 
 -- | Write ID's blob under DIR's store, sharded the way org-glance shards one
 -- (@data\/\<2\>\/\<rest\>\/data.org@), and answer its path.
@@ -314,11 +305,11 @@ routeSpec = testGroup "The routes that write"
       withStore $ \dir -> do
         _ <- blobIn dir "abcdef" (entry "abcdef" "TODO")
         a <- serverOver dir
-        r <- post a "/command"
+        r <- postTo a "/command"
                (encode (object [ "name" .= ("set-state" :: Text)
                                , "ids" .= (["abcdef"] :: [Text])
                                , "args" .= object ["keyword" .= ("DONE" :: Text)] ]))
-        assertEqual "status" 200 (statusOf r)
+        assertEqual "status" 200 (status r)
         assertEqual "noted" ["abcdef"] =<< notedIds dir
 
   , testCase "POST /headline notes the blob it wrote" $
@@ -326,9 +317,9 @@ routeSpec = testGroup "The routes that write"
         path <- blobIn dir "abcdef" (entry "abcdef" "TODO")
         a <- serverOver dir
         digest <- digestNow path
-        r <- post a ("/headline" <> renderQuery True [("id", Just "abcdef")])
+        r <- postTo a ("/headline" <> renderQuery True [("id", Just "abcdef")])
                (encode (object [ "org" .= entry "abcdef" "DONE", "digest" .= digest ]))
-        assertEqual "status" 200 (statusOf r)
+        assertEqual "status" 200 (status r)
         assertEqual "noted" ["abcdef"] =<< notedIds dir
 
     -- A capture writes the tree's inbox, which is an ordinary document: the one
@@ -337,28 +328,17 @@ routeSpec = testGroup "The routes that write"
       withStore $ \dir -> do
         _ <- blobIn dir "abcdef" (entry "abcdef" "TODO")
         a <- serverOver dir
-        r <- post a "/command"
+        r <- postTo a "/command"
                (encode (object [ "name" .= ("capture" :: Text)
                                , "args" .= object ["text" .= ("Fresh" :: Text)] ]))
-        assertEqual "status" 200 (statusOf r)
+        assertEqual "status" 200 (status r)
         assertEqual "nothing noted" [] =<< noteLines dir
   ]
 
--- | A server over DIR, loaded the way @glance serve@ loads one.
+-- | A server over DIR, loaded the way @glance serve@ loads one.  No @--assets@:
+-- nothing here asks for a page.
 serverOver :: FilePath -> IO Application
-serverOver dir = do
-  hub <- newHub =<< loadStore dir
-  pure (application (ServeOptions dir defaultPort Nothing False) hub)
-
--- | POST PAYLOAD to PATH as JSON.
-post :: Application -> ByteString -> BL.ByteString -> IO SResponse
-post a path payload = runSession (srequest (SRequest req payload)) a
-  where req = (setPath defaultRequest path)
-                { requestMethod  = methodPost
-                , requestHeaders = [("Content-Type", "application/json")] }
-
-statusOf :: SResponse -> Int
-statusOf = statusCode . simpleStatus
+serverOver dir = fst <$> serverWith (ServeOptions dir defaultPort Nothing False)
 
 spec :: TestTree
 spec = testGroup "External" [doorSpec, formatSpec, pathSpec, appendSpec, routeSpec]

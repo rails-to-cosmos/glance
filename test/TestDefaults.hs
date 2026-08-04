@@ -5,7 +5,9 @@
 -- The JSON accessors live here rather than beside their callers because four
 -- modules were reading the same shapes four ways; each fails the test with what
 -- it found instead, which is the whole reason not to use a partial pattern.
-module TestDefaults ( at
+module TestDefaults ( assertContains
+                    , assertParts
+                    , at
                     , bare
                     , bareParse
                     , boolAt
@@ -17,6 +19,8 @@ module TestDefaults ( at
                     , entryAs
                     , field
                     , headlinesOf
+                    , holdsAll
+                    , holdsNone
                     , initialState
                     , intAt
                     , listAt
@@ -24,14 +28,23 @@ module TestDefaults ( at
                     , membersAt
                     , on
                     , orgFile
+                    , parsedIn
                     , plainTs
+                    , presentSpans
+                    , propertyKeys
                     , recordsOf
+                    , spansOf
+                    , systemFileIn
+                    , tagFileIn
+                    , tagsDirIn
                     , textAt
                     , textsAt
                     , titled
                     , viewDir
                     , withCategory
                     , withCorpusSample
+                    , withDoc
+                    , withDocDir
                     , withHeadline
                     , withHeadlineIn
                     , withId
@@ -48,6 +61,7 @@ import Data.List (sort)
 -- is an INDEPENDENT ORACLE for the span groups that read it, and one derived
 -- from the library would agree with any change to it.
 import Data.Org hiding (headlinesOf)
+import Data.Org.Config (configDirIn, configPaths)
 import Data.Org.Walk (findOrgFiles, foundFiles)
 import Data.Text (Text)
 import Data.Time (UTCTime, defaultTimeLocale, parseTimeOrError)
@@ -69,7 +83,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 
-import Glance.Query (HeadlineRecord, loadFile)
+import Glance.Query (HeadlineRecord, QueryResult (qrRecords), loadDir, loadFile)
 
 -- Time
 
@@ -196,6 +210,39 @@ recordsOf path = loadFile path >>= either (assertFailure . whyNot) rows
         rows [] = assertFailure ("expected " <> path <> " to load with rows, got none")
         rows rs = pure rs
 
+-- | Run K over the records DOC alone loads to, written to NAME in a directory
+-- of its own so the load path is the ordinary one.  LABEL names that directory,
+-- so leftovers say which group made them.  A document that loads with no rows
+-- reaches K as an empty list, which is an answer here rather than a failure.
+withDoc :: String -> FilePath -> Text -> ([HeadlineRecord] -> IO a) -> IO a
+withDoc label name doc k = withTempDirNamed label $ \dir -> do
+  path <- orgFile dir name doc
+  loadFile path >>= either (assertFailure . show) k
+
+-- | 'withDoc' read through 'loadDir' rather than 'loadFile': the same one-file
+-- tree, with the id resolution a directory load runs over it.
+withDocDir :: String -> FilePath -> Text -> ([HeadlineRecord] -> IO a) -> IO a
+withDocDir label name doc k = withTempDirNamed label $ \dir -> do
+  _ <- orgFile dir name doc
+  k . qrRecords =<< loadDir dir
+
+-- Config layout
+--
+-- Read off 'configDirIn'/'configPaths' rather than spelled again, so a layout
+-- the library moves takes every fixture with it.
+
+-- | DIR's system layer.
+systemFileIn :: FilePath -> FilePath
+systemFileIn = fst . configPaths . configDirIn
+
+-- | DIR's per-tag layer directory.
+tagsDirIn :: FilePath -> FilePath
+tagsDirIn = snd . configPaths . configDirIn
+
+-- | DIR's layer for TAG.
+tagFileIn :: FilePath -> FilePath -> FilePath
+tagFileIn dir tag = tagsDirIn dir </> tag <> ".org"
+
 -- Corpus
 
 -- | Run K over a sample of the org files under @GLANCE_CORPUS@, and answer how
@@ -225,6 +272,32 @@ withCorpusSample label k = do
   where
     sample paths = every (max 1 (length paths `div` 64)) paths
     every n = map snd . filter ((== 0) . (`mod` n) . fst) . zip [0 :: Int ..]
+
+-- Text assertions
+
+-- | WHAT: NEEDLE is somewhere in HAYSTACK.
+--
+-- The haystack is truncated in the message: the served pages this reads are
+-- tens of thousands of characters wide, and a failure that prints one buries
+-- itself.  The cap is wide enough for a whole subtree, which is the other kind
+-- of haystack here — cutting those at 400 hid the end of what a recompose
+-- wrote, which is the half a failure is usually about.
+assertContains :: String -> Text -> Text -> Assertion
+assertContains what needle haystack =
+  assertBool (what <> ": no " <> show needle <> " in " <> show (T.take 2000 haystack))
+             (needle `T.isInfixOf` haystack)
+
+-- | WHAT: every one of NEEDLES is in HAYSTACK.
+holdsAll :: String -> [Text] -> Text -> Assertion
+holdsAll what needles haystack = mapM_ (\n -> assertContains what n haystack) needles
+
+-- | WHAT: none of NEEDLES is in HAYSTACK.  Each of them names a design the page
+-- superseded, so one coming back means two are live at once.
+holdsNone :: String -> [Text] -> Text -> Assertion
+holdsNone what needles haystack =
+  mapM_ (\n -> assertBool (what <> ": " <> show n <> " survives in the page")
+                          (not (n `T.isInfixOf` haystack)))
+        needles
 
 -- JSON accessors, each failing the test with what it found instead
 
@@ -319,3 +392,33 @@ withHeadlineIn ctx input k = case bareParse ctx input of
 -- | 'withHeadlineIn', starting from 'defaultContext'.
 withHeadline :: Text -> (Headline -> Assertion) -> Assertion
 withHeadline = withHeadlineIn defaultContext
+
+-- | The elements and final context INPUT parses to; a parse error is LABEL's
+-- failure.
+parsedIn :: String -> Text -> IO ([Spanned Element], Context)
+parsedIn label input = case orgParse defaultContext input of
+  (elems, ctx, Nothing) -> pure (elems, ctx)
+  (_, _, Just _err)     -> assertFailure (label <> ": parse error in " <> show input)
+
+-- Headline spans
+
+-- | The sub-spans H actually carries, in source order.
+presentSpans :: Headline -> [(String, Span)]
+presentSpans h = [(T.unpack label, s) | (label, Just s, _ok) <- headlineSpanParts h]
+
+-- | H's labelled spans: 'hsFull' and every sub-span it carries.
+spansOf :: Headline -> [(String, Span)]
+spansOf h = ("hsFull", hsFull (spans h)) : presentSpans h
+
+-- | The property keys H declares, in source order.
+propertyKeys :: Headline -> [Text]
+propertyKeys h = case properties h of
+  Properties ps -> [k | Property (Keyword k) _ <- ps]
+
+-- | Every sub-span H carries slices back to the component it stands for.  SAY
+-- decorates the failure, the two callers naming a headline two ways.
+assertParts :: (String -> String) -> Text -> Headline -> Assertion
+assertParts say doc h = sequence_
+  [ assertBool (say (T.unpack part <> " sliced " <> show slice)) (ok slice)
+  | (part, Just sp, ok) <- headlineSpanParts h
+  , let slice = sliceSpan doc sp ]

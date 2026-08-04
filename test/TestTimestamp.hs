@@ -16,108 +16,94 @@ parseTimestamp input = case orgParse defaultContext input of
 repeating :: TsMoment -> TimestampRepeaterInterval -> Timestamp
 repeating moment interval = (plainTs TimestampActive moment) { tsInterval = Just interval }
 
-spec :: TestTree
-spec = testGroup "Timestamp"
-  [ testGroup "Active timestamps"
-    [ testCase "Date with time" $
-        assertEqual "" (Just (plainTs TimestampActive (at "2024-01-15 10:30:00")))
-                       (parseTimestamp "<2024-01-15 Mon 10:30>")
+-- | One row per source that must parse to a timestamp and nothing more: LABEL,
+-- INPUT, and what INPUT must parse to.  A case asserting something else — a
+-- projection out of the parse, a render — stays a case of its own below.
+parseCases :: [(String, Text, Maybe Timestamp)]
+parseCases =
+  [ ( "Active date with time", "<2024-01-15 Mon 10:30>"
+    , Just (plainTs TimestampActive (at "2024-01-15 10:30:00")) )
 
-    , testCase "Date with time and seconds" $
-        assertEqual "" (Just (plainTs TimestampActive (at "2024-01-15 10:30:45")))
-                       (parseTimestamp "<2024-01-15 Mon 10:30:45>")
-    ]
+  , ( "Active date with time and seconds", "<2024-01-15 Mon 10:30:45>"
+    , Just (plainTs TimestampActive (at "2024-01-15 10:30:45")) )
 
-  , testGroup "Inactive timestamps"
-    [ testCase "Date only" $
-        assertEqual "" (Just (plainTs TimestampInactive (on "2024-06-15 00:00:00")))
-                       (parseTimestamp "[2024-06-15]")
+  , ( "Inactive date only", "[2024-06-15]"
+    , Just (plainTs TimestampInactive (on "2024-06-15 00:00:00")) )
 
-    , testCase "Date with weekday" $
-        assertEqual "" (Just (plainTs TimestampInactive (on "2024-06-15 00:00:00")))
-                       (parseTimestamp "[2024-06-15 Sat]")
+  , ( "Inactive date with weekday", "[2024-06-15 Sat]"
+    , Just (plainTs TimestampInactive (on "2024-06-15 00:00:00")) )
 
-    , testCase "Date with time" $
-        assertEqual "" (Just (plainTs TimestampInactive (at "2024-06-15 14:00:00")))
-                       (parseTimestamp "[2024-06-15 Sat 14:00]")
-    ]
+  , ( "Inactive date with time", "[2024-06-15 Sat 14:00]"
+    , Just (plainTs TimestampInactive (at "2024-06-15 14:00:00")) )
 
-  , testGroup "Ranges"
-    [ testCase "Active range" $
-        assertEqual "" (Just (plainTs TimestampActive (on "2024-01-15 00:00:00"))
-                               { tsEnd = Just (on "2024-01-19 00:00:00") })
-                       (parseTimestamp "<2024-01-15 Mon>--<2024-01-19 Fri>")
+  , ( "Active range", "<2024-01-15 Mon>--<2024-01-19 Fri>"
+    , Just (plainTs TimestampActive (on "2024-01-15 00:00:00"))
+             { tsEnd = Just (on "2024-01-19 00:00:00") } )
 
-    , testCase "Range renders both halves" $
-        assertEqual "" (Just "[2023-07-15 Sat 15:54]--[2023-07-15 Sat 17:10]")
-                       (fmap TS.showt (parseTimestamp "[2023-07-15 Sat 15:54]--[2023-07-15 Sat 17:10]"))
+  , ( "Compact range, both times land on the start's day"
+    , "<2024-01-15 Mon 10:30-11:30>"
+    , Just (compactTs TimestampActive (at "2024-01-15 10:30:00")
+                                      (at "2024-01-15 11:30:00")) )
 
-    -- A half not followed by a matching "--[" leaves tsEnd unset; the
-    -- mismatched-bracket document itself fails to parse (see TestNegative).
-    , testCase "A lone half is not a range" $
-        assertEqual "" (Just Nothing) (tsEnd <$> parseTimestamp "[2023-07-15 Sat 15:54] tail")
-    ]
+  , ( "Compact range in inactive brackets", "[2021-11-09 Tue 17:30-18:30]"
+    , Just (compactTs TimestampInactive (at "2021-11-09 17:30:00")
+                                        (at "2021-11-09 18:30:00")) )
 
-  , testGroup "Compact same-day ranges"
-    [ testCase "Both times land on the start's day" $
-        assertEqual "" (Just (compactTs TimestampActive (at "2024-01-15 10:30:00")
-                                                        (at "2024-01-15 11:30:00")))
-                       (parseTimestamp "<2024-01-15 Mon 10:30-11:30>")
+  , ( "Compact range with seconds on both ends", "<2024-01-15 Mon 10:30:15-11:45:30>"
+    , Just (compactTs TimestampActive (at "2024-01-15 10:30:15")
+                                      (at "2024-01-15 11:45:30")) )
 
-    , testCase "Inactive brackets" $
-        assertEqual "" (Just (compactTs TimestampInactive (at "2021-11-09 17:30:00")
-                                                          (at "2021-11-09 18:30:00")))
-                       (parseTimestamp "[2021-11-09 Tue 17:30-18:30]")
-
-    , testCase "Seconds on both ends" $
-        assertEqual "" (Just (compactTs TimestampActive (at "2024-01-15 10:30:15")
-                                                        (at "2024-01-15 11:45:30")))
-                       (parseTimestamp "<2024-01-15 Mon 10:30:15-11:45:30>")
-
-    , testCase "A repeater follows the range" $
-        assertEqual "" (Just (compactTs TimestampActive (at "2024-01-15 10:30:00")
-                                                        (at "2024-01-15 11:30:00"))
-                               { tsInterval = Just (TimestampRepeaterInterval Restart 1 Weeks TRSPlus) })
-                       (parseTimestamp "<2024-01-15 Mon 10:30-11:30 +1w>")
+  , ( "A repeater follows the compact range", "<2024-01-15 Mon 10:30-11:30 +1w>"
+    , Just (compactTs TimestampActive (at "2024-01-15 10:30:00")
+                                      (at "2024-01-15 11:30:00"))
+             { tsInterval = Just (TimestampRepeaterInterval Restart 1 Weeks TRSPlus) } )
 
     -- '-' opens both a range end and a negative repeater; only the time's
     -- colon separates them, so "-1d" backtracks out of the range and stays a
     -- repeater whether or not a space precedes it.
-    , testCase "A negative repeater is not a range end" $
-        assertEqual "" (Just (repeating (at "2024-01-15 10:30:00")
-                                        (TimestampRepeaterInterval Restart 1 Days TRSMinus)))
-                       (parseTimestamp "<2024-01-15 Mon 10:30-1d>")
+  , ( "A negative repeater is not a range end", "<2024-01-15 Mon 10:30-1d>"
+    , Just (repeating (at "2024-01-15 10:30:00")
+                      (TimestampRepeaterInterval Restart 1 Days TRSMinus)) )
+
+  , ( "Weekly restart repeater", "<2024-01-01 +1w>"
+    , Just (repeating (on "2024-01-01 00:00:00")
+                      (TimestampRepeaterInterval Restart 1 Weeks TRSPlus)) )
+
+  , ( "Daily cumulative repeater", "<2024-01-01 .+3d>"
+    , Just (repeating (on "2024-01-01 00:00:00")
+                      (TimestampRepeaterInterval Cumulative 3 Days TRSPlus)) )
+
+  , ( "Monthly catch-up repeater", "<2024-01-01 ++1m>"
+    , Just (repeating (on "2024-01-01 00:00:00")
+                      (TimestampRepeaterInterval CatchUp 1 Months TRSPlus)) )
+
+  , ( "Yearly repeater", "<2024-01-01 +1y>"
+    , Just (repeating (on "2024-01-01 00:00:00")
+                      (TimestampRepeaterInterval Restart 1 Years TRSPlus)) )
+
+  , ( "Repeater with weekday and time", "<2024-03-15 Fri 09:00 +2w>"
+    , Just (repeating (at "2024-03-15 09:00:00")
+                      (TimestampRepeaterInterval Restart 2 Weeks TRSPlus)) )
+  ]
+
+-- | Check that INPUT parses to EXPECTED, as the case named LABEL.
+parseCase :: (String, Text, Maybe Timestamp) -> TestTree
+parseCase (label, input, expected) =
+  testCase label (assertEqual "" expected (parseTimestamp input))
+
+spec :: TestTree
+spec = testGroup "Timestamp"
+  [ testGroup "Parses" (map parseCase parseCases)
+
+  , testGroup "Ranges"
+    -- A half not followed by a matching "--[" leaves tsEnd unset; the
+    -- mismatched-bracket document itself fails to parse (see TestNegative).
+    [ testCase "A lone half is not a range" $
+        assertEqual "" (Just Nothing) (tsEnd <$> parseTimestamp "[2023-07-15 Sat 15:54] tail")
 
     , testCase "The -- spelling is kept, not folded into the compact one" $
         assertEqual "" (Just False)
           (tsCompactRange <$> parseTimestamp "[2023-07-15 Sat 15:54]--[2023-07-15 Sat 17:10]")
-    ]
-
-  , testGroup "Repeater intervals"
-    [ testCase "Weekly restart repeater" $
-        assertEqual "" (Just (repeating (on "2024-01-01 00:00:00")
-                                        (TimestampRepeaterInterval Restart 1 Weeks TRSPlus)))
-                       (parseTimestamp "<2024-01-01 +1w>")
-
-    , testCase "Daily cumulative repeater" $
-        assertEqual "" (Just (repeating (on "2024-01-01 00:00:00")
-                                        (TimestampRepeaterInterval Cumulative 3 Days TRSPlus)))
-                       (parseTimestamp "<2024-01-01 .+3d>")
-
-    , testCase "Monthly catch-up repeater" $
-        assertEqual "" (Just (repeating (on "2024-01-01 00:00:00")
-                                        (TimestampRepeaterInterval CatchUp 1 Months TRSPlus)))
-                       (parseTimestamp "<2024-01-01 ++1m>")
-
-    , testCase "Yearly repeater" $
-        assertEqual "" (Just (repeating (on "2024-01-01 00:00:00")
-                                        (TimestampRepeaterInterval Restart 1 Years TRSPlus)))
-                       (parseTimestamp "<2024-01-01 +1y>")
-
-    , testCase "Repeater with weekday and time" $
-        assertEqual "" (Just (repeating (at "2024-03-15 09:00:00")
-                                        (TimestampRepeaterInterval Restart 2 Weeks TRSPlus)))
-                       (parseTimestamp "<2024-03-15 Fri 09:00 +2w>")
     ]
 
   , testGroup "Timestamp in headline title"

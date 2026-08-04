@@ -225,6 +225,7 @@ test-suite glance-test
       TestStore
       TestSubtree
       TestTimestamp
+      TestWire
       TestContext
       TestDesktop
       TestNegative

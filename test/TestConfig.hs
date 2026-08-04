@@ -16,13 +16,13 @@ import System.Directory (createDirectoryIfMissing, removeFile)
 import System.FilePath ((</>))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
-import TestDefaults (orgFile, withTempDirNamed)
+import TestDefaults (orgFile, systemFileIn, tagsDirIn, withTempDirNamed)
 
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 
-import Data.Org.Config ( TodoKeywords (..), classify, configDirIn, configPaths
-                       , noKeywords, todoPragmas )
+import Data.Org.Config ( TodoKeywords (..), classify, configDirIn, noKeywords
+                       , todoPragmas )
 import Data.Org.Edit (Edit (Edit), applyEdits)
 import Glance.Query ( ConfigLayerFile (..), ConfigLayers (..), HeadlineRecord (..)
                     , QueryResult (..), WalkOptions (..), builtinFilter
@@ -71,9 +71,10 @@ commentedConfig = T.unlines
 withTreeUnder :: FilePath -> Maybe Text -> [(FilePath, Text)] -> [(FilePath, Text)]
               -> (FilePath -> IO a) -> IO a
 withTreeUnder store system tags docs k = withTempDirNamed "config" $ \dir -> do
-  let (systemFile, tagsDir) = configPaths (configDirIn (dir </> store))
+  let root = dir </> store
+      tagsDir = tagsDirIn root
   createDirectoryIfMissing True tagsDir
-  mapM_ (TIO.writeFile systemFile) system
+  mapM_ (TIO.writeFile (systemFileIn root)) system
   mapM_ (\(n, t) -> TIO.writeFile (tagsDir </> n) t) tags
   mapM_ (\(n, t) -> TIO.writeFile (dir </> n) t) docs
   k dir
@@ -384,7 +385,7 @@ reloadSpec = testGroup "Reload"
       assertEqual "before, the word is title text"
                   [(Nothing, Nothing)] (states (storeRecords store))
       hub <- newHub store
-      let systemFile = fst (configPaths (configDirIn dir))
+      let systemFile = systemFileIn dir
       TIO.writeFile systemFile "#+TODO: TODO STARTED | DONE\n"
       settle defaultWalk dir hub [systemFile]
       next <- readTVarIO (hubStore hub)
@@ -397,7 +398,7 @@ reloadSpec = testGroup "Reload"
   , testCase "and the palette move closes the socket rather than streaming rows" $
       withTree (Just "#+TODO: TODO | DONE\n") [] [("a.org", "* STARTED refactor\n")] $ \dir -> do
       store <- loadStore dir
-      let systemFile = fst (configPaths (configDirIn dir))
+      let systemFile = systemFileIn dir
       TIO.writeFile systemFile "#+TODO: TODO STARTED | DONE\n"
       (next, frames) <- afterEdit store dir
       assertEqual "one close, no rows behind it" [ViewChanged] frames
@@ -407,7 +408,7 @@ reloadSpec = testGroup "Reload"
       withTree (Just "#+TODO: TODO STARTED | DONE\n") [] [("a.org", "* STARTED refactor\n")] $
         \dir -> do
       store <- loadStore dir
-      let systemFile = fst (configPaths (configDirIn dir))
+      let systemFile = systemFileIn dir
       -- A title added above the pragma: the file moved, the keywords did not.
       TIO.writeFile systemFile "#+TITLE: States\n#+TODO: TODO STARTED | DONE\n"
       (next, frames) <- afterEdit store dir
@@ -420,7 +421,7 @@ reloadSpec = testGroup "Reload"
   , testCase "a data edit under a reseed streams rows rather than a close" $
       withTree (Just "#+TODO: TODO STARTED | DONE\n") [] [("a.org", "* STARTED one\n")] $ \dir -> do
       store <- loadStore dir
-      let systemFile = fst (configPaths (configDirIn dir))
+      let systemFile = systemFileIn dir
       -- The keywords are unchanged, so the palette holds and the ordinary ops
       -- are what a client gets — which is the branch ViewChanged replaces.
       TIO.writeFile systemFile "#+TITLE: States\n#+TODO: TODO STARTED | DONE\n"
@@ -435,7 +436,7 @@ reloadSpec = testGroup "Reload"
         \dir -> do
       store <- loadStore dir
       hub <- newHub store
-      let systemFile = fst (configPaths (configDirIn dir))
+      let systemFile = systemFileIn dir
       removeFile systemFile
       settle defaultWalk dir hub [systemFile]
       next <- readTVarIO (hubStore hub)
@@ -452,7 +453,7 @@ reloadSpec = testGroup "Reload"
       withTree (Just "#+TODO: TODO | DONE\n") [] [("a.org", "* STARTED one\n")] $ \dir -> do
       store <- loadStore dir
       hub <- newHub store
-      let systemFile = fst (configPaths (configDirIn dir))
+      let systemFile = systemFileIn dir
       TIO.writeFile systemFile "#+TODO: TODO STARTED | DONE\n"
       _ <- orgFile dir "b.org" "* STARTED two\n"
       _ <- orgFile dir "c.org" "* STARTED unannounced\n"
@@ -562,23 +563,30 @@ writeSpec = testGroup "Writing a layer"
                  (either (const False) (const True)
                          (configEdits bookConfig ["#+TODO: TODO(t) | DONE(d)"] Nothing Nothing))
 
-    -- The default view is a line of `system.org', read by the same reader and
-    -- written by the same splice.  Absent means the built-in, which is what
-    -- keeps a tree that has never been configured opening on its unfinished
-    -- work rather than on nothing.
-  , testCase "the default view is a line of the system layer" $ do
-      assertEqual "read off the file"
-                  (Just "tag:work") (defaultFilterOf "#+GLANCE_DEFAULT_FILTER: tag:work\n")
-      assertEqual "folded, the way org reads a pragma key"
-                  (Just "tag:work") (defaultFilterOf "#+glance_default_filter: tag:work\n")
-      assertEqual "a file with no line names none" Nothing (defaultFilterOf bookConfig)
-      -- A LAST-line rule: a reader scrolling the file reads the one at the
-      -- bottom, and so does this.
-      assertEqual "the last one wins" (Just "b")
-                  (defaultFilterOf "#+GLANCE_DEFAULT_FILTER: a\n#+GLANCE_DEFAULT_FILTER: b\n")
-      -- A line naming nothing is a query naming nothing, which is the whole
-      -- store; only an ABSENT line falls back.
-      assertEqual "and a line with nothing on it is the empty query"
+    -- The two tree-wide lines of `system.org'.  One reader finds either
+    -- ('lastPragmaValue') and one splice writes either ('pragmaLineEdits'), so
+    -- the two cases over 'treePragmas' are one claim about the pair rather than
+    -- two blocks that have to be kept in step.  Absent means the built-in,
+    -- which is what keeps a tree that has never been configured opening on its
+    -- unfinished work and capturing into its own inbox.
+  , testCase "the tree-wide lines are read off the system layer" $
+      mapM_ (\(key, value, other, rd, _wr) -> do
+               let says what = T.unpack key <> ": " <> what
+               assertEqual (says "read off the file")
+                           (Just value) (rd (pragmaLine key value))
+               assertEqual (says "folded, the way org reads a pragma key")
+                           (Just value) (rd (pragmaLine (T.toLower key) value))
+               assertEqual (says "a file with no line names none") Nothing (rd bookConfig)
+               -- A LAST-line rule: a reader scrolling the file reads the one at
+               -- the bottom, and so does this.
+               assertEqual (says "the last one wins") (Just other)
+                           (rd (pragmaLine key value <> pragmaLine key other)))
+            treePragmas
+
+    -- A line naming nothing is a query naming nothing, which is the whole
+    -- store; only an ABSENT line falls back.
+  , testCase "and a default view line with nothing on it is the empty query" $
+      assertEqual "the empty query"
                   (Just "") (defaultFilterOf "#+GLANCE_DEFAULT_FILTER:\n")
 
   , testCase "with no line anywhere the built-in is what answers" $
@@ -594,48 +602,9 @@ writeSpec = testGroup "Writing a layer"
         assertEqual "read at load" (Just "tag:work") (clFilter cfg)
         assertEqual "and it is what answers" "tag:work" (defaultFilter cfg)
 
-    -- One file, one write, one lock: the cycle and the default view are lines of
-    -- the same document, so they ride in one splice under one digest.
-  , testCase "the default view is written by the same splice as the cycle" $ do
-      assertEqual "written under the header, beside the block"
-                  (Right "#+TITLE: X\n#+TODO: A | B\n#+GLANCE_DEFAULT_FILTER: tag:work\n")
-                  (splicedWith "#+TITLE: X\n" ["#+TODO: A | B"] (Just "tag:work"))
-      assertEqual "an existing line is replaced where it stands"
-                  (Right "#+GLANCE_DEFAULT_FILTER: tag:home\n#+TODO: A | B\ntail\n")
-                  (splicedWith "#+GLANCE_DEFAULT_FILTER: tag:work\n#+TODO: A | B\ntail\n"
-                               ["#+TODO: A | B"] (Just "tag:home"))
-      assertEqual "an empty one takes the line away, which is the built-in back"
-                  (Right "#+TODO: A | B\ntail\n")
-                  (splicedWith "#+GLANCE_DEFAULT_FILTER: tag:work\n#+TODO: A | B\ntail\n"
-                               ["#+TODO: A | B"] (Just ""))
-      -- Absent is not empty: a tag layer's write names no filter at all, and the
-      -- system layer's line is none of its business.
-      assertEqual "and naming none leaves the line exactly as it is"
-                  (Right "#+GLANCE_DEFAULT_FILTER: tag:work\n#+TODO: A | B\ntail\n")
-                  (splicedWith "#+GLANCE_DEFAULT_FILTER: tag:work\n#+TODO: A | B\ntail\n"
-                               ["#+TODO: A | B"] Nothing)
-      -- Both pragmas missing insert at one offset, which the engine resolves in
-      -- list order rather than refusing.
-      assertEqual "a file with neither takes both, cycle first"
-                  (Right "#+TODO: A | B\n#+GLANCE_DEFAULT_FILTER: tag:work\n* %?\n")
-                  (splicedWith "* %?\n" ["#+TODO: A | B"] (Just "tag:work"))
-
-    -- The capture target is the second tree-wide line of `system.org', read by
-    -- the same reader and written by the same splice as the default view.
-  , testCase "the capture target is a line of the system layer" $ do
-      assertEqual "read off the file"
-                  (Just "notes/inbox.org")
-                  (captureTargetOf "#+GLANCE_CAPTURE_TARGET: notes/inbox.org\n")
-      assertEqual "folded, the way org reads a pragma key"
-                  (Just "in.org") (captureTargetOf "#+glance_capture_target: in.org\n")
-      assertEqual "a file with no line names none" Nothing (captureTargetOf bookConfig)
-      assertEqual "the last one wins" (Just "b.org")
-                  (captureTargetOf "#+GLANCE_CAPTURE_TARGET: a.org\n\
-                                   \#+GLANCE_CAPTURE_TARGET: b.org\n")
-
     -- Where a capture lands is decided HERE, when the config is read, and not
     -- when a `+' arrives: a tree misconfigured in January says so at startup.
-  , testCase "and it resolves against the served root, or is refused there" $ do
+  , testCase "the capture target resolves against the served root, or is refused" $ do
       assertEqual "with no line, the tree's own inbox"
                   (Right "/o/inbox.org") (captureTargetIn "/o" noConfig)
       assertEqual "named, resolved against the root"
@@ -659,29 +628,6 @@ writeSpec = testGroup "Writing a layer"
             , ("the config the walk reads by path", ".org-glance/config/system.org", "walks")
             , ("and a derived mirror", ".org-glance/overviews/inbox.org", "walks") ]
 
-  , testCase "the capture target is written by the same splice as the cycle" $ do
-      assertEqual "written under the header, beside the block"
-                  (Right "#+TITLE: X\n#+TODO: A | B\n#+GLANCE_CAPTURE_TARGET: in.org\n")
-                  (splicedCapture "#+TITLE: X\n" ["#+TODO: A | B"] (Just "in.org"))
-      assertEqual "an existing line is replaced where it stands"
-                  (Right "#+GLANCE_CAPTURE_TARGET: b.org\n#+TODO: A | B\ntail\n")
-                  (splicedCapture "#+GLANCE_CAPTURE_TARGET: a.org\n#+TODO: A | B\ntail\n"
-                                  ["#+TODO: A | B"] (Just "b.org"))
-      assertEqual "an empty one takes the line away, which is the default back"
-                  (Right "#+TODO: A | B\ntail\n")
-                  (splicedCapture "#+GLANCE_CAPTURE_TARGET: a.org\n#+TODO: A | B\ntail\n"
-                                  ["#+TODO: A | B"] (Just ""))
-      assertEqual "and naming none leaves the line exactly as it is"
-                  (Right "#+GLANCE_CAPTURE_TARGET: a.org\n#+TODO: A | B\ntail\n")
-                  (splicedCapture "#+GLANCE_CAPTURE_TARGET: a.org\n#+TODO: A | B\ntail\n"
-                                  ["#+TODO: A | B"] Nothing)
-      -- All three pragmas missing insert at one offset, which the engine
-      -- resolves in list order rather than refusing.
-      assertEqual "a file with none takes all three, in the order they are named"
-                  (Right "#+TODO: A | B\n#+GLANCE_DEFAULT_FILTER: tag:work\n\
-                         \#+GLANCE_CAPTURE_TARGET: in.org\n* %?\n")
-                  (splicing "* %?\n" ["#+TODO: A | B"] (Just "tag:work") (Just "in.org"))
-
   , testCase "and a tree that names one loads it" $
       withTree (Just "#+TODO: TODO | DONE\n#+GLANCE_CAPTURE_TARGET: notes/in.org\n")
                [] [("a.org", "* TODO x\n")] $ \dir -> do
@@ -689,6 +635,40 @@ writeSpec = testGroup "Writing a layer"
         assertEqual "read at load" (Just "notes/in.org") (clCapture cfg)
         assertEqual "and it is what a capture would write to"
                     (Right (dir </> "notes/in.org")) (captureTargetIn dir cfg)
+
+    -- One file, one write, one lock: the cycle and both tree-wide lines are
+    -- lines of the same document, so they ride in one splice under one digest.
+  , testCase "the tree-wide lines are written by the same splice as the cycle" $
+      mapM_ (\(key, value, other, _rd, wr) -> do
+               let says what = T.unpack key <> ": " <> what
+                   block = ["#+TODO: A | B"]
+                   held = pragmaLine key value <> "#+TODO: A | B\ntail\n"
+               assertEqual (says "written under the header, beside the block")
+                           (Right ("#+TITLE: X\n#+TODO: A | B\n" <> pragmaLine key value))
+                           (wr "#+TITLE: X\n" block (Just value))
+               assertEqual (says "an existing line is replaced where it stands")
+                           (Right (pragmaLine key other <> "#+TODO: A | B\ntail\n"))
+                           (wr held block (Just other))
+               -- An empty value takes the line away, which is that setting's
+               -- built-in back: the active group, and the tree's own inbox.
+               assertEqual (says "an empty one takes the line away")
+                           (Right "#+TODO: A | B\ntail\n") (wr held block (Just ""))
+               -- Absent and empty differ: a tag layer's write names neither
+               -- line, and the system layer's are none of its business.
+               assertEqual (says "and naming none leaves the line exactly as it is")
+                           (Right held) (wr held block Nothing))
+            treePragmas
+
+    -- Pragmas a file lacks are inserted at ONE offset, which the engine
+    -- resolves in list order rather than refusing.
+  , testCase "a file with none of them takes them in the order they are named" $ do
+      assertEqual "the cycle, then the default view"
+                  (Right "#+TODO: A | B\n#+GLANCE_DEFAULT_FILTER: tag:work\n* %?\n")
+                  (splicedWith "* %?\n" ["#+TODO: A | B"] (Just "tag:work"))
+      assertEqual "and all three where all three are named"
+                  (Right "#+TODO: A | B\n#+GLANCE_DEFAULT_FILTER: tag:work\n\
+                         \#+GLANCE_CAPTURE_TARGET: in.org\n* %?\n")
+                  (splicing "* %?\n" ["#+TODO: A | B"] (Just "tag:work") (Just "in.org"))
 
   , testCase "the layers are read as files, absent ones included" $
       withTree Nothing [("book.org", bookConfig)] [] $ \dir -> do
@@ -709,7 +689,7 @@ writeSpec = testGroup "Writing a layer"
       assertEqual "before, the word is title text"
                   [(Nothing, Nothing)] (states (storeRecords store))
       hub <- newHub store
-      let systemFile = fst (configPaths (configDirIn dir))
+      let systemFile = systemFileIn dir
       written <- either (assertFailure . T.unpack) pure
                         (spliced "" ["#+TODO: TODO STARTED | DONE"])
       TIO.writeFile systemFile written
@@ -744,6 +724,20 @@ splicing :: Text -> [Text] -> Maybe Text -> Maybe Text -> Either Text Text
 splicing doc lines' want target = do
   edits <- configEdits doc lines' want target
   first (T.pack . show) (applyEdits doc [ Edit sp new | (sp, new) <- edits ])
+
+-- | The system layer's two tree-wide lines: each spelled key, two values of the
+-- shape that line takes, the reader that finds it and the splice that writes
+-- it.  The keys are spelled here rather than read off the library, so a renamed
+-- pragma is a failure rather than a rename the suite follows.
+treePragmas :: [( Text, Text, Text, Text -> Maybe Text
+                , Text -> [Text] -> Maybe Text -> Either Text Text )]
+treePragmas =
+  [ ("#+GLANCE_DEFAULT_FILTER", "tag:work", "tag:home", defaultFilterOf, splicedWith)
+  , ("#+GLANCE_CAPTURE_TARGET", "a.org", "b.org", captureTargetOf, splicedCapture) ]
+
+-- | The line KEY spells VALUE on, newline and all.
+pragmaLine :: Text -> Text -> Text
+pragmaLine key value = key <> ": " <> value <> "\n"
 
 -- Absence
 

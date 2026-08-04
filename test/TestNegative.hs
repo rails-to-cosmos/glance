@@ -169,18 +169,13 @@ spec = testGroup "Negative / Edge cases"
     -- property with it.
   , testGroup "Property key charset"
     [ testCase "Digits and non-Latin keys keep the drawer whole" $
-        case orgParse defaultContext
-               "* Tanik\n:PROPERTIES:\n:TELE2: +7 999\n:ЖКХ: +7 495\n:ORG_GLANCE_ID: x1\n:END:\n" of
-          (elems, _ctx, err) | [EHeadline h] <- bare elems -> do
-            assertEqual "no parse error" Nothing err
-            let Properties ps = properties h
-                keysOf = [ k | Property (Keyword k) _ <- ps ]
-            assertBool "digit key read" ("TELE2" `elem` keysOf)
-            assertBool "non-Latin key read, uppercased like every key"
-                       ("ЖКХ" `elem` keysOf)
-            assertBool "the id BEHIND them survives"
-                       ("ORG_GLANCE_ID" `elem` keysOf)
-          (other, _, _) -> assertBool ("one headline expected: " <> show (length (bare other))) False
+        withHeadline "* Tanik\n:PROPERTIES:\n:TELE2: +7 999\n\
+                     \:ЖКХ: +7 495\n:ORG_GLANCE_ID: x1\n:END:\n" $ \h -> do
+          let keysOf = propertyKeys h
+          assertBool "digit key read" ("TELE2" `elem` keysOf)
+          assertBool "non-Latin key read, uppercased like every key"
+                     ("ЖКХ" `elem` keysOf)
+          assertBool "the id BEHIND them survives" ("ORG_GLANCE_ID" `elem` keysOf)
     ]
 
     -- The weekday slot is display-only — every render recomputes the word from
@@ -191,15 +186,11 @@ spec = testGroup "Negative / Edge cases"
     -- properties whole.  28 of the corpus's blobs lost their id that way.
   , testGroup "Timestamp weekday charset"
     [ testCase "A foreign weekday keeps the planning line and the drawer whole" $
-        case orgParse defaultContext
-               "* Task\nCLOSED: [2025-12-04 do 22:34]\n:PROPERTIES:\n:ORG_GLANCE_ID: x1\n:END:\n" of
-          (elems, _ctx, err) | [EHeadline h] <- bare elems -> do
-            assertEqual "no parse error" Nothing err
-            assertBool "the CLOSED entry attached" (isJust (closed h))
-            let Properties ps = properties h
-            assertBool "the id BEHIND the stamp survives"
-                       ("ORG_GLANCE_ID" `elem` [k | Property (Keyword k) _ <- ps])
-          (other, _, _) -> assertBool ("one headline expected: " <> show (length (bare other))) False
+        withHeadline "* Task\nCLOSED: [2025-12-04 do 22:34]\n:PROPERTIES:\n\
+                     \:ORG_GLANCE_ID: x1\n:END:\n" $ \h -> do
+          assertBool "the CLOSED entry attached" (isJust (closed h))
+          assertBool "the id BEHIND the stamp survives"
+                     ("ORG_GLANCE_ID" `elem` propertyKeys h)
 
       -- Every spelling ~/sync writes, plus the two the locale has that it does
       -- not: the census found ma, do, zo, vr and za, and di and wo belong to

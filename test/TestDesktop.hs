@@ -25,7 +25,7 @@ import System.FilePath ((</>))
 import System.IO (IOMode (WriteMode), hClose, hFlush, stdout, withFile)
 import System.Process (CreateProcess (env), proc, readCreateProcessWithExitCode)
 import Test.Tasty (TestTree, testGroup, withResource)
-import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
+import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
 import TestDefaults (withTempDir)
 
 import qualified Data.Text as T
@@ -44,6 +44,10 @@ spec = testGroup "Desktop" [discoverySpec, spawnSpec, dryRunSpec, nativeSpec, fl
 -- | The URL a window is opened on, for a server on this port.
 url :: String
 url = desktopURL 7797
+
+-- | EXE as a browser opening this test's URL in app mode.
+appMode :: FilePath -> String
+appMode exe = exe <> " --app=" <> url
 
 -- | NAME as an executable in DIR, running BODY.  A browser that writes down
 -- how it was called is enough of one for a launcher test.
@@ -68,23 +72,51 @@ resolved envVar flag dirs =
 
 -- Discovery
 
+-- | One row of the discovery table: the case's name, what its assertion claims,
+-- the executables the path directory holds, @$GLANCE_BROWSER@, @--browser@, and
+-- the command line that must come out of that directory.
+type Resolution =
+  (String, String, [String], Maybe String, Maybe String, FilePath -> String)
+
+-- | The discovery cases that differ in nothing but their answer.
+resolutions :: [Resolution]
+resolutions =
+  [ ( "takes the first candidate the path holds, in app mode"
+    , "chromium leads the list", ["google-chrome", "chromium", "xdg-open"]
+    , Nothing, Nothing, \dir -> appMode (dir </> "chromium") )
+  , ( "falls through the candidate list in order"
+    , "brave before vivaldi", ["vivaldi", "brave", "xdg-open"]
+    , Nothing, Nothing, \dir -> appMode (dir </> "brave") )
+  , ( "--browser beats the candidates"
+    , "the flag wins", ["chromium", "mybrowser", "xdg-open"]
+    , Nothing, Just "mybrowser", \dir -> appMode (dir </> "mybrowser") )
+  , ( "GLANCE_BROWSER beats --browser and the candidates"
+    , "the environment wins", ["chromium", "mybrowser", "envbrowser", "xdg-open"]
+    , Just "envbrowser", Just "mybrowser", \dir -> appMode (dir </> "envbrowser") )
+    -- Falling back to chromium here would silently run something other than
+    -- what was asked for; the spawn says the name that was written.
+  , ( "a named browser the path lacks is still what gets run"
+    , "the name as given", ["chromium", "xdg-open"]
+    , Nothing, Just "nosuchbrowser", const (appMode "nosuchbrowser") )
+  , ( "with no browser at all, xdg-open opens a plain tab"
+    , "the URL alone — xdg-open takes no --app", ["xdg-open"]
+    , Nothing, Nothing, \dir -> dir </> "xdg-open" <> " " <> url )
+  ]
+
+-- | ROW as a case: a temp directory holding the executables it names, and one
+-- answer out of 'resolveBrowser' over it.
+discovery :: Resolution -> TestTree
+discovery (what, says, names, envVar, flag, wants) =
+  testCase what $ withTempDir $ \dir -> do
+    fakeBrowsers dir names
+    got <- resolved envVar flag [dir]
+    assertEqual says (Just (wants dir)) got
+
+-- | 'resolutions' as cases, then the four that stand outside the table: the
+-- candidate list itself, a browser named by path, and two that resolve nothing.
 discoverySpec :: TestTree
-discoverySpec = testGroup "Browser discovery"
-  [ testCase "takes the first candidate the path holds, in app mode" $
-      withTempDir $ \dir -> do
-        fakeBrowsers dir ["google-chrome", "chromium", "xdg-open"]
-        got <- resolved Nothing Nothing [dir]
-        assertEqual "chromium leads the list"
-                    (Just (dir </> "chromium" <> " --app=" <> url)) got
-
-  , testCase "falls through the candidate list in order" $
-      withTempDir $ \dir -> do
-        fakeBrowsers dir ["vivaldi", "brave", "xdg-open"]
-        got <- resolved Nothing Nothing [dir]
-        assertEqual "brave before vivaldi"
-                    (Just (dir </> "brave" <> " --app=" <> url)) got
-
-  , testCase "every candidate is a browser that takes --app" $ do
+discoverySpec = testGroup "Browser discovery" $ map discovery resolutions <>
+  [ testCase "every candidate is a browser that takes --app" $ do
       assertEqual "the list, in order"
         [ "chromium", "chromium-browser", "google-chrome-stable", "google-chrome"
         , "brave", "vivaldi" ] browserCandidates
@@ -92,40 +124,11 @@ discoverySpec = testGroup "Browser discovery"
       -- full-chrome window and call it a desktop shell.
       assertBool "firefox is not on it" ("firefox" `notElem` browserCandidates)
 
-  , testCase "--browser beats the candidates" $
-      withTempDir $ \dir -> do
-        fakeBrowsers dir ["chromium", "mybrowser", "xdg-open"]
-        got <- resolved Nothing (Just "mybrowser") [dir]
-        assertEqual "the flag wins"
-                    (Just (dir </> "mybrowser" <> " --app=" <> url)) got
-
-  , testCase "GLANCE_BROWSER beats --browser and the candidates" $
-      withTempDir $ \dir -> do
-        fakeBrowsers dir ["chromium", "mybrowser", "envbrowser", "xdg-open"]
-        got <- resolved (Just "envbrowser") (Just "mybrowser") [dir]
-        assertEqual "the environment wins"
-                    (Just (dir </> "envbrowser" <> " --app=" <> url)) got
-
   , testCase "a named browser with a path is taken as it stands" $
       withTempDir $ \dir -> do
         exe <- fakeExecutable dir "elsewhere" "exit 0"
         got <- resolved Nothing (Just exe) []
-        assertEqual "no path list is consulted" (Just (exe <> " --app=" <> url)) got
-
-  , testCase "a named browser the path lacks is still what gets run" $
-      withTempDir $ \dir -> do
-        fakeBrowsers dir ["chromium", "xdg-open"]
-        got <- resolved Nothing (Just "nosuchbrowser") [dir]
-        -- Falling back to chromium here would silently run something other
-        -- than what was asked for; the spawn says the name that was written.
-        assertEqual "the name as given" (Just ("nosuchbrowser --app=" <> url)) got
-
-  , testCase "with no browser at all, xdg-open opens a plain tab" $
-      withTempDir $ \dir -> do
-        fakeBrowsers dir ["xdg-open"]
-        got <- resolved Nothing Nothing [dir]
-        assertEqual "the URL alone — xdg-open takes no --app"
-                    (Just (dir </> "xdg-open" <> " " <> url)) got
+        assertEqual "no path list is consulted" (Just (appMode exe)) got
 
   , testCase "with nothing on the path there is no window, and no failure" $
       withTempDir $ \dir -> do
@@ -219,45 +222,45 @@ dryRunSpec = testGroup "--dry-run"
         , "  window:  /usr/bin/chromium --app=" <> url
         , "  dry run — nothing started." ] lines'
 
-  , testCase "the binary resolves a browser off the path and starts nothing" $ do
-      built <- glanceBinary
-      case built of
-        -- Nothing built here: `cabal build all' makes this case unreachable,
-        -- and a suite run against a bare checkout still passes.
-        Nothing  -> pure ()
-        Just exe -> withTempDir $ \dir -> do
-          fakeBrowsers dir ["chromium", "xdg-open"]
-          controlled <- pathOnly dir
-          out <- probe exe controlled
-          -- The process returned at all, which is the assertion about the
-          -- socket: a run that bound 7797 would still be serving on it.
-          mapM_ (\needle -> assertBool ("dry run: no " <> show needle <> " in " <> out)
-                                       (needle `isInfixOf` out))
-                [ "glance desktop — " <> desktopURL 7797, "nothing started" ]
-          -- A build with a window of its own answers with that one, and one
-          -- without has to find chromium.  Both are honest answers to the
-          -- question --dry-run asks, and both start nothing.
-          assertBool ("dry run resolved no window at all: " <> out)
-                     (  "native window" `isInfixOf` out
-                     || appMode (dir </> "chromium") `isInfixOf` out )
+  , testCase "the binary resolves a browser off the path and starts nothing" $
+      withBuiltBinary ["chromium", "xdg-open"] (const []) $ \dir out -> do
+        -- The process returned at all, which is the assertion about the
+        -- socket: a run that bound 7797 would still be serving on it.
+        mapM_ (\needle -> assertBool ("dry run: no " <> show needle <> " in " <> out)
+                                     (needle `isInfixOf` out))
+              [ "glance desktop — " <> desktopURL 7797, "nothing started" ]
+        -- A build with a window of its own answers with that one, and one
+        -- without has to find chromium.  Both are honest answers to the
+        -- question --dry-run asks, and both start nothing.
+        assertBool ("dry run resolved no window at all: " <> out)
+                   (  "native window" `isInfixOf` out
+                   || appMode (dir </> "chromium") `isInfixOf` out )
 
-  , testCase "a named browser beats whatever window the build has of its own" $ do
-      built <- glanceBinary
-      case built of
-        Nothing  -> pure ()
-        Just exe -> withTempDir $ \dir -> do
-          fakeBrowsers dir ["chromium", "envbrowser", "xdg-open"]
-          controlled <- pathOnly dir
-          out <- probe exe (("GLANCE_BROWSER", dir </> "envbrowser") : controlled)
-          assertBool ("dry run: the named browser is not in " <> out)
-                     (appMode (dir </> "envbrowser") `isInfixOf` out)
-          assertBool ("dry run: a native window won anyway: " <> out)
-                     (not ("native window" `isInfixOf` out))
+  , testCase "a named browser beats whatever window the build has of its own" $
+      withBuiltBinary ["chromium", "envbrowser", "xdg-open"]
+                      (\d -> [("GLANCE_BROWSER", d </> "envbrowser")]) $ \dir out -> do
+        assertBool ("dry run: the named browser is not in " <> out)
+                   (appMode (dir </> "envbrowser") `isInfixOf` out)
+        assertBool ("dry run: a native window won anyway: " <> out)
+                   (not ("native window" `isInfixOf` out))
   ]
 
--- | EXE as a browser opening this test's URL in app mode.
-appMode :: FilePath -> String
-appMode exe = exe <> " --app=" <> desktopURL 7797
+-- | Run K over a directory holding NAMES as the whole @PATH@ and over what
+-- @glance desktop --dry-run@ printed there.  EXTRA of that directory goes ahead
+-- of the environment 'pathOnly' hands the child.
+--
+-- A checkout with nothing built skips the case: @cabal build all@ makes that
+-- unreachable, and a suite run against a bare tree still passes.
+withBuiltBinary :: [String] -> (FilePath -> [(String, String)])
+                -> (FilePath -> String -> Assertion) -> Assertion
+withBuiltBinary names extra k = do
+  built <- glanceBinary
+  case built of
+    Nothing  -> pure ()
+    Just exe -> withTempDir $ \dir -> do
+      fakeBrowsers dir names
+      controlled <- pathOnly dir
+      k dir =<< probe exe (extra dir <> controlled)
 
 -- | What EXE prints for @desktop --dry-run@ under ENVIRONMENT.  A failure
 -- names the exit and what went to stderr, since the assertions past this read

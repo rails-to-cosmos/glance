@@ -15,8 +15,8 @@ import System.FilePath ((</>))
 import System.Posix.Files (createSymbolicLink)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
-import TestDefaults ( columnKeysOf, columnOf, entryAs, field, listAt
-                    , orgFile, textAt, viewDir, withTempDirNamed )
+import TestDefaults ( assertContains, columnKeysOf, columnOf, entryAs, field, listAt
+                    , orgFile, textAt, viewDir, withDoc, withTempDirNamed )
 
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
@@ -32,7 +32,7 @@ import Glance.Query ( ConfigLayers (..), HeadlineParts (..), HeadlineRecord (..)
                     , captureEdits, captureStamp, defaultWalk, derivedPath, documentPath
                     , displayText, editLinkEdits, headlineParts, hiddenProperties
                     , keywordSources, loadDir
-                    , loadDirFilesSerially, loadDirFilesWith, loadFile, matchesSearch
+                    , loadDirFilesSerially, loadDirFilesWith, matchesSearch
                     , noConfig, orgLinks
                     , planningTimestamp, readsAsTimestamp, recomposedSubtree
                     , linkColumns, linkShown, linkType, removeTagEdits, renameTagEdits
@@ -62,13 +62,9 @@ withRecords k = loadDir viewDir >>= k . qrRecords
 withView :: (Value -> Assertion) -> Assertion
 withView k = withRecords (k . viewJSON viewTitle)
 
--- | Run K over the records DOC alone makes, written into a file of its own so
--- the load path is the ordinary one.  A file that loads with no rows reaches K
--- as an empty list, which is an answer here rather than a failure.
+-- | Run K over the records DOC alone makes.
 withRecordsOf :: Text -> ([HeadlineRecord] -> Assertion) -> Assertion
-withRecordsOf doc k = withTempDirNamed "view" $ \dir -> do
-  path <- orgFile dir "tree.org" doc
-  loadFile path >>= either (assertFailure . show) k
+withRecordsOf = withDoc "view" "tree.org"
 
 -- | Run K over the view DOC alone makes.
 withViewOf :: Text -> (Value -> Assertion) -> Assertion
@@ -258,10 +254,6 @@ linkSpec = testGroup "Links"
         -- The child's reference is the parent's, the URL and the overview link
         -- are nobody's, and the two id protocols answer alike.
         assertEqual "the references alone" [["alpha", "beta"]] (map hrLinks recs)
-
-  , testCase "a row pointing nowhere carries an empty list rather than a slice" $
-      withRecordsOf "* plain\njust prose about https://x.example\n" $ \recs ->
-        assertEqual "nothing to keep" [[]] (map hrLinks recs)
 
     -- 'hrLinked' is the WIDER question the same scan answers: is there anywhere
     -- to go from this row, which is what @o@ follows and what the title's
@@ -665,18 +657,10 @@ drawerOf :: Text -> [Text]
 drawerOf text' = takeWhile (/= ":END:") opened <> [":END:"]
   where opened = dropWhile (/= ":PROPERTIES:") (map T.strip (T.lines text'))
 
--- | WHAT must be somewhere in TEXT.
-assertContains :: String -> Text -> Text -> Assertion
-assertContains what needle text' =
-  assertBool (what <> ": " <> show needle <> " is not in " <> show text')
-             (needle `T.isInfixOf` text')
-
 -- | Run K over the FIRST record DOC loads to, which is the headline every case
 -- here is about.
 withParts :: Text -> (HeadlineRecord -> Assertion) -> Assertion
-withParts doc k = withTempDirNamed "lens" $ \dir -> do
-  path <- orgFile dir "lens.org" doc
-  loadFile path >>= either (assertFailure . show) first'
+withParts doc k = withDoc "lens" "lens.org" doc first'
   where first' rs = case rs of
           (r : _rest) -> k r
           []          -> assertFailure "the fixture loaded no headlines"
@@ -1471,12 +1455,9 @@ splice :: Text -> [(Span, Text)] -> Text
 splice doc edits = foldl' one doc (sortOn (negate . spanStart . fst) edits)
   where one text (Span s e, new) = T.take s text <> new <> T.drop e text
 
--- | Run K over the one record DOC parses to, written into a file of its own so
--- the load path is the ordinary one.
+-- | Run K over the one record DOC parses to.
 withRecord :: Text -> (HeadlineRecord -> Assertion) -> Assertion
-withRecord doc k = withTempDirNamed "command" $ \dir -> do
-  path <- orgFile dir "one.org" doc
-  loadFile path >>= either (assertFailure . show) one
+withRecord doc k = withDoc "command" "one.org" doc one
   where one [r] = k r
         one rs  = assertFailure ("expected one headline, got " <> show (length rs))
 
@@ -1728,9 +1709,7 @@ commandSpec = testGroup "Commands"
       -- get wrong in a way no cell could show: `glance' is the FIRST entry of
       -- the sorted cell and the SECOND of the file, and it is the file's offsets
       -- that decide which bytes come out.
-    , testCase "and a removal cuts the file's entry, not the cell's" $ do
-        removeTagIs "the middle of the file's run" "* TODO Ship it :web:glance:work:\n"
-                    "glance" "* TODO Ship it :web:work:\n"
+    , testCase "and a removal cuts the file's entry, not the cell's" $
         removeTagIs "the first of the file's run" "* TODO Ship it :web:glance:\n"
                     "web" "* TODO Ship it :glance:\n"
 

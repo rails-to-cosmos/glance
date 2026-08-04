@@ -8,7 +8,8 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
-import TestDefaults (bareParse, headlinesOf, titled)
+import TestDefaults ( assertParts, bareParse, headlinesOf, parsedIn, presentSpans
+                    , propertyKeys, titled )
 import qualified TextShow as TS
 
 -- Test inputs
@@ -81,21 +82,13 @@ cases =
 
 -- | Run K over the elements and final context of CASE, failing on a parse error.
 onDoc :: Case -> (Text -> Context -> [Spanned Element] -> Assertion) -> TestTree
-onDoc c k = testCase (caseName c) $ case orgParse defaultContext (caseInput c) of
-  (elems, ctx, Nothing) -> k (caseInput c) ctx elems
-  (_, _, Just _err)     -> assertFailure ("parse error in " <> show (caseInput c))
-
--- | Sub-spans a headline actually carries, in source order.
-presentSpans :: Headline -> [(String, Span)]
-presentSpans h = [(T.unpack label, s) | (label, Just s, _ok) <- headlineSpanParts h]
+onDoc c k = testCase (caseName c) $ do
+  (elems, ctx) <- parsedIn (caseName c) (caseInput c)
+  k (caseInput c) ctx elems
 
 -- | Every sub-span H carries, sliced out of INPUT, in source order.
 slicesOf :: Text -> Headline -> [(String, Text)]
 slicesOf input h = [ (label, sliceSpan input s) | (label, s) <- presentSpans h ]
-
-propertyKeys :: Headline -> [Text]
-propertyKeys h = case properties h of
-  Properties ps -> [k | Property (Keyword k) _ <- ps]
 
 -- | H's planning components: label, span, and the timestamp stored under it.
 planningParts :: Headline -> [(Text, Maybe Span, Maybe Timestamp)]
@@ -133,9 +126,7 @@ assertReparse label ctx expected slice = case orgParse ctx slice of
 -- all.  'literalSlicesSpec' pins the slices themselves.
 assertSlices :: Text -> Headline -> Assertion
 assertSlices input h = do
-  sequence_ [ assertBool (say (T.unpack label <> " sliced " <> show slice)) (ok slice)
-            | (label, Just s, ok) <- headlineSpanParts h
-            , let slice = sliceSpan input s ]
+  assertParts say input h
   sequence_ [ assertBool (say (T.unpack label <> " accepts " <> show wrong)) (not (ok wrong))
             | (label, Just s, ok) <- headlineSpanParts h
             , let wrong = "glance-not-a-slice " <> sliceSpan input s ]

@@ -13,7 +13,7 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
-import TestDefaults (columnKeysOf, field, maybeTextAt, orgFile, viewDir, withTempDir)
+import TestDefaults (columnKeysOf, field, maybeTextAt, viewDir, withDocDir)
 
 import qualified Data.Text as T
 
@@ -158,23 +158,21 @@ targetSpec = testGroup "Reference targets"
 -- it by that id, a referrer reaching a second target by its title, the target's
 -- own self-link, and a row pointing nowhere.
 withRefTree :: ([HeadlineRecord] -> IO a) -> IO a
-withRefTree k = withTempDir $ \dir -> do
-  _ <- orgFile dir "a.org" (T.unlines
-         [ "* Target"
-         , ":PROPERTIES:"
-         , ":ORG_GLANCE_ID: alpha"
-         , ":END:"
-         -- The target links to ITSELF, which org-glance's own materialize
-         -- footer writes: the rule says this must not make it its own referrer.
-         , "see [[org-glance-visit:alpha][myself]]"
-         , "* By id"
-         , "points at [[org-glance-visit:alpha][the target]]"
-         , "* By title"
-         , "points at [[*Second]] instead"
-         , "* Second"
-         , "* Neither"
-         , "no links here" ])
-  k . qrRecords =<< loadDir dir
+withRefTree = withDocDir "test" "a.org" (T.unlines
+  [ "* Target"
+  , ":PROPERTIES:"
+  , ":ORG_GLANCE_ID: alpha"
+  , ":END:"
+  -- The target links to ITSELF, which org-glance's own materialize footer
+  -- writes: the rule says this must not make it its own referrer.
+  , "see [[org-glance-visit:alpha][myself]]"
+  , "* By id"
+  , "points at [[org-glance-visit:alpha][the target]]"
+  , "* By title"
+  , "points at [[*Second]] instead"
+  , "* Second"
+  , "* Neither"
+  , "no links here" ])
 
 -- | The rows of the fixture that Q matches, by title, in walk order.
 refMatching :: Text -> IO [Text]
@@ -500,14 +498,12 @@ archiveSpec = testGroup "Archive key"
 
 -- | Run K over a tree that uses the reserved words as its own vocabulary.
 withMetaTree :: ([HeadlineRecord] -> IO a) -> IO a
-withMetaTree k = withTempDir $ \dir -> do
-  _ <- orgFile dir "a.org" (T.unlines
-         [ "#+TODO: NONE | ARCHIVE"
-         , "* NONE Filed away :web:archive:"
-         , "* NONE Not filed :archived:"
-         , "* ARCHIVE A state spelled like the tag :none:"
-         , "* Nothing stated" ])
-  k . qrRecords =<< loadDir dir
+withMetaTree = withDocDir "test" "a.org" (T.unlines
+  [ "#+TODO: NONE | ARCHIVE"
+  , "* NONE Filed away :web:archive:"
+  , "* NONE Not filed :archived:"
+  , "* ARCHIVE A state spelled like the tag :none:"
+  , "* Nothing stated" ])
 
 -- | The rows of that tree Q matches, by title, in walk order.
 metaMatching :: Text -> IO [Text]

@@ -41,6 +41,17 @@ import Glance.Web.Watch (debounceDelay, due, isWatchable, watched)
 -- ones into a directory of its own ('withTempDir') and re-reads them the way
 -- the watcher does.
 
+-- | Run K over a store loaded from a directory holding FILES, handing it the
+-- directory, the FIRST file's path and the store.  The load runs once the whole
+-- list is written, so a case wanting anything else on disk first — a symlink, a
+-- second root — keeps its own 'withTempDir'.
+withStoreOf :: [(FilePath, T.Text)] -> (FilePath -> FilePath -> Store -> IO a) -> IO a
+withStoreOf files k = withTempDir $ \dir -> do
+  paths <- mapM (uncurry (orgFile dir)) files
+  case paths of
+    path : _ -> k dir path =<< loadStore dir
+    []       -> assertFailure "withStoreOf: a store of no files says nothing"
+
 -- | Rewrite PATH with TEXT and fold the re-read into STORE: the watch's whole
 -- step, which is a write, one file's parse and one diff.
 rewrite :: FilePath -> T.Text -> Store -> IO (Store, [Frame])
@@ -172,12 +183,11 @@ sharedSpec = testGroup "Shared id"
       assertEqual "which is what is served" ["from b"] (map hrTitle (storeRecords next))
 
   , testCase "two headlines of one file sharing an id are one row, the first"
-      $ withTempDir $ \dir -> do
+      $ withStoreOf [("a.org", entryAs "dup" "TODO alpha" <> entryAs "dup" "TODO omega")]
+      $ \_dir path store -> do
       -- Within one file no path outranks the other, so the incumbent stands —
       -- the same rule, and the reason the stream cannot keep the last while
       -- the table keeps the first.
-      path <- orgFile dir "a.org" (entryAs "dup" "TODO alpha" <> entryAs "dup" "TODO omega")
-      store <- loadStore dir
       assertEqual "one row for the id" ["alpha"] (map hrTitle (storeRecords store))
       (next, frames) <- rewrite path
         (entryAs "dup" "TODO alpha edited" <> entryAs "dup" "TODO omega edited") store
@@ -190,12 +200,11 @@ sharedSpec = testGroup "Shared id"
 -- | Two files claiming @shared@, and the store over them.  a.org wins it on
 -- walk order; K is handed both paths and that store.
 withShared :: (FilePath -> FilePath -> Store -> IO a) -> IO a
-withShared k = withTempDir $ \dir -> do
-  pa <- orgFile dir "a.org" (entryAs "shared" "TODO from a")
-  pb <- orgFile dir "b.org" (entryAs "shared" "TODO from b")
-  store <- loadStore dir
-  assertEqual "one row for the id" ["from a"] (map hrTitle (storeRecords store))
-  k pa pb store
+withShared k =
+  withStoreOf [ ("a.org", entryAs "shared" "TODO from a")
+              , ("b.org", entryAs "shared" "TODO from b") ] $ \dir pa store -> do
+    assertEqual "one row for the id" ["from a"] (map hrTitle (storeRecords store))
+    k pa (dir </> "b.org") store
 
 -- | The other half of the @ETag@: which tree the store was loaded from.  The
 -- generation counts changes inside one process and starts at zero in the next
@@ -203,32 +212,28 @@ withShared k = withTempDir $ \dir -> do
 -- restart.
 fingerprintSpec :: TestTree
 fingerprintSpec = testGroup "Fingerprint"
-  [ testCase "two loads of one unchanged tree print the same" $ withTempDir $ \dir -> do
+  [ testCase "two loads of one unchanged tree print the same"
+      $ withStoreOf [("a.org", "* TODO one\n"), ("b.org", "* NEXT two\n")]
+      $ \dir _path first' -> do
       -- Which is the restart: same directory, same bytes, a second process.
       -- The generation is back at zero either way, so this is the whole of what
       -- keeps that client's 304 honest.
-      _ <- orgFile dir "a.org" "* TODO one\n"
-      _ <- orgFile dir "b.org" "* NEXT two\n"
-      first' <- loadStore dir
       second' <- loadStore dir
       assertBool "no fingerprint at all" (not (T.null (stPrint first')))
       assertEqual "fingerprint" (stPrint first') (stPrint second')
 
-  , testCase "a byte of difference prints differently" $ withTempDir $ \dir -> do
-      path <- orgFile dir "a.org" "* TODO one\n"
-      before <- loadStore dir
+  , testCase "a byte of difference prints differently"
+      $ withStoreOf [("a.org", "* TODO one\n")] $ \dir path before -> do
       _ <- orgFile dir "a.org" "* TODO one!\n"
       after <- loadStore dir
       assertBool ("one fingerprint for two trees: " <> path)
                  (stPrint before /= stPrint after)
 
   , testCase "and so does a file renamed under the same content"
-      $ withTempDir $ \dir -> do
+      $ withStoreOf [("a.org", "* TODO one\n")] $ \dir path before -> do
       -- An id-less headline's row id is FILE#K, so the path IS part of the
       -- answer: two trees of the same bytes under different names serve
       -- different ids and must not share a tag.
-      path <- orgFile dir "a.org" "* TODO one\n"
-      before <- loadStore dir
       _ <- orgFile dir "b.org" "* TODO one\n"
       removeFile path
       after <- loadStore dir
@@ -246,12 +251,10 @@ fingerprintSpec = testGroup "Fingerprint"
       assertBool "two roots, one fingerprint" (stPrint first' /= stPrint second')
 
   , testCase "an edit moves the generation and leaves the fingerprint"
-      $ withTempDir $ \dir -> do
+      $ withStoreOf [("a.org", "* TODO one\n")] $ \_dir path store -> do
       -- The pair is the tag: the fingerprint says which tree was loaded, the
       -- generation how far it has moved since.  Recomputing the fingerprint per
       -- edit would say the same thing twice and cost a fold over every file.
-      path <- orgFile dir "a.org" "* TODO one\n"
-      store <- loadStore dir
       (next, frames) <- rewrite path "* TODO one\n* TODO two\n" store
       assertBool "a new headline is a row change" (not (null frames))
       assertBool "generation stuck" (stGen next > stGen store)
@@ -264,36 +267,32 @@ fingerprintSpec = testGroup "Fingerprint"
 -- stale copy.
 generationSpec :: TestTree
 generationSpec = testGroup "Generation"
-  [ testCase "a file nothing wrote leaves it where it was" $ withTempDir $ \dir -> do
-      let doc = "* TODO one\n"
-      path <- orgFile dir "a.org" doc
-      store <- loadStore dir
+  [ testCase "a file nothing wrote leaves it where it was" $
+      let doc = "* TODO one\n" in
+      withStoreOf [("a.org", doc)] $ \_dir path store -> do
       (same, frames) <- rewrite path doc store
       assertEqual "frames" [] frames
       assertEqual "generation" (stGen store) (stGen same)
 
-  , testCase "a changed row moves it" $ withTempDir $ \dir -> do
-      path <- orgFile dir "a.org" "* TODO one\n"
-      store <- loadStore dir
+  , testCase "a changed row moves it"
+      $ withStoreOf [("a.org", "* TODO one\n")] $ \_dir path store -> do
       (next, frames) <- rewrite path "* TODO one\n* TODO two\n" store
       assertBool "a new headline is a row change" (not (null frames))
       assertBool ("generation stuck at " <> show (stGen next)) (stGen next > stGen store)
 
-  , testCase "so does a load outcome, with no row to show for it" $ withTempDir $ \dir -> do
+  , testCase "so does a load outcome, with no row to show for it"
+      $ withStoreOf [("a.org", "* TODO one\n")] $ \_dir path store -> do
       -- The load counts ride on the same tag as the rows, so a file that
       -- stopped parsing has to invalidate a cached answer even though the rows
       -- it kept are the very ones that answer carried.
-      path <- orgFile dir "a.org" "* TODO one\n"
-      store <- loadStore dir
       let (broken, frames) = applyFile path (Left ParseFailed) store
       assertEqual "frames" [] frames
       assertEqual "rows kept" (map hrId (storeRecords store)) (map hrId (storeRecords broken))
       assertEqual "parse failures" 1 (qrParseFailures (storeResult broken))
       assertBool ("generation stuck at " <> show (stGen broken)) (stGen broken > stGen store)
 
-  , testCase "and so does the same file parsing again" $ withTempDir $ \dir -> do
-      path <- orgFile dir "a.org" "* TODO one\n"
-      store <- loadStore dir
+  , testCase "and so does the same file parsing again"
+      $ withStoreOf [("a.org", "* TODO one\n")] $ \_dir path store -> do
       let (broken, _f) = applyFile path (Left ParseFailed) store
       -- The very rows it had, so the recovery is the outcome and nothing else.
       let (fixed, frames) = applyFile path (Right (storeRecords store)) broken
@@ -306,33 +305,27 @@ generationSpec = testGroup "Generation"
 -- so a query costs no fold over them.
 tagSpec :: TestTree
 tagSpec = testGroup "Tag vocabulary"
-  [ testCase "is every distinct tag the loaded rows carry" $ withTempDir $ \dir -> do
-      _ <- orgFile dir "a.org" "* TODO one :web:glance:\n* NEXT two :web:\n* DONE three\n"
-      st <- loadStore dir
+  [ testCase "is every distinct tag the loaded rows carry" $
+      let doc = "* TODO one :web:glance:\n* NEXT two :web:\n* DONE three\n" in
+      withStoreOf [("a.org", doc)] $ \_dir _path st ->
       assertEqual "tags" ["glance", "web"] (storeTags st)
 
   , testCase "a re-read file adds its new tags and drops the ones it lost"
-      $ withTempDir $ \dir -> do
-      path <- orgFile dir "a.org" "* TODO one :web:\n"
-      st <- loadStore dir
+      $ withStoreOf [("a.org", "* TODO one :web:\n")] $ \_dir path st -> do
       assertEqual "before" ["web"] (storeTags st)
       (next, _frames) <- rewrite path "* TODO one :inbox:\n" st
       assertEqual "after" ["inbox"] (storeTags next)
 
   , testCase "a tag two files carry survives one of them going"
-      $ withTempDir $ \dir -> do
-      pa <- orgFile dir "a.org" "* TODO one :web:\n"
-      _ <- orgFile dir "b.org" "* TODO two :web:\n"
-      st <- loadStore dir
+      $ withStoreOf [("a.org", "* TODO one :web:\n"), ("b.org", "* TODO two :web:\n")]
+      $ \_dir pa st -> do
       let (gone, _frames) = dropFile pa st
       assertEqual "still declared" ["web"] (storeTags gone)
 
   , testCase "the vocabulary moves only where the generation does"
-      $ withTempDir $ \dir -> do
+      $ withStoreOf [("a.org", "* TODO one :web:\n")] $ \_dir path st -> do
       -- The ETag is the generation, so a query answered under an old tag must
       -- not be a query the old vocabulary could not have parsed.
-      path <- orgFile dir "a.org" "* TODO one :web:\n"
-      st <- loadStore dir
       (same, _f) <- rewrite path "* TODO one :web:\n" st
       assertEqual "no rewrite, no move" (storeTags st) (storeTags same)
       (next, frames) <- rewrite path "* TODO one :web:inbox:\n" st
@@ -440,10 +433,9 @@ withMirrorTree k = withTempDir $ \dir -> do
 -- | One file re-read, and the frames the difference implies.
 diffSpec :: TestTree
 diffSpec = testGroup "File diff"
-  [ testCase "a file that did not change streams nothing" $ withTempDir $ \dir -> do
-      let doc = "#+CATEGORY: notes\n* TODO one\n* NEXT two :tag:\n"
-      path <- orgFile dir "a.org" doc
-      store <- loadStore dir
+  [ testCase "a file that did not change streams nothing" $
+      let doc = "#+CATEGORY: notes\n* TODO one\n* NEXT two :tag:\n" in
+      withStoreOf [("a.org", doc)] $ \_dir path store -> do
       -- Over an empty store the claim below is met by an empty diff of nothing,
       -- so the rows the fixture put there are what makes it one.
       assertEqual "the fixture's rows" 2 (length (storeRecords store))
@@ -455,11 +447,8 @@ diffSpec = testGroup "File diff"
     -- it does not do is send a frame or move the generation, since neither the
     -- rows nor the stats a response carries have changed.  This is the whole
     -- decision, and both halves of it are load-bearing.
-  , testCase "an edit under a child streams nothing and still refreshes the entry"
-      $ withTempDir $ \dir -> do
-      let tree body = entryAs "one" "TODO parent" <> "** child\n" <> body
-      path <- orgFile dir "a.org" (tree "first\n")
-      store <- loadStore dir
+  , testCase "an edit under a child streams nothing and still refreshes the entry" $
+      withStoreOf [("a.org", tree "first\n")] $ \_dir path store -> do
       was <- oneRecord "before" store
       (next, frames) <- rewrite path (tree "second\n") store
       assertEqual "frames" [] frames
@@ -476,10 +465,7 @@ diffSpec = testGroup "File diff"
     -- child that grows the entry's first link changes the row JSON where no
     -- cell moved.  A client that draws the mark has to be told.
   , testCase "unless that edit gives the subtree its first link" $
-      withTempDir $ \dir -> do
-        let tree body = entryAs "one" "TODO parent" <> "** child\n" <> body
-        path <- orgFile dir "a.org" (tree "first\n")
-        store <- loadStore dir
+      withStoreOf [("a.org", tree "first\n")] $ \_dir path store -> do
         was <- oneRecord "before" store
         (next, frames) <- rewrite path (tree "see https://x.example\n") store
         assertEqual "upserts" ["one"] (upsertIds frames)
@@ -490,26 +476,23 @@ diffSpec = testGroup "File diff"
         assertEqual "while every cell stayed where it was"
                     (cellsOf (rowJSON was)) (cellsOf (rowJSON now))
 
-  , testCase "a new headline is one upsert" $ withTempDir $ \dir -> do
-      path <- orgFile dir "a.org" (entry "one")
-      store <- loadStore dir
+  , testCase "a new headline is one upsert"
+      $ withStoreOf [("a.org", entry "one")] $ \_dir path store -> do
       (next, frames) <- rewrite path (entry "one" <> entry "two") store
       assertEqual "upserts" ["two"] (upsertIds frames)
       assertEqual "deletes" [] (deleteIds frames)
       assertEqual "rows" ["one", "two"] (map hrId (storeRecords next))
 
-  , testCase "an edited title keeps the id the file gave it" $ withTempDir $ \dir -> do
-      path <- orgFile dir "a.org" (entryAs "one" "TODO first")
-      store <- loadStore dir
+  , testCase "an edited title keeps the id the file gave it"
+      $ withStoreOf [("a.org", entryAs "one" "TODO first")] $ \_dir path store -> do
       (_next, frames) <- rewrite path (entryAs "one" "DONE first") store
       assertEqual "upserts" ["one"] (upsertIds frames)
       assertEqual "deletes" [] (deleteIds frames)
       expected <- recordsOf path
       assertEqual "row" [UpsertRow (rowJSON r) | r <- expected] frames
 
-  , testCase "a removed headline is one delete" $ withTempDir $ \dir -> do
-      path <- orgFile dir "a.org" (entry "one" <> entry "two")
-      store <- loadStore dir
+  , testCase "a removed headline is one delete"
+      $ withStoreOf [("a.org", entry "one" <> entry "two")] $ \_dir path store -> do
       (next, frames) <- rewrite path (entry "one") store
       assertEqual "upserts" [] (upsertIds frames)
       assertEqual "deletes" ["two"] (deleteIds frames)
@@ -520,18 +503,16 @@ diffSpec = testGroup "File diff"
   -- that grew.  This case used to pin the opposite — the offset moved, every row
   -- of the file was renamed, and the store shipped a delete plus an insert for
   -- each because it could not tell a rename from one.
-  , testCase "text inserted above an id-less row leaves its id alone" $ withTempDir $ \dir -> do
-      path <- orgFile dir "a.org" twoEntries
-      store <- loadStore dir
+  , testCase "text inserted above an id-less row leaves its id alone"
+      $ withStoreOf [("a.org", twoEntries)] $ \_dir path store -> do
       let before = map hrId (storeRecords store)
       (next, frames) <- rewrite path "#+TITLE: notes\n* TODO one\n* TODO two\n" store
       assertEqual "the ids stand" before (map hrId (storeRecords next))
       assertEqual "so nothing is deleted" [] (deleteIds frames)
       assertEqual "and nothing is reinserted" [] (upsertIds frames)
 
-  , testCase "and an edit to one row is that row alone" $ withTempDir $ \dir -> do
-      path <- orgFile dir "a.org" twoEntries
-      store <- loadStore dir
+  , testCase "and an edit to one row is that row alone"
+      $ withStoreOf [("a.org", twoEntries)] $ \_dir path store -> do
       let before = map hrId (storeRecords store)
       (next, frames) <- rewrite path "* TODO one\n  a body line\n* DONE two\n" store
       assertEqual "the ids stand" before (map hrId (storeRecords next))
@@ -543,9 +524,8 @@ diffSpec = testGroup "File diff"
   -- ids are the same two strings before and after, so the wire carries the cells
   -- trading places rather than a delete and an insert — the row at #0 is now the
   -- other headline.
-  , testCase "swapping two id-less entries renumbers both" $ withTempDir $ \dir -> do
-      path <- orgFile dir "a.org" twoEntries
-      store <- loadStore dir
+  , testCase "swapping two id-less entries renumbers both"
+      $ withStoreOf [("a.org", twoEntries)] $ \_dir path store -> do
       let before = map hrId (storeRecords store)
       (next, frames) <- rewrite path "* TODO two\n* TODO one\n" store
       assertEqual "the ids are the same set" before (map hrId (storeRecords next))
@@ -558,9 +538,8 @@ diffSpec = testGroup "File diff"
     -- behind it moves up one, so the last id is new and every earlier one now
     -- names a different headline.  A file whose entries only ever grow at the
     -- END costs nothing at all.
-  , testCase "a new first entry renumbers the rows behind it" $ withTempDir $ \dir -> do
-      path <- orgFile dir "a.org" twoEntries
-      store <- loadStore dir
+  , testCase "a new first entry renumbers the rows behind it"
+      $ withStoreOf [("a.org", twoEntries)] $ \_dir path store -> do
       let before = map hrId (storeRecords store)
       (next, frames) <- rewrite path "* TODO zero\n* TODO one\n* TODO two\n" store
       let after = map hrId (storeRecords next)
@@ -571,9 +550,8 @@ diffSpec = testGroup "File diff"
       assertEqual "each id names the headline one place later"
                   ["zero", "one", "two"] (map hrTitle (storeRecords next))
 
-  , testCase "an entry appended after them all costs one upsert" $ withTempDir $ \dir -> do
-      path <- orgFile dir "a.org" twoEntries
-      store <- loadStore dir
+  , testCase "an entry appended after them all costs one upsert"
+      $ withStoreOf [("a.org", twoEntries)] $ \_dir path store -> do
       (next, frames) <- rewrite path "* TODO one\n* TODO two\n* TODO three\n" store
       assertEqual "the rows" 3 (length (storeRecords next))
       assertEqual "the new row alone" [T.pack path <> "#2"] (upsertIds frames)
@@ -591,10 +569,9 @@ diffSpec = testGroup "File diff"
     -- 'ViewChanged' INSTEAD of the rows.  b.org keeps the palette still so the
     -- subject here is the row.
   , testCase "clearing the last keyword off a title-less row deletes the row"
-      $ withTempDir $ \dir -> do
-      path <- orgFile dir "a.org" "* TODO\n"
-      _ <- orgFile dir "b.org" "* TODO another file, another keyword\n"
-      store <- loadStore dir
+      $ withStoreOf [ ("a.org", "* TODO\n")
+                    , ("b.org", "* TODO another file, another keyword\n") ]
+      $ \_dir path store -> do
       was <- case rowsUnder path store of
         [r] -> pure r
         rs  -> assertFailure ("expected one row under a.org, got " <> show (map hrId rs))
@@ -611,9 +588,8 @@ diffSpec = testGroup "File diff"
     -- And the cost of that, which is the renumbering: an entry going blank is a
     -- removal as far as the ordinal is concerned, so #0 now names the headline
     -- that was #1 and #1 is gone.  The same wire shape a swap produces.
-  , testCase "and the rows behind a blanked entry renumber" $ withTempDir $ \dir -> do
-      path <- orgFile dir "a.org" twoEntries
-      store <- loadStore dir
+  , testCase "and the rows behind a blanked entry renumber"
+      $ withStoreOf [("a.org", twoEntries)] $ \_dir path store -> do
       let before = map hrId (storeRecords store)
       (next, frames) <- rewrite path "* \n* TODO two\n" store
       assertEqual "the row at #0 is the other headline"
@@ -621,10 +597,9 @@ diffSpec = testGroup "File diff"
       assertEqual "so #0 is re-sent" (take 1 before) (upsertIds frames)
       assertEqual "and #1 is deleted" (drop 1 before) (deleteIds frames)
 
-  , testCase "a deleted file drops the rows it carried" $ withTempDir $ \dir -> do
-      path <- orgFile dir "a.org" (entry "one" <> entry "two")
-      _ <- orgFile dir "b.org" (entry "three")
-      store <- loadStore dir
+  , testCase "a deleted file drops the rows it carried"
+      $ withStoreOf [("a.org", entry "one" <> entry "two"), ("b.org", entry "three")]
+      $ \_dir path store -> do
       removeFile path
       let (next, frames) = dropFile path store
       assertEqual "deletes" ["one", "two"] (deleteIds frames)
@@ -632,40 +607,36 @@ diffSpec = testGroup "File diff"
       assertEqual "rows left" ["three"] (map hrId (storeRecords next))
 
   , testCase "a row two files carry outlives the first of them to drop it"
-      $ withTempDir $ \dir -> do
+      $ withStoreOf [ ("a.org", entryAs "shared" "TODO from a")
+                    , ("b.org", entryAs "shared" "TODO from b") ]
+      $ \dir pa store -> do
       -- One id, two files declaring it: the row is served the whole time one of
       -- them still provides it, and the second to lose it is the one that
       -- deletes it.  A delete sent early takes a row off the table that the
       -- other file is still standing behind.
-      pa <- orgFile dir "a.org" (entryAs "shared" "TODO from a")
-      pb <- orgFile dir "b.org" (entryAs "shared" "TODO from b")
-      store <- loadStore dir
       assertEqual "one row for the id" ["shared"] (map hrId (storeRecords store))
       (half, frames) <- rewrite pa "* TODO something else\n" store
       assertEqual "deletes" [] (deleteIds frames)
       assertBool "the row is still served" ("shared" `elem` map hrId (storeRecords half))
-      (none, later) <- rewrite pb "* TODO nothing shared\n" half
+      (none, later) <- rewrite (dir </> "b.org") "* TODO nothing shared\n" half
       assertEqual "deletes" ["shared"] (deleteIds later)
       assertBool "and gone" ("shared" `notElem` map hrId (storeRecords none))
 
-  , testCase "a file the store never held is not a deletion" $ withTempDir $ \dir -> do
-      _ <- orgFile dir "a.org" "* TODO one\n"
-      store <- loadStore dir
+  , testCase "a file the store never held is not a deletion"
+      $ withStoreOf [("a.org", "* TODO one\n")] $ \dir _path store -> do
       assertEqual "the fixture's rows" 1 (length (storeRecords store))
       let (_next, frames) = dropFile (dir </> "gone.org") store
       assertEqual "frames" [] frames
 
-  , testCase "a created file is upserts and no deletes" $ withTempDir $ \dir -> do
-      _ <- orgFile dir "a.org" "* TODO one\n"
-      store <- loadStore dir
+  , testCase "a created file is upserts and no deletes"
+      $ withStoreOf [("a.org", "* TODO one\n")] $ \dir _path store -> do
       (next, frames) <- rewrite (dir </> "b.org") "* TODO two\n* TODO three\n" store
       assertEqual "upserts" 2 (length (upsertIds frames))
       assertEqual "deletes" [] (deleteIds frames)
       assertEqual "rows" 3 (length (storeRecords next))
 
-  , testCase "the store still equals the load it stands in for" $ withTempDir $ \dir -> do
-      _ <- orgFile dir "a.org" "* TODO one\n"
-      store <- loadStore dir
+  , testCase "the store still equals the load it stands in for"
+      $ withStoreOf [("a.org", "* TODO one\n")] $ \dir _path store -> do
       (next, _frames) <- rewrite (dir </> "b.org") "#+CATEGORY: notes\n* NEXT two\n" store
       loaded <- loadDir dir
       assertEqual "rows" (map hrId (qrRecords loaded)) (map hrId (storeRecords next))
@@ -674,6 +645,9 @@ diffSpec = testGroup "File diff"
   -- The id-stability cases below all rewrite THIS file, so what each of them
   -- varies is the rewrite alone and the base cannot drift between them.
   where twoEntries = "* TODO one\n* TODO two\n"
+        -- A parent, its child and BODY under the child: the base the two cases
+        -- about an edit below a top entry vary.
+        tree body = entryAs "one" "TODO parent" <> "** child\n" <> body
 
 -- | A file that stops loading keeps the rows it had.  'orgParse' is
 -- all-or-nothing, so a save caught mid-write is indistinguishable from a file
@@ -681,9 +655,8 @@ diffSpec = testGroup "File diff"
 -- count is how an operator finds out.
 failureSpec :: TestTree
 failureSpec = testGroup "Load failure"
-  [ testCase "a parse failure keeps the file's rows and streams nothing" $ withTempDir $ \dir -> do
-      path <- orgFile dir "a.org" "* TODO one\n* TODO two\n"
-      store <- loadStore dir
+  [ testCase "a parse failure keeps the file's rows and streams nothing"
+      $ withStoreOf [("a.org", "* TODO one\n* TODO two\n")] $ \dir path store -> do
       _ <- orgFile dir "a.org" "* A title with a :: double colon\n"
       fresh <- loadFile path
       assertEqual "load" (Left ParseFailed) (fmap (map hrId) fresh)
@@ -694,17 +667,15 @@ failureSpec = testGroup "Load failure"
       assertEqual "parse failures" 1 (qrParseFailures (storeResult next))
       assertEqual "files" 1 (qrFiles (storeResult next))
 
-  , testCase "an unreadable file keeps its rows too" $ withTempDir $ \dir -> do
-      path <- orgFile dir "a.org" "* TODO one\n"
-      store <- loadStore dir
+  , testCase "an unreadable file keeps its rows too"
+      $ withStoreOf [("a.org", "* TODO one\n")] $ \_dir path store -> do
       let (next, frames) = applyFile path (Left ReadFailed) store
       assertEqual "frames" [] frames
       assertEqual "rows kept" 1 (length (storeRecords next))
       assertEqual "read failures" 1 (qrReadFailures (storeResult next))
 
-  , testCase "a file that parses again streams the difference" $ withTempDir $ \dir -> do
-      path <- orgFile dir "a.org" "* TODO one\n"
-      store <- loadStore dir
+  , testCase "a file that parses again streams the difference"
+      $ withStoreOf [("a.org", "* TODO one\n")] $ \_dir path store -> do
       let (broken, _f) = applyFile path (Left ParseFailed) store
       (next, frames) <- rewrite path "* TODO one\n* TODO two\n" broken
       assertEqual "upserts" 1 (length (upsertIds frames))
@@ -716,26 +687,23 @@ failureSpec = testGroup "Load failure"
 -- socket closes and the client re-fetches the view.
 keywordSpec :: TestTree
 keywordSpec = testGroup "Keyword palette"
-  [ testCase "a new keyword signals a view change" $ withTempDir $ \dir -> do
-      path <- orgFile dir "a.org" "* TODO one\n"
-      store <- loadStore dir
+  [ testCase "a new keyword signals a view change"
+      $ withStoreOf [("a.org", "* TODO one\n")] $ \_dir path store -> do
       assertEqual "before" (TodoKeywords ["TODO"] ["DONE"]) (storeKeywords store)
       (next, frames) <- rewrite path "#+TODO: TODO WAITING | DONE\n* WAITING one\n" store
       assertEqual "frames" [ViewChanged] frames
       assertEqual "after" (TodoKeywords ["TODO", "WAITING"] ["DONE"]) (storeKeywords next)
 
-  , testCase "a keyword another file still declares is not a view change" $ withTempDir $ \dir -> do
-      let declared = "#+TODO: TODO WAITING | DONE\n* WAITING one\n"
-      path <- orgFile dir "a.org" declared
-      _ <- orgFile dir "b.org" declared
-      store <- loadStore dir
+  , testCase "a keyword another file still declares is not a view change" $
+      let declared = "#+TODO: TODO WAITING | DONE\n* WAITING one\n" in
+      withStoreOf [("a.org", declared), ("b.org", declared)] $ \_dir path store -> do
       (next, frames) <- rewrite path "* TODO one\n" store
       assertBool ("view change in " <> show frames) (ViewChanged `notElem` frames)
       assertEqual "palette" (storeKeywords store) (storeKeywords next)
 
-  , testCase "the last file declaring a keyword takes it with it" $ withTempDir $ \dir -> do
-      path <- orgFile dir "a.org" "#+TODO: TODO WAITING | DONE\n* WAITING one\n"
-      store <- loadStore dir
+  , testCase "the last file declaring a keyword takes it with it"
+      $ withStoreOf [("a.org", "#+TODO: TODO WAITING | DONE\n* WAITING one\n")]
+      $ \_dir path store -> do
       removeFile path
       let (next, frames) = dropFile path store
       assertEqual "frames" [ViewChanged] frames
@@ -745,28 +713,26 @@ keywordSpec = testGroup "Keyword palette"
 -- | What a socket sees before anything changes.
 bootstrapSpec :: TestTree
 bootstrapSpec = testGroup "Bootstrap"
-  [ testCase "is a set-rows carrying every row the store holds" $ withTempDir $ \dir -> do
-      _ <- orgFile dir "a.org" "* TODO one\n* NEXT two\n"
-      _ <- orgFile dir "b.org" "* DONE three\n"
-      store <- loadStore dir
+  [ testCase "is a set-rows carrying every row the store holds"
+      $ withStoreOf [("a.org", "* TODO one\n* NEXT two\n"), ("b.org", "* DONE three\n")]
+      $ \_dir _path store ->
       case bootstrapFrame store of
         SetRows rows -> do
           assertEqual "rows" (map rowJSON (storeRecords store)) rows
           assertEqual "count" 3 (length rows)
         other -> assertFailure ("expected set-rows, got " <> show other)
 
-  , testCase "encodes as SCHEMA.md's op names" $ withTempDir $ \dir -> do
-      path <- orgFile dir "a.org" "* TODO one\n"
+  , testCase "encodes as SCHEMA.md's op names"
+      $ withStoreOf [("a.org", "* TODO one\n")] $ \_dir path store -> do
       rows <- map rowJSON <$> recordsOf path
-      store <- loadStore dir
       assertEqual "set-rows" (Just "set-rows") (opOf (bootstrapFrame store))
       assertEqual "upsert-row" [Just "upsert-row"] (map (opOf . UpsertRow) rows)
       assertEqual "delete-row" (Just "delete-row") (opOf (DeleteRow "x"))
       assertEqual "a view change is no op at all" Nothing (frameJSON ViewChanged)
 
-  , testCase "a subscriber's bootstrap is the store at subscription" $ withTempDir $ \dir -> do
-      path <- orgFile dir "a.org" "* TODO one\n"
-      hub <- newHub =<< loadStore dir
+  , testCase "a subscriber's bootstrap is the store at subscription"
+      $ withStoreOf [("a.org", "* TODO one\n")] $ \dir path store -> do
+      hub <- newHub store
       _ <- orgFile dir "a.org" "* TODO one\n* TODO two\n"
       fresh <- loadFile path
       _ <- publish hub (applyFile path fresh)

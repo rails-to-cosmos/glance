@@ -13,7 +13,8 @@ import System.Posix.Files (fileMode, getFileStatus, setFileMode)
 import System.Posix.Types (FileMode)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
-import TestDefaults (headlinesOf, withCorpusSample, withTempDirNamed)
+import TestDefaults ( assertParts, headlinesOf, parsedIn, spansOf, withCorpusSample
+                    , withTempDirNamed )
 
 import qualified Data.ByteString as BS
 import qualified Data.Text as T
@@ -82,9 +83,7 @@ expectRight label = either (\e -> assertFailure (label <> ": " <> show e)) pure
 
 -- | The elements INPUT parses to, failing when it does not parse.
 parsed :: String -> Text -> IO [Spanned Element]
-parsed label input = case orgParse defaultContext input of
-  (elems, _ctx, Nothing) -> pure elems
-  (_, _, Just _err)      -> assertFailure (label <> ": parse error in " <> show input)
+parsed label = fmap fst . parsedIn label
 
 -- | The span of the first @TODO@ keyword in DOC.  Read out of the parse rather
 -- than written down: an offset typed into a test is one the fixture can drift
@@ -113,18 +112,6 @@ assertExactSplice label doc sp = do
   assertEqual (label <> ": length") (T.length doc - (e - s) + T.length marker) (T.length out)
   where s = spanStart sp
         e = spanEnd sp
-
--- | Every sub-span H carries slices back to the component it stands for.
-assertParts :: String -> Text -> Headline -> Assertion
-assertParts label doc h = sequence_
-  [ assertBool (label <> ": " <> T.unpack part <> " sliced " <> show slice) (ok slice)
-  | (part, Just sp, ok) <- headlineSpanParts h
-  , let slice = sliceSpan doc sp ]
-
--- | H's labelled spans, 'hsFull' and every sub-span it carries.
-spansOf :: Headline -> [(String, Span)]
-spansOf h = ("hsFull", hsFull (spans h))
-          : [(T.unpack part, sp) | (part, Just sp, _ok) <- headlineSpanParts h]
 
 -- | Apply EDITS one at a time, the last of them first — 'foldr' over the sorted
 -- list runs right to left — so the offsets ahead of each are still the original
@@ -336,7 +323,7 @@ toggleCase label (keyword, isActive) = testCase label $ do
       assertEqual "the keyword slices back" (Just keyword)
                   (sliceSpan edited <$> hsTodo (spans h))
     []    -> assertFailure "the re-parse lost the headlines"
-  mapM_ (assertParts (label <> ", re-parse") edited) (headlinesOf elems')
+  mapM_ (assertParts (\m -> label <> ", re-parse: " <> m) edited) (headlinesOf elems')
   where swapTodo (EHeadline h) | (name <$> todo h) == Just "TODO" =
           EHeadline h { todo = Just (Todo keyword isActive) }
         swapTodo e = e

@@ -1211,6 +1211,19 @@ const cellsOf = (inst, keys) =>
 /** Which row wears INST's cursor, and -1 when there is no such mount yet — or
  * when nothing has been selected in it, which its own answer already is. */
 const curOf = (inst) => (inst ? inst.at() : -1);
+/** What INST was mounted with and what it keeps, under PREFIX: its columns, the
+ * four options a popup is handed, and its two id sets.  Every mount answers all
+ * eight, and one that is not up answers each field's own empty. */
+const mountFields = (prefix, inst) => ({
+  [`${prefix}cols`]: inst ? inst.cols : [],
+  [`${prefix}marks`]: inst ? inst.marksOn : null,
+  [`${prefix}flags`]: inst ? inst.flagsOn : null,
+  [`${prefix}hints`]: inst ? inst.hintsOn : null,
+  [`${prefix}page`]: inst ? inst.pageSize : null,
+  [`${prefix}flagHelp`]: inst ? inst.flagHelp : "",
+  [`${prefix}marked`]: inst ? [...inst.marks] : [],
+  [`${prefix}flagged`]: inst ? [...inst.flags] : [],
+});
 /**
  * THE STRUCTURED DOCUMENT, read off what it DREW.  It is the page's own widget
  * rather than a mount, so there is no model to ask: `#dlist' holds one element
@@ -1772,10 +1785,7 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     // is, whether it is the thing holding the keys, and which of its rows carry
     // a delete flag — plus the mount options the gesture reads.
     props: panel(), pat: patAt(), pnav: field("mprops").className === "on",
-    pmounts, psets, pflagged: pan ? [...pan.flags] : [],
-    pmarks: pan ? pan.marksOn : null, pflags: pan ? pan.flagsOn : null,
-    phints: pan ? pan.hintsOn : null,
-    pflagHelp: pan ? pan.flagHelp : "", ppage: pan ? pan.pageSize : null,
+    pmounts, psets, ...mountFields("p", pan),
     focus: focused(),
     // Every POST the syncs sent, and which SUBTREE each was aimed at — the row,
     // or an entry inside it — beside every subtree a GET asked for.
@@ -1818,10 +1828,7 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     popup: field("links").className, lhead: field("lhead").textContent,
     lfoot: field("lfoot").textContent, lmounts,
     llinks: cellsOf(lnk, ["type", "title", "url"]), lat: curOf(lnk),
-    lcols: lnk ? lnk.cols : [],
-    lmarks: lnk ? lnk.marksOn : null, lflags: lnk ? lnk.flagsOn : null,
-    lhints: lnk ? lnk.hintsOn : null, lpage: lnk ? lnk.pageSize : null,
-    lmarked: lnk ? [...lnk.marks] : [], lflagged: lnk ? [...lnk.flags] : [],
+    ...mountFields("l", lnk),
     // The link popup's edit overlay: whether a link is open for editing and what
     // its two fields are holding.
     lopen: field("ledit").className === "on",
@@ -1837,10 +1844,7 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     // one shape for a reader to assert against.
     ttags: cellsOf(tgs, ["title", "on", "rows"]).map((cells) => cells.map(String)),
     tat: curOf(tgs),
-    tcols: tgs ? tgs.cols : [],
-    tmarks: tgs ? tgs.marksOn : null, tflags: tgs ? tgs.flagsOn : null,
-    thints: tgs ? tgs.hintsOn : null, tpage: tgs ? tgs.pageSize : null,
-    tflagHelp: tgs ? tgs.flagHelp : "", tflagged: tgs ? [...tgs.flags] : [],
+    ...mountFields("t", tgs),
     // The rename overlay: whether a tag is open for editing and what its one
     // field is holding.
     trename: field("tedit").className === "on", tname: field("tname").value,
