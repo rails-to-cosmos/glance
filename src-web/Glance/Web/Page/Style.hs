@@ -203,11 +203,11 @@ page head' title body = T.unlines
   -- the sheet is the subtree's, the prompt a command's, and a reader has one
   -- open at a time — and the prompt sits high rather than centred, since a list
   -- that grows downward should not move the line above it.
-  , "  #modal,#prompt,#config,#links,#tags{--dk-mono:\"Hack\", var(--glance-mono);"
+  , "  #modal,#prompt,#config,#links,#tags,#capture{--dk-mono:\"Hack\", var(--glance-mono);"
   , "    display:none;position:fixed;inset:0;z-index:100;background:#0009;"
   , "    padding:var(--g-pop-pad);padding-top:var(--g-pop-top);"
   , "    align-items:flex-start;justify-content:center}"
-  , "  #modal.on,#prompt.on,#config.on,#links.on,#tags.on{display:flex}"
+  , "  #modal.on,#prompt.on,#config.on,#links.on,#tags.on,#capture.on{display:flex}"
   -- Four fifths of the window, in both directions: two panes of monospace want
   -- the room, and the fifth left over is what says there is a table under this
   -- rather than a page of its own.  The `min' keeps it inside the backdrop's
@@ -217,7 +217,7 @@ page head' title body = T.unlines
     -- in the sheet font, over the page ground and inside the page border — and
     -- they differ only in how much room they leave inside themselves.  A sixth
     -- surface joins by adding a selector and a gap.
-  , "  #sheet,#cbox,#pbox,#lbox,#tbox{display:flex;flex-direction:column;"
+  , "  #sheet,#cbox,#pbox,#lbox,#tbox,#kbox{display:flex;flex-direction:column;"
   , "    border-radius:6px;position:relative;z-index:101;"
   , "    font-family:var(--dk-mono);"
   , "    background:var(--g-bg);color:var(--g-fg);border:1px solid var(--g-border)}"
@@ -503,13 +503,26 @@ page head' title body = T.unlines
   -- adding a selector, which is what `#modal,#prompt,#config,#links' above does
   -- for the band.  What they no longer differ in is SIZE: that is a TIER now,
   -- worn as a class, and no box declares one of its own.
-  , "  #pbox,#lbox,#tbox{gap:6px;padding:10px}"
-  , "  #phead,#lhead,#thead{font-size:12px;color:var(--g-mute)}"
-  , "  #pfoot,#lfoot,#tfoot,#cfoot,#ctplf{font-size:11px;color:var(--g-mute)}"
-  , "  #pinput{font:12px/1.5 var(--dk-mono);padding:5px 7px;border-radius:4px;"
+  , "  #pbox,#lbox,#tbox,#kbox{gap:6px;padding:10px}"
+  , "  #phead,#lhead,#thead,#khead{font-size:12px;color:var(--g-mute)}"
+  , "  #pfoot,#lfoot,#tfoot,#cfoot,#ctplf,#kfoot{font-size:11px;color:var(--g-mute)}"
+  , "  #pinput,#ktag,#kfields input{font:12px/1.5 var(--dk-mono);padding:5px 7px;border-radius:4px;"
   , "    border:1px solid var(--g-border);background:transparent;color:inherit}"
   , "  #pbox:not(.narrow) #pinput{display:none}"
   , "  #plist{max-height:40vh;overflow-y:auto;font-size:12px}"
+  -- The capture form's own rows: the narrowed vocabulary under the tag field
+  -- (the highlight is the selection wash, the table's language), a label
+  -- beside each grown template field, and the line taking the room the box
+  -- leaves — the reason this form wears the sheet tier.
+  , "  #klist{overflow-y:auto;font-size:12px;flex:0 1 auto}"
+  , "  .ke{padding:2px 7px}"
+  , "  .ke.kh{background:var(--g-sel)}"
+  , "  .krow{display:flex;gap:8px;align-items:center;margin-top:4px}"
+  , "  .klab{font-size:11px;color:var(--g-mute);min-width:8em}"
+  , "  .krow input{flex:1 1 auto}"
+  , "  #ktext{flex:1 1 auto;min-height:0;font:12px/1.5 var(--dk-mono);"
+  , "    padding:5px 7px;border-radius:4px;border:1px solid var(--g-border);"
+  , "    background:transparent;color:inherit;resize:none}"
   -- The resolution table: source, active, inactive.  A row is a source, the
   -- hairline between two being that row's own top border — the table's border
   -- language, where the old flat list needed a divider.  The source column is
@@ -661,9 +674,9 @@ page head' title body = T.unlines
   -- reader finds out what the page is waiting on — a lost socket is a `ws' line
   -- there and nowhere else now — and dimming the explanation with the thing it
   -- explains leaves the page saying nothing.
-  , "  #app,#modal,#prompt,#config,#links,#tags{transition:opacity .18s ease}"
+  , "  #app,#modal,#prompt,#config,#links,#tags,#capture{transition:opacity .18s ease}"
   , "  html.stale #app,html.stale #modal,html.stale #prompt,html.stale #config,"
-  , "  html.stale #links,html.stale #tags{opacity:.55}"
+  , "  html.stale #links,html.stale #tags,html.stale #capture{opacity:.55}"
   -- The echo area is the page's, and the backdrop dims the page: it sits under
   -- it (2 against the modal's 100) and greys out with everything else while the
   -- sheet is open.  It stays above the table.
@@ -697,7 +710,7 @@ page head' title body = T.unlines
   , "      font-size:12px}"
   , "    #mpanes{flex-direction:column}"
   , "    #mtext,#pinput,#dedit input,#pedit input,#tedit input,#ledit input,"
-  , "    #dpara textarea,"
+  , "    #dpara textarea,#ktag,#kfields input,#ktext,"
   , "    .ctext,.cview{font-size:16px}}"
   , "</style>"
   -- The stored theme, applied before anything paints: a page that renders in

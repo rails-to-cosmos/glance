@@ -740,6 +740,16 @@ section groups a feature arc, and its date is that arc's last commit.
   or the reconnect. The status corner, the event log and the key line stay
   bright, being where a reader finds out why.
 
+### Changed
+- **Capture is one form.** `+` used to run a chain of palettes — tag, each
+  template prompt, the line — and every step closed and reopened the overlay,
+  which read as a blink. One popup now holds the whole flow: the tag field
+  with the vocabulary narrowing under it, the template's fields grown in place
+  when the tag settles (RET or TAB), and the line last. RET moves forward and
+  captures at the line; ESC anywhere leaves with nothing sent; a refusal keeps
+  the form up with everything typed, so fixing a line is an edit rather than a
+  retype.
+
 ### Fixed
 - **A link listed under two descriptions serves both.** `/links` deduplicated
   by target alone, so one `elisp:` command written under `pnl` and under

@@ -2637,61 +2637,137 @@ shellGlue wanted =
     -- a keyword, a title and a tag — and the server decides WHERE, out of the
     -- tree's own `#+GLANCE_CAPTURE_TARGET:'.  The row comes back over the socket
     -- once the watch has read the file it was written to, like every write here.
-    -- THE CHAIN `+' IS, and every step of it is one prompt: WHICH TAG, then one
-    -- field per `%^{PROMPT}' the tag's template asks, then the line itself.  ESC
-    -- at any of them ends the whole thing with nothing sent, which is the absence
-    -- of machinery rather than a rule — a step that is abandoned never calls the
-    -- one behind it.
     --
-    -- The tag list is the server's (`/capture' carries the tree's vocabulary),
-    -- and `*empty*' LEADS it: a name of one's own is committable (`freely', the
-    -- charset wall being the server's) and the meta is what an immediate RET
-    -- lands on, which is the untagged inbox path exactly as it was.  It wears the
-    -- stars every reserved value on this page wears, and it is first because that
-    -- is the answer a reader who pressed `+' to jot a line means.
-  , "    function captureFlow(b) {"
+    -- ONE POPUP, not a chain of palettes: the sequential prompts closed and
+    -- reopened the overlay per step, and the swap read as a blink.  `+' raises
+    -- the form whole — the tag field with the tree's vocabulary under it, then
+    -- one field per `%^{PROMPT}' the tag's template asks (grown in place when
+    -- the tag settles, since only the server knows them), then the line.  RET
+    -- moves the focus forward and, at the line, captures; TAB is RET's quiet
+    -- twin; ESC anywhere closes the form with nothing sent.  An EMPTY tag is
+    -- the untagged inbox path exactly as it was.
+    --
+    -- The vocabulary is the server's (`/capture'), narrowed as the reader
+    -- types; a name of the tree's own is committable, the charset wall being
+    -- the server's.  A refusal keeps the form up — the reader fixes the line
+    -- rather than retyping the form — so `shutCapture' runs on the 200 alone.
+  , "    let capping = null;   // the capture form's state while it is up"
+  , "    const capUp = () => !!capping;"
+  , "    function shutCapture() {"
+  , "      capping = null;"
+  , "      el(\"kfields\").textContent = \"\";"
+  , "      el(\"klist\").textContent = \"\";"
+  , "      el(\"ktag\").value = \"\"; el(\"ktext\").value = \"\";"
+  , "      el(\"capture\").className = \"\";"
+  , "      const held = document.activeElement;"
+  , "      if (held && held.blur) held.blur();"
+  , "    }"
+  , "    function openCapture(b) {"
+  , "      sole(\"capture\");"
+  , "      capping = { b, vocab: [], hot: -1, tag: null, inputs: [] };"
+  , "      el(\"ktag\").value = \"\"; el(\"ktext\").value = \"\";"
+  , "      el(\"kfields\").textContent = \"\"; el(\"klist\").textContent = \"\";"
+  , "      showPopup(\"capture\", \"k\", \"capture\","
+  , "                `RET moves on · at the line it captures · ${EMPTY} tag is the inbox · ESC leaves`);"
+  , "      el(\"ktag\").focus();"
   , "      captureShape(null).then((a) => {"
-  , "        const list = [{ label: EMPTY, tag: \"\" }].concat("
-  , "          (a.tags || []).map((t) => ({ label: t, tag: t })));"
-  , "        askFrom(\"capture · which tag\", list,"
-  , "                `RET picks it · a name of your own works · ${EMPTY} is the inbox`,"
-  , "                (c) => captureUnder(b, tagFrom(c)));"
+  , "        if (!capping) return;"
+  , "        capping.vocab = a.tags || [];"
+  , "        drawTagList(el(\"ktag\").value);"
   , "      }).catch(failed(b, \"capture\"));"
   , "    }"
-    -- WHAT THE TEMPLATE ASKS is the server's too, so this page holds no template
-    -- grammar: it reads the prompt list off `/capture?tag=' and puts them to the
-    -- reader in the order it was given.  The untagged path asks nothing and goes
-    -- straight to the line.
-  , "    function captureUnder(b, tag) {"
-  , "      if (!tag) { captureText(b, \"\", {}); return; }"
-  , "      captureShape(tag).then((a) =>"
-  , "        askFields(b, tag, (a.prompts || []).slice(), {}))"
-  , "        .catch(failed(b, \"capture\"));"
-  , "    }"
-    -- One prompt at a time, the answers gathering in FIELDS.  Recursive because
-    -- the list is consumed one head at a time and each step is a callback: there
-    -- is no loop that could run ahead of a reader.
-  , "    function askFields(b, tag, left, fields) {"
-  , "      if (!left.length) { captureText(b, tag, fields); return; }"
-  , "      const want = left[0];"
-  , "      askOn(`capture · ${want}`, \"RET answers it · ESC leaves\", (c) => {"
-  , "        fields[want] = c.text;"
-  , "        askFields(b, tag, left.slice(1), fields);"
+    -- The completion under the tag field: the vocabulary narrowed by substring
+    -- over the folded spelling, at most eight shown, `C-n'/`C-p' and the
+    -- vertical arrows moving a highlight RET takes.  No highlight commits the
+    -- field as typed — a tag the tree has never held is reachable, exactly as
+    -- the palette's `freely' rule had it.
+  , "    function drawTagList(typed) {"
+  , "      if (!capping) return;"
+  , "      const want = foldTag(typed);"
+  , "      capping.shown = capping.vocab"
+  , "        .filter((t) => !want || foldTag(t).indexOf(want) !== -1).slice(0, 8);"
+  , "      if (capping.hot >= capping.shown.length) capping.hot = -1;"
+  , "      const box = el(\"klist\");"
+  , "      box.textContent = \"\";"
+  , "      capping.shown.forEach((t, i) => {"
+  , "        const e = document.createElement(\"div\");"
+  , "        e.className = i === capping.hot ? \"ke kh\" : \"ke\";"
+  , "        e.textContent = t;"
+  , "        box.appendChild(e);"
   , "      });"
   , "    }"
-  , "    function captureText(b, tag, fields) {"
-  , "      askOn(tag ? `capture · :${tag}:` : \"capture · a headline for the inbox\","
-  , "            \"RET captures it · ESC leaves\","
-  , "            (c) => captureRow(b, c.text, tag, fields));"
+    -- The tag SETTLES on RET or TAB out of its field: the prompts are fetched
+    -- and grown in place, and the focus moves to the first of them, else to
+    -- the line.  Editing the tag afterwards clears the grown fields — they
+    -- describe a template the field no longer names — and the next settle
+    -- regrows them.
+  , "    function settleTag() {"
+  , "      const picked = capping.hot >= 0 ? capping.shown[capping.hot] : null;"
+  , "      if (picked) el(\"ktag\").value = picked;"
+  , "      const tag = foldTag(el(\"ktag\").value);"
+  , "      capping.tag = tag; capping.hot = -1;"
+  , "      el(\"kfields\").textContent = \"\"; capping.inputs = [];"
+  , "      el(\"klist\").textContent = \"\";"
+  , "      if (!tag) { el(\"ktext\").focus(); return; }"
+  , "      captureShape(tag).then((a) => {"
+  , "        if (!capping || capping.tag !== tag) return;"
+  , "        for (const want of (a.prompts || [])) {"
+  , "          const row = document.createElement(\"div\");"
+  , "          row.className = \"krow\";"
+  , "          const lab = document.createElement(\"label\");"
+  , "          lab.className = \"klab\"; lab.textContent = want;"
+  , "          const inp = document.createElement(\"input\");"
+  , "          inp.spellcheck = false;"
+  , "          row.appendChild(lab); row.appendChild(inp);"
+  , "          el(\"kfields\").appendChild(row);"
+  , "          capping.inputs.push({ want, inp });"
+  , "        }"
+  , "        (capping.inputs.length ? capping.inputs[0].inp : el(\"ktext\")).focus();"
+  , "      }).catch(failed(capping.b, \"capture\"));"
   , "    }"
-    -- A prompt raised from inside another prompt's COMMIT.  The press that
-    -- committed has already been handled by the surface it came from, so the
-    -- raising guard would decline the reader's NEXT key rather than that one —
-    -- `askFrom''s own rule, spelled once here for the chain that needs it most.
-  , "    function askOn(title, foot, commit) {"
-  , "      askText(title, foot, \"\", commit);"
-  , "      prompting.raising = false;"
-  , "    }"
+    -- The form's keys, a document listener like the popups': RET and TAB move
+    -- the focus forward — tag, each grown field, the line — and RET at the
+    -- line is the capture.  `C-n'/`C-p' and the vertical arrows walk the tag
+    -- list while that field holds the focus.  ESC stays the keymap's `cancel',
+    -- which reaches this surface through `SURFACES' like every other.
+  , "    document.addEventListener(\"keydown\", (e) => {"
+  , "      if (!capping || e.defaultPrevented) return;"
+  , "      const held = document.activeElement;"
+  , "      const k = keyName(e);"
+  , "      if (held === el(\"ktag\")) {"
+  , "        if (k === \"C-n\" || k === \"<down>\") {"
+  , "          capping.hot = Math.min(capping.hot + 1, (capping.shown || []).length - 1);"
+  , "          drawTagList(el(\"ktag\").value); e.preventDefault(); return;"
+  , "        }"
+  , "        if (k === \"C-p\" || k === \"<up>\") {"
+  , "          capping.hot = Math.max(capping.hot - 1, -1);"
+  , "          drawTagList(el(\"ktag\").value); e.preventDefault(); return;"
+  , "        }"
+  , "        if (k === \"RET\" || k === \"TAB\") { settleTag(); e.preventDefault(); }"
+  , "        return;"
+  , "      }"
+  , "      const at = capping.inputs.findIndex((f) => f.inp === held);"
+  , "      if (at !== -1 && (k === \"RET\" || k === \"TAB\")) {"
+  , "        const next = capping.inputs[at + 1];"
+  , "        (next ? next.inp : el(\"ktext\")).focus();"
+  , "        e.preventDefault(); return;"
+  , "      }"
+  , "      if (held === el(\"ktext\") && k === \"RET\") {"
+  , "        const fields = {};"
+  , "        for (const f of capping.inputs) fields[f.want] = f.inp.value;"
+  , "        captureRow(capping.b, el(\"ktext\").value, capping.tag || \"\", fields);"
+  , "        e.preventDefault();"
+  , "      }"
+  , "    });"
+    -- Typing in the tag field re-narrows the list and orphans any grown
+    -- fields: they describe a template the field no longer names, and the next
+    -- settle regrows the right ones.
+  , "    el(\"ktag\").addEventListener(\"input\", () => {"
+  , "      if (!capping) return;"
+  , "      capping.hot = -1; capping.tag = null;"
+  , "      el(\"kfields\").textContent = \"\"; capping.inputs = [];"
+  , "      drawTagList(el(\"ktag\").value);"
+  , "    });"
     -- And the write.  The line is raw org — `TODO Buy milk :errands:' captures a
     -- keyword, a title and a tag — and the server decides WHERE: the tree's own
     -- `#+GLANCE_CAPTURE_TARGET:' with no tag, a blob in the store with one.  The
@@ -2706,6 +2782,10 @@ shellGlue wanted =
   , "      if (fields && Object.keys(fields).length) args.fields = fields;"
   , "      postCommand({ name: \"capture\", args }).then((a) => {"
   , "        arriving = a.id || null;"
+    -- The form closes on the 200 alone: a refusal lands in the log and leaves
+    -- everything typed where it was, so fixing the line is an edit rather than
+    -- a retype.
+  , "        shutCapture();"
   , "        said(b, tag ? `captured · :${tag}:` : `captured · ${a.file}`);"
   , "        append(\"cmd\", \"info\","
       <> " `headline ${JSON.stringify(typed)} captured into ${a.file}`);"
@@ -4271,6 +4351,7 @@ shellGlue wanted =
     -- the sheet ladder below, where closing a workspace belongs.
   , "    const SURFACES = ["
   , "      { name: \"prompt\", momentary: true, up: () => !!prompting, off: unask },"
+  , "      { name: \"capture\", momentary: true, up: capUp, off: shutCapture },"
   , "      { name: \"links\", momentary: true, up: linking, off: shutLinks,"
   , "        edit: lediting, shut: cancelLinkEdit },"
   , "      { name: \"tags\", momentary: true, up: managing, off: shutTags,"
@@ -4444,7 +4525,7 @@ shellGlue wanted =
     -- `+' is a CHAIN of prompts and nothing else: which tag, whatever that tag's
     -- template asks, then the line.  What it collects goes straight to the
     -- server, which knows the file and holds the template.
-  , "      capture: (b) => captureFlow(b),"
+  , "      capture: (b) => openCapture(b),"
     -- `o' FOLLOWS the row, and how many links it holds decides the whole gesture:
     -- none is a refusal, one opens, several raise the popup.  The count is the
     -- server's answer, so the popup can only go up behind the request, which is

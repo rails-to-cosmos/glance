@@ -1997,10 +1997,13 @@ tagsPosted = traverse (textAt "tag") <=< argsOf
 -- date grammar is the server's and is @TestQuery@'s subject.
 promptKeySpec :: IO T.Text -> TestTree
 promptKeySpec shell = testGroup "Shell capture and reschedule"
-    -- `+' OPENS WITH THE TAG, and `*empty*' leads the list: an immediate RET is
-    -- the untagged inbox path exactly as it was before the chain existed.
-  [ keyed shell "+ asks which tag first, and *empty* is the inbox"
-      "+" "press:Enter type:milk press:Enter" $ \answer -> do
+    -- `+' RAISES ONE FORM, whole: tag field, the template's grown fields, the
+    -- line.  The chain of palettes it replaces closed and reopened the overlay
+    -- per step, which read as a blink.  An immediate RET settles the EMPTY tag
+    -- — the untagged inbox path exactly as it was — and RET at the line is the
+    -- capture, after which the form is down.
+  [ keyed shell "+ is one form, and an empty tag is the inbox"
+      "+" "press:Enter ktext:milk press:Enter" $ \answer -> do
         assertEqual "the vocabulary came off the server" ["/capture"]
           =<< textsAt "capturing" answer
         assertEqual "one capture, naming no rows" ["capture"] =<< namesOf answer
@@ -2011,15 +2014,16 @@ promptKeySpec shell = testGroup "Shell capture and reschedule"
         assertEqual "and the log names the headline"
                     (Just "headline \"milk\" captured into /o/inbox.org")
           =<< lastLog answer
-        assertEqual "the overlay is down" "" =<< textAt "prompt" answer
+        assertEqual "the form is down on the 200" "" =<< textAt "capture" answer
 
-    -- A TAG WITH A TEMPLATE asks that template's own prompts, in the order the
-    -- server named them, and the answers ride in `fields'.  This page holds no
-    -- template grammar: what it asks is what `/capture?tag=' said to ask.
-  , keyed shell "a tag's template asks its prompts, one field at a time"
-      "+" "type:book press:Enter type:Herbert press:Enter type:Dune press:Enter"
+    -- A TAG WITH A TEMPLATE grows that template's own fields in place, in the
+    -- order the server named them, and the answers ride in `fields'.  This
+    -- page holds no template grammar: what it asks is what `/capture?tag='
+    -- said to ask — and the form stays up throughout, one surface end to end.
+  , keyed shell "a tag's template grows its fields in place"
+      "+" "ktag:book press:Enter kf:Herbert press:Enter ktext:Dune press:Enter"
       $ \answer -> do
-        assertEqual "the tag was resolved before the reader was asked anything"
+        assertEqual "the tag was resolved when it settled"
                     ["/capture", "/capture?tag=book"] =<< textsAt "capturing" answer
         assertEqual "one capture" ["capture"] =<< namesOf answer
         assertEqual "the line as typed" ["Dune"] =<< capturedOf answer
@@ -2029,56 +2033,59 @@ promptKeySpec shell = testGroup "Shell capture and reschedule"
         echoIs "the pill names the tag rather than a file"
           "+ → org-glance-overview:capture (captured · :book:)" answer
 
-    -- A tag NOBODY configured asks nothing: the server answers no prompts and
-    -- the chain goes straight to the line.
+    -- A tag NOBODY configured grows nothing: the server answers no prompts and
+    -- the settle moves the focus straight to the line.
   , keyed shell "a tag with no template goes straight to the line"
-      "+" "type:web press:Enter type:milk press:Enter" $ \answer -> do
+      "+" "ktag:web press:Enter ktext:milk press:Enter" $ \answer -> do
         assertEqual "resolved all the same" ["/capture", "/capture?tag=web"]
           =<< textsAt "capturing" answer
         assertEqual "the line as typed" ["milk"] =<< capturedOf answer
         assertEqual "under the tag" [Just "web"] =<< taggedOf answer
 
-    -- ESC ANYWHERE ENDS THE WHOLE CHAIN with nothing sent, and it is the absence
-    -- of machinery rather than a rule: a step that is abandoned never calls the
-    -- one behind it.
-  , keyed shell "ESC at the tag prompt writes nothing"
+    -- ESC ANYWHERE CLOSES THE FORM with nothing sent — one surface, one door
+    -- out, the keymap's own `cancel' through `SURFACES'.
+  , keyed shell "ESC at the tag field writes nothing"
       "+" "press:Escape" $ \answer -> do
         assertEqual "no command went" [] =<< namesOf answer
-        assertEqual "the overlay is down" "" =<< textAt "prompt" answer
+        assertEqual "the form is down" "" =<< textAt "capture" answer
 
-  , keyed shell "ESC at a template's own prompt writes nothing"
-      "+" "type:book press:Enter type:Herbert press:Escape" $ \answer -> do
+  , keyed shell "ESC at a grown field writes nothing"
+      "+" "ktag:book press:Enter kf:Herbert press:Escape" $ \answer -> do
         assertEqual "the tag was resolved" ["/capture", "/capture?tag=book"]
           =<< textsAt "capturing" answer
         assertEqual "no command went" [] =<< namesOf answer
-        assertEqual "the overlay is down" "" =<< textAt "prompt" answer
+        assertEqual "the form is down" "" =<< textAt "capture" answer
 
   , keyed shell "and ESC at the line leaves it having written nothing"
-      "+" "press:Enter type:milk press:Escape" $ \answer -> do
+      "+" "press:Enter ktext:milk press:Escape" $ \answer -> do
         assertEqual "no command went" [] =<< namesOf answer
-        assertEqual "the overlay is down" "" =<< textAt "prompt" answer
+        assertEqual "the form is down" "" =<< textAt "capture" answer
 
+    -- An empty line is refused on the spot and the form STAYS: what is typed
+    -- is kept for fixing, and the 200 alone closes it.
   , keyed shell "an empty line captures nothing and says so"
       "+" "press:Enter press:Enter" $ \answer -> do
         assertEqual "no command went" [] =<< namesOf answer
         echoIs "the pill says why" "+ → org-glance-overview:capture (nothing to capture)" answer
+        assertEqual "and the form is still up" "on" =<< textAt "capture" answer
 
-  , keyed shell "a refused capture is one cmd error line"
-      "" "refuse press:+ press:Enter type:milk press:Enter" $ \answer -> do
+  , keyed shell "a refused capture is one cmd error line, and the form stays"
+      "" "refuse press:+ press:Enter ktext:milk press:Enter" $ \answer -> do
         assertEqual "the command still went" ["capture"] =<< namesOf answer
         assertEqual "and the log carries the server's own words"
                     (Just "capture failed: #+GLANCE_CAPTURE_TARGET: /x.org is an absolute path")
           =<< lastLog answer
+        assertEqual "everything typed is still there" "on" =<< textAt "capture" answer
 
     -- THE LANDING: the answer names the row the write made, and point goes to it
     -- when the watch delivers it.  `land''s ordinary rule and no second one — a
     -- row the view has not got leaves the cursor where it stands.
   , keyed shell "the captured row is where point lands when it arrives"
-      "+" "press:Enter type:milk press:Enter frame:upsert=r3 wait:300" $ \answer ->
+      "+" "press:Enter ktext:milk press:Enter frame:upsert=r3 wait:300" $ \answer ->
         assertEqual "point is on the row the capture made" (Just "r3")
           =<< maybeTextAt "selected" answer
 
-    -- THE WHOLE CHAIN FOR A TAGGED CAPTURE, which is the one the daemon's nudge
+    -- THE WHOLE FORM FOR A TAGGED CAPTURE, which is the one the daemon's nudge
     -- unblocked: the blob it writes sits under directories fsnotify never
     -- entered, so before the nudge no frame was coming and this landing had
     -- nothing to land on until a restart.  Every link is asserted here — the
@@ -2086,7 +2093,7 @@ promptKeySpec shell = testGroup "Shell capture and reschedule"
     -- frame delivering that very row, and point moving off the boot's row one
     -- onto it.
   , keyed shell "a tagged capture lands point on the blob when the watch delivers it"
-      "+" "type:book press:Enter type:Herbert press:Enter type:Dune press:Enter\
+      "+" "ktag:book press:Enter kf:Herbert press:Enter ktext:Dune press:Enter\
           \ frame:upsert=r3 wait:300" $ \answer -> do
         assertEqual "the tag was resolved off the server"
                     ["/capture", "/capture?tag=book"] =<< textsAt "capturing" answer
@@ -5336,8 +5343,8 @@ shellGlue =
   -- backdrop and clip it inside the table's box.
   , Glue "the wash dims the table and the overlays, and exempts what explains"
       [ "  html.stale #app,html.stale #modal,html.stale #prompt,html.stale #config,"
-      , "  html.stale #links,html.stale #tags{opacity:.55}"
-      , "  #app,#modal,#prompt,#config,#links,#tags{transition:opacity .18s ease}" ]
+      , "  html.stale #links,html.stale #tags,html.stale #capture{opacity:.55}"
+      , "  #app,#modal,#prompt,#config,#links,#tags,#capture{transition:opacity .18s ease}" ]
       [ "html.stale #log", "html.stale #kbd"
       , "html.stale #echo", "html.stale body", "stale #app{filter", "filter:blur"
       , "filter:saturate", "filter:grayscale" ]

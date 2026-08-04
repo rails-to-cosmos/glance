@@ -1422,26 +1422,33 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   down to set a state over a run of rows, and letting the archive key inherit one
   makes every mark a loaded gun. `+` (`capture`) takes NO rows at all. Every set
   is the renderer's and is asked for AT command time; no set is kept here.
-- `+`, `C-c C-s` and `C-c C-d` raise the value palette in its TEXT mode
+- `C-c C-s` and `C-c C-d` raise the value palette in its TEXT mode
   (`askText`): the same overlay, the same band, the same `unask` and the same
   ESC through `cancel`, with `prompting.text` set — no list, no letters, RET
-  commits the line as typed. `+`'s line goes to the server whole; the two chords
-  send it as `date`, and an EMPTY line is the null that clears the entry. Both
+  commits the line as typed. The two chords
+  send the line as `date`, and an EMPTY line is the null that clears the entry.
+  Both
   chords reach the page where `C-c C-t` does not: `Ctrl+S` and `Ctrl+D` are page
   default actions rather than chrome shortcuts, so `preventDefault` on the
   completing chord is the whole of what they need.
-- `+` IS A CHAIN OF PROMPTS and ESC anywhere ends it with nothing sent: which tag
-  (`askFrom` over the tree's vocabulary, `*empty*` LEADING the list so an
-  immediate RET is the untagged inbox path exactly as it was, and a name of one's
-  own committable through `freely`, the charset wall being the server's), then
-  one field per `%^{PROMPT}` the tag's template asks in the order the server
-  named them, then the line. Abandoning is the ABSENCE of machinery: each step
-  raises the next from its own commit, so a step nobody committed never calls the
-  one behind it. This page holds no template grammar — what it asks is what
-  `/capture?tag=` said to ask. `askOn` is the one thing the chain owes, clearing
-  the raising guard for a prompt raised from inside another prompt's commit
-  (`askFrom`'s own rule: that press has been handled already, so the guard would
-  decline the reader's NEXT key).
+- `+` IS ONE FORM (`#capture`/`#kbox`, its own `SURFACES` entry between the
+  palette and the link popup), where a chain of palettes used to blink: the tag
+  field with the tree's vocabulary narrowing under it (substring over the
+  folded spelling, at most eight shown, `C-n`/`C-p` and the vertical arrows
+  walking a highlight RET takes; no highlight commits the field as typed, so a
+  name of the tree's own is reachable and the charset wall stays the server's),
+  then one field per `%^{PROMPT}` grown IN PLACE when the tag settles (RET or
+  TAB out of its field — only the server knows the prompts, and editing the tag
+  afterwards clears the grown fields), then the line. RET moves the focus
+  forward and at the line captures; an EMPTY tag settles to the untagged inbox
+  path exactly as it was; ESC anywhere is the keymap's `cancel` through
+  `SURFACES` and closes the form with nothing sent. A refusal — the server's,
+  or the empty line's — keeps the form UP with everything typed: `shutCapture`
+  runs on the 200 alone, so fixing a line is an edit rather than a retype. This
+  page still holds no template grammar; what it grows is what `/capture?tag=`
+  said to ask. The form's keys are a document listener behind the dispatch,
+  gated on the focused field, so the harness reaches them the way a reader
+  does.
 - A CAPTURE SAYS WHERE POINT IS OWED, and `arriving`/`arrived()` is `leaving`'s
   mirror: the answer names the row the write made, and the same three doors that
   spend the archive's anchor spend this one. It is `land`'s ordinary rule asked

@@ -51,6 +51,9 @@
 //                 `/' has to have put the palette in that mode first
 //   tname:TEXT    TEXT typed into the tags popup's rename overlay, which `RET'
 //                 has to have opened over the tag at point first
+//   ktag:TEXT     TEXT typed into the capture form's tag field, `+' having
+//   ktext:TEXT    raised the form; `ktext' is its line, and `kf:TEXT' types
+//   kf:TEXT       into whichever grown template field holds the focus
 //   ltitle:TEXT   TEXT typed into the link popup's edit overlay, whose two
 //   lurl:TEXT     fields are what the entry calls the link and where it points;
 //                 `RET' has to have opened it over the link at point first
@@ -992,6 +995,10 @@ const TAGS = { mtext: "textarea", filter: "input", pinput: "input",
                tname: "input", themesel: "select",
                ltitle: "input", lurl: "input",
                cfilter: "input", ctarget: "input", clog: "input",
+               // The capture form: the tag field and the line; the template's
+               // grown fields are page-made nodes the acts reach through the
+               // focus.
+               ktag: "input", ktext: "textarea",
                // The keywords panel: one select over the layers and one box
                // showing the selected one's lines.
                clayer: "select", ctext: "textarea", ctpl: "textarea" };
@@ -1101,6 +1108,11 @@ const STATEFUL = [ "mtext", "mnote", "mfile", "modal", "mprops", "mlog", "sheet"
                  // `ttable' is the element, `tpane' the box the overlay is
                  // placed inside, and `tedit'/`tname' the rename itself.
                  , "tags", "thead", "tpane", "ttable", "tfoot", "tedit", "tname"
+                 // The capture form: the one popup `+' raises whole — its
+                 // backdrop, head and foot, the tag field with its narrowed
+                 // list, the container the template's fields grow into, and
+                 // the line.
+                 , "capture", "khead", "ktag", "klist", "kfields", "ktext", "kfoot"
                  // The settings sheet: its state, its panel frames, the fields
                  // of the general panel — the two tree-wide lines, which are
                  // `system.org''s and ride in that layer's write, plus the log
@@ -1355,7 +1367,7 @@ const patAt = () => curOf(pan);
  * what leaves every printable key free.
  */
 const FOCUSABLE = ["mtext", "dkey", "dval", "dtext", "ltitle", "lurl", "tname",
-                   "pinput"];
+                   "pinput", "ktag", "ktext"];
 const focused = () => {
   if (!active) return "";
   // The panel's two fields carry the row they are laid over, since the overlay
@@ -1597,6 +1609,30 @@ const ACTIONS = {
     if (field("tedit").className !== "on")
       throw new Error("no tag is open for renaming");
     typed(field("tname"), text);
+  },
+  // Typing into the capture form.  The tag and the line are its own markup; a
+  // template's grown fields are page-made nodes, so `kf:' types into whichever
+  // of them holds the focus — the way a reader reaches one.
+  ktag: (text) => {
+    if (field("capture").className !== "on")
+      throw new Error("the capture form is not open: ktag");
+    const box = field("ktag");
+    box.focus();
+    typed(box, text);
+  },
+  kf: (text) => {
+    if (field("capture").className !== "on")
+      throw new Error("the capture form is not open: kf");
+    if (!active || active === field("ktag") || active === field("ktext"))
+      throw new Error("no template field holds the focus: kf");
+    typed(active, text);
+  },
+  ktext: (text) => {
+    if (field("capture").className !== "on")
+      throw new Error("the capture form is not open: ktext");
+    const box = field("ktext");
+    box.focus();
+    typed(box, text);
   },
   // And into the link popup's edit overlay, which is two fields over the link at
   // point: `ltitle' is what the entry calls it and `lurl' where it points.  A
@@ -1875,6 +1911,13 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     // the last sort a call asked for and how many were asked for, and the CHAIN
     // in force — which the query names and no call has to have made.
     linked, opened, sorted, sortCalls, chain: sortChain, tagged,
+    // The capture form: whether it is up, its head, the tag field, the grown
+    // template fields as [label, value] pairs, and the line.
+    capture: field("capture").className, khead: field("khead").textContent,
+    ktag: field("ktag").value, ktext: field("ktext").value,
+    kfields: field("kfields").children.map((row) => [
+      (row.children[0] || {}).textContent || "",
+      (row.children[1] || {}).value || "" ]),
     // The link popup, which is the page's THIRD mount: whether it is up, the two
     // lines of chrome it draws, how many times it was built and re-set, the rows
     // it is showing, where its cursor is, and the read-only options it was

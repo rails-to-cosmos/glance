@@ -3157,21 +3157,28 @@ on.
   line whole; the two chords send it as `date`, where an EMPTY line is the null
   that clears the entry, so the key that sets a date is the key that takes one
   off. Evidence: `TestServe` "Shell capture and reschedule". **test**
-- **`+` IS A CHAIN OF PROMPTS, and ESC anywhere ends it with nothing sent.**
-  Which tag first (`askFrom` over the tree's vocabulary, `*empty*` LEADING the
-  list so an immediate RET is the untagged inbox path exactly as it was, and a
-  name of one's own committable through `freely` since the charset wall is the
-  server's), then one field per `%^{PROMPT}` the tag's template asks in the order
-  the server named them, then the line. Abandoning a step is the ABSENCE of
-  machinery rather than a rule: each step raises the next from its own commit, so
-  a step nobody committed never calls the one behind it. The page holds no
-  template grammar — what it asks is what `/capture?tag=` said to ask. `askOn` is
-  the one thing the chain owes: a prompt raised from inside another prompt's
-  commit clears the raising guard, since the press that committed has already
-  been handled by the surface it came from and the guard would decline the
-  reader's NEXT key (`askFrom`'s own rule). Evidence: `TestServe` "+ asks which
-  tag first", "a tag's template asks its prompts, one field at a time", the three
-  ESC cases. **test**
+- **`+` IS ONE FORM, and ESC anywhere closes it with nothing sent.** The chain
+  of palettes it replaces (2026-08-04, the same day it landed) closed and
+  reopened the overlay per step, which read as a blink. `#capture`/`#kbox` is
+  its own `SURFACES` entry between the palette and the link popup: the tag
+  field with the tree's vocabulary narrowing under it (substring over the
+  folded spelling, at most eight shown, `C-n`/`C-p` and the vertical arrows
+  walking a highlight RET takes; no highlight commits the field as typed, so a
+  name of the tree's own is reachable and the charset wall stays the
+  server's), then one field per `%^{PROMPT}` GROWN IN PLACE when the tag
+  settles — RET or TAB out of its field, since only the server knows the
+  prompts, and editing the tag afterwards clears the grown fields as
+  describing a template the field no longer names — then the line. RET moves
+  the focus forward and at the line captures; TAB is its quiet twin; an EMPTY
+  tag settles to the untagged inbox path exactly as it was. A refusal — the
+  server's, or the empty line's — keeps the form UP with everything typed:
+  `shutCapture` runs on the 200 alone, so fixing a line is an edit rather
+  than a retype. The page holds no template grammar — what it grows is what
+  `/capture?tag=` said to ask — and the form's keys are a document listener
+  behind the dispatch, gated on the focused field. Evidence: `TestServe`
+  "+ is one form, and an empty tag is the inbox", "a tag's template grows its
+  fields in place", the three ESC cases, "a refused capture is one cmd error
+  line, and the form stays". **test**
 - **A capture SAYS WHERE POINT IS OWED, and `arriving`/`arrived()` is `leaving`'s
   mirror.** The answer names the row the write made, the shell keeps it as a
   one-shot, and the same three doors that spend the archive's anchor spend this

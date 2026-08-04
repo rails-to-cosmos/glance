@@ -117,6 +117,24 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   ]
   <> popupFrame "links" "l"
        ("<div id=\"ledit\">" <> field "ltitle" <> field "lurl" <> "</div>")
+  -- The capture form, one popup where a chain of palettes used to blink: the
+  -- tag field with the vocabulary narrowing under it, the fields a template
+  -- asks grown into `#kfields' when the tag settles, and the line last.  RET
+  -- moves the focus forward and captures at the line; ESC leaves whole.
+  <>
+  [ "  <div id=\"capture\">"
+  , "    <div id=\"kbox\" class=\"pop-sheet\">"
+  , "      <div id=\"khead\"></div>"
+  , "      <input id=\"ktag\" spellcheck=\"false\" autocomplete=\"off\""
+      <> " placeholder=\"tag — empty is the inbox\">"
+  , "      <div id=\"klist\"></div>"
+  , "      <div id=\"kfields\"></div>"
+  , "      <textarea id=\"ktext\" spellcheck=\"false\""
+      <> " placeholder=\"a headline, as org\"></textarea>"
+  , "      <div id=\"kfoot\"></div>"
+  , "    </div>"
+  , "  </div>"
+  ]
   -- The settings sheet: the page's ONE place for a preference, in PANELS.
   -- General, theme, keywords — a header over the rows that belong to it, drawn
   -- from the `SECTIONS' list below, so a fourth panel is one entry there and the
