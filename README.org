@@ -1,307 +1,190 @@
 * Glance
 
-** Summary
+Serves an org tree as a keyboard-driven table in a browser tab and writes back
+into the files by span splice. Org files stay the single source of truth: one
+walk into an in-memory projection, a websocket streaming every change as the
+file watch re-parses, and every write replacing the exact characters a headline
+occupies — optimistic lock, temp-plus-rename, every other byte identical.
+Underneath sits =Data.Org=, a megaparsec org-mode grammar where every element
+carries a half-open character span into its document.
 
-*Glance* serves an org tree as a keyboard-driven table in a browser tab and
-writes back into the files by span splice. Org files are the single source of
-truth: the daemon walks a directory once into an in-memory projection, answers
-=/headlines= out of it, streams every change over a websocket as the file watch
-re-parses one file per edit, and every write replaces the exact characters a
-headline occupies under an optimistic lock, temp-plus-rename, leaving every
-other byte identical. Under that sits the stateful org-mode parser this project
-began as — =Data.Org=, a megaparsec grammar threading a =Context=, where every
-element carries a half-open character span into its document: headlines at any
-level, =#+TODO:=-declared states, priorities, tags, property drawers, planning
-lines, and active and inactive timestamps with ranges and repeaters.
-
-- *Author:* Dmitry Akatov
-- *Version:* =0.4.0.0= — see [[file:CHANGELOG.md][CHANGELOG.md]] for what each cut carries
-- *License:* BSD3
+- *Author:* Dmitry Akatov · *License:* BSD3 · *Version:* =0.4.0.0= ([[file:CHANGELOG.md][CHANGELOG.md]])
 - *Upstream:* https://github.com/rails-to-cosmos/glance
 
 ** Quickstart
 
 #+begin_src sh
 cabal run glance -- serve   --dir ~/org     # http://127.0.0.1:7777/
-cabal run glance -- desktop --dir ~/org     # the same daemon, in a window of its own
-make native                                 # build the WebKitGTK window in (-f native-window)
+cabal run glance -- desktop --dir ~/org     # same daemon, app window
+make native                                 # build the WebKitGTK window in
 #+end_src
 
-=serve= takes =--dir=, =--port= (default 7777), =--assets PATH= and
-=--include-derived=. =desktop= takes those plus =--browser CMD=, =--dry-run= and
-=--keep-serving=; it opens =$GLANCE_BROWSER=, then =--browser=, then the first
-chromium-family browser on =PATH= as ~CMD --app=URL~, then =xdg-open=, then
-prints the URL, and no window failure ever takes the daemon down. A build
-carrying its own window prefers it, naming a browser still beats it, and
-=--dry-run= says which won.
-
-The listener binds =127.0.0.1= and nothing else; privilege tiers arrive with S7
-(=docs/plan-org-console-web.md=). It binds *before* it walks: over ~6.3k files
-the walk is ~10 s, during which the store routes answer =503= with
-=Retry-After: 1= and ={"loading": true, "elapsed": S}= while =/= and the assets
-serve, so the shell paints an indexing state and polls out of it. Order is fixed
-— bind, window, walk, watch. Nothing is installed beside the binary:
-=assets/table-view.js= is compiled in, every served page fetches only from this
-server, and no source file names a path outside the repository.
-
-The HTTP surface is a fixed route table — =/=, =/headlines=, =/headline=
-(GET + POST), =/command= (POST), =/config= (GET + POST), =/keywords=, =/links=,
-=/tags=, =/ws=. =/headlines= answers table-view's View object with the load
-counts in =X-Glance-*= headers and =ETag: "<fingerprint>-gN"= under
-=Cache-Control: no-cache=, so an unchanged tree costs a 304 rather than a body.
-~?limit=~ caps at 20000, bodies cap at 1 MiB, and ~?order=~ is refused with a
-400 naming =sort:= as its replacement.
+=serve= takes =--dir=, =--port= (7777), =--assets PATH=, =--include-derived=;
+=desktop= adds =--browser CMD=, =--dry-run=, =--keep-serving=. Binds
+=127.0.0.1= only, and binds *before* the ~10 s walk — store routes answer 503
+with a loading body until it lands, so the page paints an indexing state and
+polls out of it.
 
 #+begin_src sh
 curl -s localhost:7777/headlines | jq '.rows | length'
-curl -s 'localhost:7777/headlines?q=state:*active*%20sort:deadline&limit=100' | jq '.sort'
+curl -s 'localhost:7777/headlines?q=tag:work%20sort:deadline&limit=100' | jq '.sort'
 #+end_src
 
-** The surfaces
+** Queries, by example
 
-*The table is a list of entries, one row per top entry.* A level-one headline
-carrying at least one of the six column cells gets a row; a deeper headline is
-reached by materializing the entry it belongs to. The columns are =State=, =#=
-(priority), =Title=, =Scheduled=, =Deadline= and =Tags=. Archived rows are left
-out unless a query names =tag:*archive*=, and =X-Glance-Archived= counts what
-was hidden. =glance scan= still counts every headline at every level — it is a
-parser oracle rather than a view.
+One string states both the narrowing and the order ([[https://github.com/rails-to-cosmos/table-view][table-view]]'s grammar,
+ported term for term; divergences enumerated in [[file:docs/invariants.md][docs/invariants.md]]).
 
-*The keymap is data, and the served page is its documentation.*
-=Glance.Web.Keymap.keyBindings= is one map — no profiles, both spellings bound at once
-(=n=/=j=, =f=/=l=) — carried into the page as a JSON blob that the dispatch, the
-echo pill and the resident key line all read. Press a key and the pill says
-=SEQ → command=; the last line of the page is the whole map's summary. Nothing
-is restated here, so a binding cannot go stale in this file. A letter binding
-names the *physical key* rather than the character, so a Cyrillic layout
-navigates on =т з о л= and punctuation stays the character it types. Two rules
-worth knowing off-page: =DEL= is a ladder (unmark all, else drop the query's last
-token, else pop a drill's crumb), and =C-c C-t= is bound and correct but never
-completes in a browser, =Ctrl+T= belonging to the browser process — which is
-what the native window fixes and what the plain =t= works around.
+| query                               | rows served                                  |
+|-------------------------------------+----------------------------------------------|
+| =milk=                              | substring anywhere in the row                |
+| =state:TODO=                        | exactly that keyword                         |
+| =state:TODO\vert{}DONE=             | either (alternatives OR)                     |
+| =tag:work tag:home=                 | both tags (tokens AND)                       |
+| =-tag:work=                         | rows without the tag                         |
+| =tag:*empty*=                       | untagged rows (=*word*= is a meta, never text) |
+| =state:*active*=                    | active keywords + stateless — the default view |
+| =tag:*archive*=                     | the archived rows every other query hides    |
+| =-planned:*empty* sort:scheduled=   | the agenda: dated rows, earliest first       |
+| =ref:ROW-ID=                        | rows whose subtree links to that row (=@= drills) |
+| =sort:state->title:desc=            | order by cycle, ties by title reversed       |
+| =sort:*none*=                       | document order, no sort at all               |
 
-*The popups*, one line each:
+Written order is precedence; a query naming any =sort:= replaces the default
+chain (state · title · deadline · scheduled, state in the tree's own =#+TODO:=
+order). =:work:= and ~=code=~ stay text — only column keys, =planned=, =ref=
+and =sort= are predicates.
 
-- =/= — the *filter palette*, the renderer's own overlay; the applied query
-  rides in the URL, so a filtered view is a link.
-- =t= — the *state palette*: ~GET /keywords?ids=…~ answered as a table
-  (=Source= | =Active= | =Inactive=, widest layer first, =*empty*= at the foot),
-  which-key, a letter commits on its own; =/= falls back to a completing-read.
-- =:= — the *tag palette* over the same rows, under dired's normalize-up rule (a
-  tag every row carries comes off, a tag some carry goes on), and it stays up.
-- =o= / =!= — the *link popup*: a table of the row's links (kind, description,
-  target) off ~GET /links?id=~; =o= opens one, =RET= edits it.
-- =+=, =C-c C-s=, =C-c C-d= — a *one-line prompt*: capture text, or a date
-  (=2026-08-05=, =today=, =+3d=, or org's own bracketed form kept verbatim).
-- =,= — the *settings sheet*, three panels: general (default view, capture
-  target, log lines), theme, keywords.
+** Keys, the dozen that matter
 
-*The material document.* =RET= opens the row's subtree over the table as a
-document, a property panel and a read-only logbook strip. The document is walked
-as *grains*: every element is a stop, and a list, a =#+begin_…= block and an org
-table each take two stops over the same bytes — the whole, then its parts —
-emitted inline in document order, so =n= meets the composite and walks into it
-with no descend key. Every element writes on its own, a lens splice for a
-paragraph and a =/command= for the headline's own cells, so the document holds
-no unsaved work; the panel and raw mode are what =dirty()= reads. =RET= on a
-child drills into it (~?child=N~, document order over the whole subtree) and
-=DEL= walks back out, with the sheet's own crumb strip saying where you are.
-Links are span-driven rather than searched: =o= narrows to the element the
-cursor is on. =C-c '= swaps to raw org by re-materializing, so an edited sheet is
-refused rather than converted in a page that holds no org parser. =C-x C-s=
-syncs, =C-c C-c= commits the open element, =ESC= is a ladder out, and a file that
-moved underneath is a 409 the sheet waits on at =conflict=. Two things are the
-server's and ride out but never back: =ORG_GLANCE_ID= plus
-=ORG_GLANCE_CREATION_TIME=, and the whole =:LOGBOOK:= drawer.
+The keymap is data (=Glance.Web.Keymap=): the served page's last line is the
+whole map, and the echo pill names every press =SEQ → command=. Letters bind
+the *physical key*, so =т з о л= navigates on a Cyrillic layout.
 
-*The event strip* under the table is append-only, keeps 500 lines
-(=HH:MM:SS SEV scope message=, scopes =ws=/=sync=/=cmd=/=filter=/=config=/=boot=)
-and names every row a write landed on and every one refused; its height is the
-settings sheet's =log lines= field. There is no status corner: when a change can
-no longer reach the page — a view being replaced, a socket gone — the page fades
-back and the strip says why in words.
+| =n= =p= / =f= =b= | rows / cells — and in the document, siblings / grain    |
+| =RET=             | materialize the row; in the document, edit the element  |
+| =DEL=             | the ladder: unmark, else drop a query token, else pop a drill |
+| =t= =:= =d d= =D= | state palette · tag popup · flag-then-archive           |
+| =m= =u= =M= =U=   | dired's marks                                           |
+| =o=               | follow the row's links (one opens, several list)        |
+| =+=               | capture · =g= default view · =P= pin view as default · =a= agenda |
+| =@=               | drill into referring rows; =DEL= walks back             |
+| =/=               | filter palette · =,= settings · =C-x C-s= sync the sheet |
 
-** The grammar
+** Capture
 
-~?q=~ is one query stating both the narrowing and the order, and it is
-[[file:../table-view/SCHEMA.md][SCHEMA.md]]'s micro-syntax ported term for term
-into =Glance.Web.Filter= and =Glance.Web.Sort= — parity with =table-view.js= is
-the contract, and the known divergences are enumerated in
-[[file:docs/invariants.md][docs/invariants.md]]. Tokens split on whitespace and
-=&=; =key:value= (~=~ is an alias) is a predicate only where =key= names a
-column or one of =planned=, =ref= and =sort=, so =:work:= and ~=code=~ stay the
-org text they are and an org tag is reached as =tag:course=; =-= negates a whole
-token, a token opening with a quote is free text, and everything unmatched is a
-case-insensitive substring of the row as it displays. *Tokens AND, alternatives
-OR*: =tag:a tag:b= carries both, =state:TODO|DONE= is either. A value between
-asterisks is a *meta* and a bare word never is — =key:*empty*= is the empty cell
-on every key, =tag:*archive*= the whole archive tag, =state:*active*= /
-=state:*inactive*= the keyword groups a tree declares, =sort:*none*= the empty
-chain. =ref:ID= is every row whose subtree points at the row named, which only
-the store can answer and which =@= applies as a drill. =sort:COL= orders and
-narrows nothing, =sort:COL:desc= reverses, written order is precedence, and a
-query naming any sort key replaces the default chain (state, title, deadline,
-scheduled — state read in the tree's own =#+TODO:= order). A column named twice,
-a negated or alternated sort token, an unknown column and a companion beside
-=sort:*none*= are each a 400 naming the token.
+=+= is one form: a tag field completing over the tree's vocabulary, the
+template's own fields grown in place when the tag settles, the line last. RET
+moves forward and captures; empty tag = plain inbox line; ESC leaves whole.
+
+A tag's template is the first heading of its config layer:
+
+#+begin_src org
+# .org-glance/config/tags/book.org
+#+TODO: TODO READING | READ
+* Book
+:PROPERTIES:
+:AUTHOR: %^{Author}
+:END:
+%?
+#+end_src
+
+=%?= is where the typed line lands, =%^{Author}= becomes a form field, =%U= /
+=%T= stamp the server's clock; anything else copies through verbatim. A tagged
+capture mints a real org-glance blob — id, shard path, =EXTERNAL.jsonl= note —
+that Emacs adopts on its next refresh.
+
+** The material document
+
+=RET= opens the row's subtree as a document + property panel. Movement is the
+table's two axes: =n=/=p= walk siblings at the current grain — a list, block
+or table is *one* stop, so holding =n= skims — and =f=/=b= go a grain finer /
+broader (a composite's items, a headline's cells). Every element commits on
+its own (=C-x C-s= / =C-c C-c=), =RET= on a child drills in, =DEL= walks out,
+a moved file is a 409 the sheet waits on. =ORG_GLANCE_ID=, the creation stamp
+and the =:LOGBOOK:= drawer are server-preserved — shown or hidden, never
+round-tripped through the client.
 
 ** Commands
 
-One route — =POST /command {name, id | ids, args, digests?}= — and ten names.
-Ids group by file and each file is one drift-locked write, so a marked set over
-three files is three atomic writes; the answer is per id
-(={results: [{id, ok, digest | error}]}=) in the order the ids were named.
-Request-shape refusals are 400 with nothing written; 413 outranks everything.
+=POST /command {name, id | ids, args, digests?}= — ids group by file, one
+drift-locked atomic write per file, per-id answers. Refusals are 400 with
+nothing written.
 
-| name           | args                         | what it writes                              |
-|----------------+------------------------------+---------------------------------------------|
-| =set-state=      | ={keyword}=, nullable          | the keyword span; legality is per file      |
-| =set-priority=   | ={priority}=, nullable         | org's =[#A]= token; =S-<up>= / =S-<down>= cycle it |
-| =set-title=      | ={title}=                      | the title span alone                        |
-| =set-planning=   | ={keyword, date}=, date nullable | one =SCHEDULED=/=DEADLINE= entry              |
-| =add-tag=        | ={tag}=                        | the tag onto the headline                   |
-| =remove-tag=     | ={tag}=                        | the tag off it                              |
-| =rename-tag=     | ={from, to}=                   | both ends in one write per file             |
-| =archive=        | ={}=                           | =add-tag= at org's own =ARCHIVE=; idempotent    |
-| =capture=        | ={text}=                       | one headline at the capture target's end    |
-| =edit-link=      | ={span, target, desc?}=        | one link's own range                        |
-
-=set-title= replaces the title span alone, so the keyword, the priority and the
-tags around it keep their bytes; clearing a planning entry that was the line's
-last takes the line with it; =capture= is the one command naming no row and
-=edit-link= the one naming exactly one.
-
-The route never writes the store: the rows come back over the file watch a
-moment later, like every other edit.
+| name           | args                             | writes                            |
+|----------------+----------------------------------+-----------------------------------|
+| =set-state=    | ={keyword}=, nullable            | the keyword span                  |
+| =set-priority= | ={priority}=, nullable           | org's =[#A]= token                |
+| =set-title=    | ={title}=                        | the title span alone              |
+| =set-planning= | ={keyword, date}=, date nullable | one =SCHEDULED=/=DEADLINE= entry  |
+| =add-tag= / =remove-tag= | ={tag}=                | the tag on / off                  |
+| =rename-tag=   | ={from, to}=                     | both ends, one write per file     |
+| =archive=      | ={}=                             | =add-tag ARCHIVE=; idempotent     |
+| =capture=      | ={text, tag?, fields?}=          | a headline, or a store blob       |
+| =edit-link=    | ={span, target, desc?}=          | one link's own range              |
 
 #+begin_src sh
 curl -s -X POST -H 'content-type: application/json' localhost:7777/command \
      -d '{"name": "set-state", "ids": ["ROW-ID"], "args": {"keyword": "DONE"}}'
+curl -s -X POST -H 'content-type: application/json' localhost:7777/command \
+     -d '{"name": "capture", "args": {"text": "TODO Dune", "tag": "book",
+                                      "fields": {"Author": "Herbert"}}}'
 #+end_src
+
+The route never writes the store; rows come back over the file watch.
 
 ** Config
 
-Configuration is org files under =<root>/.org-glance/config/=, and they are
-never a row source. =system.org= is the tree-wide layer and =tags/TAG.org= is one
-per tag; each carries a =#+TODO:= cycle, and =system.org= carries two lines
-beside it — =#+GLANCE_DEFAULT_FILTER:= (the query =g= applies and a bare page
-opens on; absent means =state:*active*=) and =#+GLANCE_CAPTURE_TARGET:= (where
-=+= writes; absent means =<root>/inbox.org=, and a target outside the walk is
-refused where the config is read).
+Org files under =<root>/.org-glance/config/=, never a row source:
 
-Recognition unions every layer — a keyword declared anywhere parses everywhere —
-while classification is nearest-scope: file > tags > system > built-in > union.
-That one chain is =Config.keywordScopes=, read forwards by =classify= and per row
-by =GET /keywords=, which is what the state palette draws. =GET=/=POST /config=
-serve and replace one layer through the ordinary write path, so a =#+TITLE:=, a
-comment and org-glance's capture template come back byte for byte; the settings
-sheet (=,=) is that pair with a box per layer. Full rules in
-[[file:docs/invariants.md][docs/invariants.md]] (Keyword configuration).
+#+begin_src org
+# .org-glance/config/system.org — the tree-wide layer
+#+TODO: TODO STARTED | DONE CANCELLED
+#+GLANCE_DEFAULT_FILTER: state:*active* -tag:someday
+#+GLANCE_CAPTURE_TARGET: inbox.org
+#+end_src
+
+=tags/TAG.org= adds a per-tag cycle (and a capture template, above).
+Recognition unions every layer; classification is widest-scope
+(built-in > system > tags > file), so a file redeclaring =TODO= cannot make it
+done-like. The settings sheet (=,=) edits the layers; the default view is
+pinned from the table with =P= and shown read-only there.
 
 ** org-glance interop
 
-The daemon reads and writes the same tree Emacs's org-glance does. It walks
-=.org-glance/data/= — the canonical store — and declines =overviews/=, =meta/=
-and a blob's =occurrences/= history as derived renders of headlines it already
-has (=--include-derived= turns that off), declines =config/= always, and resolves
-a shared =ORG_GLANCE_ID= in the canonical store's favour, counting the losers in
-=X-Glance-Id-Collisions=. A write into a blob appends one line to
-=.org-glance/meta/EXTERNAL.jsonl= — ={"id": …, "at": …}=, append-only, never
-truncated — which is how =M-x org-glance-graph:refresh-external= learns about an
-edit Emacs did not make. And =glance scan= folds org-glance's write-ahead index
-read-only (MANIFEST segments oldest-first, then the open =headlines.jsonl=,
-latest record per id wins) and reports where the index and the blobs disagree —
-a drift instrument rather than a repair. Details: =Data.Org.Walk=,
-=Data.Org.External=, =Data.Org.Index=, [[file:docs/invariants.md][docs/invariants.md]] (Scan, Walk, Architecture).
+Reads and writes the same tree Emacs's org-glance does: walks the canonical
+=data/= store, declines the derived =overviews/=, =meta/= and =occurrences/=
+(=--include-derived= turns that off), resolves shared ids in the store's
+favour. Every daemon write into a blob appends to =meta/EXTERNAL.jsonl=, which
+=M-x org-glance-graph:refresh-external= folds back. =glance scan= reads
+org-glance's index read-only and reports drift. Details: [[file:docs/invariants.md][docs/invariants.md]]
+(Scan, Walk).
 
-** Build
+** Build and verify
 
-=glance.cabal= is hand-maintained; hpack is gone, so do not regenerate it.
-Components: private sublibrary =glance-internal= (=src/=, the parser and its
-AST), the public library =glance= (=src-query/=, =Glance.Query= alone), private
-=glance-web= (=src-web/=, depending on the public library and nothing else),
-private =glance-desktop-native= (=src-desktop-native/=, on =base= alone), one CLI
-dispatching to three of them, and one suite. The facade constraint is a solver
-error rather than a review note.
+Components: =glance-internal= (parser), public =glance= (=Glance.Query=),
+=glance-web=, =glance-desktop-native=, one CLI, one suite. =glance.cabal= is
+hand-maintained — no hpack.
 
 #+begin_src sh
-cabal build all        # the unflagged build: no GTK anywhere, and CI needs none
-make test              # cabal test
-make sync-renderer     # refresh assets/table-view.js from ../table-view/web
-make native            # cabal.project.native + the GIR search path, -f native-window
+cabal build all                      # no GTK anywhere
+cabal test                           # the suite
+GLANCE_CORPUS=~/sync cabal test      # plus corpus-sampled groups (they SAY when skipped)
+cabal run -v0 glance -- scan ~/sync  # the parser oracle: expect 0 span violations
+make native                          # WebKitGTK window: vendored/ + GIR path, -f native-window
+make sync-renderer                   # refresh assets/table-view.js from ../table-view/web
 #+end_src
 
-=native-window= is off by default and manual, and reaches exactly one stanza, so
-every other component is byte-identical either way. On, the solver pulls ~28
-haskell-gi packages generated from the machine's typelibs and the build needs
-GTK3 and WebKitGTK headers. =make native= rather than =cabal build -f= because
-two things have to be supplied first: =vendored/= carries =gi-webkit2= and
-=gi-javascriptcore4= as upstream cut them with the lines marked =glance:=
-repointed at the WebKit2 *4.1* typelibs (Arch dropped the 4.0/libsoup2
-generation), and =vendored/gir/= carries =cairo-1.0=, =xlib-2.0= and
-=freetype2-2.0=, the hand-written GIRs that ship in =gobject-introspection= where
-this machine has only =-runtime=. =cabal.project.native= names the first and
-=HASKELL_GI_GIR_SEARCH_PATH= the second, which is the one thing a project file
-cannot say. Both vendored packages keep upstream's name and version on purpose —
-a local package shadows Hackage's — so =cabal get NAME-VERSION && diff -r= is the
-whole patch. An upstream release binding 4.1 retires =vendored/=; a distribution
-shipping =gobject-introspection= retires =vendored/gir/=.
-
-** Verification
-
-#+begin_src sh
-cabal test                                          # the suite
-GLANCE_CORPUS=~/sync cabal test                     # plus the corpus-sampled groups
-cabal run -v0 glance -- scan ~/sync                 # the parser oracle over a real tree
-#+end_src
-
-The scan is the standing oracle: expect *0 span violations* and ~12.6k
-headlines, with =walk seconds= around 10–11 warm. Measured 2026-08-03 over
-=~/sync=: 6292 files, 6265 ok, 12599 headlines, 517136 elements, 0 span
-violations, 9 id collisions, 10.44 s walk. It then folds org-glance's index per
-store and prints the disagreement block (=~/sync/views=, same run: 6521 records
-read, 6073 live, 0 malformed, 6065 blobs parsed, 21 idless, 69 rows disagree, 0
-unindexed blobs, 29 records without blobs).
-
-The =GLANCE_CORPUS= groups *pass* when the variable is unset and print
-=SKIPPED — GLANCE_CORPUS is unset: <label>= on stderr for each, so a green run
-without those lines answered is unverified on the corpus half. A variable naming
-a directory that is not there fails loudly, and so does a run that samples
-nothing.
-
-** Hacking the renderer
-
-The table is drawn by [[https://github.com/rails-to-cosmos/table-view][table-view]], which lives in its own repository
-and is vendored here as =assets/table-view.js= — a committed build input, read
-at *compile* time by a TH splice and carried in the binary.
-
-#+begin_src sh
-# 1. hack it in the sibling checkout, serving it off disk — no rebuild per edit
-cabal run glance -- serve --dir ~/org --assets ../table-view/web
-
-# 2. bring the result back, and see what moved
-make sync-renderer
-
-# 3. commit assets/table-view.js like any other file, and rebuild
-git add assets/table-view.js && cabal build
-#+end_src
-
-=--assets= *replaces* the compiled-in renderer, which is what keeps the
-missing-asset path reachable and makes it reachable under that flag alone; a
-directory without =table-view.js= means no table, and =/headlines= keeps working.
-=make sync-renderer= says so honestly when there is no sibling checkout, so a
-clone of this repository alone still builds and still serves the page.
-Self-containment is a rule rather than a convenience: no source file may name an
-absolute path outside the repository, and =test/TestSelfContained.hs= sweeps
-=src*/= and =app/= for one.
+Standing oracle over =~/sync=, 2026-08-04: 6292 files, 12611 headlines, *0
+span violations*, walk ~10 s. =assets/table-view.js= is a committed build
+input compiled into the binary; =--assets ../table-view/web= serves the
+sibling checkout live for renderer hacking. =vendored/= exists because Arch
+ships WebKit2 4.1 typelibs only — =cabal get NAME-VERSION && diff -r= shows
+the whole patch.
 
 ** Docs
 
-- [[file:CHANGELOG.md][CHANGELOG.md]] — what each cut carries, newest first.
-- [[file:CLAUDE.md][CLAUDE.md]] — the invariants in brief: rules the code silently enforces.
-- [[file:docs/invariants.md][docs/invariants.md]] — the same rules with their evidence and measurements.
-- [[file:docs/proposal-org-console-web.md][docs/proposal-org-console-web.md]] — why the daemon exists.
-- [[file:docs/plan-org-console-web.md][docs/plan-org-console-web.md]] — the steps, landed and held.
-- [[file:docs/proposal-capture.md][docs/proposal-capture.md]], [[file:docs/proposal-sort-comparators.md][docs/proposal-sort-comparators.md]] — open proposals.
-- [[file:docs/design-rhymes.md][docs/design-rhymes.md]] — the shapes this UI repeats on purpose.
-- [[file:glance.org][glance.org]] — the roadmap, in org-mode.
+- [[file:CLAUDE.md][CLAUDE.md]] / [[file:docs/invariants.md][docs/invariants.md]] — the rules the code silently enforces, brief and full.
+- [[file:docs/proposal-org-console-web.md][proposal-org-console-web.md]] / [[file:docs/plan-org-console-web.md][plan-org-console-web.md]] — why, and the steps.
+- [[file:docs/design-rhymes.md][design-rhymes.md]] — the shapes this UI repeats on purpose.
+- [[file:CHANGELOG.md][CHANGELOG.md]] — what each cut carries.
