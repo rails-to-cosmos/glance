@@ -286,7 +286,7 @@ dropFile path = guarded path (streamed path (removeFile path))
 
 -- | ST replaced by FRESH, and the frames that costs.
 --
--- The one update that is not about a file.  A @.org-glance\/config@ edit moves
+-- The one update that covers the whole tree.  A @.org-glance\/config@ edit moves
 -- what every OTHER file's parse RECOGNIZES, so no per-file step can express it:
 -- a word that was the first token of a title in four thousand documents is a
 -- state in all of them a moment later.  The watch answers by re-walking and

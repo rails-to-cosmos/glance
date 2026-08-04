@@ -173,8 +173,8 @@ instance Parse Pragma where
     case kText of
       -- org's two older spellings configure the same cycle: @#+SEQ_TODO:@ is
       -- the sequence semantics @#+TODO:@ already means, and @#+TYP_TODO:@'s
-      -- type distinction lives in org's cycling behaviour, not in the words —
-      -- so all three land in 'PTodo' and the chain reads them alike.  A
+      -- type distinction lives entirely in org's cycling behaviour — so all
+      -- three land in 'PTodo' and the chain reads them alike.  A
       -- re-render spells @#+TODO:@, which is TextShow's documented lossiness.
       k | k `elem` ["TODO", "SEQ_TODO", "TYP_TODO"] -> do
         -- Keywords register as written: org matches them case-sensitively.

@@ -421,7 +421,7 @@ paletteSpec = testGroup "Palette"
 
 -- Reload
 
--- | A config edit is the one watch event that is not about its own path: it
+-- | A config edit is the one watch event that reaches past its own path: it
 -- moves what every other file RECOGNIZES, so the answer is a reseed.
 reloadSpec :: TestTree
 reloadSpec = testGroup "Reload"

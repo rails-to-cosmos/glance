@@ -3,7 +3,7 @@
 **Status:** A delivered (#67, 2026-08-04); B/C/D still brainstorm ·
 **Date:** 2026-08-02, revised 2026-08-04
 
-How should a reader configure *how* a column compares, not just *whether* it
+How should a reader configure *how* a column compares, beyond *whether* it
 sorts?  The driving example: `state` must order semantically — `TODO`,
 `DELEGATED`, `DONE` — never alphabetically.
 
@@ -35,7 +35,7 @@ More of this is built than it first appears:
 ## The gap
 
 1. No way to *override* a column's order without changing what produces it
-   (reordering the `#+TODO:` line changes the palette and the cycle, not just
+   (reordering the `#+TODO:` line changes the palette and the cycle along with
    the sort).
 2. No comparator choice for text columns (codepoint vs locale collation — a
    live el/js divergence already documented).

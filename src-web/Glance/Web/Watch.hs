@@ -10,7 +10,7 @@
 -- mid-write looks exactly like a file whose headlines all vanished, and
 -- dropping them would empty the table until the next keystroke.
 --
--- And a @.org-glance\/config@ file is the one event that is not about its own
+-- And a @.org-glance\/config@ file is the one event that reaches past its own
 -- path: it changes what every OTHER file parses, so the answer is a reseed —
 -- the config re-read and the whole tree re-walked ('reseed').  Expensive, and
 -- the only correct answer to a keyword that has just started existing.
