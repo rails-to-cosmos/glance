@@ -116,9 +116,10 @@ blobFile = "data.org"
 -- only in the arity of the pattern they ask of a tail; 'isOccurrence' asks for
 -- a name anywhere along one, for the reason its own note gives.
 --
--- The guard is what makes this affordable in the walk, which asks it three
--- times per entry over ~703k of them — 'isConfig', then 'isDerived' and the
--- 'isOccurrence' inside it: splitting a path allocates a list of strings and
+-- The guard is what makes this affordable in the walk, which asks it twice
+-- per entry over ~703k of them — 'isConfig', then 'isDerived', which folds the
+-- occurrence question into its one call: splitting a path allocates a list of
+-- strings and
 -- 'tails' allocates a list of those, and a tree with no @.org-glance@ component
 -- anywhere pays that for an answer that is always @[]@.  'namesOrgGlance' is a
 -- character scan with no allocation at all, and a path it rejects cannot
@@ -175,8 +176,11 @@ namesOrgGlance [] = False
 -- meaning what it says: on, the walk reads everything org-glance wrote, history
 -- included, and an occurrence ties with its live blob again.
 isDerived :: FilePath -> Bool
-isDerived path = isOccurrence path
-              || or [ d `elem` derivedDirs | d : _rest <- orgGlanceTails path ]
+isDerived path = any mirror ts || any occurrenceTail ts
+  where
+    ts = orgGlanceTails path
+    mirror (d : _rest) = d `elem` derivedDirs
+    mirror []          = False
 
 -- | Is PATH one of a blob's occurrence snapshots — anything under an
 -- @occurrences@ directory inside the canonical store?
@@ -190,8 +194,14 @@ isDerived path = isOccurrence path
 -- would be declined as history; that path is indistinguishable from a
 -- two-character id's history by the path alone, so no rule can tell them apart.
 isOccurrence :: FilePath -> Bool
-isOccurrence path =
-  or [ occurrenceDir `elem` rest | d : rest <- orgGlanceTails path, d == storeDir ]
+isOccurrence = any occurrenceTail . orgGlanceTails
+
+-- | 'isOccurrence' over ONE tail: the rule itself, factored so 'isDerived' and
+-- 'isCanonical' can ask it of a tails list they already hold — each used to
+-- call 'isOccurrence' whole and pay 'orgGlanceTails' a second time for it.
+occurrenceTail :: [FilePath] -> Bool
+occurrenceTail (d : rest) = d == storeDir && occurrenceDir `elem` rest
+occurrenceTail []         = False
 
 -- | Is PATH a blob's stored document — @data.org@ inside 'isCanonical'?  The
 -- one file per entry org-glance writes its contents to, and what the scan's
@@ -218,8 +228,9 @@ isConfig path = or [ d == "config" | d : _rest <- orgGlanceTails path ]
 -- id to whichever the walk saw first.  The walk no longer offers one, and this
 -- says what the answer would be under @--include-derived@, which does.
 isCanonical :: FilePath -> Bool
-isCanonical path = not (isOccurrence path)
-                && or [ d == storeDir | d : _ : _rest <- orgGlanceTails path ]
+isCanonical path = not (any occurrenceTail ts)
+                && or [ d == storeDir | d : _ : _rest <- ts ]
+  where ts = orgGlanceTails path
 
 -- | Does A outrank B as the file that keeps an @ORG_GLANCE_ID@ both claim?
 -- Only a canonical path beats a non-canonical one; every other pairing leaves
