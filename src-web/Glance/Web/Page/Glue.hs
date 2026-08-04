@@ -1407,6 +1407,16 @@ shellGlue wanted =
   , "      for (const id of edit.o.fields) el(id).blur();"
   , "      edit = null;"
   , "    }"
+    -- ESC OVER AN OPEN EDIT, wherever it is open: the overlay goes and the thing
+    -- under it stands, holding the text it was opened on.  WHAT names it in the
+    -- pill — an element, a row, a link, a tag — and the SHAPES are the caller's
+    -- own, the scoping `shutEdit' asks for; the document names two, having a
+    -- second box for a paragraph.  One sentence, so a fifth surface cannot word
+    -- the same event differently.
+  , "    const cancelEdit = (what, ...shapes) => {"
+  , "      for (const o of shapes) shutEdit(o);"
+  , "      echo(`ESC → keyboard-quit (${what} unchanged)`);"
+  , "    };"
     -- Where the overlay sits: over the row the renderer has selected.  Its
     -- GEOMETRY is the only thing this page reads out of a mount's own DOM, and it
     -- reads nothing about the row but where it is.
@@ -1494,16 +1504,24 @@ shellGlue wanted =
     -- the document is no mount, so it names the element under point rather than
     -- the renderer's `tv-sel' row.
   , "    const docElAt = () => dcursor;"
-  , "    const DROW = {"
-  , "      box: \"dedit\", pane: \"mdoc\", fields: [\"dkey\", \"dval\"],"
-  , "      mount: () => null, anchor: docElAt,"
+    -- A KEY-AND-VALUE SHAPE, and there are two of them: the document's property
+    -- row and the panel's.  P prefixes the pair of fields (`dkey'/`dval',
+    -- `pkey'/`pval'), LOCKED says whose key org owns rather than the author —
+    -- the document's title cell, the panel's three planning rows — and REST is
+    -- the one thing they differ in beyond that, where the anchor comes from.
+    -- The key is read-only exactly where it is locked, and the focus opens on
+    -- the VALUE unless there is no key to have yet, which is the add row.
+  , "    const pairShape = (box, pane, p, locked, rest) => Object.assign({"
+  , "      box, pane, fields: [`${p}key`, `${p}val`],"
   , "      fill: (r) => {"
-  , "        el(\"dkey\").value = r.key;"
-  , "        el(\"dval\").value = r.val;"
-  , "        el(\"dkey\").readOnly = r.kind === \"cell\";"
+  , "        el(`${p}key`).value = r.key;"
+  , "        el(`${p}val`).value = r.val;"
+  , "        el(`${p}key`).readOnly = locked(r);"
   , "      },"
-  , "      focus: (r) => (r.kind === \"cell\" || r.key ? el(\"dval\") : el(\"dkey\")).focus(),"
-  , "    };"
+  , "      focus: (r) => (locked(r) || r.key ? el(`${p}val`) : el(`${p}key`)).focus(),"
+  , "    }, rest);"
+  , "    const DROW = pairShape(\"dedit\", \"mdoc\", \"d\", (r) => r.kind === \"cell\","
+  , "      { mount: () => null, anchor: docElAt });"
   , "    const DPARA = {"
   , "      box: \"dpara\", pane: \"mdoc\", fields: [\"dtext\"],"
   , "      mount: () => null, anchor: docElAt,"
@@ -1558,10 +1576,7 @@ shellGlue wanted =
   , "      fire(docBinding(\"org-glance-overview:rename\"), \"set-title\", [editing.id],"
   , "           { title: val }, `retitled ${JSON.stringify(val.trim())}`);"
   , "    }"
-  , "    function cancelDocEdit() {"
-  , "      shutEdit(DROW); shutEdit(DPARA);"
-  , "      echo(\"ESC → keyboard-quit (element unchanged)\");"
-  , "    }"
+  , "    const cancelDocEdit = () => cancelEdit(\"element\", DROW, DPARA);"
     -- The sheet is ONE surface with two panes, so it is one entry in `SURFACES'
     -- and ESC puts back whichever pane's edit is open.  Below that the ladder
     -- falls through to the sheet itself, which is where it always did.
@@ -1727,21 +1742,12 @@ shellGlue wanted =
   , "      el(\"mprops\").className = \"\"; el(\"mdoc\").className = \"on\";"
   , "    }"
 
-    -- THE PANEL'S SHAPE: two fields over the whole row.  The value takes the
-    -- focus, since editing an existing property is almost always editing its
-    -- value — except where there is no key yet, which is the add-row, and there
-    -- the key is the thing being typed.  A planning row's key is org's, so its
-    -- field is read-only text with a caret in it.
-  , "    const PROW = {"
-  , "      box: \"pedit\", pane: \"mprops\", fields: [\"pkey\", \"pval\"],"
-  , "      mount: () => pmount,"
-  , "      fill: (r) => {"
-  , "        el(\"pkey\").value = r.key;"
-  , "        el(\"pval\").value = r.val;"
-  , "        el(\"pkey\").readOnly = r.fixed;"
-  , "      },"
-  , "      focus: (r) => (r.fixed || r.key ? el(\"pval\") : el(\"pkey\")).focus(),"
-  , "    };"
+    -- THE PANEL'S SHAPE: the document's, one pane over, since both are two
+    -- fields over the whole row.  A planning row's key is ORG's rather than the
+    -- author's, so its field is read-only text with a caret in it — which is
+    -- what `pairShape' calls locked, and what sends the focus to the value.
+  , "    const PROW = pairShape(\"pedit\", \"mprops\", \"p\", (r) => r.fixed,"
+  , "      { mount: () => pmount });"
   , "    const pediting = () => !!edit && edit.o === PROW;"
   , "    function openRow() {"
   , "      const at = patAt();"
@@ -1763,10 +1769,7 @@ shellGlue wanted =
     -- is holding stands, which is the text it was opened on.  The sheet's own
     -- ESC ladder therefore only ever sees the key from nav — that is why this
     -- runs from the keymap's `cancel' rather than from a listener of its own.
-  , "    function cancelRow() {"
-  , "      shutEdit(PROW);"
-  , "      echo(\"ESC → keyboard-quit (row unchanged)\");"
-  , "    }"
+  , "    const cancelRow = () => cancelEdit(\"row\", PROW);"
     -- DELETION IS THE TABLE'S GESTURE, over the renderer's own flags: `d' flags
     -- the row at point, `d' again — or `D' — takes every flagged row, and `u'
     -- takes a flag off.  One implementation of the gesture in this page, the set,
@@ -3116,15 +3119,16 @@ shellGlue wanted =
   , "      opening = b;"
   , "      if (lrows.length) m.select(lrows[0].id);"
   , "    }"
-    -- An open edit is a rung UNDER the popup, the way the tags popup's rename
-    -- is: closing the popup takes it with it, and nothing else here is focused
-    -- — the popup holds the keys with no field in it, the way the property
-    -- panel's nav does, so the rest of closing is the class coming off and the
-    -- value `linking()' reads going null.
+    -- An open edit is a rung UNDER the popup, and closing the popup takes it
+    -- with it; nothing else is focused — the popup holds the keys with no field
+    -- in it, the way the property panel's nav does — so the rest of closing is
+    -- the class coming off.  BOTH popups shut alike, so that pair is one
+    -- function and each caller adds only the state whose emptiness IS its
+    -- `up()': `opening' for the links, `tagging' for the tags.
+  , "    function shutPopup(id, shape) { shutEdit(shape); el(id).className = \"\"; }"
   , "    function shutLinks() {"
-  , "      shutEdit(LROW);"
+  , "      shutPopup(\"links\", LROW);"
   , "      opening = null; lfor = null; lpin = \"\";"
-  , "      el(\"links\").className = \"\";"
   , "    }"
     -- The row the cursor is on, out of the renderer's own selection — this page
     -- keeps no copy of where a popup is standing, the same rule the table and the
@@ -3154,15 +3158,14 @@ shellGlue wanted =
   , "      focus: () => { el(\"lurl\").focus(); el(\"lurl\").select(); },"
   , "    };"
   , "    const lediting = () => !!edit && edit.o === LROW;"
-  , "    function openLinkEdit() {"
-  , "      const at = pointedRow();"
-  , "      if (!at) { echo(\"RET → org-insert-link (no link)\"); return; }"
-  , "      openEdit(LROW, at);"
-  , "    }"
-  , "    function cancelLinkEdit() {"
-  , "      shutEdit(LROW);"
-  , "      echo(\"ESC → keyboard-quit (link unchanged)\");"
-  , "    }"
+    -- RET OVER NOTHING SAYS SO, and both popups say it the same way: the row the
+    -- cursor is on or the command's own name for having none.  One guard, so a
+    -- surface that grew an overlay cannot forget the empty case.
+  , "    const openOver = (shape, at, none) =>"
+  , "      (at ? openEdit(shape, at) : echo(`RET → ${none}`));"
+  , "    const openLinkEdit = () =>"
+  , "      openOver(LROW, pointedRow(), \"org-insert-link (no link)\");"
+  , "    const cancelLinkEdit = () => cancelEdit(\"link\", LROW);"
     -- THE COMMIT, ONE row and ONE SPAN: the range `/links' handed out, spliced
     -- under the digest that answer carried.  The link is the one the overlay
     -- OPENED over — the snapshot every surface on this mechanism gets — so a
@@ -3302,10 +3305,8 @@ shellGlue wanted =
     -- Nothing to blur once the rename is shut: the popup holds the keys with no
     -- field in it, the way the link popup and the property panel's nav do.
   , "    function shutTags() {"
-  , "      shutEdit(TROW);"
-  , "      tagging = null;"
-  , "      el(\"tags\").className = \"\";"
-  , "      ttargets = [];"
+  , "      shutPopup(\"tags\", TROW);"
+  , "      tagging = null; ttargets = [];"
   , "    }"
     -- The tag the cursor is on, out of the renderer's own selection, by the rule
     -- the table, the panel and the link popup follow.  Checked against the UNION,
@@ -3345,6 +3346,17 @@ shellGlue wanted =
     -- as a stale answer rather than as a different question.
   , "    const stepCount = (tag, by) =>"
   , "      (tcount[tag] = Math.max(0, (tcount[tag] || 0) + by));"
+    -- WHAT EVERY TAG WRITE DOES WITH ITS ANSWER, in one place: a popup the reader
+    -- has already left is dropped, the ids that landed are folded into the model
+    -- by APPLY — which is the whole of what the three commands differ in — and
+    -- the list is redrawn with the cursor on AT.  Three copies of that frame is
+    -- three chances to forget the guard, and forgetting it writes rows into a
+    -- popup that is not there.
+  , "    const landing = (at, apply) => (results) => {"
+  , "      if (!managing()) return;"
+  , "      apply(landedIds(results));"
+  , "      repaintTags(at);"
+  , "    };"
     -- `+' — the add flow, one field over the addable vocabulary and the only door
     -- into it.  It only ever ADDS, so the write goes to the rows LACKING the tag;
     -- a tag every target already carries costs a line in the pill and no round
@@ -3359,17 +3371,14 @@ shellGlue wanted =
   , "      const over = ttargets.filter((r) => r.tags.indexOf(tag) === -1);"
   , "      if (!over.length) { said(tagging, `:${tag}: is on every row already`); return; }"
   , "      fire(tagging, \"add-tag\", over.map((r) => r.id), { tag },"
-  , "           `tagged :${tag}:`).then((results) => {"
-  , "        if (!managing()) return;"
-  , "        const landed = landedIds(results);"
+  , "           `tagged :${tag}:`).then(landing(tag, (landed) => {"
   , "        for (const r of ttargets)"
   , "          if (landed.has(r.id) && r.tags.indexOf(tag) === -1) r.tags.push(tag);"
       -- A tag written for the first time joins the tree's vocabulary here, so
       -- the field offers it before the watch has told this page anything.
   , "        if (landed.size && tvocab.indexOf(tag) === -1) tvocab.push(tag);"
   , "        stepCount(tag, landed.size);"
-  , "        repaintTags(tag);"
-  , "      });"
+  , "      }));"
   , "    }"
     -- `D', and the second `d' that reaches the same handler: every FLAGGED tag
     -- comes off every target carrying it.  ONE COMMAND PER TAG, a command naming
@@ -3388,14 +3397,11 @@ shellGlue wanted =
   , "      const over = carriers(tag);"
   , "      if (!over.length) return;"
   , "      return fire(tagging, \"remove-tag\", over.map((r) => r.id), { tag },"
-  , "           `untagged :${tag}:`).then((results) => {"
-  , "        if (!managing()) return;"
-  , "        const landed = landedIds(results);"
+  , "           `untagged :${tag}:`).then(landing(null, (landed) => {"
   , "        for (const r of ttargets)"
   , "          if (landed.has(r.id)) r.tags = r.tags.filter((t) => t !== tag);"
   , "        stepCount(tag, -landed.size);"
-  , "        repaintTags();"
-  , "      });"
+  , "      }));"
   , "    }"
     -- `RET' — the rename, and ONE command.  `rename-tag' replaces the entry where
     -- the author put it, under one drift lock per file; a remove and an add fired
@@ -3410,9 +3416,7 @@ shellGlue wanted =
   , "      if (!from || !to || to === from) { said(tagging, \"unchanged\"); return; }"
   , "      const over = carriers(from);"
   , "      fire(tagging, \"rename-tag\", over.map((r) => r.id), { from, to },"
-  , "           `renamed :${from}:→:${to}:`).then((results) => {"
-  , "        if (!managing()) return;"
-  , "        const landed = landedIds(results);"
+  , "           `renamed :${from}:→:${to}:`).then(landing(to, (landed) => {"
       -- A row carrying BOTH ends loses `from' and gains nothing — the server
       -- cuts rather than renames there — so counting it would leave the tree
       -- count one high for as long as the popup stands.
@@ -3423,8 +3427,7 @@ shellGlue wanted =
   , "        if (landed.size && tvocab.indexOf(to) === -1) tvocab.push(to);"
   , "        stepCount(to, gained);"
   , "        stepCount(from, -landed.size);"
-  , "        repaintTags(to);"
-  , "      });"
+  , "      }));"
   , "    }"
     -- One row's tags after the rename, IN PLACE and deduplicated — the server's
     -- own rule ('Glance.Query.renameTagEdits'): the entry stays where it was, so
@@ -3446,15 +3449,9 @@ shellGlue wanted =
   , "      focus: () => { el(\"tname\").focus(); el(\"tname\").select(); },"
   , "    };"
   , "    const renaming = () => !!edit && edit.o === TROW;"
-  , "    function openRename() {"
-  , "      const at = tagAt();"
-  , "      if (!at) { echo(\"RET → org-rename-tag (no tag)\"); return; }"
-  , "      openEdit(TROW, at);"
-  , "    }"
-  , "    function cancelRename() {"
-  , "      shutEdit(TROW);"
-  , "      echo(\"ESC → keyboard-quit (tag unchanged)\");"
-  , "    }"
+  , "    const openRename = () =>"
+  , "      openOver(TROW, tagAt(), \"org-rename-tag (no tag)\");"
+  , "    const cancelRename = () => cancelEdit(\"tag\", TROW);"
     -- The popup's phrases for `flagKey', the gesture itself being the property
     -- panel's.  `tagAt' already answers with an id or null, which is what the
     -- shape asks for; `removeTags' names one tag per command and has no use for
@@ -4037,14 +4034,14 @@ shellGlue wanted =
     -- bind and the character is the honest answer; a press carrying no `code' at
     -- all falls back to it whole.
     --
-    -- THE CHARACTER WINS WHERE IT IS ALREADY A LATIN LETTER, so an AZERTY or
-    -- Dvorak hand reads its own labels, byte-unchanged from before this branch
-    -- existed, and the physical code steps in only where the layout speaks
-    -- another script — Cyrillic's `т' sits on KeyN and moves like `n'.  One
-    -- consequence remains, named rather than worked around: a layout spelling NO
-    -- `<' or `[' (the Russian one does not) cannot reach the punctuation half;
-    -- the letters carry movement, marks, states and the archive, and the rest
-    -- wants a layout that has the character.
+    -- THE CODE WINS ON EVERY `KeyA'–`KeyZ' PRESS, whatever the layout writes on
+    -- it: the map is QWERTY'S POSITIONS.  Two consequences, both named rather
+    -- than worked around.  A Latin layout that MOVES its letters reads its own
+    -- labels as this map's — an AZERTY `a' sits on `KeyQ', so it is `q' here,
+    -- and a Dvorak hand likewise.  And a layout spelling NO `<' or `[' (the
+    -- Russian one does not) cannot reach the punctuation half; the letters carry
+    -- movement, marks, states and the archive, and the rest wants a layout that
+    -- has the character.
   , "    const LETTER = /^Key([A-Z])$/;"
   , "    function keyName(e) {"
   , "      let base = NAMED[e.key], special = base !== undefined;"
@@ -4078,20 +4075,22 @@ shellGlue wanted =
   , "      pendingAt = setTimeout(() => { pending = []; echo(`${shown} - timed out`); }, 2000);"
   , "    }"
     -- THE MODAL SURFACES, as ONE list.  Each holds the keys with NOTHING
-    -- FOCUSED — the sheet's two panes, the value palette in letter mode, and the
-    -- two popups, which browse on the table's own movement keys and write on its
-    -- own `d'/`D'/`u' — so each would otherwise leave the table's keys live
-    -- underneath it, `d' included.
+    -- FOCUSED — the subtree sheet's two panes, the settings sheet's chrome, the
+    -- value palette in letter mode, and the two popups, which browse on the
+    -- table's own movement keys and write on its own `d'/`D'/`u' — so each would
+    -- otherwise leave the table's keys live underneath it, `d' included.
     --
     -- TWO LAYERS RATHER THAN A STACK.  A SHEET is a WORKSPACE: it stands, it
-    -- holds a cursor, a reader works in it.  A MOMENTARY is raised OVER one to
-    -- answer a question — the value palette, the tags popup, the link popup —
-    -- and is answered and gone.  At most one momentary is ever up, opening one
-    -- closing whichever stood, at the DOOR rather than in the listeners
-    -- (`sole'); the open one holds the keys unconditionally, every reader asking
-    -- `momentary()'; and closing it gives them back to the sheet with its cursor
-    -- exactly where it was.  A rank could express none of that, the sheet being
-    -- also the thing that raises a momentary over itself.
+    -- holds a cursor, a reader works in it, and there are two — the subtree's
+    -- and the settings', never both, `openSettings' refusing over an open sheet.
+    -- A MOMENTARY is raised OVER one to answer a question — the value palette,
+    -- the tags popup, the link popup — and is answered and gone.  At most one
+    -- momentary is ever up, opening one closing whichever stood, at the DOOR
+    -- rather than in the listeners (`sole'); the open one holds the keys
+    -- unconditionally, every reader asking `momentary()'; and closing it gives
+    -- them back to the sheet with its cursor exactly where it was.  A rank could
+    -- express none of that, the sheet being also the thing that raises a
+    -- momentary over itself.
     --
     -- ORDER DECIDES ONE THING, and only through `momentary()': `+' over the tags
     -- popup leaves BOTH `prompt' and `tags' up — the field is that popup's own,
@@ -4099,13 +4098,14 @@ shellGlue wanted =
     -- entry.  Swapping those two hands the add field's letters to the tags
     -- listener.
     --
-    -- THREE READERS: `typing()' asks whether ANY surface is up, which kills every
-    -- `table' row; `momentary()' asks which of the raised ones is; and `cancel'
-    -- walks the list for the surface ESC belongs to.  Each entry names its own
-    -- `up', the `off' that closes it, and the OPEN EDIT that is a rung under it —
-    -- the panel's row, the popups' overlays — which ESC puts back before the
-    -- surface itself hears the key.  The SHEET names no `off': ESC from it falls
-    -- through to the sheet's own ladder, where closing a workspace belongs.
+    -- FOUR READERS: `typing()' asks whether ANY surface is up, which kills every
+    -- `table' row; `live''s `modal' arm asks whether a WORKSPACE is;
+    -- `momentary()' asks which of the raised ones is; and `cancel' walks the list
+    -- for the surface ESC belongs to.  Each entry names its own `up', the `off'
+    -- that closes it, and the OPEN EDIT that is a rung under it — the panel's
+    -- row, the popups' overlays — which ESC puts back before the surface itself
+    -- hears the key.  NEITHER SHEET names an `off': ESC from one falls through to
+    -- the sheet ladder below, where closing a workspace belongs.
   , "    const SURFACES = ["
   , "      { name: \"prompt\", momentary: true, up: () => !!prompting, off: unask },"
   , "      { name: \"links\", momentary: true, up: linking, off: shutLinks,"
@@ -4113,6 +4113,13 @@ shellGlue wanted =
   , "      { name: \"tags\", momentary: true, up: managing, off: shutTags,"
   , "        edit: renaming, shut: cancelRename },"
   , "      { name: \"sheet\", up: docHolds, edit: sheetOpen, shut: cancelSheetEdit },"
+      -- The settings sheet, the second WORKSPACE and the fifth surface.  It
+      -- names no `off': ESC from it falls through to the sheet ladder below,
+      -- where `activeSheet' already answers for both.  Joining the list is what
+      -- makes `typing()' see it — an omitted surface leaves every `table' row
+      -- live underneath, `d' among them, and a click on this sheet's own chrome
+      -- blurs the field the focus branch was catching it by.
+  , "      { name: \"config\", up: () => settings },"
   , "    ];"
     -- WHICH momentary is up, and there is at most one.  Read off the list, so a
     -- fourth is one entry and every reader has it at once.
@@ -4144,11 +4151,13 @@ shellGlue wanted =
   , "        || (!!a && (a.tagName === \"INPUT\" || a.tagName === \"TEXTAREA\""
   , "                     || a.tagName === \"SELECT\" || a.isContentEditable));"
   , "    };"
-    -- `modal' is "a sheet is up", and there are two of them: the subtree's and
-    -- the settings'.  Never both — `openSettings' refuses over an open sheet,
-    -- which keeps `C-x C-s' and `ESC' from guessing which one they meant.
+    -- `modal' is "a WORKSPACE is up", which is every non-momentary surface:
+    -- the subtree sheet and the settings sheet.  Never both — `openSettings'
+    -- refuses over an open sheet, which keeps `C-x C-s' and `ESC' from guessing
+    -- which one they meant.  Read off `SURFACES' rather than naming the two, so
+    -- a third workspace is one entry there and this arm has it at once.
   , "    const live = (b) => b.scope === \"any\""
-  , "      || (b.scope === \"modal\" && (editing !== null || settings))"
+  , "      || (b.scope === \"modal\" && SURFACES.some((s) => !s.momentary && s.up()))"
   , "      || (b.scope === \"table\" && !typing());"
   , "    // A live selection means C-c and C-x are copy and cut, and the browser"
   , "    // decides that on this keydown — so the prefix does not claim them."

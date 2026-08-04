@@ -38,8 +38,8 @@
 --
 -- @sort:*none*@ is the EMPTY CHAIN, and it is the query's whole vocabulary for
 -- document order.  It wears the stars because it is a reserved meta rather than
--- a column — the family @*active*@, @*inactive*@, @*archive*@ and @*clear*@ are
--- already in — so no column may be called it and no cell may hold it.  The
+-- a column — the family is @*active*@, @*inactive*@, @*empty*@, @*archive*@ and
+-- this one — so no column may be called it and no cell may hold it.  The
 -- empty chain ADMITS NO COMPANIONS: a token beside it names a key the answer is
 -- not to have, and a reader who wrote both meant one of them, so the request is
 -- refused naming the meta rather than resolved by a precedence rule nobody
@@ -91,20 +91,22 @@ sortChainIn q = case filter ((== Just sortKey) . tmKey) (parseFilter q) of
     -- counts.
     let ordering = [ pair | pair@(_t, n) <- named, orders n ]
     case [ t | (t, NoOrder) <- ordering ] of
-      []      -> foldM extend [] [ (t, c, a) | (t, Column c a) <- ordering ]
+      []      -> foldM extend [] [ (c, a) | (_t, Column c a) <- ordering ]
       empty : _
         | length ordering > 1 -> Left (alone empty)
         | otherwise           -> Right []
   where
     orders Silent = False
     orders _named = True
-    -- 'foldM' over 'Either' stops at the first refusal, so a query naming two
-    -- bad keys is answered by the one written first.  A REPEATED column is no
-    -- refusal on either side: the first spelling wins and the later key drops,
-    -- which is the renderer's own rule and what SCHEMA.md records — a duplicate
-    -- names an order the chain already has, so nothing a reader could have
-    -- meant is lost.
-    extend keys (t, column, ascending)
+    -- EVERY REFUSAL IS ALREADY SPENT by the time this runs: 'segmentsOf' and
+    -- 'nameOf' answer in 'Either' and the 'traverse' above stops at the first
+    -- of them, so a query naming two bad keys is answered by the one written
+    -- first.  What is left here is the DEDUP, which refuses nothing on either
+    -- side: the first spelling of a column wins and the later key drops, which
+    -- is the renderer's own rule and what SCHEMA.md records — a duplicate names
+    -- an order the chain already has, so nothing a reader could have meant is
+    -- lost.
+    extend keys (column, ascending)
       | any ((== column) . fst) keys = Right keys
       | otherwise                    = Right (keys <> [(column, ascending)])
 
@@ -153,8 +155,6 @@ alone t = refused t (quoted noOrder <> " is the whole order and stands alone")
 refused :: Term -> Text -> Text
 refused t why = why <> ": " <> quoted (spelling t)
 
--- | COLUMN named a second time, in this token or an earlier one — the dedup
--- spans the segments and the token boundaries alike.
 -- | T as the reader wrote it, negation and all.
 spelling :: Term -> Text
 spelling t = (if tmNegated t then "-" else "") <> sortKey <> ":" <> tmValue t

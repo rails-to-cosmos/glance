@@ -19,6 +19,7 @@ module Glance.Web.Base ( ServeOptions (..)
                        , tenths
                          -- * Bodies
                        , withBody
+                       , bodyObject
                          -- * What a write route answers
                        , noSuchRow
                        , conflict
@@ -40,8 +41,9 @@ module Glance.Web.Base ( ServeOptions (..)
                        , jsonValue
                        ) where
 
-import Data.Aeson (ToJSON, encode, object, (.=))
-import Data.Aeson.Types (Pair)
+import Data.Aeson (Object, ToJSON, eitherDecode', encode, object, withObject, (.=))
+import Data.Aeson.Types (Pair, Parser, parseEither)
+import Data.Bifunctor (first)
 import Data.Text (Text)
 import Network.HTTP.Types ( Header, Status, hContentType, status200, status409
                           , status413, status500 )
@@ -173,6 +175,16 @@ takeBody limit request = go 0 []
 withBody :: Request -> (BL.ByteString -> IO Response) -> IO Response
 withBody request k =
   maybe (pure (jsonError status413 tooBig)) k =<< takeBody bodyLimit request
+
+-- | RAW read through SHAPE, or what is wrong with it — NAME being what @aeson@
+-- calls the object in its own message.  ONE door for the three routes that take
+-- a JSON body, so the wire's @body:@ prefix is written once and a malformed
+-- request reads the same whichever of them was asked.  Both refusals come
+-- through it: a body that is not JSON at all, and one whose shape the parser
+-- declines.
+bodyObject :: String -> (Object -> Parser a) -> BL.ByteString -> Either Text a
+bodyObject name shape raw = first (("body: " <>) . T.pack) $
+  parseEither (withObject name shape) =<< eitherDecode' raw
 
 -- | The view title for DIR: what the browser tab and the table heading show.
 -- Exported so the suite renders the same document the server does.

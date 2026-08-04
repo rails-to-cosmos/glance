@@ -68,7 +68,7 @@ was hidden. =glance scan= still counts every headline at every level — it is a
 parser oracle rather than a view.
 
 *The keymap is data, and the served page is its documentation.*
-=Glance.Web.keyBindings= is one map — no profiles, both spellings bound at once
+=Glance.Web.Keymap.keyBindings= is one map — no profiles, both spellings bound at once
 (=n=/=j=, =f=/=l=) — carried into the page as a JSON blob that the dispatch, the
 echo pill and the resident key line all read. Press a key and the pill says
 =SEQ → command=; the last line of the page is the whole map's summary. Nothing

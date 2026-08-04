@@ -20,7 +20,7 @@ import qualified Data.Text as T
 import Glance.Query ( HeadlineRecord (..), QueryResult (qrRecords), defaultSortChain
                     , displayText
                     , loadDir, matchesSearch, refTargetOf, refTargets, rowJSON
-                    , sortedTagsCell, tagsOfCell, viewJSON )
+                    , tagsOfCell, viewJSON )
 import Glance.Web.Filter ( Term (..), Token (..), alternatives, archiveKey
                          , archiveMeta, cellAt, emptyEnv, emptyMeta, filterKeys
                          , matchesFilter, metaOf, namesArchive, parseFilter

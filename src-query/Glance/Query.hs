@@ -47,6 +47,7 @@ module Glance.Query ( ConfigLayerFile (..)
                     , TodoKeywords (..)
                     , WalkOptions (..)
                     , WriteFailure (..)
+                    , activeMeta
                     , addTagEdits
                     , archiveEdits
                     , archiveTag
@@ -75,6 +76,7 @@ module Glance.Query ( ConfigLayerFile (..)
                     , followableTypes
                     , headlineParts
                     , hiddenProperties
+                    , inactiveMeta
                     , keywordSources
                     , linkColumns
                     , linkShown
@@ -144,7 +146,6 @@ import Data.Char (isAlphaNum, isAsciiLower, isAsciiUpper, isDigit, isSpace)
 import Data.Either (fromRight)
 import Data.List (foldl', nub, partition, sort, sortBy, sortOn)
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
-import Data.Ord (comparing)
 import Data.Text (Text)
 import TextShow (showt)
 
@@ -1338,6 +1339,19 @@ headlineParts r = HeadlineParts
   , hpPlanning   = [ (key, sliceSpan subtree sp) | (key, sp) <- entries ]
   , hpLogbook    = maybe "" (sliceSpan subtree) logAt
   }
+  where (subtree, entries, planAt, drawAt, logAt) = regionsOf r
+
+-- | R's subtree, its planning ENTRIES, and where each of the three regions
+-- sits in it: the planning line, the headline's own drawer, its own logbook.
+-- Each answer feeds the next ('logbookSlice' steps over the drawer), so this is
+-- one pass rather than three questions.
+--
+-- ONE LOCATION, read by both halves of the lens: 'headlineParts' cuts on these
+-- spans and 'recomposedSubtree' counts the body lines they took, so the two
+-- cannot come to different answers about where a region was.
+regionsOf :: HeadlineRecord
+          -> (Text, [(Text, Span)], Maybe Span, Maybe Span, Maybe Span)
+regionsOf r = (subtree, entries, planAt, drawAt, logAt)
   where subtree = subtreeText r
         entries = planningEntries r subtree
         planAt  = planningSlice entries subtree
@@ -1359,11 +1373,7 @@ headlineParts r = HeadlineParts
 recomposedSubtree :: HeadlineRecord -> HeadlineParts -> Text
 recomposedSubtree r parts = spliceRegions (hpBody parts) regions
   where
-    subtree = subtreeText r
-    entries = planningEntries r subtree
-    planAt  = planningSlice entries subtree
-    drawAt  = drawerSlice r subtree
-    logAt   = logbookSlice drawAt subtree
+    (subtree, entries, planAt, drawAt, logAt) = regionsOf r
     -- Which line of the BODY each region goes back on: the line it sat on in the
     -- subtree, less the lines every region ahead of it took out.  Subtree
     -- indices would leave a GAP where a region was cleared — a drawer whose
@@ -1385,11 +1395,10 @@ recomposedSubtree r parts = spliceRegions (hpBody parts) regions
                          [ p | p <- hpProperties parts, not (hiddenProperty (fst p)) ] )
     logs  = ( bodyLine 0 logAt, maybe "" (sliceSpan subtree) logAt )
 
--- | One region of a subtree, and which line of the BODY it goes back on.
-data Region = Region
-  { rgLine :: !Int   -- ^ the body line it belongs above.
-  , rgText :: !Text  -- ^ what goes back there, terminated or not.
-  }
+-- | One region of a subtree: the body line it belongs above, and what goes back
+-- there, terminated or not.  Positional, since 'spliceRegions' takes both apart
+-- in one pattern and a selector for the text would be a name nothing reads.
+data Region = Region !Int !Text
 
 -- | BODY with each of REGIONS put back at the line it belongs above.
 --
@@ -1399,8 +1408,9 @@ data Region = Region
 -- body with fewer lines than an index takes the region at the end, which is
 -- where a client that deleted the lines above it has left room.
 spliceRegions :: Text -> [Region] -> Text
-spliceRegions body regions = knit (go 0 (linesWith body) (sortOn rgLine regions))
+spliceRegions body regions = knit (go 0 (linesWith body) (sortOn above regions))
   where
+    above (Region line _text) = line
     go _seen ls [] = ls
     go seen ls (Region at block : rest) =
       -- 'splitAt' clamps at both ends, so a region naming a line already spent
@@ -2868,16 +2878,27 @@ priorityValues = map priorityCell ["A", "B", "C"]
 priorityBadges :: [Value]
 priorityBadges = zipWith (badge Nothing) ["#E74C3C", "#FFCC00", "#27AE60"] priorityValues
 
+-- | The two keyword groups a @#+TODO:@ line's bar divides: every keyword ahead
+-- of it, and every one behind it.  Starred metas, so no file can declare either
+-- as a keyword ('Data.Org.Parser.keywordTextP' spells one out of letters and
+-- underscores) and no cell can hold one.
+--
+-- SPELLED HERE, where the view OFFERS them ('stateValues'), and read by the
+-- predicate that EVALUATES them ('Glance.Web.Filter'), so the vocabulary a
+-- renderer completes over and the words the filter answers to cannot come
+-- apart.
+activeMeta, inactiveMeta :: Text
+activeMeta = "*active*"
+inactiveMeta = "*inactive*"
+
 -- | The state column's meta values: filter vocabulary rather than cell text.
 -- SCHEMA.md lets a producer add values over a column's own domain, and this one
--- adds org-glance's two keyword groups — @*active*@ is every keyword a file's
--- @#+TODO:@ line declares before the bar, @*inactive*@ every one after it
--- ('Glance.Web.Filter').  No cell ever holds either, which is why they travel
--- beside the badges rather than among them: a renderer completing the column
--- offers the concrete keywords and these two, and the starred spelling is what
--- says that a group is not a badge.
+-- adds org-glance's two keyword groups ('Glance.Web.Filter').  No cell ever
+-- holds either, which is why they travel beside the badges rather than among
+-- them: a renderer completing the column offers the concrete keywords and these
+-- two, and the starred spelling is what says that a group is not a badge.
 stateValues :: [Text]
-stateValues = ["*active*", "*inactive*"]
+stateValues = [activeMeta, inactiveMeta]
 
 -- | The tags column's meta value: @tag:*archive*@, the whole tag rather than
 -- the substring @tag:archive@ matches, and the one query that reaches the rows

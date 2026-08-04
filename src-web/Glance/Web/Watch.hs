@@ -187,9 +187,10 @@ frameSummary frames
 -- caller here then blocks — in the drain loop, in warp, in a window — so
 -- without the flush the log gets its lines when the run is over.
 --
--- ONE spelling for the three modules of @glance-web@ that print and then block
--- ('Glance.Desktop' and 'Glance.Desktop.Native' import it from here).  Every
--- one of them sits above this module, so there is no cycle to close.
+-- ONE spelling for every module of @glance-web@ that prints and then blocks —
+-- 'Glance.Web' for the startup banner, 'Glance.Desktop' and
+-- 'Glance.Desktop.Native' for theirs, this one for the event log.  Each of them
+-- sits above this module, so there is no cycle to close.
 say :: [String] -> IO ()
 say ls = mapM_ putStrLn ls >> hFlush stdout
 

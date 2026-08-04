@@ -2,7 +2,6 @@ module TestParser (spec) where
 
 import Data.Maybe (isNothing)
 import Data.Org
-import qualified Data.Set as Set
 import Data.Text (Text, intercalate)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)

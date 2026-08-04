@@ -1,7 +1,6 @@
 module TestTextShow (spec) where
 
 import Data.Org
-import qualified Data.Set as Set
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertEqual, testCase)
 import TestDefaults (at, on, plainTs, titled)

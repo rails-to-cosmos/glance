@@ -44,7 +44,6 @@ import Control.Monad (unless, void)
 import GHC.Clock (getMonotonicTime)
 import System.Directory (doesDirectoryExist)
 import System.Exit (die)
-import System.IO (hFlush, stdout)
 
 import qualified Data.Text as T
 import qualified Network.Wai.Handler.Warp as Warp
@@ -55,7 +54,7 @@ import Glance.Web.Base ( ServeOptions (..), defaultPort, tenths, viewTitleFor
 import Glance.Web.Routes (application, bootstrapWanted, hasRenderer)
 import Glance.Web.Store ( Hub, Store (stConfig), finishLoading, loadStoreWith
                         , newLoadingHub, storeResult )
-import Glance.Web.Watch (watchOrgTree)
+import Glance.Web.Watch (say, watchOrgTree)
 
 -- Server
 
@@ -98,14 +97,8 @@ serveAs mode opts listening = do
                    . Warp.setBeforeMainLoop ready
                    $ Warp.defaultSettings
     announce assets = do
-      announceLines (bannerLines mode opts assets)
+      say (bannerLines mode opts assets)
       void (forkIO listening)
-
--- | LINES to stdout, flushed.  Redirected stdout is block-buffered and this
--- process then blocks in warp until it is killed, so an unflushed line never
--- reaches the log — which is every line this daemon prints.
-announceLines :: [String] -> IO ()
-announceLines ls = mapM_ putStrLn ls >> hFlush stdout
 
 -- | What OPTS announces at startup under MODE, ASSETS saying whether the
 -- renderer was found.  Pure, the way @Glance.Desktop@'s @--dry-run@ lines are:
@@ -132,7 +125,7 @@ indexTree opts hub started = do
   loaded <- getMonotonicTime
   finishLoading hub store
   let stats = storeResult store
-  announceLines
+  say
     [ "  loaded:  " <> show (length (qrRecords stats)) <> " rows from "
         <> show (qrFiles stats) <> " files in " <> seconds (loaded - started)
         <> collisionNote (qrIdCollisions stats)

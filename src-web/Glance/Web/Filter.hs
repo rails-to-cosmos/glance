@@ -90,8 +90,8 @@ import Data.Text (Text)
 import qualified Data.Text as T
 
 import Glance.Query ( HeadlineRecord (hrActive, hrId, hrLinks, hrSearch)
-                    , archiveTag, cellSep, filterKeys, priorityLetter, refSpellings
-                    , tagRunEntries )
+                    , activeMeta, archiveTag, cellSep, filterKeys, inactiveMeta
+                    , priorityLetter, refSpellings, tagRunEntries )
 
 -- Grammar
 --
@@ -507,10 +507,12 @@ keyTest _env key field value
     -- membership is resolved at LOAD, per row, by the widest scope that
     -- classifies the keyword — org's TODO/DONE, then the system layer, then the
     -- row's tags' configs, then its file ('Data.Org.Config.classify') — and
-    -- arrives here as 'hrActive'.  The starred spelling is the whole of it, the
-    -- one org-glance writes and the one the view offers
-    -- ('Glance.Query.stateValues'): `state:active' is the literal keyword
-    -- `ACTIVE', which is what makes every word a file could declare reachable.
+    -- arrives here as 'hrActive'.  The starred spelling is the whole of it, and
+    -- the two words are the DECLARATION's ('Glance.Query.activeMeta',
+    -- 'Glance.Query.inactiveMeta', which 'Glance.Query.stateValues' offers), so
+    -- what the view completes over and what this answers to are one string
+    -- each: `state:active' is the literal keyword `ACTIVE', which is what makes
+    -- every word a file could declare reachable.
     --
     -- The groups are ASYMMETRIC over the row no scope classifies, whose
     -- 'hrActive' is 'Nothing': `*active*' takes it, a stateless entry being
@@ -525,8 +527,8 @@ keyTest _env key field value
     -- because the renderer's badge matching does (its dispatch is per column
     -- TYPE, never per key): `state:[#TODO]' matches a TODO cell there, so it
     -- must here — a query nobody writes, closed for parity's sake.
-    state cell r | value == "*active*"   = hrActive r == Just True || T.null (cell r)
-                 | value == "*inactive*" = hrActive r == Just False
+    state cell r | value == activeMeta   = hrActive r == Just True || T.null (cell r)
+                 | value == inactiveMeta = hrActive r == Just False
                  | otherwise             = priorityLetter (cell r) == priorityLetter value
 
 -- | Field N of R's search text.

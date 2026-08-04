@@ -30,9 +30,8 @@ import Control.Concurrent (forkIO, killThread, newEmptyMVar, takeMVar, tryPutMVa
 import Control.Concurrent.STM (atomically, readTVarIO)
 import Control.Exception (SomeException, displayException, evaluate, finally, try)
 import Control.Monad (filterM, forever, void, when)
-import Data.Aeson ( Value, eitherDecode', encode, object, withObject
-                  , (.:), (.:?), (.=) )
-import Data.Aeson.Types (Pair, parseEither)
+import Data.Aeson (Value, encode, object, (.:), (.:?), (.=))
+import Data.Aeson.Types (Pair)
 import Data.Bifunctor (first)
 import Data.List (find, nub)
 import Data.Map.Strict (Map)
@@ -81,9 +80,9 @@ import Glance.Query ( ConfigLayerFile (..), ConfigLayers (clDirs)
                     , subtreeText, systemSetting, tagsOfCell
                     , titleSpan
                     , todoLines, viewJSONTextWith )
-import Glance.Web.Base ( ServeOptions (..), answerWrite, configMoved, conflict, html
-                       , jsonError, jsonResponse, jsonType, noSuchRow, plain
-                       , rendererAsset, reparsed, rewritten, sized, tenths
+import Glance.Web.Base ( ServeOptions (..), answerWrite, bodyObject, configMoved
+                       , conflict, html, jsonError, jsonResponse, jsonType, noSuchRow
+                       , plain, rendererAsset, reparsed, rewritten, sized, tenths
                        , unreadable, viewTitleFor, withBody )
 import Glance.Web.Commands (runCommand)
 import Glance.Web.Filter (archiveKey, matchesFilter, namesArchive, storeEnv)
@@ -986,9 +985,7 @@ noSuchLayer path layers =
 -- because they are lines of the same file — three requests would be three
 -- writes under three digests, each invalidated by the one before it.
 parseConfigWrite :: BL.ByteString -> Either Text (Text, [Text], Maybe Text, Maybe Text, Text)
-parseConfigWrite raw = first (("body: " <>) . T.pack) $ do
-  value <- eitherDecode' raw
-  parseEither (withObject "config write" shape) value
+parseConfigWrite = bodyObject "config write" shape
   where shape o = (,,,,) <$> o .: "path" <*> o .: "lines"
                          <*> o .:? "filter" <*> o .:? "capture" <*> o .: "digest"
 
@@ -1028,9 +1025,7 @@ data Commitment
 -- properties and the logbook — are in neither shape, and a split body naming
 -- them writes nothing: they are taken off the record on the way back in.
 parseCommit :: BL.ByteString -> Either Text (Commitment, Text)
-parseCommit raw = first (("body: " <>) . T.pack) $ do
-  value <- eitherDecode' raw
-  parseEither (withObject "commit" shape) value
+parseCommit = bodyObject "commit" shape
   where
     shape o = do
       digest <- o .: "digest"

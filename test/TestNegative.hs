@@ -2,7 +2,6 @@ module TestNegative (spec) where
 
 import Data.Maybe (isJust, isNothing)
 import Data.Org
-import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 import Test.Tasty (TestTree, testGroup)

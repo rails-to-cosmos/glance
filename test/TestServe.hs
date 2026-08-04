@@ -109,9 +109,13 @@ builtIn = ServeOptions { soDir = viewDir, soPort = defaultPort, soAssets = Nothi
 app :: FilePath -> IO Application
 app assets = appOf (served assets)
 
--- | The app OPTS runs, over that same store.
+-- | The app OPTS runs, over a store loaded from the directory OPTS names.  It
+-- reads @soDir@ rather than 'viewDir' outright: every caller here passes a
+-- 'ServeOptions' whose directory IS 'viewDir', so the answer is unmoved, and a
+-- caller that points one somewhere else now gets the tree it asked for instead
+-- of the fixture quietly answering for it.
 appOf :: ServeOptions -> IO Application
-appOf opts = application opts <$> (newHub =<< loadStore viewDir)
+appOf opts = application opts <$> (newHub =<< loadStore (soDir opts))
 
 -- | A server over DIR, with this suite's assets.
 serverOver :: FilePath -> IO (Application, Hub)
@@ -1947,6 +1951,15 @@ tagKeySpec shell =
         assertEqual "and the foot naming the way in"
                     "nothing tagged here · + adds one · ESC leaves"
           =<< textAt "tfoot" answer
+
+    -- And `RET' over it opens NOTHING and names the command that had no row —
+    -- the one guard both browsing popups raise their overlay through, so an
+    -- empty list cannot get a field laid over a row that is not there.
+  , keyed shell "and RET over an empty one opens nothing and says so"
+      "" "untagged press:: press:Enter" $ \answer -> do
+        assertEqual "no overlay" False =<< boolAt "trename" answer
+        echoIs "the pill names the command" "RET → org-rename-tag (no tag)" answer
+        assertEqual "and nothing was written" [] =<< postedOf answer
 
   , keyed shell "a refused resolution raises nothing and says so"
       "" "refuse press::" $ \answer -> do
@@ -4338,6 +4351,21 @@ settingsSpec shell =
         assertEqual "and the subtree is still the one open" "on"
           =<< textAt "modal" answer
 
+    -- AND IT IS A SURFACE WHILE IT STANDS, which is the half `openSettings''s
+    -- refusal cannot cover.  The sheet opens with a field focused, so `typing()'
+    -- used to catch it by the FOCUS — and a click on the sheet's own chrome
+    -- takes that focus away without closing anything, which left every `table'
+    -- row live under an open settings sheet, `d' among them: one press flags the
+    -- row behind it and the next archives it.  The sheet is one entry in
+    -- `SURFACES' now, so it is up whether or not anything in it is focused.
+  , keyed shell "the settings sheet holds the keys with its fields blurred"
+      "," "blur press:d" $ \answer -> do
+        assertEqual "the sheet is up" "on" =<< textAt "settings" answer
+        assertEqual "with nothing focused" "" =<< textAt "focus" answer
+        assertEqual "and no row flagged behind it"
+                    ([] :: [T.Text]) =<< textsAt "flagged" answer
+        assertEqual "nor anything written" [] =<< postedOf answer
+
   , keyed shell "C-x C-s syncs mid-edit and leaves the sheet open"
       "," "clayer:1 ctext:#+TODO:_A_|_B press:C-x press:C-s" $
         \answer -> do
@@ -4961,7 +4989,7 @@ scrollSweep shell = testCase "the one scrollIntoView is the document's own" $ do
 --
 -- * NO PANE CARRIES A FLOOR.  A @min-height@ on a flex child is a refusal to
 --   shrink, which is the classic way a bounded box is pushed open from inside.
---   The floor is the BOX's (@.pop-wide@), where it is one number.
+--   The measure is the TIER's (@.pop-sheet@), where it is one number.
 containSweep :: IO T.Text -> TestTree
 containSweep shell = testCase "every popup clamps, and scrolls inside" $ do
   page <- shell
@@ -4969,27 +4997,24 @@ containSweep shell = testCase "every popup clamps, and scrolls inside" $ do
   -- what a reader can take in, so 90vh is the ceiling whatever it works out to.
   assertContains "the bound caps at 90vh"
     "    --g-pop-max:min(90vh," page
-  mapM_ (\(what, needle) -> assertContains what needle page)
-    [ -- The panes row: sized by the box, and CONTAINING what it is sized to.
-      ("the panes row clamps", "  #mpanes{flex:1;min-height:0;overflow:hidden;")
-      -- The document pane is its own scroller, and can shrink to be one.
-    , ("the document pane scrolls inside", "min-width:0;min-height:0;position:relative;")
-    , ("and owns that scroll", "    overflow:auto;padding:var(--g-doc-pady) var(--g-doc-padx);")
-      -- The panel hands its scroll to the mount inside it.
-    , ("the panel clamps", "    overflow:hidden;display:flex;flex-direction:column}")
-    , ("and its mount takes the scroll", "  #mptable{flex:1;min-height:0;display:flex}")
-      -- The link and tag tables, the same arrangement one tier up.
-    , ("the link and tag panes clamp", "  #tpane,#lpane{flex:1;position:relative;min-height:0;")
-    , ("and their mounts take the scroll"
-      , "  #ltable,#ttable{flex:1;min-height:0;display:flex;overflow:hidden}")
-      -- The settings sheet and the palette list scroll in their own right.
-    , ("the settings sheet scrolls", "z-index:101;overflow-y:auto;font-family:var(--dk-mono);")
-    , ("the palette's list scrolls", "  #plist{max-height:40vh;overflow-y:auto;font-size:12px}")
-      -- And the logbook strip, which is bounded rather than shrinkable.
-    , ("the sheet's log strip is bounded", "  #mlog{display:none;flex:0 0 auto;max-height:22vh;overflow:auto;")
-    ]
-  -- NO PANE HOLDS THE BOX OPEN.  The textarea is the one that did.
-  assertContains "the raw pane has no floor of its own" "  #mtext{min-height:0;" page
+  -- RULE-SCOPED, the way `tierSweep' and `groundSweep' read their rules: each
+  -- declaration is looked for inside the BODY of the selector that owes it.  A
+  -- flat `isInfixOf' over the page cannot say which rule answered, and one of
+  -- these pairs could not be anchored at all — `#mdoc' and `#mprops' open with
+  -- the same three declarations, so the document pane's needle was satisfied by
+  -- the panel and the document was never asserted at all.
+  --
+  -- WHAT IT SWEPT IS ASSERTED FIRST, so a renamed or regrouped selector fails
+  -- loudly rather than passing over nothing.
+  let swept = [ (sel, body) | (sel, _decls) <- clamps, Just body <- [ruleIn sel page] ]
+  assertEqual "the sweep found a rule for every selector it names"
+              (map fst clamps) (map fst swept)
+  mapM_ (\((sel, decls), (_sel, body)) ->
+           mapM_ (\d -> assertBool
+                    (T.unpack (sel <> " no longer declares " <> d <> ": " <> body))
+                    (d `T.isInfixOf` body))
+                 decls)
+        (zip clamps swept)
   -- AND NEITHER HAS THE BOX.  A fixed height is the whole tier now, so a floor
   -- anywhere would be a second opinion about the same measure.
   assertEqual "a floor under the working box, whose height is fixed" []
@@ -5000,6 +5025,30 @@ containSweep shell = testCase "every popup clamps, and scrolls inside" $ do
            , any (`T.isInfixOf` line) ["#mtext{", "#mdoc{", "#mprops{", "#mpanes{"]
            , "min-height:" `T.isInfixOf` line
            , not ("min-height:0" `T.isInfixOf` line) ]
+  where
+    -- Every box and pane that has to CONTAIN what it holds, and the
+    -- declarations that make it do so: a flex child shrinks to its parent only
+    -- with the floor taken off (@min-height:0@), and the scroll then belongs to
+    -- whichever element the content is inside.
+    clamps =
+      [ -- The panes row: sized by the box, and CONTAINING what it is sized to.
+        ("#mpanes", ["flex:1", "min-height:0", "overflow:hidden"])
+        -- The raw pane has no floor of its own — it is the one that had.
+      , ("#mtext", ["min-height:0"])
+        -- The document pane is its own scroller, and can shrink to be one.
+      , ("#mdoc", ["min-height:0", "overflow:auto"])
+        -- The panel clamps and hands its scroll to the mount inside it.
+      , ("#mprops", ["min-height:0", "overflow:hidden"])
+      , ("#mptable", ["flex:1", "min-height:0"])
+        -- The link and tag popups, the same arrangement one tier up.
+      , ("#tpane", ["min-height:0", "overflow:hidden"])
+      , ("#ltable", ["min-height:0", "overflow:hidden"])
+        -- The settings sheet and the palette list scroll in their own right.
+      , ("#cbox", ["overflow-y:auto"])
+      , ("#plist", ["max-height:40vh", "overflow-y:auto"])
+        -- And the logbook strip, which is bounded rather than shrinkable.
+      , ("#mlog", ["flex:0 0 auto", "max-height:22vh", "overflow:auto"])
+      ]
 
 -- | ONE GRID, ONE BASE: the head's star gutter and a paragraph's indent are the
 -- SAME arithmetic rather than the same glyph count, so a bold or a fallback face
@@ -5383,7 +5432,9 @@ shellGlue =
       -- shape and nothing about the gesture is spelled twice.
       , "cells: [\"title\"], cols: TCOLS,"
       , "const renaming = () => !!edit && edit.o === TROW;"
-      , "openEdit(TROW, at);"
+      -- Raised over the tag at point, through the guard both browsing popups
+      -- open their overlay by: a row or the refusal, never a box over nothing.
+      , "openOver(TROW, tagAt(), \"org-rename-tag (no tag)\")"
       -- And the write is ONE command rather than a remove and an add composed,
       -- over the tag the overlay OPENED on rather than the one under the cursor.
       , "renameTag(edit.row, el(\"tname\").value);"
@@ -5436,12 +5487,15 @@ shellGlue =
       -- textarea and every `table' row goes live again — so an unscoped shut
       -- would let the sheet's `fill'/`shut' cancel an open tag rename. Each
       -- caller names its own shape, which is the isolation the two hand-written
-      -- shutters had.
+      -- shutters had, and ESC names it through the one sentence every surface
+      -- words the event with.
       , "function shutEdit(o) {"
       , "if (!edit || edit.o !== o) return;"
-      , "shutEdit(DROW); shutEdit(DPARA);"
-      , "shutEdit(TROW);"
-      , "shutEdit(LROW);" ]
+      , "for (const o of shapes) shutEdit(o);"
+      , "cancelEdit(\"element\", DROW, DPARA)"
+      , "cancelEdit(\"row\", PROW)"
+      , "cancelEdit(\"tag\", TROW)"
+      , "cancelEdit(\"link\", LROW)" ]
       -- The live cursor read the commit used to make, the per-surface copies of
       -- the gesture, and the unscoped shut that would reach across surfaces.
       [ "drows[docAt()]", "function place()", "function shutRename"
@@ -5980,7 +6034,7 @@ shellGlue =
       -- tying it to the list it indexed.
       , "cells: [\"title\", \"url\"], cols: LCOLS,"
       , "const lediting = () => !!edit && edit.o === LROW;"
-      , "openEdit(LROW, at);"
+      , "openOver(LROW, pointedRow(), \"org-insert-link (no link)\")"
       , "else if (k === \"RET\") commitLink(edit.row);"
       , "const args = { span: link.span, target };"
       -- ABSENT IS NOT NULL: only a description field the reader moved says
@@ -9712,7 +9766,10 @@ keymapSpec shell = testGroup "Shell keymap"
       assertEqual "an arrow slot that is not the command" []
                   [ s | s <- slots, not ("${b.command}" `T.isPrefixOf` s) ]
       -- The one echo written without a binding in hand names its command too.
-      assertContains "ESC's own echo" "ESC → keyboard-quit (element unchanged)" inline
+      -- It is written ONCE for the four surfaces, so the slot after the arrow is
+      -- the literal command and what varies is the bracketed outcome behind it.
+      assertContains "ESC's own echo"
+                     "ESC → keyboard-quit (${what} unchanged)" inline
       rows <- keymapOf =<< shell
       assertEqual "a command name that cannot be typed as one" []
                   [ c | (_k, _s, c, _h, _sc, _help) <- rows, " " `T.isInfixOf` c ]
@@ -9958,9 +10015,16 @@ touchSpec shell = testGroup "Touch"
       -- query before it runs: with a mouse the page is what it always was.
       let (before, coarse') = T.breakOn "@media (pointer:coarse){" b
       assertBool "no coarse block in the page" (not (T.null coarse'))
-      mapM_ (\needle -> assertBool ("a touch rule outside the query: " <> show needle)
-                                   (not (needle `T.isInfixOf` before)))
-            ["min-height:44px", "#mtext,#pinput{font-size:16px}", "tv-chips:empty"]
+      -- EACH NEEDLE IS WITNESSED INSIDE THE BLOCK FIRST.  An absence over a
+      -- string the page cannot hold is a test that can never fail, which is what
+      -- the 16px one had become: the field roll grew and `#mtext,#pinput{' with
+      -- it, so the needle named a rule that no longer exists anywhere.
+      mapM_ (\needle -> do
+               assertBool ("the query does not carry it: " <> show needle)
+                          (needle `T.isInfixOf` coarse')
+               assertBool ("a touch rule outside the query: " <> show needle)
+                          (not (needle `T.isInfixOf` before)))
+            ["min-height:44px", ".ctext,.cview{font-size:16px}", "tv-chips:empty"]
       assertEqual "one coarse block, and one gate on it" 1
                   (T.count "@media (pointer:coarse){" b)
   ]

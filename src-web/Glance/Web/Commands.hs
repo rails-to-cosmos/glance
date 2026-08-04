@@ -9,10 +9,8 @@ module Glance.Web.Commands (commands, commandNames, runCommand) where
 
 import Control.Concurrent.STM (readTVarIO)
 import Control.Monad (join)
-import Data.Aeson ( Object, Value, eitherDecode', object, withObject
-                  , (.:), (.:!), (.:?), (.=) )
-import Data.Aeson.Types (Parser, parseEither)
-import Data.Bifunctor (first)
+import Data.Aeson (Object, Value, object, (.:), (.:!), (.:?), (.=))
+import Data.Aeson.Types (Parser)
 import Data.List (nub)
 import Data.Map.Strict (Map)
 import Data.Maybe (fromMaybe, isJust)
@@ -33,8 +31,8 @@ import Glance.Query ( ConfigLayers, HeadlineRecord (hrDigest, hrFile, hrId)
                     , renameTagEdits, replaceSpans, setPlanningEdits
                     , setPriorityEdits, setStateEdits, setTitleEdits
                     , tagText, titleText )
-import Glance.Web.Base ( ServeOptions (soDir), answerWrite, captureMoved, jsonError
-                       , jsonResponse, noSuchRow, withBody )
+import Glance.Web.Base ( ServeOptions (soDir), answerWrite, bodyObject, captureMoved
+                       , jsonError, jsonResponse, noSuchRow, withBody )
 import Glance.Web.Store ( Hub, Store (stConfig), headlinesIn, hubStore
                         , storeDocument, storeRecords )
 
@@ -401,10 +399,9 @@ groupOn key xs = [ (k, [ x | x <- xs, key x == k ]) | k <- nub (map key xs) ]
 -- rows, and what the request's shape owes it ('csArgs', handed the ids beside
 -- the @args@).
 parseCommand :: BL.ByteString -> Either Text Command
-parseCommand raw =
-  first (("body: " <>) . T.pack) (eitherDecode' raw >>= parseEither command) >>= checked
+parseCommand raw = bodyObject "command" command raw >>= checked
   where
-    command = withObject "command" $ \o -> do
+    command o = do
       name <- o .: "name"
       one <- o .:? "id"
       several <- o .:? "ids"

@@ -225,7 +225,7 @@ storeDocument path st = (\r -> (hrDoc r, hrDigest r)) <$> listToMaybe (recordsUn
 --
 -- Kept as a count per tag beside the rows rather than folded out of them per
 -- request: the vocabulary is asked for on every @\/headlines@ and the rows are
--- 13k of them.  It moves only when a file's rows do, which is exactly
+-- ten thousand of them.  It moves only when a file's rows do, which is exactly
 -- when 'guarded' moves the generation the @ETag@ spells, so a client's cached
 -- answer can never be one the old vocabulary produced.
 storeTags :: Store -> [Text]
@@ -487,8 +487,8 @@ data LoadState
 -- every client from the transaction that updates the store, and a browser that
 -- has stopped reading must not be able to hold that transaction up.  A full
 -- mailbox abandons the backlog and closes the socket, which the client answers
--- by re-asking for rows ('Glance.Web.pump' names that close @resync@) — losing
--- a slow reader's frames is recoverable, stalling the watcher is not.
+-- by re-asking for rows ('Glance.Web.Routes.pump' names that close @resync@) —
+-- losing a slow reader's frames is recoverable, stalling the watcher is not.
 --
 -- 'clDropped' is read before the queue in 'nextFrame', so the backlog behind a
 -- full mailbox is never delivered: the queue goes with the 'Client' the moment

@@ -90,19 +90,14 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   -- popup's shape rather than the value palette's, and carries what a read-only
   -- mount does not: the rename overlay, the property panel's edit model over
   -- one cell.  `#tpane' positions it, as `#mdoc' does the document's.
-  , "  <div id=\"tags\">"
-  , "    <div id=\"tbox\" class=\"pop-sheet\">"
-  , "      <div id=\"thead\"></div>"
-  , "      <div id=\"tpane\"><div id=\"ttable\"></div>"
-      <> "<div id=\"tedit\"><input id=\"tname\" spellcheck=\"false\"></div></div>"
-  , "      <div id=\"tfoot\"></div>"
-  , "    </div>"
-  , "  </div>"
+  ]
+  <> popupFrame "tags" "t" ("<div id=\"tedit\">" <> field "tname" <> "</div>")
   -- The value palette.  Letter mode is the resident one and its field is
   -- hidden, so the box carries the mode: `#pbox.narrow' is the completing-read
   -- `/' falls back to, and `+' over the tags popup is its other door.  The foot
   -- names the keys the list itself cannot draw.
-  , "  <div id=\"prompt\">"
+  <>
+  [ "  <div id=\"prompt\">"
   , "    <div id=\"pbox\" class=\"pop-band\">"
   , "      <div id=\"phead\"></div>"
   , "      <input id=\"pinput\" spellcheck=\"false\" autocomplete=\"off\">"
@@ -114,20 +109,14 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   -- is a TABLE — what each one is, what the entry calls it, where it points —
   -- and this page has one list widget, so it draws that table rather than a
   -- hand-made list under hand-assigned letters.  A sibling of `#app' sharing the
-  -- two z levels with the sheets and the value palette, so the four values still
-  -- stand.  `#lpane' is the edit overlay's positioning parent, the way `#tpane'
+  -- two z levels with the sheets and the value palette, so the three values
+  -- still stand.  `#lpane' is the edit overlay's positioning parent, as `#tpane'
   -- is the rename's: `RET' lays two fields over the row's title and url cells,
   -- and the mount rewrites its rows as it scrolls, so an edit living inside one
   -- would be thrown away by the next frame.
-  , "  <div id=\"links\">"
-  , "    <div id=\"lbox\" class=\"pop-sheet\">"
-  , "      <div id=\"lhead\"></div>"
-  , "      <div id=\"lpane\"><div id=\"ltable\"></div>"
-      <> "<div id=\"ledit\"><input id=\"ltitle\" spellcheck=\"false\">"
-      <> "<input id=\"lurl\" spellcheck=\"false\"></div></div>"
-  , "      <div id=\"lfoot\"></div>"
-  , "    </div>"
-  , "  </div>"
+  ]
+  <> popupFrame "links" "l"
+       ("<div id=\"ledit\">" <> field "ltitle" <> field "lurl" <> "</div>")
   -- The settings sheet: the page's ONE place for a preference, in PANELS.
   -- General, theme, keywords — a header over the rows that belong to it, drawn
   -- from the `SECTIONS' list below, so a fourth panel is one entry there and the
@@ -137,7 +126,8 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   -- each wearing `cpart', and `SECTIONS' wraps them at boot: the list owns the
   -- headers and the order, the markup owns what is under them, and the
   -- stylesheet reads the class rather than a roll of ids.
-  , "  <div id=\"config\">"
+  <>
+  [ "  <div id=\"config\">"
   , "    <div id=\"cbox\" class=\"pop-sheet\">"
   , "      <div id=\"chead\"><span id=\"ctitle\">settings</span>"
       <> "<span id=\"cnote\"></span></div>"
@@ -149,21 +139,19 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   -- constants the server answers with — the value cannot change while the page
   -- is up, so nothing carries it into the glue and back out per sheet-open.
   , "      <div id=\"cgen\" class=\"cpart\">"
-  , "        <div class=\"crow\"><div class=\"clab\">default view</div>"
-      <> "<input id=\"cfilter\" class=\"cview\" spellcheck=\"false\" placeholder=\""
-      <> escape ("the view g applies; empty is " <> builtinFilter) <> "\"></div>"
-  , "        <div class=\"crow\"><div class=\"clab\">capture target</div>"
-      <> "<input id=\"ctarget\" class=\"cview\" spellcheck=\"false\" placeholder=\""
-      <> escape ("where + captures; empty is " <> T.pack defaultCaptureFile)
-      <> "\"></div>"
+  , crow (clab "default view")
+         (cinput "cfilter" "" ("the view g applies; empty is " <> builtinFilter))
+  , crow (clab "capture target")
+         (cinput "ctarget" ""
+                 ("where + captures; empty is " <> T.pack defaultCaptureFile))
   -- The log's height, and the one field on this sheet that asks no server: it
   -- is a `localStorage' preference like the theme, and the panel says where a
   -- reader READS a preference rather than what writes it.  `cmoved' never sees
   -- it, so it costs no request and cannot make a pristine sheet dirty.
-  , "        <div class=\"crow\"><div class=\"clab\">log lines</div>"
-      <> "<input id=\"clog\" class=\"cview\" spellcheck=\"false\" inputmode=\"numeric\""
-      <> " placeholder=\"" <> escape ("how tall the log grows, " <> logLinesBand
-      <> "; empty is " <> T.pack (show logLinesDefault)) <> "\"></div>"
+  , crow (clab "log lines")
+         (cinput "clog" " inputmode=\"numeric\""
+                 ("how tall the log grows, " <> logLinesBand <> "; empty is "
+                    <> T.pack (show logLinesDefault)))
   , "      </div>"
   -- THEME: three values, one `localStorage' key, and the pre-paint boot in the
   -- head that reads it — a preference like every other one on this sheet, which
@@ -171,10 +159,11 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   -- border, radius and font and the coarse-pointer rule that stops iOS zooming
   -- in on a focused control.
   , "      <div id=\"ctheme\" class=\"cpart\">"
-  , "        <div class=\"crow\"><div class=\"clab\">colour theme</div>"
-      <> "<select id=\"themesel\" class=\"cview\" title=\"colour theme\">"
-      <> "<option value=\"auto\">auto</option><option value=\"light\">light</option>"
-      <> "<option value=\"dark\">dark</option></select></div>"
+  , crow (clab "colour theme")
+         ("<select id=\"themesel\" class=\"cview\" title=\"colour theme\">"
+            <> "<option value=\"auto\">auto</option>"
+            <> "<option value=\"light\">light</option>"
+            <> "<option value=\"dark\">dark</option></select>")
   , "      </div>"
   -- KEYWORDS: ONE LAYER AT A TIME.  A tree has as many config files as it has
   -- tags, and a stack of boxes made the panel as tall as that number — the
@@ -186,15 +175,16 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   -- the sheet's focus rules: inside a popup, so it keeps the focus it is given
   -- and native tabbing walks it in DOM order with the rest.
   , "      <div id=\"clayers\" class=\"cpart\">"
-  , "        <div class=\"crow\"><div class=\"clab\">layer</div>"
-      <> "<select id=\"clayer\" class=\"cview\" title=\"config layer\"></select></div>"
+  , crow (clab "layer")
+         "<select id=\"clayer\" class=\"cview\" title=\"config layer\"></select>"
   -- The label is the SELECTED layer's — where the file is, and whether it is
   -- there at all.  A layer with no digest is not a file yet; saying so is what
-  -- makes creating the first one an edit rather than a mystery.
-  , "        <div class=\"crow\"><div id=\"clab\" class=\"clab\"></div>"
-      <> "<textarea id=\"ctext\" class=\"ctext\" spellcheck=\"false\""
-      <> " placeholder=\"#+TODO: TODO STARTED | DONE\"></textarea>"
-      <> "<div id=\"clerr\" class=\"cerr\"></div></div>"
+  -- makes creating the first one an edit rather than a mystery.  It is the one
+  -- label the server writes, so it is the one that carries an id.
+  , crow "<div id=\"clab\" class=\"clab\"></div>"
+         ("<textarea id=\"ctext\" class=\"ctext\" spellcheck=\"false\""
+            <> " placeholder=\"#+TODO: TODO STARTED | DONE\"></textarea>"
+            <> "<div id=\"clerr\" class=\"cerr\"></div>")
   , "      </div>"
   , "      <div id=\"ceff\"></div>"
   , "      <div id=\"cfoot\">read-only: the union every file is parsed with."
@@ -207,6 +197,49 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "  <script src=\"" <> T.pack rendererAsset <> "\"></script>"
   ]
   <> shellGlue wanted
+
+-- | A table popup's frame: NAME the wrapper the backdrop wears, P the letter
+-- every part of it is prefixed with, OVERLAY the edit box its pane positions.
+--
+-- ONE FRAME for the link popup and the tags popup — a head, a positioning pane
+-- holding a mount, a foot — since the overlay is the whole of what they differ
+-- in and the size is the tier's.  A third table popup is a call rather than
+-- eight lines nothing compares.
+popupFrame :: Text -> Text -> Text -> [Text]
+popupFrame name p overlay =
+  [ "  <div id=\"" <> name <> "\">"
+  , "    <div id=\"" <> p <> "box\" class=\"pop-sheet\">"
+  , "      <div id=\"" <> p <> "head\"></div>"
+  , "      <div id=\"" <> p <> "pane\"><div id=\"" <> p <> "table\"></div>"
+      <> overlay <> "</div>"
+  , "      <div id=\"" <> p <> "foot\"></div>"
+  , "    </div>"
+  , "  </div>"
+  ]
+
+-- | A bare text field, which is what every edit overlay on this page lays over
+-- the cell it opens.
+field :: Text -> Text
+field name = "<input id=\"" <> name <> "\" spellcheck=\"false\">"
+
+-- | One row of the settings sheet: LABEL beside CONTROL.
+crow :: Text -> Text -> Text
+crow label control = "        <div class=\"crow\">" <> label <> control <> "</div>"
+
+-- | A settings row's label.  The layer box's is the exception and is written
+-- out where it stands: it is empty and carries an id, the sheet filling it with
+-- where that layer's file is.
+clab :: Text -> Text
+clab word = "<div class=\"clab\">" <> word <> "</div>"
+
+-- | A settings field: ID under the sheet's one control class, EXTRA whatever
+-- attributes that one field owes, HINT the placeholder — which is also the
+-- value the field falls back to when a reader empties it, so it is spelled from
+-- the same constant the server answers with.
+cinput :: Text -> Text -> Text -> Text
+cinput name extra hint =
+  "<input id=\"" <> name <> "\" class=\"cview\" spellcheck=\"false\"" <> extra
+    <> " placeholder=\"" <> escape hint <> "\">"
 
 -- | The page a browser gets when DIR — the @--assets@ directory — holds no
 -- renderer: what still works, and the two ways out.  Reachable under that flag
