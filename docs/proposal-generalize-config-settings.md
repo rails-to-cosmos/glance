@@ -85,3 +85,13 @@ sheet tests.
 `SECTIONS` (the settings panels as one list), `commands` (one table,
 `commandNames = map fst`), `keywordScopes` (one chain, three readers),
 `viewColumns` (four-way lockstep off one list).
+
+## Addendum — 2026-08-05, two more data points
+
+The pin (`P`) and the composer touched the family again: `lines` became
+optional on the wire (parse + `configEdits` + docs), and the composer
+rewired the sheet half of the filter setting (six Glue sites).  Also one
+MISS the family shape allowed: the pin shipped against a server that still
+required `lines`, because every shell test drove the harness stub and no
+route test posted the setting without it — a registry with a quantified
+route case per setting would have refused to compile the gap.

@@ -144,3 +144,11 @@ records emitted into a JSON blob the page parses for its own dispatch, so a key
 cannot be bound and undocumented.  `SECTIONS` (`Glue.hs:3494-3503`) for the
 boot-time join check.  `Style.hs:659-660` for the tier, which is the half of this
 that already works.
+
+## Addendum — 2026-08-05, the capture form as a data point
+
+The capture form (`+`, one popup) registered by hand at NINE sites: the
+`SURFACES` entry, the backdrop id list (three CSS spellings: band rule, `.on`
+rule, stale-wash pair), the shared card rule, the coarse-pointer block, the
+harness `STATEFUL` roll, and the wash-needle re-pin in `TestServe`.  The
+proposal's cost table predicted ~7; measured 9.
