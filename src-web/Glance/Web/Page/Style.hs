@@ -509,6 +509,10 @@ page head' title body = T.unlines
   , "  #pinput,#ktag,#kfields input{font:12px/1.5 var(--dk-mono);padding:5px 7px;border-radius:4px;"
   , "    border:1px solid var(--g-border);background:transparent;color:inherit}"
   , "  #pbox:not(.narrow) #pinput{display:none}"
+  -- The default-view composer: a table-view mount with no table behind it,
+  -- taking the row's remaining width and the sheet's own face.
+  , "  #cfbox{flex:1 1 auto;min-width:0}"
+  , "  #cfbox .tv-root{font-family:var(--dk-mono)}"
   , "  #plist{max-height:40vh;overflow-y:auto;font-size:12px}"
   -- The capture form's own rows: the narrowed vocabulary under the tag field
   -- (the highlight is the selection wash, the table's language), a label

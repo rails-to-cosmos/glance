@@ -4460,12 +4460,30 @@ settingsSpec shell =
       "," "ccap:notes/in.org press:C-x press:C-s" $
         assertEqual "the field shows what was typed" "notes/in.org" <=< textAt "ccap"
 
-    -- The default view is the other general field and it is READ-ONLY here:
-    -- composing a query belongs to the table's own widget, so the sheet SHOWS
-    -- what is pinned and a typed value never rides a write.
-  , keyed shell "the default view field is read-only, and rides no write"
+    -- The default view is edited in the SAME widget the main page filters
+    -- with: a table-view COMPOSER mount — bar and chips, no table — so the
+    -- grammar, the completion and DEL are the form control.  Mounted once,
+    -- re-seeded per open with the served value, handed the main table's rows
+    -- for value completion; a commit into it dirties the system layer and
+    -- rides that layer's own drift-locked write.
+  , keyed shell "the default view is a composer, and rides the system write"
       "," "cview:tag:work press:Escape" $ \answer -> do
-        assertEqual "nothing was written for it" ([] :: [Value])
+        writes <- listAt "configWrites" answer
+        assertEqual "one write, for the system layer" 1 (length writes)
+        assertEqual "carrying the composed view" "tag:work"
+          =<< textAt "filter" (head writes)
+        assertEqual "and the server holds it now" "tag:work"
+          =<< textAt "served" answer
+
+  , keyed shell "the composer is one mount, re-seeded with what is served"
+      "," "cview:tag:work press:Escape press:," $ \answer -> do
+        assertEqual "one mount across two opens" 1 =<< intAt "cmounts" answer
+        assertEqual "showing the value the write landed" "tag:work"
+          =<< textAt "cview" answer
+
+  , keyed shell "an untouched composer rides no write"
+      "," "press:Escape" $ \answer ->
+        assertEqual "pristine, so nothing went" ([] :: [Value])
           =<< listAt "configWrites" answer
 
     -- `P' IS THE PIN: the applied query — sort tokens and all — becomes the

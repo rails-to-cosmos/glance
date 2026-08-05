@@ -740,6 +740,20 @@ section groups a feature arc, and its date is that arc's last commit.
   or the reconnect. The status corner, the event log and the key line stay
   bright, being where a reader finds out why.
 
+### Fixed
+- **The pin actually writes.** Two faults hid each other: the server still
+  required `lines` on `POST /config`, so the pin's request was a 400 — and the
+  shell's fetch resolves refusals, so the pin logged "pinned" while the file
+  never moved. Absent `lines` now leaves the `#+TODO:` block standing, and a
+  refused pin is a thrown error and one config error line.
+
+### Changed
+- **The settings sheet's default view is the main page's own filter widget.**
+  A table-view composer — the omnibox bar and the chips, completion and DEL
+  included, with no table behind them — replaces the plain field. It opens
+  showing the served value, offers the tree's own values, and a composed
+  query rides the system layer's drift-locked write.
+
 ### Added
 - **`P` pins the applied view as the tree's default.** The query on screen —
   filter tokens and sort tokens alike — becomes `system.org`'s

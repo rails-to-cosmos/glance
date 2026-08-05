@@ -2336,9 +2336,9 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   line nothing reads. Carried by `clFilter` and `clCapture`, and spliced in the
   SAME `configEdits` call as the block — with the layer's TEMPLATE, so four
   regions of one file ride one write, since four writes would be four digests.
-  A tag layer names neither. The settings sheet shows both under the system
-  layer and EDITS the capture target alone; the default view is read-only
-  there, pinned from the table by `P`. `Config.systemSetting` is the ONE "first system
+  A tag layer names neither. The settings sheet edits both under the system
+  layer — the default view in a table-view COMPOSER mount (below), the
+  capture target as a plain field. `Config.systemSetting` is the ONE "first system
   layer that names one" fold, over the `ConfigLayerFile` list `readConfigLayers`
   returns, and both the load and the settings route call it.
 - The DEFAULT VIEW is `system.org`'s `#+GLANCE_DEFAULT_FILTER:` line, read into
@@ -2350,11 +2350,17 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   bare-boot injection and `g` both read it. WRITING it is `P`
   (`set-default-view`, ONCE): the applied query — sort tokens and all, the
   order being the grammar's — goes to `POST /config` as the optional `filter`
-  under the digest `GET /config` just served, spliced in the SAME call as the
-  `#+TODO:` block since they are lines of one file. Composing stays the
-  table's widget (badges, completion); the settings sheet's field is
-  READ-ONLY, showing what is pinned. The write reseeds, the reseed re-embeds
-  `DEFAULT_QUERY`, so the pin is the next boot's view.
+  under the digest `GET /config` just served — WITHOUT a `lines` key, which is
+  why absent lines leave the `#+TODO:` block standing (the optional regions'
+  own rule; the empty list is still the deletion). The settings sheet edits
+  the same line in a COMPOSER: a fifth table-view mount over `#cfbox`
+  (`composer: true` — the omnibox bar and the chips with no table behind
+  them), mounted once, re-seeded per open by `setQuery` with the served value,
+  handed the main table's rows for value completion; `cmoved` compares the
+  mount's query against `viewBase` and the system write carries `filter` only
+  where it moved. A pin landing while the sheet is open re-seeds it. The
+  write reseeds, the reseed re-embeds `DEFAULT_QUERY`, and `pinnedQuery` is
+  the LIVE default `g` applies, so a fresh pin needs no reload.
 - `GET`/`POST /config` serve and replace ONE layer's `#+TODO:` block AND its
   capture template through the ordinary write path — `configEdits` for the spans,
   `replaceSpans` for the drift-locked atomic write — so a `#+TITLE:` and a

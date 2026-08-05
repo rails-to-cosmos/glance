@@ -678,6 +678,7 @@ const makeMount = (host, view, options, own) => {
     // The pin button-badge: whether the badge is on, and the click the
     // consumer wired.  `pinclick' is the act that presses it.
     pinned: !!o.pinned, onPin: typeof o.onPin === "function" ? o.onPin : null,
+    onFilter: typeof o.onFilter === "function" ? o.onFilter : null,
   };
   /** Every row this mount holds: its own, or the store's. */
   const all = () => (m.own ? m.own : rows);
@@ -791,6 +792,8 @@ const makeMount = (host, view, options, own) => {
       keep();
     },
     getQuery: () => m.held,
+    getRows: () => all().slice(),
+    setQuery: (q) => { m.held = String(q == null ? "" : q).trim(); },
     setPinned: (on) => { m.pinned = !!on; },
     stripLastToken: () => {
       if (!m.held) return false;
@@ -918,11 +921,13 @@ globalThis.TableView = {
   // others went up.
   mount: (host, view, options) => {
     const panel = host === field("mptable"), popup = host === field("ltable");
-    const tagbox = host === field("ttable");
-    const inst = makeMount(host, view, options, panel || popup || tagbox ? [] : null);
+    const tagbox = host === field("ttable"), maker = host === field("cfbox");
+    const inst = makeMount(host, view, options,
+                           panel || popup || tagbox || maker ? [] : null);
     if (panel) { pmounts += 1; pan = inst; }
     else if (popup) { lmounts += 1; lnk = inst; }
     else if (tagbox) { tmounts += 1; tgs = inst; }
+    else if (maker) { cmounts += 1; cmp = inst; }
     else { mounts += 1; main = inst; paints.push(((view || {}).rows || []).length); }
     if (markless) strip(inst.handle, MARK_CALLS);
     if (pagerless) strip(inst.handle, PAGE_CALLS);
@@ -943,6 +948,7 @@ const SORT_CALLS = ["sortBy", "sortPromote", "getSort", "setSort"];
 /** And the crumb trail, which `@' needs before it will drill at all. */
 const CRUMB_CALLS = ["setCrumbs", "getCrumbs", "pushCrumb", "popCrumb"];
 const strip = (h, names) => { for (const name of names) delete h[name]; };
+let cmp = null, cmounts = 0;
 /** An older asset is one asset: every mount loses the calls it never had. */
 const stripLive = (names) => {
   for (const inst of [main, pan, lnk, tgs]) if (inst) strip(inst.handle, names);
@@ -1000,7 +1006,7 @@ const TAGS = { mtext: "textarea", filter: "input", pinput: "input",
                pkey: "input", pval: "input",
                tname: "input", themesel: "select",
                ltitle: "input", lurl: "input",
-               cfilter: "input", ctarget: "input", clog: "input",
+               ctarget: "input", clog: "input",
                // The capture form: the tag field and the line; the template's
                // grown fields are page-made nodes the acts reach through the
                // focus.
@@ -1119,12 +1125,14 @@ const STATEFUL = [ "mtext", "mnote", "mfile", "modal", "mprops", "mlog", "sheet"
                  // list, the container the template's fields grow into, and
                  // the line.
                  , "capture", "khead", "ktag", "klist", "kfields", "ktext", "kfoot"
+                 // The settings sheet's default-view composer host.
+                 , "cfbox"
                  // The settings sheet: its state, its panel frames, the fields
                  // of the general panel — the two tree-wide lines, which are
                  // `system.org''s and ride in that layer's write, plus the log
                  // knob, which is this page's own preference — and the keywords
                  // panel's select, box, label and refusal line.
-                 , "config", "cnote", "ceff", "csecs", "cfilter", "ctarget"
+                 , "config", "cnote", "ceff", "csecs", "ctarget"
                  // `ctpl' is the layer's capture template — a REGION of the
                  // same file, kept on the layer like its cycle and riding in
                  // the same write.
@@ -1691,7 +1699,13 @@ const ACTIONS = {
   // layer and posted in its write, and the log knob, which is stored here and
   // posted nowhere.  They are markup rather than a drawn row, so typing into
   // them with the sheet shut would write where no reader could have.
-  cview: (text) => typeSetting("cfilter", text),
+  // The default-view composer: the act is an Enter commit — the held query
+  // moves and the consumer's onFilter hears it.
+  cview: (text) => {
+    if (!cmp) throw new Error("the composer is not mounted: cview");
+    cmp.held = text;
+    if (cmp.onFilter) cmp.onFilter(text);
+  },
   ccap: (text) => typeSetting("ctarget", text),
   clog: (text) => typeSetting("clog", text),
   // Every config layer moves out from under the sheet, which is the drift a
@@ -1981,7 +1995,7 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     // The panels, by the header each wears, in the order the sheet draws them.
     csecs: field("csecs").children.map((s) => parts(s, "chdr")[0].textContent),
     // What the two tree-wide fields are showing, and what the server holds now.
-    cview: field("cfilter").value, ccap: field("ctarget").value,
+    cview: cmp ? cmp.held : "", cmounts, ccap: field("ctarget").value,
     served: viewQuery, servedCapture: captureLine, capturing: captureAsked,
     ctpl: field("ctpl").value,
     ceff: field("ceff").textContent, configWrites,

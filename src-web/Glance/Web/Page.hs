@@ -157,11 +157,12 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   -- constants the server answers with — the value cannot change while the page
   -- is up, so nothing carries it into the glue and back out per sheet-open.
   , "      <div id=\"cgen\" class=\"cpart\">"
-  -- Read-only: composing a query belongs to the table's own widget, and `P'
-  -- pins the applied view as the default — this row shows what is pinned.
-  , crow (clab "default view")
-         (cinput "cfilter" " readonly"
-                 ("pinned from the table with P; empty is " <> builtinFilter))
+  -- The default view is edited in the SAME widget the main page filters with:
+  -- a table-view COMPOSER mount — the omnibox bar and the chips, no table
+  -- behind them — so badges, completion and the whole query grammar are the
+  -- form control.  `P' on the table is still the pin; this row is the sheet's
+  -- door to the same line.
+  , crow (clab "default view") "<div id=\"cfbox\"></div>"
   , crow (clab "capture target")
          (cinput "ctarget" ""
                  ("where + captures; empty is " <> T.pack defaultCaptureFile))

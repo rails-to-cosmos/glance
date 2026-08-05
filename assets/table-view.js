@@ -33,6 +33,10 @@
  *   tv.popCrumb();        // walking out: {label, query} or null — the consumer applies it
  *   tv.setCrumbs(list); tv.getCrumbs();
  *   tv.setPinned(on);     // the chip strip's pin badge; drawn only under `onPin'
+ *   tv.setQuery(q);       // re-seed the chips from q, delivering nothing
+ *   composer: true        // mount option: the bar and the chips ARE the widget
+ *                         // — no table behind them; the query still commits to
+ *                         // `onFilter' and reads back off `getQuery'
  *   tv.openFilter(); tv.closeFilter();   // summon and dismiss the filter
  *   tv.selectStep(+1);    // move a row, turning the page at either end -> bool
  *   tv.nextPage(); tv.previousPage();    // turn a page -> bool
@@ -423,6 +427,7 @@
  *             pageSize?: number,
  *             initialQuery?: string,
  *             chipLabel?: (token: string) => string|null,
+ *             composer?: boolean,
  *             onPin?: () => void,
  *             pinned?: boolean }} MountOptions
  * @typedef {{ el: HTMLElement,
@@ -439,6 +444,7 @@
  *             setCrumbs: (list: Crumb[]) => void,
  *             getCrumbs: () => Crumb[],
  *             setPinned: (on: boolean) => void,
+ *             setQuery: (q: string) => void,
  *             pushCrumb: (c: Crumb) => number,
  *             popCrumb: () => Crumb|null,
  *             stripLastToken: () => boolean,
@@ -1428,7 +1434,13 @@
   function mount(container, view, opts) {
     injectStyle();
     const o = opts || {};   // narrowing sticks in closures (a reassigned param would not)
-    const omnibox = o.omnibox === true;
+    // Composer mode: the filter IS the widget — the omnibox bar and the chip
+    // strip, with no table, no status line and no row machinery behind them.
+    // For a consumer that wants the query language (completion, chips, DEL)
+    // as a form control: the committed query arrives at `onFilter' and reads
+    // back off `getQuery', exactly as it does over a table.
+    const composer = o.composer === true;
+    const omnibox = o.omnibox === true || composer;
     const palette = o.palette === true;
     const marks = o.marks === true;
     /**
@@ -1804,8 +1816,7 @@
 
     if (!palette) root.appendChild(bar);
     if (omnibox || palette) root.appendChild(chipsEl);
-    root.appendChild(scroll);
-    root.appendChild(hint);
+    if (!composer) { root.appendChild(scroll); root.appendChild(hint); }
     if (palette) root.appendChild(veil);
 
     /** Per-column <col>, one per column. @type {HTMLElement[]} */
@@ -2520,6 +2531,7 @@
      * @param {boolean} [force]
      */
     function renderRows(force) {
+      if (composer) return;   // no table behind the bar: nothing to paint
       keepSelection();
       const rows = paged();
       const total = rows.length;
@@ -4272,10 +4284,15 @@
     // them, and nothing delivered. Remounting is how a consumer puts state
     // back — after a reconnect, a view change, a `?q=' load — and without this
     // the only way in is `input.value', which the first commit then chips a
-    // second time while the chips it already had go missing.
-    if (typeof o.initialQuery === "string" && o.initialQuery.trim()) {
-      for (const t of parseQuery(o.initialQuery, queryKeys()))
-        pushChip(o.initialQuery.slice(t.start, t.end));
+    // second time while the chips it already had go missing.  `setQuery' is
+    // the same seeding as a call, for a consumer re-showing a mount it kept —
+    // a composer reopened over a value that moved — and it delivers nothing
+    // for the same reason.
+    function seedQuery(q) {
+      chips.length = 0;
+      if (typeof q === "string" && q.trim())
+        for (const t of parseQuery(q, queryKeys())) pushChip(q.slice(t.start, t.end));
+      else renderChips();
       lastQuery = effectiveQuery();
       // Local filtering has to catch up to it; a producer has already filtered.
       if (!o.onFilter) state.filter = lastQuery;
@@ -4283,6 +4300,8 @@
       // `sort:' opens in that order rather than in the declared one.
       state.sortKeys = chainFor(lastQuery);
     }
+    if (typeof o.initialQuery === "string" && o.initialQuery.trim())
+      seedQuery(o.initialQuery);
 
     // Whether or not anything was restored: one function decides what the chip
     // row shows, including that it shows nothing. Stamping the collapsed state
@@ -4463,6 +4482,7 @@
       // The badge is the consumer's boolean: only it knows what the applied
       // query is being measured against.
       setPinned(on) { pinned = !!on; renderChips(); },
+      setQuery(q) { seedQuery(String(q == null ? "" : q)); },
       /**
        * Push one crumb on the end. What a consumer does as it drills IN.
        * @param {Crumb} c  @returns {number} how deep the trail is now

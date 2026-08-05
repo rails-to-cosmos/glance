@@ -294,6 +294,7 @@ shellGlue wanted =
   , "        onPin: () => pinHere(),"
   , "        pinned: query.trim() === pinnedQuery,"
   , "      });"
+  , "      mainCols = (view || {}).columns || [];"
   , "      // An asset older than `initialQuery' drops it silently, which would"
   , "      // leave the page showing no filter over rows that are filtered."
   , "      // `getQuery()' says whether it took: when it did not, put the query"
@@ -413,6 +414,13 @@ shellGlue wanted =
     -- it; a successful pin moves it, since the constant describes the BOOT's
     -- config and the pin has just changed the tree's.
   , "    let pinnedQuery = DEFAULT_QUERY.trim();"
+    -- The settings sheet's default-view COMPOSER: the same table-view filter
+    -- bar the main page carries, mounted once over `#cfbox' with no table
+    -- behind it.  `viewBase' is what the server last said, so `cmoved' can
+    -- tell an edited composer from a shown one.
+  , "    let cmpose = null, viewBase = \"\", mainCols = [];"
+  , "    const composerQuery = () =>"
+  , "      (cmpose && can(cmpose, \"getQuery\") ? cmpose.getQuery().trim() : viewBase);"
   , "    const bootQuery = () => (params().has(\"q\") ? urlQuery() : DEFAULT_QUERY);"
     -- The drill-down trail.  The STACK is the renderer's — it draws the crumbs,
     -- and `setView' drops them with the world they described — so this page
@@ -3928,10 +3936,23 @@ shellGlue wanted =
     -- READ-ONLY here: composing a query belongs to the table's own widget —
     -- badges, completion, the grammar — and `P' pins the applied view as the
     -- default, so this field shows what is pinned and never rides a write.
-  , "      const view = el(\"cfilter\"), cap = el(\"ctarget\");"
-  , "      view.value = b.filter || \"\"; cap.value = b.capture || \"\";"
+  , "      const cap = el(\"ctarget\");"
+  , "      cap.value = b.capture || \"\";"
   , "      const sys = crows.find((r) => r.tag === null);"
   , "      sys.cap = cap; sys.capBase = cap.value;"
+    -- The composer, mounted ONCE and re-seeded per open: `setQuery' shows the
+    -- served value without delivering it, and the MAIN table's rows are handed
+    -- over so value completion offers what the tree actually holds.  An asset
+    -- without `composer'/`setQuery' still mounts a plain filter bar, which is
+    -- the graceful floor.
+  , "      viewBase = (b.filter || \"\").trim();"
+  , "      if (!cmpose)"
+  , "        cmpose = TableView.mount(el(\"cfbox\"), { columns: mainCols, rows: [] },"
+  , "                                 { composer: true, initialQuery: viewBase,"
+  , "                                   onFilter: () => {} });"
+  , "      else if (can(cmpose, \"setQuery\")) cmpose.setQuery(viewBase);"
+  , "      if (can(cmpose, \"setRows\") && can(table, \"getRows\"))"
+  , "        cmpose.setRows(table.getRows());"
   , "      const kw = b.keywords || {};"
   , "      el(\"ceff\").textContent ="
   , "        `${(kw.active || []).join(\" \")} | ${(kw.inactive || []).join(\" \")}`;"
@@ -3951,7 +3972,7 @@ shellGlue wanted =
       -- first one is: on the row rather than in the box, so switching layers
       -- costs no request and loses no edit.
   , "      tpl: layer.template || \"\", tplBase: layer.template || \"\","
-  , "      view: null, viewBase: null, cap: null, capBase: null,"
+  , "      cap: null, capBase: null,"
   , "    });"
     -- SYSTEM FIRST, then the tags in their own alphabet.  The server's order is
     -- the walk's, which is where the directories turned up; a reader looking for
@@ -4026,7 +4047,7 @@ shellGlue wanted =
   , "    const cnote = (next, message) => note(configSheet, next, message);"
   , "    const cdirty = () => (takeLayer(), crows.some(cmoved));"
   , "    const cmoved = (r) => r.text !== r.base || r.tpl !== r.tplBase"
-  , "      || (r.view !== null && r.view.value !== r.viewBase)"
+  , "      || (r.tag === null && composerQuery() !== viewBase)"
   , "      || (r.cap !== null && r.cap.value !== r.capBase);"
     -- Every layer that moved, one POST each and each awaited — still one
     -- drift-locked write per FILE now that the boxes are one box.  A config file
@@ -4048,7 +4069,8 @@ shellGlue wanted =
   , "        // What was SENT, taken before the await: a keystroke landing while"
   , "        // the write is in flight would otherwise be marked as the file's"
   , "        // and never written, and the sheet would close on it silently."
-  , "        const sent = r.text, tpl = r.tpl, view = r.view && r.view.value;"
+  , "        const sent = r.text, tpl = r.tpl;"
+  , "        const view = r.tag === null ? composerQuery() : null;"
   , "        const cap = r.cap && r.cap.value;"
   , "        const a = await postJSON(\"/config\","
   , "          { path: r.path, lines: sent.split(\"\\n\"),"
@@ -4059,13 +4081,13 @@ shellGlue wanted =
       -- and no business of this box — could no longer have its cycle edited at
       -- all.  The two lines under it have kept this shape all along.
   , "            ...(tpl !== r.tplBase ? { template: tpl } : {}),"
-  , "            ...(r.view ? { filter: view } : {}),"
+  , "            ...(view !== null && view !== viewBase ? { filter: view } : {}),"
   , "            ...(r.cap ? { capture: cap } : {}),"
   , "            digest: r.digest }).then(outcome)"
   , "          .catch((e) => ({ status: 0, body: { error: e.message } }));"
   , "        if (a.status === 200) {"
   , "          r.digest = a.body.digest; r.base = sent; r.tplBase = tpl; r.err = \"\";"
-  , "          if (r.view) r.viewBase = view;"
+  , "          if (view !== null) viewBase = view;"
   , "          if (r.cap) r.capBase = cap;"
   , "        } else {"
   , "          ok = false;"
@@ -4274,6 +4296,8 @@ shellGlue wanted =
   , "          .then(unwrap)"
   , "          .then(() => {"
   , "            pinnedQuery = q;"
+  , "            if (settings && cmpose && can(cmpose, \"setQuery\"))"
+  , "              { cmpose.setQuery(q); viewBase = q; }"
     -- Compared, never assumed: the reader may have diverged while the write
     -- was out, and a badge stamped true then would describe the wrong view.
   , "            if (can(table, \"setPinned\"))"
