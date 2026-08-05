@@ -1400,8 +1400,7 @@
       // where nothing was).
       if (!c || c.key === "title") {
         const t = shown(r).find((x) => x.key === "title");
-        openEdit(DTITLE, { id: "CELL:title", kind: "cell", key: "title",
-                           val: t ? t.val : "" });
+        openEdit(DTITLE, { id: "CELL:title", val: t ? t.val : "" });
         return;
       }
       // A RING OF THREE IS PRESSED, NOT PICKED: the two keys answer faster than
@@ -1691,21 +1690,6 @@
     // the document is no mount, so it names the element under point rather than
     // the renderer's `tv-sel' row.
     const docElAt = () => dcursor;
-    // A KEY-AND-VALUE SHAPE, and the panel's rows are the one wearing it now.
-    // P prefixes the pair of fields (`pkey'/`pval'), LOCKED says whose key org
-    // owns rather than the author — the panel's three planning rows — and REST
-    // is the one thing left open beyond that, where the anchor comes from.
-    // The key is read-only exactly where it is locked, and the focus opens on
-    // the VALUE unless there is no key to have yet, which is the add row.
-    const pairShape = (box, pane, p, locked, rest) => Object.assign({
-      box, pane, fields: [`${p}key`, `${p}val`],
-      fill: (r) => {
-        el(`${p}key`).value = r.key;
-        el(`${p}val`).value = r.val;
-        el(`${p}key`).readOnly = locked(r);
-      },
-      focus: (r) => (locked(r) || r.key ? el(`${p}val`) : el(`${p}key`)).focus(),
-    }, rest);
     // THE TITLE EDITS IN PLACE, and the headline keeps its dress: one field
     // laid over the TITLE CELL's own box — `tight', so `placeEdit' reads the
     // cell for both axes — with the stars, the state badge and the tags still
@@ -1945,12 +1929,21 @@
     function leavePanel() {
       el("mprops").className = ""; el("mdoc").className = "on";
     }
-    // THE PANEL'S SHAPE: the document's, one pane over, since both are two
-    // fields over the whole row.  A planning row's key is ORG's rather than the
-    // author's, so its field is read-only text with a caret in it — which is
-    // what `pairShape' calls locked, and what sends the focus to the value.
-    const PROW = pairShape("pedit", "mprops", "p", (r) => r.fixed,
-      { mount: () => pmount });
+    // THE PANEL'S SHAPE: a key and a value over the whole row.  A planning
+    // row's key is ORG's rather than the author's (`fixed'), so its field is
+    // read-only text with a caret in it and the focus opens on the VALUE —
+    // as it does wherever there is a key already; only the add row, which has
+    // none yet, opens on the key.
+    const PROW = {
+      box: "pedit", pane: "mprops", fields: ["pkey", "pval"],
+      mount: () => pmount,
+      fill: (r) => {
+        el("pkey").value = r.key;
+        el("pval").value = r.val;
+        el("pkey").readOnly = r.fixed;
+      },
+      focus: (r) => (r.fixed || r.key ? el("pval") : el("pkey")).focus(),
+    };
     const pediting = () => !!edit && edit.o === PROW;
     function openRow() {
       const at = patAt();
@@ -4206,11 +4199,8 @@
     // sheet — an edit is the one thing on this sheet a commit has not landed.
     function openEditState() {
       if (!docOpen()) return null;
-      const r = edit.row;
-      return dparaing()
-        ? { box: "dpara", id: r.id, kind: r.kind, key: "", val: el("dtext").value }
-        : { box: "dtitle", id: r.id, kind: r.kind, key: "title",
-            val: el("dtin").value };
+      return { box: dparaing() ? "dpara" : "dtitle", id: edit.row.id,
+               val: el(dparaing() ? "dtext" : "dtin").value };
     }
     function restore() {
       const was = stashed;
@@ -4252,9 +4242,8 @@
     // from what was stashed; everything else is looked up by id and is gone where
     // the file no longer holds it, a restore declining to invent a row.
     function reopenEdit(o) {
-      const r = o.kind === "cell"
-        ? { id: o.id, kind: "cell", key: o.key || "title", val: o.val }
-        : drows.find((x) => x.id === o.id);
+      const r = o.box === "dpara" ? drows.find((x) => x.id === o.id)
+                                  : { id: o.id, val: o.val };
       if (!r) return;
       openEdit(o.box === "dpara" ? DPARA : DTITLE, r);
       el(o.box === "dpara" ? "dtext" : "dtin").value = o.val;
