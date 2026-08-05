@@ -27,8 +27,7 @@
  *   tv.getSort(); tv.setSort(chain);     // read and replace the whole chain
  *
  *   tv.getQuery();        // the query as last delivered
- *   tv.stripLastToken();  // drop the typed text, else the last chip (a sort
- *                         // chain gives up one key per press) -> bool
+ *   tv.stripLastToken();  // drop the typed text, else the last chip whole -> bool
  *   tv.pushCrumb({label, query});   // drilling in: leave a crumb behind
  *   tv.popCrumb();        // walking out: {label, query} or null — the consumer applies it
  *   tv.setCrumbs(list); tv.getCrumbs();
@@ -3627,16 +3626,12 @@
 
     /**
      * Take off the last unit of the query: what is half-typed in the box if
-     * there is any, else the last chip. Reapplies through the one delivery
-     * point, and leaves focus alone — the caller owns that. False when there
-     * was nothing left to take off, so a consumer can walk the query down and
-     * know when it has hit the end.
-     *
-     * A SORT CHIP IS A CHAIN, and its last unit is its last KEY: the chain gives
-     * up one tie-breaker per press and the chip goes with the last of them. The
-     * arrow form put a reader's whole order on one chip, and without this the
-     * press that used to walk it back a key at a time would undo every promotion
-     * at once.
+     * there is any, else the last chip — WHOLE, the sort chip included. The
+     * chain used to give up one tie-breaker per press; a chip that erased by
+     * a different rule than its neighbours made DEL a thing to think about,
+     * and an order is one decision, taken off the way it went on.
+     * False when there was nothing left to take off, so a consumer can walk
+     * the query down and know when it has hit the end.
      * @returns {boolean}
      */
     function stripLastToken() {
@@ -3648,12 +3643,7 @@
         return true;
       }
       if (!chips.length) return false;
-      const at = chips.length - 1, last = asToken(chips[at]);
-      const segs = last && ordersRows(chips[at]) ? sortSegments(last) : [];
-      if (segs.length < 2) { dropChip(at); return true; }
-      chips[at] = SORT_KEY + ":" + segs.slice(0, -1).join(SORT_ARROW);
-      renderChips();
-      deliver();
+      dropChip(chips.length - 1);
       return true;
     }
 

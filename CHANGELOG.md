@@ -748,6 +748,10 @@ section groups a feature arc, and its date is that arc's last commit.
   refused pin is a thrown error and one config error line.
 
 ### Changed
+- **`DEL` takes the sort chip whole.** The chain used to give up one
+  tie-breaker per press (`sort:title->priority` → `sort:title`); a chip
+  erasing by a different rule than its neighbours made `DEL` a thing to
+  think about. One rule now: the last chip goes whole, sort or not.
 - **The settings sheet's default view is the main page's own filter widget.**
   A table-view composer — the omnibox bar and the chips, completion and DEL
   included, with no table behind them — replaces the plain field. It opens

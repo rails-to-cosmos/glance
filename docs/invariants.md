@@ -3712,9 +3712,11 @@ on.
   delivers it, so the press arrives at `onFilter` as an ordinary commit: the URL
   is rewritten, the server is asked for the order it was just told about — which
   is what makes page one of a limited answer the right hundred rows — and the
-  rows in hand re-order before the answer lands. `DEL` walks the keys back off
-  one at a time, because a sort token is a token like any other; with none left,
-  the view's declared chain stands again. What the first press composes onto is
+  rows in hand re-order before the answer lands. `DEL` takes the sort chip
+  WHOLE, because a chip is a chip — the per-key peel (one tie-breaker per
+  press) erased by a different rule than every neighbour and was retired
+  2026-08-05 at the user's call; with the chip gone, the view's declared
+  chain stands again. What the first press composes onto is
   the chain IN FORCE, declared keys and all, so only the promoted key moves and
   the reader loses no tie-breaker they were reading by. This page holds no
   `sortAt`, calls no `sortBy` and asks the handle for nothing but the chain it

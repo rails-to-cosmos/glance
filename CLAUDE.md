@@ -1360,9 +1360,10 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   selection's column, sortable-honoring — and it is a QUERY EDIT: the renderer
   composes the chain, writes it into the applied query as ONE arrow-form `sort:`
   token and delivers it, so the press arrives as an ordinary commit (URL,
-  refetch, the server asked for the order it was just told about) and `DEL` walks
-  the keys back off one at a time — the chain is one chip, so the renderer gives
-  up its last key per press rather than the whole order. What it composes onto is the chain IN FORCE, so the
+  refetch, the server asked for the order it was just told about) and `DEL`
+  takes the chip WHOLE — an order is one decision, taken off the way it went
+  on, and a chip erasing by a different rule than its neighbours made `DEL` a
+  thing to weigh (2026-08-05; the per-key peel is retired). What it composes onto is the chain IN FORCE, so the
   first press is where the declared chain becomes tokens and only the promoted
   key moves. This page keeps no record of an order and asks for none: `sortBy`
   is gone from the shell with the agenda's call, the canned view carrying
