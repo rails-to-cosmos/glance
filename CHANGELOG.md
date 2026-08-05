@@ -402,11 +402,14 @@ section groups a feature arc, and its date is that arc's last commit.
   harness drives both sheets through pristine, dirty, conflict and discard.
 
 ### Added
-- **RET on the headline line in the materialize sheet opens its title.** The
-  whole line's edit is its title — state and tags have their popups, the
-  priority ring is pressed — so the element-grain RET and RET on the title
-  cell are one door, with no `f` spent picking the cell first; a headline
-  with no title yet opens the editor empty and `set-title` writes one in.
+- **RET on the headline line in the materialize sheet opens its title, in
+  place.** The whole line's edit is its title — state and tags have their
+  popups, the priority ring is pressed — so the element-grain RET and RET on
+  the title cell are one door, with no `f` spent picking the cell first. The
+  editor is ONE field laid over the title text alone: the stars, the state
+  badge and the tags stay on screen around it, the field wears the document's
+  own font with no padding jump, and only the ground says an edit is open.
+  A headline with no title yet opens it empty and `set-title` writes one in.
 - **The native window opens `o`'s links in a reading pane of its own.** The
   window has no tabs to switch to, so an `http(s)` link opens in a popup — 80%
   wide and 90% tall of the main window, centred over it, transient so the

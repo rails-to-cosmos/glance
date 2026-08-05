@@ -3686,17 +3686,17 @@ sheetSpec shell =
         assertEqual "the letter committed" [("set-state", ["r1"])] =<< postedOf answer
         assertEqual "the sheet never opened" "" =<< textAt "modal" answer
 
-    -- THE TITLE IS A CELL A READER EDITS AS TEXT, so it opens in the shared
-    -- overlay and commits `set-title' — a span splice over the title's own
-    -- characters rather than a rewrite of the subtree around it.
+    -- THE TITLE EDITS IN PLACE AND THE HEADLINE KEEPS ITS DRESS: one field
+    -- over the title text alone, committing `set-title' — a span splice over
+    -- the title's own characters rather than a rewrite of the subtree around
+    -- it — with the stars, the state badge and the tags still on screen.
   , testCase "RET on the title cell opens it, and RET commits set-title" $ do
       insheet "press:f press:f press:Enter" $ \answer -> do
         assertEqual "the overlay is open" True =<< boolAt "dopen" answer
-        assertEqual "the key names the cell" "title" =<< textAt "dkey" answer
-        assertEqual "and the value is the title" "one" =<< textAt "dval" answer
-        assertEqual "with the focus on the value" "dval" =<< textAt "focus" answer
+        assertEqual "and holds the title" "one" =<< textAt "dtin" answer
+        assertEqual "with the focus in it" "dtin" =<< textAt "focus" answer
       bootOf shell "" 500 "Enter"
-             "press:f press:f press:Enter dval:renamed press:Enter" $ \answer -> do
+             "press:f press:f press:Enter dtin:renamed press:Enter" $ \answer -> do
         assertEqual "one set-title over this row"
                     [("set-title", ["r1"])] =<< postedOf answer
         assertEqual "and the log named both ends"
@@ -3711,17 +3711,16 @@ sheetSpec shell =
   , testCase "RET on the headline line itself opens the title" $ do
       insheet "press:Enter" $ \answer -> do
         assertEqual "the overlay is open" True =<< boolAt "dopen" answer
-        assertEqual "the key names the cell" "title" =<< textAt "dkey" answer
-        assertEqual "and the value is the title" "one" =<< textAt "dval" answer
-        assertEqual "with the focus on the value" "dval" =<< textAt "focus" answer
+        assertEqual "and holds the title" "one" =<< textAt "dtin" answer
+        assertEqual "with the focus in it" "dtin" =<< textAt "focus" answer
       bootOf shell "" 500 "Enter"
-             "press:Enter dval:renamed press:Enter" $ \answer ->
+             "press:Enter dtin:renamed press:Enter" $ \answer ->
         assertEqual "one set-title over this row"
                     [("set-title", ["r1"])] =<< postedOf answer
 
     -- TWO KEYS COMMIT AN OPEN ELEMENT, and org's is one of them: `C-c C-c' is
     -- `org-ctrl-c-ctrl-c', its own "do the thing here", and here the thing is
-    -- whatever element is open — the paragraph's textarea and the two-field
+    -- whatever element is open — the paragraph's textarea and the title
     -- overlay alike.  `C-x C-s' keeps the half that is a BUFFER's: with nothing
     -- open it flushes the sheet and on a conflict it overwrites, which is why
     -- the two are not one row under two spellings.
@@ -3740,7 +3739,7 @@ sheetSpec shell =
       wrote "press:n press:Enter dpara:rewritten press:C-c press:C-c"
       -- And the overlay, likewise: the same command over the same row.
       bootOf shell "" 500 "Enter"
-             "press:f press:f press:Enter dval:renamed press:C-c press:C-c" $
+             "press:f press:f press:Enter dtin:renamed press:C-c press:C-c" $
         \answer -> do
           assertEqual "one set-title over this row"
                       [("set-title", ["r1"])] =<< postedOf answer
@@ -5135,8 +5134,8 @@ editIndentSweep shell = testCase "the paragraph's edit box is the block it cover
   -- horizontal inset — and `placeEdit' has to take the pane's border and its
   -- scroll offset back out of the vertical.  A bare delta put the box 10px left
   -- and 1px high over `#mdoc', and walked it further on every scroll.
-  span' <- need "the document overlays' span" (between "  #dedit,#dpara{" "}" page)
-  assertEqual "the document overlays span the pane's content box"
+  span' <- need "the paragraph overlay's span" (between "  #dpara{" "}" page)
+  assertEqual "the paragraph overlay spans the pane's content box"
               "left:var(--g-doc-padx);right:var(--g-doc-padx)" span'
   assertBool "the pane's inset is one name, read by both"
              ("padding:var(--g-doc-pady) var(--g-doc-padx)" `T.isInfixOf` page)
@@ -5144,12 +5143,12 @@ editIndentSweep shell = testCase "the paragraph's edit box is the block it cover
              ("a.top - b.top - pane.clientTop + pane.scrollTop" `T.isInfixOf` page)
   -- FOCUS DRAWS NO LINE.  The three CELL overlays keep their underline; the
   -- document's box is read as text and must not grow one.
-  focus <- need "the box's focus rule" (between "  #dpara textarea:focus{" "}" page)
+  focus <- need "the box's focus rule" (between "  #dpara textarea:focus,#dtin:focus{" "}" page)
   assertEqual "a line the document box would grow on focus" []
               [ n | n <- ["border-bottom-color", "border-bottom:"], n `T.isInfixOf` focus ]
   -- THE GROUND IS THE SIGNAL, and it is one the block is not already wearing:
   -- the edit opens on the document CURSOR, which is `--g-sel' already.
-  ground <- need "the box's ground" (between "  #dpara{" "}" page)
+  ground <- need "the box's ground" (between "  #dpara,#dtitle{" "}" page)
   assertEqual "the edit ground is the page's input surface"
               "background:var(--g-surface)" ground
   where need what = maybe (assertFailure ("no " <> what <> " in the page")) pure
@@ -5735,7 +5734,7 @@ shellGlue =
       -- overlay OPENED over, never the cursor, so a click that moved the cursor
       -- under an open field cannot redirect the write.
       , "const r = edit.row;"
-      , "const dediting = () => !!edit && edit.o === DROW;"
+      , "const dediting = () => !!edit && edit.o === DTITLE;"
       -- SHARING THE STATE MUST NOT SHARE THE SHUTTER.  The tags popup can stand
       -- over an open materialize sheet — clicking the sheet's chrome blurs its
       -- textarea and every `table' row goes live again — so an unscoped shut
@@ -5746,7 +5745,7 @@ shellGlue =
       , "function shutEdit(o) {"
       , "if (!edit || edit.o !== o) return;"
       , "for (const o of shapes) shutEdit(o);"
-      , "cancelEdit(\"element\", DROW, DPARA)"
+      , "cancelEdit(\"element\", DTITLE, DPARA)"
       , "cancelEdit(\"row\", PROW)"
       , "cancelEdit(\"tag\", TROW)"
       , "cancelEdit(\"link\", LROW)" ]
@@ -6019,8 +6018,8 @@ shellGlue =
       , "#mptable .tv-root,#ltable .tv-root,#ttable .tv-root{flex:1;min-width:0;"
       -- The open row's fields sit OVER the row, since the mount rewrites its own
       -- rows as it scrolls, and they land on the text they replace.
-      , "#dedit,#dpara,#pedit,#tedit,#ledit{display:none;position:absolute;"
-      , "#dedit input,#pedit input,#tedit input,#ledit input,#dpara textarea{"
+      , "#dtitle,#dpara,#pedit,#tedit,#ledit{display:none;position:absolute;"
+      , "#pedit input,#tedit input,#ledit input,#dpara textarea{"
       -- A planning row's key is org's rather than the author's, and says so.
       , "#pkey[readonly]{color:var(--g-mute)}"
       -- ONE FOCUS LANGUAGE: whichever pane holds the keys wears the accent on
@@ -6596,7 +6595,7 @@ shellGlue =
   -- everywhere else.  All of them in the one block, which is where every rule
   -- a touch device gets lives — the panes stacking there included.
   , glue "a coarse pointer gets fields iOS will not zoom into"
-      [ "#mtext,#pinput,#dedit input,#pedit input,#tedit input,#ledit input,"
+      [ "#mtext,#pinput,#dtin,#pedit input,#tedit input,#ledit input,"
       , "#dpara textarea,"
       , ".ctext,.cview{font-size:16px}}", "font:12px/1.5 var(--dk-mono)"
       , "#mpanes{flex-direction:column}" ]

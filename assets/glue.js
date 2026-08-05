@@ -627,7 +627,7 @@
       // live page is a size.  `classList' spells "set one class, keep the rest",
       // keeping the tier a fact of the element rather than a string to respell.
       el("sheet").classList.toggle("raw", raw);
-      shutEdit(DROW); shutEdit(DPARA);
+      shutEdit(DTITLE); shutEdit(DPARA);
       dflags.clear();
       // THE LINKS COME WITH THE MATERIALIZE, since the display needs them: one
       // `/links' beside the `/headline' that opened the sheet.  The document is
@@ -1400,8 +1400,8 @@
       // where nothing was).
       if (!c || c.key === "title") {
         const t = shown(r).find((x) => x.key === "title");
-        openEdit(DROW, { id: "CELL:title", kind: "cell", key: "title",
-                         val: t ? t.val : "" });
+        openEdit(DTITLE, { id: "CELL:title", kind: "cell", key: "title",
+                           val: t ? t.val : "" });
         return;
       }
       // A RING OF THREE IS PRESSED, NOT PICKED: the two keys answer faster than
@@ -1526,11 +1526,11 @@
     // THE EDIT OVERLAY, ONE mechanism over four surfaces.  The renderer owns its
     // rows and rewrites them as it scrolls, so an edit cannot live inside one:
     // the fields sit OVER the table, anchored to the row the cursor is on.  The
-    // document opens an element's key and value, or a paragraph as text; the
-    // tags popup opens one cell as a field over itself; the link popup opens
-    // two.  Everything else is the same — the class that shows the box, the
-    // anchor, the blur on the way out — so a SHAPE says what differs (`DROW',
-    // `DPARA', `TROW', `LROW') and this holds the gesture.
+    // document opens a headline's title over the title text, or a paragraph as
+    // text; the tags popup opens one cell as a field over itself; the link
+    // popup opens two.  Everything else is the same — the class that shows the box, the
+    // anchor, the blur on the way out — so a SHAPE says what differs
+    // (`DTITLE', `DPARA', `TROW', `LROW') and this holds the gesture.
     //
     // SNAPSHOTTED AT OPEN, the property this shape exists to have.  No key can
     // move the cursor while a row is open, but a MOUSE CLICK can, and a commit
@@ -1642,6 +1642,22 @@
       // — bordered, padded and scrolling — reused it.
       s.top = `${a.top - b.top - pane.clientTop + pane.scrollTop}px`;
       s.height = `${a.height}px`;
+      // A TIGHT shape covers its anchor's own box: left off the anchor, right
+      // off `edge''s element where the shape names one (the tags cell — the
+      // dress the edit leaves standing), else the anchor's parent line.  CSS
+      // keeps the floor (`min-width'), so a short title still takes typing.
+      if (o.tight) {
+        const e = o.edge && o.edge();
+        const stop = e && typeof e.getBoundingClientRect === "function"
+          ? e.getBoundingClientRect().left
+          : tr.parentElement
+              && typeof tr.parentElement.getBoundingClientRect === "function"
+            ? tr.parentElement.getBoundingClientRect().right
+            : b.right;
+        s.left = `${a.left - b.left}px`;
+        s.width = `${stop - a.left}px`;
+        return;
+      }
       if (!o.cells) return;
       const l = from.getBoundingClientRect(), rt = to.getBoundingClientRect();
       s.left = `${l.left - b.left}px`;
@@ -1675,11 +1691,10 @@
     // the document is no mount, so it names the element under point rather than
     // the renderer's `tv-sel' row.
     const docElAt = () => dcursor;
-    // A KEY-AND-VALUE SHAPE, and there are two of them: the document's property
-    // row and the panel's.  P prefixes the pair of fields (`dkey'/`dval',
-    // `pkey'/`pval'), LOCKED says whose key org owns rather than the author —
-    // the document's title cell, the panel's three planning rows — and REST is
-    // the one thing they differ in beyond that, where the anchor comes from.
+    // A KEY-AND-VALUE SHAPE, and the panel's rows are the one wearing it now.
+    // P prefixes the pair of fields (`pkey'/`pval'), LOCKED says whose key org
+    // owns rather than the author — the panel's three planning rows — and REST
+    // is the one thing left open beyond that, where the anchor comes from.
     // The key is read-only exactly where it is locked, and the focus opens on
     // the VALUE unless there is no key to have yet, which is the add row.
     const pairShape = (box, pane, p, locked, rest) => Object.assign({
@@ -1691,15 +1706,31 @@
       },
       focus: (r) => (locked(r) || r.key ? el(`${p}val`) : el(`${p}key`)).focus(),
     }, rest);
-    const DROW = pairShape("dedit", "mdoc", "d", (r) => r.kind === "cell",
-      { mount: () => null, anchor: docElAt });
+    // THE TITLE EDITS IN PLACE, and the headline keeps its dress: one field
+    // laid over the TITLE CELL's own box — `tight', so `placeEdit' reads the
+    // cell for both axes — with the stars, the state badge and the tags still
+    // on screen around it.  The right edge stops where the TAGS begin
+    // (`edge'), else at the row's end; a headline with no title cell yet has
+    // no box to read, so the anchor falls back to the whole line, which is
+    // where an inserted title will go.
+    const dTitleAt = () =>
+      (dcursor && dcursor.querySelector && dcursor.querySelector(".dc-title"))
+        || dcursor;
+    const DTITLE = {
+      box: "dtitle", pane: "mdoc", fields: ["dtin"],
+      mount: () => null, anchor: dTitleAt, tight: true,
+      edge: () =>
+        dcursor && dcursor.querySelector && dcursor.querySelector(".dc-tags"),
+      fill: (r) => { el("dtin").value = r.val; },
+      focus: () => el("dtin").focus(),
+    };
     const DPARA = {
       box: "dpara", pane: "mdoc", fields: ["dtext"],
       mount: () => null, anchor: docElAt,
       fill: (r) => { el("dtext").value = r.text; },
       focus: () => el("dtext").focus(),
     };
-    const dediting = () => !!edit && edit.o === DROW;
+    const dediting = () => !!edit && edit.o === DTITLE;
     const dparaing = () => !!edit && edit.o === DPARA;
     const docOpen = () => dediting() || dparaing();
     // The surface is UP whenever a subtree sheet is on screen, in EITHER shape.
@@ -1732,12 +1763,9 @@
         commitDoc("paragraph written");
         return;
       }
-      const key = el("dkey").value, val = el("dval").value;
-      shutEdit(DROW);
-      if (r.kind === "cell") { retitle(val); return; }
-      if (r.key === key && r.val === val) { spoke("property unchanged"); return; }
-      r.key = key; r.val = val;
-      commitDoc(key.trim() ? `:${key.trim()}: written` : "property dropped");
+      const val = el("dtin").value;
+      shutEdit(DTITLE);
+      retitle(val);
     }
     // The title is a CELL, so it is a command rather than a subtree write: the
     // span math replaces the title's own characters and the keyword in front of
@@ -1747,7 +1775,7 @@
       fire(docBinding("org-glance-overview:rename"), "set-title", [editing.id],
            { title: val }, `retitled ${JSON.stringify(val.trim())}`);
     }
-    const cancelDocEdit = () => cancelEdit("element", DROW, DPARA);
+    const cancelDocEdit = () => cancelEdit("element", DTITLE, DPARA);
     // The sheet is ONE surface with two panes, so it is one entry in `SURFACES'
     // and ESC puts back whichever pane's edit is open.  Below that the ladder
     // falls through to the sheet itself, which is where it always did.
@@ -2214,7 +2242,7 @@
     const sync = (next, message) => note(subtreeSheet, next, message);
     function shut() {
       el("modal").className = ""; editing = null; base = ""; baseProps = null;
-      shutEdit(DROW); shutEdit(DPARA); shutEdit(PROW);
+      shutEdit(DTITLE); shutEdit(DPARA); shutEdit(PROW);
       drows = []; dlines = []; dflags.clear(); dcursor = null;
       el("dlist").textContent = "";
       el("mprops").className = ""; el("mdoc").className = "";
@@ -4181,8 +4209,8 @@
       const r = edit.row;
       return dparaing()
         ? { box: "dpara", id: r.id, kind: r.kind, key: "", val: el("dtext").value }
-        : { box: "dedit", id: r.id, kind: r.kind, key: el("dkey").value,
-            val: el("dval").value };
+        : { box: "dtitle", id: r.id, kind: r.kind, key: "title",
+            val: el("dtin").value };
     }
     function restore() {
       const was = stashed;
@@ -4228,9 +4256,8 @@
         ? { id: o.id, kind: "cell", key: o.key || "title", val: o.val }
         : drows.find((x) => x.id === o.id);
       if (!r) return;
-      openEdit(o.box === "dpara" ? DPARA : DROW, r);
-      el(o.box === "dpara" ? "dtext" : "dval").value = o.val;
-      if (o.box === "dedit") el("dkey").value = o.key;
+      openEdit(o.box === "dpara" ? DPARA : DTITLE, r);
+      el(o.box === "dpara" ? "dtext" : "dtin").value = o.val;
     }
     // The one door that throws the mount away and builds a new one: a
     // `view-changed' close, and `g'.  Everything else that loses the socket

@@ -426,33 +426,45 @@ page head' title body = T.unlines
   -- split the renderer's two columns.  No z-index: a positioned LATER sibling
   -- of the mount, so paint order puts it over the rows already and the page's
   -- four bands stay four.  The two popups' overlays are the same thing over a
-  -- RANGE of cells, so all four share every declaration but geometry: `#dedit'
-  -- spans its element, `#tedit' the tag cell alone, `#ledit' the title and url
+  -- RANGE of cells, so all four share every declaration but geometry: `#dtitle'
+  -- covers the title text alone (its left and width the glue reads off the
+  -- title cell, so the headline's stars, state and tags stay on screen),
+  -- `#tedit' the tag cell alone, `#ledit' the title and url
   -- cells together, whose left and width the glue reads off those cells.  One
   -- edit vocabulary across the page means one look.
-  , "  #dedit,#dpara,#pedit,#tedit,#ledit{display:none;position:absolute;"
+  , "  #dtitle,#dpara,#pedit,#tedit,#ledit{display:none;position:absolute;"
   , "    background:var(--g-sel)}"
     -- THE GROUND IS THE ONLY SIGNAL, so it has to be one the block is not
     -- wearing.  `#dpara' opens over the DOCUMENT CURSOR's block, already
     -- `--g-sel', so the shared ground would say nothing; the page's input
-    -- surface is what every other field sits on.  The three CELL overlays keep
-    -- `--g-sel', opening over table rows where it reads as the edit it is.
-  , "  #dpara{background:var(--g-surface)}"
+    -- surface is what every other field sits on.  `#dtitle' opens over the
+    -- headline under that same cursor, so it takes the same ground.  The two
+    -- CELL overlays keep `--g-sel', opening over table rows where it reads as
+    -- the edit it is.
+  , "  #dpara,#dtitle{background:var(--g-surface)}"
+  , "  #dtitle{min-width:8em}"
   , "  #pedit{left:0;right:0}"
       -- THE DOCUMENT'S OVERLAYS SPAN THE PANE'S CONTENT BOX.  `left:0' is the
       -- PADDING box, so over a pane with a horizontal padding the box lands that
       -- far left of the text it covers and every line of the block jumps when
       -- the edit opens.  Read off the pane's own inset rather than respelled.
       -- `#pedit' keeps the bare zero: `#mprops' has no padding to answer for.
-  , "  #dedit,#dpara{left:var(--g-doc-padx);right:var(--g-doc-padx)}"
-  , "  #dedit.on,#pedit.on,#tedit.on,#ledit.on{display:flex;align-items:center}"
+      -- `#dtitle' is placed by the glue on both axes, so it is not here.
+  , "  #dpara{left:var(--g-doc-padx);right:var(--g-doc-padx)}"
+  , "  #dtitle.on,#pedit.on,#tedit.on,#ledit.on{display:flex;align-items:center}"
   , "  #dpara.on{display:flex}"
       -- The mount's own cell metrics, so the fields land on the text they
       -- replace: `.tv-table td' is `5px 12px' at the root's 13px/1.5, and a
       -- coarse pointer stretches the row rather than the padding.
-  , "  #dedit input,#pedit input,#tedit input,#ledit input,#dpara textarea{"
+  , "  #pedit input,#tedit input,#ledit input,#dpara textarea{"
   , "    font:13px/1.5 var(--dk-mono);"
   , "    padding:5px 12px;border:none;border-bottom:1px solid transparent;"
+  , "    background:transparent;color:var(--g-fg);min-width:0}"
+      -- The title input is DOCUMENT TEXT wearing a caret, `#dpara''s rule one
+      -- cell down: the pane's own font and no padding of its own, so the text
+      -- stands exactly where the title stood and only the ground says an edit
+      -- is open.
+  , "  #dtin{flex:1;font:inherit;padding:0;border:none;"
   , "    background:transparent;color:var(--g-fg);min-width:0}"
       -- IT IS THE BLOCK, WEARING A DIFFERENT GROUND.  `RET' over a paragraph
       -- puts the textarea where the paragraph was, so ENTERING THE EDIT MOVES
@@ -468,12 +480,13 @@ page head' title body = T.unlines
   , "  #dpara textarea{flex:1;resize:none;border:none;margin:0;font:inherit;"
   , "    width:100%;overflow-wrap:anywhere;padding:1px var(--g-doc-pad);"
   , "    padding-left:calc(var(--g-doc-pad) + var(--g-doc-indent, 2) * 1ch)}"
-  , "  #dedit input:focus,#pedit input:focus,#tedit input:focus,"
+  , "  #pedit input:focus,#tedit input:focus,"
   , "  #ledit input:focus{outline:none;border-bottom-color:var(--g-border)}"
       -- No line on focus either: a border under the box is a second signal, and
-      -- a LINE is the one thing a document read as text must not grow.
-  , "  #dpara textarea:focus{outline:none;border:none}"
-  , "  #dedit input::selection,#pedit input::selection,#tedit input::selection,"
+      -- a LINE is the one thing a document read as text must not grow.  The
+      -- title input is document text, so it follows the paragraph.
+  , "  #dpara textarea:focus,#dtin:focus{outline:none;border:none}"
+  , "  #dtin::selection,#pedit input::selection,#tedit input::selection,"
   , "  #ledit input::selection,#dpara textarea::selection{"
   , "    background:var(--g-sel);color:var(--g-fg)}"
   , "  #tname{flex:1 1 auto}"
@@ -484,9 +497,9 @@ page head' title body = T.unlines
   , "  #lurl{flex:2 1 50%}"
   -- A cell's key is the column's name rather than the author's, so its field is
   -- muted and takes no typing — a label with a caret in it.
-  , "  #dkey,#pkey{flex:1 1 40%}"
-  , "  #dkey[readonly],#pkey[readonly]{color:var(--g-mute)}"
-  , "  #dval,#pval{flex:2 1 50%}"
+  , "  #pkey{flex:1 1 40%}"
+  , "  #pkey[readonly]{color:var(--g-mute)}"
+  , "  #pval{flex:2 1 50%}"
   -- The logbook: full width under both panes, muted, read-only and out of the
   -- tab order — it is the server's, and there is nothing here to press.
       -- The same dress as the page's log strip: 12px muted on the surface
@@ -714,7 +727,7 @@ page head' title body = T.unlines
   , "    #app .tv-chips:empty::after{content:\"filter …\";color:var(--g-mute);"
   , "      font-size:12px}"
   , "    #mpanes{flex-direction:column}"
-  , "    #mtext,#pinput,#dedit input,#pedit input,#tedit input,#ledit input,"
+  , "    #mtext,#pinput,#dtin,#pedit input,#tedit input,#ledit input,"
   , "    #dpara textarea,#ktag,#kfields input,#ktext,"
   , "    .ctext,.cview{font-size:16px}}"
   , "</style>"

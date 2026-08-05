@@ -21,9 +21,9 @@
 //
 //   close:REASON  the socket closes, the way the server closes one
 //   sheet:TEXT    TEXT typed into the open sheet's textarea
-//   dkey:TEXT     TEXT typed into the document's edit overlay, whose two fields
-//   dval:TEXT     are an element's key and its value; `RET' has to have opened
-//                 it over the element at point first
+//   dtin:TEXT     TEXT typed into the document's title overlay, one field
+//                 over the headline's title; `RET' has to have opened it over
+//                 the headline at point first
 //   dpara:TEXT    TEXT typed into the paragraph overlay, which is a textarea
 //                 over the block at point; `RET' opens one.  `_' is a space,
 //                 `|' a newline and `~' a literal bar — an org table row
@@ -1008,7 +1008,7 @@ const fields = {};
 // The tag matters: `typing()' reads it off `document.activeElement' to decide
 // whether a key belongs to the table or to whatever has focus.
 const TAGS = { mtext: "textarea", filter: "input", pinput: "input",
-               dkey: "input", dval: "input", dtext: "textarea",
+               dtin: "input", dtext: "textarea",
                pkey: "input", pval: "input",
                tname: "input", themesel: "select",
                ltitle: "input", lurl: "input",
@@ -1108,7 +1108,7 @@ const STATEFUL = [ "mtext", "mnote", "mfile", "modal", "mprops", "mlog", "sheet"
                  // rather than a mount: `dlist' is the tree it draws its
                  // elements into, and the four below are the two edit overlays
                  // laid over the element at point.
-                 , "mdoc", "dlist", "dedit", "dkey", "dval", "dpara", "dtext"
+                 , "mdoc", "dlist", "dtitle", "dtin", "dpara", "dtext"
                  // And the property panel, which IS a mount: `mptable' is the
                  // element it is given, and the three below are its own edit
                  // overlay laid over the row at point.
@@ -1398,7 +1398,7 @@ const patAt = () => curOf(pan);
  * names.  Nothing focused is the state the document holds the keys in, which is
  * what leaves every printable key free.
  */
-const FOCUSABLE = ["mtext", "dkey", "dval", "dtext", "ltitle", "lurl", "tname",
+const FOCUSABLE = ["mtext", "dtin", "dtext", "ltitle", "lurl", "tname",
                    "pinput", "ktag", "ktext"];
 const focused = () => {
   if (!active) return "";
@@ -1682,12 +1682,11 @@ const ACTIONS = {
   // closed overlay has neither, for the rename's reason.
   ltitle: (text) => typeLink("ltitle", text),
   lurl: (text) => typeLink("lurl", text),
-  // Typing into the document's edit overlays: `dkey' and `dval' are the two
-  // fields an element opens as, and `dpara' is the textarea a paragraph opens
+  // Typing into the document's edit overlays: `dtin' is the one field a
+  // headline's title opens as, and `dpara' is the textarea a paragraph opens
   // as.  Each is laid over the element at point, so no index is owed — no key
   // can move the cursor while one is open, and the document binds no click.
-  dkey: (text) => typeIn("dedit", "dkey", text),
-  dval: (text) => typeIn("dedit", "dval", text),
+  dtin: (text) => typeIn("dtitle", "dtin", text),
   // ACTS SPLIT ON WHITESPACE, so a paragraph with a space or a line break in it
   // is spelled `_' and `|' here and cooked back on the way in.  A stop the walk
   // takes over several lines — a list item, a whole block — cannot be typed any
@@ -1886,9 +1885,9 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     // whether an edit overlay is open and what its fields hold, and the
     // breadcrumb saying where in the outline the sheet is standing.
     doc: docRows(), dat: docAt(), dcol: docCell(), dflagged: docFlagged(),
-    dopen: field("dedit").className === "on",
+    dopen: field("dtitle").className === "on",
     dparaopen: field("dpara").className === "on",
-    dkey: field("dkey").value, dval: field("dval").value,
+    dtin: field("dtin").value,
     dtext: field("dtext").value,
     // The sheet's crumb strip: one entry per step of the descent, the LAST
     // wearing the full-ink class that says where the reader stands.  Read as
