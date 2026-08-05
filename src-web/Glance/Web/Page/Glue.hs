@@ -4266,8 +4266,12 @@ shellGlue wanted =
   , "      return getJSON(\"/config\").then((a) => {"
   , "        const sys = (a.layers || []).find((l) => !l.tag);"
   , "        if (!sys) { spoke(\"no system layer to pin into\"); return; }"
+    -- Through `unwrap', so a refusal THROWS: `postJSON' resolves whatever the
+    -- status, and a pin that logged success over a 400 is how this shipped
+    -- reporting \"pinned\" while the file never moved.
   , "        return postJSON(\"/config\","
   , "                        { path: sys.path, digest: sys.digest, filter: q })"
+  , "          .then(unwrap)"
   , "          .then(() => {"
   , "            pinnedQuery = q;"
     -- Compared, never assumed: the reader may have diverged while the write

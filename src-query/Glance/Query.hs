@@ -2993,9 +2993,14 @@ topEntry text = headingStars (T.takeWhile (/= '\n') text) == Just 1
 -- The spans are the file's own lines ('Data.Org.Config.todoLineEdits') and its
 -- first heading ('captureTemplateEdits'), so everything else a config file is —
 -- the @#+TITLE:@, the comments, a second heading — is bytes this never names.
-configEdits :: Text -> [Text] -> ConfigParts -> Either Text [(Span, Text)]
+configEdits :: Text -> Maybe [Text] -> ConfigParts -> Either Text [(Span, Text)]
 configEdits doc asked parts
   | not (null strange) = Left ("not a #+TODO: line: " <> T.intercalate " · " strange)
+    -- ABSENT lines leave the block exactly as it stands — the rule every
+    -- optional region already follows, and what lets a pin write the filter
+    -- line without restating a cycle it never read.  An EMPTY list is still
+    -- the deletion it always was.
+  | isNothing asked    = partEdits
   | null lines'        = block []
   | null declared      = Left declaresNothing
   | otherwise          = block lines'
@@ -3004,7 +3009,7 @@ configEdits doc asked parts
     partEdits = (lineEdits <>) <$> maybe (Right []) (captureTemplateEdits doc) (cpTemplate parts)
     lineEdits = maybe [] (defaultFilterEdits doc) (cpFilter parts)
              <> maybe [] (captureTargetEdits doc) (cpCapture parts)
-    lines'   = filter (not . T.null . T.strip) asked
+    lines'   = filter (not . T.null . T.strip) (fromMaybe [] asked)
     -- A LINE, and the pragma test is a prefix one: an entry carrying a newline
     -- of its own would pass it and write everything past that newline into the
     -- file unread.  One line per line is what makes this a #+TODO:-only splice.

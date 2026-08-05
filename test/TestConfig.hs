@@ -557,6 +557,23 @@ writeSpec = testGroup "Writing a layer"
                   (Right "#+TITLE: Book\n#+TODO: TODO NEXT | DONE\n\n* Book\n*** Notes\n    %?\n")
                   (spliced bookConfig ["#+TODO: TODO NEXT | DONE"])
 
+    -- ABSENT lines leave the block standing — the optional regions' own rule,
+    -- and what a pin rides: the filter line alone, no cycle restated.  The
+    -- pin shipped against a server that still REQUIRED the field, every shell
+    -- test driving a harness stub — this is the server-side case that was
+    -- missing.
+  , testCase "absent lines write the filter alone, the cycle untouched" $ do
+      assertEqual "the filter line joins, every other byte where it was"
+        (Right ("#+TITLE: Book\n#+TODO:  TODO READING | READ ABANDONED\n"
+                <> "#+GLANCE_DEFAULT_FILTER: state:*active* sort:state->title\n"
+                <> "\n* Book\n*** Notes\n    %?\n"))
+        (do edits <- configEdits bookConfig Nothing
+                       noParts { cpFilter = Just "state:*active* sort:state->title" }
+            first (T.pack . show)
+                  (applyEdits bookConfig [ Edit sp new | (sp, new) <- edits ]))
+      assertEqual "and absent everything is no edit at all"
+        (Right []) (configEdits bookConfig Nothing noParts)
+
   , testCase "a file spelling its cycle twice comes back spelling it once" $
       -- The first line's offset is kept and every later one goes: a block is
       -- what the sheet edits, so what it writes is the whole of the file's.
@@ -606,7 +623,7 @@ writeSpec = testGroup "Writing a layer"
   , testCase "what a layer may say, and what it may not" $ do
       mapM_ (\(what, lines') ->
                assertBool what (either (const True) (const False)
-                                       (configEdits bookConfig lines' noParts)))
+                                       (configEdits bookConfig (Just lines') noParts)))
             [ ("a headline is not a pragma", ["* TODO not a pragma"])
             , ("nor is a title", ["#+TITLE: no"])
             , ("a pragma declaring nothing", ["#+TODO:"])
@@ -623,7 +640,7 @@ writeSpec = testGroup "Writing a layer"
             , ("and a starred word beside real ones", ["#+TODO: TODO *x* | DONE"]) ]
       assertBool "a cycle with fast-access keys is a block"
                  (either (const False) (const True)
-                         (configEdits bookConfig ["#+TODO: TODO(t) | DONE(d)"] noParts))
+                         (configEdits bookConfig (Just ["#+TODO: TODO(t) | DONE(d)"]) noParts))
 
     -- The two tree-wide lines of `system.org'.  One reader finds either
     -- ('lastPragmaValue') and one splice writes either ('pragmaLineEdits'), so
@@ -809,7 +826,7 @@ splicedCapture doc lines' = splicing doc lines' Nothing
 -- | 'spliced' over both of the system layer's tree-wide lines.
 splicing :: Text -> [Text] -> Maybe Text -> Maybe Text -> Either Text Text
 splicing doc lines' want target = do
-  edits <- configEdits doc lines' noParts { cpFilter = want, cpCapture = target }
+  edits <- configEdits doc (Just lines') noParts { cpFilter = want, cpCapture = target }
   first (T.pack . show) (applyEdits doc [ Edit sp new | (sp, new) <- edits ])
 
 -- | The system layer's two tree-wide lines: each spelled key, two values of the

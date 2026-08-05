@@ -46,7 +46,8 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 
 import Glance.Query ( QueryResult (qrRecords), builtinFilter
-                    , linkColumns, loadDir, loadFile, tagColumns, viewJSON )
+                    , linkColumns, loadDir, loadFile, tagColumns, todoLines
+                    , viewJSON )
 import Glance.Web ( ServeOptions (..), application, bannerLines, bootstrapWanted
                   , defaultPort, viewTitleFor )
 import Glance.Web.Store ( Hub, applyFile, finishLoading, loadStore, newHub
@@ -8913,6 +8914,30 @@ configSpec = testGroup "GET and POST /config"
           =<< document (T.unpack (systemAt dir))
         v <- decoded =<< getFrom a "/config"
         assertEqual "and the next read says so" "tag:work" =<< textAt "filter" v
+
+    -- THE PIN'S OWN SHAPE: no `lines' key at all — the block stands untouched
+    -- and the filter line joins, sort tokens and all.  This is the request the
+    -- shell's `P' sends, and it shipped against a server that still REQUIRED
+    -- the field: every pin test drove the harness stub, no test posted the
+    -- route, and the 400 was swallowed by a fetch that resolves refusals — a
+    -- pin that logged success while the file never moved.
+  , testCase "a write with no lines key leaves the block and pins the filter" $
+      withConfigTree $ \a dir -> do
+        digest <- textAt "digest" . head =<< listAt "layers" =<< decoded =<< getFrom a "/config"
+        assertOk =<< postTo a "/config"
+          (configBody (systemAt dir) ["#+TODO: TODO | DONE"] digest)
+        before <- document (T.unpack (systemAt dir))
+        fresh <- textAt "digest" . head =<< listAt "layers" =<< decoded =<< getFrom a "/config"
+        assertOk =<< postTo a "/config" (encode (object
+          [ "path" .= systemAt dir, "digest" .= fresh
+          , "filter" .= ("state:*active* sort:state->priority->title" :: T.Text) ]))
+        after <- document (T.unpack (systemAt dir))
+        assertContains "the pinned line, sort chain and all"
+          "#+GLANCE_DEFAULT_FILTER: state:*active* sort:state->priority->title" after
+        assertEqual "and every #+TODO: byte where it was"
+          (todoLines before) (todoLines after)
+        assertEqual "served on the next read" "state:*active* sort:state->priority->title"
+          =<< textAt "filter" =<< decoded =<< getFrom a "/config"
 
     -- THE FIRST CONFIG DIRECTORY IN A TREE THAT HAD NONE, which was a known gap
     -- and is now the same door a capture uses.  `.org-glance/config/' is two

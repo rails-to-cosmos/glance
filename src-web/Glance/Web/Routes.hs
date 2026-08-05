@@ -1045,7 +1045,7 @@ noSuchLayer path layers =
 -- digests, each invalidated by the one before it.
 parseConfigWrite :: BL.ByteString -> Either Text LayerWrite
 parseConfigWrite = bodyObject "config write" shape
-  where shape o = LayerWrite <$> o .: "path" <*> o .: "lines"
+  where shape o = LayerWrite <$> o .: "path" <*> o .:? "lines"
                              <*> (ConfigParts <$> o .:? "filter" <*> o .:? "capture"
                                               <*> o .:? "template")
                              <*> o .: "digest"
@@ -1056,7 +1056,10 @@ parseConfigWrite = bodyObject "config write" shape
 -- digest of the lines.
 data LayerWrite = LayerWrite
   { lwPath   :: !Text          -- ^ which layer, and it must be one @GET \/config@ listed.
-  , lwLines  :: ![Text]        -- ^ the @#+TODO:@ block, one entry per line.
+  , lwLines  :: !(Maybe [Text])
+      -- ^ the @#+TODO:@ block, one entry per line; ABSENT leaves it standing
+      -- (the optional regions' own rule — a pin writes the filter alone),
+      -- and the EMPTY list is still the deletion.
   , lwParts  :: !ConfigParts   -- ^ the three optional regions riding in the same write.
   , lwDigest :: !Text          -- ^ the pin, empty for a layer that is not there yet.
   }
