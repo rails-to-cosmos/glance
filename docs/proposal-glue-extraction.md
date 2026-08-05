@@ -1,6 +1,6 @@
 # Proposal — the glue becomes a JavaScript file
 
-**Status:** proposed · **Date:** 2026-08-05 · **Origin:** user, pointing at
+**Status:** delivered 2026-08-05, same day — byte-proof: 0 unexplained lines (17 diffs = the eight splices out, nine CFG lines in) · **Date:** 2026-08-05 · **Origin:** user, pointing at
 `Glue.hs:5234` — "the whole file is just JS code, design it better"
 
 ## The measurement that decides it

@@ -436,7 +436,13 @@ between open close haystack
 -- get the same string back.
 
 spec :: TestTree
-spec = withResource (body <$> get assetsDir "/") (const (pure ())) $ \shell ->
+-- The fixture is the page PLUS the script it names: before the extraction
+-- (docs/proposal-glue-extraction.md) the glue was inline and every text sweep
+-- read one universe, so the fixture restores exactly that universe — the
+-- served page with the embedded asset's bytes behind it.
+spec = withResource ((<>) <$> (body <$> get assetsDir "/")
+                          <*> (stripGlueComments <$> TIO.readFile "assets/glue.js"))
+                    (const (pure ())) $ \shell ->
   testGroup "Serve"
     [ headlineSpec, bannerSpec, statsSpec, cacheSpec, gzipSpec, querySpec
     , orderSpec, sortQuerySpec, archiveViewSpec
@@ -4991,6 +4997,7 @@ bootedPage shell store search total keys acts = do
       page <- shell
       glueOf page >>= TIO.writeFile (dir </> "shell.js")
       keysOf page >>= TIO.writeFile (dir </> "keys.json")
+      cfgOf page >>= TIO.writeFile (dir </> "cfg.json")
       (code, out, err) <- readProcessWithExitCode exe
                             [ harness, dir, T.unpack search, show total
                             , T.unpack keys, T.unpack acts, T.unpack store ] ""
@@ -5061,6 +5068,8 @@ glue label has = Glue label has []
 glueSpec :: IO T.Text -> TestTree
 glueSpec shell = testGroup "Shell glue"
   ([ testCase glLabel $ do
+       -- The fixture is page-plus-script, the same one universe the sweeps
+       -- read when the glue was inline, so a row may pin either side.
        b <- shell
        holdsAll glLabel glHas b
        holdsNone glLabel glGone b
@@ -5482,7 +5491,7 @@ shellGlue =
   -- any other: in the URL, mounted as a chip, asked of the server — so DEL
   -- takes it off and the whole store is one keystroke away.
   , glue "a bare boot opens on the active view"
-      [ "const DEFAULT_QUERY = \"state:*active*\";"
+      [ "const DEFAULT_QUERY = CFG.defaultQuery;"
       -- A `q' in the address bar is the reader's own, empty or not.
       , "const bootQuery = () => (params().has(\"q\") ? urlQuery() : DEFAULT_QUERY);"
       , "const asked = (query = bootQuery());"
@@ -6142,7 +6151,11 @@ shellGlue =
   -- asks for the default back.
   , glue "the log's height is a stored preference the general panel edits"
       [ "id=\"clog\""
-      , "const LOG = { key: \"glance-log\", def: 7, min: 1, max: 50 };"
+      , "const LOG = CFG.log;"
+      -- The numbers ride the cfg blob now, the declared Haskell constants
+      -- still the source: the fixture is page-plus-script, so the blob's
+      -- members are pinned beside the read.
+      , "\"def\":7", "\"min\":1", "\"max\":50", "\"key\":\"glance-log\""
       , "if (!t) return LOG.def;"
       , "return /^[0-9]+$/.test(t) && +t >= LOG.min && +t <= LOG.max ? +t : null;"
       , "const logPref = pref(LOG.key, \"\");"
@@ -6211,7 +6224,7 @@ shellGlue =
   -- `g' reads the LIVE default (`pinnedQuery', seeded from the constant and
   -- moved by a pin), so a fresh pin is applied without a page reload.
   , Glue "the default view is the tree's, and `g' applies it"
-      [ "const DEFAULT_QUERY = "
+      [ "const DEFAULT_QUERY = CFG.defaultQuery;"
       , "let pinnedQuery = DEFAULT_QUERY.trim();"
       , "const bootQuery = () => (params().has(\"q\") ? urlQuery() : DEFAULT_QUERY);"
       , "applyView(b, pinnedQuery);"
@@ -6682,9 +6695,12 @@ indexingSpec = testGroup "Indexing (bind before load)"
   , testCase "the shell and its assets are served the whole time" $ do
       application' <- indexingApp
       r <- ok =<< getFrom application' "/"
-      assertContains "the shell itself" "TableView.mount" (body r)
+      assertContains "the shell names its script" "src=\"glue.js\"" (body r)
       js <- getFrom application' "/table-view.js"
       assertEqual "the renderer" 200 (status js)
+      gl <- getFrom application' "/glue.js"
+      assertEqual "the glue" 200 (status gl)
+      assertContains "and it is the shell itself" "TableView.mount" (body gl)
 
   , testCase "the load landing opens the store routes, on the same server" $ do
       hub <- newLoadingHub =<< getMonotonicTime
@@ -9110,7 +9126,7 @@ configSpec = testGroup "GET and POST /config"
   , testCase "the served page carries the tree's default view" $ do
       withConfigTree $ \a _dir ->
         assertContains "the built-in, where nothing configures one"
-                       "const DEFAULT_QUERY = \"state:*active*\"" . body =<< getFrom a "/"
+                       "\"defaultQuery\":\"state:*active*\"" . body =<< getFrom a "/"
       withTempDir $ \dir -> do
         let system = systemFileIn dir
         createDirectoryIfMissing True (takeDirectory system)
@@ -9118,7 +9134,7 @@ configSpec = testGroup "GET and POST /config"
           "#+TODO: TODO | DONE\n#+GLANCE_DEFAULT_FILTER: tag:work\n"
         _ <- orgFile dir "notes.org" "* TODO x\n"
         (a, _hub) <- serverOver dir
-        assertContains "the tree's own" "const DEFAULT_QUERY = \"tag:work\"" . body
+        assertContains "the tree's own" "\"defaultQuery\":\"tag:work\"" . body
           =<< getFrom a "/"
 
   , testCase "a tree with no system.org lists it anyway, as creatable" $
@@ -9977,8 +9993,12 @@ pageSpec shell = testGroup "GET /"
       r <- ok =<< get assetsDir "/"
       assertEqual "content type" (Just "text/html; charset=utf-8") (header "Content-Type" r)
       assertContains "renderer" "src=\"table-view.js\"" (body r)
-      assertContains "fetch glue" "fetch(`/headlines${params}`" (body r)
-      assertContains "mount" "TableView.mount(" (body r)
+      -- The script is its own asset now: the page names it, and the code the
+      -- two needles used to find inline is read off the served file.
+      assertContains "the shell's script" "src=\"glue.js\"" (body r)
+      g <- ok =<< get assetsDir "/glue.js"
+      assertContains "fetch glue" "fetch(`/headlines${params}`" (body g)
+      assertContains "mount" "TableView.mount(" (body g)
 
   , testCase "with assets, the restored query is the renderer's own chips" $ do
       b <- shell
@@ -10331,9 +10351,29 @@ keymapOf shell = traverse row =<< listAt "rows" =<< blobOf shell
                     <*> maybeTextAt "help" v
 
 -- | The shell's inline glue, on its own — what a syntax check is run over.
+-- | The shell's script is a FILE now (docs/proposal-glue-extraction.md): the
+-- page names it in a src tag and the bytes are the committed asset's, so the
+-- sweeps read the source of the embed rather than scraping served HTML.  The
+-- page argument stays so every caller still proves it served a shell first.
+-- | The glue with its comment lines dropped: the sweeps count and forbid
+-- CODE, and the extraction moved ~1.9k comment lines into the file — prose
+-- that mentions `scrollIntoView' must not count as a call.
+stripGlueComments :: T.Text -> T.Text
+stripGlueComments =
+  T.unlines . filter (not . T.isPrefixOf "//" . T.stripStart) . T.lines
+
 glueOf :: T.Text -> IO T.Text
-glueOf shell = maybe (assertFailure "no inline script in the shell") pure
-                     (between "\n  <script>\n" "  </script>" shell)
+glueOf shell = do
+  assertBool "the page names glue.js" ("src=\"glue.js\"" `T.isInfixOf` shell)
+  stripGlueComments <$> TIO.readFile "assets/glue.js"
+
+-- | The configuration blob the glue boots from, as served: the JSON between
+-- the cfg script tags, which the node boots hand to the harness beside the
+-- keymap's.
+cfgOf :: T.Text -> IO T.Text
+cfgOf shell = maybe (assertFailure "no cfg blob in the shell") pure
+                    (between "<script id=\"cfg\" type=\"application/json\">"
+                             "</script>" shell)
 
 keymapSpec :: IO T.Text -> TestTree
 keymapSpec shell = testGroup "Shell keymap"
@@ -10728,7 +10768,9 @@ embeddedSpec = testGroup "Embedded renderer"
   , testCase "so / is the shell, and the JSON-only page is unreachable" $ do
       b <- body <$> getBuiltIn "/"
       assertContains "renderer" "src=\"table-view.js\"" b
-      assertContains "mount" "TableView.mount(" b
+      assertContains "the shell's script" "src=\"glue.js\"" b
+      g <- body <$> getBuiltIn "/glue.js"
+      assertContains "mount" "TableView.mount(" g
       holdsNone "the JSON-only page" ["JSON-only mode"] b
 
   , testCase "--assets replaces the compiled-in renderer rather than adding to it" $ do

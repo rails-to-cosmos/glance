@@ -14,6 +14,7 @@ module Glance.Web.Base ( ServeOptions (..)
                        , logLinesMin
                        , logLinesMax
                        , logLinesBand
+                       , glueAsset
                        , rendererAsset
                        , viewTitleFor
                        , tenths
@@ -96,6 +97,12 @@ logLinesBand = T.pack (show logLinesMin <> "–" <> show logLinesMax)
 -- under @--assets@ its presence in that directory decides which page @\/@ serves.
 rendererAsset :: FilePath
 rendererAsset = "table-view.js"
+
+-- | The shell's own script, the second compiled-in asset: the page names it
+-- in a @\<script src\>@ beside the renderer's, and @--assets@ replaces both
+-- or neither, the directory being the whole asset set.
+glueAsset :: FilePath
+glueAsset = "glue.js"
 
 -- | S rounded the way a banner and an indexing body both want it.
 tenths :: Double -> Double

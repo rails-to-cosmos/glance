@@ -740,6 +740,16 @@ section groups a feature arc, and its date is that arc's last commit.
   or the reconnect. The status corner, the event log and the key line stay
   bright, being where a reader finds out why.
 
+### Changed
+- **The shell's script is a real JavaScript file.** 5.2k lines of JS lived as
+  a Haskell string list for the sake of nine interpolations; `assets/glue.js`
+  is now a file compiled into the binary the way the renderer is, with every
+  server value riding one `cfg` JSON blob the page emits (eight per-build
+  constants and the per-request default view). Editor modes, linters and
+  honest diffs apply to the shell for the first time, and `--assets` gives
+  live glue hacking with no rebuild. The migration is byte-proven: the old
+  output and the new file differ in exactly the nine known lines.
+
 ### Fixed
 - **A linked title shows its description alone.** The material headline drew
   the raw `[[url][desc]]` as the cell's own text and appended the rendered

@@ -7,7 +7,8 @@
 //
 //   node shell-harness.js DIR SEARCH TOTAL [KEYS] [ACTS]
 //
-// DIR holds `shell.js' (the glue) and `keys.json' (the page's keymap blob).
+// DIR holds `shell.js' (the glue), `keys.json' (the page's keymap blob) and
+// `cfg.json' (the configuration blob the glue reads as CFG).
 // SEARCH is `location.search' the page opens on and TOTAL what the server
 // reports as `X-Glance-Total', which is what decides whether the boot pulls
 // the rest of the set in behind the first page.  KEYS is an optional
@@ -983,6 +984,9 @@ globalThis.matchMedia = () => ({ matches: false, addEventListener: () => {} });
 // harness has no opinion about, and the keymap blob is the one thing it has to
 // hand back for real.
 const KEYS = fs.readFileSync(dir + "/keys.json", "utf8");
+// And the configuration blob the glue boots from — the page's second JSON
+// script element, extracted the same way.
+const CFGJSON = fs.readFileSync(dir + "/cfg.json", "utf8");
 const node = new Proxy(
   {},
   {
@@ -1170,6 +1174,7 @@ const released = [];
 globalThis.document = {
   getElementById: (id) =>
     id === "keys" ? { textContent: KEYS }
+      : id === "cfg" ? { textContent: CFGJSON }
       : STATEFUL.indexOf(id) === -1 ? node : field(id),
   querySelector: (sel) => (sel === "#app .tv-filter" ? field("filter") : null),
   querySelectorAll: () => [],

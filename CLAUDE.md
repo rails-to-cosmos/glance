@@ -1178,7 +1178,13 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - NO SOURCE FILE names an absolute path outside the repo. `TestSelfContained`
   sweeps every `.hs` under `src*/` and `app/` for `/home/`, and asserts what it
   swept first so an empty sweep cannot pass.
-- The shell is vanilla inline JS with no framework, build step or dependency,
+- The shell is vanilla JS with no framework or dependency — a real file,
+  `assets/glue.js`, compiled into the binary the way the renderer is
+  (docs/proposal-glue-extraction.md); the page inlines two JSON blobs (keymap,
+  the `cfg` configuration the script reads as `CFG`) and the theme boot line,
+  and names its two scripts in src tags. `--assets` replaces the whole set,
+  which is live glue hacking with no rebuild. The shell has no build step —
+  `cabal build` was always the build —
   and shrinking it beats adding to it. The BOOT — and only the boot — asks
   `?limit=100` and pulls the rest in behind the painted table; it
   mounts with `onFilter` so the server narrows, and

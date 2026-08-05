@@ -82,7 +82,8 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , templatePrompts, titleSpan
                     , todoLines, viewJSONTextWith )
 import Glance.Web.Base ( ServeOptions (..), answerWrite, bodyObject, configMoved
-                       , conflict, html, jsonError, jsonResponse, jsonType, noSuchRow
+                       , conflict, glueAsset, html, jsonError, jsonResponse, jsonType
+                       , noSuchRow
                        , plain, rendererAsset, reparsed, rewritten, sized, tenths
                        , unreadable, viewTitleFor, walkFor, withBody )
 import Glance.Web.Commands (runCommand)
@@ -110,6 +111,13 @@ import Glance.Web.Watch (writeSpans)
 -- @..\/table-view\/web@ and reload instead of rebuilding.
 embeddedRenderer :: BS.ByteString
 embeddedRenderer = $(makeRelativeToProject "assets/table-view.js" >>= embedFile)
+
+-- | The shell's own script, embedded the same way: @assets\/glue.js@ is a
+-- real JavaScript file (docs\/proposal-glue-extraction.md), the page names it
+-- beside the renderer, and @--assets@ overrides both together — the directory
+-- is the whole asset set.
+embeddedGlue :: BS.ByteString
+embeddedGlue = $(makeRelativeToProject "assets/glue.js" >>= embedFile)
 
 -- | Is there a renderer to serve?  The route's own question ('assetSource'),
 -- asked of the renderer's name, so the banner and @\/@ cannot disagree with
@@ -1228,7 +1236,9 @@ statsHeaders qr =
 -- declaring a resource this would decline is the drift it exists to prevent.
 assetSource :: ServeOptions -> FilePath -> IO (Maybe (Either FilePath BS.ByteString))
 assetSource opts name = case soAssets opts of
-  Nothing  -> pure (if name == rendererAsset then Just (Right embeddedRenderer) else Nothing)
+  Nothing  -> pure (if name == rendererAsset then Just (Right embeddedRenderer)
+                    else if name == glueAsset then Just (Right embeddedGlue)
+                    else Nothing)
   Just dir -> let path = dir </> name
               in (\ok -> if ok then Just (Left path) else Nothing) <$> doesFileExist path
 

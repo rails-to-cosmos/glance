@@ -7,10 +7,10 @@ import Data.Text (Text)
 import qualified Data.Text as T
 
 import Glance.Query (builtinFilter, defaultCaptureFile)
-import Glance.Web.Base ( ServeOptions (..), escape, logLinesBand, logLinesDefault
+import Glance.Web.Base ( ServeOptions (..), escape, glueAsset, logLinesBand, logLinesDefault
                        , rendererAsset, viewTitleFor )
 import Glance.Web.Keymap (keyBindingsJSON)
-import Glance.Web.Page.Glue (shellGlue)
+import Glance.Web.Page.Glue (glueConfig)
 import Glance.Web.Page.Style (fontFace, page)
 
 -- | The page a browser gets: load the renderer, fetch a page of the view, mount
@@ -225,9 +225,14 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   , "  </div>"
   , "  <div id=\"echo\" role=\"status\" aria-live=\"polite\"></div>"
   , "  <script id=\"keys\" type=\"application/json\">" <> keyBindingsJSON <> "</script>"
+  -- The shell's configuration, the keymap blob's own pattern: eight per-build
+  -- constants and the per-request default view, read by glue.js as `CFG'.
+  -- The script itself is a compiled-in asset like the renderer, so the page
+  -- inlines no executable JS at all — the theme boot line in <head> aside.
+  , "  <script id=\"cfg\" type=\"application/json\">" <> glueConfig wanted <> "</script>"
   , "  <script src=\"" <> T.pack rendererAsset <> "\"></script>"
+  , "  <script src=\"" <> T.pack glueAsset <> "\"></script>"
   ]
-  <> shellGlue wanted
 
 -- | A table popup's frame: NAME the wrapper the backdrop wears, P the letter
 -- every part of it is prefixed with, OVERLAY the edit box its pane positions.
