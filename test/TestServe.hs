@@ -3307,6 +3307,14 @@ sheetSpec shell =
           <=< pointOf
       onTable "grain press:Enter press:n press:n press:f press:p" $
         assertEqual "p clamps at the first the same way" (3, -1) <=< pointOf
+      -- BACKWARD OVER A NESTED RUN: beta's previous sibling is alpha, and the
+      -- nested item drawn inside alpha sits between them in the flat order —
+      -- the walk steps past a sibling's descendants coming back exactly as it
+      -- steps past its own going forward.  No case crossed a nested run
+      -- backward until this one.
+      onTable "grain press:Enter press:n press:n press:f press:n press:p" $
+        assertEqual "p from beta crosses the nested run to alpha" (3, -1)
+          <=< pointOf
       onTable "grain press:Enter press:n press:n press:f press:n press:b" $ \answer -> do
         assertEqual "b is the whole list again, from any item" (2, -1)
           =<< pointOf answer

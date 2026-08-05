@@ -739,7 +739,6 @@ shellGlue wanted =
   , "      for (let o = dparent[id]; o; o = dparent[o]) chain.push(o);"
   , "      return chain;"
   , "    };"
-  , "    const descends = (id, of) => downersOf(id).indexOf(of) !== -1;"
   , "    let dlines = [];"
     -- The ELEMENT the draw put the cursor on, kept so the edit overlay can be
     -- anchored to it.  The `dat'-th child of `#dlist' is NOT that element: a
@@ -1205,15 +1204,16 @@ shellGlue wanted =
   , "      const cur = drows[dat];"
   , "      let i = dat + step;"
   , "      if (cur && cur.grain === \"leaf\") {"
-    -- The sibling is the next row sharing MY owner — forward that means
-    -- stepping past my own descendants, whose owner chains lead through me.
-    -- A row outside the parent's subtree ends the run: clamp.
+    -- The sibling is the next row sharing MY owner; every LEAF between two
+    -- siblings is deeper in the same parent's subtree — my descendants going
+    -- forward, a sibling's coming back — because the emission order puts a
+    -- COMPOSITE between any two parents' runs.  So the scan steps past
+    -- leaves, breaks on the owner match, and clamps at the first non-leaf:
+    -- the edge of the parent's run, structurally.
   , "        while (i >= 0 && i < drows.length) {"
   , "          const kin = drows[i];"
-  , "          if (kin.grain === \"leaf\" && kin.owner === cur.owner) break;"
-  , "          if (!(kin.grain === \"leaf\""
-  , "                && (descends(kin.id, cur.id) || descends(kin.id, cur.owner))))"
-  , "            { drawDoc(); return; }"
+  , "          if (kin.grain !== \"leaf\") { drawDoc(); return; }"
+  , "          if (kin.owner === cur.owner) break;"
   , "          i += step;"
   , "        }"
   , "        if (i < 0 || i >= drows.length) { drawDoc(); return; }"
@@ -2900,12 +2900,11 @@ shellGlue wanted =
   , "      const held = document.activeElement;"
   , "      const k = keyName(e);"
   , "      if (held === el(\"ktag\")) {"
-  , "        if (k === \"C-n\" || k === \"<down>\") {"
-  , "          capping.hot = Math.min(capping.hot + 1, (capping.shown || []).length - 1);"
-  , "          drawTagList(el(\"ktag\").value); e.preventDefault(); return;"
-  , "        }"
-  , "        if (k === \"C-p\" || k === \"<up>\") {"
-  , "          capping.hot = Math.max(capping.hot - 1, -1);"
+  , "        const walk = k === \"C-n\" || k === \"<down>\" ? 1"
+  , "                   : k === \"C-p\" || k === \"<up>\" ? -1 : 0;"
+  , "        if (walk) {"
+  , "          capping.hot = Math.max(-1, Math.min(capping.hot + walk,"
+  , "                                              (capping.shown || []).length - 1));"
   , "          drawTagList(el(\"ktag\").value); e.preventDefault(); return;"
   , "        }"
   , "        if (k === \"RET\" || k === \"TAB\") { settleTag(); e.preventDefault(); }"
