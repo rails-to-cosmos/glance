@@ -1,4 +1,4 @@
-.PHONY: test native sync-renderer run run-native run-wasm wasm-spike
+.PHONY: test native sync-renderer run run-native run-wasm wasm-spike check-glue
 
 # The run targets' knobs: .env carries them (committed, edit to taste), and
 # the ?= pair means a missing .env still runs against the defaults.
@@ -79,3 +79,12 @@ run-wasm:
 	  wasmtime run --dir $(GLANCE_DIR)::/tree \
 	    "$$(. $$HOME/.ghc-wasm/env && wasm32-wasi-cabal list-bin --project-file=cabal.project.wasm glance-wasm-probe)" /tree; \
 	fi
+
+# The shell's own checker, table-view's discipline over assets/glue.js
+# (docs/proposal-glue-extraction.md): tsc --checkJs under assets/jsconfig.json.
+# Zero errors is the standing state; a finding here is a finding.
+check-glue:
+	@if command -v npx >/dev/null 2>&1; then \
+	  npx --yes -p typescript tsc -p assets/jsconfig.json --pretty false && \
+	    echo "check-glue: clean"; \
+	else echo "check-glue: no npx on PATH -- skipped"; fi
