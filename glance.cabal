@@ -207,6 +207,25 @@ library glance-desktop-native
       , unix
   default-language: Haskell2010
 
+-- The WASM probe: the core run inside a WASI runtime — `make run-wasm`.
+-- Buildable only under `pure-crypto`, which is the wasm project's flag, so no
+-- other build ever sees it and the app/ directory stays one executable
+-- everywhere else.
+executable glance-wasm-probe
+  main-is: WasmProbe.hs
+  hs-source-dirs:
+      app
+  default-extensions:
+      OverloadedStrings
+  ghc-options: -Wall
+  build-depends:
+      base >=4.7 && <5
+    , glance
+    , text
+  if !flag(pure-crypto)
+    buildable: False
+  default-language: Haskell2010
+
 executable glance
   main-is: Main.hs
   other-modules:

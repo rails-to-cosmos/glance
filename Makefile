@@ -1,4 +1,11 @@
-.PHONY: test native sync-renderer
+.PHONY: test native sync-renderer run run-native run-wasm wasm-spike
+
+# The run targets' knobs: .env carries them (committed, edit to taste), and
+# the ?= pair means a missing .env still runs against the defaults.
+-include .env
+GLANCE_DIR ?= ~/sync/views
+GLANCE_PORT ?= 7777
+
 test:
 	cabal test
 
@@ -45,4 +52,30 @@ wasm-spike:
 	else \
 	  . "$$HOME/.ghc-wasm/env" && \
 	  wasm32-wasi-cabal build --project-file=cabal.project.wasm glance-internal lib:glance; \
+	fi
+
+# Serve GLANCE_DIR in the ordinary browser flow.
+run:
+	cabal run glance -- desktop --dir $(GLANCE_DIR) --port $(GLANCE_PORT)
+
+# The same daemon inside its own WebKitGTK window: the flagged build, run
+# through its own project file so `make run-native' never rebuilds the
+# unflagged binary out from under a running `make run'.
+run-native:
+	HASKELL_GI_GIR_SEARCH_PATH=$(CURDIR)/vendored/gir \
+	  cabal run --project-file=cabal.project.native glance -- \
+	    desktop --dir $(GLANCE_DIR) --port $(GLANCE_PORT)
+
+# The WASM probe over GLANCE_DIR: the core running INSIDE wasmtime -- walk,
+# parse, count -- which is the daemon-in-the-page milestone's engine half
+# proven on a real tree.  The tree is preopened read-only at /tree; WASI sees
+# nothing else.
+run-wasm:
+	@if [ ! -x "$$HOME/.ghc-wasm/wasm32-wasi-ghc/bin/wasm32-wasi-ghc" ]; then \
+	  echo "run-wasm: no toolchain at ~/.ghc-wasm -- run ghc-wasm-meta's bootstrap first"; \
+	else \
+	  . "$$HOME/.ghc-wasm/env" && \
+	  wasm32-wasi-cabal build --project-file=cabal.project.wasm glance-wasm-probe && \
+	  wasmtime run --dir $(GLANCE_DIR)::/tree \
+	    "$$(. $$HOME/.ghc-wasm/env && wasm32-wasi-cabal list-bin --project-file=cabal.project.wasm glance-wasm-probe)" /tree; \
 	fi
