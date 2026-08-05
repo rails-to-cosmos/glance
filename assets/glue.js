@@ -1368,8 +1368,8 @@
     const docBinding = (command, seq) => ({ seq: seq || "RET", command });
     // RET, BY KIND, and that is the whole surface: a child materializes, a
     // paragraph opens as text, a property and the title open as fields, a
-    // planning row asks for a date, and the state and tag cells raise the page's
-    // own palettes over the row.
+    // planning row asks for a date, the state and tag cells raise the page's
+    // own palettes over the row, and the headline LINE itself opens its title.
     function docEnter() {
       const r = drows[dat];
       if (!r) return;
@@ -1387,15 +1387,23 @@
       // stash put back over a headline that has since lost one names a column
       // that is not there, so the cell is READ rather than assumed.
       const c = dcol === null ? null : shown(r)[dcol];
-      if (!c) { echo("RET → no cell selected — f/l picks one"); return; }
       if (editing.child !== null) {
-        echo(`RET → a child's ${c.key} is not settable yet — DEL opens its parent`);
+        echo(`RET → a child's ${c ? c.key : "title"} is not settable yet — DEL opens its parent`);
         return;
       }
-      if (c.key === "state") { stateHere(); return; }
-      if (c.key === "tags") { tagsHere(); return; }
-      if (c.key === "title")
-        { openEdit(DROW, { id: "CELL:title", kind: "cell", key: "title", val: c.val }); return; }
+      if (c && c.key === "state") { stateHere(); return; }
+      if (c && c.key === "tags") { tagsHere(); return; }
+      // The WHOLE LINE's edit is its TITLE: state and tags have popups, the
+      // priority ring is pressed, and the raw bytes are the server's — so RET
+      // at the element grain and RET on the title cell are one door, and a
+      // headline that has no title yet opens it empty (`set-title' inserts
+      // where nothing was).
+      if (!c || c.key === "title") {
+        const t = shown(r).find((x) => x.key === "title");
+        openEdit(DROW, { id: "CELL:title", kind: "cell", key: "title",
+                         val: t ? t.val : "" });
+        return;
+      }
       // A RING OF THREE IS PRESSED, NOT PICKED: the two keys answer faster than
       // any list a cell could raise, so this stays a refusal — one that now
       // names the keys rather than an absence.

@@ -1978,7 +1978,10 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   `cell`.
 - RET is BY KIND: a CHILD re-materializes into it (`?child=`), a PARAGRAPH opens
   as a textarea over itself, and the TITLE cell opens in the shared overlay and
-  commits `set-title`. The STATE and TAGS cells raise the value palette and the
+  commits `set-title` — as does RET on the headline LINE itself, the whole
+  line's edit being its title (state and tags have popups, the priority ring is
+  pressed), so no `f` is spent picking the cell and an absent title opens
+  empty. The STATE and TAGS cells raise the value palette and the
   tags popup where they are present; `t` and `:` do the same at the element and
   are the only way to set a part that is absent. PRIORITY has no command yet.
   A CHILD's cells are read-only in v1 — a child has no row id, so no `/command`

@@ -3704,6 +3704,21 @@ sheetSpec shell =
         assertEqual "nothing went through the lens" ([] :: [Value])
           =<< listAt "writes" answer
 
+    -- AND THE HEADLINE LINE ITSELF IS THE SAME DOOR: the whole line's edit is
+    -- its title — state and tags have popups, the priority ring is pressed —
+    -- so RET at the element grain opens the title without an `f' spent
+    -- picking the cell.
+  , testCase "RET on the headline line itself opens the title" $ do
+      insheet "press:Enter" $ \answer -> do
+        assertEqual "the overlay is open" True =<< boolAt "dopen" answer
+        assertEqual "the key names the cell" "title" =<< textAt "dkey" answer
+        assertEqual "and the value is the title" "one" =<< textAt "dval" answer
+        assertEqual "with the focus on the value" "dval" =<< textAt "focus" answer
+      bootOf shell "" 500 "Enter"
+             "press:Enter dval:renamed press:Enter" $ \answer ->
+        assertEqual "one set-title over this row"
+                    [("set-title", ["r1"])] =<< postedOf answer
+
     -- TWO KEYS COMMIT AN OPEN ELEMENT, and org's is one of them: `C-c C-c' is
     -- `org-ctrl-c-ctrl-c', its own "do the thing here", and here the thing is
     -- whatever element is open — the paragraph's textarea and the two-field
