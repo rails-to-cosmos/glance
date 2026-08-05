@@ -4475,24 +4475,44 @@ on.
   interruptible again. **test** (the close rules) / **none** (the signal
   handler, which needs an open window; a flagged build alone reaches nothing
   here)
-- **A new window goes to the system browser; this one stays the table.** The
-  shell's `o` follows a link with `window.open(…, "_blank")`, and a
-  `target="_blank"` anchor is the same request. Both arrive at
-  `Glance.Desktop.WebKit` as a `WebKitPolicyDecision` of type
-  `NewWindowAction`, and a `WebKitWebView` with nothing connected answers one by
-  doing NOTHING — so following a link would work in a borrowed browser tab and
-  silently fail in the window this build carries, which is the one place a
-  reader cannot tell a missing feature from a broken one. `elsewhere` refuses
-  the decision (`policyDecisionIgnore`) and hands the URI to
-  `gtk_show_uri_on_window`, the desktop's own default handler: a glance window
-  is the table, and a second chrome-less one would be a browser with no address
-  bar. Every other decision type is left to WebKit, so ordinary navigation and
-  the socket upgrade are untouched. The downcast to
-  `NavigationPolicyDecision` is CHECKED (`castTo`, not the unsafe one) and a URI
-  that fails to open is printed and dropped — a window failure has never taken
-  this daemon down and a link does not either. That costs one
-  dependency in the flagged stanza, `haskell-gi-base`, which every `gi-*`
-  package already pulls. **none** (compiles; nothing has opened the window)
+- **A new window opens as a reading pane over this one, which stays the
+  table.** The native window has no tabs, so an `http(s)` link the page asks a
+  new window for reads HERE: a popup 80% × 90% of the main window
+  (`popupShell`), centred over it and transient so the manager stacks the
+  pair, ESC or the manager's close ending it and the table untouched
+  underneath; the popup's own new-window asks navigate in place (`inPlace`) —
+  one popup is a reading pane, and a tree of them would be a browser with no
+  address bars. Any other scheme goes to `gtk_show_uri_on_window`, the
+  desktop's own default handler, and a URI that fails to open is printed and
+  dropped — a window failure has never taken this daemon down and a link does
+  not either. TWO DOORS, BECAUSE WEBKIT HAS TWO, and only one of them may be
+  answered with a window. A real `target="_blank"` anchor arrives as a
+  `WebKitPolicyDecision` of type `NewWindowAction`: `elsewhere` refuses it
+  (`policyDecisionIgnore`) and opens the pane, the downcast to
+  `NavigationPolicyDecision` CHECKED (`castTo`, not the unsafe one), every
+  other decision type left to WebKit so ordinary navigation and the socket
+  upgrade are untouched. The shell's `o` calls
+  `window.open(target, "_blank", "noopener")`, and a SCRIPTED open never
+  reaches the policy layer — it fires the `create` signal, whose unconnected
+  default drops the open silently (which is how the first live press of `o`
+  proved the policy-only wiring had never fired), and whose CONNECTED form is
+  a landmine: return a view and WebKitGTK dereferences the scripted open's
+  `std::optional<WebCore::WindowFeatures>`, which `"noopener"` leaves
+  disengaged — a live SIGABRT of the whole daemon, observed under 2.52. So
+  the scripted half is intercepted ABOVE WebKit's window machinery:
+  `openOverride`, a document-start user script in the TOP frame alone,
+  replaces `window.open` with a post of `String(u)` to the `popup`
+  script-message handler and answers null (what the dropped open answered
+  anyway; the shell never reads it), and `openMessage` reads the URL back out
+  of the JavaScript world (`gi-javascriptcore`, the flagged stanza's one new
+  dependency, which `gi-webkit2` pulls regardless) and opens the pane. A page
+  read INSIDE a popup keeps the real `window.open` — inert there, its
+  `create` unanswered, the drop rather than the crash. The message-handler
+  shape is deliberately WKWebView's own (`WKScriptMessageHandler`), so the
+  iOS/Android ports inherit the design instead of a GTK-ism. **none** (live
+  smoke 2026-08-05: popup opened example.com over the demo tree, ESC closed
+  it, daemon survived both; the crash arm is the engine's and reproduces only
+  against a live WebKitGTK)
 - **The bindings are vendored, and the patch is six lines across two packages.**
   Every Hackage `gi-webkit2` binds WebKit2 **4.0** — `pkgconfig webkit2gtk-4.0`,
   `gi-javascriptcore4` on `javascriptcoregtk-4.0`, `gi-soup2` on `libsoup-2.4`

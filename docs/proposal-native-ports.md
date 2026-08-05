@@ -97,6 +97,15 @@ GHC's wasm32-wasi backend (9.10+ JSFFI) compiles the CORE — `glance-internal`
 1. ~~Tonight: `make native` smoke on the live display; fix; record.~~ DONE
    2026-08-05: window opened, served, socket streamed, close stopped the
    daemon; user-confirmed on screen. No code change was owed.
+   FOLLOW-UP the same day, and a portability fact worth the record: `o`'s
+   `window.open` never reaches the decide-policy door (that hears real
+   `target="_blank"` anchors alone) — it fires the `create` signal, and
+   ANSWERING that with a view aborts current WebKitGTK when the open said
+   `"noopener"` (disengaged `WindowFeatures` optional, live SIGABRT). The
+   landed shape patches `window.open` at document start to post the URL to a
+   script-message handler, and the host opens its own popup — which is
+   exactly WKWebView's `WKScriptMessageHandler` shape, so the iOS/Android
+   ports inherit the design instead of a GTK-ism.
 2. `aarch64-unknown-linux` release build target in the Makefile (the Termux
    rung — costs a cross toolchain or a device build, enables Android v1.5).
 3. A `transport.js`-shaped extraction is NOT owed yet (rule 1 already holds);

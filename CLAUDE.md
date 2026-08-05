@@ -418,13 +418,23 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   waiting for a socket that is not coming. `--dry-run` prints `native window`
   where it prints the browser command, by replacing that one line of
   `dryRunLines` rather than by writing three of its own.
-- A NEW WINDOW the page asks for goes to the system browser and this one stays
-  the table: `window.open(…, "_blank")` and a `target="_blank"` anchor both reach
-  `Glance.Desktop.WebKit` as a `NewWindowAction` policy decision, which an
-  unconnected `WebKitWebView` answers by doing nothing. `elsewhere` ignores the
-  decision and hands the URI to `gtk_show_uri_on_window`; every other decision
-  type is left to WebKit. The downcast is CHECKED (`castTo`) and a URI that will
-  not open is printed and dropped, like every other window failure here.
+- A NEW WINDOW the page asks for opens as a READING PANE over this one, which
+  stays the table: 80% × 90% of the main window, centred, transient, ESC or
+  the manager's close ending it; its own new-window asks navigate in place. An
+  `http(s)` target alone earns the pane (`webby`); everything else goes to
+  `gtk_show_uri_on_window`, and a URI that will not open is printed and
+  dropped, like every other window failure here. TWO DOORS BECAUSE WEBKIT HAS
+  TWO, and only one is usable: a real `target="_blank"` anchor arrives as a
+  `NewWindowAction` policy decision (`elsewhere`, downcast CHECKED via
+  `castTo`, every other decision type left to WebKit), while the shell's
+  `window.open` fires the `create` signal INSTEAD — unconnected it drops the
+  open silently, and CONNECTED it aborts the daemon: WebKitGTK reads the
+  scripted open's `WindowFeatures` optional, which `"noopener"` leaves
+  disengaged (live SIGABRT under 2.50). So `openOverride` patches
+  `window.open` at document start — top frame only, the popups keep the real
+  one — to post its URL to the `popup` script-message handler, and
+  `openMessage` opens the pane itself: WKWebView's own shape, which is what
+  the iOS/Android ports inherit.
 - The flag is manual and default False, and the unflagged build resolves no
   haskell-gi: `Glance.Desktop.WebKit` answers `nativeAvailable = False` and
   nothing else in the program asks about the flag. `Glance.Desktop.Native` holds

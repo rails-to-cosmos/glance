@@ -34,6 +34,7 @@ import qualified Data.Text.Encoding as TE
 import qualified GI.Gdk as Gdk
 import qualified GI.GLib as GLib
 import qualified GI.Gtk as Gtk
+import qualified GI.JavaScriptCore as JSC
 import qualified GI.WebKit2 as WK
 
 #endif
@@ -78,39 +79,130 @@ nativeWindow title url = do
   Gtk.containerAdd win view
   _ <- Gtk.onWidgetDestroy win Gtk.mainQuit
   _ <- WK.onWebViewDecidePolicy view (elsewhere win)
+  ucm <- WK.webViewGetUserContentManager view
+  _ <- WK.onUserContentManagerScriptMessageReceived ucm (Just handlerName) (openMessage win)
+  _ <- WK.userContentManagerRegisterScriptMessageHandler ucm handlerName
+  override <- WK.userScriptNew openOverride
+                WK.UserContentInjectedFramesTopFrame
+                WK.UserScriptInjectionTimeStart Nothing Nothing
+  WK.userContentManagerAddScript ucm override
   Gtk.widgetShowAll win
   WK.webViewLoadUri view (T.pack url)
   previous <- installHandler sigINT (Catch quitLoop) Nothing
   Gtk.main
   void (installHandler sigINT previous Nothing)
 
--- | A link the page asked for a NEW WINDOW for goes to the system browser, and
--- this window keeps showing the table.
+-- | A link the page asked for a NEW WINDOW for opens in a POPUP of this
+-- window's own, and this window keeps showing the table.  The native window
+-- has no tabs to switch to, so an @http(s)@ link reads HERE, in a transient
+-- window sized the way the material sheet sits over the table; anything else
+-- — @mailto:@, a scheme the desktop owns — goes to the system handler, a mail
+-- client being the right reader either way.
 --
--- The shell's @o@ opens what a row points at with @window.open(…, "_blank")@,
--- and a link with @target="_blank"@ is the same request.  Both arrive here as a
--- @WebKitPolicyDecision@ of type @NewWindowAction@, and a @WebKitWebView@ with
--- nothing connected answers one by doing nothing at all — so following a link
--- would work in a browser tab and silently fail in the window this build
--- carries.  The decision is refused and the URI handed to the desktop's own
--- default handler, which is what a reader means by opening a link: a glance
--- window is the table, and a second one of these would be a browser with no
--- address bar.
+-- TWO DOORS, because WebKit has two.  A real anchor with @target="_blank"@
+-- arrives as a @NewWindowAction@ policy decision, and 'elsewhere' answers it.
+-- The shell's @o@ opens links with @window.open(…)@, and a scripted open
+-- NEVER reaches the policy decision: it fires the @create@ signal — whose
+-- unconnected default returns null and drops the open on the floor, which is
+-- how the first live press of @o@ found that the previous system-browser
+-- handoff, wired to the policy door alone, had never fired at all.  And the
+-- @create@ door cannot be taken: returning a view from it makes WebKitGTK
+-- read the scripted open's window features, which @window.open(…, "noopener")@
+-- leaves unset, and the web process aborts the whole daemon on the engaged
+-- assertion (@std::optional\<WebCore::WindowFeatures\>::operator*@, observed
+-- live under 2.50).  So the scripted half is intercepted BEFORE WebKit's
+-- window machinery: 'openOverride' replaces @window.open@ at document start
+-- with a post to the 'handlerName' script-message handler, and 'openMessage'
+-- opens the popup itself — the same shape a WKWebView port must use, iOS
+-- having no @create@ signal to connect.
 --
 -- Every other decision type is left to WebKit ('False'), which is what keeps
 -- ordinary navigation — the page loading, the socket upgrading — untouched.
---
--- @gtk_show_uri_on_window@ can fail (no handler registered, a scheme nothing
--- claims) and it fails by throwing.  A window failure has never taken this
--- daemon down and this one does not either: the link is dropped and the table
--- stays up.
 elsewhere :: Gtk.Window -> WK.PolicyDecision -> WK.PolicyDecisionType -> IO Bool
 elsewhere win decision kind
   | kind /= WK.PolicyDecisionTypeNewWindowAction = pure False
   | otherwise = do
       uri <- navigationUri decision
       WK.policyDecisionIgnore decision
-      maybe (pure ()) (systemOpen win) uri
+      case uri of
+        Just u | webby u -> popupOpen win u
+        Just u           -> systemOpen win u
+        Nothing          -> pure ()
+      pure True
+
+-- | The name the page's patched @window.open@ posts to.
+handlerName :: Text
+handlerName = T.pack "popup"
+
+-- | The document-start patch: @window.open@ posts its URL to 'handlerName'
+-- and answers null, which is what the un-patched engine answered anyway once
+-- the default @create@ handler dropped the open.  The shell never reads the
+-- return value.  Injected into the top frame alone; a popup's own view is
+-- built without it, so a page read in a popup keeps a real @window.open@ —
+-- inert there, its @create@ going unanswered, which is the drop rather than
+-- the crash.
+openOverride :: Text
+openOverride = T.concat
+  [ T.pack "window.open = function (u) {"
+  , T.pack " window.webkit.messageHandlers.", handlerName
+  , T.pack ".postMessage(String(u));"
+  , T.pack " return null; };"
+  ]
+
+-- | The scripted-open door: the URL posted by 'openOverride', read back out
+-- of the JavaScript world and opened the way 'elsewhere' opens the anchor
+-- kind.
+openMessage :: Gtk.Window -> WK.JavascriptResult -> IO ()
+openMessage win result = do
+  value <- WK.javascriptResultGetJsValue result
+  uri <- JSC.valueToString value
+  if webby uri then popupOpen win uri else systemOpen win uri
+
+-- | What the in-window reader takes: the two schemes a page can render.  The
+-- page's own @followable@ rule, spelled here because this layer cannot see it.
+webby :: Text -> Bool
+webby u = any ((`T.isPrefixOf` u) . T.pack) ["http://", "https://"]
+
+-- | Open URI in the reading pane.
+popupOpen :: Gtk.Window -> Text -> IO ()
+popupOpen win uri = do
+  view <- popupShell win uri
+  WK.webViewLoadUri view uri
+
+-- | The reading pane: 80% × 90% of the main window, centred over it and
+-- transient so the manager stacks the pair; ESC or the manager's close ends
+-- it, and closing it never touches the table.  Its own new-window requests
+-- navigate IN PLACE — one popup is a reading pane, and a tree of them would
+-- be a browser with no address bars.
+popupShell :: Gtk.Window -> Text -> IO WK.WebView
+popupShell win uri = do
+  (w, h) <- Gtk.windowGetSize win
+  pop <- Gtk.windowNew Gtk.WindowTypeToplevel
+  Gtk.windowSetTitle pop uri
+  Gtk.windowSetTransientFor pop (Just win)
+  Gtk.windowSetPosition pop Gtk.WindowPositionCenterOnParent
+  Gtk.windowSetDefaultSize pop (max 400 (w * 4 `div` 5)) (max 300 (h * 9 `div` 10))
+  view <- WK.webViewNew
+  rgba <- black
+  WK.webViewSetBackgroundColor view rgba
+  Gtk.containerAdd pop view
+  _ <- WK.onWebViewDecidePolicy view (inPlace view)
+  _ <- Gtk.onWidgetKeyPressEvent pop $ \ev -> do
+         kv <- Gdk.getEventKeyKeyval ev
+         if kv == Gdk.KEY_Escape
+           then True <$ Gtk.widgetDestroy pop
+           else pure False
+  Gtk.widgetShowAll pop
+  pure view
+
+-- | The popup's own policy: a new-window request loads where the reader is.
+inPlace :: WK.WebView -> WK.PolicyDecision -> WK.PolicyDecisionType -> IO Bool
+inPlace view decision kind
+  | kind /= WK.PolicyDecisionTypeNewWindowAction = pure False
+  | otherwise = do
+      uri <- navigationUri decision
+      WK.policyDecisionIgnore decision
+      maybe (pure ()) (WK.webViewLoadUri view) uri
       pure True
 
 -- | Where a navigation decision is headed.  'Nothing' when the decision is not
@@ -129,7 +221,10 @@ navigationUri decision = do
 
 -- | Hand URI to whatever the desktop opens it with, and swallow the failure.
 -- The timestamp is @GDK_CURRENT_TIME@, which is what a caller with no event to
--- date the request by passes.
+-- date the request by passes.  @gtk_show_uri_on_window@ can fail (no handler
+-- registered, a scheme nothing claims) and it fails by throwing; a window
+-- failure has never taken this daemon down and this one does not either — the
+-- link is dropped and the table stays up.
 systemOpen :: Gtk.Window -> Text -> IO ()
 systemOpen win uri = do
   outcome <- try (Gtk.showUriOnWindow (Just win) uri (fromIntegral Gdk.CURRENT_TIME))

@@ -402,6 +402,21 @@ section groups a feature arc, and its date is that arc's last commit.
   harness drives both sheets through pristine, dirty, conflict and discard.
 
 ### Added
+- **The native window opens `o`'s links in a reading pane of its own.** The
+  window has no tabs to switch to, so an `http(s)` link opens in a popup — 80%
+  wide and 90% tall of the main window, centred over it, transient so the
+  window manager stacks the pair — with ESC or the manager's close ending it
+  and the table untouched underneath; any other scheme still goes to the
+  desktop's own handler. Before this, a scripted `window.open` in the native
+  window went NOWHERE: it fires WebKit's `create` signal, which nothing
+  answered, so the old system-browser handoff (wired to the policy door alone)
+  had never fired for `o` at all. The scripted half is intercepted at document
+  start — `window.open` is patched to post its URL to a script-message handler,
+  the same shape an iOS/WKWebView port must use — because answering `create`
+  with a view aborts the whole daemon on current WebKitGTK when the open was
+  made with `"noopener"` (a disengaged `WindowFeatures` optional inside the
+  engine). A real `target="_blank"` anchor keeps the policy door and lands in
+  the same popup.
 - **`+` CAPTURES INTO THE STORE, under a tag and through that tag's own
   template.** The key is a chain of prompts now — which tag, whatever that tag's
   capture template asks (`%^{PROMPT}`, one field per prompt in template order),

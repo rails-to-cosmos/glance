@@ -197,6 +197,9 @@ library glance-desktop-native
         gi-gdk3 >=3.0 && <3.1
       , gi-glib >=2.0 && <2.1
       , gi-gtk3 >=3.0 && <3.1
+      -- gi-javascriptcore reads the URL a patched `window.open' posts back
+      -- out of the JavaScript world; gi-webkit2 pulls it anyway.
+      , gi-javascriptcore >=4.0 && <4.1
       , gi-webkit2 >=4.0 && <4.1
       -- The one non-generated package here, and every gi-* already pulls it:
       -- `castTo' is what turns a WebKitPolicyDecision into the navigation one
