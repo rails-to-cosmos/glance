@@ -7,6 +7,21 @@
 -- Build with the ghc-wasm-meta toolchain on PATH:
 --   make wasm-spike
 packages: .
+          -- text-show as upstream cut it, with the line marked `glance:'
+          -- moved to the RTS's 64-bit thread id: its rts_getThreadId import
+          -- said CInt, and wasm-ld checks foreign signatures where native
+          -- linkers let the mismatch slide.  Keeps upstream's name and
+          -- version, so this local copy shadows Hackage's — the vendored gi
+          -- packages' own rule.  Out of cabal.project for the same reason
+          -- they are: a local package is built whether or not anything
+          -- depends on it.
+          vendored/text-show-3.11.4
+
+-- The first measured wall (2026-08-05): crypton is unbuildable here in both
+-- directions — current versions lean on mmap through `ram`, older ones on
+-- basement's cbits — so the build takes the pure-crypto seam instead.
+package glance
+  flags: +pure-crypto
 
 -- The spike's expected walls, recorded ahead of the run so the catalog reads
 -- against a prediction: `unix` (Data.Org.Walk's lstat discipline) has only a

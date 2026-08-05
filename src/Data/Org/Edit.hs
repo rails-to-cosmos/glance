@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 -- | The write-back engine: replace character spans of a document and put the
 -- result back on disk atomically.  Protocol-independent, and content-agnostic
 -- by design — the replacement text comes from the caller and nothing here
@@ -65,7 +66,12 @@ module Data.Org.Edit ( Edit (..)
 import Control.Exception (IOException, SomeException, bracketOnError, evaluate, try)
 import Control.Monad (unless, void, when)
 import Control.Monad.Except (ExceptT (ExceptT), runExceptT, throwError)
+#ifdef PURE_CRYPTO
+import qualified Data.ByteString.Lazy as BSL
+import qualified Data.Digest.Pure.SHA as SHA
+#else
 import Crypto.Hash (Digest, SHA256, hash)
+#endif
 import Data.List (sortOn)
 import Data.Text (Text)
 import Data.Void (Void)
@@ -259,8 +265,15 @@ snapshotOf path doc = Snapshot path (digestOfText doc)
 -- Exported for a loader holding the bytes it parsed: it pins the document it
 -- computed its spans against without reading the file a second time, which is
 -- the only way the offsets and the digest are guaranteed to describe one text.
+--
+-- Under @pure-crypto@ the same hex comes out of the pure SHA package — one
+-- algorithm, one spelling, so a digest never depends on which build took it.
 digestOf :: BS.ByteString -> Text
+#ifdef PURE_CRYPTO
+digestOf bytes = T.pack (SHA.showDigest (SHA.sha256 (BSL.fromStrict bytes)))
+#else
 digestOf bytes = T.pack (show (hash bytes :: Digest SHA256))
+#endif
 
 -- | 'digestOf' over TEXT, which is the pin for a caller holding a document
 -- rather than the bytes it came from: the settings fingerprint, and every

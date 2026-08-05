@@ -94,10 +94,29 @@ GHC's wasm32-wasi backend (9.10+ JSFFI) compiles the CORE — `glance-internal`
 
 ## First steps, in order
 
-1. Tonight: `make native` smoke on the live display; fix; record.
+1. ~~Tonight: `make native` smoke on the live display; fix; record.~~ DONE
+   2026-08-05: window opened, served, socket streamed, close stopped the
+   daemon; user-confirmed on screen. No code change was owed.
 2. `aarch64-unknown-linux` release build target in the Makefile (the Termux
    rung — costs a cross toolchain or a device build, enables Android v1.5).
 3. A `transport.js`-shaped extraction is NOT owed yet (rule 1 already holds);
    revisit when `glance-wasm` starts.
-4. WASM spike after the GHC toolchain lands locally: compile
-   `glance-internal` alone, measure size, before any JSFFI design.
+4. ~~WASM spike after the GHC toolchain lands locally.~~ DONE 2026-08-05, and
+   it overshot: `make wasm-spike` builds `glance-internal` AND the public
+   `Glance.Query` under wasm32-wasi-ghc 9.12 — the WHOLE core through the
+   facade, 4.3M + 1.9M static archives. The measured catalog:
+   - `crypton` is unbuildable both directions (`ram`'s mmap on current,
+     basement's cbits on older) → the `pure-crypto` cabal flag: SHA-256 from
+     the pure `SHA` package (same hex, one algorithm), sixteen id bytes from
+     `random`'s splitmix — an identifier, never a secret.
+   - `text-show`'s `rts_getThreadId` import says `CInt` where the RTS has
+     returned 64 bits since GHC 9.10; native linkers let it slide, wasm-ld
+     refuses. Vendored with the one-line patch, the gi packages' own rule;
+     retire it when upstream fixes.
+   - The predicted `unix`/haskeline walls never materialized: the toolchain's
+     WASI shims cover everything the walk and the REPL import. The toolchain
+     itself must be installed with a disk-backed `TMPDIR` — the bootstrap
+     extracts multi-GB bindists into `/tmp`, and a tmpfs `/tmp` kills it
+     half-written.
+   Next rung: the JSFFI bridge (`glance-wasm`, exports over `Glance.Query`)
+   and the transport adapter — the design work host 4 defers.

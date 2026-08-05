@@ -42,6 +42,16 @@ flag native-window
   default: False
   manual: True
 
+-- The WASM build's crypto seam (docs/proposal-native-ports.md): crypton is
+-- unbuildable on wasm32-wasi in both directions -- current versions lean on
+-- mmap through `ram', older ones on basement's cbits -- and the core uses it
+-- for exactly two things, the SHA-256 digest and sixteen random bytes.  On,
+-- both come from pure Haskell (SHA, random); off, nothing changes.
+flag pure-crypto
+  description: Pure-Haskell digest and entropy (wasm32-wasi has no crypton).
+  default: False
+  manual: True
+
 -- The parser and its AST.  Private: only this package's own components may
 -- depend on it, so a future daemon or web target cannot reach past the facade.
 library glance-internal
@@ -76,7 +86,6 @@ library glance-internal
     , async
     , bytestring
     , containers
-    , crypton
     , directory
     , filepath
     , haskeline
@@ -86,6 +95,14 @@ library glance-internal
     , text-show
     , time
     , unix
+  if flag(pure-crypto)
+    build-depends:
+        SHA
+      , random
+    cpp-options: -DPURE_CRYPTO
+  else
+    build-depends:
+        crypton
   default-language: Haskell2010
 
 -- The public library: the query facade and nothing else.  Everything outside

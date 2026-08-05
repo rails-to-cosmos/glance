@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 -- | org-glance's blob store from the writing side: where an entry's document
 -- sits, and the identity it is keyed by.
 --
@@ -33,7 +34,11 @@ import Data.Word (Word8)
 import Numeric (showHex)
 import System.FilePath ((</>))
 
+#ifdef PURE_CRYPTO
+import qualified System.Random as Random
+#else
 import qualified Crypto.Random.Entropy as Entropy
+#endif
 import qualified Data.ByteString as BS
 import qualified Data.Text as T
 
@@ -73,7 +78,13 @@ metaDirIn store = store </> metaDir
 -- EMPTY digest and a path that already holds a file drifts rather than being
 -- overwritten.  122 random bits make the collision unreachable either way.
 mintBlobId :: IO Text
+#ifdef PURE_CRYPTO
+-- The pure seam: splitmix seeded by the system, which is randomness enough
+-- for an IDENTIFIER — nothing here is a secret, and the 122 bits do the work.
+mintBlobId = uuidFrom . fst . Random.uniformByteString 16 <$> Random.initStdGen
+#else
 mintBlobId = uuidFrom <$> Entropy.getEntropy 16
+#endif
 
 -- | BYTES as a version-4 UUID: 36 characters, lowercase hex, @8-4-4-4-12@.
 --

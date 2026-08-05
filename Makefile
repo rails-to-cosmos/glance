@@ -44,5 +44,5 @@ wasm-spike:
 	  echo "wasm-spike: no toolchain at ~/.ghc-wasm -- run ghc-wasm-meta's bootstrap first"; \
 	else \
 	  . "$$HOME/.ghc-wasm/env" && \
-	  wasm32-wasi-cabal build --project-file=cabal.project.wasm glance-internal; \
+	  wasm32-wasi-cabal build --project-file=cabal.project.wasm glance-internal lib:glance; \
 	fi
