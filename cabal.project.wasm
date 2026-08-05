@@ -1,0 +1,14 @@
+-- The WASM spike's project file (docs/proposal-native-ports.md, host 4).
+--
+-- Scope is the CORE alone: glance-internal first, the public library after it
+-- compiles.  glance-web, the CLI and the native window stay out — the page
+-- itself is the host on this target, and the transport seam replaces HTTP.
+--
+-- Build with the ghc-wasm-meta toolchain on PATH:
+--   make wasm-spike
+packages: .
+
+-- The spike's expected walls, recorded ahead of the run so the catalog reads
+-- against a prediction: `unix` (Data.Org.Walk's lstat discipline) has only a
+-- partial WASI story, and crypton's digests may lean on C.  Whatever fails
+-- here is the measured input to the platform seam the ports proposal defers.

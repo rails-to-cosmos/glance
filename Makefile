@@ -34,3 +34,15 @@ sync-renderer:
 native:
 	HASKELL_GI_GIR_SEARCH_PATH=$(CURDIR)/vendored/gir \
 	  cabal build --project-file=cabal.project.native all
+
+# The WASM spike (docs/proposal-native-ports.md, host 4): the core compiled by
+# the ghc-wasm-meta toolchain, glance-internal alone -- the deliverable is the
+# CATALOG of what compiles, not a working module yet.  Needs ~/.ghc-wasm on the
+# machine (the bootstrap script installs it); says so when it is not.
+wasm-spike:
+	@if [ ! -x "$$HOME/.ghc-wasm/wasm32-wasi-ghc/bin/wasm32-wasi-ghc" ]; then \
+	  echo "wasm-spike: no toolchain at ~/.ghc-wasm -- run ghc-wasm-meta's bootstrap first"; \
+	else \
+	  . "$$HOME/.ghc-wasm/env" && \
+	  wasm32-wasi-cabal build --project-file=cabal.project.wasm glance-internal; \
+	fi
