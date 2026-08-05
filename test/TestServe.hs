@@ -3454,6 +3454,15 @@ sheetSpec shell =
         segs <- pairsAt "dsegs" answer
         assertEqual "the title, cut the same way"
                     ["dt:one ", "dl:the title link"] (head segs)
+        -- EXACTLY ONE path writes the cell.  The raw value used to be preset
+        -- as the cell's own text node and the segments appended beside it, so
+        -- the whole cell READ as `one [[url][the title link]]one the title
+        -- link' — the raw brackets standing ahead of the display.  This field
+        -- is the browser's reading of the cell (own text plus children), and
+        -- what it must never carry is the source spelling.
+        raw <- textAt "dtitleraw" answer
+        assertEqual "the cell reads as the display alone"
+                    "one the title link" raw
 
     -- A LINK IS NOT A STOP and binds no mouse: `o' is the opener, here as over
     -- the table, so the marks say "there is a reference in this text" and
@@ -5601,7 +5610,7 @@ shellGlue =
       , "if (!prompting.narrow && c.fixed) part(row, \"span\", \"pk\", c.key);"
       -- And second, that both modes commit through one call, so the letter and
       -- the fallback's RET are the same delivery.
-      , "else if (!e.repeat) takeChoice(hit);"
+      , "else if (!repeating(e)) takeChoice(hit);"
       , "else if (k === \"RET\") takeChoice(prompting.shown[prompting.at] || freely());" ]
       -- No second copy of the assignment, no confirmation step behind a letter
       -- (the palette IS the confirmation), no underline as an element of its
@@ -10003,7 +10012,7 @@ pageSpec shell = testGroup "GET /"
             , "this table-view.js has no filter tokens"
             -- One press, one token: a held DEL claims the key and runs once,
             -- where held movement keeps repeating.  The table is the blob's.
-            , "if (!(e.repeat && MAPS.once.indexOf(hit.command) !== -1)) run(hit);" ]
+            , "if (!(repeating(e) && MAPS.once.indexOf(hit.command) !== -1)) run(hit);" ]
       -- `D' is on the list for a different reason than the other two: it
       -- writes files, so a held key must not be a hundred /command requests.
       onceOf b >>= assertEqual "the commands auto-repeat is off for" onceNames
@@ -10459,6 +10468,28 @@ keymapSpec shell = testGroup "Shell keymap"
       assertEqual "a reserved chord is bound" []
         [ k | (k, _s, _c, _h, _scope, _help) <- rows, k `elem` map pure reserved ]
 
+    -- REPEAT IS DERIVED, never just read: WebKitGTK's auto-repeat arrives
+    -- with `repeat' unset, which read as a fresh press at every ONCE guard —
+    -- a held DEL stripped the whole query, and a held `d' would have flagged
+    -- and archived in one press.  `stuck:' is that lying event: keydown, no
+    -- keyup, `repeat' false.  Two of them are one held key by the missing
+    -- release alone.
+  , keyedAt shell "?q=tag%3Awork%20state%3ATODO" 500
+      "a held DEL strips one token, even when the event lies"
+      "" "stuck:Backspace stuck:Backspace" $ \answer ->
+        urlIs "one token gone, one standing" "?q=tag%3Awork" answer
+
+  , keyed shell "a held d cannot flag and archive in one press"
+      "" "stuck:d stuck:d" $ \answer -> do
+        assertEqual "the row is flagged and nothing more" ["r1"]
+          =<< textsAt "flagged" answer
+        assertEqual "no archive went" [] =<< namesOf answer
+
+  , keyedAt shell "?q=tag%3Awork%20state%3ATODO" 500
+      "released and pressed again is two honest presses"
+      "" "press:Backspace press:Backspace" $ \answer ->
+        urlIs "both tokens gone" "?q=" answer
+
   , testCase "the writes are the commands auto-repeat is off for" $ do
       b <- shell
       -- `d' most of all: a held key that survived here would flag a row and
@@ -10577,10 +10608,17 @@ layoutSpec shell = testGroup "Shell layout"
       inline <- glueOf =<< shell
       named <- maybe (assertFailure "no keyName in the glue") pure
                      (between "function keyName(e) {" "\n    }" inline)
+      -- `keyToken' is keyName's one sibling: the derived-repeat set is keyed
+      -- by the PHYSICAL key for keyName's own reason — a shift released
+      -- mid-hold changes `e.key' and not the key — so the raw event has two
+      -- sanctioned readers, both spelled here and nothing else.
+      token <- maybe (assertFailure "no keyToken in the glue") pure
+                     (between "const keyToken = (e) =>" ";" inline)
       holdsAll "the letter rule" ["const LETTER = /^Key([A-Z])$/;"] inline
       holdsAll "both halves of the split, in keyName" ["e.code", "e.key"] named
-      holdsNone "the glue outside keyName"
-        ["e.code", "e.key"] (T.replace named "" inline)
+      holdsAll "and in the token, code first" ["e.code", "e.key"] token
+      holdsNone "the glue outside the two"
+        ["e.code", "e.key"] (T.replace token "" (T.replace named "" inline))
   ]
 
 -- | What a coarse pointer gets, and what a fine one is spared.  Keys are the

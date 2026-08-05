@@ -44,6 +44,8 @@
 //   press:KEY     KEY pressed, so a key can follow an act rather than precede
 //                 it; `C-x' and `S-Tab' spell the modifiers and `т%KeyN' the
 //                 physical key under a character
+//   stuck:KEY     KEY down with no release and `repeat' unset — the native
+//                 window's lying auto-repeat; two in a row are one held key
 //   click:I       row I of the modal mount that is up clicked, which is the one
 //                 way a cursor moves out from under an open edit overlay
 //   theme:NAME    NAME picked in the settings sheet's theme select, event and all
@@ -1164,6 +1166,7 @@ root.classList = {
 };
 // The page's own key dispatch, kept so a press can be delivered to it.
 const pressed = [];
+const released = [];
 globalThis.document = {
   getElementById: (id) =>
     id === "keys" ? { textContent: KEYS }
@@ -1173,6 +1176,7 @@ globalThis.document = {
   createElement: (tag) => make(tag),
   addEventListener: (type, handler) => {
     if (type === "keydown") pressed.push(handler);
+    if (type === "keyup") released.push(handler);
   },
   getSelection: () => null,
   get activeElement() { return active; },
@@ -1200,7 +1204,7 @@ eval(fs.readFileSync(dir + "/shell.js", "utf8"));
 // the reserved-chord rule behaviour can otherwise not show: a chord the page
 // leaves to the browser and one it takes both look like nothing happening.  It
 // is recorded under the name the script PRESSED, tail and all.
-const press = (name, repeating) => {
+const press = (name, repeating, held) => {
   // A tail wants both halves, so a `%' with nothing either side of it is the
   // key it spells rather than a separator.
   const cut = name.indexOf("%"), tailed = cut > 0 && cut < name.length - 1;
@@ -1226,6 +1230,14 @@ const press = (name, repeating) => {
   if (spelled === "Backspace" && !event.defaultPrevented && active
       && (active.tagName === "INPUT" || active.tagName === "TEXTAREA"))
     active.value = String(active.value).slice(0, -1);
+  // The KEYUP the browser always sends and the page's derived-repeat set
+  // waits for.  A HELD key sends none — which is what `stuck:' models: the
+  // native window's GTK quirk delivers auto-repeat keydowns with `repeat'
+  // unset, and the derivation must catch the second press by the missing
+  // release alone.
+  if (!held)
+    for (const handler of released)
+      handler({ key: event.key, code: event.code });
 };
 const prevented = [];
 
@@ -1607,6 +1619,10 @@ const ACTIONS = {
   // about: the dispatch claims it either way and runs it only when it is not
   // one of the commands a hold must not repeat.
   repeat: (key) => press(key, true),
+  // A keydown with NO keyup and `repeat' UNSET: the lying auto-repeat the
+  // native window's GTK layer produces.  Two of these in a row are one held
+  // key however the event spells it.
+  stuck: (key) => press(key, false, true),
   // The field is the fallback mode's and is hidden until `/' raises it, so a
   // script that types without pressing `/' first is typing into nothing on a
   // real page: say so rather than narrow a list no reader could have narrowed.
@@ -1897,6 +1913,14 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     downers: ownerOf(),
     // What the document drew as links, and how each element was cut up.
     dsegs: flatRows().map(segsOf),
+    // The head row's title cell's OWN text node.  A browser shows textContent
+    // and appended children side by side, so a cell that drew segments must
+    // hold no raw text of its own — the double-draw this field exists to see.
+    dtitleraw: (() => {
+      const head = flatRows()[0];
+      const cell = head && head.children.find((c) => wears(c, "dc-title"));
+      return cell ? String(cell.textContent || "") : "";
+    })(),
     scrolled: scrolls.map((s) => s.className),
     scrollAsked: scrolls.length ? scrolls[scrolls.length - 1].opts : null,
     // The sheet's other pane: every row the panel is showing, where its cursor

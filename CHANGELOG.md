@@ -741,6 +741,26 @@ section groups a feature arc, and its date is that arc's last commit.
   bright, being where a reader finds out why.
 
 ### Fixed
+- **A linked title shows its description alone.** The material headline drew
+  the raw `[[url][desc]]` as the cell's own text and appended the rendered
+  description beside it, so a browser showed both. Exactly one path writes
+  the cell now; the harness models the browser's reading (own text plus
+  children) so the double can never go green again.
+- **A held key is one press, even when the event lies.** WebKitGTK's
+  auto-repeat can arrive with `repeat` unset, which disarmed every
+  once-per-press guard in the native window — a held `DEL` stripped the whole
+  query, and a held `d` could flag and archive in one press. Repeat is now
+  derived from the missing key release, whatever the event says.
+
+### Added
+- **`make run`, `make run-native`, `make run-wasm`.** All three read `.env`
+  (committed; `GLANCE_DIR`, `GLANCE_PORT`, defaulting to `~/sync/views` and
+  7777). `run` opens the browser flow, `run-native` the WebKitGTK window
+  through its own project file, and `run-wasm` builds the new
+  `glance-wasm-probe` and runs the core inside wasmtime over the tree —
+  walk, parse, rows — with the directory preopened read-only.
+
+### Fixed
 - **The pin actually writes.** Two faults hid each other: the server still
   required `lines` on `POST /config`, so the pin's request was a 400 — and the
   shell's fetch resolves refusals, so the pin logged "pinned" while the file

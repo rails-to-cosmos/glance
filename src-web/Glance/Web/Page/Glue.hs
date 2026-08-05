@@ -1170,15 +1170,19 @@ shellGlue wanted =
   , "      shown(r).forEach((c, j) => {"
   , "        const cell = part(row, \"span\", `dc dc-${c.key}`"
   , "          + (here && j === dcol ? \" don\" : \"\"));"
-  , "        cell.textContent = c.val;"
         -- The TITLE is the one cell that can hold a reference, and the server
         -- says where it starts (`titleAt') because only it has the sub-span.
         -- A CHILD's title is left as text: its cell is a line of another
         -- entry's outline rather than this document's own bytes, and no offset
-        -- for it is sent.
+        -- for it is sent.  EXACTLY ONE of the two paths writes the cell:
+        -- presetting the text and then appending segments left the raw
+        -- brackets standing beside the description in a real DOM — the
+        -- harness holds textContent and children apart, so only a browser
+        -- could see the double.
   , "        if (c.key === \"title\" && r.kind === \"head\""
   , "            && editing && typeof editing.titleAt === \"number\")"
   , "          drawText(cell, c.val, editing.titleAt, null);"
+  , "        else cell.textContent = c.val;"
   , "        if (c.key === \"state\") cell.style.color = badgeColor(c.val);"
   , "      });"
   , "    }"
@@ -2020,7 +2024,7 @@ shellGlue wanted =
   , "      const k = keyName(e), crossing = k === \"TAB\" || k === \"S-TAB\";"
   , "      if (!k) return;"
   , "      if (dparaing()) return;   // the textarea's; C-x C-s commits and ESC restores"
-  , "      const once = (act) => { if (!e.repeat) act(); };"
+  , "      const once = (act) => { if (!repeating(e)) act(); };"
   , "      if (pediting()) {"
   , "        if (crossing) hop();"
   , "        else if (k === \"RET\") once(commitRow);"
@@ -2165,7 +2169,7 @@ shellGlue wanted =
     -- be.
   , "    const flagPress = (k, e, shape) => {"
   , "      if (k !== \"d\" && k !== \"D\" && k !== \"u\") return false;"
-  , "      if (!e.repeat) flagKey(k, shape, keySaid(k));"
+  , "      if (!repeating(e)) flagKey(k, shape, keySaid(k));"
   , "      return true;"
   , "    };"
     -- What a flush sends: the subtree whole in raw mode, the two panes apart
@@ -4513,6 +4517,26 @@ shellGlue wanted =
     -- movement, marks, states and the archive, and the rest wants a layout that
     -- has the character.
   , "    const LETTER = /^Key([A-Z])$/;"
+    -- REPEAT IS DERIVED, never just read: WebKitGTK's auto-repeat can arrive
+    -- with `repeat' unset, which would disarm every ONCE guard at once — a
+    -- held `d' flagging and archiving in one press, a held DEL stripping the
+    -- whole query.  A keydown whose physical key is already down is a repeat
+    -- whatever the event says; keyup releases it; a focus loss clears the
+    -- set, its keyups never coming.  The answer is STAMPED on the event so
+    -- the four listeners that ask all read one verdict — the first caller
+    -- decides, and deciding twice would read its own bookkeeping as a hold.
+  , "    const downKeys = new Set();"
+  , "    const keyToken = (e) => e.code || e.key;"
+  , "    function repeating(e) {"
+  , "      if (e.glanceRepeat === undefined) {"
+  , "        const t = keyToken(e);"
+  , "        e.glanceRepeat = !!e.repeat || downKeys.has(t);"
+  , "        downKeys.add(t);"
+  , "      }"
+  , "      return e.glanceRepeat;"
+  , "    }"
+  , "    document.addEventListener(\"keyup\", (e) => downKeys.delete(keyToken(e)));"
+  , "    window.addEventListener(\"blur\", () => downKeys.clear());"
   , "    function keyName(e) {"
   , "      let base = NAMED[e.key], special = base !== undefined;"
   , "      if (!special && /^F\\d{1,2}$/.test(e.key))"
@@ -4861,7 +4885,7 @@ shellGlue wanted =
   , "      if (hit) {"
   , "        prefix([]);"
   , "        e.preventDefault();"
-  , "        if (!(e.repeat && MAPS.once.indexOf(hit.command) !== -1)) run(hit);"
+  , "        if (!(repeating(e) && MAPS.once.indexOf(hit.command) !== -1)) run(hit);"
   , "        return;"
   , "      }"
   , "      if (here.some((b) => b.keys.length > keys.length && opens(b))) {"
@@ -4923,7 +4947,7 @@ shellGlue wanted =
   , "        if (k === \"/\")"
   , "          fieldMode(\"RET sets it · C-n/C-p walks · ESC leaves\");"
   , "        else if (!hit) return;"
-  , "        else if (!e.repeat) takeChoice(hit);"
+  , "        else if (!repeating(e)) takeChoice(hit);"
   , "        e.preventDefault();"
   , "        return;"
   , "      }"
