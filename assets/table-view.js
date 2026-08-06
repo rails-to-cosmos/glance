@@ -204,10 +204,9 @@
  * - `flags' is the same opt-in for the flag ground, and it DEFAULTS to `marks'
  *   — flags shipped under that one option, so a consumer that never names this
  *   gets the table it already had. Named, it is its own answer: `flags: true'
- *   alone draws the gutter and the flag's inset edge in it with NO checkbox
- *   (the box is scoped to `.tv-marking', which only `marks' puts on the root)
- *   and the box click, being a mark toggle, does nothing there. The gutter
- *   itself belongs to either state, so either one asks for it.
+ *   alone draws the flag ground and its inset edge on the row's first cell,
+ *   with no gutter and no checkbox — the gutter is the checkbox's alone —
+ *   and `flags: false' under `marks: true' takes the flag drawing back off.
  * - Rows are virtualized. `tbody` holds the scrolled-to window plus ~15 rows of
  *   overscan, between two spacer rows standing in for the height of the rest.
  *   Rows outside the window have no DOM: drive selection with `select(id)`
@@ -1344,16 +1343,15 @@
    the cursor would otherwise stop saying it is flagged. The edge is a second
    channel that no other state writes: it survives every combination, which is
    what keeps the state readable rather than merely painted. */
-.tv-table tbody tr.tv-flagged td.tv-box{box-shadow:inset 3px 0 0 var(--tv-flag)}
+.tv-table tbody tr.tv-flagged td:first-child{box-shadow:inset 3px 0 0 var(--tv-flag)}
 /* The gutter is chrome, the way the pager is: a fixed leading box that no
-   producer sent and no width measurement sees. It is ONE cell serving both row
-   states, so either of them asks for it — the flag's edge is drawn in it above,
-   and the checkbox below.
+   producer sent and no width measurement sees. It is the CHECKBOX's alone —
+   the flag's edge rides the row's FIRST cell whichever that is (the gutter
+   under marks, the first data cell without them), so a mount that flags
+   without marking pays no empty leading column.
 
    The checkbox is the MARKING table's alone, which is what .tv-marking on the
-   root says: a mount that flags rows without marking them gets the gutter and
-   the edge in it and no box to check, where an unconditional ::before would put
-   an inert [ ] on every row of it. Blank header, org's own checkbox for a
+   root says. Blank header, org's own checkbox for a
    cell, and the box brightens on the rows it is checked on. The glyph is drawn
    from the row's class rather than written into the cell, so the state has one
    home: the class the row already carries. */
@@ -1480,8 +1478,8 @@
      * Whether the FLAG state is drawn. Absent it follows `marks', which is the
      * one opt-in flags shipped under, so a consumer that never named it gets
      * the table it already had. Named, it is its own answer: `flags: true'
-     * alone draws the gutter and the flag's edge in it with no checkbox — a
-     * consumer whose rows carry a pending action but no standing selection —
+     * alone draws the flag ground and its edge on the first cell, gutterless —
+     * a consumer whose rows carry a pending action but no standing selection —
      * and `flags: false' under `marks: true' takes the flag drawing back off.
      */
     const flags = o.flags === undefined ? marks : o.flags === true;
@@ -1524,10 +1522,11 @@
     let pinned = !!o.pinned;
     /**
      * How many chrome cells lead a row; what a column index has to skip. The
-     * gutter is ONE cell serving both row states — the checkbox is drawn in it
-     * and so is the flag's edge — so either of them asks for it.
+     * gutter is the CHECKBOX's alone: the flag's edge rides the row's first
+     * cell whichever that is, so a mount that flags without marking pays no
+     * empty leading column for it.
      */
-    const chrome = marks || flags ? 1 : 0;
+    const chrome = marks ? 1 : 0;
     /** Rows per page, or 0 for the whole set at once — which is every consumer
      *  that has not asked otherwise. */
     const pageSize = Math.max(0, Math.trunc(Number(o.pageSize) || 0));

@@ -407,6 +407,12 @@ section groups a feature arc, and its date is that arc's last commit.
   harness drives both sheets through pristine, dirty, conflict and discard.
 
 ### Fixed
+- **The property panel (and the tags popup) lost the empty leading column.**
+  The renderer's gutter served both the checkbox and the flag's inset edge, so
+  a mount that flags without marking — the panel, the tags popup — paid a
+  blank 3ch column for an edge. The gutter is the checkbox's alone now; the
+  flag's edge rides the row's first cell, and the key column starts flush
+  left. Marking tables are pixel-identical, their first cell being the gutter.
 - **A property just added is a full-height row while it is edited.** A `+` in
   the panel opened the edit over a row whose two cells were still empty, and
   an empty cell forms no line box — the row collapsed to its padding and the

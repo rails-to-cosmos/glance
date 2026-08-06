@@ -2072,12 +2072,12 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   A second `TableView.mount` in `#mptable` inside `#mprops`, columns `key |
   value`, `palette: true` (no bar, no resident filter), no `pageSize` (a drawer
   is short), `actionHints: false`, `flagHelp: "d/D delete · u unflag"`, and
-  `marks: true` — the mark column is the PRICE of the flags, `isFlagged` and
-  the hint's flag segment both being gated on `marks` in the renderer. Nothing
-  here reads a mark, and the price is LIVE, so this page's CSS takes the
-  checkbox off `#mptable .tv-table td.tv-box` (no glyph, no pointer, no
-  hit-testing) and KEEPS the gutter, which carries the flag's inset edge. Only
-  `pageSize` and `marks` carry rules; the rest is configuration. Mounted ONCE
+  `flags: true` alone — no marks, so NO GUTTER: the renderer's gutter is the
+  CHECKBOX's own (`chrome = marks`), and the flag's inset edge rides the row's
+  FIRST cell whichever that is, so a mount that flags without marking pays no
+  empty leading column. The old shape — `marks: true` as the price of the
+  flags, the checkbox stripped by this page's CSS, the gutter kept for the
+  edge — is retired on both sides. Mounted ONCE
   and re-set per sheet, so opening a sheet costs one `setRows` rather than a
   mount with a theme listener behind it.
 - MODEL AND VIEW. `prows` is the model — key, value, `fixed` — and the mount is
