@@ -407,6 +407,13 @@ section groups a feature arc, and its date is that arc's last commit.
   harness drives both sheets through pristine, dirty, conflict and discard.
 
 ### Fixed
+- **A property just added is a full-height row while it is edited.** A `+` in
+  the panel opened the edit over a row whose two cells were still empty, and
+  an empty cell forms no line box — the row collapsed to its padding and the
+  overlay anchored to its rect squashed with it, springing to size only on
+  RET. The renderer holds the line now (a zero-width space after every empty
+  cell), so the fresh row stands as tall as its neighbours from the first
+  frame.
 - **A cell edit from the sheet no longer poisons its digest.** A `set-title`,
   state, tag or priority write from the materialize sheet goes through
   `/command`, whose per-id 200 carries the file's new digest — but the sheet

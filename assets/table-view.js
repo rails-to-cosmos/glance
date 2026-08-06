@@ -1307,6 +1307,12 @@
 .tv-fill col.tv-gut{width:calc(3ch + 24px)}
 .tv-table th,.tv-table td{padding:5px 12px;text-align:left;white-space:nowrap;
   border-bottom:1px solid var(--tv-border)}
+/* AN EMPTY CELL STILL FORMS A LINE BOX. A td with no text has no inline
+   content and collapses to its padding, so a row whose cells are all empty --
+   a property just added, a record awaiting its first edit -- stood a third
+   the height of its neighbours, and an overlay anchored to its rect squashed
+   with it. A zero-width space costs nothing visible and holds the line. */
+.tv-table td:empty::after{content:"\\200B"}
 .tv-table th{position:sticky;top:0;background:var(--tv-bg);font-weight:600;color:var(--tv-muted);
   user-select:none;z-index:1}
 .tv-table th.tv-sortable{cursor:pointer}
