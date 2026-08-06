@@ -55,7 +55,7 @@ import qualified Data.Text as T
 
 import Glance.Query (SortChain, defaultSortChain)
 import Glance.Web.Filter ( Term (tmKey, tmNegated, tmValue), filterKeys
-                         , parseFilter, sortKey )
+                         , parseFilter, refusedOn, sortKey )
 
 -- | The direction words a token may spell, and what each means.  An unspelled
 -- one ascends, so a column alone and a column with a trailing colon are the
@@ -149,15 +149,9 @@ nameOf t seg
 alone :: Term -> Text
 alone t = refused t (quoted noOrder <> " is the whole order and stands alone")
 
--- | WHY, with the token as the reader wrote it.  The parse has taken the quotes
--- out and normalized an @=@ separator to a @:@, which is as close to what was
--- typed as a refusal needs to be.
+-- | 'Glance.Web.Filter.refusedOn' under this reader's own key.
 refused :: Term -> Text -> Text
-refused t why = why <> ": " <> quoted (spelling t)
-
--- | T as the reader wrote it, negation and all.
-spelling :: Term -> Text
-spelling t = (if tmNegated t then "-" else "") <> sortKey <> ":" <> tmValue t
+refused = refusedOn sortKey
 
 -- | WORDS as a sentence lists them: @'asc' or 'desc'@.
 spelled :: [Text] -> Text

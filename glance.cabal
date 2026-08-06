@@ -137,6 +137,7 @@ library glance-web
       Glance.Desktop.Native
       Glance.Web
       Glance.Web.Base
+      Glance.Web.Columns
       Glance.Web.Commands
       Glance.Web.Filter
       Glance.Web.Keymap

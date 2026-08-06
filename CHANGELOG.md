@@ -401,7 +401,73 @@ section groups a feature arc, and its date is that arc's last commit.
   total, since neither sheet opens over the other. Behaviour is unchanged — the
   harness drives both sheets through pristine, dirty, conflict and discard.
 
+### Fixed
+- **A cell edit from the sheet no longer poisons its digest.** A `set-title`,
+  state, tag or priority write from the materialize sheet goes through
+  `/command`, whose per-id 200 carries the file's new digest — but the sheet
+  kept the old one until the watch frame re-read it, and that re-read is
+  guarded off under an open edit or the panel's keys. Every subtree commit
+  inside the window — a checkbox, `C-x C-s`, the panel's flush — 409'd at
+  `conflict` for the reader's own landed write. The sheet now re-pins off the
+  command's own answer, the tags popup's documented rule one surface over.
+- **Org links no longer flash raw on a sheet refresh — the links ride the
+  materialize now.** They travelled on a second request (`GET /links` beside
+  `GET /headline`), so every fill had an async gap and the frames in between
+  drew `[[url][desc]]` where the reader had been reading `desc`. The gap is
+  gone structurally: the materialize answer carries the row's whole link scan
+  beside the text it describes — one request instead of two, links atomic
+  with their text, compact from the first frame on every fill — and the
+  element's `o` opens off the held answer without asking the server. `/links`
+  stays as the table popup's and `edit-link`'s route, built by the same
+  `linkJSON` the materialize rider uses.
+- **An element commit no longer reverts the sheet to the store's stale copy.**
+  The re-read a successful commit fires reaches the store before the watch
+  has re-parsed the file, so it answered with the PRE-write subtree — the pane
+  flipped back to what the file just stopped saying, and the stale digest it
+  carried poisoned the sheet's pin, so the NEXT write landed at `conflict`.
+  A body-only edit emits no socket frame, so nothing ever corrected either.
+  The reload now drops any answer whose digest is not the write's own receipt
+  — the model the write was built from stands, redrawn — and retries once for
+  the server's canonical reading after the watch has caught up. Found by the
+  checkbox toggle, whose flip made the revert visible; it guarded every
+  paragraph, table-line and deletion commit the same way.
+
 ### Added
+- **`SPC` (and `C-c C-c`) toggles an org checkbox in the materialize sheet.**
+  On a list item wearing a box — `- [ ] step`, numbered items included — `SPC`
+  at the stop flips it org's own way: `[ ]` checks, `[X]` clears, the partial
+  `[-]` a parent inherits checks. The write splices that item's lines and
+  nothing else, drift-locked like every element commit, and the echo names
+  `org-toggle-checkbox` with the state it landed. `C-c C-c` with no element
+  open is the same toggle — org's own second meaning of the key — and still
+  says `nothing open here` away from a box; `SPC` off a box refuses with
+  `no checkbox here` and writes nothing.
+- **The filter palette completes `columns:` the way it completes `sort:`.**
+  After `columns:` the suggestion list offers the view's own columns, a comma
+  re-opens the domain the way `->` re-opens the sort's — the set is completed
+  one column at a time and stays one token — and a name already in the set is
+  not offered twice. A name the view does not carry stays writable: it is the
+  producer's custom property column, so the list is vocabulary, never a wall.
+- **`columns:` shapes the table from the filter box.** A third view token
+  beside the filter and the sort: `columns:State,Title,Tags` shows those
+  columns in that order and narrows nothing — typed through `/` like any
+  other token, one chip in the strip (same shape, the link hue instead of
+  frost, so it reads apart from both the filter and the sort), `DEL` takes
+  it whole and the default six come back. Names match case-insensitively
+  against the view's keys and headers alike (`Tags`, `tag`, `#` all land);
+  a name the view does not carry is a CUSTOM column reading that headline's
+  own property drawer — `columns:state,ORG_GLANCE_ID` puts the id on
+  screen — and `Closed` is the planning line's own timestamp. The minimal
+  set is Title: a set naming it keeps it where it was put, one without it
+  gets it first, and an empty list (`columns:`) falls back to the default
+  view. Repeats compose in written order, a name named twice keeps its
+  first place; a negation or an alternation is the whole request's 400
+  naming the token. Server-shaped end to end: `/headlines` declares and
+  fills the picked set, a picked `state` column keeps its badges, and the
+  shell remounts whenever an answer's columns differ from the mounted ones.
+  The query is the one carrier of a view, so `P` pins filter, sort AND
+  columns in the config's one `#+GLANCE_DEFAULT_FILTER:` line and `g`
+  applies all three back — no new mechanism, the tokens simply ride.
 - **RET on the headline line in the materialize sheet opens its title, in
   place.** The whole line's edit is its title — state and tags have their
   popups, the priority ring is pressed — so the element-grain RET and RET on

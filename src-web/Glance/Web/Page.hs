@@ -6,7 +6,7 @@ import Data.Text (Text)
 
 import qualified Data.Text as T
 
-import Glance.Query (builtinFilter, defaultCaptureFile)
+import Glance.Query (defaultCaptureFile)
 import Glance.Web.Base ( ServeOptions (..), escape, glueAsset, logLinesBand, logLinesDefault
                        , rendererAsset, viewTitleFor )
 import Glance.Web.Keymap (keyBindingsJSON)

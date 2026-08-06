@@ -80,7 +80,7 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , subtreeEntries, subtreeEntryAt, subtreeLinks
                     , subtreeText, systemSetting, tagsOfCell
                     , templatePrompts, titleSpan
-                    , todoLines, viewJSONTextWith )
+                    , resolveColumns, todoLines, viewColumns, viewJSONTextFor )
 import Glance.Web.Base ( ServeOptions (..), answerWrite, bodyObject, configMoved
                        , conflict, glueAsset, html, jsonError, jsonResponse, jsonType
                        , noSuchRow
@@ -90,6 +90,7 @@ import Glance.Web.Commands (runCommand)
 import Glance.Web.Filter (archiveKey, matchesFilter, namesArchive, storeEnv)
 import Glance.Web.Page (assetsMissing, demoShell)
 import Glance.Web.Page.Style (fontAssets)
+import Glance.Web.Columns (columnNamesIn)
 import Glance.Web.Sort (sortChainIn)
 import Glance.Web.Store ( Client, Frame (ViewChanged), Hub, LoadState (..)
                         , Store (stConfig, stGen, stPrint), frameText, layersFor
@@ -299,7 +300,7 @@ safeName name = not (T.null name)
 headlines :: ServeOptions -> Hub -> Request -> IO Response
 headlines opts hub request = case pageParams request of
   Left why -> pure (jsonError status400 why)
-  Right (q, limit, offset, chain) -> do
+  Right PageAsk {..} -> do
     st <- readTVarIO (hubStore hub)
     let tag = etagOf st
     if tag `elem` ifNoneMatch request
@@ -311,20 +312,24 @@ headlines opts hub request = case pageParams request of
             -- ones the answer is drawn from, which is what makes a reference
             -- point where the table points.
             env     = storeEnv (qrRecords qr)
-            asked   = filter (matchesFilter env q) (qrRecords qr)
+            asked   = filter (matchesFilter env paQuery) (qrRecords qr)
             matched = if hiding then filter (not . archived) asked else asked
             -- A tree with nothing archived in it pays no pass over the answer:
             -- the WHOLE store's tags say whether the tag is anywhere, filtered
             -- set or not.  The query's half is its own ('namesArchive'), and it
             -- is asked second because the vocabulary is the cheaper refusal.
-            hiding  = archiveKey `elem` storeTags st && not (namesArchive q)
+            hiding  = archiveKey `elem` storeTags st && not (namesArchive paQuery)
             hidden  = length asked - length matched
             total   = length matched
-            ordered = sortedForViewWith (storeKeywords st) chain matched
-            shown   = maybe matched (\n -> take n (drop offset ordered)) limit
-            hasNext = maybe False (\n -> offset + n < total) limit
+            ordered = sortedForViewWith (storeKeywords st) paChain matched
+            shown   = maybe matched (\n -> take n (drop paOffset ordered)) paLimit
+            hasNext = maybe False (\n -> paOffset + n < total) paLimit
+            -- The column SET is the query's too ('columnNamesIn'): absent,
+            -- the default view; named, the picked columns in written order,
+            -- customs reading the rows' own drawers ('resolveColumns').
+            cols    = maybe viewColumns resolveColumns paPicked
             body    = TLE.encodeUtf8
-                        (viewJSONTextWith chain (viewTitleFor dir) (storeKeywords st) shown)
+                        (viewJSONTextFor cols paChain (viewTitleFor dir) (storeKeywords st) shown)
         -- The encode is lazy, so it needs its own 'try': an exception raised
         -- inside warp's sender would truncate a 200 that has already gone out.
         forced <- try (evaluate (BL.length body))
@@ -384,6 +389,16 @@ pageHeaders total hasNext hidden =
   , ("X-Glance-Has-Next", if hasNext then "true" else "false")
   , ("X-Glance-Archived", BSC.pack (show hidden)) ]
 
+-- | What one @\/headlines@ request asks for, each view token a FIELD: the
+-- next view token is a field here rather than a wider tuple at every caller.
+data PageAsk = PageAsk
+  { paQuery  :: !Text            -- ^ @q@, the filter query, view tokens and all.
+  , paLimit  :: !(Maybe Int)     -- ^ @limit@; absent serves the whole store.
+  , paOffset :: !Int             -- ^ @offset@ into the effective order.
+  , paChain  :: !SortChain       -- ^ the order @q@'s @sort:@ tokens state.
+  , paPicked :: !(Maybe [Text])  -- ^ the set @q@'s @columns:@ tokens state.
+  }
+
 -- | @q@, @limit@ and @offset@ out of REQUEST's query string, with the CHAIN the
 -- rows are served in read off @q@, or what is wrong with one of them.  An
 -- absent parameter is its default — no filter, no limit, the top of the set —
@@ -399,17 +414,20 @@ pageHeaders total hasNext hidden =
 -- parameter this server no longer reads would serve the default order and look
 -- exactly like a working request, the failure it was spelled out to avoid.  The
 -- refusal names its replacement.
-pageParams :: Request -> Either Text (Text, Maybe Int, Int, SortChain)
+pageParams :: Request -> Either Text PageAsk
 pageParams request = do
   q      <- maybe (Right "") text (raw "q")
   limit  <- traverse count (raw "limit")
   offset <- maybe (Right 0) count (raw "offset")
   _order <- maybe (Right ()) (const (Left retired)) (raw "order")
   chain  <- sortChainIn q
+  picked <- columnNamesIn q
   case limit of
     Just n | n > limitCap -> Left ("limit is at most " <> T.pack (show limitCap)
                                      <> "; page with offset for more")
-    _within                -> Right (q, limit, offset, chain)
+    _within                -> Right PageAsk { paQuery = q, paLimit = limit
+                                           , paOffset = offset, paChain = chain
+                                           , paPicked = picked }
   where
     retired = "order= is gone; the order is the query's: ?q=sort:COL, \
               \or ?q=sort:*none* for document order"
@@ -540,6 +558,15 @@ subtreeJSON f =
   , "logbook"    .= hpLogbook parts
   , "digest"     .= hrDigest here
   , "span"       .= extentJSON here
+    -- THE ROW'S LINKS RIDE THE ANSWER, in the same objects @\/links@ serves
+    -- and the same FILE coordinates as @span@ and @titleAt@: the sheet draws
+    -- link descriptions in place, and a second request for them opened an
+    -- async gap every fill had to bridge -- the frames between draw and
+    -- answer showed the brackets raw.  One answer, one moment: the links
+    -- describe exactly the text beside them, by construction.  The ROW's
+    -- whole subtree's, whatever @child@ the lens stands in, since the spans
+    -- are the file's and the client intersects per element either way.
+  , "links"      .= map linkJSON (subtreeLinks (fcRow f))
     -- WHERE THE TITLE CELL STARTS, in the same FILE coordinates @\/links@
     -- answers in.  A title may hold org links and the client draws that cell
     -- itself, so this is what lets it tell which of the row's links are inside
@@ -873,10 +900,14 @@ linksView :: Hub -> Maybe Text -> IO Response
 linksView _hub Nothing = pure (jsonError status400 "GET /links?id=<row id>")
 linksView hub (Just rid) = withRow hub rid $ \r ->
   [ "digest" .= hrDigest r
-  , "links" .= [ object [ "target" .= olTarget l, "desc" .= linkShown l
-                        , "type" .= linkType (olTarget l)
-                        , "span" .= [spanStart (olSpan l), spanEnd (olSpan l)] ]
-               | l <- subtreeLinks r ] ]
+  , "links" .= map linkJSON (subtreeLinks r) ]
+
+-- | One link as the wire spells it -- @\/links@' entry and the materialize's
+-- @links@ rider are ONE builder, so the two answers cannot drift.
+linkJSON :: OrgLink -> Value
+linkJSON l = object [ "target" .= olTarget l, "desc" .= linkShown l
+                    , "type" .= linkType (olTarget l)
+                    , "span" .= [spanStart (olSpan l), spanEnd (olSpan l)] ]
 
 -- | The one row RID names among ROWS, or 'Nothing'.  The single-id spelling of
 -- 'Glance.Web.Store.headlinesIn', so the routes naming ONE row and the ones

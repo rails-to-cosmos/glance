@@ -77,8 +77,12 @@ module Glance.Web.Filter ( FilterEnv
                          , parseFilter
                          , plannedKey
                          , refKey
+                         , refusedOn
                          , scanQuery
                          , sortKey
+                         , spellingOf
+                         , columnsKey
+                         , viewKeys
                          , storeEnv
                          , tagsKey
                          ) where
@@ -147,6 +151,21 @@ plannedKey = "planned"
 sortKey :: Text
 sortKey = "sort"
 
+-- | The key that states the COLUMN SET: @columns:State,Title,Tags@
+-- ('Glance.Web.Columns').  'sortKey''s twin in every grammatical respect — a
+-- key here so a columns token is never read as free text, and no predicate at
+-- all: it names what the table SHOWS and narrows nothing in either polarity
+-- ('compile' drops the term).
+columnsKey :: Text
+columnsKey = "columns"
+
+-- | The VIEW TOKENS: the keys that state a fact about the view — the order,
+-- the column set — and narrow nothing.  ONE list, so the two places this
+-- module answers for them ('fieldOf', 'compile') cannot come to disagree, and
+-- a new view token is one entry here beside its reader module.
+viewKeys :: [Text]
+viewKeys = [sortKey, columnsKey]
+
 -- | The date columns, by where they sit in 'filterKeys' — which is where their
 -- fields sit in the search text.
 dateColumns :: [Int]
@@ -161,6 +180,19 @@ data Token = Token
   , tkQuoted  :: !Bool  -- ^ the token opened with @"@, so it is free text whatever it spells.
   , tkBody    :: !Text  -- ^ the token itself, unquoted and un-negated.
   } deriving (Eq, Show)
+
+-- | WHY a view-token reader refuses T, with the token as the reader wrote it
+-- under KEY.  Spelled ONCE beside 'Term' for both reader modules
+-- ('Glance.Web.Sort', 'Glance.Web.Columns'), so the two view tokens name
+-- their errors alike and a third inherits the sentence.
+refusedOn :: Text -> Term -> Text -> Text
+refusedOn key t why = why <> ": '" <> spellingOf key t <> "'"
+
+-- | T as the reader wrote it under KEY, negation and all.  The parse has taken
+-- the quotes out and normalized an @=@ separator to a @:@, which is as close
+-- to what was typed as a refusal needs to be.
+spellingOf :: Text -> Term -> Text
+spellingOf key t = (if tmNegated t then "-" else "") <> key <> ":" <> tmValue t
 
 -- | A token resolved against 'filterKeys'.
 data Term = Term
@@ -359,19 +391,20 @@ matchesFilter env q = case compile env (parseFilter q) of
 
 -- | What a token's key turned out to name: a column, at its field of the search
 -- text, the two date columns together ('plannedKey'), the link graph
--- ('refKey'), or the ORDER ('sortKey'), which is no field and narrows nothing.
--- Resolved once per term, so the grammar's question — is this a key — and the
--- matcher's read one answer.
+-- ('refKey'), or a VIEW token ('sortKey', 'columnsKey') — the order and the
+-- column set, each no field at all and narrowing nothing.  Resolved once per
+-- term, so the grammar's question — is this a key — and the matcher's read one
+-- answer.
 data Field = Col !Int | Planned | Ref | Order
 
 -- | KEY as the field it names, or 'Nothing' where it names none — which is the
 -- test 'parseFilter' makes, so a token is a predicate exactly where there is a
 -- field for it to read.
 fieldOf :: Text -> Maybe Field
-fieldOf key | key == plannedKey = Just Planned
-            | key == refKey     = Just Ref
-            | key == sortKey    = Just Order
-            | otherwise         = Col <$> elemIndex key filterKeys
+fieldOf key | key == plannedKey    = Just Planned
+            | key == refKey        = Just Ref
+            | key `elem` viewKeys  = Just Order
+            | otherwise            = Col <$> elemIndex key filterKeys
 
 -- | The cells FIELD reads, by their position in 'filterKeys'.  A column is its
 -- own one cell and @planned@ is the two date columns, which is the whole of
@@ -391,13 +424,14 @@ fieldCells Order   = []
 -- which is no row.  What ORs is a value's alternatives, inside one token
 -- ('predTest'), and a negation is that token's whole answer inverted.
 --
--- A @sort@ token contributes NO test at all, and that is why it is dropped HERE
--- rather than answered inside 'keyTest': it states the order and narrows
--- nothing in EITHER polarity, where a match-all under the inverter below would
--- make @-sort:x@ the query that empties the table.  The renderer drops it at
--- the same place, above its own negation.
+-- A @sort@ or @columns@ token contributes NO test at all, and that is why the
+-- pair is dropped HERE rather than answered inside 'keyTest': each states a
+-- fact about the VIEW — the order, the column set — and narrows nothing in
+-- EITHER polarity, where a match-all under the inverter below would make
+-- @-sort:x@ the query that empties the table.  The renderer drops them at the
+-- same place, above its own negation.
 compile :: FilterEnv -> [Term] -> [HeadlineRecord -> Bool]
-compile env = map inverted . filter ((/= Just sortKey) . tmKey)
+compile env = map inverted . filter ((`notElem` map Just viewKeys) . tmKey)
   where inverted t | tmNegated t = not . termTest env t
                    | otherwise   = termTest env t
 

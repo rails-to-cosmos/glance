@@ -1,6 +1,6 @@
 # Proposal — the view tokens become a list, on both sides of the wire
 
-**Status:** proposed · **Date:** 2026-08-06 · **Origin:** generalizer round
+**Status:** delivered 2026-08-06, same day — all six moves, suite green either side · **Date:** 2026-08-06 · **Origin:** generalizer round
 five, over the `columns:` feature (uncommitted at writing)
 
 ## The family

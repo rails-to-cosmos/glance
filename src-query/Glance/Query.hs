@@ -150,7 +150,11 @@ module Glance.Query ( BlobSeed (..)
                     , todoLines
                     , uuidFrom
                     , viewJSON
-                    , viewJSONTextWith
+                    , ViewColumn
+                    , customCell
+                    , resolveColumns
+                    , viewColumns
+                    , viewJSONTextFor
                     ) where
 
 import Control.Applicative ((<|>))
@@ -3068,10 +3072,19 @@ viewJSON viewTitle records =
 -- view whose declaration disagrees with its rows is one a renderer re-sorts out
 -- from under the reader.
 viewJSONWith :: SortChain -> Text -> TodoKeywords -> [HeadlineRecord] -> Value
-viewJSONWith chain viewTitle palette records = object
-  (  [ "title" .= viewTitle, "columns" .= columns palette, "actions" .= actions ]
+viewJSONWith = viewJSONFor viewColumns
+
+-- | 'viewJSONWith' over COLS instead of the default view — what a query's
+-- @columns:@ token serves ('resolveColumns').  The row cells are keyed by
+-- COLS' own keys, so the columns declared and the cells filled cannot drift
+-- however the set was chosen.
+viewJSONFor :: [ViewColumn] -> SortChain -> Text -> TodoKeywords
+            -> [HeadlineRecord] -> Value
+viewJSONFor cols chain viewTitle palette records = object
+  (  [ "title" .= viewTitle, "columns" .= columnsFor cols palette
+     , "actions" .= actions ]
   <> declaredSort chain
-  <> [ "rows" .= map rowJSON records ])
+  <> [ "rows" .= map (rowJSONFor cols) records ])
 
 -- | The @sort@ field CHAIN declares, or nothing at all for the empty one —
 -- SCHEMA.md reads an absent @sort@ as the order the rows arrived in, which is
@@ -3099,10 +3112,12 @@ actions =
            , "command" .= ("materialize" :: Text)
            , "label"   .= ("Materialize" :: Text) ] ]
 
--- | 'viewJSONWith' encoded.
-viewJSONTextWith :: SortChain -> Text -> TodoKeywords -> [HeadlineRecord] -> TL.Text
-viewJSONTextWith chain viewTitle palette =
-  encodeToLazyText . viewJSONWith chain viewTitle palette
+-- | 'viewJSONFor' encoded — the one the routes call, COLS being the query's
+-- @columns:@ answer or the default view.
+viewJSONTextFor :: [ViewColumn] -> SortChain -> Text -> TodoKeywords
+                -> [HeadlineRecord] -> TL.Text
+viewJSONTextFor cols chain viewTitle palette =
+  encodeToLazyText . viewJSONFor cols chain viewTitle palette
 
 -- | The view's columns, in the order the table draws them: the key a filter
 -- names, the header over the cells, the type @table-view\/SCHEMA.md@ declares,
@@ -3127,7 +3142,7 @@ viewJSONTextWith chain viewTitle palette =
 -- spells the column out makes the column as wide as the word instead of as wide
 -- as what is in it.  Both are drawing decisions: the KEYS are untouched, so
 -- nothing starts or stops matching, and nothing re-sorts.
-viewColumns :: [(Text, Text, Text, HeadlineRecord -> Maybe Text)]
+viewColumns :: [ViewColumn]
 viewColumns =
   [ ("state",     "State",     "badge", hrState)
   , ("priority",  "#",         "badge", hrPriority)
@@ -3136,6 +3151,50 @@ viewColumns =
   , ("deadline",  "Deadline",  "text",  hrDeadline)
   , ("tag",       "Tags",      "text",  Just . sortedTagsCell . hrTags)
   ]
+
+-- | One column of a served view: the key a filter names, the header over the
+-- cells, the SCHEMA.md kind, and where the cell comes out of a row.
+type ViewColumn = (Text, Text, Text, HeadlineRecord -> Maybe Text)
+
+-- | NAMES as the columns a @columns:@ token asks for, in written order.  A name
+-- is matched CASE-INSENSITIVELY against the default view — its keys and its
+-- headers alike, so @Tags@ finds the @tag@ column the way the drawn word
+-- spells it — and a name the view does not carry is a CUSTOM column: key and
+-- lookup folded, header as the reader wrote it, cells read from the row's own
+-- subtree by 'customCell'.  Total, so the grammar layer refuses spellings and
+-- this resolves every name that survives it.
+--
+-- THE MINIMAL SET IS TITLE: every view includes the title column, so a set
+-- naming it anywhere keeps it there and a set naming it nowhere gets it FIRST
+-- — a row is its headline, and a table of context columns with no headline in
+-- it answers no question a reader can act on.
+resolveColumns :: [Text] -> [ViewColumn]
+resolveColumns names = withTitle (map pick names)
+  where
+    withTitle cols
+      | any (\(key, _h, _k, _c) -> key == "title") cols = cols
+      | otherwise = [ col | col@("title", _h, _k, _c) <- viewColumns ] <> cols
+    pick wanted = fromMaybe (custom wanted) (lookup (T.toCaseFold wanted) builtins)
+    builtins    = concat [ [ (T.toCaseFold key, col), (T.toCaseFold header, col) ]
+                         | col@(key, header, _kind, _cell) <- viewColumns ]
+    custom wanted = ( T.toCaseFold wanted, wanted, "text"
+                    , \r -> customCell r (T.toCaseFold wanted) )
+
+-- | R's value under NAME, a case-FOLDED custom column name: @closed@ is the
+-- planning line's @CLOSED:@ timestamp verbatim, and anything else is the
+-- headline's own property drawer read case-insensitively — the same raw-line
+-- reader the materialize lens uses ('drawerPairs'), so the value is the file's
+-- spelling rather than the parser's re-tokenised one.  The hidden properties
+-- are NOT hidden here: the sheet withholds them so a panel sync cannot rewrite
+-- them, and a read-only cell carries no such risk — a column asking for
+-- @ORG_GLANCE_ID@ is a reader who wants exactly that.
+customCell :: HeadlineRecord -> Text -> Maybe Text
+customCell r wanted
+  | wanted == "closed" = sliceSpan (hrDoc r) <$> hsClosed (headlineSpans r)
+  | otherwise          =
+      listToMaybe [ v | (k, v) <- drawerPairs subtree (drawerSlice r subtree)
+                      , T.toCaseFold k == wanted ]
+  where subtree = subtreeText r
 
 -- | R's cells in column order, an absent one as the empty string: what
 -- 'searchTextOf' joins into the row's haystack.  A column whose cell is
@@ -3149,13 +3208,15 @@ viewCells r = [ fromMaybe "" (cell r) | (_key, _header, _kind, cell) <- viewColu
 filterKeys :: [Text]
 filterKeys = [ key | (key, _header, _kind, _cell) <- viewColumns ]
 
--- | 'viewColumns' as SCHEMA.md's Column objects, PALETTE giving the state
--- badges.  Every column sorts, so @sortable@ rides on the column itself
--- ('column'); what a kind adds past that is the priority letters, the badge
--- list and the tags column's @multi@ declaration.
-columns :: TodoKeywords -> [Value]
-columns palette =
-  [ column key header kind (extra key) | (key, header, kind, _cell) <- viewColumns ]
+-- | COLS as SCHEMA.md's Column objects, PALETTE giving the state badges.
+-- Every column sorts, so @sortable@ rides on the column itself ('column');
+-- what a kind adds past that is the priority letters, the badge list and the
+-- tags column's @multi@ declaration.  The extras ride the KEY, so a picked
+-- @state@ keeps its badges and a picked @tag@ its @multi@ wherever in the set
+-- they land, and a custom column gets none.
+columnsFor :: [ViewColumn] -> TodoKeywords -> [Value]
+columnsFor cols palette =
+  [ column key header kind (extra key) | (key, header, kind, _cell) <- cols ]
   where
     extra key = case key of
       "state"    -> [ "badges" .= badges palette, "values" .= stateValues ]
@@ -3254,10 +3315,14 @@ column key header kind extra =
 -- ('subtreeLinks') is the answer itself, asked per row.  A renderer marks the
 -- row's title with it, and one that never learns it renders as it always did.
 rowJSON :: HeadlineRecord -> Value
-rowJSON r = object
+rowJSON = rowJSONFor viewColumns
+
+-- | 'rowJSON' over COLS, which is where a custom column's cells are read.
+rowJSONFor :: [ViewColumn] -> HeadlineRecord -> Value
+rowJSONFor cols r = object
   (  [ "id" .= hrId r
      , "cells" .= object [ Key.fromText key .= toJSON (cell r)
-                         | (key, _header, _kind, cell) <- viewColumns ] ]
+                         | (key, _header, _kind, cell) <- cols ] ]
   <> [ "linked" .= True | hrLinked r ])
 
 -- | The state palette: every TODO keyword the loaded files declared, actives

@@ -526,6 +526,12 @@
     const fetchRows = (landing) =>
       viewing(load(asking(query)))
         .then((a) => { if (!table) return;
+                       // The COLUMNS moved — a `columns:' token committed or
+                       // taken off — and a paint cannot reshape a mount, so
+                       // this is the reconnect's own comparison at the commit
+                       // door: the view goes back up whole, columns and all.
+                       if (a.view && !sameColumns(a.view.columns || []))
+                         { remount(landing && (() => landing())); return; }
                        paint(a);
                        if (landing) landing(); else land(null); })
         .catch(quiet);
@@ -629,15 +635,13 @@
       el("sheet").classList.toggle("raw", raw);
       shutEdit(DTITLE); shutEdit(DPARA);
       dflags.clear();
-      // THE LINKS COME WITH THE MATERIALIZE, since the display needs them: one
-      // `/links' beside the `/headline' that opened the sheet.  The document is
-      // drawn without waiting and drawn again when the answer lands, so a slow or
-      // a failed link scan costs the marks and never the sheet.
-      dlinks = [];
+      // THE LINKS COME WITH THE MATERIALIZE: the answer carries the row's
+      // whole scan beside the text it describes, so the display is compact
+      // from the first frame and there is no async gap to bridge — the raw
+      // flash a second request opened, and the keep-stale guard that bridged
+      // it, both retired by the one-answer design.
+      dlinks = h.links || [];
       if (raw) { drows = []; dlines = []; drawDoc(); } else docFrom(h);
-      if (!raw) linksOf(h.id).then((a) => {
-        if (editing && editing.id === h.id) { dlinks = a.links || []; drawDoc(); }
-      }).catch(() => {});
       drawProps(raw ? [] : h.properties || [], raw ? [] : h.planning || []);
       el("mdoc").className = raw ? "" : "on";
       drawWhere(h.path || []);
@@ -1354,10 +1358,11 @@
       const r = drows[dat], b = docBinding("org-glance-overview:open");
       const at = elementSpan(r);
       if (!at) { said(b, "nothing to open here"); return; }
-      linksOf(editing.id).then((a) => {
-        const links = linksIn(at, a.links || []);
-        followLinks(b, editing.id, { ...a, links }, links);
-      }).catch(failed(b, "open"));
+      // The links are already in hand — they rode the materialize — so the
+      // element's `o' asks the server nothing; the digest a popup edit pins
+      // is the sheet's own, the same file's.
+      const links = linksIn(at);
+      followLinks(b, editing.id, { digest: editing.digest, links }, links);
     }
     // What the echo and the prompts call the entry the sheet is standing on.
     const docTitle = () =>
@@ -1510,17 +1515,64 @@
     // just written rather than this page's guess at it.
     const commitDoc = (what, drop) =>
       commitDocWith(bodyText(drop), () => { if (what) echo(`RET → ${what}`); });
+    // ORG'S CHECKBOX, at the stop under point.  The box lives on an item's
+    // FIRST line (`- [ ] text', numbered items included), so the read is one
+    // regex over it: the state character, or null where the stop opens with no
+    // box — a paragraph, a table line, a headline.  The toggle is org's own
+    // `C-c C-c' rule: `[ ]' checks, `[X]'/`[x]' clears, and the partial `[-]'
+    // a parent inherits from its children checks.
+    const CHECKBOX = /^(\s*(?:[-+*]|\d+[.)])\s+)\[( |X|x|-)\]/;
+    const checkboxAt = (r) =>
+      r && r.kind === "para"
+        ? (CHECKBOX.exec((r.text || "").split("\n")[0]) || [])[2] ?? null
+        : null;
+    // The write is the paragraph edit's own: the stop's text with the box
+    // respelled, spliced over its lines by `commitDocWith', every other byte
+    // where it was.  SAY carries the binding that fired, `SPC' and `C-c C-c'
+    // both reaching here.
+    function toggleCheckbox(b) {
+      const r = drows[dat];
+      const was = checkboxAt(r);
+      if (was === null) { said(b, "no checkbox here"); return; }
+      const now = was === " " ? "X" : was === "-" ? "X" : " ";
+      r.text = r.text.replace(CHECKBOX, `$1[${now}]`);
+      // The box flips ON SCREEN with the press: the model is the intent, and
+      // the write's own receipt decides whether it stands (`landed').
+      drawDoc();
+      commitDocWith(bodyText(), () => said(b, `[${now}]`));
+    }
     // The sheet re-read, in place: the same entry, the fresh parts, the cursor
     // kept by id.  It is what a commit lands on and what a socket frame naming
     // this row asks for — the watch is the channel a `/command' write comes back
     // through, exactly as it is for the table.
+    // THE STORE LAGS THE WRITE IT ANSWERS FOR.  `GET /headline' serves the
+    // STORE's copy, and the watch that refreshes it is a debounce away — so a
+    // re-read fired by our own 200 can hand back the PRE-write subtree under
+    // the PRE-write digest.  Taking that answer reverted the pane to what the
+    // file just stopped saying and POISONED the sheet's pin (the next write
+    // 409s against a digest the file has already left) — and a body-only edit
+    // emits NO frame, so nothing ever corrected it.  The 200's digest is the
+    // truth of what landed (`landed' pinned it), so an answer under any OTHER
+    // digest is dropped whole: the model — which the write was built from and
+    // the 200 proved — stands, redrawn, and ONE delayed retry fetches the
+    // server's canonical reading once the watch has caught up.  Still stale
+    // then (or moved further, a foreign edit): the model stands for good, and
+    // the next write's own lock says whatever there is to say.
     function reload() {
       if (!editing) return;
-      reread(editing.child, (_h, fresh) => {
+      const h = editing;
+      const read = (retry) => headline(h.id, h.child).then((fresh) => {
+        if (editing !== h) return;
+        if (fresh.digest !== h.digest) {
+          if (retry) setTimeout(() => { if (editing === h) read(false); }, 300);
+          drawDoc();
+          return;
+        }
         editing = fresh;
         fill(fresh);
         sync("synced");
-      });
+      }).catch((e) => stuck(subtreeSheet, e.message));
+      read(true);
     }
     // THE EDIT OVERLAY, ONE mechanism over four surfaces.  The renderer owns its
     // rows and rewrites them as it scrolls, so an edit cannot live inside one:
@@ -2078,6 +2130,10 @@
         // of a column point.  They are the table's own keys, over one row.
         else if (k === "t") once(() => atElement(stateHere));
         else if (k === ":") once(() => atElement(tagsHere));
+        // org's own toggle, at the stop: a checkbox item flips, anything else
+        // says so.  In `once' — a held SPC would flip-flop the box.
+        else if (k === "SPC")
+          once(() => toggleCheckbox(docBinding("org-toggle-checkbox", "SPC")));
         else if (!flagPress(k, e, DFLAGS)) return;
       }
       e.preventDefault();
@@ -2237,6 +2293,7 @@
       el("modal").className = ""; editing = null; base = ""; baseProps = null;
       shutEdit(DTITLE); shutEdit(DPARA); shutEdit(PROW);
       drows = []; dlines = []; dflags.clear(); dcursor = null;
+      dlinks = [];
       el("dlist").textContent = "";
       el("mprops").className = ""; el("mdoc").className = "";
     }
@@ -2594,6 +2651,17 @@
     function fire(b, name, ids, args, verb, how, pin) {
       return postCommand({ name, ids, args, digests: pin }).then((answer) => {
         const results = answer.results || [];
+        // THE ANSWER RE-PINS THE SHEET, the tags popup's own rule one surface
+        // over: a command fired from the sheet has just moved the file, and
+        // the per-id 200 carries the file's NEW digest — while the store, a
+        // watch debounce behind, still spells the old one, and the frame that
+        // would re-read is guarded off under an open edit or the panel's
+        // keys.  Left unpinned, every subtree commit inside that window 409'd
+        // at `conflict' for the reader's own landed write.
+        if (editing) {
+          const mine = results.find((x) => x.ok && x.id === editing.id && x.digest);
+          if (mine) editing.digest = mine.digest;
+        }
         const bad = results.filter((x) => !x.ok);
         const landed = results.length - bad.length;
         said(b, `${verb} · ${how ? how(landed) : landed}`);
@@ -4762,7 +4830,12 @@
       // One `save-buffer' over two sheets: `saveSheet' asks `activeSheet' which
       // is up, so there is nothing to choose between here.
       save: saveSheet,
+      // With an element open it commits it; with none, org's own second
+      // meaning — the checkbox at point — before the refusal.
       commitEdit: (b) => { if (docOpen()) commitDocEdit(b);
+                           else if (editing && !raw && !pnav()
+                                    && checkboxAt(drows[dat]) !== null)
+                             toggleCheckbox(b);
                            else said(b, "nothing open here"); },
       // D is dired's key and org-glance's `delete', and it is the same gesture
       // with no flagging step in front of it — the same call the second `d' makes,

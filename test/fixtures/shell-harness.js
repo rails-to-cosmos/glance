@@ -189,6 +189,16 @@ const grainBody = [ "* TODO one",
                     "tail para",
                     "** two",
                     "child body", "" ].join("\n");
+// THE CHECKY BODY, which `checky' swaps in: a four-item list wearing org's
+// three checkbox states and one bare item — what `SPC' and `C-c C-c' toggle,
+// and the stop that refuses.
+const checkyBody = [ "* TODO one",
+                     "- [ ] alpha",
+                     "- [X] beta",
+                     "- [-] gamma",
+                     "- delta",
+                     "** two",
+                     "child body", "" ].join("\n");
 // THE TABLED BODY, which `tabled' swaps in: a lead-in paragraph, a FOUR-LINE
 // org table with a `|---+---|' rule among its rows, a two-item list and a
 // closing paragraph.  MIXED on purpose — the count of stops end to end is what
@@ -239,6 +249,7 @@ const linkyLinks = [
 let linky = false;
 let grainy = false;
 let tabled = false;
+let checky = false;
 const org = "* TODO one\nSCHEDULED: <2026-08-01 Sat>\n:PROPERTIES:\n"
   + ":ORG_GLANCE_ID: r1\n:EFFORT: 0:30\n:END:\n:LOGBOOK:\n- moved here\n:END:\n"
   + "first para\n\nsecond para\n** two\nchild body\n";
@@ -271,18 +282,29 @@ const subtree = (child) => (child === null
       // into the FILE range `o' filters links by.  The grainy body is served as
       // its own org text, so the two differ by nothing and the arithmetic is
       // readable in the case.
-      org: linky ? linkyBody : grainy ? grainBody : tabled ? tabledBody : org,
+      // The row's link scan rides the materialize, the server's own shape:
+      // one answer, so the display is compact from the first frame and the
+      // suite sees links with no second fetch to wait on.  The list is the
+      // same `links' variable the `/links' stub serves — one source, like the
+      // server's one scanner — configured by `linky'/`grainlinks'; the plain
+      // fixtures carry none, their canned spans describing the table popup's
+      // own text.
+      links: linky || grainy ? links : [],
+      org: linky ? linkyBody : grainy ? grainBody : tabled ? tabledBody
+           : checky ? checkyBody : org,
       span: { start: 0,
-              end: (linky ? linkyBody : grainy ? grainBody
-                          : tabled ? tabledBody : org).length },
-      body: linky ? linkyBody : grainy ? grainBody : tabled ? tabledBody : body,
-      ownLines: grainy ? 16 : tabled ? 11 : 4 }
+              end: (linky ? linkyBody : grainy ? grainBody : tabled ? tabledBody
+                          : checky ? checkyBody : org).length },
+      body: linky ? linkyBody : grainy ? grainBody : tabled ? tabledBody
+            : checky ? checkyBody : body,
+      ownLines: grainy ? 16 : tabled ? 11 : checky ? 5 : 4 }
   : { id: "r1", file: "a.org", child: 0, parent: null, path: ["one", "two"],
       cells: { state: null, priority: null, title: "two", tags: ":web:" },
       children: [],
       org: "** two :web:\nchild body\n",
       body: "** two :web:\nchild body\n", ownLines: 3, level: 2,
-      properties: [], planning: [], logbook: "", digest });
+      properties: [], planning: [], logbook: "", digest,
+      links: linky || grainy ? links : [] });
 /** Every subtree a POST was aimed at, as `id' or `id#child' — which is the whole
  * of what says WHICH extent a commit named. */
 const wroteAt = [];
@@ -548,10 +570,16 @@ globalThis.fetch = (url, init) => {
     if ((init || {}).method === "POST") {
       writes.push(JSON.parse((init || {}).body || "{}"));
       wroteAt.push(child === null ? "r1" : `r1#${child}`);
+      // THE 200 CARRIES THE POST-WRITE DIGEST AND THE STORE LAGS IT: the real
+      // server re-digests the file it just wrote, while `GET /headline' goes
+      // on serving the store's PRE-write copy until the watch catches up.
+      // This stub models the lag at its worst — the GET never catches up — so
+      // a reload that trusts it reverts the pane and poisons the pin, which
+      // is the regression the stale-drop cases hold shut.
       return refusing
         ? answer(409, { reason: "drift", digest,
                         error: "a.org changed on disk since this subtree was materialized" })
-        : answer(200, { digest });
+        : answer(200, { digest: `w${writes.length}` });
     }
     if (child !== null && child !== 0)
       return answer(404, { error: `r1 has no child ${child}; it holds 1` });
@@ -1216,8 +1244,12 @@ const press = (name, repeating, held) => {
   const code = tailed ? name.slice(cut + 1) : undefined;
   const spelled = tailed ? name.slice(0, cut) : name;
   const ctrl = spelled.startsWith("C-"), shift = spelled.startsWith("S-");
+  // Acts split on whitespace, so the space BAR is spelled `Space' here and
+  // cooked to the " " a browser actually sends — the glue never learns a
+  // key name no browser speaks.
+  const bare = ctrl || shift ? spelled.slice(2) : spelled;
   const event = {
-    key: ctrl || shift ? spelled.slice(2) : spelled,
+    key: bare === "Space" ? " " : bare,
     code,
     ctrlKey: ctrl, altKey: false, metaKey: false, shiftKey: shift,
     repeat: !!repeating, target: node,
@@ -1746,6 +1778,8 @@ const ACTIONS = {
   // The body the GRAIN walk is measured over — see `grainBody'.  Set before the
   // sheet opens, since the document is built out of the answer.
   grain: () => { grainy = true; },
+  // And the body the CHECKBOX toggle is measured over — see `checkyBody'.
+  checky: () => { checky = true; },
   // And the body the TABLE grain is measured over — see `tabledBody'.  Set
   // before the sheet opens, since the document is built out of the answer.
   tabled: () => { tabled = true; },

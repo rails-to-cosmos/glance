@@ -30,7 +30,7 @@ import Test.Tasty (TestTree, testGroup, withResource)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
 import TestDefaults ( assertContains, boolAt, digestOnDisk, document, field, holdsAll
                     , holdsNone
-                    , intAt, listAt, maybeTextAt, orgFile, sparseAt
+                    , columnKeysOf, columnOf, intAt, listAt, maybeTextAt, orgFile, sparseAt
                     , sparseTextAt, systemFileIn, tagFileIn, writeLayers
                     , tagsDirIn, textAt, textsAt, viewDir, withTempDir )
 import TestWire ( assertOk, capture, command, drainNow, keywordArg, ok, postTo
@@ -445,7 +445,7 @@ spec = withResource ((<>) <$> (body <$> get assetsDir "/")
                     (const (pure ())) $ \shell ->
   testGroup "Serve"
     [ headlineSpec, bannerSpec, statsSpec, cacheSpec, gzipSpec, querySpec
-    , orderSpec, sortQuerySpec, archiveViewSpec
+    , orderSpec, sortQuerySpec, columnsQuerySpec, archiveViewSpec
     , bootstrapSpec, materializeSpec, commitSpec, commandSpec, planningSpec
     , tagCommandSpec, renameCommandSpec, tagsSpec, captureSpec
     , blobCaptureSpec, captureViewSpec
@@ -3410,6 +3410,101 @@ sheetSpec shell =
         assertEqual "the block whole, rule and all"
                     "| a | b |\n|---+---|\n| 1 | 2 |\n| 3 | 4 |" <=< textAt "dtext"
 
+    -- ORG'S CHECKBOX, on the stop under point: `SPC' — and `C-c C-c' with no
+    -- element open, org's own second meaning of the key — toggles an item's
+    -- `[ ]'/`[X]', writes the body with that box respelled and nothing else,
+    -- and refuses with an echo where the stop opens with no box.  `[-]', the
+    -- partial state a parent inherits, checks the way org checks it.
+  , testCase "SPC toggles a checkbox item and writes the box alone" $ do
+      bootOf shell "" 500 ""
+             "checky press:Enter press:n press:f press:Space" $ \answer -> do
+        assertEqual "the box checked, every other byte where it was"
+                    ["* TODO one\n- [X] alpha\n- [X] beta\n- [-] gamma\n- delta\n** two\nchild body\n"]
+          =<< traverse (textAt "body") =<< listAt "writes" answer
+        echoIs "and the echo names org's command"
+               "SPC → org-toggle-checkbox ([X])" answer
+      bootOf shell "" 500 ""
+             "checky press:Enter press:n press:f press:n press:Space" $ \answer -> do
+        assertEqual "a checked box clears"
+                    ["* TODO one\n- [ ] alpha\n- [ ] beta\n- [-] gamma\n- delta\n** two\nchild body\n"]
+          =<< traverse (textAt "body") =<< listAt "writes" answer
+        echoIs "and says so" "SPC → org-toggle-checkbox ([ ])" answer
+      bootOf shell "" 500 ""
+             "checky press:Enter press:n press:f press:n press:n press:Space" $ \answer ->
+        assertEqual "the partial state checks, org's own rule"
+                    ["* TODO one\n- [ ] alpha\n- [X] beta\n- [X] gamma\n- delta\n** two\nchild body\n"]
+          =<< traverse (textAt "body") =<< listAt "writes" answer
+
+    -- THE STORE LAGS THE WRITE IT ANSWERS FOR, and the harness models the lag
+    -- at its worst: `POST /headline' answers the post-write digest while `GET
+    -- /headline' goes on serving the pre-write subtree for ever.  The reload a
+    -- 200 fires must therefore DROP the stale answer — before it did, the pane
+    -- reverted to the box the file just left and the sheet's pin reverted with
+    -- it, so the NEXT toggle 409'd at `conflict' (the reported bug).  Held
+    -- shut here from both ends: the box stays flipped on screen, the sheet
+    -- stays `synced', and a second toggle writes under the FIRST write's
+    -- receipt rather than the store's stale pin.
+  , testCase "the toggle survives its own reload: the stale store answer is dropped" $ do
+      bootOf shell "" 500 ""
+             "checky press:Enter press:n press:f press:Space" $ \answer -> do
+        assertEqual "the box is flipped ON SCREEN, not just in the file"
+                    ["- [X] alpha"]
+          =<< (take 1 . partsOf "item" <$> docOf answer)
+        assertEqual "and the sheet is synced, never conflict"
+                    "synced" =<< textAt "state" answer
+      bootOf shell "" 500 ""
+             "checky press:Enter press:n press:f press:Space press:Space" $ \answer -> do
+        writes <- listAt "writes" answer
+        assertEqual "two writes, the box back off"
+                    [ "* TODO one\n- [X] alpha\n- [X] beta\n- [-] gamma\n- delta\n** two\nchild body\n"
+                    , "* TODO one\n- [ ] alpha\n- [X] beta\n- [-] gamma\n- delta\n** two\nchild body\n" ]
+          =<< traverse (textAt "body") writes
+        assertEqual "the second under the first's receipt, not the store's stale pin"
+                    ["d0", "w1"] =<< traverse (textAt "digest") writes
+        assertEqual "and still synced" "synced" =<< textAt "state" answer
+
+    -- AND A CELL EDIT RE-PINS OFF ITS OWN ANSWER — the same lag one route
+    -- over.  `/command' moves the file and answers the fresh digest per id;
+    -- the store spells the old one until the watch lands, and the frame that
+    -- re-reads is guarded off under the panel's keys or an open edit.  So the
+    -- sheet takes the digest off the command's own 200 (the tags popup's
+    -- documented rule), and a subtree commit right behind a title edit writes
+    -- under the command's receipt rather than 409ing at `conflict' for the
+    -- reader's own landed write.
+  , testCase "a command from the sheet re-pins the digest its answer carries" $
+      insheet ("press:Enter dtin:renamed press:Enter"
+                 <> " press:n press:Enter dpara:rewritten press:C-x press:C-s") $
+        \answer -> do
+          assertEqual "the subtree write rides the command's receipt"
+                      ["d1"] =<< traverse (textAt "digest") =<< listAt "writes" answer
+          assertEqual "and lands synced, never conflict"
+                      "synced" =<< textAt "state" answer
+
+    -- The same drop guards every element commit: a paragraph rewritten and
+    -- flushed stays REWRITTEN on screen — the stale re-read used to put the
+    -- old text back under a `synced' header.
+  , testCase "a paragraph commit keeps the pane's text over the stale re-read" $
+      insheet "press:n press:Enter dpara:rewritten press:C-x press:C-s" $ \answer -> do
+        assertEqual "the pane holds what was written"
+                    ["rewritten"]
+          =<< (take 1 . partsOf "para" <$> docOf answer)
+        assertEqual "under the write's own receipt" "synced" =<< textAt "state" answer
+
+  , testCase "SPC off a checkbox refuses, and C-c C-c is the same toggle" $ do
+      bootOf shell "" 500 ""
+             "checky press:Enter press:n press:f press:n press:n press:n press:Space" $ \answer -> do
+        assertEqual "a bare item takes no write" ([] :: [Value])
+          =<< listAt "writes" answer
+        echoIs "and the echo says why"
+               "SPC → org-toggle-checkbox (no checkbox here)" answer
+      bootOf shell "" 500 ""
+             "checky press:Enter press:n press:f press:C-c press:C-c" $ \answer -> do
+        assertEqual "org's own key runs the same toggle"
+                    ["* TODO one\n- [X] alpha\n- [X] beta\n- [-] gamma\n- delta\n** two\nchild body\n"]
+          =<< traverse (textAt "body") =<< listAt "writes" answer
+        echoIs "under its own name"
+               "C-c C-c → org-ctrl-c-ctrl-c ([X])" answer
+
     -- ORG LINKS RENDER, and the rule is ORG'S OWN DISPLAY-VS-SOURCE MODEL: what
     -- is SHOWN is the description — `[[T][D]]' shows `D', `[[T]]' shows `T', a
     -- bare URL shows itself — and what `RET' opens is the RAW org, brackets and
@@ -3451,6 +3546,24 @@ sheetSpec shell =
         assertEqual "brackets and all"
           "see [[https://a.example/][alpha]] and [[https://b.example/]] here"
           <=< textAt "dtext"
+
+    -- THE LINKS RIDE THE MATERIALIZE, so the display is compact from the
+    -- FIRST frame and stays so across every re-fill — a second request used
+    -- to open an async gap each fill bridged, and the frames in between drew
+    -- the brackets raw.  Held shut from both ends: into the child and back,
+    -- two fills later, the paragraph reads compact, and the sheet asked
+    -- `/links' for NOTHING — the route is the table popup's now.
+  , keyed shell "the links ride the materialize: compact on every fill, no second fetch"
+      "" ("linky press:Enter press:n press:n press:n press:Enter"
+            <> " press:Backspace") $ \answer -> do
+        segs <- pairsAt "dsegs" answer
+        assertEqual "the paragraph reads compact after the round trip"
+          [ "dt:see ", "dl:alpha", "dt: and ", "dl:https://b.example/", "dt: here" ]
+          (segs !! 1)
+        assertEqual "and the title cell kept its mark"
+                    ["dt:one ", "dl:the title link"] (head segs)
+        assertEqual "and the sheet never asked /links" ([] :: [T.Text])
+          =<< textsAt "linked" answer
 
     -- THE TITLE CELL RENDERS THE SAME WAY, its links being in the same answer.
     -- The server sends where the cell starts (`titleAt') because only it has
@@ -4552,6 +4665,21 @@ settingsSpec shell =
           =<< textAt "filter" (head writes)
         urlIs "g applied the freshly pinned view, sort and all"
           "?q=tag%3Awork+sort%3Adeadline" answer
+        assertEqual "and the badge held" True =<< boolAt "pinned" answer
+
+    -- AND THE COLUMNS RIDE IT THE SAME WAY: the query is the ONE carrier of a
+    -- view — filter, order, column set — so the pin persists all three in the
+    -- system layer's one line and `g' applies all three back.  Nothing here
+    -- knows a token from a token; that is the design being asserted.
+  , keyedAt shell "?q=tag%3Awork%20columns%3Astate%2Ctitle%20sort%3Adeadline" 500
+      "the pinned view keeps its columns too, and g applies the whole view"
+      "P" "press:g" $ \answer -> do
+        writes <- listAt "configWrites" answer
+        assertEqual "the write carries filter, columns and order"
+                    "tag:work columns:state,title sort:deadline"
+          =<< textAt "filter" (head writes)
+        urlIs "g applied the freshly pinned view whole"
+          "?q=tag%3Awork+columns%3Astate%2Ctitle+sort%3Adeadline" answer
         assertEqual "and the badge held" True =<< boolAt "pinned" answer
 
     -- THE BADGE IS A BOOLEAN OVER THE APPLIED VIEW: on while the view on show
@@ -6390,7 +6518,7 @@ shellGlue =
   , glue "the follow gesture and the two askers are one each"
       [ "function followLinks(b, id, a, links) {"
       , "linksOf(id).then((a) => followLinks(b, id, a, a.links || []))"
-      , "followLinks(b, editing.id, { ...a, links }, links);"
+      , "followLinks(b, editing.id, { digest: editing.digest, links }, links);"
       , "function askState(b, ids, title) {"
       , "function askTags(b, ids, title) {"
       , "const docTargets = (b, label, k) =>"
@@ -8995,13 +9123,14 @@ configSpec = testGroup "GET and POST /config"
         fresh <- textAt "digest" . head =<< listAt "layers" =<< decoded =<< getFrom a "/config"
         assertOk =<< postTo a "/config" (encode (object
           [ "path" .= systemAt dir, "digest" .= fresh
-          , "filter" .= ("state:*active* sort:state->priority->title" :: T.Text) ]))
+          , "filter" .= ("state:*active* columns:state,title sort:state->priority->title" :: T.Text) ]))
         after <- document (T.unpack (systemAt dir))
-        assertContains "the pinned line, sort chain and all"
-          "#+GLANCE_DEFAULT_FILTER: state:*active* sort:state->priority->title" after
+        assertContains "the pinned line — filter, columns and sort chain whole"
+          "#+GLANCE_DEFAULT_FILTER: state:*active* columns:state,title sort:state->priority->title" after
         assertEqual "and every #+TODO: byte where it was"
           (todoLines before) (todoLines after)
-        assertEqual "served on the next read" "state:*active* sort:state->priority->title"
+        assertEqual "served on the next read"
+          "state:*active* columns:state,title sort:state->priority->title"
           =<< textAt "filter" =<< decoded =<< getFrom a "/config"
 
     -- THE FIRST CONFIG DIRECTORY IN A TREE THAT HAD NONE, which was a known gap
@@ -9892,6 +10021,83 @@ templateBody path lines' want target template digest = encode (object
 -- | Archived rows are out of the view unless the query asks for them.  @D@
 -- archives rather than deletes, so this is what keeps the default table from
 -- growing without bound — and what must never hide the key that reaches them.
+-- | @?q=columns:@ shapes the COLUMN SET the answer declares and fills — the
+-- sort token's twin for what the table shows ('Glance.Web.Columns',
+-- 'Glance.Query.resolveColumns').  The grammar's own cases are @TestFilter@'s;
+-- these are the wire's.
+columnsQuerySpec :: TestTree
+columnsQuerySpec = testGroup "GET /headlines?q=columns:"
+  [ testCase "no columns token serves the default six" $ do
+      v <- get assetsDir "/headlines?q=state:*active*" >>= decoded
+      assertEqual "the default view"
+                  ["state", "priority", "title", "scheduled", "deadline", "tag"]
+        =<< columnKeysOf v
+
+  , testCase "a columns token picks the set, in written order" $ do
+      v <- get assetsDir "/headlines?q=columns:State,Title,Tags" >>= decoded
+      assertEqual "keys and headers resolve case-insensitively"
+                  ["state", "title", "tag"] =<< columnKeysOf v
+      row <- head <$> listAt "rows" v
+      cells <- field "cells" row
+      case cells of
+        Object o -> assertEqual "the cells are keyed by the picked set"
+                                ["state", "tag", "title"]
+                                (sort (map Key.toText (KM.keys o)))
+        _        -> assertFailure ("expected a cells object, got " <> show cells)
+
+  , testCase "the minimal set is Title, injected in front when unnamed" $ do
+      v <- get assetsDir "/headlines?q=columns:state" >>= decoded
+      assertEqual "title joined first" ["title", "state"] =<< columnKeysOf v
+      named <- get assetsDir "/headlines?q=columns:tags,title,state" >>= decoded
+      assertEqual "named, it stays where it was put"
+                  ["tag", "title", "state"] =<< columnKeysOf named
+
+  , testCase "an empty list falls back to the default" $ do
+      v <- get assetsDir "/headlines?q=columns:" >>= decoded
+      assertEqual "the default view"
+                  ["state", "priority", "title", "scheduled", "deadline", "tag"]
+        =<< columnKeysOf v
+
+  , testCase "an unknown name is a custom column reading the property drawer" $ do
+      v <- get assetsDir "/headlines?q=columns:ORG_GLANCE_ID" >>= decoded
+      cols <- listAt "columns" v
+      pairs <- mapM (\c -> (,) <$> textAt "key" c <*> textAt "header" c) cols
+      assertEqual "title's floor, then folded key under verbatim header"
+                  [("title", "Title"), ("org_glance_id", "ORG_GLANCE_ID")] pairs
+      rows <- listAt "rows" v
+      ids <- mapM (maybeTextAt "org_glance_id" <=< field "cells") rows
+      assertBool "the fixture id is a cell now"
+                 ("ship-table-view" `elem` [ i | Just i <- ids ])
+
+  , testCase "closed is the planning line's own timestamp" $
+      withTempDir $ \dir -> do
+        _ <- orgFile dir "notes.org" $ T.unlines
+          [ "* DONE finished task"
+          , "CLOSED: [2026-08-01 Sat 10:30]"
+          , "* TODO open task" ]
+        (a, _hub) <- serverOver dir
+        rows <- rowsOf =<< getFrom a "/headlines?q=columns:title,Closed"
+        stamps <- mapM (maybeTextAt "closed" <=< field "cells") rows
+        assertEqual "the stamp verbatim, and null where there is none"
+                    [Just "[2026-08-01 Sat 10:30]", Nothing] stamps
+
+  , testCase "a negation and an alternation are the whole request's 400" $ do
+      bad <- get assetsDir "/headlines?q=-columns:state"
+      assertEqual "status" 400 (status bad)
+      assertContains "naming the token" "-columns:state" (body bad)
+      alt <- get assetsDir "/headlines?q=columns:a%7Cb"
+      assertEqual "status" 400 (status alt)
+      assertContains "naming the token" "columns:a|b" (body alt)
+
+    -- The badge palette rides the KEY, so a picked state column still carries
+    -- it — which is what keeps the state cells drawn as badges in a shaped view.
+  , testCase "a picked state column keeps its badges" $ do
+      v <- get assetsDir "/headlines?q=columns:state,title" >>= decoded
+      col <- columnOf "state" v
+      badges <- listAt "badges" col
+      assertBool "the palette is there" (not (null badges))
+  ]
+
 archiveViewSpec :: TestTree
 archiveViewSpec = testGroup "GET /headlines and the archive"
   [ testCase "an archived row is out of the default answer, and counted" $

@@ -909,6 +909,38 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   nothing either way. `?order=` was the older half and is GONE: present at all it
   is a 400 naming its replacement, because a parameter silently ignored would
   serve the default order and look exactly like a working request.
+- `columns:` IS THE THIRD VIEW TOKEN and shapes what the table SHOWS:
+  `columns:State,Title,Tags` serves those columns in that order, narrowing
+  nothing in either polarity (`Glance.Web.Filter` drops it beside `sort:`;
+  `Glance.Web.Columns.columnNamesIn` reads it off the same one parse). Names
+  resolve case-insensitively against the default view's keys AND headers
+  (`Glance.Query.resolveColumns`), so `Tags`, `tag` and `#` all land; an
+  unknown name is a CUSTOM column — key folded, header as written, kind
+  `text` — whose cells `customCell` reads from the row's own subtree:
+  `closed` is the planning `CLOSED:` timestamp verbatim, anything else the
+  property drawer's value by folded key through the lens's own raw-line
+  reader (`drawerPairs`), hidden properties NOT hidden (a read-only cell
+  rewrites nothing). THE MINIMAL SET IS TITLE: named anywhere it stays put,
+  named nowhere it joins FIRST, and an all-empty token (`columns:`,
+  `columns:,`) names no set at all — the default view stands, which is also
+  the answer when no token appears. Repeats compose in written order with
+  first-wins dedup (folded); a negation or an alternation is the whole
+  request's 400 naming the token; extras still ride the KEY, so a picked
+  `state` keeps its badges and a picked `tag` its `multi`. The renderer's
+  half is chip dress (link hue, `tv-chip-cols`, `showsColumns`) and
+  keeping the token out of free text — shaping is the producer's, and the
+  shell remounts whenever a fetched answer's columns differ from the
+  mounted ones (`fetchRows` runs the reconnect's `sameColumns` comparison
+  at the commit door). The palette COMPLETES it like `sort:`: after
+  `columns:` the list offers the view's columns, a comma re-opens the domain
+  the way `->` re-opens the sort's, names already in the set are not offered
+  again, and an unknown name stays writable (the custom column). The view
+  tokens are ONE LIST on each side — `Glance.Web.Filter.viewKeys`, tv's
+  `VIEW_KEYS` — read for membership by `fieldOf`/`compile` and by
+  `queryKeys`/`queryMatcher`, with the chip dress in `chipClassOf`; a new
+  view token is one entry beside its reader. Sorting stays the BUILTIN
+  columns' — `sort:` over a
+  custom name is the existing unknown-column 400.
 - `->` CHAINS ONE TOKEN'S COLUMNS and is SUGAR: `sort:state->title:desc` parses
   to exactly the chain `sort:state sort:title:desc` composes. ONE semantics —
   `segmentsOf` splits the value and `nameOf` reads each segment where a whole
@@ -1911,11 +1943,16 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   paragraph/leaf elements and the headline's TITLE cell render alike; the title
   needs `titleAt` (the server's `Glance.Query.titleSpan`, `Span` rather than the
   internal `HeadlineSpans`) because only the server has that sub-span, and a
-  CHILD's title stays text. `/links` is fetched once beside the materialize and
-  the document is drawn without waiting, so a failed link scan costs the marks
-  and never the sheet. Links are NOT stops and bind no mouse — `o` is the opener
-  and shares `linksIn` with the draw, so what a reader sees marked in an element
-  is exactly what `o` there will find. `--g-link` is hand-copied from the
+  CHILD's title stays text. THE LINKS RIDE THE MATERIALIZE: `GET /headline`
+  carries the ROW's whole scan as `links` (the same objects `/links` serves,
+  one `linkJSON` builder, file coordinates like `span` and `titleAt`), so the
+  display is compact from the FIRST frame and there is no async gap to bridge —
+  a second request opened one every fill had to cover, and the frames in
+  between drew the brackets raw. `/links` stays as the TABLE popup's and
+  `edit-link`'s route. Links are NOT stops and bind no mouse — `o` is the
+  opener and shares `linksIn` with the draw over the SAME held answer (the
+  element's `o` asks the server nothing), so what a reader sees marked in an
+  element is exactly what `o` there will find. `--g-link` is hand-copied from the
   renderer's `--tv-link` (`#30739B` / `#7CC9F8`) like `--g-border`, since
   `--tv-link` is declared on `.tv-root` and a live `var()` resolves to nothing
   beside the mount; ALIASED, so every use reads the name and the suite forbids
@@ -1991,6 +2028,14 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   A CHILD's cells are read-only in v1 — a child has no row id, so no `/command`
   addresses it — while its planning, drawer, paragraphs and children are all
   editable through the lens that materialized it.
+- `SPC` TOGGLES AN ORG CHECKBOX at the stop under point, and `C-c C-c` with no
+  element open is the same toggle (org's second meaning of the key; away from a
+  box it still says `nothing open here`). The box is the item's FIRST line
+  (`CHECKBOX` regex: bullet or number, then `[ ]`/`[X]`/`[x]`/`[-]`); the flip
+  is org's own — `[ ]` checks, `[X]` clears, `[-]` checks — and the write is
+  the paragraph edit's splice (`commitDocWith`), that item's lines and nothing
+  else. `SPC` off a box refuses with an echo and writes nothing; the harness
+  spells the space bar `press:Space`, cooked to the `" "` a browser sends.
 - `DEL` is UP: in a child it re-materializes the `parent` the server named (null
   being the row) and lands on the child it came out of; at the top it is the
   sheet's door. The dispatch stands aside for a key this listener claimed
@@ -1999,7 +2044,19 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
 - PER-ELEMENT COMMITS in that pane: a paragraph edit or delete is one
   drift-locked `POST /headline` carrying `body` (that block's lines spliced over,
   every other byte where it was) beside the panel's own two lists, each answer
-  re-pinning the digest and re-materializing off it. A cell edit is a
+  re-pinning the digest and re-materializing off it. THE STORE LAGS THE WRITE
+  IT ANSWERS FOR: `GET /headline` serves the store and the watch is a debounce
+  away, so the re-read a 200 fires DROPS any answer whose digest is not the
+  write's own receipt — the model the write was built from stands, redrawn —
+  and retries once (~300 ms) for the canonical reading. Taking the stale
+  answer reverted the pane and poisoned the pin (the next write 409'd), and a
+  body-only edit emits no frame to correct either. The harness models the lag
+  at its worst: its `POST /headline` answers `w<n>` while the GET serves the
+  pre-write subtree for ever. A CELL EDIT RE-PINS THE SAME WAY: `fire()` takes
+  `editing.digest` off the `/command` answer's own per-id `digest` (the tags
+  popup's rule one surface over), since the frame that would re-read is
+  guarded off under an open edit or the panel's keys and the window otherwise
+  409'd the reader's own next commit. A cell edit is a
   `/command`, and what it wrote comes back through the WATCH — a socket frame
   naming this row re-reads the sheet, since `/command` never writes the store.
   `C-x C-s` is the commit for whichever edit is open (a paragraph has no other,
@@ -2371,8 +2428,12 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   line wins. The system layer alone, and the first config directory that names
   one — a default view belongs to a tree rather than to a tag. The daemon embeds
   it into the served page as `DEFAULT_QUERY` (off the store, per request), the
-  bare-boot injection and `g` both read it. WRITING it is `P`
-  (`set-default-view`, ONCE): the applied query — sort tokens and all, the
+  bare-boot injection and `g` both read it. THE QUERY IS THE ONE CARRIER OF A
+  VIEW — filter, `sort:` and `columns:` tokens alike — so the pin persists all
+  three in that one line and `g` applies all three back; neither knows a token
+  from a token. WRITING it is `P`
+  (`set-default-view`, ONCE): the applied query — sort and columns tokens and
+  all, the
   order being the grammar's — goes to `POST /config` as the optional `filter`
   under the digest `GET /config` just served — WITHOUT a `lines` key, which is
   why absent lines leave the `#+TODO:` block standing (the optional regions'

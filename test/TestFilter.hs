@@ -19,10 +19,12 @@ import qualified Data.Text as T
 
 import Glance.Query ( HeadlineRecord (..), QueryResult (qrRecords), defaultSortChain
                     , displayText
-                    , loadDir, matchesSearch, refTargetOf, refTargets, rowJSON
+                    , loadDir, matchesSearch, refTargetOf, refTargets, resolveColumns
+                    , rowJSON
                     , tagsOfCell, viewJSON )
+import Glance.Web.Columns (columnNamesIn)
 import Glance.Web.Filter ( Term (..), Token (..), alternatives, archiveKey
-                         , archiveMeta, cellAt, emptyEnv, emptyMeta, filterKeys
+                         , archiveMeta, cellAt, columnsKey, emptyEnv, emptyMeta, filterKeys
                          , matchesFilter, metaOf, namesArchive, parseFilter
                          , plannedKey, refKey, scanQuery, sortKey, storeEnv
                          , tagsKey )
@@ -71,7 +73,8 @@ matches q rows = assertEqual (T.unpack q) rows =<< matching q
 
 spec :: TestTree
 spec = testGroup "Filter"
-  [ tokenSpec, predicateSpec, tagsSpec, plannedSpec, sortSpec, archiveSpec, metaSpec
+  [ tokenSpec, predicateSpec, tagsSpec, plannedSpec, sortSpec, columnsSpec
+  , archiveSpec, metaSpec
   , shapeSpec, alternationSpec
   , degenerateSpec
   , targetSpec, refSpec
@@ -512,6 +515,94 @@ sortSpec = testGroup "Sort tokens"
 -- ('Glance.Web.Filter.namesArchive').  The exclusion itself is
 -- @\/headlines@'s (@TestServe@); what belongs here is the reading of the
 -- query, since it is the grammar answering.
+-- Columns tokens
+--
+-- The COLUMN SET half of the view grammar ('Glance.Web.Columns'), the sort
+-- token's twin: what it never does is narrow, and what it names is
+-- 'columnNamesIn''s answer to the same string.  Where the picked set lands on
+-- the wire is @\/headlines@' (@TestServe@); 'resolveColumns' is the name
+-- resolution both share.
+columnsSpec :: TestTree
+columnsSpec = testGroup "Columns tokens"
+  [ testCase "the key is spelled once, and it is not a column" $ do
+      assertEqual "the key" "columns" columnsKey
+      assertBool "and no column carries it" (columnsKey `notElem` filterKeys)
+      assertEqual "a token names it like any other key"
+                  [Term False (Just "columns") "State,Title"]
+                  (parsed "columns:State,Title")
+
+  , testCase "it narrows nothing, whatever it names" $ do
+      every <- matching ""
+      mapM_ (`matches` every)
+        [ "columns:state", "columns:State,Title,Tags", "columns:"
+        , "columns:nosuchcolumn", "columns:a,,b", "-columns:state" ]
+
+  , testCase "beside a predicate it leaves the narrowing to it" $ do
+      matches "state:*inactive* columns:title" [Drop, Schema]
+      matches "columns:title state:*inactive*" [Drop, Schema]
+
+  , testCase "a quoted token is free text, here as everywhere" $ do
+      matches "\"columns:title\"" []
+      assertEqual "free text"
+                  [Term False Nothing "columns:title"] (parsed "\"columns:title\"")
+
+  -- The names the same query states.
+  , testCase "a query naming no columns token names no set" $ do
+      assertEqual "none" (Right Nothing) (columnNamesIn "state:TODO tag:web")
+      assertEqual "and an empty query is a query naming none"
+                  (Right Nothing) (columnNamesIn "")
+
+  , testCase "names arrive in written order, repeats composing" $ do
+      assertEqual "one token" (Right (Just ["State", "Title", "Tags"]))
+                  (columnNamesIn "columns:State,Title,Tags")
+      assertEqual "two tokens compose" (Right (Just ["state", "title"]))
+                  (columnNamesIn "columns:state columns:title")
+
+  , testCase "a name named twice keeps its first place, case-insensitively" $
+      assertEqual "state once, first spelling"
+                  (Right (Just ["state", "Title"]))
+                  (columnNamesIn "columns:state,STATE,Title")
+
+  , testCase "an empty list falls back to the default" $ do
+      assertEqual "columns: names no set" (Right Nothing) (columnNamesIn "columns:")
+      assertEqual "and neither do empty names" (Right Nothing)
+                  (columnNamesIn "columns:,")
+      assertEqual "empty names between real ones drop"
+                  (Right (Just ["a", "b"])) (columnNamesIn "columns:a,,b")
+
+  , testCase "a negation and an alternation are refused, naming the token" $ do
+      refusedNaming "negated" ["negated", "-columns:state"]
+                    (columnNamesIn "-columns:state")
+      refusedNaming "alternation" ["commas", "columns:a|b"]
+                    (columnNamesIn "columns:a|b")
+
+  -- Resolution: what a name becomes.  The cell functions are opaque, so the
+  -- cases read the three describable fields.
+  , testCase "names resolve case-insensitively, headers included" $ do
+      assertEqual "keys and headers both name a column"
+                  [("state", "State"), ("title", "Title"), ("tag", "Tags")]
+                  (described (resolveColumns ["state", "Title", "Tags"]))
+      assertEqual "org's own glyph finds the priority column"
+                  [("title", "Title"), ("priority", "#")]
+                  (described (resolveColumns ["#"]))
+
+  , testCase "an unknown name is a custom column, header as written" $
+      assertEqual "folded key, verbatim header"
+                  [("title", "Title"), ("org_glance_id", "ORG_GLANCE_ID")]
+                  (described (resolveColumns ["ORG_GLANCE_ID"]))
+
+  , testCase "the minimal set is Title: unnamed, it joins in front" $ do
+      assertEqual "injected first" [("title", "Title"), ("state", "State")]
+                  (described (resolveColumns ["state"]))
+      assertEqual "named, it stays where it was put"
+                  [("tag", "Tags"), ("title", "Title"), ("state", "State")]
+                  (described (resolveColumns ["tags", "title", "state"]))
+  ]
+
+-- | The describable half of a resolved column: its key and its header.
+described :: [(Text, Text, Text, HeadlineRecord -> Maybe Text)] -> [(Text, Text)]
+described cols = [ (key, header) | (key, header, _kind, _cell) <- cols ]
+
 archiveSpec :: TestTree
 archiveSpec = testGroup "Archive key"
   [ testCase "the tag, the meta that names it, and the column both sit under" $ do

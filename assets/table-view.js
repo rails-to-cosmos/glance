@@ -827,6 +827,25 @@
    */
   const SORT_KEY = "sort";
 
+  /**
+   * The key that states the COLUMN SET: `columns:State,Title,Tags'. The sort
+   * key's twin — no predicate, narrows nothing in either polarity — and
+   * producer-shaped: which columns a name resolves to (and what a name the
+   * view does not carry reads out of the row's own subtree) is the server's
+   * answer, arriving as the view's `columns'. This side only keeps the token
+   * out of free text and dresses its chip.
+   */
+  const COLUMNS_KEY = "columns";
+
+  /**
+   * The VIEW TOKENS: the keys that state a fact about the view and narrow
+   * nothing. One list, so the vocabulary (`queryKeys') and the matcher's skip
+   * (`queryMatcher') cannot come to disagree — a key missed by either would
+   * silently demote the token to free text or silently narrow. A new view
+   * token is one entry here beside its chip class.
+   */
+  const VIEW_KEYS = [SORT_KEY, COLUMNS_KEY];
+
   /** The directions a sort token may spell; the empty one ascends. */
   const SORT_DIRS = { "": true, asc: true, desc: false };
 
@@ -1101,24 +1120,24 @@
   --tv-link:${LINK_LIGHT};
   --tv-frost:${FROST};--tv-chip-wash:45%;--tv-chip-edge:95%;--tv-mark-wash:8%;
   --tv-flag:${FLAG};--tv-flag-wash:8%;
-  --tv-col:${COL};--tv-col-wash:35%;--tv-cell-wash:60%;--tv-sort-wash:52%;
+  --tv-col:${COL};--tv-col-wash:35%;--tv-cell-wash:60%;--tv-sort-wash:52%;--tv-cols-wash:52%;
   color:var(--tv-fg);background:var(--tv-bg);font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   border:1px solid var(--tv-border);border-radius:8px;overflow:hidden;display:flex;flex-direction:column;max-height:100%}
 @media (prefers-color-scheme:dark){.tv-root{--tv-fg:#FFFFFF;--tv-muted:#A4C2EB;--tv-bg:#000000;
   --tv-alt:#21252B;--tv-border:#2a2d3d;--tv-accent:#4CB5F5;--tv-sel:#373D4F;
   --tv-link:${LINK_DARK};
   --tv-hover:#1F1F1F;--tv-chip-wash:18%;--tv-chip-edge:34%;--tv-mark-wash:30%;--tv-flag-wash:30%;
-  --tv-col-wash:8%;--tv-cell-wash:9%;--tv-sort-wash:18%;}}
+  --tv-col-wash:8%;--tv-cell-wash:9%;--tv-sort-wash:18%;--tv-cols-wash:18%;}}
 :root[data-theme="dark"] .tv-root{--tv-fg:#FFFFFF;--tv-muted:#A4C2EB;--tv-bg:#000000;
   --tv-alt:#21252B;--tv-border:#2a2d3d;--tv-accent:#4CB5F5;--tv-sel:#373D4F;
   --tv-link:${LINK_DARK};
   --tv-hover:#1F1F1F;--tv-chip-wash:18%;--tv-chip-edge:34%;--tv-mark-wash:30%;--tv-flag-wash:30%;
-  --tv-col-wash:8%;--tv-cell-wash:9%;--tv-sort-wash:18%;}
+  --tv-col-wash:8%;--tv-cell-wash:9%;--tv-sort-wash:18%;--tv-cols-wash:18%;}
 :root[data-theme="light"] .tv-root{--tv-fg:#000000;--tv-muted:#667071;--tv-bg:#FFFFFF;--tv-alt:#F8F8FF;
   --tv-border:#E3E6EA;--tv-accent:#31769F;--tv-sel:#F0FFF0;--tv-hover:#FAFAFA;
   --tv-link:${LINK_LIGHT};
   --tv-chip-wash:45%;--tv-chip-edge:95%;--tv-mark-wash:8%;--tv-flag-wash:8%;
-  --tv-col-wash:35%;--tv-cell-wash:60%;--tv-sort-wash:52%}
+  --tv-col-wash:35%;--tv-cell-wash:60%;--tv-sort-wash:52%;--tv-cols-wash:52%}
 .tv-bar{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--tv-border);flex-wrap:wrap}
 .tv-title{font-weight:600;font-size:14px;margin-right:auto}
 .tv-filter{font:inherit;padding:4px 8px;border:1px solid var(--tv-border);border-radius:6px;
@@ -1178,6 +1197,15 @@
    that turns ligatures off wholesale would otherwise turn this one off with
    them, and a face without the alternate loses nothing but the join. */
 .tv-chip-sort{font-variant-ligatures:contextual}
+/* THE COLUMNS CHIP WEARS THE LINK HUE — the third chip voice: frost is the
+   applied filter, the column band is the order, and the accent-derived link
+   colour marks the token that shapes what the table SHOWS. Same shape, same
+   edge rule, same wash arithmetic as the sort chip, one hue over. Only a
+   token that names at least one column wears it — "showsColumns" is that
+   test — so the half-typed "columns:" keeps the ordinary chip. */
+.tv-pal .tv-chip-cols{
+  background:color-mix(in srgb,var(--tv-link) var(--tv-cols-wash),transparent);
+  border-color:color-mix(in srgb,var(--tv-link) var(--tv-chip-edge),transparent)}
 .tv-pal .tv-chip:not(.tv-chip-muted):hover{border-color:var(--tv-accent);color:var(--tv-accent)}
 .tv-chips{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
 /* One silhouette, spelled once, for every chip in the strip: a live filter
@@ -1966,7 +1994,7 @@
     function queryKeys() {
       const keys = columnKeys();
       if (keys.indexOf(PLANNED_KEY) === -1) keys.push(PLANNED_KEY);
-      if (keys.indexOf(SORT_KEY) === -1) keys.push(SORT_KEY);
+      for (const k of VIEW_KEYS) if (keys.indexOf(k) === -1) keys.push(k);
       return keys;
     }
 
@@ -2167,7 +2195,7 @@
       /** @type {((r: Row) => boolean)[]} */
       const musts = [];
       for (const tok of parseQuery(q, queryKeys())) {
-        if (tok.key === SORT_KEY) continue;
+        if (tok.key && VIEW_KEYS.indexOf(tok.key) !== -1) continue;
         const test = tokenTest(tok);
         musts.push(tok.negated ? (r) => !test(r) : test);
       }
@@ -3482,7 +3510,7 @@
       for (const text of crumbStrip())
         html += `<span class="tv-chip tv-chip-muted">${esc(text)}</span>`;
       for (let i = 0; i < chips.length; i++)
-        html += `<span class="tv-chip${ordersRows(chips[i]) ? " tv-chip-sort" : ""}"`
+        html += `<span class="tv-chip${chipClassOf(chips[i])}"`
               + ` data-i="${i}" title="remove">${esc(chipText(chips[i]))}`
               + `<i class="tv-chip-x">×</i></span>`;
       // The pin rides the strip's far edge and keeps the strip visible even
@@ -3517,6 +3545,28 @@
       return sortSegments(t).some((s) => s.toLowerCase() === NONE_META
                                       || !!sortKeyOf(s, namesColumn));
     }
+
+    /**
+     * Whether TOK states a column set: a columns key naming at least one
+     * column. Every nonempty name counts — a name this view does not carry is
+     * the producer's custom column, so this side cannot call any unknown —
+     * and the half-typed `columns:' keeps the ordinary chip, naming none.
+     * @param {string} tok  @returns {boolean}
+     */
+    function showsColumns(tok) {
+      const t = asToken(tok);
+      if (!t || t.key !== COLUMNS_KEY || t.negated) return false;
+      return t.value.split(",").some((n) => n !== "");
+    }
+
+    /**
+     * The dress a chip wears for the view token it states: the sort hue, the
+     * columns hue, or none — one classifier, so the strip's render names no
+     * token kind of its own and a new view token registers its class here.
+     * @param {string} tok  @returns {string}
+     */
+    const chipClassOf = (tok) =>
+      ordersRows(tok) ? " tv-chip-sort" : showsColumns(tok) ? " tv-chip-cols" : "";
 
     /**
      * The ONE token spelling the order query Q names, in canonical arrow form.
@@ -3759,6 +3809,15 @@
           return { stage: "sort", tok: t, col: null,
                    prefix: arrow === -1 ? v : v.slice(arrow + SORT_ARROW.length) };
         }
+        // `columns' likewise: the domain is the view's own columns, and a `,'
+        // RE-OPENS it the way `->' re-opens the sort's — the prefix is what
+        // follows the LAST comma, so a set is completed one column at a time
+        // and the committed token stays one token.
+        if (t.key === COLUMNS_KEY) {
+          const v = t.value.toLowerCase(), comma = v.lastIndexOf(",");
+          return { stage: "columns", tok: t, col: null,
+                   prefix: comma === -1 ? v : v.slice(comma + 1) };
+        }
         // `planned' takes no value list: what follows it is a date prefix over
         // several columns at once, which is no domain to enumerate. It is the
         // one key with no column behind it, so every other one has a domain.
@@ -3827,6 +3886,24 @@
         // the order is not the empty one, and `*none*' takes no companions.
         if (wantDir === null && !chained.length && opensWith(NONE_META, wantCol))
           offer(NONE_META, true);
+        return out.slice(0, AC_MAX);
+      }
+      // `columns:' — the view's own columns, less the ones the token has
+      // already named (a set never names a column twice; the producer keeps
+      // the first spelling anyway).  Every offer finishes the token; a reader
+      // chaining types the comma and the domain re-opens.  A name the view
+      // does not carry is still WRITABLE — it is the producer's custom
+      // property column — so nothing here is a wall, only the vocabulary.
+      if (st.stage === "columns") {
+        const taken = st.tok.value.toLowerCase().split(",").slice(0, -1)
+          .filter((n) => n !== "");
+        for (const c of columns()) {
+          if (out.length >= AC_MAX) break;
+          const key = String(c.key), lower = key.toLowerCase();
+          if (taken.indexOf(lower) !== -1) continue;
+          if (!lower.startsWith(p)) continue;
+          out.push({ text: key, count: -1, full: true, dim: false });
+        }
         return out.slice(0, AC_MAX);
       }
       if (!st.col) {
@@ -4084,8 +4161,12 @@
       const v = input.value, t = ac.tok;
       const bar = v.lastIndexOf(ALT, t.end - 1);
       const arrow = ac.stage === "sort" ? v.lastIndexOf(SORT_ARROW, t.end - 1) : -1;
+      // The comma is the columns stage's own re-opener, the arrow's twin: the
+      // accepted name replaces the segment being typed and the set ahead of it
+      // stands.
+      const comma = ac.stage === "columns" ? v.lastIndexOf(",", t.end - 1) : -1;
       const head = ac.stage === "key" ? (t.negated ? "-" : "")
-        : v.slice(t.start, Math.max(t.sep + 1, bar + 1,
+        : v.slice(t.start, Math.max(t.sep + 1, bar + 1, comma + 1,
                                     arrow === -1 ? 0 : arrow + SORT_ARROW.length));
       const ins = head + item.text + (item.full || ac.stage === "value" ? " " : "");
       input.value = v.slice(0, t.start) + ins + v.slice(t.end);
