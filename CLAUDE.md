@@ -1848,9 +1848,11 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   that a remount leaves standing. The sheet wears `.pop-sheet` like every other
   working surface; the panes wrap rather than querying a width, and the
   `pointer:coarse` block pins the column.
-- POPUP SIZE IS A TIER and there are TWO: `.pop-band` (a list of single words —
-  the state palette) and `.pop-sheet` (a working surface FIXED on both axes —
-  the materialize sheet, the link and tag popups, the settings sheet). No box
+- POPUP SIZE IS A TIER and there are TWO: `.pop-band` (a narrow column that
+  grows with its content to the cap — the state palette, and the tag manager,
+  whose three short columns are narrower than the palette) and `.pop-sheet` (a
+  working surface FIXED on both axes — the materialize sheet, the link popup,
+  the capture form, the settings sheet). No box
   declares a width or a height of its own. `.pop-wide` was the third, growing
   between a floor and a ceiling; fixing its height at the bound made its
   definition character for character `.pop-sheet`'s, so it is gone — its floor

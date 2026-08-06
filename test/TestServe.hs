@@ -5523,7 +5523,9 @@ tierSweep shell = testCase "every popup wears one size tier, and declares none" 
     -- state palette is the odd one — a list of single words, which is what the
     -- band is.  `pop-wide' stood between them until its height went fixed and
     -- its definition became `pop-sheet''s outright.
-    tiers = [ ("pbox", "pop-band"), ("lbox", "pop-sheet"), ("tbox", "pop-sheet")
+    -- The tag manager wears the BAND: three short columns are narrower than
+    -- the palette, and a sheet-wide box drew 80vw of ground around them.
+    tiers = [ ("pbox", "pop-band"), ("lbox", "pop-sheet"), ("tbox", "pop-band")
             , ("sheet", "pop-sheet"), ("cbox", "pop-sheet") ]
 
 -- | EVERY SELECTION IN THE DOCUMENT IS A GROUND.  Swept rather than listed: the

@@ -68,6 +68,11 @@ section groups a feature arc, and its date is that arc's last commit.
   archived" guard.
 
 ### Changed
+- **The tag manager wears the band width.** Three short columns — the tag,
+  its coverage, its store-wide count — sat in a sheet-sized box 80% of the
+  viewport wide; the popup now takes `.pop-band`'s 560px and grows with its
+  content to the cap, the state palette's own dress.
+
 - **The `d`/`D`/`u` gesture is ONE implementation over THREE surfaces.** The
   table joined the property panel and the tags popup on `flagKey`, which now
   owns the whole gesture: the cursor read, the two-press rule, the set-or-row

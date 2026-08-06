@@ -90,7 +90,10 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   -- mount does not: the rename overlay, the property panel's edit model over
   -- one cell.  `#tpane' positions it, as `#mdoc' does the document's.
   ]
-  <> popupFrame "tags" "t" ("<div id=\"tedit\">" <> field "tname" <> "</div>")
+  -- The tag manager is three SHORT columns — the tag, its coverage, its
+  -- weight — so it wears the band's width: a sheet-wide box drew 80vw of
+  -- ground for a list narrower than the palette.
+  <> popupFrame "tags" "t" "pop-band" ("<div id=\"tedit\">" <> field "tname" <> "</div>")
   -- The value palette.  Letter mode is the resident one and its field is
   -- hidden, so the box carries the mode: `#pbox.narrow' is the completing-read
   -- `/' falls back to, and `+' over the tags popup is its other door.  The foot
@@ -114,7 +117,7 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
   -- and the mount rewrites its rows as it scrolls, so an edit living inside one
   -- would be thrown away by the next frame.
   ]
-  <> popupFrame "links" "l"
+  <> popupFrame "links" "l" "pop-sheet"
        ("<div id=\"ledit\">" <> field "ltitle" <> field "lurl" <> "</div>")
   -- The capture form, one popup where a chain of palettes used to blink: the
   -- tag field with the vocabulary narrowing under it, the fields a template
@@ -240,10 +243,10 @@ demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ 
 -- holding a mount, a foot — since the overlay is the whole of what they differ
 -- in and the size is the tier's.  A third table popup is a call rather than
 -- eight lines nothing compares.
-popupFrame :: Text -> Text -> Text -> [Text]
-popupFrame name p overlay =
+popupFrame :: Text -> Text -> Text -> Text -> [Text]
+popupFrame name p tier overlay =
   [ "  <div id=\"" <> name <> "\">"
-  , "    <div id=\"" <> p <> "box\" class=\"pop-sheet\">"
+  , "    <div id=\"" <> p <> "box\" class=\"" <> tier <> "\">"
   , "      <div id=\"" <> p <> "head\"></div>"
   , "      <div id=\"" <> p <> "pane\"><div id=\"" <> p <> "table\"></div>"
       <> overlay <> "</div>"
