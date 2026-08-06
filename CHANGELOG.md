@@ -68,6 +68,12 @@ section groups a feature arc, and its date is that arc's last commit.
   archived" guard.
 
 ### Changed
+- **The sheet's light-theme cursor row matches the table's.** The structured
+  document's selection wash was danneskjold's golden `#FFD600` where the
+  table's is the renderer's honeydew `#F0FFF0` — two hues for one meaning,
+  side by side. `--g-sel` now copies `--tv-sel` on both themes (dark already
+  agreed at `#373D4F`), so the cursor row reads as the same selection
+  everywhere it appears.
 - **The tag manager wears the band width.** Three short columns — the tag,
   its coverage, its store-wide count — sat in a sheet-sized box 80% of the
   viewport wide; the popup now takes `.pop-band`'s 560px and grows with its

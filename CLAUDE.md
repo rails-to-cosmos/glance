@@ -1306,8 +1306,10 @@ stays green. Fuller version with evidence: [docs/invariants.md](docs/invariants.
   the suite forbids this page naming its parts.
 - `--g-border` is a hand-copied LITERAL of the renderer's `--tv-border`
   (`#E3E6EA` / `#2A2D3D`), not a live `var()` read, so a renderer border change
-  needs a matching edit here. `--g-sel` is likewise literal, and danneskjold's
-  rather than the renderer's.
+  needs a matching edit here. `--g-sel` is likewise literal, and the RENDERER's
+  on both themes (`--tv-sel`: honeydew `#F0FFF0` light, `#373D4F` dark) — the
+  document's cursor row reads as the same selection the table's does;
+  danneskjold's `light-golden` `#FFD600` was the older light pick.
 - Renderer internals this page may touch are enumerated by the suite as
   must-not-appear lists rather than by a comment here: the shell may not name
   `closeFilter`, `tv-veil`, `tv-panel`, may not reach rows by `tr.click()`,

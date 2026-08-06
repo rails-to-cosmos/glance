@@ -62,8 +62,14 @@ page head' title body = T.unlines
   -- `font-lock-comment-face' #A4C2EB, `company-tooltip' #21252B,
   -- `org-done'/success #B6E63E, `error' #E74C3C, `accent' #4CB5F5.  Light:
   -- #000000 on #FFFFFF, `light-comment' #7F8C8D, `light-surface' #F8F8FF,
-  -- `light-golden' #FFD600 for selection, `green-dark' #27AE60 where white
-  -- needs the darker green.
+  -- `green-dark' #27AE60 where white
+  -- needs the darker green.  The SELECTION is the one light value off the
+  -- theme and it is the RENDERER's: `--tv-sel' is honeydew #F0FFF0 (its own
+  -- comment keeps it off golden, which read as the frost chips and the state
+  -- pills), and the document's cursor row must read as the same selection the
+  -- table's does — one hue for one meaning, hand-copied like `--g-border'.
+  -- danneskjold's `light-golden' #FFD600 was the older pick.  Dark agrees by
+  -- construction, `region' #373D4F being the renderer's dark `--tv-sel' too.
   --
   -- @--g-border@ is the one value off palette, and it is the renderer's:
   -- @table-view.js@ draws its own rules in @--tv-border@, #E3E6EA light and
@@ -759,7 +765,7 @@ themeBoot = T.concat
 -- half-applied.
 lightVars, darkVars :: Text
 lightVars = "--g-bg:#FFFFFF;--g-fg:#000000;--g-border:#E3E6EA;--g-mute:#7F8C8D;\
-            \--g-surface:#F8F8FF;--g-sel:#FFD600;--g-cell-wash:60%;\
+            \--g-surface:#F8F8FF;--g-sel:#F0FFF0;--g-cell-wash:60%;\
             \--g-link:#30739B;--g-ok:#27AE60"
 -- The band's hue does not move between themes; what moves is how far it washes,
 -- since dark's ink has less room over a lit ground.
