@@ -1114,26 +1114,53 @@
    keeps the quiet #E3E6EA (1.25:1 on white) rather than the theme's #BDC3C7,
    and dark takes #2a2d3d over the theme's #223959 (1.54:1 against true black
    against 1.80:1) — the quieter of the two. Every rule is 1px. */
-.tv-root{--tv-fg:#000000;--tv-muted:#667071;--tv-bg:#FFFFFF;--tv-alt:#F8F8FF;
-  --tv-border:#E3E6EA;--tv-accent:#31769F;--tv-sel:#F0FFF0;--tv-hover:#FAFAFA;
+
+.tv-root{
+  --tv-fg:#000000;
+  --tv-muted:#667071;
+  --tv-bg:#FFFFFF;
+  --tv-alt:#F8F8FF;
+  --tv-border:#E3E6EA;
+  --tv-accent:#31769F;
+  --tv-sel:#FFD600;
+  --tv-hover:#FAFAFA;
   --tv-link:${LINK_LIGHT};
-  --tv-frost:${FROST};--tv-chip-wash:45%;--tv-chip-edge:95%;--tv-mark-wash:8%;
-  --tv-flag:${FLAG};--tv-flag-wash:8%;
-  --tv-col:${COL};--tv-col-wash:35%;--tv-cell-wash:60%;--tv-sort-wash:52%;--tv-cols-wash:52%;
-  color:var(--tv-fg);background:var(--tv-bg);font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  border:1px solid var(--tv-border);border-radius:8px;overflow:hidden;display:flex;flex-direction:column;max-height:100%}
+  --tv-frost:${FROST};
+  --tv-chip-wash:45%;
+  --tv-chip-edge:95%;
+  --tv-mark-wash:8%;
+  --tv-flag:${FLAG};
+  --tv-flag-wash:8%;
+  --tv-col:${COL};
+  --tv-col-wash:35%;
+  --tv-cell-wash:60%;
+  --tv-sort-wash:52%;
+  --tv-cols-wash:52%;
+  color:var(--tv-fg);
+  background:var(--tv-bg);
+  font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  border:1px solid var(--tv-border);
+  border-radius:8px;
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+  max-height:100%
+}
+
 @media (prefers-color-scheme:dark){.tv-root{--tv-fg:#FFFFFF;--tv-muted:#A4C2EB;--tv-bg:#000000;
   --tv-alt:#21252B;--tv-border:#2a2d3d;--tv-accent:#4CB5F5;--tv-sel:#373D4F;
   --tv-link:${LINK_DARK};
   --tv-hover:#1F1F1F;--tv-chip-wash:18%;--tv-chip-edge:34%;--tv-mark-wash:30%;--tv-flag-wash:30%;
   --tv-col-wash:8%;--tv-cell-wash:9%;--tv-sort-wash:18%;--tv-cols-wash:18%;}}
+
 :root[data-theme="dark"] .tv-root{--tv-fg:#FFFFFF;--tv-muted:#A4C2EB;--tv-bg:#000000;
   --tv-alt:#21252B;--tv-border:#2a2d3d;--tv-accent:#4CB5F5;--tv-sel:#373D4F;
   --tv-link:${LINK_DARK};
   --tv-hover:#1F1F1F;--tv-chip-wash:18%;--tv-chip-edge:34%;--tv-mark-wash:30%;--tv-flag-wash:30%;
   --tv-col-wash:8%;--tv-cell-wash:9%;--tv-sort-wash:18%;--tv-cols-wash:18%;}
+
 :root[data-theme="light"] .tv-root{--tv-fg:#000000;--tv-muted:#667071;--tv-bg:#FFFFFF;--tv-alt:#F8F8FF;
-  --tv-border:#E3E6EA;--tv-accent:#31769F;--tv-sel:#F0FFF0;--tv-hover:#FAFAFA;
+  --tv-border:#E3E6EA;--tv-accent:#31769F;--tv-sel:#FFD600;--tv-hover:#FAFAFA;
   --tv-link:${LINK_LIGHT};
   --tv-chip-wash:45%;--tv-chip-edge:95%;--tv-mark-wash:8%;--tv-flag-wash:8%;
   --tv-col-wash:35%;--tv-cell-wash:60%;--tv-sort-wash:52%;--tv-cols-wash:52%}

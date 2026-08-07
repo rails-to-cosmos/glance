@@ -765,7 +765,7 @@ themeBoot = T.concat
 -- half-applied.
 lightVars, darkVars :: Text
 lightVars = "--g-bg:#FFFFFF;--g-fg:#000000;--g-border:#E3E6EA;--g-mute:#7F8C8D;\
-            \--g-surface:#F8F8FF;--g-sel:#F0FFF0;--g-cell-wash:60%;\
+            \--g-surface:#F8F8FF;--g-sel:#FFD600;--g-cell-wash:60%;\
             \--g-link:#30739B;--g-ok:#27AE60"
 -- The band's hue does not move between themes; what moves is how far it washes,
 -- since dark's ink has less room over a lit ground.

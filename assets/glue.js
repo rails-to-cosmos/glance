@@ -4438,19 +4438,19 @@
         if (e.name !== "AbortError") failed(b, "relations")(e);
       });
     }
+
     function drill(b, token, name) {
-      if (query.trim()) {
-        // The crumb records where the reader was STANDING: the query being left,
-        // and the row and column they were on, so walking back puts the cursor
-        // where it was rather than at the top of a view they had scrolled into.
-        const at = cells() ? table.getSelection() : null;
-        const n = table.pushCrumb({ label: hereLabel(), query: query });
-        crumbSels[n - 1] = at && at.id ? { id: at.id, col: at.col } : null;
-        crumbSels.length = n;
-      }
-      crumbLabels[token] = `references of «${name}»`;
-      applyView(b, token, (total) =>
-        said(b, `references of ${JSON.stringify(name)} · ${total}`));
+        if (query.trim()) {
+            // The crumb records where the reader was STANDING: the query being left,
+            // and the row and column they were on, so walking back puts the cursor
+            // where it was rather than at the top of a view they had scrolled into.
+            const at = cells() ? table.getSelection() : null;
+            const n = table.pushCrumb({ label: hereLabel(), query: query });
+            crumbSels[n - 1] = at && at.id ? { id: at.id, col: at.col } : null;
+            crumbSels.length = n;
+        }
+        crumbLabels[token] = `references of «${name}»`;
+        applyView(b, token, (total) => said(b, `references of ${JSON.stringify(name)} · ${total}`));
     }
     // `a' is the second canned view and the only one this page spells itself:
     // the active rows carrying a date, which is `planned' — the virtual key over
