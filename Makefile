@@ -38,9 +38,16 @@ sync-renderer:
 # carry and which every GTK binding here reads at configure time.  The first two
 # are cabal.project.native's; the third is this variable, and haskell-gi
 # PREPENDS it, so a machine that has the system copies still uses them.
+#
+# ITS OWN BUILD DIR, which is what makes the promise below true: both project
+# files name the same package, so without this they write ONE binary and each
+# `make' overwrites the other's -- a native window then serves whatever glue
+# the last build embedded, which is exactly "native differs from web".
+NATIVE_BUILD = --project-file=cabal.project.native --builddir=dist-newstyle-native
+
 native:
 	HASKELL_GI_GIR_SEARCH_PATH=$(CURDIR)/vendored/gir \
-	  cabal build --project-file=cabal.project.native all
+	  cabal build $(NATIVE_BUILD) all
 
 # The WASM spike (docs/proposal-native-ports.md, host 4): the core compiled by
 # the ghc-wasm-meta toolchain, glance-internal alone -- the deliverable is the
@@ -58,12 +65,13 @@ wasm-spike:
 run:
 	cabal run glance -- desktop --dir $(GLANCE_DIR) --port $(GLANCE_PORT)
 
-# The same daemon inside its own WebKitGTK window: the flagged build, run
-# through its own project file so `make run-native' never rebuilds the
-# unflagged binary out from under a running `make run'.
+# The same daemon inside its own WebKitGTK window: the flagged build, in its own
+# project file AND its own build dir, so `make run-native' never rebuilds the
+# unflagged binary out from under a running `make run' and the two can never
+# serve different pages from one path.
 run-native:
 	HASKELL_GI_GIR_SEARCH_PATH=$(CURDIR)/vendored/gir \
-	  cabal run --project-file=cabal.project.native glance -- \
+	  cabal run $(NATIVE_BUILD) glance -- \
 	    desktop --dir $(GLANCE_DIR) --port $(GLANCE_PORT)
 
 # The WASM probe over GLANCE_DIR: the core running INSIDE wasmtime -- walk,

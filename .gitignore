@@ -4,6 +4,7 @@
 /.history
 /.org-repl-history
 /dist-newstyle/
+/dist-newstyle-native/
 *.sqlite
 
 # Devenv
