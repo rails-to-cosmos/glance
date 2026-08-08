@@ -440,6 +440,11 @@ section groups a feature arc, and its date is that arc's last commit.
   harness drives both sheets through pristine, dirty, conflict and discard.
 
 ### Fixed
+- **Setting a state on a headline that had none now shows in the material
+  sheet.** The `/command` wrote the file and the re-read behind it took the
+  store's copy, which the watch had not refreshed yet — so the pane redrew the
+  entry exactly as it was before the write. The stale-answer drop refuses that
+  reading and the retry behind it brings the real one.
 - **The property panel (and the tags popup) lost the empty leading column.**
   The renderer's gutter served both the checkbox and the flag's inset edge, so
   a mount that flags without marking — the panel, the tags popup — paid a

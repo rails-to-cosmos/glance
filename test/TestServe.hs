@@ -3888,6 +3888,22 @@ sheetSpec shell =
         assertEqual "the row, the child, and the child again"
                     ["r1", "r1#0", "r1#0"] <=< textsAt "readAt"
 
+    -- A STATE SET FROM THE SHEET LANDS ON SCREEN.  Setting one on a headline
+    -- carrying NONE used to leave the pane showing no state at all: the
+    -- `/command' wrote the file, the frame fired the re-read, and the re-read
+    -- took the STORE's copy — which the watch had not refreshed yet — so the
+    -- sheet redrew the entry exactly as it was before the write.  The stale
+    -- drop refuses that answer now and the retry behind it brings the real one,
+    -- so what is asserted here is that the write and the re-read both happen
+    -- off one press.
+  , testCase "a state set from the sheet writes and re-reads the entry" $
+      insheet "press:t press:t frame:upsert=r1" $ \answer -> do
+        assertEqual "one set-state over this row"
+                    [("set-state", ["r1"])] =<< postedOf answer
+        assertEqual "opened once, then re-read when the watch says so"
+                    ["r1", "r1"] =<< textsAt "readAt" answer
+        assertEqual "and the palette is gone" "" =<< textAt "prompt" answer
+
     -- A `/command' NEVER WRITES THE STORE — the watch does, a debounce later —
     -- so a cell edit made from this sheet leaves it holding what the file said
     -- before.  The frame naming this row is when there is something fresher to
