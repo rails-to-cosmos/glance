@@ -370,18 +370,26 @@
     // an empty one included, so the default is injected only where there is
     // no `q' at all — and then it is a query like any other, committed to
     // the URL, shown as the renderer's chip and asked of the server.
-    const DEFAULT_QUERY = CFG.defaultQuery;
-    // What the pin badge compares against.  The page-embedded constant seeds
-    // it; a successful pin moves it, since the constant describes the BOOT's
-    // config and the pin has just changed the tree's.
+    // THE TREE'S SAVED VIEWS: the boot's copy of what `/config' serves, in the
+    // registry's own order, each `{id, query}'.
+    const seedView = (id) =>
+      ((CFG.views.find((v) => v.id === id) || {}).query || "").trim();
+    const DEFAULT_QUERY = seedView("default");
+    // What the pin badge compares against, and what `a' applies.  The
+    // page-embedded values seed them; a successful write moves them, since the
+    // blob describes the BOOT's config and the write has just changed the tree's.
     let pinnedQuery = DEFAULT_QUERY.trim();
-    // The settings sheet's default-view COMPOSER: the same table-view filter
-    // bar the main page carries, mounted once over `#cfbox' with no table
-    // behind it.  `viewBase' is what the server last said, so `cmoved' can
-    // tell an edited composer from a shown one.
-    let cmpose = null, viewBase = "", mainCols = [];
+    let agendaQuery = seedView("agenda");
+    // The settings sheet's view COMPOSER: the same table-view filter bar the
+    // main page carries, mounted once over `#cfbox' with no table behind it,
+    // showing whichever view `#cwhich' names.  `vrows' is every view with its
+    // own text, the box being a VIEW of `vrows[vat]' — the layer boxes' rule, so
+    // switching costs no request and loses no edit.
+    let cmpose = null, mainCols = [], vrows = [], vat = "default";
+    const vrow = () => vrows.find((v) => v.id === vat);
     const composerQuery = () =>
-      (cmpose && can(cmpose, "getQuery") ? cmpose.getQuery().trim() : viewBase);
+      (cmpose && can(cmpose, "getQuery") ? cmpose.getQuery().trim()
+       : vrow() ? vrow().text : "");
     const bootQuery = () => (params().has("q") ? urlQuery() : DEFAULT_QUERY);
     // The drill-down trail.  The STACK is the renderer's — it draws the crumbs,
     // and `setView' drops them with the world they described — so this page
@@ -3968,13 +3976,22 @@
       // served value without delivering it, and the MAIN table's rows are handed
       // over so value completion offers what the tree actually holds.  An asset
       // without `composer'/`setQuery' still mounts a plain filter bar, which is
-      // the graceful floor.
-      viewBase = (b.filter || "").trim();
+      // the graceful floor.  WHICH view it shows is `#cwhich''s, and the ids are
+      // the SERVER's — the selector already carries them, so a build with a
+      // third view needs nothing here.
+      vrows = (b.views || []).map((v) => ({
+        id: v.id, base: (v.query || "").trim(), text: (v.query || "").trim() }));
+      const which = el("cwhich");
+      which.textContent = "";
+      vrows.forEach((v) => { part(which, "option", "", `${v.id} view`).value = v.id; });
+      vat = vrows.length ? vrows[0].id : "default";
+      which.value = vat;
+      const shown = vrow() ? vrow().text : "";
       if (!cmpose)
         cmpose = TableView.mount(el("cfbox"), { columns: mainCols, rows: [] },
-                                 { composer: true, initialQuery: viewBase,
+                                 { composer: true, initialQuery: shown,
                                    onFilter: () => {} });
-      else if (can(cmpose, "setQuery")) cmpose.setQuery(viewBase);
+      else if (can(cmpose, "setQuery")) cmpose.setQuery(shown);
       if (can(cmpose, "setRows") && can(table, "getRows"))
         cmpose.setRows(table.getRows());
       const kw = b.keywords || {};
@@ -4041,6 +4058,8 @@
       takeLayer();
       showLayer(Number(e.target.value));
     });
+    // And switching VIEWS is the same read one row up.
+    el("cwhich").addEventListener("change", (e) => showView(e.target.value));
     // `%' IN THE TEMPLATE BOX RAISES THE CODE LIST, which is this page's own
     // value palette in its field mode and no widget of its own.  What it offers
     // is the SERVER's list (`/capture' carries it beside the prompts), so the
@@ -4071,8 +4090,33 @@
     const cnote = (next, message) => note(configSheet, next, message);
     const cdirty = () => (takeLayer(), crows.some(cmoved));
     const cmoved = (r) => r.text !== r.base || r.tpl !== r.tplBase
-      || (r.tag === null && composerQuery() !== viewBase)
+      || (r.tag === null && movedViews().length > 0)
       || (r.cap !== null && r.cap.value !== r.capBase);
+    // The view showing is the box's, so it is taken back first — every reader
+    // of `vrows' calls this, the way every reader of `crows' calls `takeLayer'.
+    function takeView() {
+      const r = vrow();
+      if (r) r.text = composerQuery();
+    }
+    const movedViews = () => (takeView(), vrows.filter((v) => v.text !== v.base));
+    // A view the tree carries NOW: `g' and `a' read these rather than the boot's
+    // blob, so a write under a running page is what the next press applies.
+    function viewLanded(id, q) {
+      if (id === "default") {
+        pinnedQuery = q;
+        // Compared, never assumed: the reader may have diverged while the write
+        // was out, and a badge stamped true then would describe the wrong view.
+        if (can(table, "setPinned"))
+          table.setPinned(table.getQuery().trim() === pinnedQuery);
+      }
+      if (id === "agenda") agendaQuery = q;
+    }
+    // Switching shows the other view's own text and asks the server nothing.
+    function showView(id) {
+      takeView();
+      vat = id;
+      if (vrow() && can(cmpose, "setQuery")) cmpose.setQuery(vrow().text);
+    }
     // Every layer that moved, one POST each and each awaited — still one
     // drift-locked write per FILE now that the boxes are one box.  A config file
     // is its own write and its own lock, so one that drifted refuses on its own
@@ -4094,7 +4138,9 @@
         // the write is in flight would otherwise be marked as the file's
         // and never written, and the sheet would close on it silently.
         const sent = r.text, tpl = r.tpl;
-        const view = r.tag === null ? composerQuery() : null;
+        // The views that MOVED, named by id: the server's three-valued rule per
+        // view, so one edited leaves the others' lines exactly where they are.
+        const views = r.tag === null ? movedViews() : [];
         const cap = r.cap && r.cap.value;
         const a = await postJSON("/config",
           { path: r.path, lines: sent.split("\n"),
@@ -4105,13 +4151,15 @@
             // and no business of this box — could no longer have its cycle edited at
             // all.  The two lines under it have kept this shape all along.
             ...(tpl !== r.tplBase ? { template: tpl } : {}),
-            ...(view !== null && view !== viewBase ? { filter: view } : {}),
+            ...(views.length
+                  ? { views: Object.fromEntries(views.map((v) => [v.id, v.text])) }
+                  : {}),
             ...(r.cap ? { capture: cap } : {}),
             digest: r.digest }).then(outcome)
           .catch((e) => ({ status: 0, body: { error: e.message } }));
         if (a.status === 200) {
           r.digest = a.body.digest; r.base = sent; r.tplBase = tpl; r.err = "";
-          if (view !== null) viewBase = view;
+          views.forEach((v) => { v.base = v.text; viewLanded(v.id, v.text); });
           if (r.cap) r.capBase = cap;
         } else {
           ok = false;
@@ -4311,16 +4359,16 @@
         // status, and a pin that logged success over a 400 is how this shipped
         // reporting \"pinned\" while the file never moved.
         return postJSON("/config",
-                        { path: sys.path, digest: sys.digest, filter: q })
+                        { path: sys.path, digest: sys.digest, views: { default: q } })
           .then(unwrap)
           .then(() => {
-            pinnedQuery = q;
-            if (settings && cmpose && can(cmpose, "setQuery"))
-              { cmpose.setQuery(q); viewBase = q; }
-            // Compared, never assumed: the reader may have diverged while the write
-            // was out, and a badge stamped true then would describe the wrong view.
-            if (can(table, "setPinned"))
-              table.setPinned(table.getQuery().trim() === pinnedQuery);
+            viewLanded("default", q);
+            // A sheet standing on the default view is showing the line that just
+            // moved, so it is re-seeded; one standing on another view is not.
+            const row = vrows.find((v) => v.id === "default");
+            if (row) { row.base = q; row.text = q; }
+            if (settings && row && row === vrow() && can(cmpose, "setQuery"))
+              cmpose.setQuery(q);
             spoke(q ? `pinned · ${q}` : "pinned · all rows");
             append("config", "info",
                    `default view pinned: ${JSON.stringify(q)}`);
@@ -4403,7 +4451,10 @@
     // which shows it on the header.  A canned view is one string again, where it
     // used to be a query plus a call behind the answer, and `DEL' walks out of
     // the order the way it walks out of the filter.
-    const AGENDA_QUERY = "state:*active* -planned:*empty* sort:scheduled";
+    // WHICH query is the TREE's, under `#+GLANCE_AGENDA_FILTER:' — the default
+    // view's own rule one entry over, editable in the settings sheet and live
+    // (`agendaQuery' moves on a write) rather than the constant this page used
+    // to spell.  A tree naming no line gets the built-in the server answers with.
     // What `a' says once its rows are on screen.  The count is the server's
     // answer to the query, which is the one number a first page cannot give.
     function landedAgenda(b, total) {
@@ -4804,7 +4855,7 @@
         linksOf(id).then((a) => followLinks(b, id, a, a.links || []))
           .catch(failed(b, "open"));
       },
-      applyAgenda: (b) => applyView(b, AGENDA_QUERY, (total) => landedAgenda(b, total)),
+      applyAgenda: (b) => applyView(b, agendaQuery, (total) => landedAgenda(b, total)),
       schedulePlan: (b) => planRows(b, "SCHEDULED"),
       deadlinePlan: (b) => planRows(b, "DEADLINE"),
       // `q' is the SUBTREE sheet's door alone, which is why it asks after

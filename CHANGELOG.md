@@ -489,6 +489,13 @@ section groups a feature arc, and its date is that arc's last commit.
   paragraph, table-line and deletion commit the same way.
 
 ### Added
+- **The agenda is a view the tree configures.** `a` used to apply a query this
+  page spelled; it now reads `system.org`'s `#+GLANCE_AGENDA_FILTER:` line, the
+  default view's own rule one entry over — filter, order and columns in one
+  string, since the query is the whole carrier of a view. The settings sheet's
+  general panel picks WHICH saved view its composer edits (`default`, `agenda`),
+  and a write names the views that MOVED, so editing one leaves the other's line
+  where it was. A tree naming no line gets the built-in it always had.
 - **`+` opens on the tag the view is filtered to.** Capturing from a table
   narrowed to one tag almost always means another entry of that kind, so the
   form's tag field arrives carrying it and that tag's template is already

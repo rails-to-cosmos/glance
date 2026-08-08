@@ -32,7 +32,7 @@ import TestDefaults ( assertContains, boolAt, digestOnDisk, document, field, hol
                     , holdsNone
                     , columnKeysOf, columnOf, intAt, listAt, maybeTextAt, orgFile, sparseAt
                     , sparseTextAt, systemFileIn, tagFileIn, writeLayers
-                    , tagsDirIn, textAt, textsAt, viewDir, withTempDir )
+                    , tagsDirIn, textAt, textsAt, viewDir, viewText, withTempDir )
 import TestWire ( assertOk, capture, command, drainNow, keywordArg, ok, postTo
                 , serverAt, status )
 
@@ -4658,9 +4658,42 @@ settingsSpec shell =
         writes <- listAt "configWrites" answer
         assertEqual "one write, for the system layer" 1 (length writes)
         assertEqual "carrying the composed view" "tag:work"
-          =<< textAt "filter" (head writes)
+          =<< wroteView "default" (head writes)
         assertEqual "and the server holds it now" "tag:work"
           =<< textAt "served" answer
+
+    -- A SAVED VIEW IS A REGISTRY ENTRY, and `#cwhich' is which one the one
+    -- composer stands on.  Switching is a READ — it asks the server nothing and
+    -- writes nothing — and the write names the views that MOVED, so editing the
+    -- agenda leaves the default's line exactly where it was.
+  , keyed shell "the composer edits whichever saved view is picked"
+      "," "cwhich:agenda cview:tag:home press:Escape" $ \answer -> do
+        writes <- listAt "configWrites" answer
+        assertEqual "one write, for the system layer" 1 (length writes)
+        assertEqual "carrying the agenda alone" "tag:home"
+          =<< wroteView "agenda" (head writes)
+        assertEqual "the default view is not named" Nothing
+          =<< (field "views" (head writes) >>= sparseTextAt "default")
+        assertEqual "and the server holds the agenda now" "tag:home"
+          =<< textAt "servedAgenda" answer
+        assertEqual "with the default untouched" "state:*active*"
+          =<< textAt "served" answer
+
+  , keyed shell "switching views keeps each one's own edit and asks nothing"
+      "," "cview:tag:work cwhich:agenda cwhich:default press:Escape" $ \answer -> do
+        assertEqual "the default's edit came back" "tag:work"
+          =<< textAt "cview" answer
+        writes <- listAt "configWrites" answer
+        assertEqual "one write at the end, not one per switch" 1 (length writes)
+        assertEqual "and it carries the default" "tag:work"
+          =<< wroteView "default" (head writes)
+
+    -- `a' APPLIES THE TREE'S OWN AGENDA: the line is a saved view like the
+    -- default, so a write under a running page is what the next press applies.
+  , keyed shell "a applies the agenda the tree configures"
+      "," "cwhich:agenda cview:tag:home press:Escape press:a" $ \answer ->
+        urlIs "the freshly written agenda, not the built-in"
+              "?q=tag%3Ahome" answer
 
   , keyed shell "the composer is one mount, re-seeded with what is served"
       "," "cview:tag:work press:Escape press:," $ \answer -> do
@@ -4683,7 +4716,7 @@ settingsSpec shell =
         assertEqual "at the system path" "/o/.org-glance/config/system.org"
           =<< textAt "path" (head writes)
         assertEqual "carrying the applied query" "state:*active*"
-          =<< textAt "filter" (head writes)
+          =<< wroteView "default" (head writes)
         assertEqual "and the server holds it now" "state:*active*"
           =<< textAt "served" answer
         echoIs "the pill names the pin"
@@ -4699,7 +4732,7 @@ settingsSpec shell =
       "P" "press:g" $ \answer -> do
         writes <- listAt "configWrites" answer
         assertEqual "the write carries the order too" "tag:work sort:deadline"
-          =<< textAt "filter" (head writes)
+          =<< wroteView "default" (head writes)
         urlIs "g applied the freshly pinned view, sort and all"
           "?q=tag%3Awork+sort%3Adeadline" answer
         assertEqual "and the badge held" True =<< boolAt "pinned" answer
@@ -4714,7 +4747,7 @@ settingsSpec shell =
         writes <- listAt "configWrites" answer
         assertEqual "the write carries filter, columns and order"
                     "tag:work columns:state,title sort:deadline"
-          =<< textAt "filter" (head writes)
+          =<< wroteView "default" (head writes)
         urlIs "g applied the freshly pinned view whole"
           "?q=tag%3Awork+columns%3Astate%2Ctitle+sort%3Adeadline" answer
         assertEqual "and the badge held" True =<< boolAt "pinned" answer
@@ -4746,7 +4779,7 @@ settingsSpec shell =
         writes <- listAt "configWrites" answer
         assertEqual "one write" 1 (length writes)
         assertEqual "carrying the applied query" "state:*active*"
-          =<< textAt "filter" (head writes)
+          =<< wroteView "default" (head writes)
         assertEqual "the badge is on" True =<< boolAt "pinned" answer
         assertEqual "and the echo names the command"
                     "pin → set-default-view (pinned · state:*active*)"
@@ -5762,7 +5795,7 @@ shellGlue =
   -- any other: in the URL, mounted as a chip, asked of the server — so DEL
   -- takes it off and the whole store is one keystroke away.
   , glue "a bare boot opens on the active view"
-      [ "const DEFAULT_QUERY = CFG.defaultQuery;"
+      [ "const DEFAULT_QUERY = seedView(\"default\");"
       -- A `q' in the address bar is the reader's own, empty or not.
       , "const bootQuery = () => (params().has(\"q\") ? urlQuery() : DEFAULT_QUERY);"
       , "const asked = (query = bootQuery());"
@@ -6501,7 +6534,7 @@ shellGlue =
   -- `g' reads the LIVE default (`pinnedQuery', seeded from the constant and
   -- moved by a pin), so a fresh pin is applied without a page reload.
   , Glue "the default view is the tree's, and `g' applies it"
-      [ "const DEFAULT_QUERY = CFG.defaultQuery;"
+      [ "const DEFAULT_QUERY = seedView(\"default\");"
       , "let pinnedQuery = DEFAULT_QUERY.trim();"
       , "const bootQuery = () => (params().has(\"q\") ? urlQuery() : DEFAULT_QUERY);"
       , "applyView(b, pinnedQuery);"
@@ -6518,8 +6551,8 @@ shellGlue =
   -- thing: it carries its own ORDER, which is a token of the query like any
   -- other rather than a call behind the answer.
   , Glue "`a' is the agenda query through the same door, its own sort included"
-      [ "const AGENDA_QUERY = \"state:*active* -planned:*empty* sort:scheduled\";"
-      , "applyAgenda: (b) => applyView(b, AGENDA_QUERY, (total) => landedAgenda(b, total)),"
+      [ "let agendaQuery = seedView(\"agenda\");"
+      , "applyAgenda: (b) => applyView(b, agendaQuery, (total) => landedAgenda(b, total)),"
       , "said(b, `agenda · ${rowsWord(total)}`);"
       -- The landing is an ARGUMENT of the boot it belongs to, so a boot that
       -- never lands cannot leave one behind for the next.
@@ -9232,7 +9265,7 @@ configSpec = testGroup "GET and POST /config"
       withConfigTree $ \a _dir -> do
         v <- decoded =<< getFrom a "/config"
         assertEqual "with no line anywhere, the built-in"
-                    "state:*active*" =<< textAt "filter" v
+                    "state:*active*" =<< viewText "default" v
 
   , testCase "and a system layer naming one is what is served" $
       withConfigTree $ \a dir -> do
@@ -9241,7 +9274,39 @@ configSpec = testGroup "GET and POST /config"
         assertContains "the line is in the file" "#+GLANCE_DEFAULT_FILTER: tag:work"
           =<< document (T.unpack (systemAt dir))
         v <- decoded =<< getFrom a "/config"
-        assertEqual "and the next read says so" "tag:work" =<< textAt "filter" v
+        assertEqual "and the next read says so" "tag:work" =<< viewText "default" v
+
+    -- A SECOND SAVED VIEW is the registry's whole cost: its own pragma, its own
+    -- built-in, and the same three-valued write.  Naming one leaves the other's
+    -- line where it was, which is what makes the sheet's per-view write honest.
+  , testCase "the agenda view is a line of its own" $
+      withConfigTree $ \a dir -> do
+        v <- decoded =<< getFrom a "/config"
+        assertEqual "with no line anywhere, the built-in"
+                    "state:*active* -planned:*empty* sort:scheduled"
+          =<< viewText "agenda" v
+        digest <- textAt "digest" . head =<< listAt "layers" =<< decoded =<< getFrom a "/config"
+        assertOk =<< postTo a "/config" (encode (object
+          [ "path" .= systemAt dir, "digest" .= digest
+          , "views" .= object ["agenda" .= ("tag:home sort:deadline" :: T.Text)] ]))
+        after <- document (T.unpack (systemAt dir))
+        assertContains "the line is in the file"
+          "#+GLANCE_AGENDA_FILTER: tag:home sort:deadline" after
+        fresh <- decoded =<< getFrom a "/config"
+        assertEqual "and it is what is served" "tag:home sort:deadline"
+          =<< viewText "agenda" fresh
+        assertEqual "the default view is untouched" "state:*active*"
+          =<< viewText "default" fresh
+
+  , testCase "a view no build carries is a 400 naming it" $
+      withConfigTree $ \a dir -> do
+        digest <- textAt "digest" . head =<< listAt "layers" =<< decoded =<< getFrom a "/config"
+        answer <- postTo a "/config" (encode (object
+          [ "path" .= systemAt dir, "digest" .= digest
+          , "views" .= object ["weekly" .= ("tag:home" :: T.Text)] ]))
+        assertEqual "refused" 400 (status answer)
+        assertContains "naming the view and what this build has"
+          "no view is called weekly" =<< textAt "error" =<< decoded answer
 
     -- THE PIN'S OWN SHAPE: no `lines' key at all — the block stands untouched
     -- and the filter line joins, sort tokens and all.  This is the request the
@@ -9258,7 +9323,8 @@ configSpec = testGroup "GET and POST /config"
         fresh <- textAt "digest" . head =<< listAt "layers" =<< decoded =<< getFrom a "/config"
         assertOk =<< postTo a "/config" (encode (object
           [ "path" .= systemAt dir, "digest" .= fresh
-          , "filter" .= ("state:*active* columns:state,title sort:state->priority->title" :: T.Text) ]))
+          , "views" .= object
+              [ "default" .= ("state:*active* columns:state,title sort:state->priority->title" :: T.Text) ] ]))
         after <- document (T.unpack (systemAt dir))
         assertContains "the pinned line — filter, columns and sort chain whole"
           "#+GLANCE_DEFAULT_FILTER: state:*active* columns:state,title sort:state->priority->title" after
@@ -9266,7 +9332,7 @@ configSpec = testGroup "GET and POST /config"
           (todoLines before) (todoLines after)
         assertEqual "served on the next read"
           "state:*active* columns:state,title sort:state->priority->title"
-          =<< textAt "filter" =<< decoded =<< getFrom a "/config"
+          =<< viewText "default" =<< decoded =<< getFrom a "/config"
 
     -- THE FIRST CONFIG DIRECTORY IN A TREE THAT HAD NONE, which was a known gap
     -- and is now the same door a capture uses.  `.org-glance/config/' is two
@@ -9299,7 +9365,7 @@ configSpec = testGroup "GET and POST /config"
         assertBool ("the line is gone: " <> show after)
                    (not ("GLANCE_DEFAULT_FILTER" `T.isInfixOf` after))
         assertEqual "so the built-in answers again" "state:*active*"
-          =<< textAt "filter" =<< decoded =<< getFrom a "/config"
+          =<< viewText "default" =<< decoded =<< getFrom a "/config"
 
     -- THE CAPTURE TEMPLATE is a REGION of the same file, so it is served beside
     -- the lines and written in the same drift-locked call: one file, one digest.
@@ -9404,7 +9470,8 @@ configSpec = testGroup "GET and POST /config"
   , testCase "the served page carries the tree's default view" $ do
       withConfigTree $ \a _dir ->
         assertContains "the built-in, where nothing configures one"
-                       "\"defaultQuery\":\"state:*active*\"" . body =<< getFrom a "/"
+                       "\"views\":[{\"id\":\"default\",\"query\":\"state:*active*\"}"
+                       . body =<< getFrom a "/"
       withTempDir $ \dir -> do
         let system = systemFileIn dir
         createDirectoryIfMissing True (takeDirectory system)
@@ -9412,7 +9479,7 @@ configSpec = testGroup "GET and POST /config"
           "#+TODO: TODO | DONE\n#+GLANCE_DEFAULT_FILTER: tag:work\n"
         _ <- orgFile dir "notes.org" "* TODO x\n"
         (a, _hub) <- serverOver dir
-        assertContains "the tree's own" "\"defaultQuery\":\"tag:work\"" . body
+        assertContains "the tree's own" "\"query\":\"tag:work\"" . body
           =<< getFrom a "/"
 
   , testCase "a tree with no system.org lists it anyway, as creatable" $
@@ -10138,6 +10205,12 @@ viewBody path lines' want = layerBody path lines' want Nothing
 captureBody :: T.Text -> [T.Text] -> Maybe T.Text -> T.Text -> BL.ByteString
 captureBody path lines' = layerBody path lines' Nothing
 
+-- | The query a captured @POST \/config@ body names for the view ID.  The
+-- request's @views@ is an OBJECT keyed by id, three-valued per view, where the
+-- ANSWER's is an ordered array: two shapes for two jobs, and this is the write's.
+wroteView :: T.Text -> Value -> IO T.Text
+wroteView vid v = field "views" v >>= textAt vid
+
 -- | A layer write over all three of its lines.  Absent leaves a line alone; the
 -- three ride in one request because they are lines of one file.
 layerBody :: T.Text -> [T.Text] -> Maybe T.Text -> Maybe T.Text -> T.Text -> BL.ByteString
@@ -10149,7 +10222,7 @@ templateBody :: T.Text -> [T.Text] -> Maybe T.Text -> Maybe T.Text -> Maybe T.Te
              -> T.Text -> BL.ByteString
 templateBody path lines' want target template digest = encode (object
   ([ "path" .= path, "lines" .= lines', "digest" .= digest ]
-     <> [ "filter" .= f | Just f <- [want] ]
+     <> [ "views" .= object ["default" .= f] | Just f <- [want] ]
      <> [ "capture" .= c | Just c <- [target] ]
      <> [ "template" .= t | Just t <- [template] ]))
 

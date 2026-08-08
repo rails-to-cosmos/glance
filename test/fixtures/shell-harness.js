@@ -400,9 +400,10 @@ const tagCounts = { archive: 12, book: 3, web: 40, work: 7 };
 // Every /tags URL asked for, which is what says WHICH rows the palette
 // resolved for.
 const tagged = [];
-// The default view `system.org' names, which `g' applies and the settings sheet
-// edits beside that layer's cycle.
+// The SAVED VIEWS `system.org' names, which `g' and `a' apply and the settings
+// sheet edits beside that layer's cycle.
 let viewQuery = "state:*active*";
+let agendaQuery = "state:*active* -planned:*empty* sort:scheduled";
 // And the capture target it names, which is the other line of that file the
 // sheet edits — plus the path the server resolves it to, which is what a
 // capture reports back and the log names.
@@ -540,7 +541,10 @@ globalThis.fetch = (url, init) => {
   }
   if (String(url) === "/config") {
     if ((init || {}).method !== "POST")
-      return answer(200, { layers, filter: viewQuery, capture: captureLine,
+      return answer(200, { layers,
+                           views: [ { id: "default", query: viewQuery }
+                                  , { id: "agenda", query: agendaQuery } ],
+                           capture: captureLine,
                            keywords: { active: ["TODO"], inactive: ["DONE"] } });
     const sent = JSON.parse((init || {}).body || "{}");
     configWrites.push(sent);
@@ -551,10 +555,13 @@ globalThis.fetch = (url, init) => {
       return answer(409, { reason: "drift", digest: (layer || {}).digest || "",
                            error: "the config file changed on disk since it was read" });
     layer.lines = (sent.lines || []).filter(Boolean);
-    // The default view and the capture target are lines of the same file, so
-    // both ride in the same write under the same digest — never a second
-    // request, which a second digest would refuse anyway.
-    if (sent.filter !== undefined) viewQuery = sent.filter;
+    // The saved views and the capture target are lines of the same file, so
+    // they ride in one write under one digest — never a second request, which
+    // a second digest would refuse anyway.  Each view is named on its own, so
+    // one moved leaves the others where they are.
+    const views = sent.views || {};
+    if (views.default !== undefined) viewQuery = views.default;
+    if (views.agenda !== undefined) agendaQuery = views.agenda;
     if (sent.capture !== undefined) captureLine = sent.capture;
     layer.digest = `c${(configTick += 1)}`;
     // Held by `chang', the settings sheet's half of `hang': `C-x C-s' syncs
@@ -1184,6 +1191,9 @@ const STATEFUL = [ "mtext", "mnote", "mfile", "modal", "mprops", "mlog", "sheet"
                  // same file, kept on the layer like its cycle and riding in
                  // the same write.
                  , "clog", "clayer", "ctext", "ctpl", "clab", "clerr"
+                 // Which saved view the composer is standing on: a select the
+                 // page fills off the server's own list, like the layer one.
+                 , "cwhich"
                  // The event strip: a line per entry, each a row of spans, so it
                  // has to hold a tree rather than answer "" to everything.
                  , "log"
@@ -1759,6 +1769,16 @@ const ACTIONS = {
     box.value = String(at);
     box.fire("change", { target: box });
   },
+  // Picking WHICH saved view the composer stands on, the same way: the value
+  // moves and the change fires, and what it shows is that the box swaps and an
+  // edit in the view being left survives the trip back.
+  cwhich: (id) => {
+    if (field("config").className !== "on")
+      throw new Error("the settings sheet is not open: cwhich");
+    const box = field("cwhich");
+    box.value = String(id);
+    box.fire("change", { target: box });
+  },
   // And the general panel's three fields, which are fixed rows rather than a
   // layer's: the default view and the capture target, bound to the system
   // layer and posted in its write, and the log knob, which is stored here and
@@ -2071,7 +2091,10 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     csecs: field("csecs").children.map((s) => parts(s, "chdr")[0].textContent),
     // What the two tree-wide fields are showing, and what the server holds now.
     cview: cmp ? cmp.held : "", cmounts, ccap: field("ctarget").value,
-    served: viewQuery, servedCapture: captureLine, capturing: captureAsked,
+    served: viewQuery, servedAgenda: agendaQuery,
+    servedCapture: captureLine, capturing: captureAsked,
+    // Which saved view the composer is standing on.
+    cwhich: field("cwhich").value,
     ctpl: field("ctpl").value,
     ceff: field("ceff").textContent, configWrites,
     // The log knob: what the field holds, what was stored under it, and the

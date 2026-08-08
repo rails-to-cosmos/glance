@@ -8,7 +8,7 @@
    3. [-] User could define TODO states, in that case he could set the color for each theme (in theme settings). — config pragma #+GLANCE_STATE_COLORS lands; the settings-sheet UI rides with 1.4.
    4. [ ] Put theme settings under the global settings for now (","). Maybe we are ready to split this global settings popup into tabs?
 2. [-] In table-view.js when you specify styles, display each key on separate line like here: /home/akatovda/sync/stuff/glance/assets/table-view.js:1118
-3. [ ] In "general settings", alongside with "default view" add "agenda view", use it to customize agenda view filter. Better: make a dropdown to customize view with 2 options: default, agenda.
+3. [X] In "general settings", alongside with "default view" add "agenda view", use it to customize agenda view filter. Better: make a dropdown to customize view with 2 options: default, agenda.
 4. [X] "q" in popups should close the popup. "q" in native window should exit the app (if user is on the main page).
 5. [X] material: when updating TODO state from empty state it doesn't visually update in material view. — fixed by the stale-reload drop (df93761 line); verified live and pinned by a regression case.
 6. [ ] Big one: let's work on a proposal for recurring tasks. We need to take inspiration from org-clock, but implement it differently from the storage perspective.

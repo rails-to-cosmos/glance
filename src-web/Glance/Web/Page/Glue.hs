@@ -5,7 +5,7 @@
 -- into the binary the way the renderer is ('Glance.Web.Routes'); this module
 -- is what is left of the 5.2k-line Haskell string list it used to be
 -- (docs\/proposal-glue-extraction.md).  Eight members are per-build
--- constants off the library; @defaultQuery@ is the one per-request value and
+-- constants off the library; @views@ is the one per-request value and
 -- the reason the blob is the PAGE's to emit.  The blob rides a
 -- @\<script type="application\/json"\>@ element — the keymap blob's own
 -- pattern — so the page still inlines no executable JS beyond the file it
@@ -18,12 +18,12 @@ import Data.Text (Text)
 import Glance.Query (captureCodes, followableTypes, linkColumns, planningKeywords, tagColumns)
 import Glance.Web.Base (jsonValue, logLinesDefault, logLinesMax, logLinesMin)
 
--- | The blob for WANTED, the tree's default view.  Member names are the
+-- | The blob for VIEWS, the tree's saved views in registry order.  Member names are the
 -- script's @CFG.*@ reads; a member added here without its read is inert, one
 -- read without its member is an undefined the suite's boot catches.
-glueConfig :: Text -> Text
-glueConfig wanted = jsonValue $ object
-  [ "defaultQuery" .= wanted
+glueConfig :: [(Text, Text)] -> Text
+glueConfig views = jsonValue $ object
+  [ "views"        .= [ object ["id" .= i, "query" .= q] | (i, q) <- views ]
   , "dcells"       .= (["state", "priority", "title", "tags"] :: [Text])
   , "planning"     .= planningKeywords
   , "followable"   .= followableTypes

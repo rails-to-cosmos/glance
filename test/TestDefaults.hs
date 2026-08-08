@@ -42,6 +42,7 @@ module TestDefaults ( assertContains
                     , tagsDirIn
                     , writeLayers
                     , textAt
+                    , viewText
                     , textsAt
                     , titled
                     , viewDir
@@ -57,6 +58,7 @@ module TestDefaults ( assertContains
                     , withTodo
                     ) where
 
+import Control.Monad (filterM)
 import Control.Exception (IOException, finally, throwIO, try)
 import Data.Aeson (Value (Bool, Null, Number, Object, String), parseJSON)
 import Data.Aeson.Types (parseEither)
@@ -327,6 +329,15 @@ textAt k v = field k v >>= string
   where string (String t) = pure t
         string other = assertFailure ("expected a string at " <> show k
                                         <> ", got " <> show other)
+
+-- | The query V's @views@ array carries for the view ID.
+viewText :: Text -> Value -> IO Text
+viewText vid v = do
+  entries <- listAt "views" v
+  named <- filterM (fmap (== vid) . textAt "id") entries
+  case named of
+    (e:_) -> textAt "query" e
+    []    -> assertFailure ("no view called " <> show vid <> " in " <> show v)
 
 -- | The number at KEY of V, as an offset.
 intAt :: Text -> Value -> IO Int

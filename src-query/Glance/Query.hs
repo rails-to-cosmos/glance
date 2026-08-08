@@ -50,6 +50,7 @@ module Glance.Query ( BlobSeed (..)
                     , bareTemplate
                     , blobDocument
                     , blobPathIn
+                    , builtinAgenda
                     , builtinFilter
                     , captureCodes
                     , captureEdits
@@ -67,8 +68,12 @@ module Glance.Query ( BlobSeed (..)
                     , configPath
                     , currentDocument
                     , defaultCaptureFile
+                    , SavedView (..)
                     , defaultFilter
-                    , defaultFilterOf
+                    , savedView
+                    , savedViews
+                    , viewOf
+                    , viewQuery
                     , defaultWalk
                     , derivedPath
                     , digestOfText
@@ -186,11 +191,12 @@ import Data.Org ( Context, Element (EHeadline), Headline
                 , orgParse, priority, schedule, shiftSpan, sliceSpan, spans, spelled
                 , tags, title, todo, tsBrackets )
 import Data.Org.Config ( ConfigLayerFile (..), ConfigLayers (..), TodoKeywords (..)
-                       , builtinFilter, captureTargetEdits, captureTargetIn
+                       , builtinAgenda, builtinFilter, captureTargetEdits, captureTargetIn
                        , captureTargetOf, classify, configDirIn, configDirsIn
                        , declaredKeywords
-                       , defaultCaptureFile, defaultFilter
-                       , defaultFilterEdits, defaultFilterOf, isTodoPragma
+                       , SavedView (..), defaultCaptureFile, defaultFilter
+                       , isTodoPragma, savedView, savedViews, viewEdits, viewOf
+                       , viewQuery
                        , firstBy, keywordScopes
                        , loadConfigDirs, mergeKeywords, noConfig, noKeywords
                        , readConfigLayers, recognizedKeywords, seedContext
@@ -2829,9 +2835,15 @@ configEdits doc asked parts
   | otherwise          = block lines'
   where
     block ls = (todoLineEdits doc ls <>) <$> partEdits
-    partEdits = (lineEdits <>) <$> maybe (Right []) (captureTemplateEdits doc) (cpTemplate parts)
-    lineEdits = maybe [] (defaultFilterEdits doc) (cpFilter parts)
-             <> maybe [] (captureTargetEdits doc) (cpCapture parts)
+    partEdits = (<>) <$> viewLines <*> maybe (Right []) (captureTemplateEdits doc) (cpTemplate parts)
+    -- A view is named by its id, so a name no build carries refuses rather than
+    -- writing a line nothing reads.
+    viewLines = fmap ((<> maybe [] (captureTargetEdits doc) (cpCapture parts)) . concat)
+              . traverse one $ cpViews parts
+    one (vid, want) = case savedView vid of
+      Just v  -> Right (viewEdits v doc want)
+      Nothing -> Left ("no view is called " <> vid <> "; this build has "
+                        <> T.intercalate ", " (map svId savedViews))
     lines'   = filter (not . T.null . T.strip) (fromMaybe [] asked)
     -- A LINE, and the pragma test is a prefix one: an entry carrying a newline
     -- of its own would pass it and write everything past that newline into the
@@ -2847,14 +2859,14 @@ configEdits doc asked parts
 -- A record rather than three positional 'Maybe Text' arguments, since all three
 -- have the same type and a caller swapping two would compile.
 data ConfigParts = ConfigParts
-  { cpFilter   :: !(Maybe Text)  -- ^ @#+GLANCE_DEFAULT_FILTER:@, the system layer's alone.
+  { cpViews    :: ![(Text, Text)]  -- ^ saved views by id, the system layer's alone; an id absent leaves that view.
   , cpCapture  :: !(Maybe Text)  -- ^ @#+GLANCE_CAPTURE_TARGET:@, likewise.
   , cpTemplate :: !(Maybe Text)  -- ^ the capture template, which EVERY layer may carry.
   } deriving (Eq, Show)
 
 -- | A layer write asking for nothing but its cycle.
 noParts :: ConfigParts
-noParts = ConfigParts Nothing Nothing Nothing
+noParts = ConfigParts [] Nothing Nothing
 
 declaresNothing :: Text
 declaresNothing =

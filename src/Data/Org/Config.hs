@@ -30,6 +30,7 @@
 module Data.Org.Config ( ConfigLayerFile (..)
                        , ConfigLayers (..)
                        , TodoKeywords (..)
+                       , builtinAgenda
                        , builtinFilter
                        , captureTargetEdits
                        , captureTargetIn
@@ -42,9 +43,13 @@ module Data.Org.Config ( ConfigLayerFile (..)
                        , configPaths
                        , declaredKeywords
                        , defaultCaptureFile
+                       , SavedView (..)
                        , defaultFilter
-                       , defaultFilterEdits
-                       , defaultFilterOf
+                       , savedView
+                       , savedViews
+                       , viewEdits
+                       , viewOf
+                       , viewQuery
                        , firstBy
                        , isTodoPragma
                        , keywordScopes
@@ -63,7 +68,7 @@ module Data.Org.Config ( ConfigLayerFile (..)
 
 import Control.Exception (IOException, try)
 import Data.Foldable (asum)
-import Data.List (foldl', sort)
+import Data.List (find, foldl', sort)
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Text (Text)
 import System.Directory (listDirectory)
@@ -182,12 +187,37 @@ isTodoPragma = opensPragma "#+todo:"
 builtinFilter :: Text
 builtinFilter = "state:*active*"
 
--- | The two TREE-WIDE settings @system.org@ carries beside its cycle, as the
--- pragma keys they are spelled with.  Each name is written ONCE: a reader folds
--- it and a writer renders it, and the pair drifting apart is a line a settings
--- sheet rewrites into a line nothing reads.
-defaultFilterKey, captureTargetKey, stateColorsKey :: Text
-defaultFilterKey = "GLANCE_DEFAULT_FILTER"
+-- | And the query @a@ applies: the active rows carrying a date, earliest
+-- first.  A VIEW like the default rather than a mode, so the order rides in the
+-- query with the filter.
+builtinAgenda :: Text
+builtinAgenda = "state:*active* -planned:*empty* sort:scheduled"
+
+-- | A SAVED VIEW: the query a key applies, kept in @system.org@ under a line of
+-- its own.  A third view is one entry here — the wire, the settings selector
+-- and the write all fold this list.
+data SavedView = SavedView
+  { svId      :: !Text  -- ^ what the wire and the selector spell.
+  , svPragma  :: !Text  -- ^ its pragma key.
+  , svBuiltin :: !Text  -- ^ the query where no layer names one.
+  } deriving (Eq, Show)
+
+-- | Every view a tree may configure, in the order a selector offers them.
+savedViews :: [SavedView]
+savedViews =
+  [ SavedView "default" "GLANCE_DEFAULT_FILTER" builtinFilter
+  , SavedView "agenda"  "GLANCE_AGENDA_FILTER"  builtinAgenda
+  ]
+
+-- | The view ID names, or 'Nothing' where no build carries one.
+savedView :: Text -> Maybe SavedView
+savedView vid = find ((== vid) . svId) savedViews
+
+-- | The TREE-WIDE settings @system.org@ carries beside its cycle and its views,
+-- as the pragma keys they are spelled with.  Each name is written ONCE: a
+-- reader folds it and a writer renders it, and the pair drifting apart is a
+-- line a settings sheet rewrites into a line nothing reads.
+captureTargetKey, stateColorsKey :: Text
 captureTargetKey = "GLANCE_CAPTURE_TARGET"
 stateColorsKey   = "GLANCE_STATE_COLORS"
 
@@ -219,11 +249,11 @@ settingEdits key doc want =
     [ "#+" <> key <> ": " <> value | not (T.null value) ]
   where value = T.strip want
 
--- | The filter query DOC's @#+GLANCE_DEFAULT_FILTER:@ line names, or 'Nothing'
--- when it carries none — which is what makes 'builtinFilter' the fallback
--- rather than a value written into every tree.
-defaultFilterOf :: Text -> Maybe Text
-defaultFilterOf = settingOf defaultFilterKey
+-- | The query DOC's line for VIEW names, or 'Nothing' when it carries none —
+-- which is what makes 'svBuiltin' the fallback rather than a value written into
+-- every tree.
+viewOf :: SavedView -> Text -> Maybe Text
+viewOf = settingOf . svPragma
 
 -- The capture target
 
@@ -326,12 +356,12 @@ opensPragma key line = key `T.isPrefixOf` T.toLower (T.stripStart line)
 todoLineEdits :: Text -> [Text] -> [(Span, Text)]
 todoLineEdits = pragmaLineEdits isTodoPragma
 
--- | The span edits setting DOC's default view to WANT.  An EMPTY query deletes
--- the line, which is how a tree goes back to 'builtinFilter' — a line naming
+-- | The span edits setting DOC's VIEW to WANT.  An EMPTY query deletes the
+-- line, which is how a tree goes back to that view's built-in — a line naming
 -- nothing would be a different answer (the whole store) and a settings sheet
 -- has no way to spell the difference.
-defaultFilterEdits :: Text -> Text -> [(Span, Text)]
-defaultFilterEdits = settingEdits defaultFilterKey
+viewEdits :: SavedView -> Text -> Text -> [(Span, Text)]
+viewEdits = settingEdits . svPragma
 
 -- | The span edits putting LINES where DOC's MINE lines are.
 --
@@ -387,28 +417,34 @@ data ConfigLayers = ConfigLayers
   { clSystem  :: !TodoKeywords            -- ^ @config\/system.org@'s sets; empty when there is no such file.
   , clTags    :: ![(Text, TodoKeywords)]  -- ^ @config\/tags\/TAG.org@'s sets, tag lowercased, in file-name order.
   , clSeed    :: !TodoKeywords            -- ^ the recognition union: every keyword any layer names.
-  , clFilter  :: !(Maybe Text)            -- ^ the default view @system.org@ names; see 'defaultFilter'.
+  , clViews   :: ![(Text, Text)]          -- ^ the views @system.org@ names, by id; see 'viewQuery'.
   , clCapture :: !(Maybe Text)            -- ^ the capture target it names; see 'captureTargetIn'.
   , clStateColors :: ![(Text, [(Text, Text)])]  -- ^ per-theme keyword hues; see 'stateColorsOf'.
   , clPrint   :: !Text                    -- ^ digest over the config files read, @\"\"@ when none were.
   , clDirs    :: ![FilePath]              -- ^ the config directories these were read from, in walk order.
   } deriving (Eq, Show)
 
--- | The query a table under CFG opens on: what @system.org@'s
--- @#+GLANCE_DEFAULT_FILTER:@ names, or 'builtinFilter' where no layer names one.
+-- | The query view ID under CFG applies: what @system.org@'s line for it names,
+-- or that view's built-in where no layer names one.  A view no build carries is
+-- the empty query.
 --
 -- The SYSTEM layer alone, and only the first config directory that has anything
--- to say: a default view is a property of a tree rather than of a tag, and two
+-- to say: a saved view is a property of a tree rather than of a tag, and two
 -- stores nested under one root would otherwise take turns deciding what the
 -- table opens on.
+viewQuery :: Text -> ConfigLayers -> Text
+viewQuery vid cfg =
+  fromMaybe (maybe "" svBuiltin (savedView vid)) (lookup vid (clViews cfg))
+
+-- | The query a table under CFG opens on.
 defaultFilter :: ConfigLayers -> Text
-defaultFilter = fromMaybe builtinFilter . clFilter
+defaultFilter = viewQuery "default"
 
 -- | No config at all — what a tree with no @.org-glance\/config@ loads as, and
 -- what every caller that does not want one passes.  Parsing under it is
 -- byte-identical to parsing from 'defaultContext'.
 noConfig :: ConfigLayers
-noConfig = ConfigLayers noKeywords [] noKeywords Nothing Nothing [] "" []
+noConfig = ConfigLayers noKeywords [] noKeywords [] Nothing [] "" []
 
 -- | Where ROOT would keep its config directory.  For a writer — the settings UI
 -- creating @system.org@ — rather than for a reader: a reader is given the
@@ -459,7 +495,8 @@ loadConfigDirs dirs = combine <$> readConfigLayers dirs
       { clSystem  = mergeKeywords [ keywordsIn f | f <- entries, isSystem f ]
       , clTags    = firstBy fst [ (tag, keywordsIn f) | f <- entries, Just tag <- [lfTag f] ]
       , clSeed    = mergeKeywords (map keywordsIn entries)
-      , clFilter  = systemSetting defaultFilterOf files
+      , clViews   = [ (svId v, q) | v <- savedViews
+                                  , Just q <- [systemSetting (viewOf v) files] ]
       , clCapture = systemSetting captureTargetOf files
       -- The SYSTEM layer's, like the other two tree-wide settings: a colour for
       -- a keyword is a property of the tree rather than of one tag.
@@ -477,8 +514,8 @@ loadConfigDirs dirs = combine <$> readConfigLayers dirs
 -- or 'Nothing' where none does.  A tree-wide setting belongs to a tree rather
 -- than to a tag, so a tag layer is never asked.
 --
--- Both settings are read this way and both readers share it — the load, which
--- fills 'clFilter' and 'clCapture', and the settings route, which reads the
+-- Every tree-wide setting is read this way and both readers share it — the
+-- load, which fills 'clViews' and 'clCapture', and the settings route, which reads the
 -- same bytes the digests it hands out were taken from, so what a sheet shows
 -- and what its write is pinned to describe one file.
 systemSetting :: (Text -> Maybe Text) -> [ConfigLayerFile] -> Maybe Text

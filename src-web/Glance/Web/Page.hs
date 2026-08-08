@@ -33,8 +33,9 @@ import Glance.Web.Page.Style (fontFace, page)
 -- strip's own @ws@ lines, and every preference is a panel of the settings sheet
 -- @,@ raises.
 
-demoShell :: ServeOptions -> Maybe FilePath -> [(Text, [(Text, Text)])] -> Text -> Text
-demoShell opts font colours wanted =
+demoShell :: ServeOptions -> Maybe FilePath -> [(Text, [(Text, Text)])]
+          -> [(Text, Text)] -> Text
+demoShell opts font colours views =
   page (fontFace font) colours (viewTitleFor (soDir opts)) $ T.unlines $
   -- No heading: the view title is already the tab's, and printing it a second
   -- time here put it on screen twice.  In palette mode the renderer carries no
@@ -160,12 +161,14 @@ demoShell opts font colours wanted =
   -- constants the server answers with — the value cannot change while the page
   -- is up, so nothing carries it into the glue and back out per sheet-open.
   , "      <div id=\"cgen\" class=\"cpart\">"
-  -- The default view is edited in the SAME widget the main page filters with:
-  -- a table-view COMPOSER mount — the omnibox bar and the chips, no table
-  -- behind them — so badges, completion and the whole query grammar are the
-  -- form control.  `P' on the table is still the pin; this row is the sheet's
-  -- door to the same line.
-  , crow (clab "default view") "<div id=\"cfbox\"></div>"
+  -- A SAVED VIEW is edited in the SAME widget the main page filters with: a
+  -- table-view COMPOSER mount — the omnibox bar and the chips, no table behind
+  -- them — so badges, completion and the whole query grammar are the form
+  -- control.  WHICH view is the label's own selector, off the registry, so a
+  -- third view is an entry in 'savedViews' and nothing here.  `P' on the table
+  -- is still the pin; this row is the sheet's door to the same lines.
+  , crow "<select id=\"cwhich\" class=\"cview\" title=\"which saved view\"></select>"
+         "<div id=\"cfbox\"></div>"
   , crow (clab "capture target")
          (cinput "ctarget" ""
                  ("where + captures; empty is " <> T.pack defaultCaptureFile))
@@ -232,7 +235,7 @@ demoShell opts font colours wanted =
   -- constants and the per-request default view, read by glue.js as `CFG'.
   -- The script itself is a compiled-in asset like the renderer, so the page
   -- inlines no executable JS at all — the theme boot line in <head> aside.
-  , "  <script id=\"cfg\" type=\"application/json\">" <> glueConfig wanted <> "</script>"
+  , "  <script id=\"cfg\" type=\"application/json\">" <> glueConfig views <> "</script>"
   , "  <script src=\"" <> T.pack rendererAsset <> "\"></script>"
   , "  <script src=\"" <> T.pack glueAsset <> "\"></script>"
   ]

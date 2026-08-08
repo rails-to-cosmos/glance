@@ -25,10 +25,11 @@ import Data.Org.Config ( TodoKeywords (..), classify, configDirIn, noKeywords
                        , todoPragmas )
 import Data.Org.Edit (Edit (Edit), applyEdits)
 import Glance.Query ( ConfigLayerFile (..), ConfigLayers (..), ConfigParts (..)
+                    , SavedView (..), savedView, savedViews, viewOf
                     , HeadlineRecord (..)
                     , QueryResult (..), WalkOptions (..), builtinFilter
                     , captureTargetIn, captureTargetOf, configEdits
-                    , configPath, defaultFilter, defaultFilterOf, defaultSortChain
+                    , configPath, defaultFilter, defaultSortChain
                     , defaultWalk, loadDir
                     , loadDirFilesSerially, loadDirWith, loadDirWithConfig, loadFile
                     , noConfig, noParts, readConfigLayers, sortedForViewWith
@@ -350,7 +351,7 @@ classificationSpec = testGroup "Classification"
       let cfg = ConfigLayers { clSystem  = TodoKeywords [] ["TODO", "STARTED"]
                              , clTags    = [("book", TodoKeywords ["READING"] [])]
                              , clSeed    = TodoKeywords ["READING", "STARTED"] ["TODO"]
-                             , clFilter  = Nothing
+                             , clViews   = []
                              , clCapture = Nothing
                              , clStateColors = []
                              , clPrint   = ""
@@ -569,7 +570,7 @@ writeSpec = testGroup "Writing a layer"
                 <> "#+GLANCE_DEFAULT_FILTER: state:*active* sort:state->title\n"
                 <> "\n* Book\n*** Notes\n    %?\n"))
         (do edits <- configEdits bookConfig Nothing
-                       noParts { cpFilter = Just "state:*active* sort:state->title" }
+                       noParts { cpViews = [("default", "state:*active* sort:state->title")] }
             first (T.pack . show)
                   (applyEdits bookConfig [ Edit sp new | (sp, new) <- edits ]))
       assertEqual "and absent everything is no edit at all"
@@ -667,19 +668,19 @@ writeSpec = testGroup "Writing a layer"
     -- store; only an ABSENT line falls back.
   , testCase "and a default view line with nothing on it is the empty query" $
       assertEqual "the empty query"
-                  (Just "") (defaultFilterOf "#+GLANCE_DEFAULT_FILTER:\n")
+                  (Just "") (viewOf defaultSaved "#+GLANCE_DEFAULT_FILTER:\n")
 
   , testCase "with no line anywhere the built-in is what answers" $
       withTree Nothing [] [("a.org", "* TODO x\n")] $ \dir -> do
         (cfg, _rows) <- loaded dir
-        assertEqual "nothing configured" Nothing (clFilter cfg)
+        assertEqual "nothing configured" [] (clViews cfg)
         assertEqual "so the tree opens on the active group" builtinFilter (defaultFilter cfg)
 
   , testCase "and the system layer's line is what the tree opens on" $
       withTree (Just "#+TODO: TODO | DONE\n#+GLANCE_DEFAULT_FILTER: tag:work\n")
                [] [("a.org", "* TODO x\n")] $ \dir -> do
         (cfg, _rows) <- loaded dir
-        assertEqual "read at load" (Just "tag:work") (clFilter cfg)
+        assertEqual "read at load" (Just "tag:work") (lookup "default" (clViews cfg))
         assertEqual "and it is what answers" "tag:work" (defaultFilter cfg)
 
     -- Where a capture lands is decided HERE, when the config is read, and not
@@ -827,7 +828,8 @@ splicedCapture doc lines' = splicing doc lines' Nothing
 -- | 'spliced' over both of the system layer's tree-wide lines.
 splicing :: Text -> [Text] -> Maybe Text -> Maybe Text -> Either Text Text
 splicing doc lines' want target = do
-  edits <- configEdits doc (Just lines') noParts { cpFilter = want, cpCapture = target }
+  edits <- configEdits doc (Just lines')
+             noParts { cpViews = maybe [] (\q -> [("default", q)]) want, cpCapture = target }
   first (T.pack . show) (applyEdits doc [ Edit sp new | (sp, new) <- edits ])
 
 -- | The system layer's two tree-wide lines: each spelled key, two values of the
@@ -837,8 +839,14 @@ splicing doc lines' want target = do
 treePragmas :: [( Text, Text, Text, Text -> Maybe Text
                 , Text -> [Text] -> Maybe Text -> Either Text Text )]
 treePragmas =
-  [ ("#+GLANCE_DEFAULT_FILTER", "tag:work", "tag:home", defaultFilterOf, splicedWith)
+  [ ("#+GLANCE_DEFAULT_FILTER", "tag:work", "tag:home", viewOf defaultSaved, splicedWith)
   , ("#+GLANCE_CAPTURE_TARGET", "a.org", "b.org", captureTargetOf, splicedCapture) ]
+
+-- | The default view's registry entry, which every build carries.
+defaultSaved :: SavedView
+defaultSaved = case savedView "default" of
+  Just v  -> v
+  Nothing -> error "TestConfig: no default view in savedViews"
 
 -- | The line KEY spells VALUE on, newline and all.
 pragmaLine :: Text -> Text -> Text
