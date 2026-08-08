@@ -31,9 +31,13 @@
 -- answer the caller is about to send describes THAT write.  A lost line costs
 -- drift the instrument reports and the next edit of the same id repairs.
 module Data.Org.External ( blobIdOf
+                         , completionLine
+                         , completionsFile
+                         , completionsPathOf
                          , externalFile
                          , externalLine
                          , externalPathOf
+                         , noteCompletion
                          , noteExternalWrite
                          ) where
 
@@ -42,7 +46,7 @@ import Control.Monad (void)
 import Data.Aeson (encode)
 import Data.Text (Text)
 import Foreign.Ptr (castPtr)
-import System.Directory (createDirectoryIfMissing)
+import System.Directory (createDirectoryIfMissing, doesDirectoryExist)
 import System.FilePath (takeDirectory, (</>))
 import System.Posix.IO ( OpenFileFlags (append, creat), OpenMode (WriteOnly)
                        , closeFd, defaultFileFlags, fdWriteBuf, openFd )
@@ -53,7 +57,7 @@ import qualified Data.ByteString.Unsafe as BU
 import qualified Data.Time as Time
 
 import Data.Org (defaultContext, firstHeadlineOf, identity, orgParse, spelled)
-import Data.Org.Blob (metaDirIn)
+import Data.Org.Blob (metaDirIn, storeRootIn)
 import Data.Org.Walk (isBlob, orgGlanceRoot)
 
 -- | The one file this repo writes under a store's @meta@ directory.
@@ -73,6 +77,50 @@ externalPathOf :: FilePath -> Maybe FilePath
 externalPathOf path
   | not (isBlob path) = Nothing
   | otherwise = (\store -> metaDirIn store </> externalFile) <$> orgGlanceRoot path
+
+-- | The second file this repo writes there: one line per COMPLETION of a
+-- repeating entry.
+completionsFile :: FilePath
+completionsFile = "COMPLETIONS.jsonl"
+
+-- | Where ROOT's completions are recorded, or 'Nothing' where the tree keeps no
+-- store.  A tree with no @.org-glance@ repeats org-natively and records
+-- nothing: no daemon makes a store directory it was not given.
+completionsPathOf :: FilePath -> IO (Maybe FilePath)
+completionsPathOf root = do
+  there <- doesDirectoryExist store
+  pure (if there then Just (metaDirIn store </> completionsFile) else Nothing)
+  where store = storeRootIn root
+
+-- | The line saying IDENT was completed AT into STATE, its next occurrence
+-- SHIFTED.  'externalLine''s shape one file over: hand-assembled so the field
+-- order is the contract's, values through the encoder where escaping happens.
+completionLine :: Text -> Time.UTCTime -> Text -> Text -> BS.ByteString
+completionLine ident at state shifted = BL.toStrict
+  (  "{\"id\":" <> encode ident
+  <> ",\"at\":" <> encode (spelled "%Y-%m-%dT%H:%M:%SZ" at)
+  <> ",\"state\":" <> encode state
+  <> ",\"shifted\":" <> encode shifted <> "}\n" )
+
+-- | Record that IDENT repeated into STATE under ROOT, its next occurrence
+-- SHIFTED.  A no-op for a tree with no store, and for an entry with no id —
+-- an ordinal moves, so a ledger keyed by one names a different row a week on.
+--
+-- THE LEDGER IS DERIVED, NEVER TRUTH: the org file already carries the shifted
+-- stamp and the reset keyword, so every IO failure here is swallowed for
+-- 'noteExternalWrite''s reason — the write has landed either way.
+noteCompletion :: FilePath -> Maybe Text -> Text -> Text -> IO ()
+noteCompletion root (Just ident) state shifted = do
+  target <- completionsPathOf root
+  case target of
+    Nothing   -> pure ()
+    Just note -> do
+      now <- Time.getCurrentTime
+      swallowing $ do
+        createDirectoryIfMissing True (takeDirectory note)
+        appendLine note (completionLine ident now state shifted)
+  where swallowing act = void (try act :: IO (Either IOException ()))
+noteCompletion _root Nothing _state _shifted = pure ()
 
 -- | The line naming IDENT, written AT.  Hand-assembled rather than encoded from
 -- an object, so the field ORDER is the contract's; only the values go through

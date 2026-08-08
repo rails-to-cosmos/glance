@@ -493,6 +493,24 @@ section groups a feature arc, and its date is that arc's last commit.
   (table-view `cc9dd70`, synced). Same rules and values; a re-layout.
 
 ### Added
+- **Repeating entries repeat.** Completing a row whose `SCHEDULED:` or
+  `DEADLINE:` carries an org repeater cookie now shifts the stamp forward and
+  resets the keyword to its chain's first active state, in ONE drift-locked
+  write. All three cookies: `+1w` adds one interval to the stamp (so an overdue
+  entry stays overdue, org's own behaviour), `++1w` catches up past today, and
+  `.+1w` counts from today. The time of day, the warning cookie, a range end and
+  the brackets ride through as written; only the dates move, and each weekday is
+  recomputed. A row that repeats says so on the wire as a sparse `repeats` field
+  carrying its cookie.
+- **A completion ledger, beside the entry rather than inside it.** Each repeat
+  appends one line to `<root>/.org-glance/meta/COMPLETIONS.jsonl` —
+  `{"id","at","state","shifted"}`, append-only, keyed by `ORG_GLANCE_ID`. THE
+  LEDGER IS DERIVED, NEVER TRUTH: the org file already carries the shifted stamp
+  and the reset keyword, so deleting the ledger loses only the history and
+  changes no entry. A tree with no `.org-glance` store repeats org-natively and
+  records nothing — no daemon makes a store directory it was not given. It is
+  incomplete by construction: Emacs's own `org-todo` writes org's LOGBOOK and no
+  ledger line, so this records THIS daemon's completions.
 - **`substring:VALUE` is free text under a key.** The filter grammar reads
   `key:value` everywhere now, and a bare word is that spelling with the key
   elided — ONE matcher answers both, so they can never come to mean two

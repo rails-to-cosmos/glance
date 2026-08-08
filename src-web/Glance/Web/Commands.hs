@@ -25,7 +25,8 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified Data.Time as Time
 
-import Glance.Query ( BlobSeed (..), ConfigLayers
+import Glance.Query ( Repeat (..), noteCompletion, repeatOn, rowOrgId
+                    , BlobSeed (..), ConfigLayers
                     , HeadlineRecord (hrDigest, hrFile, hrId)
                     , Span (Span), WalkOptions, WriteFailure (..)
                     , addTagEdits, archiveEdits, bareTemplate, blobDocument
@@ -90,15 +91,29 @@ data Args = Args
 data FilePlan = FilePlan
   { fpPath   :: !FilePath
   , fpDigest :: !Text
-  , fpRows   :: ![(Text, [(Span, Text)])]  -- ^ row id, and the spans it moves.
+  , fpRows   :: ![(Text, [(Span, Text)], Maybe (Text, Text, Text))]
+      -- ^ row id, the spans it moves, and what to record on success.
   }
 
 -- | The span edits a command asks for on ONE row, under the store's config and
 -- the timestamp the request resolved to ('resolveDate').  A refusal here is the
 -- WHOLE request's, since half a write over a marked set is worse than none of
 -- one.
-type RowEdits = ConfigLayers -> Maybe Text -> Args -> HeadlineRecord
+type RowEdits = ConfigLayers -> Asked -> Args -> HeadlineRecord
               -> Either Text [(Span, Text)]
+
+-- | What a request resolved BEFORE any row was touched: the clock, read once.
+-- A record rather than a widening argument list, `ConfigParts`' reason — the
+-- next request-level value joins here and no row function changes shape.
+data Asked = Asked
+  { askToday :: !Time.Day      -- ^ the day every date is worked out against.
+  , askStamp :: !(Maybe Text)  -- ^ @set-planning@'s date, already rendered.
+  }
+
+-- | What a command RECORDS about a row it wrote, beyond the file itself: the
+-- state it landed on and its next occurrence. Only a repeat has one, and the
+-- line rides the write's success branch.
+type RowNote = ConfigLayers -> Asked -> Args -> HeadlineRecord -> Maybe (Text, Text)
 
 -- | One command, as its three fields.  'Nothing' for the edits is the command
 -- that names no rows — it MAKES one, so there is no row function to hold and no
@@ -115,6 +130,7 @@ data CommandSpec = CommandSpec
       -- ^ why the request's shape is refused, where it is.
   , csDated :: Bool                -- ^ its @date@ is read against today, once per request.
   , csEdits :: Maybe RowEdits      -- ^ what it does to each named row.
+  , csNotes :: Maybe RowNote       -- ^ what it records about one, where it records anything.
   }
 
 -- | The commands this route implements, which is also the whole of what @args@
@@ -133,35 +149,40 @@ data CommandSpec = CommandSpec
 commands :: [(Text, CommandSpec)]
 commands =
   [ ("add-tag", CommandSpec (overIds (wantsTag "add-tag")) False
-      (Just (\_cfg _stamp args r -> Right (addTagEdits (tagOf args) r))))
+      (Just (\_cfg _asked args r -> Right (addTagEdits (tagOf args) r))) Nothing)
     -- @archive@ is 'addTagEdits' at a fixed name, and it takes no @tag@ of its
     -- own: the name is org's and a client cannot aim it elsewhere.  Idempotent,
     -- so a row already tagged costs no edit and still answers @ok@.
   , ("archive", CommandSpec (overIds (const Nothing)) False
-      (Just (\_cfg _stamp _args r -> Right (archiveEdits r))))
-  , ("capture", CommandSpec (overIds wantsText) False Nothing)
+      (Just (\_cfg _asked _args r -> Right (archiveEdits r))) Nothing)
+  , ("capture", CommandSpec (overIds wantsText) False Nothing Nothing)
     -- The ONE command whose args describe a row's own TEXT rather than a
     -- property of it, so its shape includes the ROW COUNT ('wantsLink', which
     -- refuses a missing span or target too, so neither can refuse per row).
   , ("edit-link", CommandSpec wantsLink False
-      (Just (\_cfg _stamp args r ->
+      (Just (\_cfg _asked args r ->
                editLinkEdits (fromMaybe (Span 0 0) (agSpan args))
-                             (word agTarget args) (agDesc args) r)))
+                             (word agTarget args) (agDesc args) r)) Nothing)
   , ("remove-tag", CommandSpec (overIds (wantsTag "remove-tag")) False
-      (Just (\_cfg _stamp args r -> Right (removeTagEdits (tagOf args) r))))
+      (Just (\_cfg _asked args r -> Right (removeTagEdits (tagOf args) r))) Nothing)
     -- One command rather than a @remove-tag@ and an @add-tag@ fired in turn:
     -- the rename is ONE drift-locked write per file, and the pair it would
     -- compose from spells the tag onto the title ('Glance.Query.renameTagEdits').
   , ("rename-tag", CommandSpec (overIds wantsRename) False
-      (Just (\_cfg _stamp args r ->
-               Right (renameTagEdits (word agFrom args) (word agTo args) r))))
+      (Just (\_cfg _asked args r ->
+               Right (renameTagEdits (word agFrom args) (word agTo args) r))) Nothing)
     -- The keyword is there and the date has been resolved: 'csArgs' refuses a
     -- @set-planning@ without either, so neither can refuse per row.
   , ("set-planning", CommandSpec (overIds wantsPlanning) True
-      (Just (\_cfg stamp args r ->
-               setPlanningEdits (fromMaybe "" (join (agKeyword args))) stamp r)))
+      (Just (\_cfg asked args r ->
+               setPlanningEdits (fromMaybe "" (join (agKeyword args))) (askStamp asked) r))
+      Nothing)
+    -- A REPEAT IS A `set-state', and the one command that RECORDS anything: a
+    -- row completed into an inactive keyword while a planning stamp carries a
+    -- repeater shifts and resets in ONE write, and the ledger line rides its
+    -- success ('Glance.Query.repeatOn').
   , ("set-state", CommandSpec (overIds wantsState) False
-      (Just (\cfg _stamp args r -> setStateEdits cfg (join (agKeyword args)) r)))
+      (Just stateEdits) (Just completed))
     -- The title is the one CELL a reader edits as text, so it is a command
     -- rather than a subtree write: 'Glance.Query.setTitleEdits' replaces the
     -- title's own span and leaves the keyword, the priority and the tags around
@@ -170,14 +191,24 @@ commands =
     -- CYCLES it and this takes the letter that cycle landed on — nullable for
     -- the reason @set-state@ is, the wrap going through NONE.
   , ("set-priority", CommandSpec (overIds wantsPriority) False
-      (Just (\_cfg _stamp args r -> setPriorityEdits (join (agPriority args)) r)))
+      (Just (\_cfg _asked args r -> setPriorityEdits (join (agPriority args)) r)) Nothing)
   , ("set-title", CommandSpec (overIds wantsTitle) False
-      (Just (\_cfg _stamp args r -> setTitleEdits (word agTitle args) r)))
+      (Just (\_cfg _asked args r -> setTitleEdits (word agTitle args) r)) Nothing)
   ]
   where
     -- A shape that has nothing to say about HOW MANY rows were named, which is
     -- nine of the ten.
     overIds = const
+    -- `set-state', with org's repeat folded in: a row that repeats shifts its
+    -- stamp and resets its keyword in one set, and anything else takes the
+    -- plain path with the refusal surface unchanged.
+    stateEdits cfg asked args r = case repeating cfg asked args r of
+      Just rp -> Right (rpEdits rp)
+      Nothing -> setStateEdits cfg (join (agKeyword args)) r
+    completed cfg asked args r =
+      (\rp -> (rpState rp, rpShifted rp)) <$> repeating cfg asked args r
+    repeating cfg asked args r =
+      join (agKeyword args) >>= \keyword -> repeatOn cfg (askToday asked) keyword r
     word field = fromMaybe "" . field
     tagOf = word agTag
     -- The one command whose keyword may be NULL: that is how a state comes off,
@@ -281,19 +312,19 @@ runCommand opts hub request = withBody request $ \raw -> do
       -- and everything that can refuse is decided before a file is opened,
       -- leaving the 400 or the IO that writes.
       Just edits -> do
-        stamp <- resolveDate cmd
+        asked <- resolveAsked cmd
         either (pure . jsonError status400) id
-               (stamp >>= \at -> overRows opts hub st at edits cmd)
+               (asked >>= \at -> overRows opts hub st at edits cmd)
 
 -- | CMD's rows written, as the IO that writes them or the 400 that stops it.
 -- STAMP is @set-planning@'s date already worked out, and is nothing to every
 -- other name.
-overRows :: ServeOptions -> Hub -> Store -> Maybe Text -> RowEdits -> Command
+overRows :: ServeOptions -> Hub -> Store -> Asked -> RowEdits -> Command
          -> Either Text (IO Response)
-overRows opts hub st stamp edits cmd = do
-  (plans, said) <- planCommand st stamp edits cmd
+overRows opts hub st asked edits cmd = do
+  (plans, said) <- planCommand st asked edits cmd
   pure $ do
-    written <- mapM (writeOne (walkFor opts) hub) plans
+    written <- mapM (writeOne opts hub) plans
     -- Answered in the order the client named the ids, so a caller can zip the
     -- results against what it asked for.
     let outcomes = said <> concat written
@@ -309,12 +340,12 @@ overRows opts hub st stamp edits cmd = do
 -- WHOLE request's 400 the way an undeclared keyword is ('RowEdits').  The
 -- answer is handed on as a value rather than written back into 'Args', so
 -- @agDate@ means the text the client typed at every point in the request.
-resolveDate :: Command -> IO (Either Text (Maybe Text))
-resolveDate cmd = case join (agDate (cmdArgs cmd)) of
-  Just text | csDated (cmdSpec cmd) -> do
-    today <- Time.localDay . Time.zonedTimeToLocalTime <$> Time.getZonedTime
-    pure (Just <$> planningTimestamp today text)
-  _nothingToResolve -> pure (Right Nothing)
+resolveAsked :: Command -> IO (Either Text Asked)
+resolveAsked cmd = do
+  today <- Time.localDay . Time.zonedTimeToLocalTime <$> Time.getZonedTime
+  pure $ case join (agDate (cmdArgs cmd)) of
+    Just text | csDated (cmdSpec cmd) -> Asked today . Just <$> planningTimestamp today text
+    _nothingToResolve                 -> Right (Asked today Nothing)
 
 -- | @capture@: CMD's line written as a new top entry, and WHERE decides which
 -- of two shapes it takes.
@@ -455,13 +486,24 @@ capturedParts args =
 -- | PLAN's file written once, and what that came to for each of its ids.  Both
 -- outcomes are shared by the whole group, because the write is: the batch lands
 -- or the file is untouched.
-writeOne :: WalkOptions -> Hub -> FilePlan -> IO [(Text, Value)]
-writeOne opts hub plan =
-  report <$> writeSpans opts hub (fpPath plan) (fpDigest plan) spliced
+writeOne :: ServeOptions -> Hub -> FilePlan -> IO [(Text, Value)]
+writeOne opts hub plan = do
+  written <- writeSpans (walkFor opts) hub (fpPath plan) (fpDigest plan) spliced
+  -- THE LEDGER RIDES THE SUCCESS BRANCH, where `noteExternalWrite' already
+  -- sits: the file is renamed into place by now, so a note that cannot be
+  -- written changes nothing about the write that landed.
+  case written of
+    Right _digest -> mapM_ record (fpRows plan)
+    Left _refused -> pure ()
+  pure (report written)
   where
-    spliced = concatMap snd (fpRows plan)
+    spliced = concat [ edits | (_rid, edits, _note) <- fpRows plan ]
+    record (_rid, _edits, note) = case note of
+      Just (ident, state, shifted) ->
+        noteCompletion (soDir opts) (Just ident) state shifted
+      Nothing -> pure ()
     report written = [ (rid, either (refused rid . why) (done rid) written)
-                     | (rid, _edits) <- fpRows plan ]
+                     | (rid, _edits, _note) <- fpRows plan ]
     why (WriteDrift found) = T.pack (fpPath plan) <> " changed on disk (it digests to "
                                <> T.take 12 found <> "… now); nothing was written to it"
     why (WriteRefused spelled) = spelled
@@ -470,12 +512,12 @@ writeOne opts hub plan =
 -- the 400 that stops it.  Two refusals are decided here rather than in the IO
 -- above: an unknown id, and a digest the client pinned that the store no longer
 -- holds — @POST \/headline@'s own @stale@ check, per file because a digest is.
-planCommand :: Store -> Maybe Text -> RowEdits -> Command
+planCommand :: Store -> Asked -> RowEdits -> Command
             -> Either Text ([FilePlan], [(Text, Value)])
-planCommand st stamp rowEdits cmd = do
+planCommand st asked rowEdits cmd = do
   rows <- mapM withEdits held
   let groups = groupOn (hrFile . fst) rows
-  pure ( [ FilePlan path (hrDigest r0) [ (hrId r, edits) | (r, edits) <- rs ]
+  pure ( [ FilePlan path (hrDigest r0) [ (hrId r, edits, noted r) | (r, edits) <- rs ]
          | (path, rs@((r0, _) : _)) <- groups, not (stale rs) ]
        , missing <> [ (hrId r, refused (hrId r) (staleWhy path))
                     | (path, rs) <- groups, stale rs, (r, _edits) <- rs ] )
@@ -483,7 +525,15 @@ planCommand st stamp rowEdits cmd = do
     -- One resolution for the whole set rather than one per id, which is what
     -- keeps a marked set of a hundred rows off a hundred passes of the store.
     (held, absent) = headlinesIn (storeRecords st) (cmdIds cmd)
-    withEdits r = (,) r <$> rowEdits (stConfig st) stamp (cmdArgs cmd) r
+    withEdits r = (,) r <$> rowEdits (stConfig st) asked (cmdArgs cmd) r
+    -- What this command records about a row, where it records anything: the
+    -- entry's own id beside it, since the ledger is keyed by `ORG_GLANCE_ID'
+    -- and an ordinal names a different row a week on.
+    noted r = do
+      note <- csNotes (cmdSpec cmd)
+      (state, shifted) <- note (stConfig st) asked (cmdArgs cmd) r
+      ident <- rowOrgId r
+      pure (ident, state, shifted)
     missing = [ (rid, refused rid (noSuchRow rid)) | rid <- absent ]
     stale rs = or [ pinned /= hrDigest r
                   | (r, _edits) <- rs, Just pinned <- [Map.lookup (hrId r) (cmdDigests cmd)] ]

@@ -1,27 +1,7 @@
 -- | org-glance's write-ahead index, read only, and the drift instrument
--- comparing it with what this parser reads out of the same store's blobs.
---
--- WHAT IS ON DISK: a metadata projection of every entry under
--- @.org-glance\/meta\/@, an append-only log of one JSON record per line.
--- @headlines.jsonl@ is the OPEN segment; past a size bound it is sealed by an
--- atomic rename into @seg-NNNNNNNNNN.jsonl@ and a one-line @MANIFEST@ lists the
--- live sealed segments oldest-first.  That rename is the sole commit point, so
--- a segment the MANIFEST does not name is invisible.
---
--- THE FOLD, which is @org-glance-graph--latest-records@ read forwards: live
--- segments oldest to newest with the open one LAST, every non-empty line one
--- record, the LATEST per @id@ superseding, and a tombstoned id dropped.  Only
--- the open segment may end in a torn line, so a parse failure there is
--- legitimate and one elsewhere is corruption — which a read-only instrument
--- counts and carries on from, refusing to report the other six thousand rows
--- helping nobody.
---
--- THE COMPARISON: each live record matched by @id@ against the blob stored for
--- it, as THIS parser reads it.  Two terms — the TODO keyword always, the
--- archive flag only where the record CARRIES the key, since @archived@ joined
--- the schema later.  An id on one side only is counted rather than compared.
---
--- Nothing here writes, creates, seals or repairs anything.
+-- comparing it against the blobs this parser reads.  The fold is
+-- @org-glance-graph--latest-records@ read forwards: sealed segments oldest
+-- first, the open one LAST, latest record per id winning, tombstoned ids gone.
 module Data.Org.Index ( BlobEntry (..)
                       , IndexDrift (..)
                       , IndexFold (..)
@@ -51,42 +31,27 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified TextShow as TS
 
--- | The directory under a store's @.org-glance@ that holds the index — the
--- segments, the MANIFEST, and the one file this repo writes there
--- ('Data.Org.External').  Named here because this module is what the layout is
--- documented in; the scan and the notifier both read it rather than spelling it.
 metaDir :: FilePath
 metaDir = "meta"
 
--- | The open append segment: read last, because it holds the newest records.
 openSegment :: FilePath
 openSegment = "headlines.jsonl"
 
--- | The file naming the live sealed segments.
 manifestFile :: FilePath
 manifestFile = "MANIFEST"
 
--- | How many disagreeing ids the report names.
 driftSamples :: Int
 driftSamples = 10
 
 -- Records
 
--- | One live row of the index, in the two terms a blob can disagree with.  The
--- record carries fourteen more fields; none of them is compared, so none of
--- them is kept.
 data IndexRecord = IndexRecord
   { irId       :: !Text          -- ^ the @ORG_GLANCE_ID@ the record is keyed by.
   , irState    :: !Text          -- ^ TODO keyword verbatim; empty when the record names none.
   , irArchived :: !(Maybe Bool)  -- ^ 'Nothing' on a record written before the field existed.
   } deriving (Eq, Show)
 
--- | What this parser read at one blob: the file's FIRST headline, which is the
--- entry org-glance stored there.  A blob holds ONE entry, so first rather than
--- level-one (six of ~\/sync's blobs open at level two) and first rather than
--- first-with-an-id — a CHILD carrying an id of its own is not the blob's, and
--- reaching past a headline whose drawer this parser lost would compare that
--- child's keyword against the parent's record.
+-- | What this parser read at one blob: the file's FIRST headline, never a child's.
 data BlobEntry = BlobEntry
   { beId       :: !Text
   , beState    :: !Text      -- ^ TODO keyword verbatim; empty when the headline has none.
@@ -94,9 +59,6 @@ data BlobEntry = BlobEntry
   , beFile     :: !FilePath  -- ^ the blob, as walked.
   } deriving (Eq, Show)
 
--- | The blob at PATH out of HEADLINES — the file's headlines in FILE order,
--- each as its @ORG_GLANCE_ID@, its TODO keyword and whether it is archived.
--- 'Nothing' when the file has no headline, or when the first one claims no id.
 blobEntryOf :: FilePath -> [(Maybe Text, Text, Bool)] -> Maybe BlobEntry
 blobEntryOf path headlines = do
   (ident, state, arch) <- listToMaybe headlines
@@ -105,7 +67,6 @@ blobEntryOf path headlines = do
 
 -- Folding the log
 
--- | The live record set of one store, and what the read crossed to get it.
 data IndexFold = IndexFold
   { ifRecords    :: !(Map Text IndexRecord)  -- ^ id to its latest record, tombstoned ids removed.
   , ifRead       :: !Int  -- ^ records parsed across every live segment.
@@ -113,15 +74,8 @@ data IndexFold = IndexFold
   , ifMalformed  :: !Int  -- ^ lines no record could be read out of; see the module note.
   } deriving (Eq, Show)
 
--- | The segment file NAMES to read, in fold order, given the MANIFEST's bytes
--- (or 'Nothing' where there is no MANIFEST): its sealed segments oldest-first,
--- then 'openSegment'.  A MANIFEST that does not parse reads as the empty set,
--- the way the elisp's @condition-case@ leaves it.
---
--- A listed name is kept only when it spells @seg-\<digits\>.jsonl@ —
--- org-glance's own segment pattern.  That is the format's rule, and it doubles
--- as the path guard: a hand-edited MANIFEST cannot name @..\/..\/secrets@ and
--- have a caller open it.
+-- | The segment file NAMES to read in fold order, given the MANIFEST's bytes.
+-- A name opens only when it spells @seg-\<digits\>.jsonl@, which is the path guard.
 segmentNames :: Maybe BC.ByteString -> [FilePath]
 segmentNames manifest = [ T.unpack n | n <- listed, sealedName n ] ++ [openSegment]
   where
@@ -130,30 +84,22 @@ segmentNames manifest = [ T.unpack n | n <- listed, sealedName n ] ++ [openSegme
         [ n | String n <- toList vs ]
       _noneListed -> []
 
--- | Is NAME one of org-glance's sealed segments, @seg-\<digits\>.jsonl@?
 sealedName :: Text -> Bool
 sealedName name = case T.stripPrefix "seg-" name >>= T.stripSuffix ".jsonl" of
   Just digits -> not (T.null digits) && T.all isDigit digits
   Nothing     -> False
 
--- | The fold in progress: the latest record per id — 'Nothing' where that
--- record is a tombstone, so one map answers both questions — beside the counts.
--- Strict fields, so a segment's worth of lines leaves no thunk chain behind it.
+-- | The fold in progress: 'Nothing' where an id's latest record is a tombstone.
 data Tally = Tally !(Map Text (Maybe IndexRecord)) !Int !Int
 
--- | Fold SEGMENTS — each as (is it the open segment, its bytes), oldest first
--- and the open one last — to the live record set.
---
--- Bytes rather than 'Text': aeson decodes UTF-8 itself and rejects what is not,
--- so a segment holding an invalid byte costs the LINE it sits on rather than a
--- decode of the whole file, and lands in 'ifMalformed' where it belongs.
+-- | Fold SEGMENTS — (is it the open one, its bytes), oldest first — to the live
+-- set.  Bytes rather than 'Text': an invalid byte costs the LINE it sits on.
 foldSegments :: [(Bool, BC.ByteString)] -> IndexFold
 foldSegments = summarise . foldl' segment (Tally Map.empty 0 0)
   where
     segment acc (open, bytes) = foldl' line acc (marked (splitLines bytes))
       where
-        -- The one forgivable failure: the open segment's final line, when the
-        -- file does not end in a newline, is an append a crash cut in half.
+        -- The one forgivable failure: a crash cut the open segment's last append.
         torn = open && not (BC.null bytes) && BC.last bytes /= '\n'
         marked ls = let n = length ls
                     in zip [ torn && k == n | k <- [1 :: Int ..] ] ls
@@ -170,9 +116,7 @@ foldSegments = summarise . foldl' segment (Tally Map.empty 0 0)
       , ifMalformed  = bad
       }
 
--- | LINE's id and record, the record being 'Nothing' when it is a tombstone —
--- so inserting under the id settles supersession and deletion in one step.
--- 'Nothing' overall when the line is not a record at all.
+-- | LINE's id and record, 'Nothing' for a tombstone so one insert settles both.
 recordOf :: BC.ByteString -> Maybe (Text, Maybe IndexRecord)
 recordOf bytes = case decodeStrict' bytes of
   Just (Object o) | Just (String i) <- get o "id" -> Just (i, live o i)
@@ -189,29 +133,23 @@ recordOf bytes = case decodeStrict' bytes of
           , irArchived = flagOf <$> get o "archived"
           }
 
--- | Elisp's @(eq t VALUE)@, which is how org-glance decodes a boolean field:
--- only JSON @true@ is true, and the empty object it writes for @nil@ is not.
+-- | Elisp's @(eq t VALUE)@: only JSON @true@ is true, so the @{}@ for @nil@ is not.
 flagOf :: Value -> Bool
 flagOf (Bool b) = b
 flagOf _other = False
 
--- | Is VALUE one elisp would call non-nil?  @json-parse-string@ reads @{}@ back
--- as @nil@, which is how org-glance spells an unset flag, so the empty object
--- is the one object that is false.
+-- | Is VALUE one elisp would call non-nil?  @{}@ is the one object that is false.
 truthy :: Value -> Bool
 truthy (Bool b) = b
 truthy (Object o) = not (KM.null o)
 truthy (String s) = not (T.null s)
 truthy _other = True
 
--- | BYTES split on newlines, empty lines dropped the way the elisp scanner
--- drops them.
 splitLines :: BC.ByteString -> [BC.ByteString]
 splitLines = filter (not . BC.null) . BC.split '\n'
 
 -- Comparing
 
--- | One store's comparison.
 data IndexDrift = IndexDrift
   { dfStore      :: !FilePath  -- ^ the @.org-glance@ directory the index belongs to.
   , dfFold       :: !IndexFold
@@ -225,21 +163,9 @@ data IndexDrift = IndexDrift
   , dfSamples    :: ![Text]    -- ^ up to 'driftSamples' disagreements, id-ordered.
   } deriving (Eq, Show)
 
--- | Compare STORE's folded index against the BLOBS the walk parsed under it —
--- each as the file and the entry read out of it, 'Nothing' where no headline in
--- it claimed an id.
---
--- An idless blob is neither indexed nor unindexed: there is nothing to match it
--- by, so it is counted ('dfIdless') and the record that named it stays in
--- 'dfRecordless'.  It means this parser read the file and org-glance's id was
--- not in what it read — a `#+TODO:` a seed does not carry, a timestamp it
--- refuses, a drawer its headline lost — so the count is the instrument turned
--- on itself, and it is why 'dfRecordless' is not read as deletion lag.
---
--- Blobs are keyed by id with the first in walk order winning, which is
--- 'Glance.Query.resolveIds' rule for a tie inside one store; a second blob
--- claiming an id is an org-glance bug, and it lands here as one unindexed blob
--- rather than as a resolution.
+-- | Compare STORE's folded index against the BLOBS the walk parsed under it.
+-- An idless blob is neither indexed nor unindexed: it is counted ('dfIdless'),
+-- which is what keeps 'dfRecordless' from reading as index lag.
 driftOf :: FilePath -> IndexFold -> [(FilePath, Maybe BlobEntry)] -> IndexDrift
 driftOf store folded blobs = IndexDrift
   { dfStore      = store
@@ -263,24 +189,15 @@ driftOf store folded blobs = IndexDrift
                   , not (T.null state && T.null arch) ]
     sample (i, state, arch) = [ i <> ": " <> note | note <- [state, arch], not (T.null note) ]
 
--- | FIELD as the report names a disagreement between the WAL's value and the
--- BLOB's, or empty where the two agree.  SHOWN is how that field spells a value.
---
--- One sentence for both fields the comparison asks about, so the two cannot
--- come to word the same finding differently.
 disagreement :: Eq a => Text -> (a -> Text) -> a -> a -> Text
 disagreement field shown wal blob
   | wal == blob = ""
   | otherwise   = field <> " wal=" <> shown wal <> " blob=" <> shown blob
 
--- | How REC and BLOB disagree about the TODO keyword, or empty when they do
--- not.  A record naming no keyword and a headline carrying none both read @""@.
 stateNote :: IndexRecord -> BlobEntry -> Text
 stateNote rec blob = disagreement "state" shown (irState rec) (beState blob)
   where shown t = if T.null t then "none" else t
 
--- | How REC and BLOB disagree about the archive flag, or empty when they agree
--- or when the record predates the field.
 archiveNote :: IndexRecord -> BlobEntry -> Text
 archiveNote rec blob =
   maybe "" (\flag -> disagreement "archived" yesNo flag (beArchived blob)) (irArchived rec)
@@ -288,8 +205,7 @@ archiveNote rec blob =
 
 -- Reporting
 
--- | DRIFT as the scan prints it: the headline line a reader takes the verdict
--- off, three rows of counts, then the sampled disagreements.
+-- | DRIFT as the scan prints it: the verdict line, three rows of counts, samples.
 indexReportLines :: IndexDrift -> [Text]
 indexReportLines d =
   [ "org-glance index: " <> num (dfRows d) <> " rows disagree ("

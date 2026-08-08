@@ -124,6 +124,14 @@ module Glance.Query ( BlobSeed (..)
                     , setPlanningEdits
                     , setPriorityEdits
                     , setStateEdits
+                    , Repeat (..)
+                    , repeatOn
+                    , rowOrgId
+                    , noteCompletion
+                    , planningSpans
+                    , timestampOf
+                    , shiftRepeat
+                    , repeatsOf
                     , setTitleEdits
                     , settableStates
                     , ownBodyLines
@@ -166,7 +174,7 @@ import Control.Exception (evaluate)
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Aeson.Text (encodeToLazyText)
 import Data.Aeson.Types (Pair)
-import Data.Char (isAlphaNum, isAsciiLower, isAsciiUpper, isDigit, isSpace)
+import Data.Char (isAlphaNum, isAsciiLower, isAsciiUpper, isDigit, isLetter, isSpace)
 import Data.Either (fromRight)
 import Data.List (foldl', nub, partition, sort, sortBy, sortOn)
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
@@ -185,14 +193,17 @@ import Data.Org ( Context, Element (EHeadline), Headline
                 , HeadlineSpans ( hsClosed, hsDeadline, hsPriority, hsProperties
                                 , hsSchedule, hsStars, hsTags, hsTitle, hsTodo )
                 , Priority (Priority), Span (..), Spanned (valueOf)
-                , Timestamp (tsStart)
-                , TimestampStatus (TimestampActive, TimestampInactive), Todo (name)
+                , Timestamp (tsInterval, tsStart)
+                , TimestampRepeaterInterval (repeaterType, repeaterUnit, repeaterValue)
+                , TimestampRepeaterType (CatchUp, Cumulative, Restart)
+                , TimestampStatus (TimestampActive, TimestampInactive)
+                , TimestampUnit (Days, Months, Weeks, Years), Todo (name)
                 , TsMoment (tsmHasTime, tsmTime), archiveTag, deadline, defaultContext
                 , firstHeadlineOf, headlineIdProperty, headlinesOf, hsFull, identity
                 , isTagChar, levelOf
                 , metaCategory
                 , orgParse, priority, schedule, shiftSpan, sliceSpan, spans, spelled
-                , tags, title, todo, tsBrackets )
+                , repeaterFormat, tags, title, todo, tsBrackets )
 import Data.Org.Config ( ConfigLayerFile (..), ConfigLayers (..), TodoKeywords (..)
                        , builtinAgenda, builtinFilter, captureTargetEdits, captureTargetIn
                        , captureTargetOf, classify, configDirIn, configDirsIn
@@ -1998,6 +2009,141 @@ settableStates :: ConfigLayers -> HeadlineRecord -> [Text]
 settableStates cfg r =
   [ word | (_source, kw) <- keywordSources cfg [r], word <- tkActive kw <> tkInactive kw ]
 
+-- Repeating entries
+
+-- | Record that IDENT repeated into STATE under ROOT, its next occurrence
+-- SHIFTED. `Data.Org.External`'s own append, re-exported so the write route
+-- reaches the ledger through this library like everything else.
+noteCompletion :: FilePath -> Maybe Text -> Text -> Text -> IO ()
+noteCompletion = External.noteCompletion
+
+-- | R's `ORG_GLANCE_ID`, when its headline claims one. The ledger's key: an
+-- ordinal moves, so a record under one names a different row a week on.
+rowOrgId :: HeadlineRecord -> Maybe Text
+rowOrgId = identity . hrHeadline
+
+-- | What completing R into KEYWORD does when R repeats: the state it resets to,
+-- the next occurrence as the file will spell it, and the edits that do both.
+data Repeat = Repeat
+  { rpState   :: !Text            -- ^ the keyword the entry lands on.
+  , rpShifted :: !Text            -- ^ its next occurrence, cookie and all.
+  , rpEdits   :: ![(Span, Text)]  -- ^ the shift and the reset, as one set.
+  } deriving (Eq, Show)
+
+-- | R completed into KEYWORD against TODAY, or 'Nothing' where this is an
+-- ordinary state change.
+--
+-- ORG'S OWN CONDITION, and both halves are needed: the keyword must be an
+-- INACTIVE one — the entry is being closed — and a planning stamp must carry a
+-- repeater. Either alone is a plain `set-state`.
+--
+-- ONE EDIT SET, so one write, one digest, one event: the timestamps and the
+-- keyword sit in disjoint spans, and `applyEdits` rejects only overlap.
+--
+-- WHICH KEYWORD IT RESETS TO is the row's own chain — `settableStates` is
+-- `keywordSources` flattened, so the first active word is the one the palette
+-- offers first. A chain declaring none takes the keyword off.
+repeatOn :: ConfigLayers -> Time.Day -> Text -> HeadlineRecord -> Maybe Repeat
+repeatOn cfg today keyword r
+  | keyword `notElem` chainOf tkInactive = Nothing
+  | null shifts                          = Nothing
+  | otherwise = Just Repeat { rpState = fromMaybe "" reset
+                            , rpShifted = snd (head shifts)
+                            , rpEdits = shifts <> tokenEdits hsTodo (spanEnd . hsStars) reset r }
+  where
+    shifts = [ (sp, new) | (sp, text) <- planningSpans r, Just new <- [shiftRepeat today text] ]
+    reset  = listToMaybe (chainOf tkActive)
+    chainOf half = [ word | (_source, kw) <- keywordSources cfg [r], word <- half kw ]
+
+-- | The `Timestamp` TEXT spells, when it spells one.  Read through a probe
+-- planning line rather than a second grammar here, `readsAsTimestamp`'s rule.
+timestampOf :: Text -> Maybe Timestamp
+timestampOf text = case orgParse defaultContext ("* probe\nSCHEDULED: " <> text <> "\n") of
+  (elems, _ctx, Nothing) -> listToMaybe [ ts | e <- elems, EHeadline h <- [valueOf e]
+                                             , Just ts <- [schedule h] ]
+  _failed                -> Nothing
+
+-- | The repeater cookie R carries on a planning timestamp, e.g. @+1w@.  The
+-- FIRST of them: an entry repeating on two lines repeats, and the cookie is
+-- shown rather than resolved.
+repeatsOf :: HeadlineRecord -> Maybe Text
+repeatsOf r = listToMaybe
+  [ repeaterFormat i | text <- planningStamps r, Just ts <- [timestampOf text]
+                     , Just i <- [tsInterval ts] ]
+
+-- | R's SCHEDULED and DEADLINE timestamps as the file spells them, with their
+-- spans.  `CLOSED:` is out: org repeats a plan rather than a record of one.
+planningSpans :: HeadlineRecord -> [(Span, Text)]
+planningSpans r =
+  [ (sp, sliceSpan (hrDoc r) sp)
+  | Just sp <- [hsSchedule (headlineSpans r), hsDeadline (headlineSpans r)] ]
+
+planningStamps :: HeadlineRecord -> [Text]
+planningStamps = map snd . planningSpans
+
+-- | DAY one repeat on under INTERVAL, given TODAY.
+--
+-- Org's three kinds, and the difference is only where the count starts: `+N`
+-- adds one interval to the stamp, so an entry three weeks overdue lands one
+-- week on and stays overdue; `++N` adds intervals until it is past today; `.+N`
+-- is today plus one.  The `++` loop is bounded by construction — each step
+-- moves the day strictly forward — and a zero-width interval takes the `+N`
+-- arm, since a loop over one would not end.
+repeatDay :: Time.Day -> TimestampRepeaterInterval -> Time.Day -> Time.Day
+repeatDay today interval day
+  | repeaterValue interval <= 0   = day
+  | otherwise = case repeaterType interval of
+      Restart    -> once day
+      Cumulative -> once today
+      CatchUp    -> until (> today) once day
+  where
+    once = addUnit (repeaterUnit interval) (fromIntegral (repeaterValue interval))
+
+-- | DAY moved N of UNIT on, org's own calendar arithmetic.
+addUnit :: TimestampUnit -> Integer -> Time.Day -> Time.Day
+addUnit Days   n = Time.addDays n
+addUnit Weeks  n = Time.addDays (7 * n)
+addUnit Months n = Time.addGregorianMonthsClip n
+addUnit Years  n = Time.addGregorianYearsClip n
+
+-- | TEXT with every date in it moved one repeat on, or 'Nothing' where it
+-- carries no repeater.
+--
+-- TEXTUAL, and deliberately: only the @YYYY-MM-DD@ runs and the weekday behind
+-- each are rewritten, so the time of day, the warning cookie, the repeater
+-- itself, a range end and the brackets all ride through as the author wrote
+-- them.  Re-rendering from `Timestamp` would spell them this library's way.
+shiftRepeat :: Time.Day -> Text -> Maybe Text
+shiftRepeat today text = do
+  ts <- timestampOf text
+  interval <- tsInterval ts
+  pure (rewriteDates (repeatDay today interval) text)
+
+-- | TEXT with MOVE applied to every @YYYY-MM-DD@ in it, each date's weekday
+-- respelled behind it — the parser drops a weekday and the renderer computes
+-- one, so a stale word here would outlive both.
+rewriteDates :: (Time.Day -> Time.Day) -> Text -> Text
+rewriteDates move = go
+  where
+    go text = case dateAt text of
+      Just (day, rest) -> let moved = move day
+                              (had, after) = weekdayAt rest
+                          in spelled "%Y-%m-%d" moved
+                          <> (if had then " " <> spelled "%a" moved else "")
+                          <> go after
+      Nothing | T.null text -> text
+              | otherwise   -> T.take 1 text <> go (T.drop 1 text)
+    dateAt text = do
+      let (candidate, rest) = T.splitAt 10 text
+      day <- Time.parseTimeM True Time.defaultTimeLocale "%Y-%m-%d" (T.unpack candidate)
+      pure (day, rest)
+    -- The weekday org writes after a date: a run of LETTERS in any script, the
+    -- parser's own charset, taken out so the computed one replaces it.
+    weekdayAt rest = case T.uncons rest of
+      Just (' ', body) | (word, after) <- T.span isLetter body, not (T.null word)
+                         -> (True, after)
+      _noWeekday         -> (False, rest)
+
 -- | TEXT as a headline title, or why it is not one.  The wall @set-title@ puts
 -- up, and a whole-request refusal the way the tag charset's is: a string that is
 -- not a title is not a title for any row.
@@ -3161,7 +3307,11 @@ rowJSONFor cols r = object
   (  [ "id" .= hrId r
      , "cells" .= object [ Key.fromText key .= toJSON (cell r)
                          | (key, _header, _kind, cell) <- cols ] ]
-  <> [ "linked" .= True | hrLinked r ])
+  <> [ "linked" .= True | hrLinked r ]
+  -- SPARSE like `linked`: a row that repeats carries its cookie, one that does
+  -- not carries no field, so SCHEMA.md's Row stays additive and no renderer
+  -- edit is owed.
+  <> [ "repeats" .= cookie | Just cookie <- [repeatsOf r] ])
 
 -- | The state palette: every TODO keyword the loaded files declared, actives
 -- ahead of the done-like ones.  Palette order is also sort priority

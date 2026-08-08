@@ -47,8 +47,6 @@ orgParse st cmd = case MP.parse sfParser "" cmd of
 
 -- Helpers
 
--- | Whitespace-separated elements, as 'MP.sepEndBy' would collect them.  BOL
--- says whether the next element starts a line; each separator recomputes it.
 elementsP :: Bool -> StatefulParser [Spanned Element]
 elementsP bol = option [] $ do
   el <- spannedP (elementP bol)
@@ -57,13 +55,9 @@ elementsP bol = option [] $ do
     elementsP (startsLine gap)
   return (el : rest)
 
--- | True when GAP leaves the parser at the start of a line.  An empty gap
--- means nothing was skipped, which only happens at offset 0.
 startsLine :: Text -> Bool
 startsLine gap = T.null gap || T.last gap == '\n'
 
--- | Pair what P parses with the span it consumed.  Offsets come from
--- 'MP.getOffset': character indices into the parsed text, half-open [start, end).
 spannedP :: StatefulParser a -> StatefulParser (Spanned a)
 spannedP p = do
   s <- MP.getOffset
@@ -71,8 +65,6 @@ spannedP p = do
   e <- MP.getOffset
   pure (Spanned (Span s e) x)
 
--- | Like 'spannedP', also consuming the whitespace trailing P.  The span still
--- covers P alone.
 lexemeP :: StatefulParser a -> StatefulParser (Spanned a)
 lexemeP p = spannedP p <* MPC.space
 
@@ -81,10 +73,8 @@ lexemeP p = spannedP p <* MPC.space
 spanRange :: [Span] -> Maybe Span
 spanRange = foldl' (\acc sp -> Just $! maybe sp (<> sp) acc) Nothing
 
--- | Parse elements until ENDPARSER or the end of the line, yielding the span
--- from the first to the last one.  ENDPARSER comes first: it may claim the
--- horizontal space the end-of-line branch would otherwise swallow.  Trailing
--- horizontal space terminates the container and stays unconsumed.
+-- | Elements until ENDPARSER or end of line, spanned first to last.  ENDPARSER
+-- comes FIRST: it may claim the horizontal space the eol branch would swallow.
 spannedContainerUntil :: (Parse element)
                       => ([element] -> container)
                       -> StatefulParser end
@@ -96,8 +86,7 @@ spannedContainerUntil con endParser = do
 
 -- Parse instances
 
--- | Parse one element.  A headline is only tried when BOL: org anchors its
--- stars to column 1, so mid-line "*emphasis*" stays plain text.
+-- | One element.  A headline is tried only when BOL: org anchors stars to column 1.
 elementP :: Bool -> StatefulParser Element
 elementP bol = choice $
      [ try (EHeadline <$> (parse :: StatefulParser Headline)) | bol ]
@@ -142,19 +131,9 @@ instance Parse Headline where
 
     return headline
 
--- | Parse the stars, spanning them alone; the horizontal space after them is
--- consumed, and something has to end the run.
---
--- Org's own rule — @org-outline-regexp@ is @\\*+ @ — so a star run opens a
--- headline only when whitespace follows it.  @*bold*@ opening a body line is
--- emphasis, and reading it as a headline put body text in the table as a row of
--- its own.  The end of the line ends the run too, which leaves a bare star run
--- the empty headline this has always read it as.
---
--- Horizontal space alone, never 'MPC.space': eating the newline let a headline
--- with an empty title run on into the next line and take it — stars included —
--- as its own title, so @* @ above @* Delta@ parsed as ONE headline titled
--- @* Delta@.
+-- | Parse the stars, spanning them alone.  Org's @org-outline-regexp@ is @\\*+ @,
+-- so the run must END — hspace or eol — else @*bold*@ opens a row.  Never
+-- 'MPC.space': eating the eol ran an empty title on into the next line.
 indentP :: StatefulParser (Spanned Indent)
 indentP = spannedP (Indent . length <$> MP.some (MPC.char '*'))
           <* (void MPC.hspace1 <|> lookAhead (void eol <|> eof))
@@ -162,7 +141,6 @@ indentP = spannedP (Indent . length <$> MP.some (MPC.char '*'))
 instance Parse Keyword where
   parse = Keyword . T.toUpper <$> keywordTextP
 
--- | Parse a bare keyword word, preserving the casing the source used.
 keywordTextP :: StatefulParser Text
 keywordTextP = T.pack <$> some (MP.satisfy (\c -> isAlpha c || c == '_'))
 
@@ -171,11 +149,7 @@ instance Parse Pragma where
     key@(Keyword kText) <- MPC.string "#+" *> parse <* MPC.char ':' <* MPC.space
 
     case kText of
-      -- org's two older spellings configure the same cycle: @#+SEQ_TODO:@ is
-      -- the sequence semantics @#+TODO:@ already means, and @#+TYP_TODO:@'s
-      -- type distinction lives entirely in org's cycling behaviour — so all
-      -- three land in 'PTodo' and the chain reads them alike.  A
-      -- re-render spells @#+TODO:@, which is TextShow's documented lossiness.
+      -- The two older spellings configure the same cycle; a re-render says @#+TODO:@.
       k | k `elem` ["TODO", "SEQ_TODO", "TYP_TODO"] -> do
         -- Keywords register as written: org matches them case-sensitively.
         let todoKw = keywordTextP
@@ -186,10 +160,7 @@ instance Parse Pragma where
                       void $ MPC.char '|' <* MPC.hspace
                       todoKw `MP.sepEndBy` MPC.hspace1
 
-        -- TWO SHAPES, two questions.  The context takes SETS, because parsing a
-        -- headline asks whether a word is a keyword; the pragma keeps the LISTS,
-        -- because everything that shows a cycle asks what order the tree spells
-        -- it in and a set has already lost that.
+        -- Sets answer recognition; the LISTS keep the order a palette draws in.
         State.modify (setTodo (Set.fromList active) (Set.fromList inactive))
         return $ PTodo active inactive
 
@@ -198,19 +169,15 @@ instance Parse Pragma where
         when (kText == "CATEGORY") $ State.modify $ setCategory $ TS.showt val
         return $ Pragma key val
 
--- | The keywords a planning line may carry.
 data PlanningKeyword = PlanScheduled | PlanDeadline | PlanClosed
   deriving (Enum, Bounded)
 
--- | The text org writes KW with, colon included.  Uppercase only: emacs never
--- writes another casing, and folding would swallow prose starting with
--- "closed:".
+-- | The text org writes KW with.  Uppercase only: folding would swallow prose.
 planningText :: PlanningKeyword -> Text
 planningText PlanScheduled = "SCHEDULED:"
 planningText PlanDeadline = "DEADLINE:"
 planningText PlanClosed = "CLOSED:"
 
--- | What a planning line yielded: at most one timestamp per keyword.
 data Planning = Planning { plScheduled :: !(Maybe (Spanned Timestamp))
                          , plDeadline  :: !(Maybe (Spanned Timestamp))
                          , plClosed    :: !(Maybe (Spanned Timestamp))
@@ -219,16 +186,9 @@ data Planning = Planning { plScheduled :: !(Maybe (Spanned Timestamp))
 noPlanning :: Planning
 noPlanning = Planning Nothing Nothing Nothing
 
--- | Parse the planning line: the one line right after a headline's title line,
--- holding SCHEDULED:, DEADLINE: and CLOSED: in any order.  A keyword repeated
--- on the line keeps its last timestamp, which is how org reads one.  Each span
--- covers the timestamp alone, so rescheduling replaces exactly that text.
---
--- The leading eol is consumed and the line's own eol is left to 'propertiesP',
--- so a drawer follows either spelling.  A failed entry backtracks over the
--- horizontal space it skipped, leaving it to separate whatever trails the last
--- timestamp: the top loop requires whitespace between elements, and eating it
--- here would fail the whole document.
+-- | The planning line, the one line after a headline's title line; a repeated
+-- keyword keeps its LAST timestamp.  A failed entry backtracks over the hspace
+-- it skipped: the top loop needs whitespace between elements.
 planningP :: StatefulParser Planning
 planningP = foldl' assign noPlanning <$> (MPC.eol *> some (try entryP))
   where entryP = do
@@ -240,7 +200,6 @@ planningP = foldl' assign noPlanning <$> (MPC.eol *> some (try entryP))
         assign pl (PlanDeadline, ts) = pl { plDeadline = Just ts }
         assign pl (PlanClosed, ts) = pl { plClosed = Just ts }
 
--- | Parse "[#X]", spanning it alone; the trailing space is still consumed.
 priorityP :: StatefulParser (Spanned Priority)
 priorityP = lexemeP (Priority <$> (MPC.char '[' *> MPC.char '#' *> MPC.letterChar <* MPC.char ']'))
 
@@ -254,17 +213,13 @@ instance Parse Property where
     where reserved :: Keyword -> Bool
           reserved (Keyword k) = k `elem` ["PROPERTIES", "END"]
 
--- | A property KEY is org's own rule — any run without whitespace or a
--- colon (`:TELE2:`, `:ЖКХ:`, `:FOO-BAR:`) — uppercased like every pragma
--- key.  Deliberately WIDER than 'keywordTextP': the TODO-keyword charset
--- (letters and underscores) is the wall that keeps a starred meta
--- undeclarable, and it must not widen with this one.
+-- | A property KEY: org's own rule, any run without whitespace or a colon.
+-- WIDER than 'keywordTextP', whose narrower charset walls off a starred meta.
 propertyKeyP :: StatefulParser Keyword
 propertyKeyP = Keyword . T.toUpper . T.pack
            <$> some (MP.satisfy (\c -> not (isSpace c) && c /= ':'))
 
--- | Parse a property drawer; the span starts at the drawer line, past the
--- leading eol, and ends right after ":END:".
+-- | A property drawer; the span runs from the drawer line to just past ":END:".
 propertiesP :: StatefulParser (Spanned Properties)
 propertiesP = MPC.eol *> spannedP drawer
   where drawer = do
@@ -283,8 +238,6 @@ instance Parse OrgLine where
 instance Parse Tags where
   parse = snd <$> tagsP
 
--- | Parse ":a:b:", spanning the first through the last colon.  The span is
--- Nothing when no tag followed the opening colon.
 tagsP :: StatefulParser (Maybe Span, Tags)
 tagsP = do
     _ <- MPC.hspace1
@@ -292,28 +245,18 @@ tagsP = do
     return (if null ts then Nothing else Just sp, Tags ts)
     where tag = takeWhile1P (Just "tag") isTagChar <* char ':'
 
--- | Is C a character an org tag is spelled with?  A non-empty run of these
--- between two colons is a tag and nothing else is, so this predicate is the
--- whole grammar of one — which is why it is exported: a command layer WRITING a
--- tag has to write something this parser reads back, and re-spelling the set
--- there would be a second grammar to keep in step ('Glance.Query.tagText').
---
--- Org's own @org-tag-re@ is @[[:alnum:]_@@#%]+@, so this set differs from it in
--- two characters: @-@ is here and not there, @%@ is there and not here.  The
--- divergence predates the write path and the corpus depends on the first half
--- of it.
+-- | Is C a character an org tag is spelled with?  Exported so a command layer
+-- writes what this reads back.  Differs from @org-tag-re@ by @-@ and @%@.
 isTagChar :: Char -> Bool
 isTagChar c = isAlphaNum c || c == '_' || c == '-' || c == '@' || c == '#' || c == '%'
 
 instance Parse Timestamp where
   parse = State.lift tsParser
 
--- | Parse a title, spanning its first through its last element.
 titleP :: StatefulParser (Maybe Span, Title)
 titleP = spannedContainerUntil Title tagsP
 
--- | Parse a todo keyword, spanning it alone; the trailing space is still
--- consumed.  The keyword must match a registered one exactly, case included.
+-- | A todo keyword, spanned alone; it must match a registered one, case included.
 todoP :: StatefulParser (Spanned Todo)
 todoP = do
   ctx <- State.get
@@ -328,11 +271,8 @@ instance Parse Token where
 
 -- Timestamp sub-parsers
 
--- | Parse a timestamp, optionally a range.  Org spells a range either as
--- "start--end" over two bracket pairs, both of the kind the start opened with,
--- or compactly as one pair holding "HH:MM-HH:MM" on a single day;
--- 'tsCompactRange' records which the source used.  A "--" half wins when some
--- source carries both, the model having room for one end.
+-- | A timestamp, optionally a range: @<a>--<b>@ or the compact same-day
+-- @<date wd 10:30-11:30>@.  'tsCompactRange' records which the source used.
 tsParser :: StatelessParser Timestamp
 tsParser = do
   tsStatus <- tsStatusParser
@@ -350,20 +290,14 @@ tsStatusParser :: StatelessParser TimestampStatus
 tsStatusParser = (TimestampActive <$ MPC.char '<')
              <|> (TimestampInactive <$ MPC.char '[')
 
--- | Parse one bracketed moment of STATUS, from the day through the closing
--- bracket: the moment, the compact range end it may carry, and its cookies —
--- at most one repeater and one warning, in either order.
 tsBodyParser :: TimestampStatus
              -> StatelessParser (TsMoment, Maybe TsMoment, Maybe TimestampRepeaterInterval, Maybe TimestampWarningInterval)
 tsBodyParser status = do
   day <- tsDayParser <* MPC.space
   void $ MP.optional (MP.try tsWeekdayParser) <* MPC.space
   time <- MP.optional (MP.try tsTimeParser)
-  -- A range end and a warning cookie both open with '-', so the end time is
-  -- tried first and only its colon tells them apart: "-1d" gets through
-  -- 'MPL.decimal' and fails at the missing ':', backtracking whole and leaving
-  -- the cookie its text.  No space may sit around the '-' — org writes none,
-  -- and allowing it would let " -1d" read as a range end.
+  -- A range end and a warning both open with '-', so the end time is tried first
+  -- and only its colon tells them apart.  No space around the '-'; org writes none.
   endTime <- if isJust time
              then MP.optional (MP.try (MPC.char '-' *> tsTimeParser))
              else return Nothing
@@ -378,13 +312,8 @@ tsBodyParser status = do
          , listToMaybe [ w | CookieWarn w <- cookies ] )
   where midnight = Time.TimeOfDay 0 0 0
 
--- | One agenda cookie: a repeater or a warning\/delay.  The warning arm is
--- tried first, which is what re-homes a lone @-3d@ — org's warning cookie,
--- which this parser used to read as a minus-signed repeater — without touching
--- the repeater grammar: 'tsRepeaterParser' can still spell TRSMinus, but no
--- input reaches it, since every @-@-opening cookie is a warning's.  First of
--- each kind wins; org writes at most one of each, and a third cookie fails the
--- bracket the way any stray text does.
+-- | One agenda cookie.  The warning arm is tried FIRST, which re-homes a lone
+-- @-3d@ to org's warning cookie; first of each kind wins.
 data TsCookie = CookieRepeat !TimestampRepeaterInterval
               | CookieWarn !TimestampWarningInterval
 
@@ -413,7 +342,6 @@ tsDayParser = do
   guard (day >= 1 && day <= 31) <|> fail "Day out of range"
   return (Time.fromGregorian year month day)
 
--- | Parse a time of day, "HH:MM" with optional ":SS".
 tsTimeParser :: StatelessParser Time.TimeOfDay
 tsTimeParser = do
   let sep = ':'
@@ -423,28 +351,16 @@ tsTimeParser = do
   guard (tsHour <= 23 && tsMinute <= 59 && tsSecond < 60) <|> fail "Time out of range"
   return (Time.TimeOfDay tsHour tsMinute (fromInteger tsSecond))
 
--- | Skip the weekday: a run of letters in any script, of any length.  The slot
--- is display-only — every render recomputes the weekday from the date — so its
--- spelling is read and dropped, and a locale's word is as good as org's own.
--- ~/sync writes Dutch @do@, @ma@, @zo@, @vr@ and @za@ beside English @Mon@, and
--- exactly three letters lost the whole planning line to them.  Letters alone:
--- a repeater opens with @.@, @+@, @-@ or a digit and a time with a digit, so
--- one letter is what holds @.+3d@ out of this slot.  The trailing dot French
--- and Catalan abbreviate with (@lun.@) is outside the rule and outside the
--- corpus; admitting it needs a guard against @.+3d@ that nothing here yet owes.
+-- | Skip the weekday: a run of letters in any script, any length, display-only.
+-- LETTERS alone — a repeater opens with @.@, @+@, @-@ or a digit.
 tsWeekdayParser :: StatelessParser ()
 tsWeekdayParser = void (takeWhile1P (Just "weekday") isAlpha) <* MPC.space
 
--- | The value of an enumeration whose character SPELL names, matched over every
--- value there is.  The three repeater slots each ask this of a different
--- rendering function, so the enumeration is walked in ONE place and a value
--- added to any of them parses without a second edit.  'Nothing' from SPELL is a
--- value with no character, which is what @typeChar@'s default is.
+-- | The value whose character SPELL names, matched over every value there is.
 byChar :: (Bounded a, Enum a) => (a -> Maybe Char) -> StatelessParser a
 byChar spell = choice [ v <$ char c | v <- [minBound ..], Just c <- [spell v] ]
 
--- | Parse a repeater such as ".+3d", spelled with the characters
--- 'typeChar', 'signChar' and 'unitChar' name.
+-- | Parse a repeater such as ".+3d".
 tsRepeaterParser :: StatelessParser TimestampRepeaterInterval
 tsRepeaterParser = do
   repType <- MP.optional (MP.try (byChar typeChar))

@@ -29,7 +29,7 @@ import Glance.Query ( ConfigLayerFile (..), ConfigLayers (..), HeadlineParts (..
                     , LinkShape (..), LoadFailure (..), OrgLink (..)
                     , QueryResult (..), Span (..), SubtreeEntry (..)
                     , TodoKeywords (..), addTagEdits
-                    , archiveEdits, archived
+                    , archiveEdits, archived, shiftRepeat
                     , BlobSeed (..), blobDocument, blobPathIn
                     , captureCodes, captureEdits, captureStamp, captureTemplateEdits
                     , captureTemplateIn, captureTemplateOf
@@ -137,7 +137,52 @@ spec :: TestTree
 spec = testGroup "Query"
   [ loadSpec, walkSpec, levelSpec, blankSpec, parallelSpec, cellSpec, searchSpec
   , linkSpec
-  , viewSpec, schemaSpec, commandSpec, lensSpec, entrySpec, captureSpec ]
+  , viewSpec, schemaSpec, commandSpec, lensSpec, entrySpec, captureSpec
+  , repeatSpec ]
+
+-- | ORG'S REPEATER, shifted.  The parse side has always read the three cookies;
+-- this is the arithmetic under a repeat, and the shape is TEXTUAL — only the
+-- dates and their weekdays move, so a time, a warning cookie, a range end and
+-- the brackets ride through as the author wrote them.
+repeatSpec :: TestTree
+repeatSpec = testGroup "Repeats"
+  [ testCase "the three cookies differ in where the count starts" $ do
+      -- `+N' adds ONE interval to the stamp, so an entry three weeks overdue
+      -- lands one week on and stays overdue: org's behaviour, kept.
+      shifts "<2026-08-08 Sat +1w>" "<2026-08-15 Sat +1w>"
+      shifts "<2026-07-11 Sat +1w>" "<2026-07-18 Sat +1w>"
+      -- `++N' adds intervals until the stamp is past today.
+      shifts "<2026-07-11 Sat ++1w>" "<2026-08-15 Sat ++1w>"
+      -- `.+N' is today plus one, and forgets the stamp.
+      shifts "<2026-07-11 Sat .+1w>" "<2026-08-15 Sat .+1w>"
+
+  , testCase "the weekday is recomputed and everything else rides through" $ do
+      -- A Saturday two days on is a Monday, and the time, the warning cookie
+      -- and the repeater are the author's bytes.
+      shifts "<2026-08-08 Sat 09:30 +2d -3d>" "<2026-08-10 Mon 09:30 +2d -3d>"
+      -- An inactive stamp keeps its brackets.
+      shifts "[2026-08-08 Sat +1d]" "[2026-08-09 Sun +1d]"
+
+  , testCase "a range moves both halves" $
+      shifts "<2026-08-08 Sat +1w>--<2026-08-09 Sun>"
+             "<2026-08-15 Sat +1w>--<2026-08-16 Sun>"
+
+  , testCase "the month cookie clips rather than overflowing" $
+      shifts "<2026-01-31 Sat +1m>" "<2026-02-28 Sat +1m>"
+
+  , testCase "an entry with no cookie does not repeat" $ do
+      assertEqual "a plain stamp" Nothing (shiftRepeat probeToday "<2026-08-08 Sat>")
+      assertEqual "a warning cookie is no repeater" Nothing
+                  (shiftRepeat probeToday "<2026-08-08 Sat -3d>")
+      assertEqual "and text that is no timestamp at all" Nothing
+                  (shiftRepeat probeToday "next tuesday")
+  ]
+  where
+    shifts from to = assertEqual (T.unpack from) (Just to) (shiftRepeat probeToday from)
+
+-- | The day every repeat case is worked out against.
+probeToday :: Time.Day
+probeToday = Time.fromGregorian 2026 8 8
 
 -- | Where a row points: what @GET \/links@ serves, as the pure function under
 -- it.

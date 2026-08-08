@@ -11,7 +11,7 @@
 3. [X] In "general settings", alongside with "default view" add "agenda view", use it to customize agenda view filter. Better: make a dropdown to customize view with 2 options: default, agenda.
 4. [X] "q" in popups should close the popup. "q" in native window should exit the app (if user is on the main page).
 5. [X] material: when updating TODO state from empty state it doesn't visually update in material view. — fixed by the stale-reload drop (df93761 line); verified live and pinned by a regression case.
-6. [X] Big one: let's work on a proposal for recurring tasks. We need to take inspiration from org-clock, but implement it differently from the storage perspective. — docs/proposal-recurring-tasks.md
+6. [X] Big one: let's work on a proposal for recurring tasks. We need to take inspiration from org-clock, but implement it differently from the storage perspective. — docs/proposal-recurring-tasks.md, IMPLEMENTED (shift + reset + COMPLETIONS.jsonl)
 7. [X] UX: if current sorting is specified, when user does "/" → "sort:" → RET, this should autocomplete to the current sorting value. Then user could DEL some parts or add (via → or ,).
 8. [X] UX refactor: each reusable widget in a separate file. — docs/proposal-widget-files.md (proposed; the refactor itself is staged there)
 9. [X] material: headline inconsistency. Main headline supports state modification, tag modification, but underlying headlines don't. Here we need a deep dive to make the semantics truly recursive. Maybe treat child headlines as a "reference" with type "child_of"? Need to think about it in a separate proposal. — docs/proposal-recursive-headlines.md

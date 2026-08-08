@@ -30,7 +30,9 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 import qualified Data.Time as Time
 
-import Data.Org.External (blobIdOf, externalFile, externalLine, externalPathOf)
+import Data.Org.External ( blobIdOf, completionLine, completionsFile
+                         , completionsPathOf, externalFile, externalLine
+                         , externalPathOf, noteCompletion )
 import Data.Org.Index (metaDir)
 import Glance.Query (Span (Span), WriteFailure, blobPathIn, replaceSpans, storeRootIn)
 
@@ -328,4 +330,97 @@ serverOver :: FilePath -> IO Application
 serverOver dir = fst <$> serverAt Nothing dir
 
 spec :: TestTree
-spec = testGroup "External" [doorSpec, formatSpec, pathSpec, appendSpec, routeSpec]
+spec = testGroup "External"
+  [doorSpec, formatSpec, pathSpec, appendSpec, routeSpec, completionSpec]
+
+-- | THE SECOND LEDGER, and the first one keyed by something other than a blob:
+-- one line per completion of a repeating entry, under the SERVED root's own
+-- store.  Derived, never truth — the org file already carries the shifted stamp
+-- and the reset keyword, so a tree with no store repeats and records nothing.
+completionSpec :: TestTree
+completionSpec = testGroup "Completions"
+  [ testCase "four fields, in the order the contract froze" $
+      assertEqual "golden"
+        "{\"id\":\"abcdef\",\"at\":\"2026-08-03T04:21:07Z\",\"state\":\"TODO\",\
+        \\"shifted\":\"<2026-08-15 Sat +1w>\"}\n"
+        (completionLine "abcdef" (stamp "2026-08-03T04:21:07") "TODO" "<2026-08-15 Sat +1w>")
+
+  , testCase "the values are escaped and the keys are not" $
+      assertEqual "escaped"
+        "{\"id\":\"a\\\"b\",\"at\":\"2026-08-03T04:21:07Z\",\"state\":\"A\\\\B\",\
+        \\"shifted\":\"x\"}\n"
+        (completionLine "a\"b" (stamp "2026-08-03T04:21:07") "A\\B" "x")
+
+    -- A tree with no `.org-glance' keeps org's own behaviour and no ledger: no
+    -- daemon makes a store directory it was not given.
+  , testCase "a tree with no store has nowhere to record, and none is made" $
+      withTempDirNamed "no-store" $ \dir -> do
+        assertEqual "nothing to write to" Nothing =<< completionsPathOf dir
+        noteCompletion dir (Just "i") "TODO" "<2026-08-15 Sat +1w>"
+        assertEqual "and none was created" False
+          =<< doesFileExist (dir </> ".org-glance" </> "meta" </> completionsFile)
+
+  , testCase "a tree with one records under its own meta directory" $
+      withTempDirNamed "store" $ \dir -> do
+        createDirectoryIfMissing True (dir </> ".org-glance" </> "meta")
+        let note = dir </> ".org-glance" </> "meta" </> completionsFile
+        assertEqual "the path it answers with" (Just note) =<< completionsPathOf dir
+        noteCompletion dir (Just "i") "TODO" "<2026-08-15 Sat +1w>"
+        noteCompletion dir (Just "j") "NEXT" "<2026-08-16 Sun +1d>"
+        -- APPEND-ONLY: the second line joins the first rather than replacing it.
+        lines' <- T.lines <$> document note
+        assertEqual "one line per completion" 2 (length lines')
+        assertBool "the first is still there" ("\"id\":\"i\"" `T.isInfixOf` head lines')
+        assertBool "and the second followed it" ("\"id\":\"j\"" `T.isInfixOf` last lines')
+
+    -- An ordinal moves, so a ledger keyed by one names a different row a week
+    -- on: an entry with no `ORG_GLANCE_ID' records nothing and still repeats.
+  , testCase "an entry with no id records nothing" $
+      withTempDirNamed "idless" $ \dir -> do
+        createDirectoryIfMissing True (dir </> ".org-glance" </> "meta")
+        noteCompletion dir Nothing "TODO" "<2026-08-15 Sat +1w>"
+        assertEqual "no file, no line" False
+          =<< doesFileExist (dir </> ".org-glance" </> "meta" </> completionsFile)
+
+    -- END TO END: a repeating row completed through the write route.  ONE write
+    -- moves the stamp and resets the keyword, and the ledger line rides its
+    -- success -- so the file stays org's own and the history sits beside it.
+  , testCase "completing a repeating row shifts it, resets it and records it" $
+      withStore $ \dir -> do
+        -- The planning line is the ONE line after the title and BEFORE any
+        -- drawer, so the fixture is spelled out rather than built from
+        -- `entryAs', which puts the drawer straight under the headline.
+        let repeating = "* TODO Water the plants\n\
+                        \SCHEDULED: <2020-01-06 Mon +1w>\n\
+                        \  :PROPERTIES:\n\
+                        \  :ORG_GLANCE_ID: abcdef\n\
+                        \  :END:\n"
+        path <- blobIn dir "abcdef" repeating
+        a <- serverOver dir
+        assertOk =<< postTo a "/command"
+                       (command "set-state" ["abcdef"] (keywordArg (Just "DONE")))
+        after <- document path
+        assertBool ("reset, not closed: " <> show after) ("* TODO Water" `T.isInfixOf` after)
+        assertBool ("the cookie is kept: " <> show after) ("+1w>" `T.isInfixOf` after)
+        assertBool ("and the stamp moved: " <> show after)
+                   (not ("<2020-01-06" `T.isInfixOf` after))
+        recorded <- T.lines <$> document (dir </> ".org-glance" </> "meta"
+                                              </> completionsFile)
+        assertEqual "one completion" 1 (length recorded)
+        assertBool ("names the row: " <> show recorded)
+                   ("\"id\":\"abcdef\"" `T.isInfixOf` head recorded)
+        assertBool ("and the state it reset to: " <> show recorded)
+                   ("\"state\":\"TODO\"" `T.isInfixOf` head recorded)
+
+    -- A row with no repeater takes the plain path and records nothing, so the
+    -- ledger describes repeats and only repeats.
+  , testCase "an ordinary state change records no completion" $
+      withStore $ \dir -> do
+        _ <- blobIn dir "abcdef" (entry "abcdef" "TODO")
+        a <- serverOver dir
+        assertOk =<< postTo a "/command"
+                       (command "set-state" ["abcdef"] (keywordArg (Just "DONE")))
+        assertEqual "no ledger for a plain close" False
+          =<< doesFileExist (dir </> ".org-glance" </> "meta" </> completionsFile)
+  ]
+  where stamp = Time.parseTimeOrError True Time.defaultTimeLocale "%Y-%m-%dT%H:%M:%S"
