@@ -128,7 +128,6 @@ module Glance.Query ( BlobSeed (..)
                     , repeatOn
                     , rowOrgId
                     , noteCompletion
-                    , planningSpans
                     , timestampOf
                     , shiftRepeat
                     , repeatsOf
@@ -2051,7 +2050,8 @@ repeatOn cfg today keyword r
                             , rpShifted = snd (head shifts)
                             , rpEdits = shifts <> tokenEdits hsTodo (spanEnd . hsStars) reset r }
   where
-    shifts = [ (sp, new) | (sp, text) <- planningSpans r, Just new <- [shiftRepeat today text] ]
+    shifts = [ (sp, rewriteDates (repeatDay today i) text)
+           | (sp, text, i) <- repeatingSpans r ]
     reset  = listToMaybe (chainOf tkActive)
     chainOf half = [ word | (_source, kw) <- keywordSources cfg [r], word <- half kw ]
 
@@ -2066,20 +2066,27 @@ timestampOf text = case orgParse defaultContext ("* probe\nSCHEDULED: " <> text 
 -- | The repeater cookie R carries on a planning timestamp, e.g. @+1w@.  The
 -- FIRST of them: an entry repeating on two lines repeats, and the cookie is
 -- shown rather than resolved.
+--
+-- Off the PARSED headline rather than a reparse: this is asked once per row per
+-- answer, so a probe parse here would be one whole document parsed per stamp
+-- per row.
 repeatsOf :: HeadlineRecord -> Maybe Text
-repeatsOf r = listToMaybe
-  [ repeaterFormat i | text <- planningStamps r, Just ts <- [timestampOf text]
-                     , Just i <- [tsInterval ts] ]
+repeatsOf r = listToMaybe [ repeaterFormat i | (_sp, _text, i) <- repeatingSpans r ]
 
--- | R's SCHEDULED and DEADLINE timestamps as the file spells them, with their
--- spans.  `CLOSED:` is out: org repeats a plan rather than a record of one.
-planningSpans :: HeadlineRecord -> [(Span, Text)]
-planningSpans r =
-  [ (sp, sliceSpan (hrDoc r) sp)
-  | Just sp <- [hsSchedule (headlineSpans r), hsDeadline (headlineSpans r)] ]
-
-planningStamps :: HeadlineRecord -> [Text]
-planningStamps = map snd . planningSpans
+-- | R's repeating SCHEDULED and DEADLINE stamps: where each sits, how the file
+-- spells it, and the cookie it carries.  `CLOSED:` is out — org repeats a plan
+-- rather than a record of one — and a stamp with no repeater is not here.
+--
+-- The span and the timestamp come off ONE headline, so they describe the same
+-- entry by construction; `Data.Org.schedule` and `hsSchedule` are the two
+-- halves the parser already produced.
+repeatingSpans :: HeadlineRecord -> [(Span, Text, TimestampRepeaterInterval)]
+repeatingSpans r =
+  [ (sp, sliceSpan (hrDoc r) sp, i)
+  | (at, stamp) <- [ (hsSchedule, schedule), (hsDeadline, deadline) ]
+  , Just sp <- [at (headlineSpans r)]
+  , Just ts <- [stamp (hrHeadline r)]
+  , Just i  <- [tsInterval ts] ]
 
 -- | DAY one repeat on under INTERVAL, given TODAY.
 --
@@ -2107,7 +2114,9 @@ addUnit Months n = Time.addGregorianMonthsClip n
 addUnit Years  n = Time.addGregorianYearsClip n
 
 -- | TEXT with every date in it moved one repeat on, or 'Nothing' where it
--- carries no repeater.
+-- carries no repeater.  The rule as a function of TEXT ALONE, which is what the
+-- suite exercises; `repeatOn` reads the interval off the parsed headline
+-- instead of paying a probe parse per row.
 --
 -- TEXTUAL, and deliberately: only the @YYYY-MM-DD@ runs and the weekday behind
 -- each are rewritten, so the time of day, the warning cookie, the repeater
