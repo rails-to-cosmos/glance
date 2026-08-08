@@ -5493,6 +5493,25 @@ paletteSweep shell = testCase "one palette, two namespaces, every theme" $ do
         , ("--g-col", "--tv-col"), ("--g-cell-wash", "--tv-cell-wash")
         -- One red for an error and for the archive flag.
         , ("--g-bad", "--tv-flag") ]
+  -- A BADGE HUE IS THE THEME'S, so the wire carries a SLOT and every theme
+  -- declares it.  Derived both ways: the slots the served ROWS name are read
+  -- off the view document and each must be declared in the page, and the count
+  -- is asserted so a wire that stopped naming any would not read as agreement.
+  view <- get assetsDir "/headlines" >>= decoded
+  cols <- listAt "columns" view
+  named <- concat <$> mapM (\c -> do
+             held <- sparseAt "badges" c
+             case held of
+               Nothing -> pure []
+               Just _  -> mapM (textAt "color") =<< listAt "badges" c) cols
+  assertBool "the badges name slots at all" (not (null named))
+  mapM_ (\slot -> do
+           let token = T.dropEnd 1 (T.drop 4 slot)   -- var(--g-…) -> --g-…
+           assertBool (T.unpack (slot <> " is a slot"))
+                      ("var(--g-" `T.isPrefixOf` slot)
+           assertBool (T.unpack (token <> " is declared by every theme"))
+                      (length (T.breakOnAll (token <> ":") page) >= 4))
+        named
   -- AND THE RENDERER'S OWN VALUES ARE DEFAULTS.  Its palette blocks carry no
   -- specificity (`:where'), so these ordinary rules win whatever order the two
   -- stylesheets land in — the renderer injects its own at mount time, which is

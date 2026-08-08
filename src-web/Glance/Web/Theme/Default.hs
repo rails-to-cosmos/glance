@@ -45,6 +45,14 @@ defaultLight = Palette
   , pCellWash  = "60%"
   , pSortWash  = "52%"
   , pColsWash  = "52%"
+    -- DARK ENOUGH TO BE INK.  A pill draws its hue as text over a 15% wash of
+    -- itself, and on a SELECTED row that wash sits on golden — so a light
+    -- theme's state hues are the deep ends of their families rather than the
+    -- mid-tones a white-only ground would take.  All clear 4.5:1 on white and
+    -- stay legible over the selection.
+  , pActive    = ["#9A3412", "#B45309", "#B91C1C", "#7C2D12"]
+  , pInactive  = ["#166534", "#0F766E", "#1D4ED8", "#4B5563"]
+  , pPriority  = ["#B91C1C", "#A16207", "#15803D"]
   }
 
 -- | White on true black, which is the face rather than a charcoal.
@@ -75,4 +83,9 @@ defaultDark = Palette
   , pCellWash  = "9%"
   , pSortWash  = "18%"
   , pColsWash  = "18%"
+    -- And a dark ground takes the light ends, which is the palette this table
+    -- has always worn.
+  , pActive    = ["#E0AF68", "#FF9E64", "#F7768E", "#FFC777"]
+  , pInactive  = ["#9ECE6A", "#73DACA", "#41A6B5", "#7C86BF"]
+  , pPriority  = ["#E74C3C", "#FFCC00", "#27AE60"]
   }

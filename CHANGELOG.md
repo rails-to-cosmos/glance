@@ -68,6 +68,14 @@ section groups a feature arc, and its date is that arc's last commit.
   archived" guard.
 
 ### Changed
+- **The theme decides the TODO and priority badge colours.** They were four
+  warm and four cool hues baked into the wire, the same in every theme — and on
+  the light theme's golden cursor row a mid-amber `TODO` pill was unreadable,
+  which is the collision: one file decides the row highlight, another decided
+  the badge. The wire carries a SLOT now (`var(--g-state-a0)`) and the theme
+  declares it, so switching theme repaints the badges with no refetch. The
+  light theme takes the deep end of each family — hues that read as ink over
+  white and over the selection alike — and dark keeps the palette it had.
 - **Every theme colour comes from one file per theme.** The palette used to be
   spread across three places — the page's `--g-*` set, the renderer's `--tv-*`
   set, and the hand-copied literals plus comments that kept the two in step.

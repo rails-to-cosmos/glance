@@ -39,4 +39,12 @@ data Palette = Palette
   , pCellWash  :: !Text  -- ^ and the cell the two bands cross in.
   , pSortWash  :: !Text  -- ^ the chip stating the ORDER.
   , pColsWash  :: !Text  -- ^ the chip stating the COLUMN SET.
+    -- STATE HUES, cycled into 'Glance.Query.stateSlots' slots each.  A pill is
+    -- its hue as INK over a 15% wash of itself, and the wash composites over
+    -- whatever ground the ROW wears — so a hue has to read over this theme's
+    -- 'pBg' AND its 'pSelection'.  That is why the theme owns them: it is the
+    -- same file that decides what the cursor row looks like.
+  , pActive    :: ![Text]  -- ^ keywords that still want work.
+  , pInactive  :: ![Text]  -- ^ the done-like ones.
+  , pPriority  :: ![Text]  -- ^ org's @[#A]@ @[#B]@ @[#C]@, in that order.
   }

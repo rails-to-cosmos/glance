@@ -30,6 +30,7 @@ import Data.Text (Text)
 
 import qualified Data.Text as T
 
+import Glance.Query (stateSlots)
 import Glance.Web.Theme.Default (defaultDark, defaultLight)
 import Glance.Web.Theme.Types (Mode (..), Palette (..))
 
@@ -81,6 +82,16 @@ pageTokens p =
   , ("--g-veil",      pVeil p)
   , ("--g-shadow",    pShadow p)
   ]
+ <> slots "--g-state-a" stateSlots (pActive p)
+ <> slots "--g-state-i" stateSlots (pInactive p)
+ <> slots "--g-priority-" (length (pPriority p)) (pPriority p)
+
+-- | N slot tokens under PREFIX, HUES cycled to fill them.  The COUNT is the
+-- wire's (`Glance.Query.stateSlots`) and the same for every theme, so a slot
+-- the badges name is always declared however many hues a theme spells.
+slots :: Text -> Int -> [Text] -> [(Text, Text)]
+slots prefix n hues =
+  [ (prefix <> T.pack (show i), cycle hues !! i) | i <- [0 .. n - 1] ]
 
 -- | And as the RENDERER spells it.  Its FLAG is 'pBad': the archive flag and
 -- an error are one red.

@@ -885,6 +885,20 @@ measurements and the history of superseded designs live in
   theme is GEOMETRY (`--g-doc-*`, `--g-pop-*`). `TestServe.paletteSweep` is the
   DERIVED oracle: it reads the served page and compares the two namespaces role
   by role, so agreement is asserted rather than mirrored.
+- A BADGE HUE IS THE THEME'S, and the wire carries a SLOT rather than a colour:
+  `badges` emits `var(--g-state-a<i>)` / `-i<i>`, `priorityBadges`
+  `var(--g-priority-<i>)`, and the theme declares each slot. A theme is switched
+  CLIENT-SIDE with no refetch, so a baked hue would go stale on the keystroke —
+  the `var()` is what makes the palette follow. `Glance.Query.stateSlots` is the
+  slot count and the WIRE's, the same for every theme; `Theme.slots` cycles a
+  theme's own list to fill exactly that many, so a slot the badges name is
+  always declared. The hue is also the INK: a pill draws its colour as text over
+  a 15% wash of itself, that wash composites over whatever ground the ROW wears,
+  and the renderer's `inkFor` cannot darken a `var()` — so a theme picks hues
+  that read over its own `pBg` AND its `pSelection`. That is the collision this
+  rule exists for: a light theme with a golden cursor row cannot use the
+  mid-tone amber a white-only ground would take. `paletteSweep` reads the slots
+  the served ROWS name and asserts every theme declares each.
 - Renderer internals this page may touch are enumerated by the suite as
   must-not-appear lists: the shell may not name `closeFilter`, `.tv-veil`,
   `.tv-panel`, may not reach rows by `tr.click()`, `scrollIntoView` or `rowEls(`,

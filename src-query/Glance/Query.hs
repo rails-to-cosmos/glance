@@ -145,6 +145,7 @@ module Glance.Query ( BlobSeed (..)
                     , tagRunEntries
                     , tagText
                     , tagged
+                    , stateSlots
                     , tagsOfCell
                     , templatePrompts
                     , todoLines
@@ -808,8 +809,9 @@ linkTypes = followableTypes <> ["glance", "mailto", "id", "file"]
 -- No @group@ field ('badge'): that one is the state column's own.
 linkTypeBadges :: [Value]
 linkTypeBadges =
-  zipWith (badge Nothing) (take n activeColors <> cycle inactiveColors) linkTypes
-  where n = length followableTypes
+  zipWith (badge Nothing) (followable <> unreachable) linkTypes
+  where followable  = map (stateSlot "a") [0 .. length followableTypes - 1]
+        unreachable = map (stateSlot "i") [0 ..]
 
 -- | The link popup's columns: what a link IS, what the entry calls it, and where
 -- it points.  SCHEMA.md Column objects through the same 'column' builder the
@@ -3257,7 +3259,10 @@ priorityValues = map priorityCell ["A", "B", "C"]
 --
 -- No @group@ field ('badge'): a priority has no such halves.
 priorityBadges :: [Value]
-priorityBadges = zipWith (badge Nothing) ["#E74C3C", "#FFCC00", "#27AE60"] priorityValues
+priorityBadges =
+  zipWith (badge Nothing)
+          [ "var(--g-priority-" <> showt i <> ")" | i <- [0 :: Int ..] ]
+          priorityValues
 
 -- | The two keyword groups a @#+TODO:@ line's bar divides: every keyword ahead
 -- of it, and every one behind it.  Starred metas, so no file can declare either
@@ -3338,8 +3343,8 @@ rowJSONFor cols r = object
 -- and a renderer with no use for it ignores an extra field.
 badges :: TodoKeywords -> [Value]
 badges (TodoKeywords actives inactives) =
-  group "active" activeColors actives <> group "inactive" inactiveColors inactives
-  where group g hues = zipWith (badge (Just g)) (cycle hues)
+  group "active" "a" actives <> group "inactive" "i" inactives
+  where group g slot ws = zipWith (badge (Just g)) (map (stateSlot slot) [0 ..]) ws
 
 -- | A SCHEMA.md badge: VALUE drawn in COLOR, under GROUP where its column has
 -- halves to name.  One builder for the three palettes this module declares —
@@ -3354,10 +3359,15 @@ badge :: Maybe Text -> Text -> Text -> Value
 badge group color value =
   object ([ "value" .= value, "color" .= color ] <> [ "group" .= g | Just g <- [group] ])
 
--- | Warm hues for keywords that still want work.
-activeColors :: [Text]
-activeColors = ["#e0af68", "#ff9e64", "#f7768e", "#ffc777"]
+-- | HOW MANY HUES A GROUP CYCLES.  A keyword's slot is its place in the group
+-- modulo this, so the number is the WIRE's and the same for every theme; a
+-- theme fills exactly this many slots however many hues it declares
+-- ('Glance.Web.Theme').
+stateSlots :: Int
+stateSlots = 4
 
--- | Cool hues for the done-like ones.
-inactiveColors :: [Text]
-inactiveColors = ["#9ece6a", "#73daca", "#41a6b5", "#565f89"]
+-- | The slot token for INDEX in GROUP (@a@ ctive, @i@ nactive).  The wire
+-- carries a `var()` rather than a hex because a reader switches theme without
+-- refetching: a baked hue would go stale on the keystroke.
+stateSlot :: Text -> Int -> Text
+stateSlot group i = "var(--g-state-" <> group <> showt (i `mod` stateSlots) <> ")"
