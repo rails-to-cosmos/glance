@@ -1104,18 +1104,22 @@
    white). --tv-link is that same operation on the accent itself, in both
    themes and measured against the grounds a ROW can wear rather than against
    the page (LINK_LIGHT and LINK_DARK above).
-   The selected row takes the theme's highlight face
-   (#F0FFF0) rather than its golden: the cursor row is its own role and must
-   not read as either the applied filter (frost, on the chips) or a state
-   pill.
+   The selected row takes the theme's own highlight (light-golden #FFD600),
+   which a host may override like any other token -- the cursor row is one
+   role and a consumer draws it in one hue wherever it appears.
 
    Borders are the exception and stay hairlines: they carry no information, so
    contrast is not a goal for them and a visible rule only adds noise. Light
    keeps the quiet #E3E6EA (1.25:1 on white) rather than the theme's #BDC3C7,
    and dark takes #2a2d3d over the theme's #223959 (1.54:1 against true black
    against 1.80:1) — the quieter of the two. Every rule is 1px. */
-
-.tv-root{
+/* THE PALETTE IS A DEFAULT, at zero specificity (:where), so a host that
+   themes this widget wins with an ordinary rule whatever order the two
+   stylesheets land in -- this one is injected into <head> at mount time, which
+   is after a served page's own. The custom properties ARE the theming API;
+   these are the values a consumer who declares none gets. Everything below
+   this block is layout and keeps its specificity. */
+:where(.tv-root){
   --tv-fg:#000000;
   --tv-muted:#667071;
   --tv-bg:#FFFFFF;
@@ -1132,10 +1136,14 @@
   --tv-flag:${FLAG};
   --tv-flag-wash:8%;
   --tv-col:${COL};
+  --tv-veil:#00000066;
+  --tv-shadow:#00000033;
   --tv-col-wash:35%;
   --tv-cell-wash:60%;
   --tv-sort-wash:52%;
   --tv-cols-wash:52%;
+}
+.tv-root{
   color:var(--tv-fg);
   background:var(--tv-bg);
   font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
@@ -1144,26 +1152,71 @@
   overflow:hidden;
   display:flex;
   flex-direction:column;
-  max-height:100%
+  max-height:100%;
 }
-
-@media (prefers-color-scheme:dark){.tv-root{--tv-fg:#FFFFFF;--tv-muted:#A4C2EB;--tv-bg:#000000;
-  --tv-alt:#21252B;--tv-border:#2a2d3d;--tv-accent:#4CB5F5;--tv-sel:#373D4F;
+@media (prefers-color-scheme:dark){:where(.tv-root){
+  --tv-fg:#FFFFFF;
+  --tv-muted:#A4C2EB;
+  --tv-bg:#000000;
+  --tv-alt:#21252B;
+  --tv-border:#2a2d3d;
+  --tv-accent:#4CB5F5;
+  --tv-sel:#373D4F;
   --tv-link:${LINK_DARK};
-  --tv-hover:#1F1F1F;--tv-chip-wash:18%;--tv-chip-edge:34%;--tv-mark-wash:30%;--tv-flag-wash:30%;
-  --tv-col-wash:8%;--tv-cell-wash:9%;--tv-sort-wash:18%;--tv-cols-wash:18%;}}
-
-:root[data-theme="dark"] .tv-root{--tv-fg:#FFFFFF;--tv-muted:#A4C2EB;--tv-bg:#000000;
-  --tv-alt:#21252B;--tv-border:#2a2d3d;--tv-accent:#4CB5F5;--tv-sel:#373D4F;
+  --tv-hover:#1F1F1F;
+  --tv-veil:#00000099;
+  --tv-shadow:#00000077;
+  --tv-chip-wash:18%;
+  --tv-chip-edge:34%;
+  --tv-mark-wash:30%;
+  --tv-flag-wash:30%;
+  --tv-col-wash:8%;
+  --tv-cell-wash:9%;
+  --tv-sort-wash:18%;
+  --tv-cols-wash:18%;
+}}
+:where(:root[data-theme="dark"] .tv-root){
+  --tv-fg:#FFFFFF;
+  --tv-muted:#A4C2EB;
+  --tv-bg:#000000;
+  --tv-alt:#21252B;
+  --tv-border:#2a2d3d;
+  --tv-accent:#4CB5F5;
+  --tv-sel:#373D4F;
   --tv-link:${LINK_DARK};
-  --tv-hover:#1F1F1F;--tv-chip-wash:18%;--tv-chip-edge:34%;--tv-mark-wash:30%;--tv-flag-wash:30%;
-  --tv-col-wash:8%;--tv-cell-wash:9%;--tv-sort-wash:18%;--tv-cols-wash:18%;}
-
-:root[data-theme="light"] .tv-root{--tv-fg:#000000;--tv-muted:#667071;--tv-bg:#FFFFFF;--tv-alt:#F8F8FF;
-  --tv-border:#E3E6EA;--tv-accent:#31769F;--tv-sel:#FFD600;--tv-hover:#FAFAFA;
+  --tv-hover:#1F1F1F;
+  --tv-veil:#00000099;
+  --tv-shadow:#00000077;
+  --tv-chip-wash:18%;
+  --tv-chip-edge:34%;
+  --tv-mark-wash:30%;
+  --tv-flag-wash:30%;
+  --tv-col-wash:8%;
+  --tv-cell-wash:9%;
+  --tv-sort-wash:18%;
+  --tv-cols-wash:18%;
+}
+:where(:root[data-theme="light"] .tv-root){
+  --tv-fg:#000000;
+  --tv-muted:#667071;
+  --tv-bg:#FFFFFF;
+  --tv-alt:#F8F8FF;
+  --tv-border:#E3E6EA;
+  --tv-accent:#31769F;
+  --tv-sel:#FFD600;
+  --tv-hover:#FAFAFA;
   --tv-link:${LINK_LIGHT};
-  --tv-chip-wash:45%;--tv-chip-edge:95%;--tv-mark-wash:8%;--tv-flag-wash:8%;
-  --tv-col-wash:35%;--tv-cell-wash:60%;--tv-sort-wash:52%;--tv-cols-wash:52%}
+  --tv-veil:#00000066;
+  --tv-shadow:#00000033;
+  --tv-chip-wash:45%;
+  --tv-chip-edge:95%;
+  --tv-mark-wash:8%;
+  --tv-flag-wash:8%;
+  --tv-col-wash:35%;
+  --tv-cell-wash:60%;
+  --tv-sort-wash:52%;
+  --tv-cols-wash:52%;
+}
 .tv-bar{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--tv-border);flex-wrap:wrap}
 .tv-title{font-weight:600;font-size:14px;margin-right:auto}
 .tv-filter{font:inherit;padding:4px 8px;border:1px solid var(--tv-border);border-radius:6px;
@@ -1186,11 +1239,11 @@
    the panel sits in the upper third, where a minibuffer or a Telescope prompt
    sits — near the eye rather than centred in it. 90/91 leaves 100/101 free for
    a consumer's own modal, so a materialize sheet still wins over this. */
-.tv-veil{position:fixed;inset:0;z-index:90;background:#0006;
+.tv-veil{position:fixed;inset:0;z-index:90;background:var(--tv-veil);
   display:flex;justify-content:center;align-items:flex-start;padding-top:18vh}
 .tv-panel{z-index:91;width:min(560px,80vw);padding:10px;border-radius:8px;
   background:var(--tv-alt);border:1px solid var(--tv-border);
-  box-shadow:0 10px 30px #0007}
+  box-shadow:0 10px 30px var(--tv-shadow)}
 .tv-panel .tv-filter{font-size:15px;padding:7px 11px;width:100%}
 /* The applied filter's identity: the theme's frost, washed over whatever the
    page's ground is, with ordinary foreground for ink. Why frost and why a wash
@@ -1272,7 +1325,7 @@
    overflow:hidden, so it scrolls internally rather than growing past it. */
 .tv-ac{position:absolute;top:100%;left:0;min-width:100%;z-index:5;margin-top:2px;
   max-height:min(288px,40vh);overflow-y:auto;background:var(--tv-bg);
-  border:1px solid var(--tv-border);border-radius:6px;box-shadow:0 4px 12px #0003}
+  border:1px solid var(--tv-border);border-radius:6px;box-shadow:0 4px 12px var(--tv-shadow)}
 .tv-ac-item{display:flex;justify-content:space-between;align-items:baseline;gap:14px;
   padding:3px 10px;white-space:nowrap;cursor:pointer;color:var(--tv-fg)}
 .tv-ac-n{color:var(--tv-muted);font-variant-numeric:tabular-nums}

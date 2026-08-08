@@ -68,8 +68,19 @@ section groups a feature arc, and its date is that arc's last commit.
   archived" guard.
 
 ### Changed
+- **Every theme colour comes from one file per theme.** The palette used to be
+  spread across three places — the page's `--g-*` set, the renderer's `--tv-*`
+  set, and the hand-copied literals plus comments that kept the two in step.
+  `Glance.Web.Theme` now holds a palette of ROLES per theme and emits both
+  namespaces from it, so a role both spell has one value and the table is
+  drawn in the palette the page around it is. Adding a theme is a record in a
+  file beside the default theme's and one registry entry; the stylesheet, the
+  boot script and the theme selector all read that list. Two light values are
+  corrected on the way, the hue held: muted text (3.5:1 → 5.1:1 on white) and
+  the focus accent (2.3:1 → 5.0:1) now clear the contrast floor on the page as
+  they already did in the table.
 - **The sheet's light-theme cursor row matches the table's.** The structured
-  document's selection wash was danneskjold's golden `#FFD600` where the
+  document's selection wash was the theme's golden `#FFD600` where the
   table's is the renderer's honeydew `#F0FFF0` — two hues for one meaning,
   side by side. `--g-sel` now copies `--tv-sel` on both themes (dark already
   agreed at `#373D4F`), so the cursor row reads as the same selection

@@ -5217,7 +5217,8 @@ glueSpec shell = testGroup "Shell glue"
        holdsNone glLabel glGone b
    | Glue{..} <- shellGlue ]
    <> [ groundSweep shell, tierSweep shell, gridSweep shell, editIndentSweep shell
-      , scrollSweep shell, containSweep shell, logColumnSweep shell ])
+      , scrollSweep shell, containSweep shell, logColumnSweep shell
+      , paletteSweep shell ])
 
 -- | THE EDIT BOX IS THE BLOCK, WEARING A DIFFERENT GROUND.  `RET' over a
 -- paragraph must move NOTHING: the textarea takes the block's font, its line
@@ -5458,6 +5459,50 @@ gridSweep shell = testCase "the star gutter and the body indent are one arithmet
 -- The sweep asserts what it swept first — every box found, every tier defined —
 -- so a renamed id or a dropped tier fails loudly rather than passing over
 -- nothing.
+-- | ONE PALETTE, TWO NAMESPACES.  The page draws itself in @--g-*@ and the
+-- renderer it mounts draws the table in @--tv-*@, and both are emitted from
+-- one 'Glance.Web.Theme.Palette' per theme — so a role that both spell has
+-- ONE value, in every theme, by construction rather than by a comment asking
+-- for a matching edit.
+--
+-- DERIVED, and that is the point: the values are read out of the served page
+-- and COMPARED, so this asserts the property rather than mirroring the
+-- literals a second time.  Each token appears once per theme block and the
+-- blocks are emitted in one order, so the two lists agree exactly where the
+-- palettes do.  What is hardcoded here is the ROLE PAIRING — which page token
+-- and which renderer token are the same thing — since that is the claim, and
+-- an oracle deriving it from the emitter would agree with any pairing.
+paletteSweep :: IO T.Text -> TestTree
+paletteSweep shell = testCase "one palette, two namespaces, every theme" $ do
+  page <- shell
+  let valuesOf name =
+        [ T.dropWhileEnd (== ';') rest
+        | line <- T.lines page
+        , Just rest <- [T.stripPrefix (name <> ":") (T.strip line)] ]
+  -- Four blocks per namespace: the two the media query picks between, and one
+  -- per theme `data-theme' names.  A palette that stopped being emitted would
+  -- read as agreement between two empty lists, so the count is asserted first.
+  assertEqual "every theme declares the selection" 4 (length (valuesOf "--g-sel"))
+  mapM_ (\(g, tv) ->
+           assertEqual (T.unpack (g <> " is " <> tv))
+                       (valuesOf g) (valuesOf tv))
+        [ ("--g-bg", "--tv-bg"), ("--g-fg", "--tv-fg")
+        , ("--g-surface", "--tv-alt"), ("--g-mute", "--tv-muted")
+        , ("--g-border", "--tv-border"), ("--g-accent", "--tv-accent")
+        , ("--g-sel", "--tv-sel"), ("--g-link", "--tv-link")
+        , ("--g-col", "--tv-col"), ("--g-cell-wash", "--tv-cell-wash")
+        -- One red for an error and for the archive flag.
+        , ("--g-bad", "--tv-flag") ]
+  -- AND THE RENDERER'S OWN VALUES ARE DEFAULTS.  Its palette blocks carry no
+  -- specificity (`:where'), so these ordinary rules win whatever order the two
+  -- stylesheets land in — the renderer injects its own at mount time, which is
+  -- after the page's.
+  renderer <- TIO.readFile "assets/table-view.js"
+  mapM_ (\needle -> assertContains "the renderer's palette is a default" needle renderer)
+        [ ":where(.tv-root){"
+        , ":where(:root[data-theme=\"dark\"] .tv-root){"
+        , ":where(:root[data-theme=\"light\"] .tv-root){" ]
+
 tierSweep :: IO T.Text -> TestTree
 tierSweep shell = testCase "every popup wears one size tier, and declares none" $ do
   page <- shell
@@ -5995,7 +6040,10 @@ shellGlue =
       , "a.tagName === \"INPUT\" || a.tagName === \"TEXTAREA\""
       , "cancel: () => {"
       , "else if (typing()) document.activeElement.blur();" ]
-      ["closeFilter", "tv-veil", "tv-panel"]
+      -- The CLASS, not the token: `--tv-veil' is the renderer's theming API
+      -- and this page declares it like every other ('Glance.Web.Theme'); what
+      -- it may not do is reach for the element wearing it.
+      ["closeFilter", ".tv-veil", ".tv-panel"]
 
   -- With `bootstrap=off' no `set-rows' frame can arrive, so the branch that
   -- would have applied one is gone rather than left unreachable.
@@ -6168,11 +6216,11 @@ shellGlue =
   -- The author's Emacs theme in one set of custom properties: white on true
   -- black in the dark variant, black on white in the light one.  The hairline is
   -- the renderer's own `--tv-border', so the page draws one weight of chrome;
-  -- danneskjold's own border faces frame instead.
-  , Glue "the page wears danneskjold and the sheet wears Hack"
-      [ "--g-bg:#FFFFFF;--g-fg:#000000;--g-border:#E3E6EA"
-      , "@media (prefers-color-scheme:dark){:root{--g-bg:#000000;--g-fg:#FFFFFF;"
-      , "--g-border:#2A2D3D;--g-mute:#A4C2EB;--g-surface:#21252B;--g-sel:#373D4F;"
+  -- the theme's own border faces frame instead.
+  , Glue "the page wears the default theme and the sheet wears Hack"
+      [ "    --g-bg:#FFFFFF;", "    --g-fg:#000000;", "    --g-border:#E3E6EA;"
+      , "  @media (prefers-color-scheme:dark){"
+      , "      --g-bg:#000000;", "      --g-fg:#FFFFFF;", "      --g-sel:#373D4F;"
       , "background:var(--g-bg);color:var(--g-fg)"
       , "#mtext::selection{background:var(--g-sel);color:var(--g-fg)}"
       , "#mnote.conflict,#mnote.error{color:var(--g-bad)}"
@@ -6279,8 +6327,11 @@ shellGlue =
       , "<option value=\"dark\">dark</option>"
       -- `auto' is the media query; the other two pin the attribute the
       -- renderer's own overrides read.
-      , ":root[data-theme=\"light\"]{--g-bg:#FFFFFF"
-      , ":root[data-theme=\"dark\"]{--g-bg:#000000"
+      , ":root[data-theme=\"light\"]{", ":root[data-theme=\"dark\"]{"
+      -- And the renderer's own namespace beside each, since the page themes
+      -- the table it mounts rather than leaving it to agree by hand.
+      , ":root[data-theme=\"light\"] .tv-root{"
+      , ":root[data-theme=\"dark\"] .tv-root{"
       , "if (name === \"auto\") delete document.documentElement.dataset.theme;"
       , "else document.documentElement.dataset.theme = name;"
       , "const themed = pref(\"glance-theme\", \"auto\");"

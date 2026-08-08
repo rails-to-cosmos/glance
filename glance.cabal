@@ -147,6 +147,9 @@ library glance-web
       Glance.Web.Routes
       Glance.Web.Sort
       Glance.Web.Store
+      Glance.Web.Theme
+      Glance.Web.Theme.Default
+      Glance.Web.Theme.Types
       Glance.Web.Watch
   hs-source-dirs:
       src-web

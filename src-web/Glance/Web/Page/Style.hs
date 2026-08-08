@@ -14,6 +14,7 @@ import System.FilePath (takeExtension)
 import qualified Data.Text as T
 
 import Glance.Web.Base (escape, logLinesDefault)
+import Glance.Web.Theme (themeCSS, themeIds)
 
 -- Type
 
@@ -55,44 +56,14 @@ page head' title body = T.unlines
   , "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
   , "<title>" <> escape title <> "</title>"
   , "<style>" <> (if T.null head' then "" else "\n" <> head')
-  -- The palette is danneskjold, this author's Emacs theme, in one
-  -- custom-property set the whole page reads.  From danneskjold-theme.el
-  -- (../danneskjold-theme, github.com/rails-to-cosmos/danneskjold-theme).
-  -- Dark: `default' #FFFFFF on #000000, `region' #373D4F,
-  -- `font-lock-comment-face' #A4C2EB, `company-tooltip' #21252B,
-  -- `org-done'/success #B6E63E, `error' #E74C3C, `accent' #4CB5F5.  Light:
-  -- #000000 on #FFFFFF, `light-comment' #7F8C8D, `light-surface' #F8F8FF,
-  -- `green-dark' #27AE60 where white
-  -- needs the darker green.  The SELECTION is the one light value off the
-  -- theme and it is the RENDERER's: `--tv-sel' is honeydew #F0FFF0 (its own
-  -- comment keeps it off golden, which read as the frost chips and the state
-  -- pills), and the document's cursor row must read as the same selection the
-  -- table's does — one hue for one meaning, hand-copied like `--g-border'.
-  -- danneskjold's `light-golden' #FFD600 was the older pick.  Dark agrees by
-  -- construction, `region' #373D4F being the renderer's dark `--tv-sel' too.
-  --
-  -- @--g-border@ is the one value off palette, and it is the renderer's:
-  -- @table-view.js@ draws its own rules in @--tv-border@, #E3E6EA light and
-  -- #2a2d3d dark, so the page's hairlines weigh the table's rather than frame
-  -- it in heavier chrome.  danneskjold's own `vertical-border' #223959 and
-  -- `light-dim' #BDC3C7 frame at 1.8:1 against their ground, these at 1.25:1
-  -- and 1.5:1; text contrast is untouched, only the rules recede.
-  --
-  -- Three ways, the renderer's own pattern: the media query is the default and
-  -- @data-theme@ on the root pins it — the attribute the @theme:@ selector
-  -- writes and the renderer's overrides key off.  `--g-col' and `--g-cell-wash'
-  -- alias the RENDERER's crosshair: its column band `--tv-col', a pale amber,
-  -- taken at `--tv-cell-wash' over the cursor row's own ground where the two
-  -- cross.  The structured document's horizontal point wears that same stack,
-  -- so vertical is the ROW language and horizontal the COLUMN language on both
-  -- surfaces.  Hand-copied literals like `--g-border' and `--g-sel', and for
-  -- their reason: these properties live on `.tv-root', unreadable outside a
-  -- mount, so each hex is spelled ONCE here, every rule that wants it reads the
-  -- alias, and a renderer change to any of them needs a matching edit nothing
-  -- detects.
+  -- THE PALETTE IS NOT HERE.  Every colour the page and the table it mounts
+  -- are drawn in comes from 'Glance.Web.Theme' — one 'Palette' per theme, in
+  -- a file of its own, emitted into BOTH namespaces (the page's @--g-*@ and
+  -- the renderer's @--tv-*@) by 'themeCSS' below.  What stays in this block is
+  -- GEOMETRY: the type stack, the document pane's insets and rhythm, the
+  -- popup anchor.  No theme moves those, so no theme declares them.
   , "  :root{--glance-mono:" <> monoStack <> ";"
-  , "    " <> lightVars <> ";--g-accent:#4CB5F5;"
-  , "    --g-col:#FFF3D0;--g-doc-pad:6px;"
+  , "    --g-doc-pad:6px;"
       -- The document pane's own inset, named because the overlays laid over it
       -- have to answer for it: an absolutely positioned box is placed against
       -- the PADDING box and the text it covers sits inside the content box.
@@ -115,11 +86,12 @@ page head' title body = T.unlines
       -- RAISED anchor capped all the same.
   , "    --g-pop-top:5vh;--g-pop-pad:24px;"
   , "    --g-pop-max:min(90vh,"
-  , "      calc(100vh - 2 * var(--g-pop-top)));"
-  , "    --g-warn:#FFA500;--g-bad:#E74C3C}"
-  , "  @media (prefers-color-scheme:dark){:root{" <> darkVars <> "}}"
-  , "  :root[data-theme=\"light\"]{" <> lightVars <> "}"
-  , "  :root[data-theme=\"dark\"]{" <> darkVars <> "}"
+  , "      calc(100vh - 2 * var(--g-pop-top)))}"
+  -- EVERY COLOUR ON THE PAGE AND IN THE TABLE, from one palette per theme
+  -- ('Glance.Web.Theme').  Both namespaces are emitted here — the page's
+  -- @--g-*@ and the renderer's own @--tv-*@ — so a role has ONE value and the
+  -- table is drawn in the palette the page around it is.
+  , T.stripEnd themeCSS
   , "  body{margin:0;font:14px/1.5 var(--glance-mono);"
   , "    background:var(--g-bg);color:var(--g-fg);"
   -- One column, exactly the viewport tall: the table at the height it asks for,
@@ -199,7 +171,7 @@ page head' title body = T.unlines
   , "    overflow-x:auto;padding:0 2px}"
   -- The sheet is the one place the author's Emacs font is asked for by name:
   -- the subtree reads there as it reads in the buffer it came out of, in the
-  -- page's own colours, which are already danneskjold's.  The backdrop is a
+  -- page's own colours.  The backdrop is a
   -- direct child of the body, which is neither transformed nor positioned, so
   -- these two levels are the root stacking context's and clear the renderer's
   -- chrome outright — its sticky @th@ carries @z-index:1@ and its completion
@@ -210,7 +182,7 @@ page head' title body = T.unlines
   -- open at a time — and the prompt sits high rather than centred, since a list
   -- that grows downward should not move the line above it.
   , "  #modal,#prompt,#config,#links,#tags,#capture{--dk-mono:\"Hack\", var(--glance-mono);"
-  , "    display:none;position:fixed;inset:0;z-index:100;background:#0009;"
+  , "    display:none;position:fixed;inset:0;z-index:100;background:var(--g-veil);"
   , "    padding:var(--g-pop-pad);padding-top:var(--g-pop-top);"
   , "    align-items:flex-start;justify-content:center}"
   , "  #modal.on,#prompt.on,#config.on,#links.on,#tags.on,#capture.on{display:flex}"
@@ -754,21 +726,7 @@ page head' title body = T.unlines
 themeBoot :: Text
 themeBoot = T.concat
   [ "try{var t=localStorage.getItem(\"glance-theme\");"
-  , "if(t===\"light\"||t===\"dark\")document.documentElement.dataset.theme=t}"
+  , "if(", T.intercalate "||" [ "t===\"" <> name <> "\"" | name <- themeIds ]
+  , ")document.documentElement.dataset.theme=t}"
   , "catch(e){}" ]
 
--- | The page palette, once per theme.  Every rule below reads these through
--- @var()@, so a hue is spelled in exactly one place; the LIGHT set is what
--- @:root@ opens with and what @data-theme=\"light\"@ puts back over a dark
--- system, and the DARK set answers the media query and the attribute alike.
--- Spelled twice each, they were two places for a renderer change to be
--- half-applied.
-lightVars, darkVars :: Text
-lightVars = "--g-bg:#FFFFFF;--g-fg:#000000;--g-border:#E3E6EA;--g-mute:#7F8C8D;\
-            \--g-surface:#F8F8FF;--g-sel:#FFD600;--g-cell-wash:60%;\
-            \--g-link:#30739B;--g-ok:#27AE60"
--- The band's hue does not move between themes; what moves is how far it washes,
--- since dark's ink has less room over a lit ground.
-darkVars  = "--g-bg:#000000;--g-fg:#FFFFFF;--g-border:#2A2D3D;--g-mute:#A4C2EB;\
-            \--g-surface:#21252B;--g-sel:#373D4F;--g-cell-wash:9%;\
-            \--g-link:#7CC9F8;--g-ok:#B6E63E"

@@ -3250,7 +3250,7 @@ priorityLetter value = T.toCaseFold (fromMaybe folded stripped)
 priorityValues :: [Text]
 priorityValues = map priorityCell ["A", "B", "C"]
 
--- | And their hues, which are danneskjold's own org-priority faces: the highest
+-- | And their hues, which are the theme's own org-priority faces: the highest
 -- in the theme's red, the medium in its yellow, the lowest in its green.  THREE
 -- and no more — org's default cycle is @A@ to @C@ and a tree that spells @[#D]@
 -- gets the badge-less default ink rather than a colour this file invented.
