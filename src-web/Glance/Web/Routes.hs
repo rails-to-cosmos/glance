@@ -434,29 +434,22 @@ wholeNumber name raw = do
 
 
 -- | @GET \/headline?id=…@: one headline's subtree as its file spells it, plus
--- the digest a commit has to present and the extent the text was cut from.
+-- the digest a commit must present and the extent the text was cut from.
 --
--- The id travels in the query string rather than in the path: a row id is
--- @FILE#K@ — slashes and a hash — so a path segment would have to be
--- percent-encoded by every client and decoded here, where WAI has decoded the
--- query string by the time this runs.  The hash is the sharper half: spelled
--- into a URL raw it opens a FRAGMENT and the id never reaches the server at
--- all, which is why the shell builds this with @encodeURIComponent@.
+-- The id travels in the QUERY STRING: a row id is @FILE#K@, and a hash spelled
+-- into a path opens a FRAGMENT, so the id never reaches the server — which is
+-- why the shell builds this with @encodeURIComponent@.
 --
--- Every field comes out of the store, the read model, so the offsets and the
--- digest describe one document — the text this process parsed.  Re-reading the
--- file here would digest bytes the extent was never measured against, and the
--- disagreement would surface only as a splice landing in the wrong place.
+-- Every field comes out of the store, so the offsets and the digest describe
+-- ONE document.  Re-reading the file here would digest bytes the extent was
+-- never measured against, and the disagreement would surface only as a splice
+-- landing in the wrong place.
 --
--- The same subtree arrives twice, whole and split.  @org@ is what it has always
--- been; @body@, @properties@, @planning@ and @logbook@ are
--- 'Glance.Query.headlineParts', the text with the headline's own regions lifted
--- out and each region beside it, so a client can edit them apart without an org
--- parser of its own.  @logbook@ rides out and never back — it is shown and not
--- edited, and 'Glance.Query.recomposedSubtree' takes it off the record whatever
--- a commit says.  The properties in 'Glance.Query.hiddenProperties' are not
--- even shown: @ORG_GLANCE_ID@ is the row id a client keys its updates off, so
--- the drawer a sheet edits is the drawer minus the thing that names it.
+-- The subtree arrives TWICE, whole and split: @org@, and @body@ +
+-- @properties@ + @planning@ + @logbook@ ('headlineParts'), so a client edits
+-- them apart without an org parser.  @logbook@ rides out and never back, and
+-- 'hiddenProperties' are not even shown — the drawer a sheet edits is the
+-- drawer minus the thing that names the row.
 materialize :: Hub -> Maybe Text -> Either Text (Maybe Int) -> IO Response
 materialize _hub Nothing _child = pure (jsonError status400 "GET /headline?id=<row id>")
 materialize hub (Just rid) child = do
@@ -610,28 +603,22 @@ trailTo f = hrTitle (fcRow f) : reverse (climb (fcAt f))
           Nothing -> []
           Just e  -> hrTitle (seRecord e) : climb (parentOf e)
 
--- | @POST \/headline?id=…@ with body @{"org": …, "digest": …}@: the headline's
--- subtree replaced by the text the client edited.
+-- | @POST \/headline?id=…@ with @{"org", "digest"}@: the subtree replaced by
+-- the text the client edited.
 --
--- Or @{"body": …, "properties": [[key, value], …], "digest": …}@, the same
--- write with the drawer named apart: the subtree is recomposed here
--- ('Glance.Query.recomposedSubtree') and everything past that point is
--- identical, the drift lock and the digest chain included.  A body naming both
--- shapes is a 400 — which of two texts to write is not a thing to guess at.
+-- Or @{"body", "properties", "planning", "digest"}@, the same write with the
+-- drawer named apart — recomposed here and identical past that point.  A body
+-- naming BOTH shapes is a 400: which of two texts to write is not a thing to
+-- guess at.
 --
--- Two digest checks, one lock: the client's digest must be the one the store
--- holds, or the file was re-parsed since and the subtree was measured at
--- offsets that have moved, and 'replaceSpans' re-digests the file itself,
--- catching a change that has not reached the store yet.  Both are a 409 with
--- the file untouched, and both mean materialize again — the edited text is not
--- there any more.
+-- TWO DIGEST CHECKS, ONE LOCK: the client's must be the one the store holds, or
+-- the file was re-parsed since and the offsets have moved; and 'replaceSpans'
+-- re-digests the file itself, catching a change that has not reached the store.
+-- Both are a 409 with the file untouched, and both mean materialize again.
 --
--- Nothing here touches the store: the write goes to the file, the watch sees
--- it, re-parses it and streams the rows, so a browser save reaches every open
--- tab by the path an editor's save takes and there is ONE update channel.  The
--- text itself is taken as given — org validity is the author's business, and a
--- file that stops parsing keeps the rows it had (docs/invariants.md), exactly
--- as when the text came from Emacs.
+-- Nothing here touches the store — ONE update channel.  The text is taken as
+-- given: org validity is the author's business, and a file that stops parsing
+-- keeps the rows it had.
 commit :: ServeOptions -> Hub -> Maybe Text -> Either Text (Maybe Int) -> Request
        -> IO Response
 commit _opts _hub Nothing _child _request =
@@ -951,34 +938,25 @@ keywordsJSON = object . keywordsPair
 keywordsPair :: TodoKeywords -> [Pair]
 keywordsPair kw = ["active" .= tkActive kw, "inactive" .= tkInactive kw]
 
--- | @POST \/config@ with body @{"path": …, "lines": […], "digest": …}@: one
--- layer's @#+TODO:@ block replaced, and nothing else in the file touched.
+-- | @POST \/config@ with @{"path", "lines", "digest"}@: one layer's @#+TODO:@
+-- block replaced and nothing else in the file touched.
 --
--- @path@ has to be a layer @GET \/config@ would list, and that is the whole of
--- the traversal defence: the request names one of the files this server just
--- offered, never a path it is handed.  Looking the layer up is also the read
--- the edits are measured in, so the two cannot describe different files.
+-- @path@ must be a layer @GET \/config@ would list, and that is the whole
+-- traversal defence: the request names a file this server just offered.  The
+-- lookup is also the read the edits are measured in, so the two cannot describe
+-- different files.
 --
--- The write is every other write: 'Glance.Query.configEdits' turns the lines
--- into span edits over the file's own text and 'Glance.Query.replaceSpans'
--- splices them under the client's digest, temp file and rename, so a comment, a
--- @#+TITLE:@ and a capture template around the block come back byte for byte.
--- A file that moved since the client read it is a 409 with nothing written.
--- The EMPTY digest is the pin for a layer that does not exist yet: the same
--- lock says "nothing is there", the write creates it and the directories over
--- it, and a file that turned up meanwhile drifts.
+-- The write is every other write: 'configEdits' turns the lines into span edits
+-- and 'replaceSpans' splices them under the client's digest, so a comment, a
+-- @#+TITLE:@ and a capture template come back byte for byte.  The EMPTY digest
+-- is the pin for a layer that does not exist yet — the write creates it and the
+-- directories over it, and a file that turned up meanwhile drifts.
 --
--- Nothing here touches the store.  A config file is watched
--- ('Glance.Web.Watch.settle') and a change to one reseeds the whole tree, so
--- the rows and the palette arrive by the path an editor saving the same file
--- already takes.
---
--- A write that CREATES the layer says so, through the same door a capture uses
--- ('Glance.Web.Watch.writeSpans'): the first @.org-glance\/config@ in a tree is two
--- directories minted at once, which fsnotify arms without entering, so that one
--- write used to reseed at the next restart and no sooner.  The nudge carries a
--- config path, 'settle' reads it as a config path, and the answer is the reseed
--- it always was.
+-- Nothing here touches the store: a config change reseeds the whole tree by the
+-- path an editor saving the same file takes.  A write that CREATES the layer
+-- goes through 'writeSpans' like every other — the first @.org-glance\/config@
+-- is two directories minted at once, which fsnotify arms without entering, so
+-- that write used to reseed at the next restart and no sooner.
 configWrite :: ServeOptions -> Hub -> Request -> IO Response
 configWrite opts hub request = withBody request $ \raw -> do
   st <- readTVarIO (hubStore hub)
@@ -1103,22 +1081,16 @@ parseCommit = bodyObject "commit" shape
 -- Live socket
 
 -- | @\/ws@: one @set-rows@ with everything the store holds, then a frame per
--- change.  Anything else is refused, so a mistyped path fails loudly rather
--- than sitting open sending nothing.
+-- change.  Anything else is refused, so a mistyped path fails loudly.
 --
--- @?bootstrap=off@ drops that opening frame for a client that already has the
--- rows — the shell fetches @\/headlines@ and would otherwise be sent the whole
--- store a second time.  The subscription is unchanged, the mailbox registered
--- in the same transaction, so the snapshot is still taken and only thrown away.
--- Such a client gives up the gap the snapshot closes — an edit landing between
--- its fetch and its subscribe reaches it on the next write to that file rather
--- than at once — which is why the default stands.
+-- @?bootstrap=off@ drops that opening frame for a client that already fetched
+-- the rows.  The subscription is unchanged and the mailbox registered in the
+-- same transaction, so the snapshot is still taken and only thrown away.  Such
+-- a client gives up the gap the snapshot closes, which is why the default
+-- stands.
 --
--- An upgrade arriving before the startup walk lands is refused with the same
--- 503 and @Retry-After@ the HTTP routes give, rather than accepted onto a store
--- that is not the directory yet: a @set-rows@ of an empty store is a claim
--- about the tree.  The shell already handles the refusal, opening its socket
--- only after @\/headlines@ has answered.
+-- An upgrade before the startup walk lands is refused with the same 503 the
+-- HTTP routes give: a @set-rows@ of an empty store is a claim about the tree.
 liveSocket :: Hub -> WS.ServerApp
 liveSocket hub pending
   | wsPath /= "/ws" = WS.rejectRequest pending "glance streams rows at /ws"

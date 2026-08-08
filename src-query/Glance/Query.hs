@@ -724,20 +724,14 @@ urlIn word
 -- travels under its own name rather than being flattened into @other@, since the
 -- word IS the answer and a popup listing it teaches more than a catch-all would.
 --
--- Three honest consequences, all from deriving the type off the PREFIX alone.
--- Org's internal links — @[[Title]]@ and @[[*Title]]@ — carry no scheme and read
--- @other@, which is right: they name a place inside the tree rather than a
--- protocol.  A relative file link written without its prefix
--- (@[[.\/notes.org]]@) reads @other@ too, where @[[file:.\/notes.org]]@ reads
--- @file@ — the type reports what the target SAYS, and nothing here guesses at a
--- path.  And a scheme-SHAPED word before a colon is taken at its word, so
--- @[[Meeting: notes]]@ reads @meeting@.  The alternative is a registry of known
--- schemes, and then a scheme this list had never heard of would read as prose —
--- which is the worse failure, since the popup exists to say what a link IS.
---
--- Read by @GET \/links@, which is where the shell's popup gets its type column
--- and where @o@ decides whether a browser tab can be pointed at the target at
--- all.
+-- Three honest consequences of deriving the type off the PREFIX alone.  Org's
+-- internal links carry no scheme and read @other@, which is right — they name a
+-- place rather than a protocol.  A relative file link without its prefix reads
+-- @other@ where @[[file:…]]@ reads @file@: the type reports what the target
+-- SAYS.  And a scheme-SHAPED word before a colon is taken at its word, so
+-- @[[Meeting: notes]]@ reads @meeting@ — the alternative is a registry of known
+-- schemes, and then an unheard-of scheme reads as prose, which is worse: the
+-- popup exists to say what a link IS.
 linkType :: Text -> Text
 linkType target
   | T.null rest                           = "other"
@@ -1043,29 +1037,21 @@ defaultSortChain =
 -- | R's comparison value for the column KEY under PALETTE, or 'Nothing' for an
 -- empty cell.
 --
--- A 'Nothing' is SCHEMA.md's NULL: it sorts to one end of its own key, outside
--- that key's direction, and says nothing about the row's other cells.  A cell
--- that is absent and one that is @\"\"@ are the same null, which is the rule
--- @key:*empty*@ already reads.
+-- A 'Nothing' is SCHEMA.md's NULL: it sorts to one end of its own key, OUTSIDE
+-- that key's direction.  An absent cell and a @\"\"@ one are the same null,
+-- which is what @key:*empty*@ already reads.
 --
--- The pair is (palette POSITION, folded TEXT), which is the two ways SCHEMA.md
--- orders a column with one type: a badge column compares by where its value
--- sits in the palette and nothing else, every other column by its text.  So the
--- state column fills the first half and leaves the second empty, and the rest
--- do the reverse.
+-- The pair is (palette POSITION, folded TEXT) — the two ways SCHEMA.md orders a
+-- column: a badge column by where its value sits in the palette, every other by
+-- its text.  So the state column fills the first half and the rest the second.
 --
--- Text is compared CASE-FOLDED, the way 'sortedTagsCell' folds: the browser
--- renderer collates with @localeCompare@, which is case-insensitive at its
--- primary strength, and raw code-point order would put every capitalised title
--- ahead of every lowercase one where the table shows them interleaved.  Folding
--- is the closest this side gets; a title differing from another only by
--- punctuation or by script can still land elsewhere than @localeCompare@ would
--- put it, and the next key settles it here where the renderer would not have
--- asked one.
--- Built ONCE per sort rather than per comparison: the column is resolved out of
--- 'viewColumns' and the palette flattened into a rank where the KEY is read,
--- so a chain of four keys pays for four lookups instead of four per pair of
--- rows.
+-- Text is compared CASE-FOLDED: the browser collates with @localeCompare@,
+-- case-insensitive at its primary strength, and raw code-point order would put
+-- every capitalised title ahead of every lowercase one.  Folding is the closest
+-- this side gets; the next key settles what it cannot.
+--
+-- Built ONCE per sort rather than per comparison, so a chain of four keys pays
+-- four lookups instead of four per pair of rows.
 sortCell :: TodoKeywords -> Text -> Maybe (HeadlineRecord -> Maybe (Int, Text))
 sortCell palette key = read' <$> lookup key [(k, cell) | (k, _, _, cell) <- viewColumns]
   where
@@ -1234,22 +1220,17 @@ ownBodyLines r body first' = case first' of
 
 -- Lens
 --
--- The parts of a subtree taken out of it and put back into it.  One rule holds
--- the pair together: every byte of a subtree has ONE OWNER.  Three regions are
--- lifted out of the text — the planning line, the headline's own property
--- drawer and its own logbook drawer — and every byte left is the body's.  A
--- part nobody edited goes back as the very line it came in on, odd spacing and
--- odd casing and all, so a client can edit one part without the ones it did not
--- touch being re-spelled underneath it.
+-- The parts of a subtree taken out and put back.  ONE OWNER PER BYTE: three
+-- regions are lifted — the planning line, the headline's own property drawer,
+-- its own logbook — and every byte left is the body's.  A part nobody edited
+-- goes back as the very line it came in on, so editing one part does not
+-- re-spell the others.
 --
--- A headline's OWN regions only.  A child's drawer is body text here, since it
--- belongs to the child's headline and this lens is over one.
+-- A headline's OWN regions only: a child's drawer is body text here.
 --
--- Two of the four parts are the SERVER's, and a client neither sees nor sends
--- them: the properties named in 'hiddenProperties', and the whole logbook.
--- They are lifted out for different reasons — one is identity a rename would
--- break, the other is a record nothing here edits — and they go back verbatim
--- whatever a client says, which is the whole of what "server-preserved" means.
+-- Two of the four are the SERVER's and a client neither sees nor sends them —
+-- 'hiddenProperties' (identity a rename would break) and the logbook (a record
+-- nothing here edits).  They go back verbatim whatever a client says.
 
 -- | The property keys a client is never shown and never writes.
 --
@@ -1818,25 +1799,20 @@ currentDocument :: FilePath -> IO (Text, Text)
 currentDocument = fmap (fromMaybe ("", "")) . Edit.readDocument
 
 -- | Replace each span of FILE with the text beside it, provided FILE still
--- digests to DIGEST; the file's new digest comes back, so a caller chains an
--- edit without re-reading.
+-- digests to DIGEST; the new digest comes back, so a caller chains an edit
+-- without re-reading.
 --
--- The lock is the point.  DIGEST is the one a record was loaded with
--- ('hrDigest'), and every span indexes that same text, so either the file is
--- still the document the offsets were measured in or nothing is written — a
--- browser and an editor writing the same file cannot silently splice over each
--- other.  The write itself is 'Data.Org.Edit.editFile': one drift check, one
--- pass over the document whatever the batch size, one atomic replace.  So a
--- command over several rows of one file is ONE write, and either all of its
--- edits land or none of them do.
+-- THE LOCK IS THE POINT.  DIGEST is the one a record was loaded with and every
+-- span indexes that same text, so either the file is still the document the
+-- offsets were measured in or nothing is written.  The write is
+-- 'Data.Org.Edit.editFile': one drift check, one pass whatever the batch, one
+-- atomic replace — so a command over several rows of one file is ONE write and
+-- either all its edits land or none.
 --
--- It is also THE DOOR every write in this program leaves through — a structured
--- command, a materialize commit, a capture and a config edit are four callers of
--- this one function, and 'Data.Org.Edit.editFile' has no other caller — which is
--- why the note to org-glance is taken here and nowhere else
--- ('Data.Org.External.noteExternalWrite').  It fires only for a blob under a
--- store's @data\/@, costs one parse of the text just written, and cannot fail
--- the write: by the time it runs the rename has happened.
+-- It is also THE DOOR every write leaves through (a command, a commit, a
+-- capture, a config edit), which is why the note to org-glance is taken here
+-- and nowhere else.  It fires only for a blob under a store's @data\/@ and
+-- cannot fail the write: by the time it runs the rename has happened.
 replaceSpans :: FilePath -> Text -> [(Span, Text)] -> IO (Either WriteFailure Text)
 replaceSpans path digest edits = do
   written <- Edit.editFile (Edit.Snapshot path digest) [ Edit.Edit sp new | (sp, new) <- edits ]
@@ -1955,19 +1931,15 @@ keywordSources cfg rows = widest Set.empty (sortOn fst chain)
 -- carries, or the keyword taken off where KEYWORD is 'Nothing'.
 --
 -- The three shapes are 'tokenEdits'\'s, read at 'hsTodo' with the stars as the
--- place a headline carrying no keyword takes one — org's own place for it, and
--- the one offset every headline has, present or empty.
+-- place a headline carrying none takes one — org's own place, and the one
+-- offset every headline has.
 --
--- KEYWORD is refused unless R's OWN CHAIN declares it ('settableStates'): org's
--- TODO\/DONE, @system.org@, the configs of the tags THIS row carries, the file's
--- own @#+TODO:@ lines.  The bar is the chain rather than the parse's
--- recognized set ('hrKeywords') because the chain is what a reader is shown: the
--- palette draws 'keywordSources' and a state it does not offer is one this row
--- has no configuration for.  Recognition stays a superset — a word another tag's
--- cycle names still parses as a state here rather than as the first word of a
--- title — and settability is the narrower question of what this row is
--- configured to be.  The state column's group meta-values (@*active*@,
--- @*inactive*@) are in no keyword set, so they are refused here like any other
+-- KEYWORD is refused unless R's OWN CHAIN declares it ('settableStates').  The
+-- bar is the chain rather than the parse's recognized set because the chain is
+-- what a reader is SHOWN: a state the palette does not offer is one this row
+-- has no configuration for.  Recognition stays a superset — a word another
+-- tag's cycle names still parses as a state rather than as a title's first
+-- word.  The group metas are in no keyword set and are refused like any other
 -- word that is not one.
 setStateEdits :: ConfigLayers -> Maybe Text -> HeadlineRecord -> Either Text [(Span, Text)]
 setStateEdits _cfg Nothing r = Right (tokenEdits hsTodo (spanEnd . hsStars) Nothing r)
@@ -1979,18 +1951,16 @@ setStateEdits cfg (Just keyword) r
   where settable = settableStates cfg r
 
 -- | The span edits setting the token AT reads on R to TOKEN, or taking it off
--- where TOKEN is 'Nothing'.  PLACE says where one goes on a headline that
--- carries none.
+-- where TOKEN is 'Nothing'.  PLACE says where one goes on a headline carrying
+-- none.
 --
--- Three shapes, and @set-state@ and @set-priority@ are both of them one
--- accessor apart.  A token already there is its own span and nothing else, so
--- everything around it keeps its bytes.  A token where there is none is an
--- insertion at PLACE behind one space.  And 'Nothing' deletes the token
--- together with the horizontal space behind it, so @* TODO Title@ closes up to
--- @* Title@ rather than keeping the gap; the run deleted is horizontal only, so
--- a token that is the last thing on its line keeps the newline that ends it.  A
--- headline with no token asked to drop one costs no edit, which is what makes
--- both commands idempotent.
+-- THREE SHAPES, and @set-state@ and @set-priority@ are one accessor apart.  A
+-- token already there is its own span, so everything around it keeps its bytes.
+-- One where there is none is an insertion at PLACE behind a space.  'Nothing'
+-- deletes the token WITH the horizontal run behind it, so @* TODO Title@ closes
+-- up — horizontal only, so a token ending its line keeps the newline.  A
+-- headline with no token asked to drop one costs no edit, which makes both
+-- commands idempotent.
 tokenEdits :: (HeadlineSpans -> Maybe Span) -> (HeadlineSpans -> Int)
            -> Maybe Text -> HeadlineRecord -> [(Span, Text)]
 tokenEdits at place token r = case (at hs, token) of
@@ -2125,23 +2095,17 @@ afterKeyword :: HeadlineSpans -> Int
 afterKeyword hs = maybe (spanEnd (hsStars hs)) spanEnd (hsTodo hs)
 
 -- | The span edits @add-tag@ makes to R: TAG joining its tag list.  A row
--- already carrying it ('tagged') costs no edit at all, which is what makes the
--- command idempotent — adding a tag over a marked set twice writes each file
--- twice and changes it once.
+-- already carrying it costs no edit, which makes the command idempotent.
 --
--- Two shapes.  With tags present the tag joins the list as its own last entry
--- (@:a:b:@ becomes @:a:b:TAG:@): the span ends past the closing colon, so
--- the whole insertion is the tag and one colon at that offset, which leaves the
--- tags already there byte-identical.  With none it is appended to the title
--- line, after the last
--- part that line carries — the title, or the priority, or the keyword, or the
--- stars themselves.  'hsFull' cannot serve there: its end is the last part in
--- span order, which for a scheduled headline is a timestamp on the NEXT line
--- and for one with a drawer is its @:END:@.
+-- TWO SHAPES.  With tags present the tag joins as the last entry — the span
+-- ends past the closing colon, so the insertion is the tag and one colon and
+-- the tags already there stay byte-identical.  With none it is appended to the
+-- TITLE LINE, after the last part that line carries.  'hsFull' cannot serve
+-- there: its end is the last part in span order, which for a scheduled headline
+-- is a timestamp on the NEXT line.
 --
--- TAG is written as it was given.  Presence is folded, so a row spelling
--- @:Work:@ is not given a second @:work:@; a row with no tag at all takes the
--- spelling the caller sent.
+-- TAG is written as given; presence is folded, so a row spelling @:Work:@ is
+-- not given a second @:work:@.
 addTagEdits :: Text -> HeadlineRecord -> [(Span, Text)]
 addTagEdits tag r = addTagEditsIn (hrTags r) tag (headlineSpans r)
 
@@ -2159,22 +2123,16 @@ addTagEditsIn cell tag hs
   | otherwise            = [ (insertAt (titleLineEnd hs), " :" <> tag <> ":") ]
 
 -- | The span edits @remove-tag@ makes to R: TAG cut out of its tag list.  A row
--- that does not carry it costs no edit, which is the other half of the pair's
--- idempotence.
+-- not carrying it costs no edit, the other half of the pair's idempotence.
 --
--- Two shapes, and which one is decided by what the run has LEFT.  An entry with
--- neighbours is cut as @TAG:@ — itself and the colon that closes it — so
--- @:a:b:c:@ minus @b@ is @:a:c:@ and the surviving entries keep their bytes.
--- The LAST entry takes the whole run with it, together with the horizontal space
--- that separated the run from the title: a lone @:@ is not a tag list, and
--- @* Title :done:@ has to close up to @* Title@ rather than keep a trailing
--- space.  That run is the parser's own separator ('Data.Org.Parser.tagsP' opens
--- on @hspace1@), so there is always one and it is inside this line.
+-- TWO SHAPES, decided by what the run has LEFT.  An entry with neighbours is
+-- cut as @TAG:@, so @:a:b:c:@ minus @b@ is @:a:c:@ and the survivors keep their
+-- bytes.  The LAST entry takes the whole run and the horizontal space in front
+-- of it: a lone @:@ is not a tag list.  That run is the parser's own separator
+-- ('tagsP' opens on @hspace1@), so there is always one and it is on this line.
 --
--- Matching is FOLDED and takes EVERY entry spelling the tag, which is what makes
--- "remove it" leave the row not carrying it under 'tagged' — a file spelling one
--- tag twice, or spelling it @:Work:@ where the caller said @work@, is still
--- clean afterwards.
+-- Matching is FOLDED and takes EVERY entry spelling the tag, which is what
+-- makes "removed" mean the row stops answering to 'tagged'.
 removeTagEdits :: Text -> HeadlineRecord -> [(Span, Text)]
 removeTagEdits tag r = case tagRun r of
   Nothing -> []
@@ -2280,30 +2238,19 @@ archiveEdits = addTagEdits archiveTag
 -- TARGET, under whatever DESC says about its description.
 --
 -- THE FORM IS PRESERVED, which is what makes this a link edit rather than a
--- rewrite of the text around one.  A bracketed link stays bracketed and a plain
--- URL stays plain, so an entry keeps the way its author wrote it:
+-- rewrite of the text around one: @[[T][D]]@ keeps its description under a
+-- target-only edit, @[[T]]@ stays desc-less and takes brackets the moment a
+-- description arrives, and a bare URL swaps its target and stays bare —
+-- a description arriving BRACKETS it, having nowhere else to live.
 --
---   * @[[T][D]]@ with a target alone becomes @[[T'][D]]@ — the description is
---     the author's and no one asked for it.
---   * @[[T]]@ likewise stays @[[T']]@, and takes brackets around a description
---     the moment one arrives: @[[T'][D']]@.
---   * a bare @https:\/\/x@ swaps its target and stays bare; a description has
---     nowhere to live in a plain URL, so one arriving BRACKETS it.
+-- ABSENT IS NOT NULL (@.:!@ rather than @.:?@): saying nothing about the
+-- description leaves it, @null@ takes it OFF.  An empty description is the null
+-- spelled another way, since @[[T][]]@ shows its target.
 --
--- ABSENT IS NOT NULL, which is the @args@ discipline this route already turns on
--- (@.:!@ rather than @.:?@): a request that says nothing about the description
--- leaves it exactly as it is, and one that says @null@ takes it OFF — leaving a
--- bracketed link desc-less and a bare one bare.  An empty description is the
--- null spelled another way, since @[[T][]]@ shows its target and a description
--- that shows nothing is not one ('linkShown').
---
--- TWO WALLS, and both are the lens rule stated as a refusal ('linkAtSpan',
--- 'spelling').  The span has to cover exactly one link as the document reads
--- and the replacement has to read back as THE LINK IT CLAIMS TO BE — the write
--- engine is content-agnostic by law ('Data.Org.Edit'), so this is the layer that
--- owes the check.  A target carrying a bracket, a space in a bare URL, a scheme
--- no plain link is recognized by: each is refused here rather than spliced into
--- text that would parse as something else on the next load.
+-- TWO WALLS ('linkAtSpan', 'spelling'): the span must cover exactly one link as
+-- the document reads, and the replacement must read back as THE LINK IT CLAIMS
+-- TO BE.  The write engine is content-agnostic by law, so this is the layer
+-- that owes the check.
 editLinkEdits :: Span -> Text -> Maybe (Maybe Text) -> HeadlineRecord
               -> Either Text [(Span, Text)]
 editLinkEdits sp target desc r = do
@@ -2313,19 +2260,16 @@ editLinkEdits sp target desc r = do
 
 -- | TARGET in SHAPE as the text to write, or why that text is not that link.
 --
--- REPARSE AND COMPARE, which is the only honest form of this check: rendering
--- and scanning are one grammar, so a rendered link that reads back as a link
--- with ANOTHER target or another shape says the grammar was escaped rather than
--- used.  A target spelling @a][b@ renders @[[a][b]]@, which IS one link — with
--- target @a@ and description @b@, neither of them what was asked for — so the
--- shape check alone would bless it and write a link pointing somewhere the
--- request never named.
+-- REPARSE AND COMPARE, the only honest form of this check: rendering and
+-- scanning are one grammar, so a rendered link reading back with ANOTHER target
+-- says the grammar was escaped rather than used.  @a][b@ renders @[[a][b]]@,
+-- which IS one link — pointing somewhere the request never named — so a shape
+-- check alone would bless it.
 --
--- A NEWLINE is refused ahead of that, and it is the one thing reparsing cannot
--- catch: this scanner has no line rule, so @[[a\n* B]]@ reads back as the very
--- link it claims to be — and lands a column-1 star in the file, which the ORG
--- parser reads as a new headline.  The subtree splits and a row appears that
--- nobody wrote.  Neither half of a link spans lines in org, so both are refused.
+-- A NEWLINE is refused ahead of that, being the one thing reparsing cannot
+-- catch: this scanner has no line rule, so @[[a\n* B]]@ reads back as the link
+-- it claims to be and lands a column-1 star the ORG parser reads as a new
+-- headline.
 spelling :: Text -> LinkShape -> Either Text Text
 spelling target shape
   | T.any newline target || any (T.any newline) (described shape) =
@@ -2420,20 +2364,16 @@ settableKeywords = filter (/= "CLOSED") planningKeywords
 -- | The span edits @set-planning@ makes to R: KEYWORD's entry set to STAMP, or
 -- taken off where STAMP is 'Nothing'.
 --
--- Four shapes.  An entry already there is its own span and nothing else, so a
--- reschedule moves the timestamp and leaves the keywords, the spacing and the
--- other entries on the line byte-identical.  An entry where there is none joins
--- the END of the planning line, behind whatever it already carries, which is
--- the lens's own rule for an entry that moved.  A headline with no planning line
--- at all grows one under its TITLE LINE, where org puts one, at column 1 like
--- the stars.  And a clear takes the entry out together with the horizontal space
--- that separated it from its neighbour — the TRAILING run, or the leading one
--- where the entry ends its line — or takes the WHOLE LINE when it was the last
--- entry on it, since a planning line with no entries is not one.
+-- FOUR SHAPES.  An entry already there is its own span, so a reschedule leaves
+-- the keywords, the spacing and the other entries byte-identical.  One where
+-- there is none joins the END of the planning line.  A headline with no
+-- planning line grows one under its TITLE LINE at column 1, where org puts it.
+-- A clear takes the entry plus the horizontal run beside it — trailing, or
+-- leading where the entry ends its line — and the WHOLE LINE where it was the
+-- last entry, a planning line with none not being one.
 --
--- Clearing an entry a headline never had costs no edit, which makes the command
--- idempotent the way @archive@ is.  KEYWORD is refused unless it is one a key
--- may set ('settableKeywords').
+-- Clearing an entry that was never there costs no edit, which makes the command
+-- idempotent.
 setPlanningEdits :: Text -> Maybe Text -> HeadlineRecord -> Either Text [(Span, Text)]
 setPlanningEdits keyword stamp r
   | keyword `notElem` settableKeywords =
@@ -2701,23 +2641,18 @@ expandTemplate now answers text template
                         <> "; name it in args {\"fields\": {" <> want <> ": \"…\"}}"
 
 -- | Where DOC's capture template sits — from its FIRST heading LINE to the end
--- of the file, trailing whitespace left out.
+-- of the file, trailing whitespace out.
 --
--- org-glance's own convention and no new file class: a tag's template is the
--- first @*@ heading of @config\/tags\/\<tag\>.org@, the same file that carries
--- the tag's @#+TODO:@ cycle, and the tree's default is @system.org@'s.
+-- org-glance's convention and no new file class: a tag's template is the first
+-- @*@ heading of its config file, the same one carrying its @#+TODO:@ cycle.
 --
--- TO THE END, which is @org-glance-tag-config--entry@'s rule verbatim
--- (@buffer-substring (line-beginning-position) (point-max)@, right-trimmed),
--- rather than the outline extent: everything under a config file's first
--- heading is its template, so @* Book@ over @*** Notes@ is ONE template — which
--- is what ~\/sync's own @book.org@ spells.  Everything ABOVE the heading is the
--- file's pragmas and comments, which the @#+TODO:@ splice and the two settings
--- lines own between them, so the regions of a config file cannot overlap.
+-- TO THE END, which is @org-glance-tag-config--entry@'s rule verbatim rather
+-- than the outline extent: everything under the first heading is the template,
+-- so @* Book@ over @*** Notes@ is ONE.  Everything ABOVE is the pragmas the
+-- @#+TODO:@ splice and the settings lines own, so the regions cannot overlap.
 --
--- The heading is found the way org-glance finds it (@^\\*+ @): stars then a
--- SPACE, so a bare star run and a @*bold*@ line are body text here as they are
--- to the parser.
+-- The heading is found the way org-glance finds it (@^\*+ @): stars then a
+-- SPACE, so a bare star run and a @*bold*@ line are body text here.
 captureTemplateSpan :: Text -> Maybe Span
 captureTemplateSpan doc = (\from -> Span from (T.length (T.stripEnd doc))) <$> headingAt doc
 
@@ -2797,23 +2732,16 @@ data BlobSeed = BlobSeed
   }
 
 -- | ENTRY as the document a blob holds: SEED's tag on its first headline, and
--- its id and stamp in that headline's own property drawer.
---
--- The pieces org-glance keys a stored entry by, and the ONE place this repo
--- assembles them.  Everything else about the entry is the template's — the
--- expansion has already run, so what arrives here is the org a reader will see.
+-- its id and stamp in that headline's own drawer.  The ONE place this repo
+-- assembles what org-glance keys a stored entry by; everything else is the
+-- template's, the expansion having already run.
 --
 -- TWO RULES, and the tag's is 'addTagEditsIn' — the very function @add-tag@
--- runs, so the insertion point cannot come to differ between a capture and a
--- command.  The drawer joins an existing @:PROPERTIES:@ block under its own
--- indentation, and is written whole under the PLANNING LINE otherwise — org's
--- own place for one, and where the parser reads it back.  Both properties are
--- written whatever the template said: a template spelling @ORG_GLANCE_ID@ would
--- be claiming an identity the store hands out.
---
--- A template with no headline in it is refused rather than written: the blob
--- would carry no entry, so the id would name nothing and
--- 'Data.Org.External.blobIdOf' would read none back out of it.
+-- runs, so the insertion point cannot differ between a capture and a command.
+-- The drawer joins an existing @:PROPERTIES:@ under its own indentation, else
+-- is written whole under the PLANNING LINE, which is where the parser reads it
+-- back.  Both properties are written whatever the template said: a template
+-- spelling @ORG_GLANCE_ID@ would claim an identity the store hands out.
 blobDocument :: BlobSeed -> Text -> Either Text Text
 blobDocument seed given = case firstHeadlineOf elems of
   Nothing -> Left "this capture template expands to no headline, so there is no entry to store"
@@ -3010,29 +2938,22 @@ viewJSONTextFor :: [ViewColumn] -> SortChain -> Text -> TodoKeywords
 viewJSONTextFor cols chain viewTitle palette =
   encodeToLazyText . viewJSONFor cols chain viewTitle palette
 
--- | The view's columns, in the order the table draws them: the key a filter
--- names, the header over the cells, the type @table-view\/SCHEMA.md@ declares,
--- and where the cell comes out of a row.  A cell is a 'Maybe': 'Nothing' is the
--- @null@ a row's JSON carries for a column it has no value for, and the empty
--- string a filter reads there ('viewCells').
+-- | The view's columns in draw order: the key a filter names, the header, the
+-- SCHEMA.md type, and where the cell comes out of a row.  A cell is a 'Maybe':
+-- 'Nothing' is the row JSON's @null@ and the empty field a filter reads.
 --
--- One table, so the FOUR things that have to agree cannot drift: 'columns'
--- declares them, 'rowJSON' fills them, 'filterKeys' names them, and 'viewCells'
--- joins them into 'hrSearch' — which is what lets a predicate read one field of
--- that text by its key's position.  A column appended here is therefore a
--- column a filter can name the day it lands, with no second list to extend.
--- Reordering is the same one edit: every index downstream is resolved by KEY
--- NAME ('Glance.Web.Filter''s @fieldOf@, @tagsColumn@ and @dateColumns@ are
--- each an 'Data.List.elemIndex' over 'filterKeys'), so the only lists that have
--- to be moved by hand are the suites' deliberate oracles.
+-- ONE TABLE, so the FOUR things that must agree cannot drift: 'columns'
+-- declares, 'rowJSON' fills, 'filterKeys' names, 'viewCells' joins into
+-- 'hrSearch'.  A column appended here is one a filter can name the day it
+-- lands.  Reordering is the same one edit — every index downstream is resolved
+-- by KEY NAME — so the only lists moved by hand are the suites' deliberate
+-- oracles.
 --
--- TAGS SITS LAST because org writes it last: a headline's tag run is flush
--- right, past the title and past the planning it carries, so the column reads
--- where the file reads.  The PRIORITY header is org's own glyph @#@ rather than
--- a word — the cells are @[#A]@, three characters wide, and a header that
--- spells the column out makes the column as wide as the word instead of as wide
--- as what is in it.  Both are drawing decisions: the KEYS are untouched, so
--- nothing starts or stops matching, and nothing re-sorts.
+-- TAGS SITS LAST because org writes it last, flush right past the title and the
+-- planning.  The PRIORITY header is org's glyph @#@ rather than a word: the
+-- cells are @[#A]@, and a spelled-out header makes the column as wide as the
+-- word instead of as wide as what is in it.  Drawing decisions both — the KEYS
+-- are untouched, so nothing starts or stops matching.
 viewColumns :: [ViewColumn]
 viewColumns =
   [ ("state",     "State",     "badge", hrState)

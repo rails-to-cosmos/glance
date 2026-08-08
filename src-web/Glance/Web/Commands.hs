@@ -57,25 +57,19 @@ data Command = Command
   }
 
 -- | The @args@ object, read once for every command that takes one.  Twelve
--- fields between them, and a request naming one command leaves the rest absent:
--- @keyword@ is @set-state@'s state and @set-planning@'s planning keyword (one
--- field, the wire spelling both that way), @date@ the timestamp text, @text@
--- the line @capture@ writes, @tag@ the one @add-tag@ and @remove-tag@ move AND
--- the one @capture@ files under, @fields@ the answers @capture@ carries for its
--- template's @%^{PROMPT}@ asks, @from@\/@to@ @rename-tag@'s pair, and @span@,
--- @target@ and @desc@ @edit-link@'s three.
+-- fields between them and a request naming one command leaves the rest absent:
+-- @keyword@ (@set-state@'s state and @set-planning@'s keyword, one field the
+-- wire spells both ways), @date@, @text@, @tag@, @fields@, @from@\/@to@, and
+-- @edit-link@'s @span@\/@target@\/@desc@.
 --
--- The nested 'Maybe's are the distinction the whole command layer turns on:
--- ABSENT said nothing, NULL asked for the value to come off.  An absent
--- @keyword@ or @date@ is a 400, neither command having anything to do without
--- it; an absent @desc@ is @edit-link@'s ordinary case and leaves the link the
--- description it has.  The flat fields belong to commands with no value to
--- clear — a tag comes off through @remove-tag@ rather than through a null.
+-- THE NESTED 'Maybe's are the distinction the command layer turns on: ABSENT
+-- said nothing, NULL asked for the value to come off.  An absent @keyword@ or
+-- @date@ is a 400; an absent @desc@ is @edit-link@'s ordinary case.  The flat
+-- fields belong to commands with no value to clear.
 --
--- @rename-tag@ spells its pair @from@\/@to@ rather than reusing @tag@ for one
--- half, the two being symmetric and @tag@ leaving a reader guessing which end.
--- @set-title@ spells its own @title@ rather than reusing @text@: @capture@'s
--- line is a whole headline as org, and a title is one component of one.
+-- @rename-tag@ spells @from@\/@to@ rather than reusing @tag@ for one half, and
+-- @set-title@ spells @title@ rather than @text@: a capture's line is a whole
+-- headline as org, a title one component of one.
 data Args = Args
   { agKeyword :: !(Maybe (Maybe Text))
   , agDate    :: !(Maybe (Maybe Text))
@@ -255,31 +249,24 @@ commands =
 commandNames :: [Text]
 commandNames = map fst commands
 
--- | @POST \/command@ with body @{"name": …, "ids": […], "args": {…}}@: a
--- structured write over the rows the client names.  @"id"@ is an @"ids"@ of
--- one, since a command over the row at point is the common one.  The edits are
--- 'Glance.Query''s ('Glance.Query.setStateEdits', 'Glance.Query.archiveEdits');
--- this route owns which rows, which file, and what the answer says.
+-- | @POST \/command@ with body @{"name", "ids", "args"}@: a structured write
+-- over the rows the client names.  @"id"@ is an @"ids"@ of one.  The edits are
+-- 'Glance.Query''s; this route owns which rows, which file, and what the answer
+-- says.
 --
--- Batching is per FILE: ids group by the file their rows came from and each
--- file is written ONCE ('Glance.Query.replaceSpans') under its own digest, so a
--- marked set spanning three files is three atomic writes, each all-or-nothing —
--- a rejected batch writes nothing.  Rollback ACROSS files is impossible, since
--- a rename that has happened cannot be undone by a later failure, so the answer
--- reports per id, which is what a client showing @archived (5)@ and a line per
--- refusal needs.
+-- BATCHING IS PER FILE: ids group by their row's file and each file is written
+-- ONCE under its own digest, so a marked set spanning three files is three
+-- atomic writes, each all-or-nothing.  Rollback ACROSS files is impossible, so
+-- the answer reports per id.
 --
--- A body that is not a command, a name nothing implements, no ids, and a
--- keyword some named row's own classification chain does not declare are all
--- 400 with nothing written — the keyword refuses the WHOLE request
--- deliberately, half a state change over a marked set being worse than none of
--- one.  Per id: an id the store has no row for, and a file whose digest moved.
--- A 200 is therefore "the command ran" rather than "every row moved"; the
--- results say which did.
+-- A bad body, an unimplemented name, no ids, and a keyword some named row's
+-- chain does not declare are 400 with nothing written — the keyword refuses the
+-- WHOLE request deliberately, half a state change over a marked set being worse
+-- than none.  Per id: an unknown id, and a file whose digest moved.  So a 200
+-- is "the command ran" rather than "every row moved".
 --
--- Nothing here touches the store, as with @POST \/headline@: the write goes to
--- the file, the watch re-reads it and streams the rows, so a browser command
--- reaches every open tab by the path an editor's save takes.
+-- Nothing here touches the store: the write goes to the file and the watch
+-- streams the rows, so a browser command reaches every tab by an editor's path.
 runCommand :: ServeOptions -> Hub -> Request -> IO Response
 runCommand opts hub request = withBody request $ \raw -> do
   st <- readTVarIO (hubStore hub)
@@ -330,30 +317,23 @@ resolveDate cmd = case join (agDate (cmdArgs cmd)) of
   _nothingToResolve -> pure (Right Nothing)
 
 -- | @capture@: CMD's line written as a new top entry, and WHERE decides which
--- of the two shapes it takes.
+-- of two shapes it takes.
 --
--- NO TAG is the tree's inbox, unchanged and deliberately bare: the target comes
--- out of the config ('Glance.Query.captureTargetIn'), which also refuses a
--- target this daemon will not write to, so a misspelled pragma is a 400 naming
--- itself rather than a file written outside the tree; the entry is @* TEXT@
--- under a creation stamp, no template consulted, which is what keeps the
--- quick-jot path one keystroke and one line.
+-- NO TAG is the tree's inbox, deliberately bare: the target comes off the
+-- config, which also refuses one this daemon will not write to, so a misspelled
+-- pragma is a 400 naming itself rather than a file written outside the tree.
+-- The entry is @* TEXT@ under a creation stamp, no template consulted.
 --
--- A TAG is a BLOB in the store, org-glance's own citizen ('captureBlob').
+-- A TAG is a BLOB in the store ('captureBlob').
 --
--- The document and the digest come off the STORE where it holds the file, that
--- being the text this server last read, and off a fresh read where it does not:
--- a target that is not there yet reads as the empty document under the empty
--- digest, which is what 'Data.Org.Edit.editFile' creates under.  Either way the
--- offset and the lock describe one text.  Nothing here touches the store — the
--- watch re-reads the file and streams the new row, as for a capture out of
--- Emacs.
+-- The document and digest come off the STORE where it holds the file and off a
+-- fresh read where it does not — a missing target reads as the empty document
+-- under the empty digest, which is what 'editFile' creates under.  Either way
+-- the offset and the lock describe one text.
 --
--- Both leave through 'Glance.Web.Watch.writeSpans', like every other write
--- here, so the path each wrote is queued for the drain loop.  That is a nudge
--- into the watch's own queue rather than a store update — the loop still does
--- the loading — and it is what makes a captured row arrive live rather than at
--- the next restart.
+-- Both leave through 'Glance.Web.Watch.writeSpans', so the path each wrote is
+-- queued for the drain loop — a nudge rather than a store update, and what
+-- makes a captured row arrive live rather than at the next restart.
 captureInto :: ServeOptions -> Hub -> Store -> Command -> IO Response
 captureInto opts hub st cmd =
   -- 'wantsText' has already put every @tag@ past 'tagText', which refuses the
@@ -395,29 +375,22 @@ captureInbox opts hub st args = case captureTargetIn (soDir opts) (stConfig st) 
 
 -- | @capture@ under a TAG: a new blob in the served root's own store.
 --
--- FOUR REFUSALS, all of them decided before a byte is written.  The store root
--- is the SERVED root's own @.org-glance@ and has to be there — a capture that
--- MADE one would be this daemon deciding a tree is an org-glance store — and it
--- is asked first, being the coarsest thing that can be wrong and the one answer
--- that does not depend on what the reader typed.  The tag's template comes off
--- the config layers, read HERE rather than off the loaded config, so what a
--- settings sheet shows is what a capture expands
--- ('Glance.Query.captureTemplateIn'); a tag no layer configures takes
--- 'Glance.Query.bareTemplate', which is @* %?@ and goes through the same
--- expansion as any other.  That expansion refuses a template with no @%?@ and an
--- ask nobody answered ('Glance.Query.expandTemplate'), and the composition
--- refuses a template that expands to no headline at all.
+-- FOUR REFUSALS, all decided before a byte is written, coarsest first.  The
+-- store root must be there — a capture that MADE one would be this daemon
+-- deciding a tree is an org-glance store.  The tag's template comes off the
+-- config layers read HERE rather than off the loaded config, so what a settings
+-- sheet shows is what a capture expands; a tag no layer configures takes
+-- 'bareTemplate'.  The expansion refuses a template with no @%?@ and an ask
+-- nobody answered, and the composition one that expands to no headline.
 --
 -- The id is minted and the path is org-glance's sharded one; the write goes out
--- under the EMPTY digest, which creates the file and the directories over it and
--- DRIFTS rather than overwrites should anything already sit there.  Minting
--- ahead of the last refusal costs nothing — this side reserves no directory, so
--- an id that is not written is an id nobody ever sees.
+-- under the EMPTY digest, which creates the file and DRIFTS rather than
+-- overwrites should anything sit there.  Minting ahead of the last refusal
+-- costs nothing — nothing is reserved, so an unwritten id is one nobody sees.
 --
--- The note to org-glance costs nothing either: @data.org@ under a store's
--- @data\/@ is a blob, so 'Glance.Query.replaceSpans' appends the
--- @EXTERNAL.jsonl@ line on its way out as it does for any other blob write.
--- Blob first, line second, which is the order the contract asks for.
+-- The @EXTERNAL.jsonl@ note costs nothing either: @data.org@ under a store's
+-- @data\/@ is a blob, so 'replaceSpans' appends the line on its way out.  Blob
+-- first, line second, the order the contract asks for.
 captureBlob :: ServeOptions -> Hub -> Store -> Args -> Text -> IO Response
 captureBlob opts hub st args tag = do
   there <- doesDirectoryExist store

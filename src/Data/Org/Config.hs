@@ -272,23 +272,18 @@ stateColorsOf doc = foldl' add [] (mapMaybe entryOf (T.lines doc))
 -- | Where a capture under ROOT lands given CFG, or why this daemon will not
 -- write there.
 --
--- Absent, the target is @\<root\>\/inbox.org@; named, the value is resolved
--- against the SERVED ROOT rather than against the config directory, because a
--- store nested under the root still captures into the tree being served.
+-- Absent, the target is @\<root\>\/inbox.org@; named, it resolves against the
+-- SERVED ROOT rather than the config directory, because a nested store still
+-- captures into the tree being served.
 --
--- The check is made HERE, where the config is read, rather than when a capture
--- arrives: a tree misconfigured in January should say so at startup instead of
--- on the first @+@ in March.  Three refusals, all of them textual the way every
--- other path rule in this repo is (docs\/invariants.md, Walk): an absolute path,
--- a path climbing out through @..@, and a name the walk would not collect — a
--- capture into that last one writes a file no watch ever delivers a row for, so
--- the entry would vanish rather than appear.  That third one is
--- 'Data.Org.Walk.isWalked' rather than 'Data.Org.Walk.isDocument', and the
--- difference is load-bearing: @.org-glance\/config\/x.org@ and
--- @.org-glance\/overviews\/x.org@ are org files the walk declines, so stopping
--- at the extension would bless exactly the paths this refusal exists for.
---
--- Asked of the JOINED path, since that is the one the walk would see.
+-- CHECKED HERE, where the config is read, rather than when a capture arrives: a
+-- tree misconfigured in January should say so at startup.  Three textual
+-- refusals: an absolute path, one climbing out through @..@, and a name the
+-- walk would not collect — a capture there writes a file no watch delivers a
+-- row for.  That third is 'isWalked' rather than 'isDocument', and the
+-- difference is load-bearing: @.org-glance\/config\/x.org@ is an org file the
+-- walk declines, so stopping at the extension would bless exactly the paths
+-- this refusal exists for.
 captureTargetIn :: FilePath -> ConfigLayers -> Either Text FilePath
 captureTargetIn root cfg = case fmap T.strip (clCapture cfg) of
   Just want | not (T.null want) -> checked want
@@ -585,56 +580,41 @@ seedContext cfg = setTodo (Set.fromList (tkActive seed)) (Set.fromList (tkInacti
   where seed = clSeed cfg
 
 -- | Every keyword a file under CFG declaring FILEKW recognizes, IN THE ORDER A
--- PALETTE SHOWS THEM: org's own pair, then @system.org@'s cycle, then the tag
--- configs in the order the walk read them, then the file's own lines — with a
--- repeat keeping its first place ('mergeKeywords').
+-- PALETTE SHOWS THEM: org's pair, @system.org@'s cycle, the tag configs in walk
+-- order, the file's own lines — a repeat keeping its first place.
 --
--- The same set 'seedContext' parses with, ordered.  A parse asks whether a word
--- is a keyword and answers out of 'Context'\'s sets, where order is meaningless
--- and membership is the whole question; everything a READER meets — the badge
--- palette, the state column's sort, the value palette's letters — asks which
--- word comes first, and the answer is the org files' own spelling.  Deriving
--- this from the parse's ending context is what lost it: 'Data.Set' had already
--- alphabetized the tree's cycle before a palette could read it.
+-- The same set 'seedContext' parses with, ORDERED.  A parse asks membership and
+-- answers out of 'Context'\'s sets; everything a READER meets asks which word
+-- comes first, and the answer is the org files' own spelling.  Deriving this
+-- from the parse's ending context is what lost it — 'Data.Set' had already
+-- alphabetized the tree's cycle.
 --
--- The segment order is 'keywordScopes'\' precedence with the tag layers already
--- folded into 'clSeed' — so the chain a keyword is CLASSIFIED by and the order
--- it is SHOWN in are one list read the same way round.
+-- The segment order is 'keywordScopes'\' precedence, so the chain a keyword is
+-- CLASSIFIED by and the order it is SHOWN in are one list.
 recognizedKeywords :: ConfigLayers -> TodoKeywords -> TodoKeywords
 recognizedKeywords cfg fileKw = mergeKeywords [builtinKeywords, clSeed cfg, fileKw]
 
--- | The scopes that answer for a headline carrying TAGS in a file whose own
--- @#+TODO:@ lines declare FILEKW, WIDEST FIRST: org's own TODO\/DONE, then
--- @system.org@, then the headline's tags IN ORDER, then the file's own
--- declarations.  Each entry is its RANK, the name it answers under and what it
--- declares.
+-- | The scopes that answer for a headline carrying TAGS in a file declaring
+-- FILEKW, WIDEST FIRST: org's TODO\/DONE, @system.org@, the headline's tags IN
+-- ORDER, the file's own.  Each entry is its RANK, its name and what it declares.
 --
--- WIDEST first is the DEFERRED BOUNDARY: the scope every reader of the tree
--- shares gets the first word, and each narrower one may add to the vocabulary
--- without redefining what a wider one already settled.  So @TODO@ means what
--- org says it means under every tree and in every file, @system.org@'s cycle
--- means what the tree says it means in every file of it, and a tag or a single
--- document adds its own words under that.  The old order ran the other way, and
--- a file redeclaring a shared word made it classify differently from its
--- neighbours' — a private opinion about a public word.
+-- WIDEST FIRST IS THE DEFERRED BOUNDARY: the scope every reader shares gets the
+-- first word, and a narrower one may ADD vocabulary without redefining what a
+-- wider one settled.  The old order ran the other way, and a file redeclaring a
+-- shared word made it classify differently from its neighbours' — a private
+-- opinion about a public word.
 --
--- FOUR scopes and no fifth.  The recognition union ('clSeed') is not one: it
--- says which words PARSE as states under this root, which is a superset of what
--- any one headline is configured for, and letting it close the chain made
--- another tag's cycle both classified and settable on a headline that carries
--- no such tag.  A keyword no scope here claims is recognized and unclassified,
--- which is exactly what it is.
+-- FOUR SCOPES AND NO FIFTH.  The recognition union is not one: it says which
+-- words PARSE under this root, a superset of what any headline is configured
+-- for, and letting it close the chain made another tag's cycle both classified
+-- and settable on a headline carrying no such tag.
 --
--- ONE list, two readers, three answers.  'classify' takes the first scope with
--- an opinion about a keyword; 'Glance.Query.keywordSources' reports what each
--- scope claims, and 'Glance.Query.settableStates' is THAT flattened rather than
--- a third fold of this — so the active-ness the table shows, the palette a
--- reader picks a state out of and the words a write is allowed describe one
--- chain by construction.  Only the BUCKET a word sits in moves with the order;
--- the flattened union is every scope's words either way, so what a row may be
--- set to is unchanged by it.  The rank travels beside the name because a tree
--- may configure a tag called @system@: the two entries stay apart and the tag
--- keeps its own place in the order.
+-- ONE list, two readers, three answers: 'classify' takes the first scope with
+-- an opinion, 'keywordSources' reports what each claims, and 'settableStates'
+-- is THAT flattened rather than a third fold — so the active-ness shown, the
+-- palette picked from and the words a write allows describe one chain.  Only
+-- the BUCKET a word sits in moves with the order.  The rank travels beside the
+-- name because a tree may configure a tag called @system@.
 keywordScopes :: ConfigLayers -> TodoKeywords -> [Text] -> [(Int, Text, TodoKeywords)]
 keywordScopes cfg fileKw tags =
   (0, defaultSource, builtinKeywords)

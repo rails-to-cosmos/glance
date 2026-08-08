@@ -1,32 +1,25 @@
--- | org-glance's write-ahead index, read only, and the drift instrument that
--- compares it with what this parser reads out of the same store's blobs.
+-- | org-glance's write-ahead index, read only, and the drift instrument
+-- comparing it with what this parser reads out of the same store's blobs.
 --
--- WHAT IS ON DISK.  @org-glance@ keeps a metadata projection of every entry
--- under @.org-glance\/meta\/@ as an append-only log of JSON records, one per
--- line.  @headlines.jsonl@ is the OPEN segment; once it grows past a size bound
--- it is sealed by an atomic rename into an immutable @seg-NNNNNNNNNN.jsonl@,
--- and a one-line @MANIFEST@ — @{"version":2,"segments":[…]}@ — is rewritten to
--- list the live sealed segments oldest-first.  That rename is the sole commit
--- point, so a segment on disk the MANIFEST does not name is invisible.
+-- WHAT IS ON DISK: a metadata projection of every entry under
+-- @.org-glance\/meta\/@, an append-only log of one JSON record per line.
+-- @headlines.jsonl@ is the OPEN segment; past a size bound it is sealed by an
+-- atomic rename into @seg-NNNNNNNNNN.jsonl@ and a one-line @MANIFEST@ lists the
+-- live sealed segments oldest-first.  That rename is the sole commit point, so
+-- a segment the MANIFEST does not name is invisible.
 --
--- THE FOLD, which is @org-glance-graph--latest-records@ and @--ensure-cache@
--- (@src\/data\/org-glance-graph.el@) read forwards: the live segments oldest to
--- newest with the open one LAST, every non-empty line parsed as one record, the
--- LATEST record per @id@ superseding every earlier one, and an id whose latest
--- record carries @tombstone@ dropped from the live set.  Only the open segment
--- may end in a torn line — a crash tears the last append and nothing else — so
--- a parse failure there is legitimate and one anywhere else is corruption.  The
--- elisp re-signals on corruption; a read-only instrument counts it instead
--- ('ifMalformed') and carries on, since refusing to report the other six
--- thousand rows helps nobody.
+-- THE FOLD, which is @org-glance-graph--latest-records@ read forwards: live
+-- segments oldest to newest with the open one LAST, every non-empty line one
+-- record, the LATEST per @id@ superseding, and a tombstoned id dropped.  Only
+-- the open segment may end in a torn line, so a parse failure there is
+-- legitimate and one elsewhere is corruption — which a read-only instrument
+-- counts and carries on from, refusing to report the other six thousand rows
+-- helping nobody.
 --
--- THE COMPARISON.  Each live record is matched by @id@ against the blob
--- org-glance stored for it at @.org-glance\/data\/\<2\>\/\<rest\>\/data.org@,
--- as THIS parser reads it ('BlobEntry').  Two terms are compared: the TODO
--- keyword, always; and the archive flag only where the record carries it, since
--- @archived@ joined the record schema later and every record written before it
--- has no such key at all ('irArchived' is 'Nothing' there).  An id on one side
--- and not the other is counted rather than compared.
+-- THE COMPARISON: each live record matched by @id@ against the blob stored for
+-- it, as THIS parser reads it.  Two terms — the TODO keyword always, the
+-- archive flag only where the record CARRIES the key, since @archived@ joined
+-- the schema later.  An id on one side only is counted rather than compared.
 --
 -- Nothing here writes, creates, seals or repairs anything.
 module Data.Org.Index ( BlobEntry (..)

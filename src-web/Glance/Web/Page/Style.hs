@@ -125,22 +125,15 @@ page head' colours title body = T.unlines
   -- key line under it or the table above it.
   , "  #app,#log{width:100%;box-sizing:border-box}"
   -- N LINES, ALWAYS: the strip is exactly N of its own line boxes tall whatever
-  -- it holds, the messages scrolling inside a fixed frame.  A strip that GREW
-  -- resized the table under a reader's cursor on every logged line — the one
-  -- thing a keyboard surface must not do — and a quiet page now reads like a
-  -- busy one.  The height is computed rather than eyeballed: a line box is the
-  -- body's unitless 1.5 over this rule's OWN font size, which is exactly what
-  -- `em' reads for a length here, so the size is declared once and the
-  -- arithmetic follows it rather than restating `12px'.
-  -- `box-sizing:border-box' counts the 6px padding and the 1px border twice
-  -- each inside the figure, so those two stay spelled out and it is a sum
-  -- rather than `140px'.  N IS A CUSTOM PROPERTY, which is what makes it a
-  -- preference: the arithmetic lives HERE, once, and the settings sheet writes
-  -- a NUMBER onto the element.  The declared value is 'logLinesDefault', so a
-  -- page whose glue has not run — or a reader who never touched the field —
-  -- gets the same figure the sheet would put back.  `flex:none' is the other
-  -- half: the strip takes its declared height and `#app', the flexible one, the
-  -- whole of the rest.
+  -- it holds.  A strip that GREW resized the table under a reader's cursor on
+  -- every logged line, and a quiet page read differently from a busy one.  The
+  -- height is computed: a line box is the body's unitless 1.5 over this rule's
+  -- OWN font size, which is what `em' reads here, so the size is declared once
+  -- and the arithmetic follows it.  `border-box' counts the padding and border
+  -- twice each, so those stay spelled out and it is a sum.  N IS A CUSTOM
+  -- PROPERTY, which is what makes it a preference: the arithmetic lives HERE
+  -- and the settings sheet writes a NUMBER onto the element.  `flex:none' is
+  -- the other half — the strip takes its declared height and `#app' the rest.
   , "  #log{font-size:12px;color:var(--g-mute);padding:6px 10px;"
   , "    border:1px solid var(--g-border);border-radius:8px;"
   , "    --g-logn:" <> T.pack (show logLinesDefault) <> ";"
@@ -303,22 +296,15 @@ page head' colours title body = T.unlines
   -- the page's.
   , "  #mptable .tv-root,#ltable .tv-root,#ttable .tv-root{flex:1;min-width:0;"
   , "    font-family:var(--dk-mono)}"
-  -- AN ELEMENT: a row of the document, wearing the cursor and nothing else —
-  -- the page's selection under point, the warn tint of a flag beside it.  The
-  -- rhythm is the reading rhythm: a headline line, then its planning and its
-  -- drawer indented under it the way org writes them, then the paragraphs, then
-  -- the children one level in.  EVERY SELECTION HERE IS A GROUND — the element
-  -- under point, the cell under point and a flagged element are all a
-  -- background, and no rule of them draws an underline, a border or an outline
-  -- — which is the TABLE's own language (`.tv-sel' the cursor row's ground,
-  -- `.tv-cell-sel' a further wash where the column band crosses it), for the
-  -- same reason: a locator that adds a LINE to a row of text moves the text,
-  -- and a document is read as text.  The `de' radius below is the element's own
-  -- shape rather than a selection's, which is why it sits on the base rule.
-  -- ONE GRID, ONE BASE: every element of the document is inset by the same
-  -- `--g-doc-pad', so the headline line and the content under it count from one
-  -- place — a second literal here and in the paragraph's own rule is exactly
-  -- the drift a reader sees as a star column out of line.
+  -- AN ELEMENT: a row of the document wearing the cursor and nothing else.  The
+  -- rhythm is org's: a headline line, its planning and drawer indented under
+  -- it, the paragraphs, the children one level in.  EVERY SELECTION HERE IS A
+  -- GROUND — element, cell and flag are all a background, and no rule draws an
+  -- underline, a border or an outline — which is the TABLE's language, for the
+  -- same reason: a locator that adds a LINE to a row of text moves the text.
+  -- ONE GRID, ONE BASE: every element is inset by the same `--g-doc-pad', so a
+  -- second literal here is exactly the drift a reader sees as a star column out
+  -- of line.
   , "  .de{scroll-margin-block:var(--g-doc-off);"
   , "    padding:1px var(--g-doc-pad);border-radius:4px;white-space:pre-wrap;"
   , "    overflow-wrap:anywhere}"
@@ -394,22 +380,15 @@ page head' colours title body = T.unlines
   -- element's own ground.
   , "  #mdoc.on .dc.don{background:color-mix(in srgb, var(--g-col) var(--g-cell-wash), transparent)}"
   , "  .dc-tags{color:var(--g-mute);font-size:11px;margin-left:auto;margin-right:0}"
-  -- What is not there yet: shown only under point, naming the part a reader
-  -- stands on, and invisible elsewhere.  The open row's two fields lie over the
-  -- row they belong to, ABSOLUTE because the row is virtualized — the mount
-  -- rewrites its own rows as it scrolls, so an edit living inside one would be
-  -- thrown away by the next frame — with `top' and `height' the glue's, off the
-  -- row's own box.  The rhythm is the table's, so the fields land on the text
-  -- they replace: `5px 12px' per cell is `.tv-table td' exactly, the column
-  -- split the renderer's two columns.  No z-index: a positioned LATER sibling
-  -- of the mount, so paint order puts it over the rows already and the page's
-  -- four bands stay four.  The two popups' overlays are the same thing over a
-  -- RANGE of cells, so all four share every declaration but geometry: `#dtitle'
-  -- covers the title text alone (its left and width the glue reads off the
-  -- title cell, so the headline's stars, state and tags stay on screen),
-  -- `#tedit' the tag cell alone, `#ledit' the title and url
-  -- cells together, whose left and width the glue reads off those cells.  One
-  -- edit vocabulary across the page means one look.
+  -- Shown only under point, naming the part a reader stands on.  The open row's
+  -- fields lie OVER the row, absolute because the row is virtualized — the
+  -- mount rewrites its rows as it scrolls, so an edit inside one would be
+  -- thrown away by the next frame — with `top' and `height' the glue's.  The
+  -- rhythm is the table's so the fields land on the text they replace.  No
+  -- z-index: a positioned LATER sibling of the mount, so paint order puts it
+  -- over the rows and the page's four bands stay four.  All four overlays share
+  -- every declaration but geometry: `#dtitle' covers the title text alone,
+  -- `#tedit' the tag cell, `#ledit' the title and url cells together.
   , "  #dtitle,#dpara,#pedit,#tedit,#ledit{display:none;position:absolute;"
   , "    background:var(--g-sel)}"
     -- THE GROUND IS THE ONLY SIGNAL, so it has to be one the block is not
@@ -622,53 +601,36 @@ page head' colours title body = T.unlines
   , "    flex-direction:column;overflow:hidden}"
   -- POPUP SIZE IS A TIER, every popup wears exactly ONE, and no box declares a
   -- width or height of its own.  A size is a KIND OF SURFACE rather than a fact
-  -- about one popup, so a new overlay names its kind and inherits the measure
-  -- the others of its kind agree on.  Defined here, once, and worn in the
-  -- markup — the whole of what a reviewer has to check, since a box that grew a
-  -- size rule instead is what the sweep looks for.  A TIER NAMES AN INTENT and
-  -- the number is its DEFINITION, so the measure can move without the name
-  -- going stale.
+  -- about one popup, so a new overlay names its kind and inherits the measure.
+  -- A TIER NAMES AN INTENT and the number is its DEFINITION, so the measure can
+  -- move without the name going stale.
   --
-  --   `pop-band'   a list committed from memory, no wider than its entries
-  --                need: the state palette, whose rows are single words.
-  --   `pop-sheet'  a WORKING SURFACE, fixed on both axes: the materialize
-  --                sheet, the link and tag popups, and the settings sheet.  A
-  --                box that does not reflow under an edit is the point — the
-  --                panes in it have a measure to lay out against, and a reader's
-  --                eye keeps its place while the content under it changes.
+  --   `pop-band'   a narrow column growing with its content to the cap: the
+  --                state palette, and the tag manager's three short columns.
+  --   `pop-sheet'  a WORKING SURFACE fixed on both axes: the materialize sheet,
+  --                the link popup, the capture form, the settings sheet.  A box
+  --                that does not reflow under an edit is the point.
   --
-  -- `pop-wide' WAS THE THIRD, and it is gone: it grew with what it held between
-  -- a floor and a ceiling, and fixing its height at the bound made its
-  -- definition character for character `pop-sheet''s — two names for one box, a
-  -- tier system saying something it does not mean.  The fixed tier gives
-  -- outright what the growing one was reaching for, the ceiling being the same
-  -- number, and that floor existed only because a sparse entry made a GROWING
-  -- box a strip rather than a surface, which a fixed box cannot become.  A
-  -- SURFACE THAT NEEDS A MEASURE NEITHER GIVES ADDS A TIER HERE and wears it,
-  -- rather than declaring a width on its own box; that is the rule a third one
-  -- arrives under, and there is no third today.
+  -- `pop-wide' WAS THE THIRD and is gone: fixing its height at its bound made
+  -- its definition character for character `pop-sheet''s.  Its floor existed
+  -- only because a sparse entry made a GROWING box a strip, which a fixed box
+  -- cannot become.  A SURFACE NEEDING A MEASURE NEITHER GIVES ADDS A TIER HERE
+  -- rather than declaring a width on its own box.
   , "  .pop-band{width:min(560px,100%);max-height:var(--g-pop-max)}"
   , "  .pop-sheet{width:min(80vw,100%);height:var(--g-pop-max)}"
   -- THE WASH.  One class on the document element, over the table and the whole
-  -- modal band: a sheet open on rows that have gone stale is stale with them,
-  -- so the overlays go under the same wash rather than floating over it looking
-  -- current.  Eased, so the state arrives as a change rather than a flicker,
-  -- and the transition sits on the elements themselves so coming back is eased
-  -- too.  ONE PROPERTY, and it is `opacity'.  Never BLUR — a reader has to be
-  -- able to read a stale row while its replacement is on the way.  Never
-  -- `filter' either, which is the cross-repo constraint here: ANY filter makes
-  -- its element the containing block for `position:fixed' descendants, and the
-  -- renderer's summoned filter palette is one — a `.tv-veil' inside `#app',
-  -- which would stop covering the viewport and start being clipped by
-  -- `.tv-root''s own `overflow:hidden' the moment a fetch went past its grace.
-  -- `opacity' creates a stacking context and no containing block, so it is the
-  -- one declaration that dims everything and re-anchors nothing; over the
-  -- page's own ground it takes the colour out of a badge as it goes.
+  -- modal band: a sheet open on stale rows is stale with them.  Eased, so the
+  -- state arrives as a change rather than a flicker.  ONE PROPERTY, and it is
+  -- `opacity'.  Never BLUR — a stale row is still the row.  Never `filter'
+  -- either, the cross-repo constraint: ANY filter makes its element the
+  -- containing block for `position:fixed' descendants, and the renderer's
+  -- palette backdrop is one — it would stop covering the viewport and be
+  -- clipped by `.tv-root''s `overflow:hidden'.  `opacity' creates a stacking
+  -- context and no containing block.
   --
   -- The event strip and the key line are EXEMPT by omission: they are where a
-  -- reader finds out what the page is waiting on — a lost socket is a `ws' line
-  -- there and nowhere else now — and dimming the explanation with the thing it
-  -- explains leaves the page saying nothing.
+  -- reader finds out what the page is waiting on, and dimming the explanation
+  -- with the thing it explains leaves the page saying nothing.
   , "  #app,#modal,#prompt,#config,#links,#tags,#capture{transition:opacity .18s ease}"
   , "  html.stale #app,html.stale #modal,html.stale #prompt,html.stale #config,"
   , "  html.stale #links,html.stale #tags,html.stale #capture{opacity:.55}"
@@ -680,24 +642,18 @@ page head' colours title body = T.unlines
   , "    white-space:pre;background:var(--g-surface);color:var(--g-fg);opacity:0;"
   , "    transition:opacity .35s;pointer-events:none}"
   -- Touch.  Keyboard-first holds wherever there are keys; a coarse pointer is
-  -- where they cannot reach, so the filter earns the one tap target on the
-  -- page.  The chip row is what a palette-mode page carries of the filter, and
-  -- it becomes that target: 44px of it, and a word saying so while no chip has
-  -- filled it.  The renderer hides an empty row with an inline @display:none@,
-  -- which only @!important@ outranks from a stylesheet.  Every rule is inside
-  -- the query, so a mouse sees exactly what it saw before.  THE SETTINGS SHEET
-  -- IS NOW UNREACHABLE HERE, a known gap rather than a decision this block
-  -- records: the gear was the coarse pointer's only door to `,', and it went
-  -- with the corner it sat in.  A touch reader can filter and read but cannot
-  -- open the settings, and the page has no other affordance to offer.  Whatever
-  -- answers it — a chord surface, a long press, a control inside the sheet band
-  -- — is one place, and this is where the query for it lives.
+  -- where they cannot reach, so the filter earns the one tap target: 44px of
+  -- chip row, and a word saying so while no chip has filled it.  The renderer
+  -- hides an empty row with an inline @display:none@, which only @!important@
+  -- outranks.  Every rule is inside the query, so a mouse sees what it saw.
   --
-  -- iOS zooms the page in on a focused field under 16px and does not zoom back
-  -- out; the sheet's textarea and its property fields are the shell's own, and
-  -- the renderer's input is the renderer's.  The panes stack here whatever the
-  -- width: a thumb wants the text full-width and the drawer under it, where the
-  -- wrap rule would keep them side by side on a wide tablet.
+  -- THE SETTINGS SHEET IS UNREACHABLE HERE, a known gap: the gear was the
+  -- coarse pointer's only door to `,' and went with the corner.  Whatever
+  -- answers it is one place, and this is where the query for it lives.
+  --
+  -- iOS zooms in on a focused field under 16px and does not zoom back out.  The
+  -- panes stack here whatever the width: a thumb wants the text full-width and
+  -- the drawer under it.
   , "  @media (pointer:coarse){"
   , "    #app .tv-chips{min-height:44px;cursor:pointer}"
   , "    #app .tv-pin{font-size:20px;padding:8px}"

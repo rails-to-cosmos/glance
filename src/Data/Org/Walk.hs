@@ -308,30 +308,23 @@ walk opts acc dir = do
     Right names -> foldM (visit opts dir) acc names
 
 -- | Classify NAME inside DIR: recurse, keep, or ignore.  The accumulator is
--- forced at every entry: a thunk per entry would retain the whole tree.  A
--- named root is walked whatever it is, so pointing the walk straight at a
--- mirror still reads it — the exclusion is about what a tree contains.
+-- forced at every entry — a thunk per entry would retain the whole tree.  A
+-- NAMED root is walked whatever it is: the exclusion is about what a tree
+-- contains.  Config outranks derived where a path is both, which it cannot be;
+-- they are asked apart so each declined directory lands in the count that
+-- explains it.
 --
--- Config outranks derived where a path is both, which it cannot be: the two
--- rules test the same component against disjoint names.  They are asked apart
--- so each declined directory lands in the count that explains it.
+-- ONE STAT AN ENTRY, and it is @lstat@, which never follows — the entry count
+-- is what a walk costs, and the pair this replaced was most of the wall.  A
+-- symlink pays a second, following stat to classify its target, and only when
+-- the answer could change the accumulator: a link neither named like a document
+-- nor inside a declined directory adds nothing whatever it points at, which is
+-- where Emacs's lock exits.
 --
--- ONE STAT AN ENTRY, and it is 'getSymbolicLinkStatus' — @lstat@, which never
--- follows — because the entry count is what a walk costs: ~703k of them over
--- ~\/sync, where the pair this replaced (@doesDirectoryExist@ then
--- @pathIsSymbolicLink@) was most of the wall.  A symlink pays a second stat
--- ('getFileStatus', which does follow) to classify its target, and only when
--- the answer could change the accumulator — a link that is neither a document
--- by name nor inside a declined directory adds nothing whatever it points at,
--- so Emacs's @.#name.org@ lock is refused by name ahead of any stat rather
--- than by dangling.
---
--- What the two stats say, which is what the pair before them said:
--- a real directory is entered, a symlinked one never is, a symlinked FILE is
--- kept on its name like a real one, and a link whose target is missing reads as
--- a non-directory — so a dangling @.org@ link is walked and fails later as
--- @ReadFailed@.  A failed @lstat@ lands in the same branch, silently, the way
--- @doesDirectoryExist@ swallowed one into a @False@.
+-- What the two say: a real directory is entered, a symlinked one never is, a
+-- symlinked FILE is kept on its name, and a link whose target is missing reads
+-- as a non-directory — so a dangling @.org@ link is walked and fails later as
+-- @ReadFailed@.  A failed @lstat@ lands in the same branch, silently.
 visit :: WalkOptions -> FilePath -> Found -> FilePath -> IO Found
 visit opts dir acc name = do
   probe <- try (getSymbolicLinkStatus path) :: IO (Either IOException FileStatus)
@@ -381,31 +374,22 @@ keepConfig path acc = acc { foundConfig = path : foundConfig acc }
 -- Reading what the walk found
 
 -- | ACT over each of PATHS on a pool of 'getNumCapabilities' workers, answering
--- in the order PATHS gave them whatever order they finished in.  The loader
--- ('Glance.Query.loadDirFilesWith') and the CLI scan share this one pool; the
--- walk above stays serial, and a single path skips the pool entirely, which is
--- the shape of the file watch's re-read.
+-- in the order PATHS gave them whatever order they finished.  The loader and
+-- the CLI scan share this one pool; the walk stays serial, and a single path
+-- skips the pool, which is the file watch's re-read.
 --
--- WHY THIS PARALLELIZES AT ALL: there is no shared parse state to race over.
--- Every file is parsed from 'Data.Org.defaultContext' — the per-file context
--- invariant (docs\/invariants.md, Parser) — so one file's @#+TODO:@ line cannot
--- reach another's headlines whichever thread reads it, no accumulator threads
--- between files, and nothing in the parser or the AST is mutable.  The serial
--- loop was already a map over independent reads; this only decides which
--- capability runs each one.
---
--- Two rules the callers rest on.
+-- WHY THIS PARALLELIZES: there is no shared parse state to race over.  Every
+-- file is parsed from 'defaultContext' — the per-file context invariant — so
+-- one file's @#+TODO:@ cannot reach another's headlines whichever thread reads
+-- it, and nothing in the parser or the AST is mutable.
 --
 -- ORDER: workers pull from one queue and tag what they took, so the answer is
--- reassembled by index and is record for record what a serial run produced.
--- Id resolution ('Glance.Query.resolveIds' is first-wins), the served row
--- order and the scan's capped failure listings all read that sequence, so
--- completion order must not be able to reach any of them.
+-- reassembled by index and is record for record a serial run's.  Id resolution,
+-- the served row order and the scan's capped listings all read that sequence.
 --
--- FORCING: ACT must return a value it has already forced — both callers end in
--- an 'Control.Exception.evaluate' — so a worker's transient document dies with
--- the file rather than in the caller's fold, and in-flight memory is the pool's
--- width times one document rather than the tree.
+-- FORCING: ACT must return a value it has already forced, so a worker's
+-- transient document dies with the file rather than in the caller's fold, and
+-- in-flight memory is the pool's width times one document.
 mapFilesConcurrently :: (FilePath -> IO a) -> [FilePath] -> IO [a]
 mapFilesConcurrently act paths = case paths of
   []    -> pure []

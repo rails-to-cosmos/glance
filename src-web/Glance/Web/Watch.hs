@@ -1,25 +1,20 @@
 -- | The file watch: inotify events in, store updates and frames out.
 --
--- Four rules the loop keeps.  A changed file is re-parsed on its own, under the
--- store's own config layers by way of 'Glance.Query.loadFileWith' — that seed
--- is a constant of the load, so no file's @#+TODO:@ line reaches another's
--- headlines and a re-read lands where the full walk left it.  Events are
--- debounced per path, because an editor writes a file in a flurry of syscalls
--- and each one would otherwise cost a parse.  A file that fails to parse keeps
--- the rows it had: 'Glance.Query.orgParse' is all-or-nothing, so a save caught
--- mid-write looks exactly like a file whose headlines all vanished, and
--- dropping them would empty the table until the next keystroke.
+-- FOUR RULES.  A changed file is re-parsed on its own under the store's config
+-- layers — that seed is a constant of the load, so no file's @#+TODO:@ reaches
+-- another's headlines.  Events are debounced per path, an editor writing in a
+-- flurry of syscalls otherwise costing a parse each.  A file that fails to
+-- parse KEEPS its rows: 'orgParse' is all-or-nothing, so a save caught
+-- mid-write looks like a file whose headlines all vanished.
 --
--- And a @.org-glance\/config@ file is the one event that reaches past its own
--- path: it changes what every OTHER file parses, so the answer is a reseed —
--- the config re-read and the whole tree re-walked ('reseed').  Expensive, and
--- the only correct answer to a keyword that has just started existing.
+-- And a config file is the one event reaching past its own path: it changes
+-- what every OTHER file parses, so the answer is a reseed.  Expensive, and the
+-- only correct answer to a keyword that has just started existing.
 --
--- Not every path this loop answers arrives from inotify.  fsnotify arms a newly
--- created directory without traversing INTO it, so a file under one is unwatched
--- for as long as the daemon runs and no event for it is ever coming.  Every
--- write route therefore leaves through 'writeSpans', which queues the path it
--- just wrote; the queue is the one inotify fills, and 'nudge' is its only door.
+-- Not every path arrives from inotify.  fsnotify arms a newly created directory
+-- without traversing INTO it, so a file under one is unwatched for as long as
+-- the daemon runs.  Every write route therefore leaves through 'writeSpans',
+-- which queues the path it wrote; 'nudge' is the queue's only door.
 module Glance.Web.Watch
   ( debounceDelay
   , drain
@@ -98,24 +93,18 @@ drain opts delay dir hub = do
 
 -- | Queue PATH for re-reading, as if an event had arrived for it.
 --
--- The one door into the queue, which is what makes the rule total: inotify's
--- own handler comes through here too, so a path is filtered by 'watched' on the
--- way in whoever put it there and a nudge can no more smuggle a derived mirror
--- into the table than an event can.  A path the walk declines is dropped in
--- silence, which is the same answer the fsnotify predicate gives it.
+-- THE ONE DOOR into the queue, which is what makes the rule total: inotify's
+-- handler comes through here too, so a path is filtered by 'watched' whoever
+-- put it there and a nudge can no more smuggle a derived mirror into the table
+-- than an event can.
 --
--- What it buys is the path nothing is watching.  fsnotify arms a newly created
--- directory but does not traverse into it, so a blob under
--- @data\/\<shard>\/\<rest>\/@ raises no event ever — not for the capture that
--- made it and not for any write after.  The daemon knows the path at write
--- time, so it says so ('writeSpans'), and the row arrives the way every other
--- row does.
+-- What it buys is the path nothing is watching: a blob under a fresh shard
+-- raises no event ever, not for the capture that made it and not for any write
+-- after.  The daemon knows the path at write time, so it says so.
 --
--- The store is untouched here.  This drops a path in a map; 'settle' on the
--- drain loop is still the only thing that loads a file or publishes a frame, so
--- the watch stays the sole updater of the store and the debounce still holds —
--- a real event landing after a nudge overwrites the timestamp and the pair
--- costs one parse.
+-- The store is untouched here — this drops a path in a map, and 'settle' on the
+-- drain loop stays the only thing that loads or publishes.  A real event
+-- landing after a nudge overwrites the timestamp and the pair costs one parse.
 nudge :: WalkOptions -> Hub -> FilePath -> IO ()
 nudge opts hub path = when (watched opts path) $ do
   now <- getMonotonicTime

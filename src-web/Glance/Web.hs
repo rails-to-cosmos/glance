@@ -1,33 +1,26 @@
--- | The M1 web layer: headlines out of a directory, into a browser tab, and
--- kept current there.  This module is the daemon — bind, walk, watch — and the
--- door the rest of the program comes through.
+-- | The web layer: headlines out of a directory, into a browser tab, and kept
+-- current there.  This module is the daemon — bind, walk, watch — and the door
+-- the rest of the program comes through.
 --
--- This component's build-depends names the public @glance@ library and the HTTP
--- packages.  @glance-internal@ is absent, so @Data.Org.*@ is out of scope here
--- and reaching for it means writing the dependency down where anyone reading
--- the stanza sees it.  That is the facade invariant (docs\/invariants.md,
--- Architecture), kept where the solver can check it.
+-- This component's build-depends names the public @glance@ library alone, so
+-- @Data.Org.*@ is out of scope here and reaching for it means writing the
+-- dependency where anyone reading the stanza sees it.  The facade invariant,
+-- kept where the solver can check it.
 --
--- The layer below, in dependency order: 'Glance.Web.Base' is what one server
--- serves and how it answers, 'Glance.Web.Keymap' the shell's one key map,
--- 'Glance.Web.Page' the served documents (@.Style@ the stylesheet they wear,
--- @.Glue@ the script the shell runs), 'Glance.Web.Commands' the structured
--- writes, and 'Glance.Web.Routes' the HTTP surface over all of it.
+-- Below it in dependency order: 'Glance.Web.Base' (what one server serves),
+-- 'Glance.Web.Keymap', 'Glance.Web.Theme', 'Glance.Web.Page' (@.Style@ the
+-- stylesheet, @.Glue@ the script), 'Glance.Web.Commands', and
+-- 'Glance.Web.Routes' over all of it.
 --
--- The walk does not happen first.  Warp binds, the banner prints, and the one
+-- THE WALK DOES NOT HAPPEN FIRST.  Warp binds, the banner prints, and the one
 -- full parse runs on its own thread; the store routes answer 503 until it lands
 -- and the watch starts after it, so it never sees a store the walk has not
 -- finished writing.  A 15-second walk used to be 15 seconds of refused
 -- connections.
 --
--- The directory is parsed once into 'Glance.Web.Store.Store' and a file watcher
--- re-parses one file per edit.  Org files stay the single source of truth — the
--- store is a projection that dies with the process.
---
--- The listener binds 127.0.0.1 and nothing else.  Read, write and automate
--- tiers arrive at S7 (docs\/plan-org-console-web.md); until an unauthenticated
--- connection is a read-only one by construction, the loopback interface is the
--- whole access-control story.
+-- The listener binds 127.0.0.1 and nothing else: until an unauthenticated
+-- connection is read-only by construction, the loopback interface is the whole
+-- access-control story.
 module Glance.Web ( ServeOptions (..)
                   , defaultPort
                   , application
@@ -62,25 +55,20 @@ import Glance.Web.Watch (say, watchOrgTree)
 serve :: ServeOptions -> IO ()
 serve opts = serveAs "serve" opts (pure ())
 
--- | Serve OPTS until killed, running LISTENING once the socket is bound and
--- accepting.  A missing org directory fails here rather than per request: the
--- operator learns at startup, not from a 500.
+-- | Serve OPTS until killed, running LISTENING once the socket is bound.  A
+-- missing org directory fails here rather than per request: the operator learns
+-- at startup, not from a 500.
 --
 -- MODE is the subcommand that asked — one daemon either way, and what the
 -- banner and the startup failure call it, so @glance desktop@ does not report
--- itself as @glance serve@ in the one place a reader looks to see which they
--- started.
+-- itself as @glance serve@.
 --
--- The walk does not happen first.  Warp binds, @LISTENING@ runs, and the one
--- full parse runs in its own thread — over @~\/sync@ that is 15 seconds during
--- which a request would otherwise be a refused connection instead of a page
--- saying what the server is doing.  The store routes answer 503 until the
--- parse lands ('indexing'), and the watch starts after it, on the same thread,
--- so it never sees a store the walk has not finished writing.
---
--- LISTENING is what @glance desktop@ opens its window from, and the socket is
--- where a window is wanted: the indexing page is the point of serving before the
--- load.  It runs on its own thread — the accept loop waits for no window.
+-- The walk runs on its own thread: the store routes answer 503 until it lands
+-- ('indexing') and the watch starts after it, so it never sees a half-written
+-- store.  LISTENING is what @glance desktop@ opens its window from, and the
+-- socket is where a window is wanted — the indexing page is the point of
+-- serving before the load.  It runs on its own thread; the accept loop waits
+-- for no window.
 serveAs :: String -> ServeOptions -> IO () -> IO ()
 serveAs mode opts listening = do
   ok <- doesDirectoryExist (soDir opts)
