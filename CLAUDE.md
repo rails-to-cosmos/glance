@@ -897,8 +897,24 @@ measurements and the history of superseded designs live in
   and the renderer's `inkFor` cannot darken a `var()` — so a theme picks hues
   that read over its own `pBg` AND its `pSelection`. That is the collision this
   rule exists for: a light theme with a golden cursor row cannot use the
-  mid-tone amber a white-only ground would take. `paletteSweep` reads the slots
-  the served ROWS name and asserts every theme declares each.
+  mid-tone amber a white-only ground would take. A theme spells AS MANY OR AS
+  FEW hues as it likes: `Theme.slots` cycles the list to fill the wire's count,
+  so fewer repeat, more are never reached, and an empty list falls back to the
+  theme's ink rather than leaving a token undefined and a pill unpainted.
+  `paletteSweep` reads the slots the served ROWS name, asserts every theme
+  declares each, and counts the slots rather than the hues behind them.
+- AND A TREE NAMES ITS OWN, per keyword and per theme:
+  `#+GLANCE_STATE_COLORS: light TODO=#7B1FA2 DONE=#00695C` in `system.org`,
+  the theme first and `KEYWORD=VALUE` pairs after. EVERY such line is read (one
+  per theme is the shape) and a keyword named twice takes its LAST spelling.
+  The mechanism is a CSS FALLBACK CHAIN, so this costs the wire nothing:
+  `badges` emits `var(--g-state-TODO, var(--g-state-a0))` and the config
+  declares `--g-state-TODO` where it has an opinion. `stateColorsOf` validates
+  only the SHAPE — a theme no build carries emits a block nothing reads, and a
+  value that is not a colour is one CSS ignores, both being the author's
+  business. The system layer's alone, like the other tree-wide settings, and
+  emitted per REQUEST after `themeCSS` (it comes off the store's config, not
+  out of the build).
 - Renderer internals this page may touch are enumerated by the suite as
   must-not-appear lists: the shell may not name `closeFilter`, `.tv-veil`,
   `.tv-panel`, may not reach rows by `tr.click()`, `scrollIntoView` or `rowEls(`,

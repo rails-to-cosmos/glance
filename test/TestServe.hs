@@ -46,7 +46,8 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 
 import Glance.Query ( QueryResult (qrRecords), builtinFilter
-                    , linkColumns, loadDir, loadFile, tagColumns, todoLines
+                    , linkColumns, loadDir, loadFile, prioritySlots, stateSlots
+                    , tagColumns, todoLines
                     , viewJSON )
 import Glance.Web ( ServeOptions (..), application, bannerLines, bootstrapWanted
                   , defaultPort, viewTitleFor )
@@ -5505,13 +5506,28 @@ paletteSweep shell = testCase "one palette, two namespaces, every theme" $ do
                Nothing -> pure []
                Just _  -> mapM (textAt "color") =<< listAt "badges" c) cols
   assertBool "the badges name slots at all" (not (null named))
-  mapM_ (\slot -> do
-           let token = T.dropEnd 1 (T.drop 4 slot)   -- var(--g-…) -> --g-…
-           assertBool (T.unpack (slot <> " is a slot"))
-                      ("var(--g-" `T.isPrefixOf` slot)
-           assertBool (T.unpack (token <> " is declared by every theme"))
-                      (length (T.breakOnAll (token <> ":") page) >= 4))
+  -- Each colour is `var(--g-<value>, var(--g-<slot>))': the tree's own override
+  -- if some theme declares one, else the slot every theme does.  What is
+  -- asserted is the FALLBACK, since that is the half this build owes.
+  mapM_ (\colour -> do
+           assertBool (T.unpack (colour <> " opens a fallback chain"))
+                      ("var(--g-" `T.isPrefixOf` colour && ", var(--g-" `T.isInfixOf` colour)
+           let slot = T.dropEnd 2 (snd (T.breakOnEnd ", var(" colour))
+           assertBool (T.unpack (slot <> " is declared by every theme"))
+                      (length (T.breakOnAll (slot <> ":") page) >= 4))
         named
+  -- A THEME SPELLS AS MANY HUES AS IT LIKES.  The slot COUNT is the wire's, so
+  -- what a theme declares is cycled to fill it: the tokens are all there
+  -- whatever the list length, and a theme that named none at all would still
+  -- paint (its ink).  Asserted over the shipped themes by counting the slots
+  -- rather than the hues behind them.
+  mapM_ (\(token, n) ->
+           assertEqual (T.unpack (token <> " is declared once per theme"))
+                       (4 * n)
+                       (sum [ length (T.breakOnAll (token <> T.pack (show i) <> ":") page)
+                            | i <- [0 .. n - 1] ]))
+        [ ("--g-state-a", stateSlots), ("--g-state-i", stateSlots)
+        , ("--g-priority-", prioritySlots) ]
   -- AND THE RENDERER'S OWN VALUES ARE DEFAULTS.  Its palette blocks carry no
   -- specificity (`:where'), so these ordinary rules win whatever order the two
   -- stylesheets land in — the renderer injects its own at mount time, which is

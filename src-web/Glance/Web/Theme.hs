@@ -23,6 +23,7 @@ module Glance.Web.Theme
   , themeIds
   , defaultFor
   , themeCSS
+  , themeOverrides
   ) where
 
 import Data.List (find)
@@ -30,7 +31,7 @@ import Data.Text (Text)
 
 import qualified Data.Text as T
 
-import Glance.Query (stateSlots)
+import Glance.Query (prioritySlots, stateSlots)
 import Glance.Web.Theme.Default (defaultDark, defaultLight)
 import Glance.Web.Theme.Types (Mode (..), Palette (..))
 
@@ -82,16 +83,22 @@ pageTokens p =
   , ("--g-veil",      pVeil p)
   , ("--g-shadow",    pShadow p)
   ]
- <> slots "--g-state-a" stateSlots (pActive p)
- <> slots "--g-state-i" stateSlots (pInactive p)
- <> slots "--g-priority-" (length (pPriority p)) (pPriority p)
+ <> slots p "--g-state-a"   stateSlots    (pActive p)
+ <> slots p "--g-state-i"   stateSlots    (pInactive p)
+ <> slots p "--g-priority-" prioritySlots (pPriority p)
 
--- | N slot tokens under PREFIX, HUES cycled to fill them.  The COUNT is the
--- wire's (`Glance.Query.stateSlots`) and the same for every theme, so a slot
--- the badges name is always declared however many hues a theme spells.
-slots :: Text -> Int -> [Text] -> [(Text, Text)]
-slots prefix n hues =
-  [ (prefix <> T.pack (show i), cycle hues !! i) | i <- [0 .. n - 1] ]
+-- | N slot tokens under PREFIX, P's HUES cycled to fill them.
+--
+-- THE COUNT IS THE WIRE'S ('Glance.Query.stateSlots', 'prioritySlots') and the
+-- same for every theme, so a slot the badges name is always declared.  A theme
+-- spells as MANY OR AS FEW hues as it likes: fewer repeat, and more than the
+-- wire names are never reached — a hue nothing can ask for.  An EMPTY list
+-- falls back to the theme's own ink, which keeps a badge readable rather than
+-- leaving its token undefined and its pill unpainted.
+slots :: Palette -> Text -> Int -> [Text] -> [(Text, Text)]
+slots p prefix n hues =
+  [ (prefix <> T.pack (show i), cycle filled !! i) | i <- [0 .. n - 1] ]
+  where filled = if null hues then [pFg p] else hues
 
 -- | And as the RENDERER spells it.  Its FLAG is 'pBad': the archive flag and
 -- an error are one red.
@@ -135,6 +142,20 @@ themeCSS = T.concat
     media css = "  @media (prefers-color-scheme:dark){\n" <> css <> "  }\n"
     rules pad page table t = block pad page (pageTokens (thPalette t))
                           <> block pad table (tableTokens (thPalette t))
+
+-- | A TREE'S OWN state colours, per theme, as the blocks that override the
+-- slots — `Data.Org.Config.stateColorsOf`'s answer made CSS.
+--
+-- Emitted AFTER 'themeCSS' and at the same specificity, so a later rule wins;
+-- and per REQUEST, since it comes off the config the store holds rather than
+-- out of this build.  A theme name no build carries still emits its block: the
+-- attribute is simply never stamped, so nothing reads it — which is the honest
+-- answer for a config naming a theme this binary does not have.
+themeOverrides :: [(Text, [(Text, Text)])] -> Text
+themeOverrides settings = T.concat
+  [ block "  " (":root[data-theme=\"" <> theme <> "\"]")
+          [ ("--g-state-" <> value, hue) | (value, hue) <- pairs ]
+  | (theme, pairs) <- settings, not (null pairs) ]
 
 -- | SELECTOR carrying TOKENS at PAD, one to a line: a palette is read by eye.
 block :: Text -> Text -> [(Text, Text)] -> Text

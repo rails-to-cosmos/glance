@@ -53,6 +53,8 @@ module Data.Org.Config ( ConfigLayerFile (..)
                        , captureTargetEdits
                        , captureTargetIn
                        , captureTargetOf
+                       , stateColorsKey
+                       , stateColorsOf
                        , classify
                        , configDirIn
                        , configDirsIn
@@ -80,8 +82,8 @@ module Data.Org.Config ( ConfigLayerFile (..)
 
 import Control.Exception (IOException, try)
 import Data.Foldable (asum)
-import Data.List (sort)
-import Data.Maybe (fromMaybe, listToMaybe)
+import Data.List (foldl', sort)
+import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Text (Text)
 import System.Directory (listDirectory)
 import System.FilePath (isAbsolute, splitDirectories, takeBaseName, (</>))
@@ -203,9 +205,10 @@ builtinFilter = "state:*active*"
 -- pragma keys they are spelled with.  Each name is written ONCE: a reader folds
 -- it and a writer renders it, and the pair drifting apart is a line a settings
 -- sheet rewrites into a line nothing reads.
-defaultFilterKey, captureTargetKey :: Text
+defaultFilterKey, captureTargetKey, stateColorsKey :: Text
 defaultFilterKey = "GLANCE_DEFAULT_FILTER"
 captureTargetKey = "GLANCE_CAPTURE_TARGET"
+stateColorsKey   = "GLANCE_STATE_COLORS"
 
 -- | Does a line open KEY's pragma?  The reader's half of a setting name, folded
 -- once so the writer below can render the same name in org's own casing.
@@ -253,6 +256,37 @@ defaultCaptureFile = "inbox.org"
 -- than a value written into every tree.
 captureTargetOf :: Text -> Maybe Text
 captureTargetOf = settingOf captureTargetKey
+
+-- State colours
+
+-- | The per-keyword hues DOC's @#+GLANCE_STATE_COLORS:@ lines name, by THEME.
+--
+-- @#+GLANCE_STATE_COLORS: light TODO=#9A3412 DONE=#166534@ — the theme first,
+-- then @KEYWORD=VALUE@ pairs.  EVERY such line is read rather than the last
+-- alone: a tree names one line per theme, and a keyword named twice takes its
+-- LAST spelling, which is how the rest of this file reads a repeated setting.
+--
+-- Nothing is validated here beyond the shape.  A theme name no build carries
+-- declares tokens nothing reads, and a value that is not a colour is a value
+-- CSS ignores — both are the author's business, and refusing either would put
+-- this parser in the way of a config it does not own.
+stateColorsOf :: Text -> [(Text, [(Text, Text)])]
+stateColorsOf doc = foldl' add [] (mapMaybe entryOf (T.lines doc))
+  where
+    entryOf line
+      | not (settingPragma stateColorsKey line) = Nothing
+      | otherwise = case T.words (T.strip (T.drop 1 (T.dropWhile (/= ':') line))) of
+          theme : pairs -> Just (T.toLower theme, mapMaybe pairOf pairs)
+          _nothingNamed -> Nothing
+    pairOf w = case T.breakOn "=" w of
+      (key, value) | not (T.null key), not (T.null (T.drop 1 value))
+                     -> Just (key, T.strip (T.drop 1 value))
+      _notAPair      -> Nothing
+    add acc (theme, pairs) =
+      [ (t, if t == theme then merge ps pairs else ps) | (t, ps) <- acc ]
+        <> [ (theme, pairs) | theme `notElem` map fst acc ]
+    merge held fresh =
+      [ (k, v) | (k, v) <- held, k `notElem` map fst fresh ] <> fresh
 
 -- | Where a capture under ROOT lands given CFG, or why this daemon will not
 -- write there.
@@ -379,6 +413,7 @@ data ConfigLayers = ConfigLayers
   , clSeed    :: !TodoKeywords            -- ^ the recognition union: every keyword any layer names.
   , clFilter  :: !(Maybe Text)            -- ^ the default view @system.org@ names; see 'defaultFilter'.
   , clCapture :: !(Maybe Text)            -- ^ the capture target it names; see 'captureTargetIn'.
+  , clStateColors :: ![(Text, [(Text, Text)])]  -- ^ per-theme keyword hues; see 'stateColorsOf'.
   , clPrint   :: !Text                    -- ^ digest over the config files read, @\"\"@ when none were.
   , clDirs    :: ![FilePath]              -- ^ the config directories these were read from, in walk order.
   } deriving (Eq, Show)
@@ -397,7 +432,7 @@ defaultFilter = fromMaybe builtinFilter . clFilter
 -- what every caller that does not want one passes.  Parsing under it is
 -- byte-identical to parsing from 'defaultContext'.
 noConfig :: ConfigLayers
-noConfig = ConfigLayers noKeywords [] noKeywords Nothing Nothing "" []
+noConfig = ConfigLayers noKeywords [] noKeywords Nothing Nothing [] "" []
 
 -- | Where ROOT would keep its config directory.  For a writer — the settings UI
 -- creating @system.org@ — rather than for a reader: a reader is given the
@@ -450,6 +485,9 @@ loadConfigDirs dirs = combine <$> readConfigLayers dirs
       , clSeed    = mergeKeywords (map keywordsIn entries)
       , clFilter  = systemSetting defaultFilterOf files
       , clCapture = systemSetting captureTargetOf files
+      -- The SYSTEM layer's, like the other two tree-wide settings: a colour for
+      -- a keyword is a property of the tree rather than of one tag.
+      , clStateColors = concat [ stateColorsOf (lfText f) | f <- files, isSystem f ]
       , clPrint   = fingerprint [ (lfPath f, lfDigest f) | f <- entries ]
       , clDirs    = dirs
       }

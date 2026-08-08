@@ -14,7 +14,7 @@ import System.FilePath (takeExtension)
 import qualified Data.Text as T
 
 import Glance.Web.Base (escape, logLinesDefault)
-import Glance.Web.Theme (themeCSS, themeIds)
+import Glance.Web.Theme (themeCSS, themeIds, themeOverrides)
 
 -- Type
 
@@ -47,8 +47,8 @@ fontFace (Just name) = T.concat
 -- | BODY wrapped in a document titled TITLE, with HEAD opening the style block.
 -- Styles inline, no asset but the renderer and whatever HEAD names on this same
 -- server, dark and light both.
-page :: Text -> Text -> Text -> Text
-page head' title body = T.unlines
+page :: Text -> [(Text, [(Text, Text)])] -> Text -> Text -> Text
+page head' colours title body = T.unlines
   [ "<!doctype html>"
   , "<html lang=\"en\">"
   , "<head>"
@@ -91,7 +91,7 @@ page head' title body = T.unlines
   -- ('Glance.Web.Theme').  Both namespaces are emitted here — the page's
   -- @--g-*@ and the renderer's own @--tv-*@ — so a role has ONE value and the
   -- table is drawn in the palette the page around it is.
-  , T.stripEnd themeCSS
+  , T.stripEnd (themeCSS <> themeOverrides colours)
   , "  body{margin:0;font:14px/1.5 var(--glance-mono);"
   , "    background:var(--g-bg);color:var(--g-fg);"
   -- One column, exactly the viewport tall: the table at the height it asks for,

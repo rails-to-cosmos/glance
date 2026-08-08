@@ -76,6 +76,14 @@ section groups a feature arc, and its date is that arc's last commit.
   declares it, so switching theme repaints the badges with no refetch. The
   light theme takes the deep end of each family — hues that read as ink over
   white and over the selection alike — and dark keeps the palette it had.
+- **A tree can name its own colour for a state.**
+  `#+GLANCE_STATE_COLORS: light TODO=#7B1FA2 DONE=#00695C` in `system.org` —
+  the theme first, `KEYWORD=VALUE` pairs after, one line per theme. A keyword
+  named twice takes its last spelling, and a value the tree does not name keeps
+  the theme's own. It costs the wire nothing: a badge's colour is a CSS
+  fallback chain (`var(--g-state-TODO, var(--g-state-a0))`), so the override is
+  a declaration the page emits and the badge picks up — theme switching still
+  repaints with no refetch.
 - **Every theme colour comes from one file per theme.** The palette used to be
   spread across three places — the page's `--g-*` set, the renderer's `--tv-*`
   set, and the hand-copied literals plus comments that kept the two in step.

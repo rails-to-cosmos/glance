@@ -145,6 +145,8 @@ module Glance.Query ( BlobSeed (..)
                     , tagRunEntries
                     , tagText
                     , tagged
+                    , clStateColors
+                    , prioritySlots
                     , stateSlots
                     , tagsOfCell
                     , templatePrompts
@@ -3260,9 +3262,12 @@ priorityValues = map priorityCell ["A", "B", "C"]
 -- No @group@ field ('badge'): a priority has no such halves.
 priorityBadges :: [Value]
 priorityBadges =
-  zipWith (badge Nothing)
-          [ "var(--g-priority-" <> showt i <> ")" | i <- [0 :: Int ..] ]
-          priorityValues
+  [ badge Nothing (overridable "priority" letter
+                               ("var(--g-priority-" <> showt i <> ")")) v
+  | (i, v) <- zip [0 :: Int ..] priorityValues
+    -- The LETTER as org writes it, since that is what a config names it by;
+    -- `priorityLetter' folds, which is the MATCHER's rule rather than a name.
+  , let letter = T.filter isAsciiUpper v ]
 
 -- | The two keyword groups a @#+TODO:@ line's bar divides: every keyword ahead
 -- of it, and every one behind it.  Starred metas, so no file can declare either
@@ -3344,7 +3349,9 @@ rowJSONFor cols r = object
 badges :: TodoKeywords -> [Value]
 badges (TodoKeywords actives inactives) =
   group "active" "a" actives <> group "inactive" "i" inactives
-  where group g slot ws = zipWith (badge (Just g)) (map (stateSlot slot) [0 ..]) ws
+  where group g slot ws =
+          [ badge (Just g) (overridable "state" w (stateSlot slot i)) w
+          | (i, w) <- zip [0 ..] ws ]
 
 -- | A SCHEMA.md badge: VALUE drawn in COLOR, under GROUP where its column has
 -- halves to name.  One builder for the three palettes this module declares —
@@ -3366,8 +3373,23 @@ badge group color value =
 stateSlots :: Int
 stateSlots = 4
 
+-- | And how many the PRIORITY column names, which is org's own cycle length
+-- rather than a number of this layer's choosing.
+prioritySlots :: Int
+prioritySlots = length priorityValues
+
 -- | The slot token for INDEX in GROUP (@a@ ctive, @i@ nactive).  The wire
 -- carries a `var()` rather than a hex because a reader switches theme without
 -- refetching: a baked hue would go stale on the keystroke.
 stateSlot :: Text -> Int -> Text
 stateSlot group i = "var(--g-state-" <> group <> showt (i `mod` stateSlots) <> ")"
+
+-- | The colour a badge names: the token for VALUE if some theme declares one,
+-- else FALLBACK.  A CSS fallback chain, so the per-value override needs nothing
+-- of this layer beyond the name — a theme (or a tree's config) declares
+-- @--g-state-TODO@ and the badge takes it, declares none and the slot stands.
+-- Keywords are letters and underscores and priority values are one letter, so
+-- neither can spell a slot's own name.
+overridable :: Text -> Text -> Text -> Text
+overridable prefix value fallback =
+  "var(--g-" <> prefix <> "-" <> value <> ", " <> fallback <> ")"

@@ -72,7 +72,7 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , TodoKeywords (..)
                     , archived, builtinFilter, captureCodes, configDirsIn
                     , captureTargetOf, captureTemplateIn, captureTemplateOf
-                    , configEdits, defaultFilter, defaultFilterOf
+                    , clStateColors, configEdits, defaultFilter, defaultFilterOf
                     , headlineParts, keywordSources, linkShown, linkType
                     , planningKeywords, readConfigLayers, readsAsTimestamp
                     , recomposedSubtree
@@ -1344,4 +1344,5 @@ shellPage opts hub = do
   st <- readTVarIO (hubStore hub)
   pure . html $ case soAssets opts of
     Just dir | not ok -> assetsMissing opts dir
-    _rendererInHand   -> demoShell opts font (defaultFilter (stConfig st))
+    _rendererInHand   -> demoShell opts font (clStateColors (stConfig st))
+                                   (defaultFilter (stConfig st))

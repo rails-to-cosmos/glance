@@ -352,6 +352,7 @@ classificationSpec = testGroup "Classification"
                              , clSeed    = TodoKeywords ["READING", "STARTED"] ["TODO"]
                              , clFilter  = Nothing
                              , clCapture = Nothing
+                             , clStateColors = []
                              , clPrint   = ""
                              , clDirs    = [] }
           file = TodoKeywords ["STARTED"] ["READING"]

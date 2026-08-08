@@ -5,7 +5,7 @@
 1. [-] Theme colors spread across the repository, please implement a single source of truth file for each theme. Keep in mind that we will add new themes, so structure it properly.
    1. [X] Core: Glance.Web.Theme + one file per theme, both --g-* and --tv-* emitted from it; renderer palette is a :where() default so the page wins.
    2. [X] Theme should also determine TODO colors, because it determines row highlighting already which could conflict with TODO colors.
-   3. [ ] User could define TODO states, in that case he could set the color for each theme (in theme settings).
+   3. [-] User could define TODO states, in that case he could set the color for each theme (in theme settings). — config pragma #+GLANCE_STATE_COLORS lands; the settings-sheet UI rides with 1.4.
    4. [ ] Put theme settings under the global settings for now (","). Maybe we already need to split this popup into tabs.
 2. [-] In table-view.js when you specify styles, display each key on separate line like here: /home/akatovda/sync/stuff/glance/assets/table-view.js:1118
 3. [ ] In "general settings", alongside with "default view" add "agenda view", use it to customize agenda view filter. Better: make a dropdown to customize view with 2 options: default, agenda.

@@ -33,8 +33,9 @@ import Glance.Web.Page.Style (fontFace, page)
 -- strip's own @ws@ lines, and every preference is a panel of the settings sheet
 -- @,@ raises.
 
-demoShell :: ServeOptions -> Maybe FilePath -> Text -> Text
-demoShell opts font wanted = page (fontFace font) (viewTitleFor (soDir opts)) $ T.unlines $
+demoShell :: ServeOptions -> Maybe FilePath -> [(Text, [(Text, Text)])] -> Text -> Text
+demoShell opts font colours wanted =
+  page (fontFace font) colours (viewTitleFor (soDir opts)) $ T.unlines $
   -- No heading: the view title is already the tab's, and printing it a second
   -- time here put it on screen twice.  In palette mode the renderer carries no
   -- bar either, so the page opens on the table itself.
@@ -284,7 +285,7 @@ cinput name extra hint =
 -- alone; drop it and 'Glance.Web.Routes.embeddedRenderer' serves, so a default run never sees
 -- this page.
 assetsMissing :: ServeOptions -> FilePath -> Text
-assetsMissing opts dir = page "" "glance — JSON only" $ T.unlines
+assetsMissing opts dir = page "" [] "glance — JSON only" $ T.unlines
   [ "  <h1>glance — JSON-only mode</h1>"
   , "  <p>No <code>" <> T.pack rendererAsset <> "</code> under <code>"
       <> escape (T.pack dir) <> "</code>, and <code>--assets</code> replaces the"
