@@ -10,6 +10,7 @@ import Glance.Query (defaultCaptureFile)
 import Glance.Web.Base ( ServeOptions (..), escape, glueAsset, logLinesBand, logLinesDefault
                        , rendererAsset, viewTitleFor )
 import Glance.Web.Keymap (keyBindingsJSON)
+import Glance.Web.Theme (Theme (..), themes)
 import Glance.Web.Page.Glue (glueConfig)
 import Glance.Web.Page.Style (fontFace, page)
 
@@ -188,11 +189,18 @@ demoShell opts font colours views =
   -- border, radius and font and the coarse-pointer rule that stops iOS zooming
   -- in on a focused control.
   , "      <div id=\"ctheme\" class=\"cpart\">"
+  -- THE OPTIONS ARE THE REGISTRY'S, so a theme is a record in `Glance.Web.Theme`
+  -- and nothing else: the same list the CSS blocks and the boot script's id test
+  -- read.  `auto' leads and is the one entry naming no theme — the media query
+  -- rather than a palette — which is why it is spelled here and the rest are not.
+  -- The page is built per request, so a theme a TREE comes to name joins this
+  -- select by joining that list.
   , crow (clab "theme")
          ("<select id=\"themesel\" class=\"cview\" title=\"theme\">"
             <> "<option value=\"auto\">auto</option>"
-            <> "<option value=\"light\">light</option>"
-            <> "<option value=\"dark\">dark</option></select>")
+            <> T.concat [ "<option value=\"" <> thId t <> "\">" <> escape (thLabel t)
+                            <> "</option>" | t <- themes ]
+            <> "</select>")
   -- AND THE TREE'S OWN STATE HUES, UNDER THE THEME ON SCREEN.  There is ONE
   -- theme control: the fields describe whatever theme the reader is looking at,
   -- so picking one moves the whole page and these rows with it.  The STORAGE

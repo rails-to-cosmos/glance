@@ -51,6 +51,7 @@ import Glance.Query ( QueryResult (qrRecords), builtinFilter
                     , viewJSON )
 import Glance.Web ( ServeOptions (..), application, bannerLines, bootstrapWanted
                   , defaultPort, viewTitleFor )
+import Glance.Web.Theme (Theme (..), themes)
 import Glance.Web.Store ( Hub, applyFile, finishLoading, loadStore, newHub
                        , newLoadingHub, publish )
 
@@ -4521,6 +4522,18 @@ settingsSpec shell =
 
   , atBoot settings "and the sheet opens on the first of them" $
         assertEqual "general" "general" <=< textAt "ctab"
+
+    -- THE THEME SELECT IS THE REGISTRY'S: one option per `Glance.Web.Theme.themes'
+    -- entry, under `auto', which names the media query rather than a palette.
+    -- The derived oracle for the same list the CSS blocks and the boot script's
+    -- id test read, so a theme added to the record list reaches the sheet with
+    -- no second edit — and a hard-coded option here fails.
+  , testCase "the theme select is one option per theme this build carries" $ do
+      page <- shell
+      holdsAll "auto leads, then the registry in its own order"
+        (  ["<option value=\"auto\">auto</option>"]
+        <> [ "<option value=\"" <> thId t <> "\">" <> thLabel t <> "</option>"
+           | t <- themes ]) page
 
   , keyed shell "a tab shows its own panel and no other"
       "," "ctab:theme" $ \answer ->

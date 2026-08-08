@@ -891,7 +891,10 @@ measurements and the history of superseded designs live in
   the two stylesheets land in — the renderer injects its own into `<head>` at
   mount time, after the served page's. A NEW THEME is a record beside the default
   theme's plus a `themes` entry; the CSS blocks, the boot script's id test
-  (`themeIds`) and the settings selector all read that list. What stays out of a
+  (`themeIds`) and the settings selector all read that list — `#themesel` is one
+  option per entry under `auto`, which names the media query rather than a
+  palette, and `TestServe` derives that oracle off `themes` so a hard-coded
+  option fails. What stays out of a
   theme is GEOMETRY (`--g-doc-*`, `--g-pop-*`). `TestServe.paletteSweep` is the
   DERIVED oracle: it reads the served page and compares the two namespaces role
   by role, so agreement is asserted rather than mirrored.
