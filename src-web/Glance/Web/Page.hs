@@ -139,20 +139,21 @@ demoShell opts font colours views =
   , "    </div>"
   , "  </div>"
   ]
-  -- The settings sheet: the page's ONE place for a preference, in PANELS.
-  -- General, theme, keywords — a header over the rows that belong to it, drawn
-  -- from the `SECTIONS' list below, so a fourth panel is one entry there and the
-  -- markup it wraps.  A sibling of `#app' like the other two overlays, so a
-  -- remount leaves it standing — which this one needs most, writing a layer
-  -- being itself what moves the columns.  The panel BODIES are declared here,
-  -- each wearing `cpart', and `SECTIONS' wraps them at boot: the list owns the
-  -- headers and the order, the markup owns what is under them, and the
-  -- stylesheet reads the class rather than a roll of ids.
+  -- The settings sheet: the page's ONE place for a preference, in TABS.
+  -- General, theme, keywords — one panel on screen at a time, named by a button
+  -- in `#ctabs' and drawn from the `SECTIONS' list below, so a fourth panel is
+  -- one entry there and the markup it wraps.  A sibling of `#app' like the
+  -- other two overlays, so a remount leaves it standing — which this one needs
+  -- most, writing a layer being itself what moves the columns.  The panel
+  -- BODIES are declared here, each wearing `cpart', and `SECTIONS' wraps them
+  -- at boot: the list owns the names and the order, the markup owns what is
+  -- under them, and the stylesheet reads the class rather than a roll of ids.
   <>
   [ "  <div id=\"config\">"
   , "    <div id=\"cbox\" class=\"pop-sheet\">"
   , "      <div id=\"chead\"><span id=\"ctitle\">settings</span>"
       <> "<span id=\"cnote\"></span></div>"
+  , "      <div id=\"ctabs\"></div>"
   , "      <div id=\"csecs\"></div>"
   -- GENERAL: the two tree-wide lines of `system.org'.  They are that layer's
   -- own bytes and ride in that layer's own write, so which panel shows them is
@@ -192,6 +193,14 @@ demoShell opts font colours views =
             <> "<option value=\"auto\">auto</option>"
             <> "<option value=\"light\">light</option>"
             <> "<option value=\"dark\">dark</option></select>")
+  -- AND THE TREE'S OWN STATE HUES, per theme.  The preference above is the
+  -- READER's (which theme they see); this is the TREE's (what a keyword is
+  -- drawn in under each theme), so the two are separate selectors over separate
+  -- storage — one `localStorage', one a `system.org' line.  Both selects and
+  -- the field rows are filled by the glue off the server's own lists, so a
+  -- build's themes and a tree's cycle are named in one place each.
+  , crow (clab "colour states in") "<select id=\"chue\" class=\"cview\"></select>"
+  , "      <div id=\"chues\" class=\"cpart\"></div>"
   , "      </div>"
   -- KEYWORDS: ONE LAYER AT A TIME.  A tree has as many config files as it has
   -- tags, and a stack of boxes made the panel as tall as that number — the

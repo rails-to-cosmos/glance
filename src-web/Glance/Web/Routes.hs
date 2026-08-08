@@ -26,7 +26,7 @@ import Control.Concurrent (forkIO, killThread, newEmptyMVar, takeMVar, tryPutMVa
 import Control.Concurrent.STM (atomically, readTVarIO)
 import Control.Exception (SomeException, displayException, evaluate, finally, try)
 import Control.Monad (filterM, forever, void, when)
-import Data.Aeson (Value, encode, object, (.:), (.:?), (.=))
+import Data.Aeson (FromJSON (..), Value, encode, object, withObject, (.:), (.:?), (.=))
 import Data.Aeson.Types (Pair, Parser)
 import Data.Bifunctor (first)
 import Data.List (find, nub)
@@ -76,7 +76,7 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , subtreeEntries, subtreeEntryAt, subtreeLinks
                     , subtreeText, systemSetting, tagsOfCell
                     , templatePrompts, titleSpan
-                    , resolveColumns, savedViews, todoLines, viewColumns
+                    , resolveColumns, savedViews, stateColorsOf, todoLines, viewColumns
                     , viewJSONTextFor, viewOf )
 import Glance.Web.Base ( ServeOptions (..), answerWrite, bodyObject, configMoved
                        , conflict, glueAsset, html, jsonError, jsonResponse, jsonType
@@ -89,6 +89,7 @@ import Glance.Web.Page (assetsMissing, demoShell)
 import Glance.Web.Page.Style (fontAssets)
 import Glance.Web.Columns (columnNamesIn)
 import Glance.Web.Sort (sortChainIn)
+import Glance.Web.Theme (themeIds)
 import Glance.Web.Store ( Client, Frame (ViewChanged), Hub, LoadState (..)
                         , Store (stConfig, stGen, stPrint), frameText, layersFor
                         , hubLoad, hubStore, nextFrame
@@ -901,6 +902,13 @@ configView opts hub = do
           -- target is a line of that kind and travels the same way.
           , "views"    .= [ object [ "id" .= svId v, "query" .= servedView v layers ]
                           | v <- savedViews ]
+          -- THE THEMES THIS BUILD CARRIES and the tree's own hue for a keyword
+          -- under each: a flat list, so the order is the file's and a client
+          -- needs no key iteration to read it back.  Another line of the same
+          -- system layer, so it rides the same request and the same digest.
+          , "themes"   .= themeIds
+          , "colors"   .= [ object [ "theme" .= theme, "keyword" .= kw, "hue" .= hue ]
+                          | (theme, pairs) <- servedColors layers, (kw, hue) <- pairs ]
           -- Empty rather than null where no layer names one: the fallback here
           -- is a PATH this server computes rather than a value to show, and the
           -- settings field's placeholder is what says so.
@@ -917,6 +925,12 @@ configView opts hub = do
 -- line" is written once and a file that is not there names nothing either way.
 servedView :: SavedView -> [ConfigLayerFile] -> Text
 servedView v layers = fromMaybe (svBuiltin v) (systemSetting (viewOf v) layers)
+
+-- | The per-theme keyword hues LAYERS name.  EVERY system layer's lines rather
+-- than the first that says anything, which is 'loadConfigDirs'' own rule for
+-- this setting and the one place it differs from the settings above.
+servedColors :: [ConfigLayerFile] -> [(Text, [(Text, Text)])]
+servedColors layers = concat [ stateColorsOf (lfText f) | f <- layers, lfTag f == Nothing ]
 
 -- | One layer as a settings client holds it.  @template@ is the layer's capture
 -- template, verbatim, empty where it has none — a REGION of the same file rather
@@ -983,7 +997,8 @@ writeLayer opts hub dirs want = do
     -- Both tree-wide LINES are the SYSTEM layer's and no other's, so a tag
     -- layer's write leaves them alone whatever the request said.  The template
     -- is every layer's, which is the whole point of it being one.
-    scoped f p | Just _tag <- lfTag f = p { cpViews = [], cpCapture = Nothing }
+    scoped f p | Just _tag <- lfTag f =
+                   p { cpViews = [], cpCapture = Nothing, cpColors = Nothing }
                | otherwise            = p
     written fresh = ["path" .= path, "digest" .= fresh]
 
@@ -1004,13 +1019,26 @@ noSuchLayer path layers =
 parseConfigWrite :: BL.ByteString -> Either Text LayerWrite
 parseConfigWrite = bodyObject "config write" shape
   where shape o = LayerWrite <$> o .: "path" <*> o .:? "lines"
-                             <*> (ConfigParts <$> views o <*> o .:? "capture"
+                             <*> (ConfigParts <$> views o <*> colours o <*> o .:? "capture"
                                               <*> o .:? "template")
                              <*> o .: "digest"
         -- @views@ is an OBJECT keyed by view id, three-valued per view the way
         -- every other optional region is: an id absent leaves that view alone,
         -- empty takes its line off, anything else writes it.
         views o = maybe [] Map.toList <$> (o .:? "views" :: Parser (Maybe (Map Text Text)))
+        -- @colors@ is the flat @{theme, keyword, hue}@ list the answer serves,
+        -- gathered back into a line per theme in the order it arrived; ABSENT
+        -- leaves the block, the EMPTY list deletes it.
+        colours o = fmap (fmap gather) (o .:? "colors" :: Parser (Maybe [Hue]))
+        gather hues = [ (theme, [ (huKeyword h, huHue h) | h <- hues, huTheme h == theme ])
+                      | theme <- nub (map huTheme hues) ]
+
+-- | One @{theme, keyword, hue}@ entry of a colour write.
+data Hue = Hue { huTheme :: !Text, huKeyword :: !Text, huHue :: !Text }
+
+instance FromJSON Hue where
+  parseJSON = withObject "colour" $ \o ->
+    Hue <$> o .: "theme" <*> o .: "keyword" <*> o .: "hue"
 
 -- | One layer write as it arrives.  A record rather than the four-slot tuple it
 -- was: three of the four are 'Text' and the pattern binding them is written in

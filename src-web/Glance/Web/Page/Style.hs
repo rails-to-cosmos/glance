@@ -555,10 +555,17 @@ page head' colours title body = T.unlines
   -- panel sits under the sheet's head so it wears none.  Panel bodies match by
   -- CLASS — a panel added to `SECTIONS' is laid out with no entry here.
   , "  #csecs{display:flex;flex-direction:column;gap:14px}"
-  , "  .csec,.cpart{display:flex;flex-direction:column;gap:8px}"
-  , "  .chdr{font-size:11px;letter-spacing:.08em;text-transform:uppercase;"
-  , "    color:var(--g-mute);border-top:1px solid var(--g-border);padding-top:8px}"
-  , "  .csec:first-child .chdr{border-top:none;padding-top:0}"
+  -- ONE PANEL AT A TIME, named by its tab.  The strip is the sheet's own row of
+  -- buttons; the panel it names wears `on' and every other is out of the flow,
+  -- so a hidden panel's fields are out of the tab order too.
+  , "  #ctabs{display:flex;gap:4px;border-bottom:1px solid var(--g-border);"
+      <> "margin-bottom:4px}"
+  , "  .ctab{font:11px/1.5 var(--dk-mono);letter-spacing:.08em;"
+      <> "text-transform:uppercase;background:none;border:none;cursor:pointer;"
+      <> "color:var(--g-mute);padding:6px 10px;border-bottom:2px solid transparent}"
+  , "  .ctab.on{color:var(--g-fg);border-bottom-color:var(--g-accent)}"
+  , "  .csec{display:none}"
+  , "  .csec.on,.cpart{display:flex;flex-direction:column;gap:8px}"
   , "  .crow{display:flex;flex-direction:column;gap:4px}"
   -- A path is long and has nowhere to wrap, so it is told it may break
   -- anywhere rather than widening the sheet past the viewport.

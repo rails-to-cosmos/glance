@@ -35,6 +35,7 @@ module Data.Org.Config ( ConfigLayerFile (..)
                        , captureTargetEdits
                        , captureTargetIn
                        , captureTargetOf
+                       , stateColorsEdits
                        , stateColorsKey
                        , stateColorsOf
                        , classify
@@ -298,6 +299,21 @@ stateColorsOf doc = foldl' add [] (mapMaybe entryOf (T.lines doc))
         <> [ (theme, pairs) | theme `notElem` map fst acc ]
     merge held fresh =
       [ (k, v) | (k, v) <- held, k `notElem` map fst fresh ] <> fresh
+
+-- | The span edits putting COLOURS where DOC's @#+GLANCE_STATE_COLORS:@ lines
+-- are: one line per theme, in the order given, where the first of them stood.
+-- A theme naming no keyword writes no line, so an emptied theme is a theme
+-- taken off; an empty list deletes the block, which is a tree going back to its
+-- palette.
+--
+-- The render is 'stateColorsOf' backwards and shares its key, so a fold that
+-- drifted from a render can no longer rewrite a line nothing reads.
+stateColorsEdits :: Text -> [(Text, [(Text, Text)])] -> [(Span, Text)]
+stateColorsEdits doc colours =
+  pragmaLineEdits (settingPragma stateColorsKey) doc
+    [ T.unwords ([ "#+" <> stateColorsKey <> ":", theme ]
+                   <> [ k <> "=" <> v | (k, v) <- pairs ])
+    | (theme, pairs) <- colours, not (null pairs) ]
 
 -- | Where a capture under ROOT lands given CFG, or why this daemon will not
 -- write there.

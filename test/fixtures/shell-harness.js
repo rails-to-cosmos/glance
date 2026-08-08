@@ -404,6 +404,8 @@ const tagged = [];
 // sheet edits beside that layer's cycle.
 let viewQuery = "state:*active*";
 let agendaQuery = "state:*active* -planned:*empty* sort:scheduled";
+// And the tree's per-theme state hues, the flat list the answer serves.
+let stateHues = [];
 // And the capture target it names, which is the other line of that file the
 // sheet edits — plus the path the server resolves it to, which is what a
 // capture reports back and the log names.
@@ -544,6 +546,7 @@ globalThis.fetch = (url, init) => {
       return answer(200, { layers,
                            views: [ { id: "default", query: viewQuery }
                                   , { id: "agenda", query: agendaQuery } ],
+                           themes: ["light", "dark"], colors: stateHues,
                            capture: captureLine,
                            keywords: { active: ["TODO"], inactive: ["DONE"] } });
     const sent = JSON.parse((init || {}).body || "{}");
@@ -562,6 +565,7 @@ globalThis.fetch = (url, init) => {
     const views = sent.views || {};
     if (views.default !== undefined) viewQuery = views.default;
     if (views.agenda !== undefined) agendaQuery = views.agenda;
+    if (sent.colors !== undefined) stateHues = sent.colors;
     if (sent.capture !== undefined) captureLine = sent.capture;
     layer.digest = `c${(configTick += 1)}`;
     // Held by `chang', the settings sheet's half of `hang': `C-x C-s' syncs
@@ -1193,7 +1197,7 @@ const STATEFUL = [ "mtext", "mnote", "mfile", "modal", "mprops", "mlog", "sheet"
                  , "clog", "clayer", "ctext", "ctpl", "clab", "clerr"
                  // Which saved view the composer is standing on: a select the
                  // page fills off the server's own list, like the layer one.
-                 , "cwhich"
+                 , "cwhich", "ctabs", "chue", "chues"
                  // The event strip: a line per entry, each a row of spans, so it
                  // has to hold a tree rather than answer "" to everything.
                  , "log"
@@ -1769,6 +1773,30 @@ const ACTIONS = {
     box.value = String(at);
     box.fire("change", { target: box });
   },
+  // Picking the settings TAB, the way a reader clicks one.
+  ctab: (name) => {
+    if (field("config").className !== "on")
+      throw new Error("the settings sheet is not open: ctab");
+    const tab = field("ctabs").children.find((t) => t.textContent === name);
+    if (!tab) throw new Error(`no settings tab called ${name}`);
+    tab.fire("click", {});
+  },
+  // Picking WHICH theme the hue fields describe.
+  chue: (theme) => {
+    const box = field("chue");
+    box.value = String(theme);
+    box.fire("change", { target: box });
+  },
+  // And typing a hue for one keyword: `chues:TODO=#123456'.
+  chues: (spec) => {
+    const [key, hue] = String(spec).split("=");
+    const row = field("chues").children
+      .find((r) => parts(r, "clab")[0].textContent === key);
+    if (!row) throw new Error(`no hue row for ${key}`);
+    const f = parts(row, "cview")[0];
+    f.value = hue || "";
+    f.fire("input", { target: f });
+  },
   // Picking WHICH saved view the composer stands on, the same way: the value
   // moves and the change fires, and what it shows is that the box swaps and an
   // edit in the view being left survives the trip back.
@@ -2088,13 +2116,21 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     cat: field("clayer").value, cshown: field("ctext").value,
     clab: field("clab").textContent, clerr: field("clerr").textContent,
     // The panels, by the header each wears, in the order the sheet draws them.
-    csecs: field("csecs").children.map((s) => parts(s, "chdr")[0].textContent),
+    // The tabs, and which one is showing: one panel at a time now.
+    csecs: field("ctabs").children.map((t) => t.textContent),
+    ctab: (field("ctabs").children.find((t) => t.className === "ctab on")
+             || { textContent: "" }).textContent,
     // What the two tree-wide fields are showing, and what the server holds now.
     cview: cmp ? cmp.held : "", cmounts, ccap: field("ctarget").value,
     served: viewQuery, servedAgenda: agendaQuery,
     servedCapture: captureLine, capturing: captureAsked,
     // Which saved view the composer is standing on.
     cwhich: field("cwhich").value,
+    // Which theme the hue fields describe, and what they hold, `KEY=HUE' each.
+    chue: field("chue").value,
+    chues: field("chues").children.map((r) =>
+      `${parts(r, "clab")[0].textContent}=${parts(r, "cview")[0].value}`),
+    servedHues: stateHues,
     ctpl: field("ctpl").value,
     ceff: field("ceff").textContent, configWrites,
     // The log knob: what the field holds, what was stored under it, and the

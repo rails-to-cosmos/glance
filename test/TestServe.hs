@@ -4509,13 +4509,57 @@ settingsSpec shell =
                       [["#+TODO:_A_|_B"], ["#+TODO:_C_|_D"]]
             =<< traverse (textsAt "lines") writes
 
-    -- ONE list draws the headers and the order, so a fourth panel is an entry
+    -- ONE list draws the tabs and the order, so a fourth panel is an entry
     -- there rather than a second place that has to hear about it.  The order is
     -- the tab order too: the sheet keeps native tabbing, so the DOM says which
-    -- field Tab reaches next.
-  , atBoot settings "it is three panels, each under its own header" $
+    -- field Tab reaches next — and a panel that is not showing is out of the
+    -- flow, so its fields are out of that walk with it.
+  , atBoot settings "it is three panels, each named by its own tab" $
         assertEqual "general, theme, keywords" ["general", "theme", "keywords"]
           <=< textsAt "csecs"
+
+  , atBoot settings "and the sheet opens on the first of them" $
+        assertEqual "general" "general" <=< textAt "ctab"
+
+  , keyed shell "a tab shows its own panel and no other"
+      "," "ctab:theme" $ \answer ->
+        assertEqual "the theme panel" "theme" =<< textAt "ctab" answer
+
+    -- THE TREE'S STATE HUES are `system.org''s third tree-wide line, edited per
+    -- THEME: the selector above the fields says which theme is being coloured,
+    -- which is a different question from the reader's own theme preference
+    -- beside it.  A field per keyword of the tree's cycle, filled from the
+    -- answer and posted flat.
+  , keyed shell "the hue fields are the tree's cycle under the picked theme"
+      "," "ctab:theme" $ \answer -> do
+        assertEqual "the first theme the build carries" "light"
+          =<< textAt "chue" answer
+        assertEqual "a field per keyword, empty where the tree names no hue"
+                    ["TODO=", "DONE="] =<< textsAt "chues" answer
+
+  , keyed shell "a typed hue rides the system layer's own write"
+      "," "ctab:theme chues:TODO=#7B1FA2 press:Escape" $ \answer -> do
+        writes <- listAt "configWrites" answer
+        assertEqual "one write, for the system layer" 1 (length writes)
+        assertEqual "carrying the one hue, flat"
+                    [["light", "TODO", "#7B1FA2"]]
+          =<< (traverse (\h -> traverse (`textAt` h) ["theme", "keyword", "hue"])
+                 =<< listAt "colors" (head writes))
+        assertEqual "and the server holds it now" 1 . length
+          =<< listAt "servedHues" answer
+
+  , keyed shell "each theme keeps its own hues, and switching asks nothing"
+      "," "ctab:theme chues:TODO=#7B1FA2 chue:dark chues:TODO=#C792EA chue:light"
+      $ \answer -> do
+        assertEqual "the light hue came back" ["TODO=#7B1FA2", "DONE="]
+          =<< textsAt "chues" answer
+        assertEqual "and nothing was written on the way" ([] :: [Value])
+          =<< listAt "configWrites" answer
+
+  , keyed shell "an untouched hue panel rides no write"
+      "," "ctab:theme press:Escape" $ \answer ->
+        assertEqual "pristine, so nothing went" ([] :: [Value])
+          =<< listAt "configWrites" answer
 
     -- THE LOG KNOB, the general panel's one field that asks no server: it is a
     -- `localStorage' preference like the theme, it applies as it is typed, and
@@ -9297,6 +9341,32 @@ configSpec = testGroup "GET and POST /config"
           =<< viewText "agenda" fresh
         assertEqual "the default view is untouched" "state:*active*"
           =<< viewText "default" fresh
+
+    -- THE TREE'S STATE HUES are a third tree-wide line, and the wire carries
+    -- them FLAT — one `{theme, keyword, hue}' entry each — in both directions,
+    -- so no client iterates keys to read back what it wrote.  The file keeps a
+    -- line per theme, which is what `stateColorsOf' reads.
+  , testCase "state colours ride the same write and come back served" $
+      withConfigTree $ \a dir -> do
+        v <- decoded =<< getFrom a "/config"
+        assertEqual "a build carrying two themes" ["light", "dark"]
+          =<< textsAt "themes" v
+        assertEqual "and no tree hue until one is written" ([] :: [Value])
+          =<< listAt "colors" v
+        digest <- textAt "digest" . head =<< listAt "layers" =<< decoded =<< getFrom a "/config"
+        assertOk =<< postTo a "/config" (encode (object
+          [ "path" .= systemAt dir, "digest" .= digest
+          , "colors" .= [ object [ "theme" .= ("light" :: T.Text)
+                                 , "keyword" .= ("TODO" :: T.Text)
+                                 , "hue" .= ("#7B1FA2" :: T.Text) ]
+                        , object [ "theme" .= ("light" :: T.Text)
+                                 , "keyword" .= ("DONE" :: T.Text)
+                                 , "hue" .= ("#00695C" :: T.Text) ] ] ]))
+        after <- document (T.unpack (systemAt dir))
+        assertContains "one line for the theme, the pairs in the order given"
+          "#+GLANCE_STATE_COLORS: light TODO=#7B1FA2 DONE=#00695C" after
+        assertEqual "served back flat" ["#7B1FA2", "#00695C"]
+          =<< (traverse (textAt "hue") =<< listAt "colors" =<< decoded =<< getFrom a "/config")
 
   , testCase "a view no build carries is a 400 naming it" $
       withConfigTree $ \a dir -> do

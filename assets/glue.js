@@ -3880,27 +3880,52 @@
     // reseeding the tree.  The theme panel asks nobody, being a `localStorage'
     // preference that applies as it is picked.
     //
-    // ONE STRUCTURE for the panels: a header and the elements under it, in
-    // order, so a panel joins by adding an entry and the markup it names — the
-    // bodies wear `cpart' so the stylesheet needs no entry of its own — and
-    // native tabbing walks the sheet in exactly this order.  The list wraps
+    // ONE STRUCTURE for the panels: a name and the elements under it, in order,
+    // so a panel joins by adding an entry and the markup it names — the bodies
+    // wear `cpart' so the stylesheet needs no entry of its own.  The list wraps
     // markup rather than building it, the bodies being heterogeneous (labelled
-    // inputs, two selects, a box the server fills) and a builder for that shape
+    // inputs, selects, boxes the server fills) and a builder for that shape
     // being a template language this page has no use for: `SECTIONS' owns the
-    // headers and the order, the markup owns what is under them, and they join
-    // by id.  A `parts' id the markup does not carry throws here, at boot, which
-    // is where a join like that should fail.
+    // names and the order, the markup owns what is under them, and they join by
+    // id.  A `parts' id the markup does not carry throws here, at boot, which is
+    // where a join like that should fail.
     const SECTIONS = [
       { title: "general", parts: ["cgen"] },
       { title: "theme", parts: ["ctheme"] },
       { title: "keywords", parts: ["clayers", "ceff", "cfoot"] },
     ];
-    const csecs = el("csecs");
-    for (const s of SECTIONS) {
+    // ONE PANEL AT A TIME, named by its tab: the sheet grew past the height a
+    // stacked column can hold, and a panel out of the flow takes its fields out
+    // of the tab order with it — so native tabbing still walks exactly what is
+    // on screen.  The tabs are BUTTONS, which the same tabbing reaches, and the
+    // horizontal arrows walk the strip once one holds the focus.
+    const csecs = el("csecs"), ctabs = el("ctabs");
+    const cpanes = SECTIONS.map((s) => {
       const sec = part(csecs, "div", "csec");
-      part(sec, "div", "chdr", s.title);
       for (const id of s.parts) sec.appendChild(el(id));
+      return sec;
+    });
+    const ctabels = SECTIONS.map((s, i) => {
+      const b = part(ctabs, "button", "ctab", s.title);
+      b.addEventListener("click", () => showTab(i));
+      b.addEventListener("keydown", (e) => {
+        const k = keyName(e);
+        const step = k === "ArrowRight" ? 1 : k === "ArrowLeft" ? -1 : 0;
+        if (!step) return;
+        e.preventDefault();
+        const at = (i + step + SECTIONS.length) % SECTIONS.length;
+        showTab(at);
+        ctabels[at].focus();
+      });
+      return b;
+    });
+    let ctab = -1;
+    function showTab(i) {
+      ctab = i;
+      cpanes.forEach((p, k) => { p.className = k === i ? "csec on" : "csec"; });
+      ctabels.forEach((t, k) => { t.className = k === i ? "ctab on" : "ctab"; });
     }
+    showTab(0);
     // The layers, and WHICH of them the one box is showing.  `crows' is the
     // whole set with each layer's text in it — the on-screen box is a view of
     // `crows[cat]' rather than the place the text lives, which is what makes a
@@ -3997,7 +4022,58 @@
       const kw = b.keywords || {};
       el("ceff").textContent =
         `${(kw.active || []).join(" ")} | ${(kw.inactive || []).join(" ")}`;
+      drawHues(b, kw);
     }
+    // THE TREE'S STATE HUES: which theme is being coloured, and a field per
+    // keyword under it.  The MODEL is `hues' — `{theme: {keyword: hue}}` — kept
+    // on the system layer beside its other tree-wide lines, so it is `cmoved'
+    // and posted the way they are; the fields are a VIEW of `hues[hat]', which
+    // is the composer's rule and the layer boxes', so switching themes asks the
+    // server nothing and loses no edit.  A keyword with an empty field carries
+    // no hue and drops out of the write.
+    let hues = {}, huesBase = "", hat = "", hkeys = [];
+    function drawHues(b, kw) {
+      hues = {};
+      for (const c of b.colors || []) {
+        (hues[c.theme] = hues[c.theme] || {})[c.keyword] = c.hue;
+      }
+      huesBase = JSON.stringify(hues);
+      hkeys = (kw.active || []).concat(kw.inactive || []);
+      const pick = el("chue");
+      pick.textContent = "";
+      (b.themes || []).forEach((t) => { part(pick, "option", "", t).value = t; });
+      hat = (b.themes || [])[0] || "";
+      pick.value = hat;
+      showHues();
+    }
+    // The fields for the theme on show, rebuilt rather than reused: a tree's
+    // cycle moves under a config write, so the row set is the answer's.
+    function showHues() {
+      const box = el("chues");
+      box.textContent = "";
+      const held = hues[hat] || {};
+      hkeys.forEach((k) => {
+        const row = part(box, "div", "crow");
+        part(row, "div", "clab", k);
+        const f = part(row, "input", "cview");
+        f.value = held[k] || "";
+        f.placeholder = "the theme's own";
+        f.addEventListener("input", () => {
+          const at = (hues[hat] = hues[hat] || {});
+          if (f.value.trim()) at[k] = f.value.trim();
+          else delete at[k];
+        });
+      });
+    }
+    // Switching themes is a READ, like switching layers or views.
+    function showHueTheme(theme) { hat = theme; showHues(); }
+    // The model as the wire spells it: the flat `{theme, keyword, hue}' list the
+    // answer serves, so one shape crosses in both directions.
+    const hueList = () =>
+      Object.keys(hues).flatMap((theme) =>
+        Object.keys(hues[theme]).map((keyword) =>
+          ({ theme, keyword, hue: hues[theme][keyword] })));
+
     // One layer, as this sheet holds it: where it is, what it was read as
     // (`base'), what it says NOW (`text'), the digest a write is pinned to, and
     // whatever the server last said about a write to it.  The text is the row's
@@ -4060,6 +4136,8 @@
     });
     // And switching VIEWS is the same read one row up.
     el("cwhich").addEventListener("change", (e) => showView(e.target.value));
+    // And which THEME the hue fields describe, the same read.
+    el("chue").addEventListener("change", (e) => showHueTheme(e.target.value));
     // `%' IN THE TEMPLATE BOX RAISES THE CODE LIST, which is this page's own
     // value palette in its field mode and no widget of its own.  What it offers
     // is the SERVER's list (`/capture' carries it beside the prompts), so the
@@ -4090,8 +4168,9 @@
     const cnote = (next, message) => note(configSheet, next, message);
     const cdirty = () => (takeLayer(), crows.some(cmoved));
     const cmoved = (r) => r.text !== r.base || r.tpl !== r.tplBase
-      || (r.tag === null && movedViews().length > 0)
+      || (r.tag === null && (movedViews().length > 0 || huesMoved()))
       || (r.cap !== null && r.cap.value !== r.capBase);
+    const huesMoved = () => JSON.stringify(hues) !== huesBase;
     // The view showing is the box's, so it is taken back first — every reader
     // of `vrows' calls this, the way every reader of `crows' calls `takeLayer'.
     function takeView() {
@@ -4141,6 +4220,7 @@
         // The views that MOVED, named by id: the server's three-valued rule per
         // view, so one edited leaves the others' lines exactly where they are.
         const views = r.tag === null ? movedViews() : [];
+        const colors = r.tag === null && huesMoved() ? hueList() : null;
         const cap = r.cap && r.cap.value;
         const a = await postJSON("/config",
           { path: r.path, lines: sent.split("\n"),
@@ -4154,12 +4234,14 @@
             ...(views.length
                   ? { views: Object.fromEntries(views.map((v) => [v.id, v.text])) }
                   : {}),
+            ...(colors ? { colors } : {}),
             ...(r.cap ? { capture: cap } : {}),
             digest: r.digest }).then(outcome)
           .catch((e) => ({ status: 0, body: { error: e.message } }));
         if (a.status === 200) {
           r.digest = a.body.digest; r.base = sent; r.tplBase = tpl; r.err = "";
           views.forEach((v) => { v.base = v.text; viewLanded(v.id, v.text); });
+          if (colors) huesBase = JSON.stringify(hues);
           if (r.cap) r.capBase = cap;
         } else {
           ok = false;

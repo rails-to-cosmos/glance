@@ -144,6 +144,8 @@ module Glance.Query ( BlobSeed (..)
                     , tagText
                     , tagged
                     , clStateColors
+                    , stateColorsEdits
+                    , stateColorsOf
                     , prioritySlots
                     , stateSlots
                     , tagsOfCell
@@ -195,7 +197,9 @@ import Data.Org.Config ( ConfigLayerFile (..), ConfigLayers (..), TodoKeywords (
                        , captureTargetOf, classify, configDirIn, configDirsIn
                        , declaredKeywords
                        , SavedView (..), defaultCaptureFile, defaultFilter
-                       , isTodoPragma, savedView, savedViews, viewEdits, viewOf
+                       , isTodoPragma, savedView, savedViews, stateColorsEdits
+                       , stateColorsOf
+                       , viewEdits, viewOf
                        , viewQuery
                        , firstBy, keywordScopes
                        , loadConfigDirs, mergeKeywords, noConfig, noKeywords
@@ -2838,8 +2842,9 @@ configEdits doc asked parts
     partEdits = (<>) <$> viewLines <*> maybe (Right []) (captureTemplateEdits doc) (cpTemplate parts)
     -- A view is named by its id, so a name no build carries refuses rather than
     -- writing a line nothing reads.
-    viewLines = fmap ((<> maybe [] (captureTargetEdits doc) (cpCapture parts)) . concat)
-              . traverse one $ cpViews parts
+    viewLines = fmap ((<> otherLines) . concat) . traverse one $ cpViews parts
+    otherLines = maybe [] (captureTargetEdits doc) (cpCapture parts)
+              <> maybe [] (stateColorsEdits doc) (cpColors parts)
     one (vid, want) = case savedView vid of
       Just v  -> Right (viewEdits v doc want)
       Nothing -> Left ("no view is called " <> vid <> "; this build has "
@@ -2860,13 +2865,15 @@ configEdits doc asked parts
 -- have the same type and a caller swapping two would compile.
 data ConfigParts = ConfigParts
   { cpViews    :: ![(Text, Text)]  -- ^ saved views by id, the system layer's alone; an id absent leaves that view.
+  , cpColors   :: !(Maybe [(Text, [(Text, Text)])])
+      -- ^ @#+GLANCE_STATE_COLORS:@ by theme, likewise; the empty list deletes the block.
   , cpCapture  :: !(Maybe Text)  -- ^ @#+GLANCE_CAPTURE_TARGET:@, likewise.
   , cpTemplate :: !(Maybe Text)  -- ^ the capture template, which EVERY layer may carry.
   } deriving (Eq, Show)
 
 -- | A layer write asking for nothing but its cycle.
 noParts :: ConfigParts
-noParts = ConfigParts [] Nothing Nothing
+noParts = ConfigParts [] Nothing Nothing Nothing
 
 declaresNothing :: Text
 declaresNothing =
