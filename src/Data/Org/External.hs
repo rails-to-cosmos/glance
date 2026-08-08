@@ -1,41 +1,35 @@
--- | The note this daemon leaves when it writes one of org-glance's stored
--- blobs: @\<store\>\/.org-glance\/meta\/EXTERNAL.jsonl@.
+-- | The note this daemon leaves when it writes one of org-glance's blobs:
+-- @\<store\>\/.org-glance\/meta\/EXTERNAL.jsonl@.
 --
--- WHY THERE IS ONE.  A blob is the canonical document and org-glance's
--- write-ahead index is its projection ('Data.Org.Index'), derived by Emacs and
--- written by Emacs alone.  This daemon edits the blob and does not write the
--- index, so every browser edit leaves the index one record behind — which is
--- exactly what the drift instrument counts, and what the corpus reports as rows
--- disagreeing.  This file is where the two sides meet: the writer names the ids
--- it moved and nothing else; @M-x org-glance-graph:refresh-external@ re-derives
--- a record for each of them and takes those lines off the file.
+-- WHY THERE IS ONE.  A blob is the canonical document and org-glance's index is
+-- its projection, derived and written by Emacs alone.  This daemon edits the
+-- blob and not the index, so every browser edit leaves the index a record
+-- behind — the drift the instrument counts.  Here the two sides meet: the
+-- writer names the ids it moved, and @M-x org-glance-graph:refresh-external@
+-- re-derives a record for each and takes those lines off.
 --
--- THE CONTRACT, frozen.  One JSON object per line, terminated by a newline, two
+-- THE CONTRACT, frozen.  One JSON object per line, newline-terminated, two
 -- fields in this order:
 --
 -- > {"id":"e3b0c442-…","at":"2026-08-03T04:21:07Z"}
 --
--- @id@ is the @ORG_GLANCE_ID@ of the written blob's FIRST headline — the entry
--- org-glance stored there, read the way 'Data.Org.Index.blobEntryOf' reads it,
--- so a line names the record refreshing it will replace.  @at@ is the server
--- clock in UTC at second resolution, and nothing acts on it.  The file is
--- created with its directories where there is none, and it is only ever
--- APPENDED to: this side never truncates, never rewrites, and never touches
--- another file under @meta@.
+-- @id@ is the written blob's FIRST headline's @ORG_GLANCE_ID@, read the way
+-- 'Data.Org.Index.blobEntryOf' reads it, so a line names the record that will
+-- replace it; @at@ is the server clock in UTC, and nothing acts on it.  APPEND
+-- ONLY: this side never truncates, never rewrites, never touches another file
+-- under @meta@.
 --
--- THE CRASH RULE.  The reader appends every re-derived record AFTER which it
--- shortens this file, so a crash between the two costs a repeated refresh and
--- nothing else: re-deriving a record from a blob that has not moved appends a
--- record equal to the one already there, and the fold keeps the latest per id
--- either way.  Idempotent by construction, which is what lets the two steps be
--- unsynchronised.  The reader drops exactly the prefix it read, so a line
--- appended here mid-refresh survives to the next one.
+-- THE CRASH RULE.  The reader appends every re-derived record BEFORE shortening
+-- this file, so a crash between the two costs a repeated refresh and nothing
+-- else — re-deriving from an unmoved blob appends an equal record and the fold
+-- keeps the latest per id.  Idempotent by construction, which is what lets the
+-- two steps be unsynchronised; the reader drops exactly the prefix it read, so
+-- a line appended mid-refresh survives.
 --
 -- WHAT IS NOT PROMISED.  A line is a HINT that a blob moved.  The append is
--- best effort and a failure to write it is swallowed ('noteExternalWrite'),
--- because the blob is already on disk and the answer the caller is about to
--- send describes THAT write.  A lost line costs drift the instrument reports
--- and the next edit of the same id repairs.
+-- best effort and a failure is swallowed: the blob is already on disk and the
+-- answer the caller is about to send describes THAT write.  A lost line costs
+-- drift the instrument reports and the next edit of the same id repairs.
 module Data.Org.External ( blobIdOf
                          , externalFile
                          , externalLine

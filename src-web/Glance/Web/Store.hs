@@ -1,30 +1,24 @@
 -- | The in-memory projection of the org tree, and the sockets watching it.
 --
--- S3 parsed the whole directory per request; at 14.6 s over 6308 files that is
--- a page load you wait for.  S5 parses it once at startup, keeps the result
--- here, and re-parses one file per edit.  Org files stay the single source of
--- truth — this is a projection, thrown away with the process, and every row in
--- it came out of a file the watcher can re-read.
+-- Parsed once at startup and re-parsed one file per edit; org files stay the
+-- single source of truth and this dies with the process.
 --
--- The store is keyed by path so that 'Data.Map.Strict.elems' is walk order:
--- 'Glance.Query.loadDir' sorts the paths it found and a 'Data.Map.Strict.Map'
--- keeps them sorted, so 'storeResult' reproduces the load it stands in for row
--- for row.  Each entry keeps its file's rows and how its last load went; a
--- parse failure keeps the rows and records the failure, because 'orgParse' is
--- all-or-nothing and a half-written file that fails to parse says nothing
--- about the headlines that were in it a moment ago.
+-- Keyed by PATH so that 'Data.Map.Strict.elems' is walk order — 'loadDir'
+-- sorts what it found and a 'Map' keeps it sorted, so 'storeResult' reproduces
+-- the load it stands in for row for row.  Each entry keeps its file's rows and
+-- how its last load went; a parse failure KEEPS the rows, because 'orgParse' is
+-- all-or-nothing and a half-written file says nothing about the headlines that
+-- were there a moment ago.
 --
--- That one parse takes seconds over a real tree, and the server listens ahead
--- of it: a hub starts in 'Loading' over an empty store, the walk runs in its
--- own thread, and 'finishLoading' swaps the result in.  The routes that read
--- the store answer 503 until then ('Glance.Web'), so a browser is served the
--- indexing page rather than a refused connection.
+-- That parse takes seconds over a real tree and the server listens ahead of it:
+-- a hub starts 'Loading' over an empty store, the walk runs on its own thread,
+-- 'finishLoading' swaps the result in, and the store-reading routes answer 503
+-- until then.
 --
--- Frames are SCHEMA.md's streaming ops.  'ViewChanged' is the one thing that
--- is not: the columns carry the TODO-keyword palette, SCHEMA.md has no op for
--- a column change, and inventing one would put this producer outside the
--- contract.  The socket closes instead and the client re-fetches the view it
--- already knows how to mount.
+-- Frames are SCHEMA.md's streaming ops.  'ViewChanged' is the one that is not:
+-- the columns carry the keyword palette, SCHEMA.md has no op for a column
+-- change, and inventing one would put this producer outside the contract — so
+-- the socket closes and the client re-fetches.
 module Glance.Web.Store
   ( -- * The store
     Store (..)
@@ -138,20 +132,16 @@ loadStoreWith opts dir = do
 -- identical trees print identically.
 --
 -- The config is in it because it decides what the files MEAN: the same bytes
--- read under a config that has since gained a keyword are different rows, and
--- across a restart the generation — zero in every process — has nothing to say
--- about that.
+-- under a config that has gained a keyword are different rows.
 --
--- This is the half of the @ETag@ that survives a restart.  'stGen' starts at
--- zero in every process, so a tag of the generation alone tells a client
--- holding @\"g0\"@ from a daemon that has since been restarted over a rewritten
--- tree that nothing has changed.  Pairing the two answers both questions: the
--- fingerprint says which tree, the generation says how far it has moved since
--- it was loaded.
+-- This is the half of the @ETag@ that survives a restart: 'stGen' starts at
+-- zero in every process, so a tag of the generation alone would tell a client
+-- holding @\"g0\"@ from a daemon since restarted over a rewritten tree that
+-- nothing changed.  The fingerprint says WHICH tree, the generation HOW FAR it
+-- has moved since.
 --
--- A file that contributed no rows — empty, or a load that failed — has no
--- digest of its own and stands as its path alone.  It contributes no rows to a
--- response either, so nothing a client can see hides behind the tag.
+-- A file contributing no rows stands as its path alone; it contributes none to
+-- a response either, so nothing a client sees hides behind the tag.
 fingerprintOf :: Store -> Text
 fingerprintOf st =
   digestOfText (T.unlines (("config\t" <> clPrint (stConfig st))
@@ -252,21 +242,15 @@ layersFor root st = readConfigLayers (configDirsIn root (stConfig st))
 -- One record per file is enough for the second half: every row of a file shares
 -- its keyword sets and 'mergeKeywords' deduplicates, so this is the same answer
 -- as merging all of them, at one merge per file.  The config leads for two
--- reasons.  It pins the ORDER — palette order is sort priority (SCHEMA.md), and
--- taking it off whichever file sorts first would let a new file at the top of
--- the tree reshuffle the badges.  And it is the only thing left when the files
--- are gone: an empty tree under a config still has the states its author
--- configured, where deriving the palette from rows would answer that a
--- configured keyword does not exist.
+-- reasons.  It pins the ORDER — palette order is sort priority, and taking it
+-- off whichever file sorts first would let a new file at the top of the tree
+-- reshuffle the badges.  And it is the only thing left when the files are gone:
+-- an empty tree under a config still has the states its author configured.
 --
--- The head is 'recognizedKeywords' over a file declaring nothing, which is the
--- very function each row's own palette starts with — so a tree's cycle sorts the
--- same whether the answer came off the store or off one file's rows, and the
--- order is the org files' spelling in 'Data.Org.Config.keywordScopes'
--- precedence.  It is also why org's own pair is in an empty tree's palette:
--- @TODO@ and @DONE@ are recognized under every root whatever a config says, so a
--- palette that dropped them when the last file went described a tree the parser
--- does not have.
+-- The head is 'recognizedKeywords' over a file declaring nothing — the very
+-- function each row's palette starts with, so a tree's cycle sorts the same
+-- whether the answer came off the store or off one file.  It is also why org's
+-- own pair is in an empty tree's palette.
 storeKeywords :: Store -> TodoKeywords
 storeKeywords st = mergeKeywords (recognizedKeywords (stConfig st) noKeywords : perFile)
   where perFile = mapMaybe (fmap hrKeywords . listToMaybe . feRecords)
@@ -290,18 +274,16 @@ dropFile path = guarded path (streamed path (removeFile path))
 -- what every OTHER file's parse RECOGNIZES, so no per-file step can express it:
 -- a word that was the first token of a title in four thousand documents is a
 -- state in all of them a moment later.  The watch answers by re-walking and
--- re-parsing the tree ('Glance.Web.Watch.reseed') and handing the result here.
+-- re-parsing the tree and handing the result here.
 --
--- The diff is over every id on both sides rather than one file's, which is the
--- expensive half and the correct one; the frames are then the ordinary ops, so
--- a client that missed the reason still ends up holding the rows the server
--- has.  A moved palette REPLACES them with 'ViewChanged', exactly as 'guarded'
--- does and for the same reason — rows built against a palette that is already
--- gone are rows a client draws wrong.
+-- The diff is over every id on BOTH sides rather than one file's — the
+-- expensive half and the correct one — and the frames are the ordinary ops, so
+-- a client that missed the reason still ends holding the rows the server has.
+-- A moved palette REPLACES them with 'ViewChanged', as 'guarded' does: rows
+-- built against a palette already gone are rows a client draws wrong.
 --
--- The generation is 'installed's, which both writers of it go through.  What is
--- this one's own is the store it installs: FRESH was loaded from scratch and
--- carries a counter of zero, so ST's is what goes on.
+-- The generation is 'installed's.  What is this one's own is the store it
+-- installs: FRESH was loaded from scratch and carries zero, so ST's goes on.
 reseeded :: Store -> Store -> (Store, [Frame])
 reseeded fresh st = installed st fresh (outcomes st /= outcomes fresh) out
   where
@@ -345,11 +327,9 @@ rowFrames ids before after =
 -- tree revalidates to 304 forever.
 --
 -- The counter is ST's rather than NEXT's, because 'reseeded' installs a store
--- loaded from scratch whose own counter is zero and a client revalidating across
--- a reseed must never be handed a tag it has already seen.  The fingerprint is
--- not one of the conditions: it moves itself, so a config edit that changes no
--- keyword rewrites bytes it covers, the @ETag@ already differs, and the
--- generation has nothing to add.
+-- whose own counter is zero and a client revalidating across a reseed must
+-- never be handed a tag it has seen.  The fingerprint is no condition: it moves
+-- itself.
 installed :: Store -> Store -> Bool -> [Frame] -> (Store, [Frame])
 installed st next outcomes out = (next { stGen = stGen st + bump }, out)
   where bump = if null out && not outcomes then 0 else 1
@@ -375,20 +355,16 @@ guarded path step st = installed st next (outcome st /= outcome next) out
 -- the touched ids in file order.
 --
 -- Resolving here is the whole point.  Where two files claim one
--- @ORG_GLANCE_ID@, an edit to the LOSING file streams the winner — which is to
--- say nothing at all, the winner being unmoved — rather than painting the
--- loser's cells over a row every other reader is shown differently; and a
--- winner that goes away re-points its id at the row behind it rather than
--- leaving a stale one until the client reconnects.
+-- @ORG_GLANCE_ID@, an edit to the LOSING file streams the winner — which is
+-- nothing at all, the winner being unmoved — rather than painting the loser's
+-- cells over a row every other reader sees differently; and a winner that goes
+-- away re-points its id at the row behind it.
 --
--- Cost: one pass over the store's rows per side, keeping only the ids the step
--- touched, and it is CHEAPER than a route's own lookup rather than the same
--- order of work — 'resolvedRows' filters to the touched ids BEFORE it resolves,
--- so the full-store resolution that dominates a request is never paid here.  A
--- scan and a resolution of a handful of rows, per watch event rather than per request:
--- measured at 5–6 ms for the whole step over a 14000-row store with a client
--- attached, where the parse alone is 4 ms.  It buys the one thing an incremental
--- view could not otherwise have: agreement with every other reader.
+-- Cost: one pass over the store's rows per side, keeping only the touched ids,
+-- and CHEAPER than a route's own lookup — 'resolvedRows' filters to those ids
+-- BEFORE it resolves, so the full-store resolution a request pays is never paid
+-- here.  Per watch event rather than per request.  It buys the one thing an
+-- incremental view could not otherwise have: agreement with every other reader.
 streamed :: FilePath -> (Store -> Store) -> Store -> (Store, [Frame])
 streamed path update st = (next, rowFrames touched before after)
   where

@@ -2,28 +2,24 @@
 
 -- | The HTTP surface: a fixed route table, its handlers, and the live socket.
 --
--- @GET \/headlines@ is the view JSON, @GET \/@ the shell, @GET \/ws@ the row
--- stream, @GET \/NAME@ an asset (the renderer this binary carries, or a file
--- under @--assets@), @\/headline@ the materialize round-trip — @GET@ for one
--- headline's raw subtree, @POST@ to write an edited one back — @POST
--- \/command@ the structured writes, @GET \/keywords@ the states those rows may
--- be set to and which scope declares each, @GET \/links@ where one row points
--- and over which characters, @GET \/tags@ what those rows are tagged with, and
--- @\/config@ the keyword layers themselves.  Each entry declares whether it
--- needs a loaded store and whether it is read-only; anything else is a 405.
+-- @GET \/headlines@ the view JSON, @\/@ the shell, @\/ws@ the row stream,
+-- @\/NAME@ an asset, @\/headline@ the materialize round-trip, @POST
+-- \/command@ the structured writes, @\/keywords@ @\/links@ @\/tags@
+-- @\/capture@ the per-row questions, @\/config@ the keyword layers.  Each
+-- entry declares whether it needs a loaded store and which methods it takes;
+-- anything else is a 405.
 --
 -- The view's field set is the contract (@table-view\/SCHEMA.md@), so the load
--- counts ride as @X-Glance-*@ response headers and leave the body's shape
--- alone.  Everything is rendered from 'Glance.Web.Store.Store', a projection
--- that dies with the process — org files stay the single source of truth.
+-- counts ride as @X-Glance-*@ headers and leave the body alone.  Everything is
+-- rendered from the 'Glance.Web.Store.Store', a projection that dies with the
+-- process.
 --
--- The write routes never touch the store.  A commit goes to the file, the watch
--- re-parses it and streams the rows, so a browser save and an editor save reach
--- open tabs by the same single channel.
+-- THE WRITE ROUTES NEVER TOUCH THE STORE: a commit goes to the file, the watch
+-- re-parses and streams the rows, so a browser save and an editor save reach
+-- open tabs by one channel.
 --
--- While the startup walk runs, the routes that read the store answer 503 with
--- @Retry-After: 1@ while @\/@ and the assets serve, so the shell can render the
--- indexing state and poll out of it.
+-- While the startup walk runs, the store-reading routes answer 503 with
+-- @Retry-After: 1@ while @\/@ and the assets serve.
 module Glance.Web.Routes (application, bootstrapWanted, hasRenderer) where
 
 import Control.Concurrent (forkIO, killThread, newEmptyMVar, takeMVar, tryPutMVar)
@@ -253,50 +249,32 @@ safeName name = not (T.null name)
 
 -- Routes
 
--- | The view JSON for the configured directory, filtered and paged as REQUEST
--- asks, with the load counts and the page's metadata as headers.  Rendered from
--- the store rather than a fresh walk: the rows are the startup parse's, kept
--- current by the watcher, so the response costs a filter and an encode.
+-- | The view JSON for the served directory, filtered and paged as REQUEST asks,
+-- with the load counts and the page's metadata as headers.  Rendered from the
+-- store rather than a fresh walk, so a response costs a filter and an encode.
 --
--- @q@ is SCHEMA.md's filter query — field predicates over the view's own
--- columns, free text, negation, and one combination rule: tokens AND, a value's
--- @|@-alternatives OR ('Glance.Web.Filter').  @limit@ is a page size, absent
--- meaning the whole set, which is what every client before this asked for;
--- @offset@ is where the page starts.  Filtering precedes paging, so
--- @X-Glance-Total@ is the match count and @X-Glance-Has-Next@ says whether a
--- further page exists.  SCHEMA.md fixes the View's fields, so paging metadata
--- rides in the same @X-Glance-*@ family the load counts use.
+-- @q@ is SCHEMA.md's filter query ('Glance.Web.Filter'), @limit@ a page size
+-- (absent = the whole set), @offset@ where the page starts.  Filtering precedes
+-- paging, so @X-Glance-Total@ is the match count and @X-Glance-Has-Next@ says
+-- whether another page exists; SCHEMA.md fixes the View's fields, so paging
+-- metadata rides the @X-Glance-*@ family.
 --
--- Archived rows are left out unless the query says otherwise, since @D@
--- archives rather than deletes ('runCommand') and a view showing them by
--- default would grow without bound.  One predicate, applied after @q@ and
--- spelled exactly as @-tag:*archive*@ would be: any query naming the archive
--- META through the @tag@ column turns it off ('Glance.Web.Filter.namesArchive')
--- — negated, quoted, whatever — and @X-Glance-Archived@ reports how many rows
--- the exclusion took.  The STARRED spelling alone, so a tree using
--- @tag:archive@ for a word of its own gets the ordinary substring predicate
--- every other tag gets and lifts nothing.
+-- ARCHIVED ROWS are left out unless the query says otherwise, since @D@
+-- archives rather than deletes and a view showing them would grow without
+-- bound.  One predicate, spelled exactly as @-tag:*archive*@ would be: any
+-- query naming the archive META turns it off ('namesArchive'), and
+-- @X-Glance-Archived@ reports what it took.  The STARRED spelling alone, so a
+-- tree using the word for something of its own lifts nothing.
 --
--- A page is cut out of the view's declared sort ('Glance.Query.sortedForView'),
--- never out of walk order — page two has to be the rows the table would show
--- after page one.  With no @limit@ walk order stands and the client sorts the
--- whole set itself, the full-fidelity mode; under a limit a client-side re-sort
--- reorders the loaded page alone.  @?q=sort:*none*@ is the exception and moves
--- both halves together — the rows stay in walk order whatever the limit and the
--- view carries no @sort@ field, so a renderer leaves them where they landed.
--- Walk order is document order, file by file and top entry by top entry down
--- each.  A QUERY TOKEN rather than a parameter of its own, so it travels in
--- @q@, in the URL and back out of the renderer's own chips.
+-- A page is cut out of the view's declared sort, never out of walk order — page
+-- two has to be the rows the table would show after page one.  With no @limit@
+-- walk order stands and the client sorts the whole set itself.
 --
--- Caching.  The @ETag@ is the tree's fingerprint and the store's generation,
--- which the watcher moves whenever a response would change, under
--- @Cache-Control: no-cache@ so a browser revalidates rather than guessing a
--- lifetime ('etagOf').  One tag serves every query variant: @q@, @limit@ and
--- @offset@ are in the URL and an HTTP cache is keyed by URL, so @?q=foo@ and
--- @?q=bar@ revalidate as separate entries against their own stored tag.  The
--- response is a function of (generation, URL) and nothing else in the request,
--- so no @Vary@ is owed for them; the one header it turns on is
--- @Accept-Encoding@, and the gzip middleware writes that @Vary@ itself.
+-- CACHING: the @ETag@ is the tree's fingerprint and the store's generation
+-- ('etagOf'), under @Cache-Control: no-cache@.  One tag serves every query
+-- variant — the parameters are in the URL and an HTTP cache is keyed by URL, so
+-- the response is a function of (generation, URL) and no @Vary@ is owed beyond
+-- the @Accept-Encoding@ the gzip middleware writes itself.
 headlines :: ServeOptions -> Hub -> Request -> IO Response
 headlines opts hub request = case pageParams request of
   Left why -> pure (jsonError status400 why)
@@ -710,30 +688,22 @@ badPlanning (SplitSubtree _body _ps pln) =
 -- | @GET \/keywords?ids=A,B@: the states those rows may be set to, laid out as
 -- the chain that classifies them.
 --
--- @{"sources": [{"source": …, "active": […], "inactive": […]}], "unknown": […]}@.
--- One entry per SOURCE in precedence order — @default@, org's own cycle, then
--- @system.org@, then the rows' tags, then their own files — with a keyword
--- under the WIDEST source that declares it and nowhere below it
--- ('Glance.Query.keywordSources', the whole of the rule).  The answer therefore
--- classifies as well as enumerates, being 'Data.Org.Config.classify' read
--- forwards, so a palette drawing it shows why @READING@ is active here and
--- done-with two directories over.
+-- @{"sources": [{"source": …, "active": […], "inactive": […]}], "unknown": […]}@
+-- — one entry per SOURCE in precedence order (@default@, @system@, the rows'
+-- tags, @file@), each keyword under the WIDEST source that declares it and
+-- nowhere below ('Glance.Query.keywordSources').  The answer classifies as well
+-- as enumerates, being 'classify' read forwards.
 --
--- FOUR sources and no union row: the recognition union adds which words PARSE
--- as states, which is neither what classifies a row nor what a row may be set
--- to.  The chain is both, and it is what 'Glance.Query.setStateEdits' checks a
--- write against, so what this offers for one row is what that accepts for it.
+-- FOUR sources and no union row: the recognition union says which words PARSE
+-- as states, which is neither what classifies a row nor what it may be set to.
+-- The chain is both, and it is what 'setStateEdits' checks a write against — so
+-- what this offers for ONE row is what that accepts for it.  Several ids merge
+-- by source name.
 --
--- Resolved for the TARGET ROWS rather than for the tree, which is what makes it
--- worth a request: the store's badge palette is the union of every file loaded,
--- and this is the part of it answering for the rows a command is about to run
--- over.  Several ids — the marked set — merge by source name.
---
--- Refusals follow the command route's, since the caller is the same key: no ids
--- at all is a 400, and an id the store has no row for is named in @unknown@ and
--- left out of the resolution, so a stale marked set still answers for the rows
--- that are there.  A read — it writes nothing and pins nothing, the digest a
--- write presents being the row's, which @\/headlines@ already carries.
+-- Resolved for the TARGET ROWS rather than the tree, which is what makes it
+-- worth a request.  Refusals are the command route's: no ids is a 400, an
+-- unknown id is named in @unknown@ and left out, so a stale marked set still
+-- answers for the rows that are there.
 keywordsView :: Hub -> Request -> IO Response
 keywordsView hub request =
   idsView hub request "GET /keywords?ids=<row id>,<row id>" $ \st _rows found unknown ->
@@ -773,33 +743,21 @@ withRow hub rid fields = do
 
 -- Tags
 
--- | @GET \/tags?ids=A,B@: what the rows a tag command is about to run over are
--- tagged with, and what else the tree has to offer.
+-- | @GET \/tags?ids=A,B@: what those rows are tagged with, and what else the
+-- tree offers.
 --
--- @{"rows": [{"id": …, "tags": […]}], "vocabulary": […], "counts": {…},
--- "unknown": […]}@.  @rows@ is in the order the ids were named, each row's tags
--- in the order its FILE spells them, FOLDED — the same 'Glance.Query.tagsOfCell'
--- the filter vocabulary and 'Glance.Query.tagged' read, so what this reports
--- about a row is exactly what a write to it will find there.  PER ROW rather
--- than as one union, because the client needs to know WHICH rows lack a tag:
--- adding one over a marked set writes the rows that do not carry it and no
--- others.  The union, its coverage counts and their order are the popup's,
--- computed off this.
+-- @{"rows": [{"id", "tags"}], "vocabulary", "counts", "unknown"}@.  @rows@ is
+-- in the order the ids were named, each row's tags in its FILE's order and
+-- folded through 'tagsOfCell' — so what this reports is what a write will find.
+-- PER ROW rather than as one union, because the client needs WHICH rows lack a
+-- tag: an add writes those and no others.
 --
--- @vocabulary@ is the whole store's tag list ('Glance.Web.Store.storeTags'),
--- which a completing read narrows over: the rows a page holds are a fraction of
--- the tree.  @counts@ is how many ROWS the whole store has under each tag, the
--- one thing the popup's third column cannot work out from the rows in hand — a
--- reader deciding whether to drop a tag wants to know whether it is this set's
--- or the tree's.  Counted per request rather than kept, since the store's own
--- 'Glance.Web.Store.stTags' counts FILES, a different question no arithmetic
--- recovers a row count from.  One pass over the resolved rows, at the cost of a
--- keystroke.
+-- @vocabulary@ is the whole store's, which a completing read narrows over.
+-- @counts@ is how many ROWS the store holds under each tag — the one thing the
+-- popup cannot work out from the rows in hand, and not recoverable from
+-- 'stTags', which counts FILES.  Counted per request.
 --
--- Refusals are @\/keywords@' because the door is ('idsView'): no ids at all is a
--- 400, and an id the store has no row for is named in @unknown@ and left out, so
--- a stale marked set still answers for the rows that are there.  A read — it
--- pins nothing, and the digest a write presents is the row's.
+-- Refusals are @\/keywords@' because the door is ('idsView').
 tagsView :: Hub -> Request -> IO Response
 tagsView hub request =
   idsView hub request "GET /tags?ids=<row id>,<row id>" $ \st rows found unknown ->
@@ -829,31 +787,20 @@ tagRowCounts rows = Map.fromListWith (+)
 
 -- | @GET \/capture[?tag=NAME]@: what a capture under that tag will ask for.
 --
--- @{"template": BOOL, "prompts": […], "tags": […], "codes": [{"code": …,
--- "means": …}]}@.  @template@ says whether a layer configures one — @false@ is
--- the bare @* %?@, which asks for nothing but the line — and @prompts@ is its
--- @%^{PROMPT}@ asks IN TEMPLATE ORDER, which is the order the shell puts them to
--- the reader.  A prompt spelled twice is asked once
--- ('Glance.Query.templatePrompts').
+-- @{"template": BOOL, "prompts": […], "tags": […], "codes": [{"code","means"}]}@.
+-- @template@ says whether a layer configures one — @false@ is the bare @* %?@ —
+-- and @prompts@ its @%^{PROMPT}@ asks IN TEMPLATE ORDER, one spelled twice
+-- asked once.
 --
--- WITH NO TAG it is the untagged path's own shape: no template, no prompts.  The
--- inbox capture stays bare on purpose, so there is nothing to resolve and the
--- answer says so rather than being a refusal.
+-- WITH NO TAG it is the untagged path's own shape (no template, no prompts):
+-- the inbox capture stays bare, so the answer says so rather than refusing.
 --
--- @tags@ is the tree's whole tag vocabulary, the same list @\/tags@ serves —
--- what the tag prompt completes over, and here rather than there because
--- @\/tags@ answers about ROWS a caller names and a capture names none.
+-- @tags@ is the tree's whole vocabulary — here rather than on @\/tags@ because
+-- that route answers about ROWS a caller names and a capture names none.
+-- @codes@ is the expansion subset with its meanings, served whatever the tag,
+-- so the completion offers exactly what the server expands.
 --
--- @codes@ is the expansion subset with its one-line meanings
--- ('Glance.Query.captureCodes'), served whatever the tag: the settings box
--- completes over it, so what the completion offers is what the server expands
--- and the contract has ONE spelling.  The client needs all of this before it can
--- ask anything, which is the whole reason the route is a read of its own rather
--- than a field of @\/config@ — a capture asks it per press and a settings sheet
--- does not.
---
--- Needs a loaded store for the config directories the walk met.  Read-only, so
--- POST is a 405.
+-- Needs a loaded store; read-only, so POST is 405.
 captureView :: ServeOptions -> Hub -> Request -> IO Response
 captureView opts hub request = do
   st <- readTVarIO (hubStore hub)
@@ -872,30 +819,22 @@ captureView opts hub request = do
 
 -- | @GET \/links?id=ROW@: where that row points.
 --
--- @{"digest": …, "links": [{"target": …, "desc": …, "type": …, "span": [S, E]}]}@,
--- in order of appearance, one entry per target ('Glance.Query.subtreeLinks').
--- The rule is the DISPLAY rule the table already answers to: a bracket link is
--- described by its @DESC@, or by its target where it has none, and a bare
--- @http(s)@ or @mailto:@ URL describes itself.  @type@ is the target's SCHEME,
--- folded ('Glance.Query.linkType'): the popup draws it as a badge column and
--- @o@ reads it to decide whether a browser tab can be pointed at the target.
+-- @{"digest", "links": [{"target","desc","type","span"}]}@, in order of
+-- appearance, one entry per (target, shown) pair.  The rule is the DISPLAY rule
+-- the table answers to — a bracket link is described by its @DESC@, else by its
+-- target — plus bare @http(s)@\/@mailto:@ URLs, which describe themselves.
+-- @type@ is the folded SCHEME, which @o@ reads to decide whether a tab can be
+-- pointed at it.
 --
--- @span@ is the half-open CHAR range the link occupies in the FILE, which is
--- what makes the answer writeable: @edit-link@ takes that range back and
--- splices it ('Glance.Query.editLinkEdits').  A target spelled twice is one
--- entry, so the span is the FIRST spelling's and an edit through it edits that
--- one.  @digest@ is the file's and the LOCK a client edits under: the spans
--- describe the text this store last read, so a client that pins them
--- (@digests@ on @POST \/command@) is refused rather than spliced blind once the
--- file has moved.
+-- @span@ is the half-open CHAR range in the FILE, which is what makes the
+-- answer WRITEABLE: @edit-link@ takes it back.  A target spelled twice is one
+-- entry, so the span is the FIRST spelling's.  @digest@ is the LOCK: the spans
+-- describe the text this store last read, so a client pinning them is refused
+-- rather than spliced blind once the file has moved.
 --
--- Extracted here rather than in the page because it is org text work: the shell
--- holds no org parser and must not grow one, and the bracket grammar this reads
--- is the one 'Glance.Query.displayText' holds — a JavaScript copy would be a
--- second grammar to keep in step with SCHEMA.md's link rule.  The SUBTREE
--- rather than the cells, since a reader pressing @o@ on a row means the entry
--- and an entry keeps its references in its body.  A read, so it pins nothing
--- and 404s an id the store has no row for, the way materialize does.
+-- Server-side because it is org text work: the shell holds no bracket grammar
+-- and must not grow one.  The SUBTREE rather than the cells, since a reader
+-- pressing @o@ means the entry.
 linksView :: Hub -> Maybe Text -> IO Response
 linksView _hub Nothing = pure (jsonError status400 "GET /links?id=<row id>")
 linksView hub (Just rid) = withRow hub rid $ \r ->

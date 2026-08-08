@@ -1,50 +1,31 @@
 -- | org-glance's keyword configuration: the files beside a tree that say which
--- words are TODO states, and how a parse and a display each read them.
+-- words are TODO states.
 --
--- org-glance keeps two kinds of file under @\<root\>\/.org-glance\/config@ —
--- @system.org@ for the whole tree and @tags\/TAG.org@ per tag, the file name
--- being the tag.  Both are ordinary org documents and both are mostly an
--- org-capture template; the only thing read here is their @#+TODO:@ lines.
+-- Under @\<root\>\/.org-glance\/config@: @system.org@ for the tree,
+-- @tags\/TAG.org@ per tag.  Both are ordinary org documents and mostly a
+-- capture template; what is read here is their @#+TODO:@ lines.  Three
+-- questions come out of that, answered differently on purpose.
 --
--- Three questions come out of that, answered differently on purpose.
+-- RECOGNITION is a UNION.  A word any layer names parses as a keyword in every
+-- file under the root — else @* READING War and Peace@ is a state in one file
+-- and a title in the file beside it.  Computed once per load and threaded in as
+-- the seed context ('seedContext'); it accumulates nothing, so no file's parse
+-- can reach another's.
 --
--- RECOGNITION is a UNION.  A word any layer names parses as a TODO keyword in
--- every file under the root, because the alternative is what the tree did
--- before this existed: @* READING War and Peace@ is a state in a file carrying
--- the pragma and the first word of a title in the file beside it.  The union is
--- computed once per load and threaded into every parse as the seed context
--- ('seedContext'); it accumulates nothing, so the per-file context rule
--- (docs\/invariants.md, Parser) still holds — no file's parse can reach
--- another's.
---
--- CLASSIFICATION is WIDEST SCOPE ('classify').  Whether a recognized keyword
--- is active or done-like is asked of org's own TODO\/DONE first, then of
--- @system.org@, then of the headline's tags in order, and last of the file's
--- own @#+TODO:@.  So @TODO@ is active in every tree whatever a layer under it
--- says, and @READING@ is active because @book.org@ declares it before the bar —
--- the widest scope with an opinion about the word being the one that answers.
---
--- A narrower scope ADDS words and shadows none of the wider one's.  A file
--- redeclaring @READING@ after the bar still parses it as a state and still
--- offers it, and @book.org@'s answer is the one its rows are classified by:
--- the vocabulary a reader shares across a tree is decided once, at the top,
--- and a leaf cannot make a shared word mean something else under it.
+-- CLASSIFICATION is WIDEST SCOPE ('classify'): org's own TODO\/DONE, then
+-- @system.org@, then the headline's tags in order, then the file's own line.  A
+-- narrower scope ADDS words and shadows none — the vocabulary a reader shares
+-- across a tree is decided at the top, and a leaf cannot make a shared word
+-- mean something else under it.
 --
 -- The union is NOT a scope.  A keyword only another tag's config names is
--- recognized in this file — the whole point of the superset — and no scope this
--- headline reaches has an opinion about it, so it classifies as the fallback and
--- is settable on no row that does not reach it ('Glance.Query.setStateEdits').
--- Recognition is what keeps the word out of a title; the chain is what a reader
--- is offered and shown.
+-- recognized here and classified by the fallback, and is settable on no row
+-- that does not reach it: recognition keeps the word out of a title, the chain
+-- is what a reader is offered.
 --
--- ORDER is the org files' own spelling ('recognizedKeywords').  A @#+TODO:@ line
--- is a CYCLE — @TODO STARTED WAITING | DONE CANCELLED@ names five states in the
--- order work moves through them — and that order is the only thing a tree says
--- about how its state column sorts and how a palette draws.  So every keyword
--- list a reader meets is segmented by 'keywordScopes' precedence and ordered by
--- each layer's own declarations inside its segment, first declaration keeping
--- the place on a repeat.  Sets answer recognition and nothing else: 'Context'
--- holds them because a parse asks only whether a word is a keyword, and the
+-- ORDER is the org files' own ('recognizedKeywords').  A @#+TODO:@ line is a
+-- CYCLE, and that order is the tree's whole say over how its state column sorts
+-- and how a palette draws.  Sets answer recognition and nothing else — the
 -- moment one reaches a palette a tree's cycle comes back alphabetized.
 module Data.Org.Config ( ConfigLayerFile (..)
                        , ConfigLayers (..)

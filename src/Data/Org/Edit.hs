@@ -1,47 +1,33 @@
 {-# LANGUAGE CPP #-}
 -- | The write-back engine: replace character spans of a document and put the
--- result back on disk atomically.  Protocol-independent, and content-agnostic
--- by design — the replacement text comes from the caller and nothing here
--- consults 'TextShow'.  Spans are the lossless channel (docs/invariants.md,
--- Render), so a command layer that re-renders instead of splicing turns every
--- edit into a whole-file hunk.
+-- result back atomically.  Content-agnostic by design — the replacement comes
+-- from the caller and nothing here consults 'TextShow', spans being the
+-- lossless channel (docs\/invariants.md, Render).
 --
--- Offsets are the parser's: half-open character spans into the very 'Text'
+-- Offsets are the parser's: half-open CHAR spans into the very 'Text'
 -- 'Data.Org.Parser.orgParse' was given.  Bytes would splice mid-codepoint on
 -- the first unicode title.
 --
--- The write is optimistic.  A 'Snapshot' pins the SHA-256 of the bytes the
--- caller's parse came from; 'editFile' re-reads, re-digests, and refuses on any
--- difference, so an edit computed against a stale document never lands and the
--- file stays untouched.  The replacement goes through a temp file in the
--- target's own directory — rename is atomic within one filesystem, so a
--- concurrent reader sees the old bytes or the new ones and never a half-written
--- file.  The temp name ends in @.glance-tmp@, which is not @.org@: a watcher
--- walking the directory ignores it.
+-- The write is OPTIMISTIC.  A 'Snapshot' pins the SHA-256 of the bytes the
+-- caller parsed; 'editFile' re-reads, re-digests and refuses on any difference,
+-- so a stale edit never lands.  The replacement goes through a temp file in the
+-- target's own directory — rename is atomic within one filesystem, so a reader
+-- sees the old bytes or the new ones.  The temp name ends @.glance-tmp@, which
+-- a watcher walking the directory ignores.
 --
--- What is preserved: the file's permission bits, copied onto the temp file
--- before the rename.  What is not: owner, group, timestamps, extended
--- attributes and hard links — the rename installs a new inode, so full metadata
--- preservation is out of scope for this engine.  Durability stops at the file:
--- the data is @fsync@ed before the rename, the containing directory is not.
+-- PRESERVED: the permission bits.  NOT: owner, group, timestamps, xattrs, hard
+-- links — the rename installs a new inode.  Durability stops at the file: data
+-- is @fsync@ed, the directory is not.
 --
--- AND SYMLINKS ARE NOT PRESERVED EITHER, which is the one that can surprise.
+-- AND SYMLINKS ARE NOT PRESERVED, which is the one that surprises.
 -- @rename(2)@ replaces the destination NAME, so writing through a symlinked
--- @.org@ file leaves a regular file where the link was and the real file
--- untouched: the table then serves the copy for ever and the original never
--- moves.  @copyPermissions@ above DOES follow the link, so the write looks
--- correct all the way through.  The walk keeps symlinked documents on purpose
--- ('Data.Org.Walk.visit'), so this is reachable; resolving the target before
--- the write is a POLICY decision (whose permissions, whose directory for the
--- temp file, what a link out of the tree means) and is deliberately not taken
--- here.
+-- @.org@ leaves a regular file where the link was and the real file untouched;
+-- @copyPermissions@ DOES follow the link, so it looks correct throughout.  The
+-- walk keeps symlinked documents on purpose, so this is reachable; resolving
+-- the target first is a POLICY decision nobody has taken.
 --
--- The READ half is here too, and for the same reason the digest is: a caller
--- measuring spans in a document and pinning its write to that document's digest
--- needs one read to answer both.  'readParsed' is that read carried one rung
--- further, into elements — the ladder the corpus scan and the store loader each
--- used to spell for themselves, with their own answer to what an unreadable
--- file is.
+-- The READ half is here for the digest's reason: a caller measuring spans and
+-- pinning its write to that document needs one read to answer both.
 module Data.Org.Edit ( Edit (..)
                      , EditError (..)
                      , EditIOError (..)

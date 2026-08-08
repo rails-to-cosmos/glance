@@ -1,33 +1,23 @@
--- | Discovery of .org files under a set of roots, and the pool that reads
--- them.  Shared by the CLI scan and the 'Glance.Query' loader so both see the
--- same file set and cross it the same way; each adds its own reporting on top.
+-- | Discovery of .org files under a set of roots, and the pool that reads them.
+-- Shared by the CLI scan and the 'Glance.Query' loader so both see one file set
+-- and cross it the same way.
 --
--- Two things the walk refuses.
+-- THREE THINGS THE WALK REFUSES.
 --
--- org-glance's own derived mirrors, by default.  @org-glance@ keeps a canonical
--- store under @.org-glance\/data\/@ and writes overview and agenda buffers
--- beside it under @.org-glance\/overviews\/@ and @.org-glance\/meta\/@, which
--- repeat the same headlines — same @ORG_GLANCE_ID@, different file.  Serving
--- those is serving a derived artifact as truth: one headline turns up twice in
--- a table, and its second copy comes out of a file nobody edits.  So the two
--- mirror directories are skipped and @data@ is kept, and @--include-derived@
--- turns that exclusion off for someone who wants to look at them.
+-- org-glance's derived MIRRORS, by default: @.org-glance\/overviews\/@ and
+-- @\/meta\/@ repeat the same headlines under the same @ORG_GLANCE_ID@, so
+-- serving them serves a derived artifact as truth — one headline twice, its
+-- second copy from a file nobody edits.  @data@ is kept.  @--include-derived@
+-- turns the exclusion off.
 --
--- A blob's own HISTORY is the third of them, and it hides one level deeper.
--- org-glance snapshots a completed repetition as
--- @.org-glance\/data\/\<id\>\/occurrences\/\<STAMP\>.org@ — an immutable copy of
--- what the entry said then, carrying the LIVE entry's @ORG_GLANCE_ID@.  It is
--- inside @data@, so keeping @data@ kept it too, and it is canonical by the same
--- rule the live blob is, so 'beatsForId' called the pair a tie and walk order
--- decided which one a table showed and a command wrote to.  'isOccurrence'
--- names it and 'isDerived' covers it, which is why the watch agrees.
+-- A blob's own HISTORY, one level deeper:
+-- @data\/\<id\>\/occurrences\/\<STAMP\>.org@ carries the LIVE entry's id,
+-- so keeping @data@ kept it and 'beatsForId' called the pair a tie — walk order
+-- then decided which copy a table showed and a command wrote to.
 --
--- And @.org-glance\/config\/@, always.  Those files are INPUT to a parse rather
--- than content in a table: @Data.Org.Config@ reads their @#+TODO:@ lines by
--- path and every file under the root is parsed knowing them.  A capture
--- template served as a row is noise, and @--include-derived@ does not reach it
--- — nothing about them is derived, so nothing about them becomes truth by
--- asking louder.
+-- And @.org-glance\/config\/@, ALWAYS: those files are INPUT to a parse rather
+-- than content in a table, and @--include-derived@ does not reach them —
+-- nothing about them is derived, so nothing becomes truth by asking louder.
 module Data.Org.Walk ( Found (..)
                      , LoadFailure (..)
                      , WalkOptions (..)

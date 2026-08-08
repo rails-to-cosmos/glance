@@ -1,66 +1,40 @@
--- | The filter query language: @?q=@ as SCHEMA.md's micro-syntax rather than
--- one substring.
+-- | The filter query language: @?q=@ as SCHEMA.md's micro-syntax.
 --
--- @table-view\/SCHEMA.md@ ("Filter query") is the contract, and the renderer
--- implements the same grammar locally, so a query has to mean the same thing on
--- both sides of the wire — a producer that narrowed differently would answer a
--- filtered page the renderer would not have drawn.  This module is that
--- grammar, ported term by term from @web\/table-view.js@'s @scanQuery@,
--- @parseQuery@ and @tokenTest@.
+-- @table-view\/SCHEMA.md@ ("Filter query") is the contract and the renderer
+-- implements it locally, so this is a port term by term of @scanQuery@,
+-- @parseQuery@ and @tokenTest@: a producer that narrowed differently would
+-- answer a page the renderer would not have drawn.
 --
--- Tokens separate on whitespace and @&@.  @key:value@ is a field predicate only
--- when KEY names a column ('Glance.Query.filterKeys') or one of the two keys
--- that are no column, which is what keeps org cell text — @:work:@, @=code=@ —
--- from turning into one by accident; @=@ is an alias for @:@, a leading @-@
--- negates either form, and a token that /opens/ with a quote is free text
--- whatever it spells.  Everything else is free text: a case-insensitive
--- substring of the row as it displays.
+-- Tokens split on whitespace and @&@.  @key:value@ (@=@ alias) is a predicate
+-- only where KEY names a column or one of the keys that are none, which keeps
+-- org cell text (@:work:@, @=code=@) from becoming one by accident; @-@
+-- negates; a token opening with a quote is free text.  Everything else is free
+-- text — a case-insensitive substring of the row as it displays.
 --
--- Three keys are no column: @planned@, which the renderer answers from the row
--- it holds; @ref:ROWID@ ('refKey'), which it cannot — resolving a reference
--- needs the store, so the renderer reads the token as free text and narrows
--- further than this does; and @sort@ ('sortKey'), which is no predicate at all.
--- A sort token states the ORDER and narrows NOTHING: it is a key here so that
--- it is never read as free text, and what it says about the order is
--- 'Glance.Web.Sort's answer to the same query.
+-- THREE KEYS ARE NO COLUMN: @planned@ (the renderer answers it too), @ref:@
+-- (it cannot — resolving a reference needs the store, so the renderer reads it
+-- as free text and narrows further), and @sort@\/@columns@, which are no
+-- predicates at all and are keys here only so they are never read as text.
 --
--- An org TAG is not a key.  @tag:course@ is the one spelling, and the facet
--- then search a tag tree gives an org user is the two tokens
--- @tag:course text@ — what @course:text@ used to be, since a predicate reads
--- one cell and free text reads the row.  The bare form cost more than it
--- bought: the keys a query could name were the loaded rows' tags on one side of
--- the wire and the whole store's on the other, so one token was a predicate
--- here and free text there.
+-- AN ORG TAG IS NOT A KEY: @tag:course@ is the one spelling.  The bare form
+-- cost more than it bought — the keys a query could name were the loaded rows'
+-- tags on one side of the wire and the whole store's on the other.
 --
--- Combination is ONE rule: TOKENS AND, ALTERNATIVES OR.  Every token narrows,
--- whether or not another token names its key, so @state:TODO state:DONE@ is a
--- row in both states — which for a cell holding one value is no row — and
--- @tag:a tag:b@ is a row carrying both.  A row in EITHER state is the one token
--- @state:TODO|DONE@: a predicate's VALUE splits on @|@ and each alternative is
--- read as that key's own value, the results OR'd ('alternatives').  A negation
--- covers the whole token, so @-tag:a|b@ is a row carrying neither.
+-- COMBINATION IS ONE RULE: TOKENS AND, ALTERNATIVES OR.  @state:TODO
+-- state:DONE@ asks a one-value cell for two values, which is no row;
+-- @state:TODO|DONE@ is either.  A negation covers the whole token.  The bar is
+-- a PREDICATE's: free text is the text it spells, bar and all.  A value left
+-- with no alternative narrows nothing, which is the @key:@ rule.
 --
--- Alternation is a PREDICATE's rule.  A free-text token is the text it spells,
--- bar and all, and a token opening with a quote is free text whatever it
--- spells; a predicate's value has had its quotes taken out by the scanner, so a
--- bar inside one is always the operator and a literal bar is free text's alone.
---
--- Two rules are uniform across the column types: a predicate with no
--- alternative left narrows nothing (@key:@, and @key:|@ with it), and a
--- predicate's value may be quoted (@tag:"two words"@).
---
--- A value between asterisks is a META — a value with semantics of its own,
--- never cell text — and a bare word is never one, so every word a cell can hold
--- stays reachable as itself.  @key:*empty*@ is the empty cell on every key,
--- @tag:*archive*@ is the whole tag where @tag:archive@ is a substring of the
--- cell, and @state:*active*@\/@state:*inactive*@ are the keyword groups only
--- this producer can resolve ('metaOf').
+-- A STARRED VALUE IS A META, never cell text, so every word a cell can hold
+-- stays reachable as itself: @key:*empty*@ on every key, @tag:*archive*@ the
+-- whole tag where @tag:archive@ is a substring, @state:*active*@\/@*inactive*@
+-- the keyword groups only this producer resolves.
 --
 -- The haystack is 'Glance.Query.hrSearch', built at load: the cells as they
 -- display, lowercased and @\\x1f@-joined in column order.  Free text searches
--- the whole string and a predicate searches one field of it ('cellAt'), which
--- is the renderer's own @search@ and @cells@ — so the two agree by construction
--- rather than by two implementations of @displayText@ staying in step.
+-- the whole string, a predicate one field of it — the renderer's own @search@
+-- and @cells@, so the two agree by construction.
 module Glance.Web.Filter ( FilterEnv
                          , Term (..)
                          , Token (..)

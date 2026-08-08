@@ -1,37 +1,30 @@
 -- | The query facade: load org files into rows, render them as a table-view
--- JSON document, and write one headline's raw subtree back.  This is the whole
--- public surface of the package; the parser and its AST live in a private
--- sublibrary, so a daemon or web target linking against @glance@ cannot reach
--- them.
+-- JSON document, and write one headline's raw subtree back.  The whole public
+-- surface of the package: the parser and its AST are a private sublibrary, so
+-- a daemon linking against @glance@ cannot reach them.
 --
--- The write path is the read path run backwards.  A record carries the extent
--- of its subtree ('hrSubtree') in the text it was parsed from ('hrDoc') and
--- the digest of that text ('hrDigest'); 'replaceSpans' splices new text over
--- spans of that text and refuses unless the file still digests to the pinned
--- value.  So a client materializes what the load model holds, and a file that
--- moved underneath it costs a refusal rather than a corrupted splice.
+-- THE WRITE PATH IS THE READ PATH BACKWARDS.  A record carries its subtree's
+-- extent in the text it was parsed from and that text's digest;
+-- 'replaceSpans' splices over spans of it and refuses unless the file still
+-- digests to the pinned value.  A file that moved underneath costs a refusal
+-- rather than a corrupted splice.
 --
--- Structured commands are the other half of it, and the reason the span math
--- lives here rather than in the daemon: 'HeadlineSpans' is the private
--- sublibrary's, so a web layer computing its own insertion points would have to
--- reach past this facade.  'setStateEdits' and 'archiveEdits' hand back span
--- edits in the same currency 'replaceSpans' takes, and neither of them writes.
+-- Structured commands are the other half, and the reason the span math lives
+-- here: 'HeadlineSpans' is the private sublibrary's, so a web layer computing
+-- its own insertion points would reach past this facade.  The @*Edits@
+-- functions hand back edits in the currency 'replaceSpans' takes, and none of
+-- them writes.
 --
--- Two rules the wire depends on.  Cell text comes from the source spans, cut
--- once at load time, so the JSON carries what the file says rather than what
--- the REPL renderer would re-emit; the 'TextShow' render is a fallback for
--- components a headline has no span for.  And the JSON is assembled here out
--- of 'Value' combinators, never derived from the internal types: the wire
--- shape is the contract with @table-view/SCHEMA.md@ and the AST must stay free
--- to change under it.
+-- TWO RULES THE WIRE DEPENDS ON.  Cell text is cut from the source spans at
+-- load, so the JSON carries what the file says rather than what the REPL
+-- renderer would re-emit.  And the JSON is assembled out of 'Value'
+-- combinators, never derived from the internal types — the wire is the
+-- contract with @table-view\/SCHEMA.md@ and the AST must stay free under it.
 --
--- Retention: cells are copied out of the document they were sliced from, so a
+-- RETENTION: cells are copied out of the document they were sliced from, so a
 -- row never pins its file's text.  'hrHeadline' still holds the parser's own
--- slices, so a loaded store retains the documents it parsed; should full-store
--- residency ever exceed the scan budget, the lever is that field — drop it or
--- copy it, and leave the cells where they are.  'hrDoc' names the same text
--- 'hrHeadline' already shares, so materialize costs a pointer per row and no
--- array: the file was retained before the field existed.
+-- slices, so a loaded store retains what it parsed; the lever, should
+-- residency ever exceed the scan budget, is that field.
 module Glance.Query ( BlobSeed (..)
                     , ConfigLayerFile (..)
                     , ConfigLayers (..)
@@ -384,37 +377,22 @@ summarise dirErrs files =
       where seen = acc { qrFiles = qrFiles acc + 1 }
 
 -- | The rows FILE contributes, cells cut out of DOC and DIGEST pinning it,
--- categorised by CTX — the context the file parsed to, so a @#+CATEGORY@
--- anywhere in it labels the whole file.
+-- categorised by CTX — so a @#+CATEGORY@ anywhere labels the whole file.
 --
--- A row is a LEVEL-ONE headline ('topLevel'); everything deeper is carried
--- inside its ancestor's subtree rather than beside it.  The extents are
--- computed over the WHOLE headline sequence and the filter applied to the zip
--- afterwards.  For THIS predicate the two orders happen to agree — a level-one
--- extent ends at the next headline at level one or shallower, which is another
--- level-one headline, so the ones dropped never decided anything.  The order is
--- kept anyway because 'subtreeSpans' is org's outline rule over a DOCUMENT, and
--- running it over a subsequence is a different function: widen 'topLevel' to
--- keep anything deeper and filtering first would end that row at the next KEPT
--- headline instead of the next shallower one, which is a subtree missing its
--- own children.
+-- A row is a LEVEL-ONE headline; everything deeper rides inside its ancestor's
+-- subtree.  The extents are computed over the WHOLE sequence and the filter
+-- applied afterwards: 'subtreeSpans' is org's outline rule over a DOCUMENT, and
+-- widening 'topLevel' with the filter first would end a deeper row at the next
+-- KEPT headline instead of the next shallower one — a subtree missing its own
+-- children.
 --
--- Two keyword values come out of one parse and they are not the same thing.
--- The file's own @#+TODO:@ declarations ('declaredKeywords' over the elements)
--- are the nearest scope a row's active-ness is CLASSIFIED by, and they are read
--- over the whole file rather than positionally: a document declaring one
--- keyword two ways at two depths is not something org writes, and recognition
--- stays positional either way.  RECOGNITION is CFG's chain closed over them
--- ('recognizedKeywords') — the file's palette contribution and the vocabulary a
--- command may write.  Both are kept ('hrDeclared' beside 'hrKeywords') because
--- neither recovers the other: a file redeclaring a seeded keyword the other way
--- adds nothing to the union it disagrees with.
---
--- The union is the chain's rather than CTX's, though CTX holds the same words:
--- the chain is a list and answers in the order the org files spell it, where
--- CTX is 'Data.Set' and answers alphabetically.  Palette order is sort order, so
--- reading it off the parse's ending context was a tree's own cycle silently
--- re-sorted.
+-- TWO KEYWORD VALUES come out of one parse and are not the same thing. The
+-- file's own @#+TODO:@ ('hrDeclared') is the nearest scope a row is CLASSIFIED
+-- by; RECOGNITION is CFG's chain closed over them ('hrKeywords'), the palette
+-- contribution and what a command may write.  Neither recovers the other, so
+-- both are kept.  The union is the CHAIN's rather than CTX's: the chain answers
+-- in the order the org files spell it where CTX is a 'Data.Set' and answers
+-- alphabetically, and palette order is sort order.
 recordsOf :: ConfigLayers -> FilePath -> Text -> Text -> Context -> [Spanned Element]
           -> [HeadlineRecord]
 recordsOf cfg path doc digest ctx elems =
@@ -466,30 +444,22 @@ topLevel :: Headline -> Bool
 topLevel h = levelOf h == 1
 
 -- | Has H nothing the table can show?  Six sub-spans, one per column: a
--- headline carrying none of them renders six empty cells, and a row a reader
--- can neither read nor tell from the next one is not a row.  The file keeps the
--- entry — org is the source of truth and nothing here rewrites it — and the
--- table skips it.
+-- headline carrying none renders six empty cells, and a row a reader can
+-- neither read nor tell from the next is not a row.  The file keeps the entry;
+-- the table skips it.
 --
--- This is the RECORD's rule computed at the HEADLINE's layer, and it has to be:
--- the ordinal numbers emitted rows, so the filter runs before the numbering and
--- there is no record yet to ask.  The layers agree by construction — each span
--- is 'Nothing' exactly where 'recordOf' would cut an empty cell, and one that is
--- there is tight, so it cuts a non-empty one.
+-- The RECORD's rule computed at the HEADLINE's layer, and it has to be — the
+-- ordinal numbers emitted rows, so the filter runs before the numbering and
+-- there is no record yet to ask.  The layers agree by construction: each span
+-- is 'Nothing' exactly where 'recordOf' would cut an empty cell.
 --
--- What does NOT rescue an entry is everything the table has no column for: a
--- @CLOSED:@ stamp, a properties drawer — an @ORG_GLANCE_ID@ included, so a
--- blank entry carries no row id and no command can address it — a body, and
--- children, a blank parent taking its whole subtree out of the view the way a
--- file that never reaches level one already does.  Reading the rule's
--- no-planning clause as the two planning COLUMNS is the one place it could have
--- gone the other way: counting @CLOSED:@ would keep an entry whose every cell
--- is still empty.
+-- NOTHING WITHOUT A COLUMN RESCUES AN ENTRY: a @CLOSED:@ stamp, a drawer (an
+-- @ORG_GLANCE_ID@ included, so a blank entry has no row id and no command can
+-- address it), a body, children.  Reading the no-planning clause as the two
+-- planning COLUMNS is the one place it could have gone the other way.
 --
--- The tags clause never fires alone.  Org spells tags after a title and the
--- parser hands @* :tag:@ its colons as the title, so no headline carries
--- 'hsTags' without 'hsTitle'.  It is written down because the rule is over the
--- columns rather than over what the parser happens to reach.
+-- The tags clause never fires alone: org spells tags after a title and the
+-- parser hands @* :tag:@ its colons as the title.
 blankEntry :: Headline -> Bool
 blankEntry h = all isNothing [ hsTodo sp, hsPriority sp, hsTitle sp, hsTags sp
                              , hsSchedule sp, hsDeadline sp ]
@@ -669,22 +639,18 @@ subtreeLinks r = map (shiftLink (spanStart (hrSubtree r))) (orgLinks (subtreeTex
 shiftLink :: Int -> OrgLink -> OrgLink
 shiftLink by l = l { olSpan = shiftSpan by (olSpan l) }
 
--- | The links TEXT holds, in order of appearance, one per (target, shown)
--- pair.
+-- | The links TEXT holds, in order of appearance, one per (target, shown) pair.
 --
--- Two forms, which is what org writes and what 'displayText' already reads: the
--- bracket link, described by its @DESC@ where it has one and by its target
--- where it does not ('linkAt'), and the plain URL, which is its own description.
--- The dedup key is the pair a reader can SEE: a target respelled under the
--- SAME description keeps the first occurrence — span and all, so an edit
--- through it edits the first spelling — while the same target under another
--- description is another entry.  The key was the target alone, and a tree
--- writing one @elisp:@ command under the descriptions @pnl@ and
--- @alpha:grafana@ served the first and silently swallowed the second, which
--- read as the link not parsing at all.
--- A plain URL can only be in the text BETWEEN bracket links, which is what
--- 'linkParts' hands over separately — so @[[https://…][x]]@ never also reports
--- its own target as a bare one.
+-- Two forms, which is what org writes and what 'displayText' reads: the bracket
+-- link, described by its @DESC@ else by its target, and the plain URL, which
+-- describes itself.  The dedup key is the pair a reader can SEE — a target
+-- respelled under the SAME description keeps the first occurrence, span and
+-- all, while the same target under another description is another entry.  The
+-- key was the target alone, and one @elisp:@ command under two descriptions
+-- served the first and swallowed the second, which read as the link not parsing.
+--
+-- A plain URL can only be in the text BETWEEN bracket links ('linkParts'), so
+-- @[[https://…][x]]@ never also reports its target as a bare one.
 orgLinks :: Text -> [OrgLink]
 orgLinks = firstBy (\l -> (olTarget l, linkShown l))
          . concatMap (either (uncurry plainLinks) pure) . linkParts
@@ -940,40 +906,21 @@ squashControls = T.concat . go
       where (keep, rest) = T.break control s
     control c = c < ' ' || c == '\DEL'
 
--- | CELL re-spelled with its tags in case-folded alphabetical order —
--- @\":task:nl:finance:\"@ reads @\":finance:nl:task:\"@.
+-- | CELL re-spelled with its tags in case-folded alphabetical order.
 --
--- DISPLAY ONLY, and the one place it is applied is the @tag@ entry of
--- 'viewColumns' — the COLUMN, which is what the table draws and what
--- 'searchTextOf' joins into 'hrSearch'.  Everything else about a row's tags is
--- the file's own order:
+-- DISPLAY ONLY, applied at the @tag@ entry of 'viewColumns' alone.  Everything
+-- else about a row's tags is the file's own order: the FILE (the span is never
+-- touched), 'hrTags' (whose order DECIDES which tag's config governs the row —
+-- 'keywordScopes' is first-wins, so sorting it would move a resolution rather
+-- than a rendering), and @GET \/tags@, whose union is first-seen.
 --
---   * the FILE, because the span is never touched — materialize hands back the
---     author's bytes and 'addTagEdits' \/ 'removeTagEdits' splice into the run
---     as it is spelled.
---   * 'hrTags' itself, so 'classify' still reads the tags in the order the
---     headline writes them.  That order DECIDES which tag's config governs the
---     row ('keywordScopes' is first-wins), so sorting the field would move a
---     resolution rather than a rendering.
---   * @GET \/tags@ and the manage-tags palette behind it, whose union is
---     first-seen in the order the rows and their files introduce the tags.
+-- Membership readers are unaffected: 'tagged' and @tag:*archive*@ split the
+-- cell, and a bare @tag:x@ is a substring of one tag.
 --
--- Readers that ask about MEMBERSHIP are unaffected either way: 'tagged' and
--- @tag:*archive*@ split the cell, and a bare @tag:x@ is a substring of one tag
--- rather than of the run.
---
--- Folded rather than raw, so @:Work:admin:@ does not sort its capital ahead of
--- every lowercase tag; the sort is STABLE, so two spellings folding alike keep
--- the file's order between them.
---
--- A cell ALREADY IN ORDER is handed straight back, the very 'Text' that came in,
--- and that is the row this runs over: the accessor is read per row per
--- @\/headlines@ ('rowJSON') as well as once at load ('viewCells'), and ~/sync at
--- 2026-08-02 serves 10112 rows of which 4514 carry no tag, 5491 carry exactly
--- one, and 107 carry more.  So 99% of rows rebuild nothing.  A colon-count guard
--- ahead of the split would save more still and is deliberately not taken: it
--- would assume a well-formed @:a:b:@ run, which is a shape this function is
--- otherwise free of, for a fraction of a millisecond per render.
+-- Folded so a capital does not sort ahead of every lowercase tag; the sort is
+-- STABLE, so two spellings folding alike keep the file's order.  A cell ALREADY
+-- IN ORDER is handed straight back — the accessor runs per row per
+-- @\/headlines@, and almost every row rebuilds nothing.
 sortedTagsCell :: Text -> Text
 sortedTagsCell cell
   | sorted == entries = cell
@@ -1078,23 +1025,17 @@ type SortChain = [(Text, Bool)]
 -- | The view's default sort chain: what a query naming no @sort:@ token opens
 -- on and is served in.
 --
--- ONE list, read twice — 'declaredSort' spells it onto the wire and
+-- ONE list read twice — 'declaredSort' spells it onto the wire,
 -- 'sortedForViewWith' arranges the rows by it — so the order a client is told
--- about and the order it is served can never disagree.  That pairing is the
--- whole reason a producer sorts at all: a renderer re-sorts what it is given,
--- and a page cut out of a different order than the one declared is a different
--- set of rows than the table would have put there.
+-- and the order it is served cannot disagree.  That pairing is the whole reason
+-- a producer sorts: a page cut out of a different order than the one declared
+-- is a different set of rows than the table would have put there.
 --
--- STATE leads, and by the badge PALETTE rather than alphabetically
--- ('sortCell'), which is the declared @#+TODO:@ cycle: the table opens with the
--- work in the order org itself names it, active states ahead of done-like ones.
--- Title settles rows sharing a state and the two dates settle the rest.  Every
--- key ascends; SCHEMA.md makes direction per key, and the default wants no
--- other one.
---
--- Priority is deliberately out of it: it is a fifth key behind four that have
--- already separated nearly every pair of rows, and a chain is read by whoever
--- has to hold it in mind.  @sort:priority@ is how a reader asks for it.
+-- STATE leads, by the badge PALETTE rather than alphabetically — the declared
+-- @#+TODO:@ cycle, so the table opens in org's own order.  Title settles rows
+-- sharing a state, the two dates settle the rest, every key ascending.
+-- Priority is deliberately out: a fifth key behind four that have already
+-- separated nearly every pair.  @sort:priority@ is how a reader asks for it.
 defaultSortChain :: SortChain
 defaultSortChain =
   [ ("state", True), ("title", True), ("deadline", True), ("scheduled", True) ]
@@ -1271,22 +1212,19 @@ subtreeEntryAt entries k
   | k < 0     = Nothing
   | otherwise = listToMaybe (drop k entries)
 
--- | How many lines of BODY — R's, with the three regions already lifted out —
--- are R's OWN: the ones ahead of FIRST, its first descendant.
+-- | How many lines of BODY — R's, regions already lifted — are R's OWN: the
+-- ones ahead of FIRST, its first descendant.
 --
 -- ONE OWNER PER BYTE, one level down.  The lens hands a client the whole
--- subtree's body, children and all, because the regions are the only thing it
--- lifts out; a reader looking at the ENTRY needs to know where its own text
--- stops and the outline under it begins, or the same bytes would be drawn twice
--- — once as this entry's last paragraph and once as the child that owns them.
+-- subtree's body, children and all, so a reader looking at the ENTRY needs to
+-- know where its own text stops — else the same bytes are drawn twice, as this
+-- entry's last paragraph and as the child that owns them.
 --
--- Counted by DIFFERENCE rather than by looking for a star: the three regions all
--- sit above the first child (a planning line is the line under the title, both
--- drawers follow it, and the logbook scan stops at the first child's stars), so
--- everything from that child onwards is in the body unmoved, and what is left is
--- the lines this entry kept.  Reading it off a leading @*@ instead would need
--- the parser's star-run rule spelled a second time, and a body line opening
--- @*bold*@ would cut the entry short.
+-- Counted by DIFFERENCE rather than by looking for a star: the three regions
+-- all sit above the first child, so everything from that child on is in the
+-- body unmoved.  Reading a leading @*@ instead would spell the parser's
+-- star-run rule a second time, and a body line opening @*bold*@ would cut the
+-- entry short.
 ownBodyLines :: HeadlineRecord -> Text -> Maybe HeadlineRecord -> Int
 ownBodyLines r body first' = case first' of
   Nothing     -> whole
@@ -1798,35 +1736,21 @@ forcedKeywords :: TodoKeywords -> TodoKeywords
 forcedKeywords kw = forcing (tkActive kw <> tkInactive kw) kw
 
 -- | H's row identity: its @ORG_GLANCE_ID@ property, else @"FILE#K"@ — the path
--- and ORDINAL, which is H's 0-based position among the file's EMITTED ROWS
--- ('recordsOf', where the numbering happens after both filters, 'topLevel' and
--- 'blankEntry').
+-- and ORDINAL, H's 0-based place among the file's EMITTED ROWS (numbered in
+-- 'recordsOf' after both filters).
 --
 -- The ordinal is what a row's identity survives.  It moves only when the file's
--- rows are REORDERED, INSERTED into or REMOVED from ahead of this one — so
--- editing a title, a state, a body, a drawer, a child, or anything at all in
--- the entry above, renames nothing and the table keeps its selection.  What
--- still churns, honestly, is the class the ordinal cannot absorb: a new first
--- entry renumbers every row behind it, and so does deleting one or swapping two.
--- An entry going blank, or stopping being blank, is that same class wearing
--- another hat — clearing the last keyword off a title-less entry removes a row,
--- and every K behind it moves up one.  An @ORG_GLANCE_ID@ is immune to all of
--- it, which is the reason to write one.
+-- rows are REORDERED, INSERTED into or REMOVED ahead of this one — so editing a
+-- title, a state, a body, a drawer or a child renames nothing.  What churns is
+-- the class it cannot absorb: a new first entry renumbers everything behind it,
+-- and an entry going blank is that class wearing another hat.  An
+-- @ORG_GLANCE_ID@ is immune, which is the reason to write one.  The character
+-- offset this replaced moved on ANY edit above the headline.
 --
--- The character offset this replaced moved on ANY edit above the headline,
--- which is most edits: a byte typed into the preamble renamed every row in the
--- file, and the store could not tell that from every row being deleted and
--- re-inserted.
---
--- The two forms share one namespace and are resolved by exact string
--- ('resolveIds'), never by parsing an id apart, so nothing turns on the
--- separator being unambiguous.  It is @#@ rather than @:@ because a path is
--- allowed to hold either, and a walked path always ends in its @.org@
--- extension: @FILE#K@ therefore recovers K at its last @#@ for every file this
--- library can reach.  A headline that WRITES an @ORG_GLANCE_ID@ spelling
--- another row's @FILE#K@ collides the way any two headlines claiming one id
--- collide — one row is kept and the other is reported, so a pathological tree
--- costs a row and never points an id at the wrong one.
+-- The two forms share one namespace, resolved by exact string and never parsed
+-- apart, so the separator carries no rule.  A headline WRITING an
+-- @ORG_GLANCE_ID@ that spells another row's @FILE#K@ collides like any two
+-- claims on one id: one row is kept and the other reported.
 rowId :: FilePath -> Int -> Headline -> Text
 rowId path ordinal h = maybe (rowIdIn path ordinal) detach (identity h)
 
@@ -1989,37 +1913,22 @@ tagText text
 -- | The classification chain behind ROWS, made visible: one entry per SOURCE in
 -- precedence order, each holding the keywords it is the WIDEST to declare.
 --
--- This is 'Data.Org.Config.classify' turned inside out, over the very list that
--- one folds ('Data.Org.Config.keywordScopes'): that function takes the first
--- scope with an opinion about a keyword, and this one reports what each scope
--- claims.  Deduplication IS the classification rule — a keyword @default@ and a
--- file both declare belongs to @default@ alone, so it appears in that entry and
--- nowhere below it.  A source left with nothing after that is dropped rather
--- than shown empty, which is why a @system.org@ redeclaring TODO and DONE shows
--- its OTHER keywords and no row at all when it has none.
+-- 'Data.Org.Config.classify' turned inside out, over the very list it folds:
+-- that takes the first scope with an opinion, this reports what each claims.
+-- DEDUP IS THE CLASSIFICATION RULE — a keyword @default@ and a file both
+-- declare appears under @default@ and nowhere below.  An emptied source is
+-- dropped, so a @system.org@ redeclaring TODO\/DONE shows its other keywords
+-- and no row when it has none.  Each entry's own active\/inactive split is that
+-- source's, which is why the answer classifies as well as enumerates.
 --
--- Each entry's own active\/inactive split is that source's, which is why the
--- answer classifies as well as enumerates: @system.org@ writing @| READING@
--- puts READING in the system entry's inactive half, and a @book@ config writing
--- it before the bar reaches a row only where the system layer said nothing.
--- The dedup decides which of the two a row is shown, and the wider one wins.
---
--- What this layer adds to the scopes is the ROWS.  A record supplies its file's
--- own declarations and its tags, and SEVERAL of them — the marked set — merge
--- by source NAME: the file entry is the union of those rows' files' own
--- pragmas, and the tags are every tag any of them carries, in first-seen order
--- across the rows as given.  Merging costs one property: a keyword one row
--- reaches through its file and another through a tag lands in the WIDER of the
--- two, so the table describes the set rather than any one member of it.  Rows
--- whose tag ORDER disagrees are resolved the same way, by the merged order.
---
--- Over ONE row this IS what 'setStateEdits' accepts: 'settableStates' is this
--- function flattened, so the offer and the wall cannot come apart.  Over
--- SEVERAL the merge outruns that — a keyword only one row's file or one row's
--- tag declares is offered for the set, and committing it refuses the whole
--- request rather than moving the rows it would have fitted.  That is the
--- merge's cost stated as what a reader sees: the table describes the set, and a
--- keyword belonging to part of it is a refusal naming the row it does not fit.
+-- What this layer adds is the ROWS.  Several merge by source NAME: the file
+-- entry is the union of their files' pragmas, the tags every tag any carries in
+-- first-seen order.  The cost: a keyword one row reaches by file and another by
+-- tag lands in the WIDER, so the table describes the SET rather than a member.
+-- Over ONE row this IS what 'setStateEdits' accepts ('settableStates' is it
+-- flattened, so offer and wall cannot come apart); over several the merge
+-- outruns that, and committing such a keyword refuses the whole request naming
+-- the row it does not fit.
 keywordSources :: ConfigLayers -> [HeadlineRecord] -> [(Text, TodoKeywords)]
 keywordSources cfg rows = widest Set.empty (sortOn fst chain)
   where
@@ -2277,37 +2186,25 @@ removeTagEdits tag r = case tagRun r of
 
 -- | The span edits @rename-tag@ makes to R: FROM's entry becoming TO, in place.
 --
--- A row that does not carry FROM costs no edit, which is what makes a rename
--- over a marked set safe to send whole — and what makes it idempotent, since a
--- second request finds nothing left spelling FROM.
+-- A row not carrying FROM costs no edit, which makes a rename over a marked set
+-- safe to send whole and idempotent.
 --
 -- The entry is replaced WITHOUT its closing colon, so the run's other entries
--- and both of its delimiters keep their bytes and the tag lands where the
--- author put it: @:a:work:b:@ renamed to @projects@ is @:a:projects:b:@, never
--- an entry cut from the middle and appended at the end.  This is the reason
--- rename is a command of its own rather than a remove and an add composed.
--- Those two edit sets APPLY — they touch, and 'Data.Org.Edit.applyEdits' allows
--- an edit to start where the last one ended — and what they write is wrong in
--- two INDEPENDENT ways.  The addition's anchor is 'spanEnd' of 'hsTags' measured
--- BEFORE the removal, so for a lone tag it is where the run's closing colon sat;
--- the removal takes the whole run and the space in front of it, and the
--- insertion lands flush against the title, spelling @* TODO Ship itprojects:@.
--- Separately, and whatever the anchor, this appends at the RUN'S END, so an
--- entry with neighbours survives having MOVED there — re-measuring after the
--- removal would not change that one.  The pair is also two writes under two
--- digests where this is one drift-locked splice per file.
+-- and both delimiters keep their bytes and the tag stays where the author put
+-- it.  That is why rename is a command rather than a remove and an add
+-- composed: those two APPLY, and what they write is wrong twice over — the
+-- addition's anchor is measured BEFORE the removal (spelling @Ship itprojects:@
+-- for a lone tag), and whatever the anchor it appends at the RUN'S END, so an
+-- entry with neighbours survives having MOVED.  The pair is also two writes
+-- under two digests where this is one splice.
 --
--- ONE TAG ONCE, which is the invariant 'removeTagEdits' keeps by cutting every
--- entry that spells its tag.  Here the FIRST entry spelling FROM becomes TO and
--- any further ones are cut, so a file spelling one tag twice comes out clean.
--- And where the row ALREADY carries TO under some other entry, every FROM entry
--- is cut instead: the rename would otherwise write a duplicate.  That branch
--- can never empty the run, since the entry carrying TO is one of the ones it
--- leaves standing.
+-- ONE TAG ONCE: the FIRST entry spelling FROM becomes TO and further ones are
+-- cut, so a file spelling one tag twice comes out clean.  Where the row ALREADY
+-- carries TO, every FROM entry is cut instead — that branch cannot empty the
+-- run, the entry carrying TO being one it leaves.
 --
--- Matching FROM is FOLDED and TO is written as it was given, which is
--- 'addTagEdits'' rule and makes a change of SPELLING a rename like any other:
--- @:Work:@ renamed to @work@ is one replacement.
+-- FROM is matched FOLDED and TO written as given, which makes a change of
+-- SPELLING a rename like any other.
 renameTagEdits :: Text -> Text -> HeadlineRecord -> [(Span, Text)]
 renameTagEdits from to r = case tagRun r of
   Nothing -> []
@@ -2974,33 +2871,23 @@ topEntry text = headingStars (T.takeWhile (/= '\n') text) == Just 1
 -- | The span edits writing LINES as the @#+TODO:@ block of a config file
 -- holding DOC, or why LINES are not a block.
 --
--- What a keyword layer may say is one small grammar, and it is checked ahead of
--- the write rather than discovered after it: blank lines are dropped, every
--- line left has to be a @#+TODO:@ pragma, and the block has to declare at least
--- one keyword — a pragma the parser reads as declaring nothing would leave a
--- layer looking configured and doing nothing.  An EMPTY block is always
--- allowed, and it is the deletion: posting nothing is how a layer is taken off,
--- and how a file that never had a line stays that way.
+-- Checked ahead of the write: blank lines drop, every line left must be a
+-- @#+TODO:@ pragma, and the block must declare at least one keyword — a pragma
+-- declaring nothing would leave a layer looking configured and doing nothing.
+-- An EMPTY block is the DELETION, which is how a layer is taken off.
 --
--- The state column's group meta-values need no rule of their own here, and a
--- guard against them would be unreachable: a keyword token is letters and
--- underscores ('Data.Org.Parser.keywordTextP'), so @#+TODO: *active* | DONE@
--- does not parse as a cycle at all and is refused as declaring nothing.  It is
--- the same wall 'setStateEdits' puts up from the other side, reached earlier —
--- the parser will not let the word into a keyword set, so nothing can write it
--- into one either.  The message says so, since that is the refusal a reader
--- typing the group name gets.
+-- The group metas need no rule here and a guard would be unreachable: a keyword
+-- token is letters and underscores, so @#+TODO: *active* | DONE@ does not parse
+-- as a cycle and is refused as declaring nothing.  The same wall
+-- 'setStateEdits' puts up, reached earlier.
 --
--- PARTS is everything of the layer besides its cycle, and each of its three is
--- the same three-valued thing: 'Nothing' leaves that part exactly as it is,
--- @Just \"\"@ takes it away, and anything else writes it.  They ride in this one
--- call because they are regions of the same file, and four calls would be four
--- writes under four digests, each of which the one before it had just
--- invalidated.
+-- PARTS is everything besides the cycle, each three-valued: 'Nothing' leaves
+-- the part, @Just ""@ takes it away, anything else writes it.  They ride one
+-- call because they are regions of one file, and four calls would be four
+-- writes under four digests each invalidating the last.
 --
--- The spans are the file's own lines ('Data.Org.Config.todoLineEdits') and its
--- first heading ('captureTemplateEdits'), so everything else a config file is —
--- the @#+TITLE:@, the comments, a second heading — is bytes this never names.
+-- The spans are the file's own lines and its first heading, so the
+-- @#+TITLE:@, the comments and a second heading are bytes this never names.
 configEdits :: Text -> Maybe [Text] -> ConfigParts -> Either Text [(Span, Text)]
 configEdits doc asked parts
   | not (null strange) = Left ("not a #+TODO: line: " <> T.intercalate " · " strange)

@@ -1,51 +1,34 @@
 -- | The ORDER a query states: @?q=@'s @sort:@ tokens as a
 -- 'Glance.Query.SortChain'.
 --
--- @table-view\/SCHEMA.md@ ("Filter query") is the contract and the renderer
--- implements the same grammar locally, so this is a port term for term, the way
--- 'Glance.Web.Filter' is — the two modules split one query between them: which
--- tokens NARROW is that one's, which tokens ORDER is this one's, and both read
--- ONE parse ('Glance.Web.Filter.parseFilter'), so a token cannot be a predicate
--- for one and an ordering for the other.
+-- 'Glance.Web.Filter''s twin: the two split one query — which tokens NARROW is
+-- that one's, which ORDER is this one's — and both read ONE parse, so a token
+-- cannot be a predicate for one and an ordering for the other.
 --
--- A sort SEGMENT names ONE column in ONE direction: @sort:COL@ ascends,
--- @sort:COL:desc@ descends, @sort:COL:asc@ spells the default.  Written order is
--- PRECEDENCE and repeats compose, so @sort:state sort:deadline@ is state with
--- deadline settling its ties.  A query naming any sort key REPLACES the chain;
--- one naming none leaves the view's declared chain standing, which is what
--- keeps the default order invisible until a reader diverges from it.
+-- A SEGMENT names ONE column in ONE direction (@sort:COL@, @:desc@, @:asc@).
+-- Written order is PRECEDENCE and repeats compose.  A query naming any sort key
+-- REPLACES the chain; one naming none leaves the view's standing, which keeps
+-- the default order invisible until a reader diverges from it.
 --
--- A token may CHAIN its columns with @->@: @sort:state->deadline:desc@ is
--- @sort:state sort:deadline:desc@ written once.  Sugar, and ONE semantics — each
--- segment is read where it is written, exactly as a token's whole value is — so
--- the two spellings are one query and every rule here reaches across an arrow
--- unchanged.  NEGATION is the exception, and only because the @-@ is written
--- before the key: it covers every segment of the token rather than the first.
+-- @->@ CHAINS a token's columns and is SUGAR: each segment is read where it is
+-- written, exactly as a whole token's value is, so no rule below knows which
+-- spelling it came from.  NEGATION is the exception — the @-@ stands before the
+-- key, so it covers every segment.
 --
--- The refusals are the other half of "one column, one direction".  A negation, an
--- alternation, a column no view carries, and a direction that is neither word
--- are each a query this producer answers as an ERROR naming
--- the token — where a renderer, having nobody to refuse to, drops the key and
--- leaves the token narrowing nothing.  That divergence is deliberate and is the
--- loud half: the rows a refused query would have served are the rows it asked
--- for in an order nobody can give, and answering it quietly in another order is
--- the one thing worse than saying so.
+-- THE REFUSALS are the other half of "one column, one direction": a negation,
+-- an alternation, an unknown column and a direction that is neither word are
+-- each an ERROR naming the token, where the renderer has nobody to refuse to
+-- and drops the key.  Deliberate, and the loud half — answering quietly in
+-- another order is the one thing worse than saying so.
 --
--- @sort:@ with nothing after it is the @key:@ rule: it orders nothing and
--- narrows nothing, which is the half-typed token every commit passes through.
--- @sort:COL->@ is a SEGMENT half typed and is that same nothing, being the state
--- a reader passes through on the way to the next column.
+-- @sort:@ and @sort:COL->@ are half typed: they order nothing and narrow
+-- nothing, the @key:@ rule.
 --
--- @sort:*none*@ is the EMPTY CHAIN, and it is the query's whole vocabulary for
--- document order.  It wears the stars because it is a reserved meta rather than
--- a column — the family is @*active*@, @*inactive*@, @*empty*@, @*archive*@ and
--- this one — so no column may be called it and no cell may hold it.  The
--- empty chain ADMITS NO COMPANIONS: a token beside it names a key the answer is
--- not to have, and a reader who wrote both meant one of them, so the request is
--- refused naming the meta rather than resolved by a precedence rule nobody
--- would remember.  A SEGMENT is a companion like any other, so
--- @sort:*none*->title@ is that same pair written once.  The half-typed @sort:@
--- is no companion, since it names nothing either way.
+-- @sort:*none*@ is the EMPTY CHAIN and the query's whole vocabulary for
+-- document order.  It wears the stars because it is a meta rather than a
+-- column, and it ADMITS NO COMPANIONS: a reader who wrote both meant one of
+-- them, so the request is refused rather than resolved by a precedence rule
+-- nobody would remember.  A SEGMENT is a companion like any other.
 module Glance.Web.Sort (sortChainIn) where
 
 import Control.Monad (foldM)
