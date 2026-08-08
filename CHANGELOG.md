@@ -502,13 +502,14 @@ section groups a feature arc, and its date is that arc's last commit.
   quotes without being read as something else. Both sides of the wire
   (SCHEMA.md, Filter query).
 - **The settings sheet is tabbed, and a tree colours its own states.** General,
-  theme and keywords are one panel at a time now — a hidden panel is out of the
-  flow, so native tabbing walks exactly what is on screen, and the horizontal
-  arrows walk the tab strip. The theme tab grows the other half of
-  `#+GLANCE_STATE_COLORS:`: pick which theme you are colouring, then a field per
-  keyword of the tree's own cycle. Empty is the theme's own hue. It is
-  `system.org`'s third tree-wide line, so it rides that layer's one
-  drift-locked write with the views and the capture target.
+  theme and keywords are one panel at a time. `TAB` walks the panels and wraps,
+  `S-TAB` walks back, and the new panel's first control takes the focus. The
+  theme tab grows the other half of `#+GLANCE_STATE_COLORS:`: one field per
+  keyword of the tree's own cycle, under **the theme on screen** — there is one
+  theme control, so picking a theme moves the page and these rows together.
+  Empty is the theme's own hue. Storage stays per theme because readability is,
+  and both themes' edits ride `system.org`'s one drift-locked write with the
+  views and the capture target.
 - **The agenda is a view the tree configures.** `a` used to apply a query this
   page spelled; it now reads `system.org`'s `#+GLANCE_AGENDA_FILTER:` line, the
   default view's own rule one entry over — filter, order and columns in one

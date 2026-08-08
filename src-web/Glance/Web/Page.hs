@@ -188,18 +188,18 @@ demoShell opts font colours views =
   -- border, radius and font and the coarse-pointer rule that stops iOS zooming
   -- in on a focused control.
   , "      <div id=\"ctheme\" class=\"cpart\">"
-  , crow (clab "colour theme")
-         ("<select id=\"themesel\" class=\"cview\" title=\"colour theme\">"
+  , crow (clab "theme")
+         ("<select id=\"themesel\" class=\"cview\" title=\"theme\">"
             <> "<option value=\"auto\">auto</option>"
             <> "<option value=\"light\">light</option>"
             <> "<option value=\"dark\">dark</option></select>")
-  -- AND THE TREE'S OWN STATE HUES, per theme.  The preference above is the
-  -- READER's (which theme they see); this is the TREE's (what a keyword is
-  -- drawn in under each theme), so the two are separate selectors over separate
-  -- storage — one `localStorage', one a `system.org' line.  Both selects and
-  -- the field rows are filled by the glue off the server's own lists, so a
-  -- build's themes and a tree's cycle are named in one place each.
-  , crow (clab "colour states in") "<select id=\"chue\" class=\"cview\"></select>"
+  -- AND THE TREE'S OWN STATE HUES, UNDER THE THEME ON SCREEN.  There is ONE
+  -- theme control: the fields describe whatever theme the reader is looking at,
+  -- so picking one moves the whole page and these rows with it.  The STORAGE
+  -- stays per theme — a hue that reads on white is unreadable on black, which
+  -- is what `#+GLANCE_STATE_COLORS:' is keyed by theme for — and which theme is
+  -- being written is DERIVED from the applied one rather than picked a second
+  -- time.  The rows are filled by the glue off the tree's own cycle.
   , "      <div id=\"chues\" class=\"cpart\"></div>"
   , "      </div>"
   -- KEYWORDS: ONE LAYER AT A TIME.  A tree has as many config files as it has

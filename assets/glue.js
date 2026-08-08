@@ -3910,7 +3910,7 @@
       b.addEventListener("click", () => showTab(i));
       b.addEventListener("keydown", (e) => {
         const k = keyName(e);
-        const step = k === "ArrowRight" ? 1 : k === "ArrowLeft" ? -1 : 0;
+        const step = k === "<right>" ? 1 : k === "<left>" ? -1 : 0;
         if (!step) return;
         e.preventDefault();
         const at = (i + step + SECTIONS.length) % SECTIONS.length;
@@ -3925,6 +3925,24 @@
       cpanes.forEach((p, k) => { p.className = k === i ? "csec on" : "csec"; });
       ctabels.forEach((t, k) => { t.className = k === i ? "ctab on" : "ctab"; });
     }
+    // TAB IS THE TAB KEY: it walks the panels, wrapping, and `S-TAB' walks back
+    // — the sheet is a set of panels and this is the key that says so.  The new
+    // panel's FIRST control takes the focus, so a reader lands where they can
+    // type; a panel with none leaves the focus on the strip.  Its own listener,
+    // registered ahead of the dispatch like the other modal ones and claiming
+    // nothing while the sheet is shut or a momentary popup stands over it.
+    function stepTab(step) {
+      showTab((ctab + step + SECTIONS.length) % SECTIONS.length);
+      const first = cpanes[ctab].querySelector("input, select, textarea");
+      if (first) first.focus(); else ctabels[ctab].focus();
+    }
+    document.addEventListener("keydown", (e) => {
+      if (!settings || momentary()) return;
+      const k = keyName(e);
+      if (k !== "TAB" && k !== "S-TAB") return;
+      e.preventDefault();
+      stepTab(k === "TAB" ? 1 : -1);
+    });
     showTab(0);
     // The layers, and WHICH of them the one box is showing.  `crows' is the
     // whole set with each layer's text in it — the on-screen box is a view of
@@ -4031,7 +4049,7 @@
     // is the composer's rule and the layer boxes', so switching themes asks the
     // server nothing and loses no edit.  A keyword with an empty field carries
     // no hue and drops out of the write.
-    let hues = {}, huesBase = "", hat = "", hkeys = [];
+    let hues = {}, huesBase = "", hkeys = [];
     function drawHues(b, kw) {
       hues = {};
       for (const c of b.colors || []) {
@@ -4039,19 +4057,27 @@
       }
       huesBase = JSON.stringify(hues);
       hkeys = (kw.active || []).concat(kw.inactive || []);
-      const pick = el("chue");
-      pick.textContent = "";
-      (b.themes || []).forEach((t) => { part(pick, "option", "", t).value = t; });
-      hat = (b.themes || [])[0] || "";
-      pick.value = hat;
       showHues();
     }
+    // WHICH THEME IS BEING COLOURED is the one on screen, so there is no second
+    // selector: `auto' resolves through the media query, the way the boot line
+    // does.  Storage stays per theme because readability is — a hue that reads
+    // on white is unreadable on black.
+    const hueTheme = () => {
+      const want = themed.get();
+      if (want !== "auto") return want;
+      return matchMedia && matchMedia("(prefers-color-scheme:dark)").matches
+        ? "dark" : "light";
+    };
     // The fields for the theme on show, rebuilt rather than reused: a tree's
-    // cycle moves under a config write, so the row set is the answer's.
+    // cycle moves under a config write and the theme moves under a keystroke,
+    // so the row set is the answer's and the values are that theme's.
     function showHues() {
       const box = el("chues");
       box.textContent = "";
-      const held = hues[hat] || {};
+      if (!hkeys.length) return;
+      const hat = hueTheme(), held = hues[hat] || {};
+      part(box, "div", "clab", `state colours · ${hat}`);
       hkeys.forEach((k) => {
         const row = part(box, "div", "crow");
         part(row, "div", "clab", k);
@@ -4065,8 +4091,6 @@
         });
       });
     }
-    // Switching themes is a READ, like switching layers or views.
-    function showHueTheme(theme) { hat = theme; showHues(); }
     // The model as the wire spells it: the flat `{theme, keyword, hue}' list the
     // answer serves, so one shape crosses in both directions.
     const hueList = () =>
@@ -4136,8 +4160,6 @@
     });
     // And switching VIEWS is the same read one row up.
     el("cwhich").addEventListener("change", (e) => showView(e.target.value));
-    // And which THEME the hue fields describe, the same read.
-    el("chue").addEventListener("change", (e) => showHueTheme(e.target.value));
     // `%' IN THE TEMPLATE BOX RAISES THE CODE LIST, which is this page's own
     // value palette in its field mode and no widget of its own.  What it offers
     // is the SERVER's list (`/capture' carries it beside the prompts), so the
@@ -4581,6 +4603,9 @@
     // hand-written `blur()' for that reason, and no such place is left here.
     el("themesel").addEventListener("change", (e) => {
       setTheme(e.target.value);
+      // The hue fields describe the theme on screen, so they follow the pick —
+      // the edits already typed stay on the model, each under its own theme.
+      if (settings) showHues();
       echo(`theme: ${e.target.value}`);
     });
     // THE LOG'S HEIGHT, the second preference this page keeps for itself.  The

@@ -1197,7 +1197,7 @@ const STATEFUL = [ "mtext", "mnote", "mfile", "modal", "mprops", "mlog", "sheet"
                  , "clog", "clayer", "ctext", "ctpl", "clab", "clerr"
                  // Which saved view the composer is standing on: a select the
                  // page fills off the server's own list, like the layer one.
-                 , "cwhich", "ctabs", "chue", "chues"
+                 , "cwhich", "ctabs", "chues"
                  // The event strip: a line per entry, each a row of spans, so it
                  // has to hold a tree rather than answer "" to everything.
                  , "log"
@@ -1781,17 +1781,12 @@ const ACTIONS = {
     if (!tab) throw new Error(`no settings tab called ${name}`);
     tab.fire("click", {});
   },
-  // Picking WHICH theme the hue fields describe.
-  chue: (theme) => {
-    const box = field("chue");
-    box.value = String(theme);
-    box.fire("change", { target: box });
-  },
   // And typing a hue for one keyword: `chues:TODO=#123456'.
   chues: (spec) => {
     const [key, hue] = String(spec).split("=");
     const row = field("chues").children
-      .find((r) => parts(r, "clab")[0].textContent === key);
+      .find((r) => parts(r, "cview").length
+                && parts(r, "clab")[0].textContent === key);
     if (!row) throw new Error(`no hue row for ${key}`);
     const f = parts(row, "cview")[0];
     f.value = hue || "";
@@ -2126,10 +2121,14 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     servedCapture: captureLine, capturing: captureAsked,
     // Which saved view the composer is standing on.
     cwhich: field("cwhich").value,
-    // Which theme the hue fields describe, and what they hold, `KEY=HUE' each.
-    chue: field("chue").value,
-    chues: field("chues").children.map((r) =>
-      `${parts(r, "clab")[0].textContent}=${parts(r, "cview")[0].value}`),
+    // What the hue fields hold, `KEY=HUE' each.  The heading naming the theme
+    // they describe leads the box and carries no field, so it is skipped here
+    // and read as `chuefor'.
+    chues: field("chues").children
+      .filter((r) => parts(r, "cview").length)
+      .map((r) => `${parts(r, "clab")[0].textContent}=${parts(r, "cview")[0].value}`),
+    chuefor: (field("chues").children.find((r) => !parts(r, "cview").length)
+                || { textContent: "" }).textContent,
     servedHues: stateHues,
     ctpl: field("ctpl").value,
     ceff: field("ceff").textContent, configWrites,

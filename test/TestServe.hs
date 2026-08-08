@@ -4525,15 +4525,26 @@ settingsSpec shell =
       "," "ctab:theme" $ \answer ->
         assertEqual "the theme panel" "theme" =<< textAt "ctab" answer
 
-    -- THE TREE'S STATE HUES are `system.org''s third tree-wide line, edited per
-    -- THEME: the selector above the fields says which theme is being coloured,
-    -- which is a different question from the reader's own theme preference
-    -- beside it.  A field per keyword of the tree's cycle, filled from the
+    -- TAB IS THE TAB KEY: it walks the panels and wraps, `S-TAB' walks back.
+  , keyed shell "TAB walks the panels and wraps"
+      "," "press:Tab" $ \answer ->
+        assertEqual "one on from general" "theme" =<< textAt "ctab" answer
+  , keyed shell "and S-TAB walks back, wrapping the other way"
+      "," "press:S-Tab" $ \answer ->
+        assertEqual "the last panel" "keywords" =<< textAt "ctab" answer
+  , keyed shell "three presses come home"
+      "," "press:Tab press:Tab press:Tab" $ \answer ->
+        assertEqual "general again" "general" =<< textAt "ctab" answer
+
+    -- THE TREE'S STATE HUES are `system.org''s third tree-wide line, edited
+    -- under THE THEME ON SCREEN: there is ONE theme control, so which theme is
+    -- being coloured is DERIVED from the reader's own pick rather than asked a
+    -- second time.  A field per keyword of the tree's cycle, filled from the
     -- answer and posted flat.
-  , keyed shell "the hue fields are the tree's cycle under the picked theme"
+  , keyed shell "the hue fields are the tree's cycle under the theme on screen"
       "," "ctab:theme" $ \answer -> do
-        assertEqual "the first theme the build carries" "light"
-          =<< textAt "chue" answer
+        assertEqual "and they say which theme that is" "state colours · light"
+          =<< textAt "chuefor" answer
         assertEqual "a field per keyword, empty where the tree names no hue"
                     ["TODO=", "DONE="] =<< textsAt "chues" answer
 
@@ -4548,13 +4559,28 @@ settingsSpec shell =
         assertEqual "and the server holds it now" 1 . length
           =<< listAt "servedHues" answer
 
-  , keyed shell "each theme keeps its own hues, and switching asks nothing"
-      "," "ctab:theme chues:TODO=#7B1FA2 chue:dark chues:TODO=#C792EA chue:light"
+    -- PICKING A THEME MOVES THE FIELDS WITH THE PAGE.  Storage stays per theme
+    -- because readability is — a hue that reads on white is unreadable on
+    -- black — so each theme's edits stand while the other is on screen.
+  , keyed shell "each theme keeps its own hues, and picking one asks nothing"
+      "," "ctab:theme chues:TODO=#7B1FA2 theme:dark chues:TODO=#C792EA theme:light"
       $ \answer -> do
-        assertEqual "the light hue came back" ["TODO=#7B1FA2", "DONE="]
+        assertEqual "back on light, its own hue" ["TODO=#7B1FA2", "DONE="]
           =<< textsAt "chues" answer
-        assertEqual "and nothing was written on the way" ([] :: [Value])
+        assertEqual "and the heading follows the pick" "state colours · light"
+          =<< textAt "chuefor" answer
+        assertEqual "nothing was written on the way" ([] :: [Value])
           =<< listAt "configWrites" answer
+
+  , keyed shell "and both themes ride the one write"
+      "," "ctab:theme chues:TODO=#7B1FA2 theme:dark chues:TODO=#C792EA press:Escape"
+      $ \answer -> do
+        writes <- listAt "configWrites" answer
+        assertEqual "one write, for the system layer" 1 (length writes)
+        assertEqual "carrying a line's worth for each theme"
+                    [["light", "TODO", "#7B1FA2"], ["dark", "TODO", "#C792EA"]]
+          =<< (traverse (\h -> traverse (`textAt` h) ["theme", "keyword", "hue"])
+                 =<< listAt "colors" (head writes))
 
   , keyed shell "an untouched hue panel rides no write"
       "," "ctab:theme press:Escape" $ \answer ->

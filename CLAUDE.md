@@ -1652,20 +1652,24 @@ measurements and the history of superseded designs live in
   under a running page is what the next press applies.
 - Settings sheet = `,` (`customize`) and it is TABS: `SECTIONS` still owns the
   names and the order, and draws a strip of buttons over one pane at a time.
-  A hidden panel is out of the flow, so its fields leave the tab order with it
-  and native tabbing walks exactly what is on screen; the tabs are BUTTONS, so
-  that same tabbing reaches them, and the horizontal arrows walk the strip
-  through `keyName` like every other listener. THREE panels: GENERAL (the saved
+  A hidden panel is out of the flow, so its fields leave the tab order with it.
+  TAB IS THE TAB KEY — it walks the panels and wraps, `S-TAB` walks back, and
+  the newly shown panel's first control takes the focus — through the sheet's
+  own listener, registered ahead of the dispatch and claiming nothing while the
+  sheet is shut or a momentary popup stands over it. The horizontal arrows walk
+  the strip while a tab button holds the focus. THREE panels: GENERAL (the saved
   view composer with its `#cwhich`, the capture target, the log height), THEME
   (the reader's `auto`/`light`/`dark` preference, and the TREE's own state hues)
   and KEYWORDS (the layer select, its two boxes, the union and its note).
-- THE THEME PANEL ASKS TWO QUESTIONS and keeps them apart: `#themesel` is the
-  READER's theme, a `localStorage` preference that applies as it is picked, and
-  `#chue` is which theme is being COLOURED, a `system.org` line. Under it one
-  field per keyword of the tree's own cycle, empty meaning the theme's own hue.
-  The model is `hues` = `{theme: {keyword: hue}}` on the SYSTEM layer beside its
-  other tree-wide lines, so it is `cmoved` and posted the way they are; the
-  fields are a VIEW of `hues[hat]`, so switching themes asks the server nothing.
+- ONE THEME CONTROL, and the hues follow it. `#themesel` is the whole of the
+  reader's choice; WHICH theme the state hues describe is DERIVED from it
+  (`hueTheme`, `auto` resolving through the media query the boot line reads), so
+  picking a theme moves the page and these rows together. The STORAGE stays per
+  theme because readability is — a hue that reads on white is unreadable on
+  black — so each theme's edits stand while the other is on screen and both ride
+  one write. The model is `hues` = `{theme: {keyword: hue}}` on the SYSTEM layer
+  beside its other tree-wide lines, so it is `cmoved` and posted the way they
+  are; the rows are a VIEW of `hues[hueTheme()]`.
   The wire carries them FLAT — one `{theme, keyword, hue}` entry each — in both
   directions, so nothing iterates keys to read back what it wrote, and
   `stateColorsEdits` renders one line per theme where `stateColorsOf` reads
