@@ -119,6 +119,46 @@ measurements and the history of superseded designs live in
   the key, `(eq t VALUE)` so `{}` is false. `blobs … carrying no id` is the
   instrument on itself, which keeps `records without blobs` from reading as
   index lag.
+- A REPEAT IS A `set-state`, and org's own condition is both halves: the named
+  keyword is an INACTIVE one (the entry is being closed) AND a planning stamp
+  carries a repeater. Either alone is a plain state change. `Query.repeatOn`
+  composes ONE edit set — each repeating `SCHEDULED:`/`DEADLINE:` stamp moved
+  on, the keyword reset to the row's chain's first ACTIVE word (`keywordSources`
+  flattened, so the reset is the palette's own first entry; a chain declaring
+  none takes the keyword off) — which `applyEdits` accepts because the spans are
+  disjoint. ONE write, ONE digest, ONE event. `CLOSED:` is never shifted: org
+  repeats a plan rather than a record of one.
+- ALL THREE COOKIES, and they differ only in where the count starts: `+N` adds
+  one interval to the STAMP, so an entry three weeks overdue lands one week on
+  and stays overdue; `++N` adds intervals until the stamp is past today; `.+N`
+  is today plus one. `repeatDay` is that rule and `addUnit` the calendar
+  arithmetic; a zero-width interval takes the `+N` arm, since the `++` loop over
+  one would not end. KNOWN NAMING TRAP: `TimestampRepeaterType`'s constructors
+  read as org's opposites for two of three — `Restart` is the UNPREFIXED `+`,
+  which org calls cumulate, and `Cumulative` is `.+`, which org calls restart.
+  `typeChar` pins each to its character, so the parse is right and the names are
+  the hazard.
+- THE SHIFT IS TEXTUAL: `rewriteDates` moves the `YYYY-MM-DD` runs and respells
+  each weekday behind its own date, so the time of day, the warning cookie, the
+  repeater and a range's second half are the author's bytes. Re-rendering from
+  `Timestamp` would spell them this library's way, which is `TextShow`'s job and
+  lossy. Both halves of a range move; `.+` maps every date to today plus one.
+- THE LEDGER IS DERIVED, NEVER TRUTH. `<root>/.org-glance/meta/COMPLETIONS.jsonl`
+  takes one `{"id","at","state","shifted"}` line per repeat —
+  `EXTERNAL.jsonl`'s shape one file over, the same `openFd` append for the same
+  reason, keyed by `ORG_GLANCE_ID` since an ordinal names a different row a week
+  on. Delete it and every entry is byte-identical with only the history gone.
+  STORE-LEVEL and off the SERVED root, so a tree with no `.org-glance` repeats
+  org-natively and records nothing — no daemon makes a store directory it was
+  not given. INCOMPLETE BY CONSTRUCTION: Emacs's `org-todo` writes org's own
+  LOGBOOK and no line here, and there is no join.
+- `Asked` is what a request resolved before any row was touched — the day, and
+  `set-planning`'s rendered stamp — read from one clock and handed to every row
+  function, `ConfigParts`' reason: the next request-level value joins the record
+  rather than widening ten signatures. `csNotes` is the command table's fourth
+  field, so WHICH commands record something is data beside WHAT they edit; only
+  `set-state` carries one, and the line rides `writeSpans`' success branch where
+  `noteExternalWrite` already sits.
 - The drift FIX is a one-file contract: every successful write to a BLOB
   (`isBlob` — `data.org` in the canonical store) appends `{"id","at"}` to
   `meta/EXTERNAL.jsonl` — the blob's FIRST headline's `ORG_GLANCE_ID`, no id no
