@@ -1095,8 +1095,7 @@
     const LINK_LIGHT = "#30739B";
     const LINK_DARK = "#7CC9F8";
     const css = `
-/* Both palettes are danneskjold-theme's, mapped role for role from
-   /home/akatovda/sync/stuff/danneskjold-theme/danneskjold-theme.el — its
+/* Both palettes are the author's Emacs theme, mapped role for role from its
    default faces for dark, its light-* block for light. Three values are
    lightness-only adjustments where the theme's own colour missed a contrast
    floor in this context, the hue held: light muted #7F8C8D -> #667071 (3.5:1
@@ -3950,6 +3949,21 @@
           .map((s) => s.split(":")[0].toLowerCase());
         const offer = (text, dim) =>
           out.push({ text, count: -1, full: true, dim: !!dim });
+        // THE ORDER IN FORCE LEADS AN EMPTY `sort:'.  Row one is what Enter
+        // takes, so a reader who typed the key and nothing else gets the chain
+        // the table is ALREADY in -- canonical arrow form, the same string the
+        // chip door writes -- and edits it from there: a segment off with
+        // backspace, another on with `->'. Without it the reader had to spell a
+        // chain the view could have told them, which is the one thing an
+        // autocomplete is for. Only with nothing typed and nothing chained: past
+        // either, they are picking a column.
+        if (!p && !chained.length && state.sortKeys.length)
+          // NOT `full': accepting it leaves the caret at the end of the chain
+          // with the list still open, so the reader edits from there — a
+          // segment off with backspace, another on with `->' — rather than
+          // having the view they already had applied back at them.
+          out.push({ text: sortToken(state.sortKeys).slice(SORT_KEY.length + 1),
+                     count: -1, full: false, dim: false });
         for (const c of columns()) {
           if (out.length >= AC_MAX) break;
           if (c.sortable !== true) continue;

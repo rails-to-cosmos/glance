@@ -12,7 +12,7 @@
 4. [X] "q" in popups should close the popup. "q" in native window should exit the app (if user is on the main page).
 5. [X] material: when updating TODO state from empty state it doesn't visually update in material view. — fixed by the stale-reload drop (df93761 line); verified live and pinned by a regression case.
 6. [ ] Big one: let's work on a proposal for recurring tasks. We need to take inspiration from org-clock, but implement it differently from the storage perspective.
-7. [ ] UX: if current sorting is specified, when user does "/" → "sort:" → RET, this should autocomplete to the current sorting value. Then user could DEL some parts or add (via → or ,).
+7. [X] UX: if current sorting is specified, when user does "/" → "sort:" → RET, this should autocomplete to the current sorting value. Then user could DEL some parts or add (via → or ,).
 8. [ ] UX refactor: each reusable widget in a separate file.
 9. [ ] material: headline inconsistency. Main headline supports state modification, tag modification, but underlying headlines don't. Here we need a deep dive to make the semantics truly recursive. Maybe treat child headlines as a "reference" with type "child_of"? Need to think about it in a separate proposal.
 10. [ ] capture: if user calls capture from table with enabled tag filter, set this tag to capture headline template by default (if not specified in capture template itself).

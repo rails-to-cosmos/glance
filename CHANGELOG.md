@@ -489,6 +489,12 @@ section groups a feature arc, and its date is that arc's last commit.
   paragraph, table-line and deletion commit the same way.
 
 ### Added
+- **`sort:` completes to the order in force.** Typing the key and nothing else
+  now offers the chain the table is ALREADY in, in canonical arrow form, as the
+  first row — so RET fills it in rather than leaving the reader to spell an
+  order the view could have told them. It does not commit: the caret lands at
+  the end of the chain with the list still open, which is where a segment comes
+  off with backspace or another goes on with `->`.
 - **`q` closes a browsing popup, and quits the native window from the table.**
   Over the link and tags popups it is DEL's rung under another key — dired's
   own — through the same door ESC reaches; the state palette keeps its letters,
