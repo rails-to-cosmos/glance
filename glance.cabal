@@ -21,6 +21,7 @@ extra-source-files:
     test/fixtures/*.js
     test/fixtures/*.json
     test/fixtures/assets/*.js
+    test/fixtures/assets/glue/*.js
     test/fixtures/broken/*.org
     test/fixtures/subtree/*.org
     test/fixtures/view/*.org

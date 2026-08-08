@@ -1228,8 +1228,26 @@ assetSource opts name = case soAssets opts of
   Nothing  -> pure (if name == rendererAsset then Just (Right embeddedRenderer)
                     else if name == glueAsset then Just (Right embeddedGlue)
                     else Nothing)
+  -- THE SHELL IS ITS PARTS in a served directory too, read per request so an
+  -- edit shows up on a reload: one source, `gluePartFiles`' order, and the same
+  -- concatenation the splice makes — a whole `glue.js` in a dev directory would
+  -- be a second copy to keep in step.
+  Just dir | name == glueAsset -> devGlue dir
   Just dir -> let path = dir </> name
               in (\ok -> if ok then Just (Left path) else Nothing) <$> doesFileExist path
+
+-- | DIR's shell: its PARTS joined where it carries a @glue\/@ directory, else a
+-- whole @glue.js@ sitting in it.  Both shapes because a dev directory is
+-- whatever a dev put there — the repo's own is parts, a copied-out one is a
+-- file — and the page names one script either way.  Read per request, so an
+-- edit shows up on a reload.
+devGlue :: FilePath -> IO (Maybe (Either FilePath BS.ByteString))
+devGlue dir = do
+  parts <- filterM doesFileExist [ dir </> "glue" </> p | p <- gluePartFiles ]
+  if null parts
+    then let whole = dir </> glueAsset
+         in (\ok -> if ok then Just (Left whole) else Nothing) <$> doesFileExist whole
+    else Just . Right . BS.concat <$> mapM BS.readFile parts
 
 -- | An asset out of 'assetSource', or a 404 naming what was looked for.  Under
 -- @--assets@ only files directly in that directory are reachable — one segment,

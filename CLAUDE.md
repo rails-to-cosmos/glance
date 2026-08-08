@@ -825,9 +825,16 @@ measurements and the history of superseded designs live in
   — the script has no wrapper, every top-level name is a script-scope binding —
   so the join is plain concatenation, `tsc` resolves across the parts by
   listing them all, and the split was proven byte-identical against the file it
-  came from. `assets/glue.js` stays as that concatenation because `--assets DIR`
-  serves `DIR/glue.js`; `make glue` remakes it and `TestSelfContained` asserts
-  the two agree, so two copies of one script cannot drift.
+  came from. THE PARTS ARE THE ONLY SOURCE — no whole `glue.js` in the repo, so
+  there is no second copy to keep in step, and `TestSelfContained` asserts both
+  directions (every part the build names is on disk, nothing on disk is
+  unread). `--assets DIR` takes either shape: `DIR/glue/` joined per request, a
+  whole `DIR/glue.js` otherwise.
+- COMMENTS EARN THEIR LINE. The shell runs ~6% comments, down from 49%: the
+  code is meant to read without them, and every rule they used to restate is
+  written here or in `docs/invariants.md`, where one copy can be kept true. A
+  comment survives where the code cannot say it — an ordering constraint, a
+  browser quirk, a hazard, a cross-reference — or where `tsc` reads it.
 - `make check-glue` READS THE SHELL, which it did not until 2026-08-08: `checkJs`
   without `allowJs` excludes every `.js` from the program, so tsc was type-checking
   the five-line `glue.d.ts` and reporting clean. `files:` rather than `include:`

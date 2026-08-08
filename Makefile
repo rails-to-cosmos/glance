@@ -1,4 +1,4 @@
-.PHONY: test native sync-renderer run run-native run-wasm wasm-spike check-glue glue
+.PHONY: test native sync-renderer run run-native run-wasm wasm-spike check-glue
 
 # The run targets' knobs: .env carries them (committed, edit to taste), and
 # the ?= pair means a missing .env still runs against the defaults.
@@ -88,14 +88,7 @@ run-wasm:
 	    "$$(. $$HOME/.ghc-wasm/env && wasm32-wasi-cabal list-bin --project-file=cabal.project.wasm glance-wasm-probe)" /tree; \
 	fi
 
-# The shell's own checker, table-view's discipline over assets/glue.js
-# The shell is one widget per file under assets/glue/; assets/glue.js is their
-# concatenation, kept because `--assets DIR' serves DIR/glue.js and a dev
-# hacking on a served directory wants the whole script there.  TestServe asserts
-# the two agree, so this is how you make them.
-glue:
-	@python3 -c "import pathlib; parts = sorted(pathlib.Path('assets/glue').glob('*.js')); pathlib.Path('assets/glue.js').write_text(''.join(p.read_text() for p in parts)); print('glue: %d parts -> assets/glue.js' % len(parts))"
-
+# The shell's own checker, table-view's discipline over assets/glue/*.js
 # (docs/proposal-glue-extraction.md): tsc --checkJs under assets/jsconfig.json.
 # Zero errors is the standing state; a finding here is a finding.
 check-glue:

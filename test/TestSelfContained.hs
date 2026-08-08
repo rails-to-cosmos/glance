@@ -19,7 +19,7 @@
 module TestSelfContained (spec) where
 
 import Control.Monad (filterM)
-import Data.List (isPrefixOf)
+import Data.List (isPrefixOf, (\\))
 import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
 import System.FilePath (takeExtension, (</>))
 import Test.Tasty (TestTree, testGroup)
@@ -42,21 +42,17 @@ spec = testGroup "Self-containment"
       hits <- concat <$> mapM homePaths files
       assertEqual "sources naming an absolute home directory" [] hits
 
-    -- THE SPLIT IS BYTE-PROVABLE, and this is the proof kept running.  The
-    -- shell is one widget per file and the build concatenates the parts in the
-    -- order `gluePartFiles' declares; `assets/glue.js' is that concatenation,
-    -- committed because `--assets DIR' serves `DIR/glue.js' and a dev hacking
-    -- on a served directory wants the whole script there.  Two copies of one
-    -- script is a drift hazard, so the agreement is asserted rather than
-    -- remembered: `make glue' is how you make them agree.
-  , testCase "the shell's parts concatenate to the file that is served" $ do
-      parts <- mapM (TIO.readFile . ("assets/glue" </>)) gluePartFiles
-      whole <- TIO.readFile "assets/glue.js"
+    -- ONE SOURCE FOR THE SHELL.  The parts are what the build reads and what a
+    -- served directory concatenates, so a whole `glue.js' beside them would be
+    -- a second copy to keep in step.
+  , testCase "the shell's parts are the whole of the shell" $ do
       assertBool "the part list is empty" (length gluePartFiles >= 2)
-      assertEqual "assets/glue.js is stale — run `make glue'"
-                  (T.length whole) (sum (map T.length parts))
-      assertEqual "the parts do not spell the served script"
-                  whole (T.concat parts)
+      missing <- filterM (fmap not . doesFileExist . ("assets/glue" </>)) gluePartFiles
+      assertEqual "parts the build names and the repo lacks" [] missing
+      found <- filter ((== ".js") . takeExtension) <$> listDirectory "assets/glue"
+      assertEqual "a part on disk the build never reads" [] (found \\ gluePartFiles)
+      stray <- doesFileExist "assets/glue.js"
+      assertBool "assets/glue.js is back — the parts are the source" (not stray)
 
     -- A vendored file with no way to refresh it is a fork, so the loop that
     -- ends in `assets/table-view.js' has to stay written down somewhere the

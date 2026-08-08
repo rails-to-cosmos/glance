@@ -51,6 +51,7 @@ import Glance.Query ( QueryResult (qrRecords), builtinFilter
                     , viewJSON )
 import Glance.Web ( ServeOptions (..), application, bannerLines, bootstrapWanted
                   , defaultPort, viewTitleFor )
+import Glance.Web.Base (gluePartFiles)
 import Glance.Web.Theme (Theme (..), themes)
 import Glance.Web.Store ( Hub, applyFile, finishLoading, loadStore, newHub
                        , newLoadingHub, publish )
@@ -443,7 +444,7 @@ spec :: TestTree
 -- read one universe, so the fixture restores exactly that universe — the
 -- served page with the embedded asset's bytes behind it.
 spec = withResource ((<>) <$> (body <$> get assetsDir "/")
-                          <*> (stripGlueComments <$> TIO.readFile "assets/glue.js"))
+                          <*> (stripGlueComments <$> glueSource))
                     (const (pure ())) $ \shell ->
   testGroup "Serve"
     [ headlineSpec, bannerSpec, statsSpec, cacheSpec, gzipSpec, querySpec
@@ -10923,7 +10924,11 @@ stripGlueComments =
 glueOf :: T.Text -> IO T.Text
 glueOf shell = do
   assertBool "the page names glue.js" ("src=\"glue.js\"" `T.isInfixOf` shell)
-  stripGlueComments <$> TIO.readFile "assets/glue.js"
+  stripGlueComments <$> glueSource
+
+-- | The shell as the build reads it: the parts, in `gluePartFiles`' order.
+glueSource :: IO T.Text
+glueSource = T.concat <$> mapM (TIO.readFile . ("assets/glue" </>)) gluePartFiles
 
 -- | The configuration blob the glue boots from, as served: the JSON between
 -- the cfg script tags, which the node boots hand to the harness beside the
