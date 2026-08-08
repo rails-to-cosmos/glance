@@ -4448,7 +4448,8 @@ settingsSpec shell =
   testGroup "Shell settings"
   [ atBoot settings ", opens it over the layers the server serves" $ \answer -> do
         assertEqual "the sheet is up" "on" =<< textAt "settings" answer
-        assertEqual "the first layer's lines, verbatim" "" =<< textAt "cshown" answer
+        assertEqual "the first layer's lines, verbatim" "#+TODO: TODO | DONE"
+          =<< textAt "cshown" answer
         assertEqual "the union is previewed" "TODO | DONE" =<< textAt "ceff" answer
         assertEqual "and it opens synced" "synced" =<< textAt "cstate" answer
         assertEqual "with nothing written" ([] :: [Value]) =<< listAt "configWrites" answer
@@ -4541,48 +4542,67 @@ settingsSpec shell =
     -- being coloured is DERIVED from the reader's own pick rather than asked a
     -- second time.  A field per keyword of the tree's cycle, filled from the
     -- answer and posted flat.
-  , keyed shell "the hue fields are the tree's cycle under the theme on screen"
+    -- IT IS A TABLE-VIEW MOUNT, the page's FIFTH and its second mutable one:
+    -- `tag | state | group | colour', one row per keyword the tree knows, by
+    -- LAYER and then in that layer's own cycle order.  A keyword no config
+    -- layer declares is listed under the tag `file' — the tree recognizes it
+    -- and this sheet cannot move it, so it is here to be COLOURED.
+  , keyed shell "the states table is every keyword the tree knows, by layer"
       "," "ctab:theme" $ \answer -> do
-        assertEqual "and they say which theme that is" "state colours · light"
-          =<< textAt "chuefor" answer
-        assertEqual "a field per keyword, empty where the tree names no hue"
-                    ["TODO=", "DONE="] =<< textsAt "chues" answer
+        assertEqual "one mount for it" 1 =<< intAt "smounts" answer
+        -- System first then the tags alphabetically — the layer select's own
+        -- order — and inside a layer its `#+TODO:' line left to right, actives
+        -- before the done-like.  A word TWO layers declare is TWO rows: a state
+        -- belongs to a file, and `d' on one leaves the other standing.
+        assertEqual "every layer's cycle, in its own order" ["system|TODO|active|", "system|DONE|inactive|"
+                    , "tag:book|TODO|active|", "tag:book|READING|active|"
+                    , "tag:book|READ|inactive|", "tag:film|WATCHING|active|"
+                    , "tag:film|WATCHED|inactive|"]
+          =<< textsAt "chues" answer
 
-  , keyed shell "a typed hue rides the system layer's own write"
-      "," "ctab:theme chues:TODO=#7B1FA2 press:Escape" $ \answer -> do
+    -- RET OPENS A ROW into the property panel's own overlay one surface over,
+    -- and a commit moves the MODEL.  A colour is the TREE's, so it lands in
+    -- `system.org''s own line whatever layer the state belongs to.
+  , keyed shell "RET edits a state's colour, and it rides the system write"
+      "," "ctab:theme sat:TODO press:Enter sfields://#7B1FA2 press:Enter press:Escape"
+      $ \answer -> do
         writes <- listAt "configWrites" answer
         assertEqual "one write, for the system layer" 1 (length writes)
         assertEqual "carrying the one hue, flat"
                     [["light", "TODO", "#7B1FA2"]]
           =<< (traverse (\h -> traverse (`textAt` h) ["theme", "keyword", "hue"])
                  =<< listAt "colors" (head writes))
-        assertEqual "and the server holds it now" 1 . length
-          =<< listAt "servedHues" answer
 
-    -- PICKING A THEME MOVES THE FIELDS WITH THE PAGE.  Storage stays per theme
-    -- because readability is — a hue that reads on white is unreadable on
-    -- black — so each theme's edits stand while the other is on screen.
-  , keyed shell "each theme keeps its own hues, and picking one asks nothing"
-      "," "ctab:theme chues:TODO=#7B1FA2 theme:dark chues:TODO=#C792EA theme:light"
+  , keyed shell "and the colour column follows the theme on screen"
+      "," "ctab:theme sat:TODO press:Enter sfields://#7B1FA2 press:Enter theme:dark"
       $ \answer -> do
-        assertEqual "back on light, its own hue" ["TODO=#7B1FA2", "DONE="]
+        assertEqual "dark names no hue of its own yet" ["system|TODO|active|", "system|DONE|inactive|"
+                    , "tag:book|TODO|active|", "tag:book|READING|active|"
+                    , "tag:book|READ|inactive|", "tag:film|WATCHING|active|"
+                    , "tag:film|WATCHED|inactive|"]
           =<< textsAt "chues" answer
-        assertEqual "and the heading follows the pick" "state colours · light"
-          =<< textAt "chuefor" answer
-        assertEqual "nothing was written on the way" ([] :: [Value])
+        assertEqual "and nothing was written on the way" ([] :: [Value])
           =<< listAt "configWrites" answer
 
-  , keyed shell "and both themes ride the one write"
-      "," "ctab:theme chues:TODO=#7B1FA2 theme:dark chues:TODO=#C792EA press:Escape"
+    -- `+' ADDS A STATE to the layer the cursor stands in, and the write is that
+    -- layer's own `#+TODO:' line.
+  , keyed shell "+ adds a state to its layer's cycle"
+      "," "ctab:theme sat:TODO press:+ sfields:WAITING/active/ press:Enter press:Escape"
       $ \answer -> do
         writes <- listAt "configWrites" answer
         assertEqual "one write, for the system layer" 1 (length writes)
-        assertEqual "carrying a line's worth for each theme"
-                    [["light", "TODO", "#7B1FA2"], ["dark", "TODO", "#C792EA"]]
-          =<< (traverse (\h -> traverse (`textAt` h) ["theme", "keyword", "hue"])
-                 =<< listAt "colors" (head writes))
+        assertEqual "the cycle carries it now"
+                    ["#+TODO: TODO WAITING | DONE"] =<< textsAt "lines" (head writes)
 
-  , keyed shell "an untouched hue panel rides no write"
+    -- AND `d' TWICE TAKES ONE OUT, dired's gesture over the renderer's flags.
+  , keyed shell "dd removes a state from its layer's cycle"
+      "," "ctab:theme sat:TODO press:d press:d press:Escape" $ \answer -> do
+        writes <- listAt "configWrites" answer
+        assertEqual "one write, for the system layer" 1 (length writes)
+        assertEqual "the cycle is short one keyword"
+                    ["#+TODO:  | DONE"] =<< textsAt "lines" (head writes)
+
+  , keyed shell "an untouched states table rides no write"
       "," "ctab:theme press:Escape" $ \answer ->
         assertEqual "pristine, so nothing went" ([] :: [Value])
           =<< listAt "configWrites" answer
@@ -4951,7 +4971,8 @@ settingsSpec shell =
     -- A refusal describes a WRITE, so an edit taken back takes its refusal with
     -- it: the layer matches the file again and there is nothing left to explain.
   , keyed shell "reverting an edit drops the refusal it earned"
-      "," "ctext:#+TODO:_A_|_B cmoved press:C-x press:C-s ctext: press:C-x press:C-s" $
+      "," "ctext:#+TODO:_A_|_B cmoved press:C-x press:C-s\
+           \ crevert press:C-x press:C-s" $
         \answer -> do
           assertEqual "one write, the refused one" 1 . length
             =<< listAt "configWrites" answer
@@ -6381,8 +6402,8 @@ shellGlue =
       , "#mptable .tv-root,#ltable .tv-root,#ttable .tv-root{flex:1;min-width:0;"
       -- The open row's fields sit OVER the row, since the mount rewrites its own
       -- rows as it scrolls, and they land on the text they replace.
-      , "#dtitle,#dpara,#pedit,#tedit,#ledit{display:none;position:absolute;"
-      , "#pedit input,#tedit input,#ledit input,#dpara textarea{"
+      , "#dtitle,#dpara,#pedit,#sedit,#tedit,#ledit{display:none;position:absolute;"
+      , "#pedit input,#sedit input,#tedit input,#ledit input,#dpara textarea{"
       -- A planning row's key is org's rather than the author's, and says so.
       , "#pkey[readonly]{color:var(--g-mute)}"
       -- ONE FOCUS LANGUAGE: whichever pane holds the keys wears the accent on
@@ -6961,7 +6982,7 @@ shellGlue =
   -- everywhere else.  All of them in the one block, which is where every rule
   -- a touch device gets lives — the panes stacking there included.
   , glue "a coarse pointer gets fields iOS will not zoom into"
-      [ "#mtext,#pinput,#dtin,#pedit input,#tedit input,#ledit input,"
+      [ "#mtext,#pinput,#dtin,#pedit input,#sedit input,#tedit input,#ledit input,"
       , "#dpara textarea,"
       , ".ctext,.cview{font-size:16px}}", "font:12px/1.5 var(--dk-mono)"
       , "#mpanes{flex-direction:column}" ]

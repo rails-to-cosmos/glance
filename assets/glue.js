@@ -3889,11 +3889,20 @@
     // names and the order, the markup owns what is under them, and they join by
     // id.  A `parts' id the markup does not carry throws here, at boot, which is
     // where a join like that should fail.
+    // A PANEL DECLARES ITS OWN ARRIVAL.  `enter' is what the panel needs doing
+    // when it comes on screen, so no caller indexes this list by number: two
+    // editors write one layer's cycle now, and each is a VIEW that has to be
+    // filled from the model on the way in.
     const SECTIONS = [
       { title: "general", parts: ["cgen"] },
-      { title: "theme", parts: ["ctheme"] },
-      { title: "keywords", parts: ["clayers", "ceff", "cfoot"] },
+      { title: "theme", parts: ["ctheme"],
+        enter: () => { if (srows.length) repaintStates(null); } },
+      { title: "keywords", parts: ["clayers", "ceff", "cfoot"],
+        enter: () => { if (crows[cat]) showLayer(cat); } },
     ];
+    // WHICH panel is on screen, by name — the one question every guard outside
+    // this block asks, so none of them counts panels.
+    const showing = (title) => (SECTIONS[ctab] || {}).title === title;
     // ONE PANEL AT A TIME, named by its tab: the sheet grew past the height a
     // stacked column can hold, and a panel out of the flow takes its fields out
     // of the tab order with it — so native tabbing still walks exactly what is
@@ -3907,14 +3916,14 @@
     });
     const ctabels = SECTIONS.map((s, i) => {
       const b = part(ctabs, "button", "ctab", s.title);
-      b.addEventListener("click", () => showTab(i));
+      b.addEventListener("click", () => pickTab(i));
       b.addEventListener("keydown", (e) => {
         const k = keyName(e);
         const step = k === "<right>" ? 1 : k === "<left>" ? -1 : 0;
         if (!step) return;
         e.preventDefault();
         const at = (i + step + SECTIONS.length) % SECTIONS.length;
-        showTab(at);
+        pickTab(at);
         ctabels[at].focus();
       });
       return b;
@@ -3925,6 +3934,16 @@
       cpanes.forEach((p, k) => { p.className = k === i ? "csec on" : "csec"; });
       ctabels.forEach((t, k) => { t.className = k === i ? "ctab on" : "ctab"; });
     }
+    // PICKING one is the boot's `showTab' plus the model: the box being left is
+    // read back before it goes and the panel arriving is filled from the model,
+    // so an edit made in either editor of a cycle is what the other opens on.
+    // The boot calls `showTab' alone — the sheet's own state is a hundred lines
+    // below this and untouchable from here.
+    function pickTab(i) {
+      takeLayer();
+      showTab(i);
+      if (SECTIONS[i].enter) SECTIONS[i].enter();
+    }
     // TAB IS THE TAB KEY: it walks the panels, wrapping, and `S-TAB' walks back
     // — the sheet is a set of panels and this is the key that says so.  The new
     // panel's FIRST control takes the focus, so a reader lands where they can
@@ -3932,7 +3951,7 @@
     // registered ahead of the dispatch like the other modal ones and claiming
     // nothing while the sheet is shut or a momentary popup stands over it.
     function stepTab(step) {
-      showTab((ctab + step + SECTIONS.length) % SECTIONS.length);
+      pickTab((ctab + step + SECTIONS.length) % SECTIONS.length);
       const first = cpanes[ctab].querySelector("input, select, textarea");
       if (first) first.focus(); else ctabels[ctab].focus();
     }
@@ -4049,15 +4068,67 @@
     // is the composer's rule and the layer boxes', so switching themes asks the
     // server nothing and loses no edit.  A keyword with an empty field carries
     // no hue and drops out of the write.
-    let hues = {}, huesBase = "", hkeys = [];
+    let hues = {}, huesBase = "", srows = [], sseq = 0, smount = null;
+    // THE STATES TABLE'S COLUMNS.  `tag' names the layer a state BELONGS to,
+    // which is the file `+' and `d' write; `colour' is the tree's and rides
+    // `system.org' whatever the tag says.
+    const SCOLS = [ { key: "tag", header: "Tag" }
+                  , { key: "state", header: "State" }
+                  , { key: "group", header: "Group" }
+                  , { key: "colour", header: "Colour" } ];
+    // BY LAYER, THEN CYCLE ORDER: a layer's own `#+TODO:' line left to right,
+    // actives before the bar and done-like after, which is the order every
+    // other reader of a cycle uses.  `crows' is already system-first then tags
+    // alphabetically, so the walk inherits it.  FILE-declared keywords come
+    // last, under the tag `file': the tree recognizes them and this sheet
+    // cannot move them, so they are listed to be COLOURED and refuse the rest.
     function drawHues(b, kw) {
       hues = {};
       for (const c of b.colors || []) {
         (hues[c.theme] = hues[c.theme] || {})[c.keyword] = c.hue;
       }
       huesBase = JSON.stringify(hues);
-      hkeys = (kw.active || []).concat(kw.inactive || []);
-      showHues();
+      srows = []; sseq = 0;
+      const owned = new Set();
+      crows.forEach((r) => {
+        ["active", "inactive"].forEach((group) => {
+          (r.kw[group] || []).forEach((state) => {
+            owned.add(state);
+            srows.push({ id: `S${sseq++}`, layer: r, state, group, fixed: false });
+          });
+        });
+      });
+      // The store's palette is wider than the layers: what is left over is a
+      // plain file's own `#+TODO:', which no config layer owns.
+      (kw.active || []).concat(kw.inactive || []).forEach((state) => {
+        if (owned.has(state)) return;
+        owned.add(state);
+        srows.push({ id: `S${sseq++}`, layer: null,
+                     state, group: (kw.inactive || []).includes(state)
+                                     ? "inactive" : "active", fixed: true });
+      });
+      repaintStates(srows.length ? srows[0].id : null);
+    }
+    // The mount, made once and handed back — the property panel's rule, and for
+    // its reason: a mount per open would leave a theme listener behind each time.
+    function statesMounted() {
+      if (smount) return smount;
+      smount = mountOnce("cstates", SCOLS, {
+        palette: true, flags: true, actionHints: false,
+        flagHelp: "d/D remove · u unflag",
+      }, "cstates");
+      return smount;
+    }
+    const stateLabel = (r) => (r.layer ? layerName(r.layer) : "file");
+    const srowsOf = () => srows.map((r) => ({
+      id: r.id,
+      cells: { tag: stateLabel(r), state: r.state, group: r.group,
+               colour: (hues[hueTheme()] || {})[r.state] || "" },
+    }));
+    function repaintStates(at) {
+      const m = statesMounted();
+      m.setRows(srowsOf());
+      if (at) m.select(at);
     }
     // WHICH THEME IS BEING COLOURED is the one on screen, so there is no second
     // selector: `auto' resolves through the media query, the way the boot line
@@ -4069,28 +4140,123 @@
       return matchMedia && matchMedia("(prefers-color-scheme:dark)").matches
         ? "dark" : "light";
     };
-    // The fields for the theme on show, rebuilt rather than reused: a tree's
-    // cycle moves under a config write and the theme moves under a keystroke,
-    // so the row set is the answer's and the values are that theme's.
-    function showHues() {
-      const box = el("chues");
-      box.textContent = "";
-      if (!hkeys.length) return;
-      const hat = hueTheme(), held = hues[hat] || {};
-      part(box, "div", "clab", `state colours · ${hat}`);
-      hkeys.forEach((k) => {
-        const row = part(box, "div", "crow");
-        part(row, "div", "clab", k);
-        const f = part(row, "input", "cview");
-        f.value = held[k] || "";
-        f.placeholder = "the theme's own";
-        f.addEventListener("input", () => {
-          const at = (hues[hat] = hues[hat] || {});
-          if (f.value.trim()) at[k] = f.value.trim();
-          else delete at[k];
-        });
-      });
+    // The colour column is the theme on screen's, so a theme pick is a repaint.
+    const showHues = () => { if (srows.length) repaintStates(null); };
+    // Where the cursor is, in the model's terms — the renderer's answer decides
+    // and this page keeps no copy, the property panel's rule.
+    const satAt = () => srows.findIndex((r) => r.id === selectedId(smount));
+    // THE EDIT OVERLAY, the property panel's mechanism one surface over: three
+    // fields, TAB hopping them, RET committing into the MODEL and re-setting the
+    // mount, ESC cancelling through `cancel'.  A FILE row's name and group are
+    // read-only — no config layer owns them — and its colour is not, since a
+    // hue is the tree's.
+    const SROW = {
+      box: "sedit", pane: "cstates", fields: ["sname", "sgroup", "shue"],
+      mount: () => smount,
+      fill: (r) => {
+        el("sname").value = r.state;
+        el("sgroup").value = r.group;
+        el("shue").value = (hues[hueTheme()] || {})[r.state] || "";
+        el("sname").readOnly = r.fixed;
+        el("sgroup").readOnly = r.fixed;
+      },
+      focus: (r) => (r.fixed || r.state ? el("shue") : el("sname")).focus(),
+    };
+    const sediting = () => !!edit && edit.o === SROW;
+    // A state's name and group are its LAYER's and its colour is the TREE's, so
+    // a commit can move two files; both leave in the one flush.
+    function commitState() {
+      const r = edit.row, was = r.state;
+      if (!r.fixed) {
+        const name = el("sname").value.trim();
+        const group = el("sgroup").value.trim().toLowerCase() === "inactive"
+                        ? "inactive" : "active";
+        // Out of its old side, into the one named, at the end — a cycle's order
+        // is the line's, so a state joins where a reader would type it.
+        r.layer.kw.active = r.layer.kw.active.filter((k) => k !== was);
+        r.layer.kw.inactive = r.layer.kw.inactive.filter((k) => k !== was);
+        r.state = name; r.group = group;
+        if (name) r.layer.kw[group].push(name);
+        writeCycle(r.layer);
+      }
+      // The hue follows the NAME: renaming a state carries its colour over,
+      // since the pragma is keyed by the word.
+      const at = (hues[hueTheme()] = hues[hueTheme()] || {});
+      const hue = el("shue").value.trim();
+      delete at[was];
+      if (hue && r.state) at[r.state] = hue;
+      shutEdit(SROW);
+      repaintStates(r.id);
     }
+    // `+' ADDS A STATE, into the layer the cursor stands in — a new state
+    // belongs to a file, and the row under point is the only thing here that
+    // names one.  A tree with no config layer at all has nowhere to put it.
+    function addState() {
+      const at = satAt();
+      const host = (at !== -1 && srows[at].layer) || crows.find((r) => !r.tag);
+      if (!host) { append("config", "warn", "no config layer to add a state to"); return; }
+      const r = { id: `S${sseq++}`, layer: host, state: "", group: "active",
+                  fixed: false };
+      srows.splice(at === -1 ? srows.length : at + 1, 0, r);
+      repaintStates(r.id);
+      openEdit(SROW, r);
+    }
+    // AND `d'/`D' TAKE A STATE OUT of its layer's line.  A FILE row STANDS: the
+    // keyword is a plain org file's own and nothing this sheet writes reaches
+    // it, so the take says which and leaves the row where it is.
+    function sdelete(ids, how) {
+      const gone = new Set(ids);
+      const named = srows.filter((r) => gone.has(r.id));
+      const stuck = named.filter((r) => r.fixed);
+      for (const r of named) {
+        if (r.fixed) continue;
+        r.layer.kw.active = r.layer.kw.active.filter((k) => k !== r.state);
+        r.layer.kw.inactive = r.layer.kw.inactive.filter((k) => k !== r.state);
+        writeCycle(r.layer);
+      }
+      srows = srows.filter((r) => r.fixed || !gone.has(r.id));
+      repaintStates(null);
+      const held = stuck.map((r) => r.state).join(", ");
+      echo(`D → org-todo-remove-state (${how(ids.length - stuck.length)}`
+             + `${held ? ` · ${held} is a file's own` : ""})`);
+    }
+    // The states table's phrases, and its cursor as an ID.
+    const SFLAGS = {
+      mount: () => smount, take: sdelete, note: unlogged,
+      walk: () => stepIn(smount, 1),
+      missing: "this table-view.js has no delete flags",
+      none: "org-todo-remove-state (no row)",
+      unflag: "delete-unflag (flag cleared)",
+      flag: "delete-flag (d again removes)",
+      at: () => { const i = satAt(); return i === -1 ? null : srows[i].id; },
+    };
+    // ITS KEYS, a listener of its own behind the sheet's: it claims nothing
+    // unless the theme panel is on screen with the table in it, and falls
+    // through on every key it does not take.  `RET' opens the row, `+' adds one,
+    // `d'/`D'/`u' are dired's gesture through the shape above, and movement is
+    // the renderer's own step.
+    document.addEventListener("keydown", (e) => {
+      if (!settings || momentary() || !smount || !showing("theme")) return;
+      const k = keyName(e);
+      // The overlay's own keys: TAB hops its three fields, RET commits into the
+      // model, and ESC is the keymap's — `cancel' walks `SURFACES' to the rung
+      // this shape registered.
+      if (sediting()) {
+        if (k === "TAB" || k === "S-TAB") { e.preventDefault(); hop(); }
+        else if (k === "RET" && !repeating(e)) { e.preventDefault(); commitState(); }
+        return;
+      }
+      if (k === "RET") {
+        const at = satAt();
+        if (at !== -1) { e.preventDefault(); openEdit(SROW, srows[at]); }
+        return;
+      }
+      if (k === "+") { e.preventDefault(); addState(); return; }
+      if (flagPress(k, e, SFLAGS)) { e.preventDefault(); return; }
+      const step = k === "n" || k === "j" || k === "<down>" ? 1
+                 : k === "p" || k === "k" || k === "<up>" ? -1 : 0;
+      if (step) { e.preventDefault(); stepIn(smount, step); }
+    });
     // The model as the wire spells it: the flat `{theme, keyword, hue}' list the
     // answer serves, so one shape crosses in both directions.
     const hueList = () =>
@@ -4114,7 +4280,22 @@
       // costs no request and loses no edit.
       tpl: layer.template || "", tplBase: layer.template || "",
       cap: null, capBase: null,
+      // The same lines PARSED, which the server hands over so this page needs
+      // no org grammar to read a cycle.  The states table is a VIEW of this;
+      // `writeCycle' renders it back into `text', which is what the flush sends.
+      kw: { active: ((layer.keywords || {}).active || []).slice(),
+            inactive: ((layer.keywords || {}).inactive || []).slice() },
     });
+    // A layer's cycle as its one `#+TODO:' line.  A layer spelling it over two
+    // lines comes back spelling it over one, which is what the server's own
+    // splice does anyway.  The empty cycle writes NO line, which is how a layer
+    // is taken off.
+    function writeCycle(r) {
+      const act = r.kw.active, done = r.kw.inactive;
+      r.text = act.length || done.length
+        ? `#+TODO: ${act.join(" ")}${done.length ? ` | ${done.join(" ")}` : ""}`
+        : "";
+    }
     // SYSTEM FIRST, then the tags in their own alphabet.  The server's order is
     // the walk's, which is where the directories turned up; a reader looking for
     // one tag among forty wants the list they would guess at.  Two system layers
@@ -4128,8 +4309,14 @@
     // The box is a VIEW of one layer, so the box's text goes back to the layer
     // it came from before anything else reads or replaces it.  Every door does
     // this first: a switch, a dirty check, a flush.
+    // ONLY WHILE THE BOXES ARE ON SCREEN.  The keywords panel's two boxes are a
+    // VIEW of the layer, and so is the states table one tab over — both write
+    // the same `text'.  A copy-back from a box the reader cannot see would
+    // stamp the stale text over whatever the table just wrote, so the box is
+    // read only while its own panel is showing and `showLayer' refills it on
+    // the way in.
     function takeLayer() {
-      if (!crows[cat]) return;
+      if (!crows[cat] || !showing("keywords")) return;
       crows[cat].text = el("ctext").value;
       crows[cat].tpl = el("ctpl").value;
     }
@@ -4778,7 +4965,10 @@
       // makes `typing()' see it — an omitted surface leaves every `table' row
       // live underneath, `d' among them, and a click on this sheet's own chrome
       // blurs the field the focus branch was catching it by.
-      { name: "config", up: () => settings },
+      // Its own rung is the states table's open edit: ESC there restores the row
+      // and leaves the sheet standing, exactly as the panel's does one surface up.
+      { name: "config", up: () => settings, edit: sediting,
+        shut: () => shutEdit(SROW) },
     ];
     // WHICH momentary is up, and there is at most one.  Read off the list, so a
     // fourth is one entry and every reader has it at once.

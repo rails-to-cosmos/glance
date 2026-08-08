@@ -200,7 +200,16 @@ demoShell opts font colours views =
   -- is what `#+GLANCE_STATE_COLORS:' is keyed by theme for — and which theme is
   -- being written is DERIVED from the applied one rather than picked a second
   -- time.  The rows are filled by the glue off the tree's own cycle.
-  , "      <div id=\"chues\" class=\"cpart\"></div>"
+  -- THE STATES TABLE, the page's FIFTH table-view mount and the second MUTABLE
+  -- one: `tag | state | group | colour', one row per keyword the tree knows.
+  -- A state belongs to a config LAYER and rides that layer's own write; a
+  -- COLOUR is tree-wide and rides `system.org''s, so one row can move two files
+  -- and both leave in the one flush.  `#sedit' is its edit overlay, the
+  -- property panel's own mechanism one surface over.
+  , "      <div id=\"chues\" class=\"cpart\"><div id=\"cstates\"></div>"
+      <> "<div id=\"sedit\"><input id=\"sname\" spellcheck=\"false\">"
+      <> "<input id=\"sgroup\" spellcheck=\"false\">"
+      <> "<input id=\"shue\" spellcheck=\"false\"></div></div>"
   , "      </div>"
   -- KEYWORDS: ONE LAYER AT A TIME.  A tree has as many config files as it has
   -- tags, and a stack of boxes made the panel as tall as that number — the

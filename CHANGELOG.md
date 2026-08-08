@@ -504,12 +504,16 @@ section groups a feature arc, and its date is that arc's last commit.
 - **The settings sheet is tabbed, and a tree colours its own states.** General,
   theme and keywords are one panel at a time. `TAB` walks the panels and wraps,
   `S-TAB` walks back, and the new panel's first control takes the focus. The
-  theme tab grows the other half of `#+GLANCE_STATE_COLORS:`: one field per
-  keyword of the tree's own cycle, under **the theme on screen** — there is one
-  theme control, so picking a theme moves the page and these rows together.
-  Empty is the theme's own hue. Storage stays per theme because readability is,
-  and both themes' edits ride `system.org`'s one drift-locked write with the
-  views and the capture target.
+  theme tab grows a **states table** — `tag | state | group | colour`, one row
+  per keyword the tree knows, by layer and then in each layer's own cycle
+  order. `RET` edits a row, `+` adds a state to its layer, `d`/`dd`/`D` remove
+  one, `u` unflags: dired's gesture, the same one the property panel has. Every
+  config layer is editable, system and per-tag alike, so a state belongs to a
+  file and rides that file's write; a colour is tree-wide and rides
+  `system.org`'s, and one row can move two files in the one flush. Colours are
+  under **the theme on screen** — there is one theme control now — and stay
+  stored per theme because readability is. A keyword only a plain org file
+  declares is listed under the tag `file`, colour-editable and refusing removal.
 - **The agenda is a view the tree configures.** `a` used to apply a query this
   page spelled; it now reads `system.org`'s `#+GLANCE_AGENDA_FILTER:` line, the
   default view's own rule one entry over — filter, order and columns in one

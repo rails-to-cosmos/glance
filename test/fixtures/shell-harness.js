@@ -329,13 +329,23 @@ let refusing = false;
 // the directories turned up — and the sheet's is system first and then the tags
 // in their own alphabet, so a fixture already in order could not tell the two
 // apart.
+// `keywords' is the same lines PARSED, which the server serves beside them so
+// the states table reads structure where the keywords box reads text.  Canned
+// here like the lines, and kept in step with them by hand — the point of a
+// fixture is to be an independent statement of what an answer looks like.
 let layers = [
-  { path: "/o/.org-glance/config/system.org", tag: null, lines: [],
+  { path: "/o/.org-glance/config/system.org", tag: null,
+    lines: ["#+TODO: TODO | DONE"],
+    keywords: { active: ["TODO"], inactive: ["DONE"] },
     template: "", digest: "" },
   { path: "/o/.org-glance/config/tags/film.org", tag: "film",
-    lines: ["#+TODO: WATCHING | WATCHED"], template: "", digest: "f1" },
+    lines: ["#+TODO: WATCHING | WATCHED"],
+    keywords: { active: ["WATCHING"], inactive: ["WATCHED"] },
+    template: "", digest: "f1" },
   { path: "/o/.org-glance/config/tags/book.org", tag: "book",
-    lines: ["#+TODO: TODO READING | READ"], template: "* %?", digest: "c1" },
+    lines: ["#+TODO: TODO READING | READ"],
+    keywords: { active: ["TODO", "READING"], inactive: ["READ"] },
+    template: "* %?", digest: "c1" },
 ];
 const configWrites = [];
 let configTick = 1;
@@ -558,6 +568,14 @@ globalThis.fetch = (url, init) => {
       return answer(409, { reason: "drift", digest: (layer || {}).digest || "",
                            error: "the config file changed on disk since it was read" });
     layer.lines = (sent.lines || []).filter(Boolean);
+    // The server re-parses what it wrote, so the fixture does too: one line,
+    // actives before the bar and done-like after.
+    if (sent.lines !== undefined) {
+      const body = (layer.lines[0] || "").replace(/^#\+TODO:/, "");
+      const [act, done] = body.split("|");
+      const words = (t) => String(t || "").split(/\s+/).filter(Boolean);
+      layer.keywords = { active: words(act), inactive: words(done) };
+    }
     // The saved views and the capture target are lines of the same file, so
     // they ride in one write under one digest — never a second request, which
     // a second digest would refuse anyway.  Each view is named on its own, so
@@ -964,12 +982,14 @@ globalThis.TableView = {
   mount: (host, view, options) => {
     const panel = host === field("mptable"), popup = host === field("ltable");
     const tagbox = host === field("ttable"), maker = host === field("cfbox");
+    const states = host === field("cstates");
     const inst = makeMount(host, view, options,
-                           panel || popup || tagbox || maker ? [] : null);
+                           panel || popup || tagbox || maker || states ? [] : null);
     if (panel) { pmounts += 1; pan = inst; }
     else if (popup) { lmounts += 1; lnk = inst; }
     else if (tagbox) { tmounts += 1; tgs = inst; }
     else if (maker) { cmounts += 1; cmp = inst; }
+    else if (states) { smounts += 1; sts = inst; }
     else { mounts += 1; main = inst; paints.push(((view || {}).rows || []).length); }
     if (markless) strip(inst.handle, MARK_CALLS);
     if (pagerless) strip(inst.handle, PAGE_CALLS);
@@ -1004,9 +1024,11 @@ const SORT_CALLS = ["sortBy", "sortPromote", "getSort", "setSort"];
 const CRUMB_CALLS = ["setCrumbs", "getCrumbs", "pushCrumb", "popCrumb"];
 const strip = (h, names) => { for (const name of names) delete h[name]; };
 let cmp = null, cmounts = 0;
+/** And the settings sheet's states table, its fifth mount. */
+let sts = null, smounts = 0;
 /** An older asset is one asset: every mount loses the calls it never had. */
 const stripLive = (names) => {
-  for (const inst of [main, pan, lnk, tgs]) if (inst) strip(inst.handle, names);
+  for (const inst of [main, pan, lnk, tgs, sts]) if (inst) strip(inst.handle, names);
 };
 // The one thing a key here does that leaves nothing on the page: the tab `o'
 // opens.  Recorded whole — the target, the tab name and the features — since
@@ -1197,7 +1219,9 @@ const STATEFUL = [ "mtext", "mnote", "mfile", "modal", "mprops", "mlog", "sheet"
                  , "clog", "clayer", "ctext", "ctpl", "clab", "clerr"
                  // Which saved view the composer is standing on: a select the
                  // page fills off the server's own list, like the layer one.
-                 , "cwhich", "ctabs", "chues"
+                 , "cwhich", "ctabs", "chues", "cstates"
+                 // The states table's edit overlay and its three fields.
+                 , "sedit", "sname", "sgroup", "shue"
                  // The event strip: a line per entry, each a row of spans, so it
                  // has to hold a tree rather than answer "" to everything.
                  , "log"
@@ -1362,6 +1386,11 @@ const typeLink = (which, text) => {
  * An open row is not in it: the overlay holds the edit and the model holds the
  * committed text, which is what makes a commit the only thing that means yes.
  */
+/** The keywords panel on screen, which is where its controls are typeable. */
+const onKeywords = () => {
+  const tab = field("ctabs").children.find((t) => t.textContent === "keywords");
+  if (tab && tab.className !== "ctab on") tab.fire("click", {});
+};
 const cellsOf = (inst, keys) =>
   (inst ? inst.own.map((r) => keys.map((k) => r.cells[k])) : []);
 /** Which row wears INST's cursor, and -1 when there is no such mount yet — or
@@ -1760,7 +1789,18 @@ const ACTIONS = {
   // And into the settings sheet: `ctext:#+TODO:_A_|_B' is the keywords panel's
   // one box, holding the SELECTED layer's `#+TODO:' lines as the sheet edits
   // them.  Which layer that is comes off `clayer' below.
-  ctext: (text) => typeSetting("ctext", text),
+  ctext: (text) => (onKeywords(), typeSetting("ctext", text)),
+  // TAKING AN EDIT BACK: the layer's own lines typed in again, which is what a
+  // reader does and what the acts cannot spell — an act splits on spaces and a
+  // `#+TODO:' line is mostly spaces.
+  crevert: () => {
+    onKeywords();
+    const at = Number(field("clayer").value) || 0;
+    const shown = layers.slice()
+      .sort((a, b) => (a.tag === null ? 0 : 1) - (b.tag === null ? 0 : 1)
+                   || String(a.tag).localeCompare(String(b.tag)))[at];
+    typed(field("ctext"), (shown.lines || []).join("\n"));
+  },
   // Picking a layer, the way a reader picks one: the select takes the focus, the
   // value moves, and the change event fires.  What it is here to show is that
   // the box under it swaps and an edit in the layer being left is still there on
@@ -1768,12 +1808,16 @@ const ACTIONS = {
   clayer: (at) => {
     if (field("config").className !== "on")
       throw new Error("the settings sheet is not open: clayer");
+    onKeywords();
     const box = field("clayer");
     box.focus();
     box.value = String(at);
     box.fire("change", { target: box });
   },
-  // Picking the settings TAB, the way a reader clicks one.
+  // THE KEYWORDS PANEL, brought on screen where an act needs it there.  A box
+  // is only typeable while its own tab shows — the page reads a box back only
+  // then, since two editors write one cycle now — so an act naming that panel's
+  // controls says so rather than every case spelling the tab press.
   ctab: (name) => {
     if (field("config").className !== "on")
       throw new Error("the settings sheet is not open: ctab");
@@ -1781,16 +1825,20 @@ const ACTIONS = {
     if (!tab) throw new Error(`no settings tab called ${name}`);
     tab.fire("click", {});
   },
-  // And typing a hue for one keyword: `chues:TODO=#123456'.
-  chues: (spec) => {
-    const [key, hue] = String(spec).split("=");
-    const row = field("chues").children
-      .find((r) => parts(r, "cview").length
-                && parts(r, "clab")[0].textContent === key);
-    if (!row) throw new Error(`no hue row for ${key}`);
-    const f = parts(row, "cview")[0];
-    f.value = hue || "";
-    f.fire("input", { target: f });
+  // Landing the states table's cursor on the row for one keyword.
+  sat: (state) => {
+    if (!sts) throw new Error("the states table is not mounted: sat");
+    const row = sts.own.find((r) => r.cells.state === state);
+    if (!row) throw new Error(`no state row for ${state}`);
+    sts.handle.select(row.id);
+  },
+  // And what the open edit overlay's three fields hold: `sfields:NAME/GROUP/HUE'
+  // — an empty part leaves that field as it was.
+  sfields: (spec) => {
+    const [name, group, hue] = String(spec).split("/");
+    if (name !== undefined && name !== "") field("sname").value = name;
+    if (group !== undefined && group !== "") field("sgroup").value = group;
+    if (hue !== undefined && hue !== "") field("shue").value = hue;
   },
   // Picking WHICH saved view the composer stands on, the same way: the value
   // moves and the change fires, and what it shows is that the box swaps and an
@@ -2121,14 +2169,14 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     servedCapture: captureLine, capturing: captureAsked,
     // Which saved view the composer is standing on.
     cwhich: field("cwhich").value,
-    // What the hue fields hold, `KEY=HUE' each.  The heading naming the theme
-    // they describe leads the box and carries no field, so it is skipped here
-    // and read as `chuefor'.
-    chues: field("chues").children
-      .filter((r) => parts(r, "cview").length)
-      .map((r) => `${parts(r, "clab")[0].textContent}=${parts(r, "cview")[0].value}`),
-    chuefor: (field("chues").children.find((r) => !parts(r, "cview").length)
-                || { textContent: "" }).textContent,
+    // The states table: one `TAG|STATE|GROUP|COLOUR' per row, in the order the
+    // mount holds them, plus how many times it was mounted and where its
+    // cursor is.
+    chues: cellsOf(sts, ["tag", "state", "group", "colour"]).map((c) => c.join("|")),
+    smounts, sat: curOf(sts),
+    // The states table's edit overlay, and what its three fields hold.
+    sedit: field("sedit").className,
+    sfields: [field("sname").value, field("sgroup").value, field("shue").value],
     servedHues: stateHues,
     ctpl: field("ctpl").value,
     ceff: field("ceff").textContent, configWrites,

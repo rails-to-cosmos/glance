@@ -389,7 +389,7 @@ page head' colours title body = T.unlines
   -- over the rows and the page's four bands stay four.  All four overlays share
   -- every declaration but geometry: `#dtitle' covers the title text alone,
   -- `#tedit' the tag cell, `#ledit' the title and url cells together.
-  , "  #dtitle,#dpara,#pedit,#tedit,#ledit{display:none;position:absolute;"
+  , "  #dtitle,#dpara,#pedit,#sedit,#tedit,#ledit{display:none;position:absolute;"
   , "    background:var(--g-sel)}"
     -- THE GROUND IS THE ONLY SIGNAL, so it has to be one the block is not
     -- wearing.  `#dpara' opens over the DOCUMENT CURSOR's block, already
@@ -400,7 +400,11 @@ page head' colours title body = T.unlines
     -- the edit it is.
   , "  #dpara,#dtitle{background:var(--g-surface)}"
   , "  #dtitle{min-width:8em}"
-  , "  #pedit{left:0;right:0}"
+  , "  #pedit,#sedit{left:0;right:0}"
+  -- The states table scrolls inside the panel, and its overlay is placed off a
+  -- row the mount rewrites as it scrolls, exactly as the property panel is.
+  , "  #chues{position:relative}"
+  , "  #cstates{overflow:auto;max-height:40vh}"
       -- THE DOCUMENT'S OVERLAYS SPAN THE PANE'S CONTENT BOX.  `left:0' is the
       -- PADDING box, so over a pane with a horizontal padding the box lands that
       -- far left of the text it covers and every line of the block jumps when
@@ -408,12 +412,12 @@ page head' colours title body = T.unlines
       -- `#pedit' keeps the bare zero: `#mprops' has no padding to answer for.
       -- `#dtitle' is placed by the glue on both axes, so it is not here.
   , "  #dpara{left:var(--g-doc-padx);right:var(--g-doc-padx)}"
-  , "  #dtitle.on,#pedit.on,#tedit.on,#ledit.on{display:flex;align-items:center}"
+  , "  #dtitle.on,#pedit.on,#sedit.on,#tedit.on,#ledit.on{display:flex;align-items:center}"
   , "  #dpara.on{display:flex}"
       -- The mount's own cell metrics, so the fields land on the text they
       -- replace: `.tv-table td' is `5px 12px' at the root's 13px/1.5, and a
       -- coarse pointer stretches the row rather than the padding.
-  , "  #pedit input,#tedit input,#ledit input,#dpara textarea{"
+  , "  #pedit input,#sedit input,#tedit input,#ledit input,#dpara textarea{"
   , "    font:13px/1.5 var(--dk-mono);"
   , "    padding:5px 12px;border:none;border-bottom:1px solid transparent;"
   , "    background:transparent;color:var(--g-fg);min-width:0}"
@@ -437,13 +441,13 @@ page head' colours title body = T.unlines
   , "  #dpara textarea{flex:1;resize:none;border:none;margin:0;font:inherit;"
   , "    width:100%;overflow-wrap:anywhere;padding:1px var(--g-doc-pad);"
   , "    padding-left:calc(var(--g-doc-pad) + var(--g-doc-indent, 2) * 1ch)}"
-  , "  #pedit input:focus,#tedit input:focus,"
+  , "  #pedit input:focus,#sedit input:focus,#tedit input:focus,"
   , "  #ledit input:focus{outline:none;border-bottom-color:var(--g-border)}"
       -- No line on focus either: a border under the box is a second signal, and
       -- a LINE is the one thing a document read as text must not grow.  The
       -- title input is document text, so it follows the paragraph.
   , "  #dpara textarea:focus,#dtin:focus{outline:none;border:none}"
-  , "  #dtin::selection,#pedit input::selection,#tedit input::selection,"
+  , "  #dtin::selection,#pedit input::selection,#sedit input::selection,\n      #tedit input::selection,"
   , "  #ledit input::selection,#dpara textarea::selection{"
   , "    background:var(--g-sel);color:var(--g-fg)}"
   , "  #tname{flex:1 1 auto}"
@@ -668,7 +672,7 @@ page head' colours title body = T.unlines
   , "    #app .tv-chips:empty::after{content:\"filter …\";color:var(--g-mute);"
   , "      font-size:12px}"
   , "    #mpanes{flex-direction:column}"
-  , "    #mtext,#pinput,#dtin,#pedit input,#tedit input,#ledit input,"
+  , "    #mtext,#pinput,#dtin,#pedit input,#sedit input,#tedit input,#ledit input,"
   , "    #dpara textarea,#ktag,#kfields input,#ktext,"
   , "    .ctext,.cview{font-size:16px}}"
   , "</style>"

@@ -75,7 +75,7 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , ownBodyLines, sortedForViewWith
                     , subtreeEntries, subtreeEntryAt, subtreeLinks
                     , subtreeText, systemSetting, tagsOfCell
-                    , templatePrompts, titleSpan
+                    , templatePrompts, titleSpan, todoPragmas
                     , resolveColumns, savedViews, stateColorsOf, todoLines, viewColumns
                     , viewJSONTextFor, viewOf )
 import Glance.Web.Base ( ServeOptions (..), answerWrite, bodyObject, configMoved
@@ -941,6 +941,10 @@ layerJSON f = object
   [ "path"     .= lfPath f
   , "tag"      .= lfTag f
   , "lines"    .= todoLines (lfText f)
+  -- The same lines PARSED, so a client editing the cycle as a table reads
+  -- structure where one editing it as text reads the lines.  The grammar stays
+  -- here: this page has no org parser and must not grow one.
+  , "keywords" .= keywordsJSON (todoPragmas (lfText f))
   , "template" .= fromMaybe "" (captureTemplateOf (lfText f))
   , "digest"   .= lfDigest f
   ]

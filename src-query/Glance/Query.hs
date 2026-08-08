@@ -151,6 +151,7 @@ module Glance.Query ( BlobSeed (..)
                     , tagsOfCell
                     , templatePrompts
                     , todoLines
+                    , todoPragmas
                     , uuidFrom
                     , viewJSON
                     , ViewColumn

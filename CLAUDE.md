@@ -1661,6 +1661,26 @@ measurements and the history of superseded designs live in
   view composer with its `#cwhich`, the capture target, the log height), THEME
   (the reader's `auto`/`light`/`dark` preference, and the TREE's own state hues)
   and KEYWORDS (the layer select, its two boxes, the union and its note).
+- THE STATES TABLE is the theme panel's own mount, the page's FIFTH and its
+  second MUTABLE one: `tag | state | group | colour`, one row per keyword the
+  tree knows. BY LAYER, THEN CYCLE ORDER — `crows`' own order (system first,
+  then the tags alphabetically) and inside a layer its `#+TODO:` line left to
+  right, actives before the done-like. A word two layers declare is TWO rows: a
+  state belongs to a FILE. `RET` opens the row into `#sedit` (the property
+  panel's `openEdit` mechanism, three fields, `TAB` hopping), `+` adds a state
+  to the layer the cursor stands in, and `d`/`dd`/`D`/`u` are dired's gesture
+  through `flagKey`'s fifth surface. A STATE RIDES ITS LAYER'S WRITE and a
+  COLOUR rides `system.org`'s, so one row can move two files and both leave in
+  the one flush. A keyword no config layer declares is listed under the tag
+  `file` — the tree recognizes it and this sheet cannot move it, so it is there
+  to be COLOURED and `d` says so and leaves it standing.
+- TWO EDITORS, ONE CYCLE: the states table and the keywords panel's box both
+  write a layer's `text`, and each is a VIEW. So `takeLayer` reads the box only
+  while its own panel is `showing("keywords")`, and a panel fills itself from
+  the model on arrival — `SECTIONS` entries declare an `enter` hook and NO
+  caller indexes that list by number. The page renders the one `#+TODO:` line
+  (`writeCycle`); reading a cycle stays the server's, which serves each layer's
+  `keywords` beside its `lines`.
 - ONE THEME CONTROL, and the hues follow it. `#themesel` is the whole of the
   reader's choice; WHICH theme the state hues describe is DERIVED from it
   (`hueTheme`, `auto` resolving through the media query the boot line reads), so
