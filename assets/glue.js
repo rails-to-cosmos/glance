@@ -1,82 +1,53 @@
-// The shell's inline script, and the whole of what the page does: boot,
-// socket, key dispatch, sheets and palettes.
+// The shell's script, and the whole of what the page does: boot, socket, key
+// dispatch, sheets and palettes.  Vanilla JS with no framework, build step or
+// dependency, and shrinking it beats adding to it (docs/invariants.md).
 //
-// Inline so the shell has exactly one asset to find.  Vanilla JS with no
-// framework, build step or dependency, and shrinking it beats adding to it
-// (docs/invariants.md).
-//
-// The shell's <script> element, WANTED being the tree's default view.
-//
-// The boot is two @/headlines@ fetches: 100 rows so the table paints without
+// THE BOOT is two /headlines fetches: 100 rows so the table paints without
 // waiting on the store, then the rest behind it.  The full local set keeps
-// @n@, @p@, sorting and materialize coherent, and the renderer virtualizes, so
-// 13k rows cost memory and no DOM.  The socket then opens @?bootstrap=off@,
-// the rows being already here.  A cold daemon answers the first fetch 503 while
-// it walks, and the boot renders that state — amber dot, @indexing …@ with the
-// body's elapsed seconds — and asks again a second later.
+// movement, sorting and materialize coherent, and the renderer virtualizes.
+// The socket then opens ?bootstrap=off.  A cold daemon answers 503 while it
+// walks, and the boot renders that state and asks again.
 //
-// Filtering is the server's: @onFilter@ hands over the debounced query, the
-// shell asks @/headlines?q=@ for it exactly as typed ('Glance.Web.Filter' owns
-// the grammar), and the answer replaces the rows.  One fetch is in flight at a
-// time and a new one aborts the last.  Under a filter a row frame off the socket
-// is answered by re-asking rather than by splicing, only the server knowing
-// whether the changed row still matches.  Every view swaps ON ITS ANSWER: the
-// table up stands until the new rows are in hand, then goes in one mount, and a
-// re-application asks for the whole answer rather than a page.  While the answer
-// is out — or the socket gone — one class on the document element fades the
-// table and every overlay over it, leaving them readable; each half arms on a
-// delay, and the event strip and key line are exempt, being where a reader finds
-// out why.
+// FILTERING IS THE SERVER'S: onFilter hands over the debounced query and the
+// answer replaces the rows.  One fetch in flight at a time, a new one aborting
+// the last.  Under a filter a row frame is answered by re-asking rather than
+// splicing, only the server knowing whether the row still matches.  Every view
+// swaps ON ITS ANSWER: the table up stands until the new rows are in hand.
+// While the answer is out — or the socket gone — one class fades the table and
+// every overlay, leaving them readable; the event strip and key line are exempt,
+// being where a reader finds out why.
 //
-// The filter overlay is summoned: the mount asks for @palette@, @/@ raises it
-// through @openFilter@, the renderer's one entry point, and its lifecycle past
-// that is the renderer's, so this page never reaches into that chrome.  A
-// coarse pointer has no @/@ to press — the one exception the keyboard-first
-// rule makes — so the chip row is 44px of tap target, labelled while empty,
-// summoning the same palette.  The applied query is page state, written to the
-// URL on every commit (@replaceState@, leaving @keys@) and restored through
-// @mount@'s @initialQuery@, so a filtered view is a link and a reconnect comes
-// back to it.  An EMPTY query is written as a @q@ present and empty: absent
-// means nobody has filtered this page and gets the default, present-and-empty a
-// reader who took the filter off and is left alone.  @DEL@ over the table is
-// that query's backspace — the last token, quotes and all.
+// The filter overlay is SUMMONED: `/' raises it through openFilter, the
+// renderer's one entry point, and its lifecycle past that is the renderer's.
+// The applied query is page state, written to the URL on every commit and
+// restored through mount's initialQuery, so a filtered view is a link.  An
+// EMPTY query is written as a `q' present and empty: absent means nobody has
+// filtered and gets the default, present-and-empty a reader left alone.
 //
-// The materialize sheet has no buttons: @ESC@ or the backdrop flushes a dirty
-// sheet and closes on the 200, a pristine one closes with no request, @C-x
-// C-s@ flushes mid-edit and chains the receipt's digest, a 409 keeps it open at
-// @conflict@ where @C-x C-s@ re-reads the digest and overwrites and @ESC@
-// discards, and a tab closing on a dirty sheet flushes with @keepalive@.  Two
-// panes over one subtree — textarea for the body, panel for the drawer, a row
-// of two fields per property with an empty row at the bottom that grows the
-// next — and the cut is the SERVER's, finding a drawer in org text being a
-// parser's job and this page holding no parser.  @C-c '@ swaps two-pane and raw
-// by re-materializing, refusing a dirty sheet.
+// THE MATERIALIZE SHEET HAS NO BUTTONS: ESC or the backdrop flushes a dirty
+// sheet and closes on the 200, C-x C-s flushes mid-edit, a 409 waits at
+// `conflict', and a tab closing on a dirty sheet flushes with keepalive.  Two
+// panes over one subtree, and the cut is the SERVER's — finding a drawer in org
+// text is a parser's job and this page holds no parser.
 //
-// Two keys write without a sheet: @D@ archives the FLAGGED set, else the row at
-// point, and @C-c C-t@ sets a state over the MARKED set, else the row at point.
-// A mark is the generic bulk selection and a flag is made for archiving, so the
-// destructive-looking key inherits nothing.  Both are @POST /command@
-// ('Glance.Web.Commands.runCommand'): the page sends ids and a name, the server
-// computes the spans (@edit-link@ excepted, its range having come out of @GET
-// /links@), the rows come back over the socket, and the drift lock is the
-// safety, so there is no confirmation step.
+// Keys that write without a sheet are POST /command: the page sends ids and a
+// name, the server computes the spans, the rows come back over the socket, and
+// the drift lock is the safety, so there is no confirmation step.  `D' takes
+// the FLAGGED set and `t' the MARKED one — a mark is the generic bulk
+// selection and a flag is made for archiving, so the destructive key inherits
+// nothing.
 //
-// A lost socket costs rows and only @view-changed@ costs the mount.  The
-// reconnect asks @/headlines@ for the applied query under the last tag: 304
-// keeps the rows, 200 replaces them in place, and either way the sheet, the
-// palette, the selection and the URL stand.  Columns are what a row op cannot
-// carry, so @view-changed@ remounts — and a daemon restarted while the page was
-// away had no socket to say so, so the reconnect compares fetched columns to
-// mounted ones and takes the same door.  Across a real remount an unsaved sheet
-// and a half-typed palette are stashed and restored, the sheet's digest re-read
-// rather than remembered.
+// A LOST SOCKET COSTS ROWS and only `view-changed' costs the mount.  The
+// reconnect asks /headlines for the applied query under the last tag: 304 keeps
+// the rows, 200 replaces them, and either way the sheet, the palette, the
+// selection and the URL stand.  Columns are what a row op cannot carry, so the
+// reconnect also compares them — a daemon restarted while the page was away had
+// no socket to say so.  Across a remount an unsaved sheet and a half-typed
+// palette are stashed and restored.
 //
-// The keys are 'Glance.Web.Keymap.keyBindingsJSON', which this parses.  Row
-// movement is the renderer's @selectStep@, which carries the column and crosses
-// a page boundary the shell is not told about; @[@ and @]@ turn a page.  The
-// column lives in the renderer's selection, so it rides along with row movement
-// and goes when the selection does.  The pill in the corner is the echo area:
-// the pending prefix, then the command and its help line.
+// The keys are Glance.Web.Keymap's, parsed from a blob.  Row movement is the
+// renderer's selectStep, which carries the column and crosses a page boundary
+// this page is not told about.  The pill in the corner is the echo area.
 
     // The strip is an APPEND-ONLY event log; nothing clears it, so what a reader
     // missed is still there to scroll back to.  A line is `HH:MM:SS SEV scope
@@ -691,34 +662,26 @@
     // flush on the way out, `conflict' and `error' waiting for a keystroke.
     const dirty = () => editing !== null
       && (raw ? el("mtext").value !== base : edited() !== baseProps);
-    // THE STRUCTURED DOCUMENT, the sheet's LEFT pane, standing where the textarea
-    // did.  A subtree's TEXT is a HEADLINE LINE with cells, body paragraphs and
-    // the children hanging under it, so the sheet draws those in file order and
-    // the cursor walks them; the drawer and the planning line stay the PANEL's
-    // beside it, being a list of records, and the renderer draws every list here.
+    // THE STRUCTURED DOCUMENT, the sheet's LEFT pane.  A subtree's TEXT is a
+    // HEADLINE LINE with cells, body paragraphs and the children under it, drawn
+    // in file order for the cursor to walk; the drawer and the planning line
+    // stay the PANEL's, being a list of records.
     //
     // FLOWING TEXT until the cursor lands: nothing is boxed, ruled or labelled
-    // while it is being read, the ELEMENT under point wears the page's own
-    // selection exactly as a table row does, and its parts show their names only
-    // while it is being worked on — so what a reader sees when they are not
-    // editing is the entry as org spells it.
+    // while it is being read, and the ELEMENT under point wears the page's own
+    // selection exactly as a table row does.
     //
-    // NO TABLE-VIEW MOUNT, the one place on the page with none.  The renderer's
-    // list widget draws a list of RECORDS — one column table over rows of one
-    // shape — where this is a list of KINDS, five of them sharing no columns, so
-    // a mount would need a column table fitting none of them and a per-row shape
-    // the renderer has no field for.
+    // NO TABLE-VIEW MOUNT, the one place on the page with none: the renderer's
+    // widget draws a list of RECORDS, one shape per row, where this is a list of
+    // KINDS sharing no columns.
     //
-    // MODEL AND VIEW.  `drows' is the model — one entry per element, each
-    // carrying what it HOLDS — and `drawDoc' is the whole of the view.  A commit
-    // moves the model, so an open edit is not a change and cannot be written:
-    // the fields hold the edit and the element holds the committed text.
+    // MODEL AND VIEW.  `drows' is the model, `drawDoc' the whole view.  A commit
+    // moves the model, so an open edit is not a change and cannot be written.
     //
-    // PER-ELEMENT COMMITS: every element in this pane writes on its own — a lens
-    // splice for a paragraph, a `/command' for the headline's own cells — each
-    // under the file's digest and each re-pinning it from the answer.  So nothing
-    // here is ever unsaved, and the sheet's dirty ladder is the PANEL's alone
-    // (and raw mode's), exactly as it was.
+    // PER-ELEMENT COMMITS: every element writes on its own — a lens splice for a
+    // paragraph, a `/command' for the headline's cells — each under the file's
+    // digest and each re-pinning it from the answer.  So nothing here is ever
+    // unsaved, and the sheet's dirty ladder is the PANEL's alone.
     const DCELLS = CFG.dcells;
     // The model, the cursor and the body's own lines.  GRAIN is reserved: the
     // cursor covers one ELEMENT today and the field is what a future
@@ -1118,29 +1081,20 @@
         row.scrollIntoView({ block: "nearest" });
     }
     // A headline line: the four cells side by side, the one under point marked.
-    // A CHILD is the same line indented by its own level, which says the outline
-    // hangs under this entry without drawing a tree.  The state cell takes its
-    // badge hue, so a keyword reads here as it reads in the table.
-    // THE STARS, ORG-CLEANED.  A headline line opens with its own stars, drawn
-    // the way `org-hide-leading-stars' with `org-startup-indented' draws them:
-    // every star but the LAST rendered as a space, so the root reads @* Title@,
-    // a child @ * Title@ and a grandchild @  * Title@.  The indentation IS the
-    // outline, which is why the child lines carry no padding of their own — org's
-    // own arrangement says the depth and a second one would say it twice.
+    // A CHILD is the same line indented by its own level.  The state cell takes
+    // its badge hue, so a keyword reads here as in the table.
     //
-    // DEPTH IS ORG-INDENT'S OWN ARITHMETIC: TWO spaces a level, so a child's
-    // star sits at column 2 — exactly the column the parent's BODY starts at —
-    // and its own title at 4.  The star is indented to the body level under it,
-    // which makes the outline and the text read as one grid rather than as a list
-    // beside a list.  And it is RELATIVE to the headline the sheet is standing
-    // on: materializing into a child makes THAT line the root, so it reads @* @
-    // and its own children read @  * @, which is what a reader looking at one
-    // entry expects and needs the focus's own level, which the server sends.
+    // THE STARS, ORG-CLEANED: every star but the LAST rendered as a space, the
+    // way `org-hide-leading-stars' with `org-startup-indented' draws them.  The
+    // indentation IS the outline, which is why child lines carry no padding of
+    // their own.  Depth is org-indent's arithmetic — TWO spaces a level, so a
+    // child's star sits at the column the parent's BODY starts at — and it is
+    // RELATIVE to the entry the sheet stands on, so materializing into a child
+    // makes THAT line the root.
     //
     // IT IS CHROME RATHER THAN A CELL: absent from `r.cells', so `f'/`b' walk
-    // straight past it and `dcol' is an index into the cells alone.  The hidden
-    // stars are SPACES, org's hide face reduced to its effect, so the only ink
-    // left in the prefix is the last star's and it is the page's own.
+    // past it and `dcol' indexes the cells alone.  The hidden stars are SPACES,
+    // so the only ink in the prefix is the last star's.
     const dstars = (level) =>
       " ".repeat(Math.max(0, 2 * (level - docLevel()))) + "* ";
     const docLevel = () => (editing && editing.level) || 1;
@@ -1852,35 +1806,28 @@
         .then((a) => { if (editing === h && landed(h, say)(a)) reload(); })
         .catch((e) => stuck(subtreeSheet, e.message));
     }
-    // The property panel is a table-view MOUNT, the sheet's RIGHT pane, beside
-    // the structured document.  The renderer is this page's list widget: a
-    // drawer is a list of RECORDS — a key and a value, one shape per row — so it
-    // draws the drawer, where the document beside it is a list of KINDS and is
-    // this page's own.  That buys no rows of its own to style, no cursor of its
-    // own to move and no second answer to what a flagged row looks like.
+    // The property panel is a table-view MOUNT, the sheet's RIGHT pane.  A
+    // drawer is a list of RECORDS — a key and a value, one shape per row — so
+    // the renderer draws it, where the document beside it is a list of KINDS.
+    // That buys no rows to style, no cursor to move and no second answer to what
+    // a flagged row looks like.
     //
-    // MODEL AND VIEW.  `prows' is the model — a key, a value, and whether org
-    // owns the key — and the mount is a view of it, re-set on every change.  A
-    // row HOLDS its COMMITTED text; the open row's two fields are the edit in
-    // progress and nothing else reads them, which makes a commit the only thing
-    // that can make the sheet dirty.  The cursor, the flags and the scrolling are
-    // the renderer's, so none of them is kept here.  It stays MODAL, dired's
-    // shape rather than a form's: in NAV nothing is focusable, leaving the plain
-    // letters free to be movement, and RET is what puts fields on screen.
+    // MODEL AND VIEW.  `prows' is the model and the mount a view of it, re-set
+    // on every change.  A row HOLDS its COMMITTED text; the open row's fields
+    // are the edit in progress, which makes a commit the only thing that can
+    // make the sheet dirty.  The cursor, the flags and the scrolling are the
+    // renderer's.  It stays MODAL, dired's shape rather than a form's: in NAV
+    // nothing is focusable, leaving the letters free to be movement.
     //
-    // The planning entries are rows of this same list — three FIXED ones, in
-    // org's own order, ahead of the drawer's properties.  Fixed means the key is
-    // org's rather than the author's: RET opens the value alone, an empty value
-    // is the entry absent, and a delete CLEARS the entry where it would drop a
-    // property.  A row's ID is stable for the life of the sheet — the planning
-    // key, or `P' and a number handed out once — so a flag, a selection and a
-    // deletion all name the same row after any number of edits above it.
+    // The planning entries are rows of this same list — three FIXED ones in
+    // org's order ahead of the properties.  Fixed means the key is org's: RET
+    // opens the value alone, an empty value is the entry absent, and a delete
+    // CLEARS where it would drop a property.  A row's ID is stable for the
+    // sheet's life, so a flag and a selection survive edits above them.
     //
-    // The identity property is in neither pane: `ORG_GLANCE_ID' is the row id
-    // the table keys its updates off, and the server keeps it out of what it
-    // hands over and puts it back verbatim afterwards
-    // ('Glance.Query.hiddenProperties').  There is nothing here to warn about
-    // and nothing to filter — and nothing rowed is nothing flaggable.
+    // The identity property is in neither pane: the server keeps
+    // 'hiddenProperties' out of what it hands over and puts them back verbatim.
+    // Nothing rowed is nothing flaggable.
     const PLANNING = CFG.planning;
     const PCOLS = [ { key: "key", header: "Key" },
                     { key: "value", header: "Value" } ];
@@ -2045,42 +1992,28 @@
       echo(`D → org-delete-property (${how(ids.length)}${also ? ` · ${also} cleared` : ""})`);
     }
     // THE SHEET'S OWN KEYS, over BOTH panes, and the ONE private listener that
-    // registers AHEAD of the dispatch — written with the sheet, near the top of
-    // the glue — so it sees a key first.
+    // registers AHEAD of the dispatch, so it sees a key first.
     //
-    // WHY A PRIVATE LISTENER IS SAFE, said here once for all of them: a surface
+    // WHY A PRIVATE LISTENER IS SAFE, said once for all of them: a surface
     // holding the keys makes `typing()' true, which kills every `table' row, so
     // the only map row that can fire around one of these is `ESC' — which is the
-    // one that should, a key this does not claim falling through untouched.  The
-    // listeners BEHIND the dispatch take it from the other side; this one takes
-    // it from in front, and stands down under a `momentary()'.  FOUR STATES,
-    // tried in the order a key belongs to and only ever one true: an open PANEL
-    // row, an open DOCUMENT element, the panel in nav, and the document, which is
-    // where the sheet opens.
+    // one that should, a key this does not claim falling through.  The listeners
+    // BEHIND the dispatch take it from the other side; this one stands down
+    // under a `momentary()'.  FOUR STATES, only ever one true: an open PANEL
+    // row, an open DOCUMENT element, the panel in nav, and the document.
     //
-    // TAB CROSSES THE PANES, out of the document into the panel's cursor and back
-    // out of nav into the document, each cursor where it was left.  Two stops, so
-    // both directions are one toggle and S-TAB is the same line.  Inside an OPEN
-    // row TAB hops that row's two fields, suspending the crossing while one is
-    // open; raw mode has one pane and nowhere to cross to, so TAB is the
-    // browser's there.  IN THE DOCUMENT the movement is the table's letters
-    // exactly: `n'/`p', `j'/`k' and the vertical arrows walk the elements,
-    // `f'/`b', `l'/`h' and the horizontal ones the cells of the element that has
-    // any; RET dispatches by kind, DEL is UP, and `d'/`D'/`u' are the deletion
-    // gesture over the paragraphs.  In the PANEL it is the same movement over the
-    // drawer, `RET' opens a row, `+' adds one and the same gesture deletes.  With
-    // a PARAGRAPH open the keys are the textarea's own — a paragraph is text and
-    // RET a newline in it — so the commit is `C-x C-s', the keymap's
-    // `save-buffer' over whichever edit is open.
+    // TAB CROSSES THE PANES, each cursor where it was left; two stops, so both
+    // directions are one toggle.  Inside an OPEN row TAB hops that row's fields,
+    // suspending the crossing.  IN THE DOCUMENT the movement is the table's
+    // letters exactly; RET dispatches by kind, DEL is UP, `d'/`D'/`u' are the
+    // deletion gesture.  With a PARAGRAPH open the keys are the textarea's own —
+    // a paragraph is text and RET a newline in it — so the commit is `C-x C-s'.
     //
     // AUTO-REPEAT IS MOVEMENT'S, and this listener owes the rule itself: running
-    // AHEAD of the dispatch and claiming what it takes, the map's own `ONCE' list
-    // can never reach a key of this one's.  A held `n' crosses the pane and a
-    // held TAB is a crossing either way; every key that WRITES delivers exactly
-    // one press — a held `d' would flag and delete from one, the confirmation the
-    // two-press shape exists to be, and a held `S-<up>' was one `/command' per
-    // repeat off a cell the answer before it had already moved, a burst of 409s
-    // from a single press.
+    // AHEAD of the dispatch, the map's `ONCE' list can never reach a key of
+    // this one's.  A held `n' crosses the pane; every key that WRITES delivers
+    // exactly one press — a held `d' would flag and delete from one, and a held
+    // `S-<up>' was a burst of 409s off a cell the answer before it had moved.
     document.addEventListener("keydown", (e) => {
       // THE SHEET STANDS DOWN UNDER A MOMENTARY.  It is the workspace, and a
       // palette or a popup raised over it — from the table or from the document
@@ -2140,36 +2073,27 @@
     });
     // DIRED'S `d', ONE implementation over THREE surfaces — the table, this panel
     // and the tags popup.  The first press flags the row at point; a second `d'
-    // on an already-flagged row IS `D' — it calls the same handler, so it takes
-    // EVERY flagged row rather than the one under it; `u' takes a flag off and
-    // walks on.  The flag is the confirmation, so there is no prompt, and a lone
-    // flag is a set of one, which leaves the single-row flow unchanged.
+    // on a flagged row IS `D' — the same handler, so it takes EVERY flagged row;
+    // `u' takes a flag off and walks on.  The flag is the confirmation, so there
+    // is no prompt, and a lone flag is a set of one.
     //
-    // THE CURSOR IS ASKED FOR FIRST AND THE FLAGS SECOND, which is what each
-    // branch needs: `D' means "take these" and a lone row is a set of one, so it
-    // lands on a mount whose renderer never had flags, while the two presses
-    // that MOVE a flag are exactly the ones an asset predating them cannot serve
-    // and are what the refusal is for.
+    // THE CURSOR IS ASKED FOR FIRST AND THE FLAGS SECOND: `D' means "take
+    // these" and a lone row is a set of one, so it lands on a mount whose
+    // renderer never had flags, while the two presses that MOVE a flag are what
+    // the refusal is for.
     //
     // A SHAPE says what differs: a mount, where the cursor is, what "take these"
-    // means, what the surface LOGS when a flag moves, and FOUR PHRASES — the
-    // line for a mount with no flags, the line for an empty cursor, and the line
-    // each of the two flagging presses earns.  The feature detection, the
-    // two-press rule, the set-or-row choice and the walk after `u' are the
-    // gesture, and the gesture is here; a third surface joins by naming those.
+    // means, what the surface LOGS, and FOUR PHRASES.  The feature detection,
+    // the two-press rule, the set-or-row choice and the walk after `u' are the
+    // gesture, and the gesture is here.
     //
     // SAY is the caller's rather than the shape's, because WHO IS SPEAKING is:
-    // the popups say `KEY → phrase' out of a listener with no binding in its
-    // hand, and the table says it through `said', which spells the binding's own
-    // command name and puts the phrase in brackets.  So a phrase is the whole
-    // line on one surface and the bracket on another, and each surface's `say'
-    // and its phrases travel together.
+    // the popups say `KEY → phrase', the table says it through `said', which
+    // spells the binding's own command name and brackets the phrase.
     //
-    // HOW words the count for the pill, a FUNCTION of what LANDED rather than of
-    // what was asked for: the popups' takes are local and total, so they call it
-    // with the size of the set, where the table's is a write that can come back
-    // partly refused and a name over the asked-for count would read as a whole
-    // answer.
+    // HOW words the count for the pill, a FUNCTION of what LANDED: the popups'
+    // takes are local and total, where the table's is a write that can come back
+    // partly refused.
     function flagKey(k, s, say) {
       const m = s.mount();
       const at = s.at();
@@ -2691,30 +2615,22 @@
     }
     // WHERE POINT GOES AFTER AN ARCHIVE: THE NEXT SURVIVING ROW.  Worked out
     // from POINT rather than from the set — down the page for the first row not
-    // leaving, and only failing that back UP it for the nearest one — since what
-    // a reader is owed is the row that takes the place of the one they were
-    // standing on, and a scattered set says nothing about that.  Nothing at all
-    // where every row on the page is leaving: an empty view has nowhere to land.
+    // leaving, failing that back UP for the nearest — since what a reader is
+    // owed is the row taking the place of the one they stood on.  Nothing where
+    // every row on the page is leaving.
     //
-    // The UP half always agrees with the renderer's own keeping, which clamps to
-    // the last surviving row — nothing survives below point, so point is past
-    // every survivor and the place it stood clamps to the same row.  Nothing can
-    // exercise it alone; it is here so the rule is one sentence resting on no
-    // other component for half of itself.
+    // The UP half always agrees with the renderer's own keeping, so nothing
+    // exercises it alone; it is here so the rule rests on no other component
+    // for half of itself.
     //
-    // Taken HERE, at fire time, the answer being unrecoverable once the rows have
-    // gone: the gap they left is exactly what a later read cannot see, which is
-    // why the renderer's own keeping falls back to the visual PLACE and can land
-    // past a run of rows that went from under point.
+    // Taken HERE, at fire time: once the rows have gone the gap they left is
+    // exactly what a later read cannot see, which is why the renderer's keeping
+    // falls back to the visual PLACE.
     //
-    // WHETHER anything is owed is decided elsewhere.  This says where point WOULD
-    // go; `settled' fires only once the row it was on has left the view, and
-    // `spent' drops the whole thing when the answer says that row was not
-    // archived — so an archive over a set point is not IN owes nothing and costs
-    // nothing, without a third statement of the same rule at this end.  `at' is
-    // the anchor's place among the rows that SURVIVE, where it will be sitting
-    // once they go — the fallback for the anchor itself vanishing between the
-    // fire and the landing.
+    // WHETHER anything is owed is decided elsewhere — `settled' fires only once
+    // the row point was on has left, and `spent' drops the whole thing when the
+    // answer says it was not archived.  `at' is the anchor's place among the
+    // SURVIVORS, the fallback for the anchor itself vanishing.
     function anchorFor(ids) {
       const rows = visible(), going = (id) => ids.indexOf(id) !== -1;
       const from = focusedId();
@@ -4642,37 +4558,29 @@
       pendingAt = setTimeout(() => { pending = []; echo(`${shown} - timed out`); }, 2000);
     }
     // THE MODAL SURFACES, as ONE list.  Each holds the keys with NOTHING
-    // FOCUSED — the subtree sheet's two panes, the settings sheet's chrome, the
-    // value palette in letter mode, and the two popups, which browse on the
-    // table's own movement keys and write on its own `d'/`D'/`u' — so each would
+    // FOCUSED — the two sheets, the value palette in letter mode, and the two
+    // popups, which browse on the table's own movement keys — so each would
     // otherwise leave the table's keys live underneath it, `d' included.
     //
-    // TWO LAYERS RATHER THAN A STACK.  A SHEET is a WORKSPACE: it stands, it
-    // holds a cursor, a reader works in it, and there are two — the subtree's
-    // and the settings', never both, `openSettings' refusing over an open sheet.
-    // A MOMENTARY is raised OVER one to answer a question — the value palette,
-    // the tags popup, the link popup — and is answered and gone.  At most one
-    // momentary is ever up, opening one closing whichever stood, at the DOOR
-    // rather than in the listeners (`sole'); the open one holds the keys
-    // unconditionally, every reader asking `momentary()'; and closing it gives
-    // them back to the sheet with its cursor exactly where it was.  A rank could
-    // express none of that, the sheet being also the thing that raises a
-    // momentary over itself.
+    // TWO LAYERS RATHER THAN A STACK.  A SHEET is a WORKSPACE: it stands, holds
+    // a cursor, and there are two, never both.  A MOMENTARY is raised OVER one
+    // to answer a question and is answered and gone.  At most one momentary is
+    // up, opening one closing whichever stood, at the DOOR rather than in the
+    // listeners (`sole'); the open one holds the keys unconditionally; closing
+    // it gives them back to the sheet with its cursor where it was.  A rank
+    // could express none of that, the sheet being also what raises a momentary
+    // over itself.
     //
-    // ORDER DECIDES ONE THING, and only through `momentary()': `+' over the tags
-    // popup leaves BOTH `prompt' and `tags' up — the field is that popup's own,
-    // which is what `sole''s `keep' exempts — and the tie goes to the earlier
-    // entry.  Swapping those two hands the add field's letters to the tags
-    // listener.
+    // ORDER DECIDES ONE THING, through `momentary()': `+' over the tags popup
+    // leaves BOTH up, and the tie goes to the earlier entry.  Swapping them
+    // hands the add field's letters to the tags listener.
     //
-    // FOUR READERS: `typing()' asks whether ANY surface is up, which kills every
-    // `table' row; `live''s `modal' arm asks whether a WORKSPACE is;
-    // `momentary()' asks which of the raised ones is; and `cancel' walks the list
-    // for the surface ESC belongs to.  Each entry names its own `up', the `off'
-    // that closes it, and the OPEN EDIT that is a rung under it — the panel's
-    // row, the popups' overlays — which ESC puts back before the surface itself
-    // hears the key.  NEITHER SHEET names an `off': ESC from one falls through to
-    // the sheet ladder below, where closing a workspace belongs.
+    // FOUR READERS: `typing()' asks whether ANY is up (killing every `table'
+    // row), `live''s `modal' arm whether a WORKSPACE is, `momentary()' which
+    // raised one is, and `cancel' walks the list for the surface ESC belongs to.
+    // Each entry names its `up', its `off', and the OPEN EDIT that is a rung
+    // under it.  NEITHER SHEET names an `off': ESC falls through to the sheet
+    // ladder, where closing a workspace belongs.
     const SURFACES = [
       { name: "prompt", momentary: true, up: () => !!prompting, off: unask },
       { name: "capture", momentary: true, up: capUp, off: shutCapture },
