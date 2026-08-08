@@ -370,10 +370,16 @@ tsRepeaterParser = do
 
   return TimestampRepeaterInterval {
     repeaterValue = repValue,
-    repeaterType = case (repType, repSign) of
-                     (Just Cumulative, _)         -> Cumulative
-                     (Just CatchUp, Just TRSPlus) -> CatchUp
-                     _type                        -> Restart,
+    -- TOTAL over the kind, so a fourth cookie is a warning here rather than a
+    -- silent downgrade: `byChar typeChar' accepts any kind's character already,
+    -- and a wildcard would rewrite the new one to `Restart' unread.  `+' is both
+    -- `CatchUp''s prefix and the SIGN, so a lone one leaves a plain repeater and
+    -- only a second `+' makes it catch-up.
+    repeaterType = case repType of
+                     Nothing         -> Restart
+                     Just Restart    -> Restart
+                     Just Cumulative -> Cumulative
+                     Just CatchUp    -> maybe Restart (const CatchUp) repSign,
     repeaterUnit = repUnit,
     repeaterSign = fromMaybe TRSPlus repSign
     }

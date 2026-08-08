@@ -163,6 +163,14 @@ repeatSpec = testGroup "Repeats"
       -- An inactive stamp keeps its brackets.
       shifts "[2026-08-08 Sat +1d]" "[2026-08-09 Sun +1d]"
 
+    -- ORG DOES NOT PAD: `tsDayParser' reads each part with `MPL.decimal', so a
+    -- one-digit day is a timestamp this library reads and the scanner must read
+    -- it too.  A fixed-width window cuts a character short, eats the space and
+    -- leaves the weekday saying the old day.
+  , testCase "a date org did not pad still moves, weekday and all" $ do
+      shifts "<2026-08-8 Sat +2d>" "<2026-08-10 Mon +2d>"
+      shifts "<2026-8-8 Sat +2d>" "<2026-08-10 Mon +2d>"
+
   , testCase "a range moves both halves" $
       shifts "<2026-08-08 Sat +1w>--<2026-08-09 Sun>"
              "<2026-08-15 Sat +1w>--<2026-08-16 Sun>"

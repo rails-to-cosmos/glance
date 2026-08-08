@@ -127,10 +127,9 @@ module Glance.Query ( BlobSeed (..)
                     , Repeat (..)
                     , repeatOn
                     , rowOrgId
+                    , Completion (..)
                     , noteCompletion
-                    , timestampOf
                     , shiftRepeat
-                    , repeatsOf
                     , setTitleEdits
                     , settableStates
                     , ownBodyLines
@@ -216,6 +215,7 @@ import Data.Org.Config ( ConfigLayerFile (..), ConfigLayers (..), TodoKeywords (
                        , loadConfigDirs, mergeKeywords, noConfig, noKeywords
                        , readConfigLayers, recognizedKeywords, seedContext
                        , systemSetting, todoLineEdits, todoLines, todoPragmas )
+import Data.Org.External (Completion (..))
 import Data.Org.Blob (blobPathIn, mintBlobId, storeRootIn, uuidFrom)
 import Data.Org.Walk ( Found (..), LoadFailure (..), WalkOptions (..), claimById
                      , defaultWalk, findOrgFilesWith, isConfig, isDerived, isDocument
@@ -1559,14 +1559,7 @@ planningText style want
 -- thought they set is gone.  A value carrying a newline is refused outright —
 -- it would be a second line, and a planning line is one.
 readsAsTimestamp :: Text -> Bool
-readsAsTimestamp value = either (const False) parses (oneLine () () value)
-  where
-    parses trimmed = case orgParse defaultContext ("* probe\nSCHEDULED: " <> trimmed <> "\n") of
-      (elems, _ctx, Nothing) -> any planned elems
-      _failed                -> False
-    planned e = case valueOf e of
-      EHeadline h -> isJust (schedule h)
-      _other      -> False
+readsAsTimestamp value = either (const False) (isJust . timestampOf) (oneLine () () value)
 
 -- Properties
 
@@ -2013,7 +2006,7 @@ settableStates cfg r =
 -- | Record that IDENT repeated into STATE under ROOT, its next occurrence
 -- SHIFTED. `Data.Org.External`'s own append, re-exported so the write route
 -- reaches the ledger through this library like everything else.
-noteCompletion :: FilePath -> Maybe Text -> Text -> Text -> IO ()
+noteCompletion :: FilePath -> External.Completion -> IO ()
 noteCompletion = External.noteCompletion
 
 -- | R's `ORG_GLANCE_ID`, when its headline claims one. The ledger's key: an
@@ -2053,7 +2046,10 @@ repeatOn cfg today keyword r
     shifts = [ (sp, rewriteDates (repeatDay today i) text)
            | (sp, text, i) <- repeatingSpans r ]
     reset  = listToMaybe (chainOf tkActive)
-    chainOf half = [ word | (_source, kw) <- keywordSources cfg [r], word <- half kw ]
+    -- ONE fold: `keywordSources` walks the scopes and sorts, and both halves
+    -- read the same answer.
+    chain  = keywordSources cfg [r]
+    chainOf half = [ word | (_source, kw) <- chain, word <- half kw ]
 
 -- | The `Timestamp` TEXT spells, when it spells one.  Read through a probe
 -- planning line rather than a second grammar here, `readsAsTimestamp`'s rule.
@@ -2142,10 +2138,21 @@ rewriteDates move = go
                           <> go after
       Nothing | T.null text -> text
               | otherwise   -> T.take 1 text <> go (T.drop 1 text)
+    -- VARIABLE WIDTH, because `Data.Org.Parser.tsDayParser` is: it reads each
+    -- part with `MPL.decimal`, so `<2026-08-8 Sat>` is a timestamp this library
+    -- reads.  A fixed ten-character window cuts such a date short, eats the
+    -- space behind it and leaves the weekday naming the day it moved off.
     dateAt text = do
-      let (candidate, rest) = T.splitAt 10 text
-      day <- Time.parseTimeM True Time.defaultTimeLocale "%Y-%m-%d" (T.unpack candidate)
+      (y, afterY) <- digitsOf text
+      afterYDash  <- T.stripPrefix "-" afterY
+      (m, afterM) <- digitsOf afterYDash
+      afterMDash  <- T.stripPrefix "-" afterM
+      (d, rest)   <- digitsOf afterMDash
+      day <- Time.fromGregorianValid y (fromInteger m) (fromInteger d)
       pure (day, rest)
+    digitsOf text = case TR.decimal text of
+      Right (n, rest) | n >= 0 -> Just (n :: Integer, rest)
+      _notANumber              -> Nothing
     -- The weekday org writes after a date: a run of LETTERS in any script, the
     -- parser's own charset, taken out so the computed one replaces it.
     weekdayAt rest = case T.uncons rest of

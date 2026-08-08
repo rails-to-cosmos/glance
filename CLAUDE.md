@@ -158,7 +158,9 @@ measurements and the history of superseded designs live in
   rather than widening ten signatures. `csNotes` is the command table's fourth
   field, so WHICH commands record something is data beside WHAT they edit; only
   `set-state` carries one, and the line rides `writeSpans`' success branch where
-  `noteExternalWrite` already sits.
+  `noteExternalWrite` sits one layer down in `replaceSpans`. The two notes are
+  at two layers because they are keyed differently: a blob's note off the PATH
+  written, a completion off the SERVED ROOT, which no write door carries.
 - The drift FIX is a one-file contract: every successful write to a BLOB
   (`isBlob` — `data.org` in the canonical store) appends `{"id","at"}` to
   `meta/EXTERNAL.jsonl` — the blob's FIRST headline's `ORG_GLANCE_ID`, no id no
@@ -166,7 +168,8 @@ measurements and the history of superseded designs live in
   which the five write sites reach through `Watch.writeSpans`.
   `Data.Org.External` owns format/path/append, by `openFd` append + one
   `fdWriteBuf` — `BS.appendFile` measurably LOSES lines under concurrency. The
-  daemon appends only, never truncates, never touches another `meta/` file.
+  daemon appends only, never truncates, and touches no `meta/` file but its own
+  two (`EXTERNAL.jsonl` and `COMPLETIONS.jsonl`).
   Emacs's `refresh-external` adopts each id via `graph:insert` (never
   `put-content` — blobs are read, not rewritten) and shortens the file by the
   PREFIX IT READ; a crash between = a repeated refresh, no-op by construction.
@@ -368,7 +371,7 @@ measurements and the history of superseded designs live in
   `glance-internal`; cells are sliced from spans and the view `Value` is
   hand-built — no `ToJSON` on an internal type (SCHEMA.md is the contract).
 - Commands: one route, `POST /command {name, id | ids, args, digests?}`, over ONE
-  table — `commands`, name to `{argument shape, dated, one-row, edits}`. Ten
+  table — `commands`, name to `{argument shape, dated, edits, records}`. Ten
   entries: `set-state`, `set-planning`, `set-title`, `set-priority`, `archive`,
   `capture`, `add-tag`, `remove-tag`, `rename-tag`, `edit-link`. `rename-tag`
   names both ends and is a command rather than a remove plus an add: those two

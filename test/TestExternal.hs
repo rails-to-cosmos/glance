@@ -30,7 +30,7 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 import qualified Data.Time as Time
 
-import Data.Org.External ( blobIdOf, completionLine, completionsFile
+import Data.Org.External ( Completion (..), blobIdOf, completionLine, completionsFile
                          , completionsPathOf, externalFile, externalLine
                          , externalPathOf, noteCompletion )
 import Data.Org.Index (metaDir)
@@ -343,20 +343,21 @@ completionSpec = testGroup "Completions"
       assertEqual "golden"
         "{\"id\":\"abcdef\",\"at\":\"2026-08-03T04:21:07Z\",\"state\":\"TODO\",\
         \\"shifted\":\"<2026-08-15 Sat +1w>\"}\n"
-        (completionLine "abcdef" (stamp "2026-08-03T04:21:07") "TODO" "<2026-08-15 Sat +1w>")
+        (completionLine (Completion "abcdef" "TODO" "<2026-08-15 Sat +1w>")
+                        (stamp "2026-08-03T04:21:07"))
 
   , testCase "the values are escaped and the keys are not" $
       assertEqual "escaped"
         "{\"id\":\"a\\\"b\",\"at\":\"2026-08-03T04:21:07Z\",\"state\":\"A\\\\B\",\
         \\"shifted\":\"x\"}\n"
-        (completionLine "a\"b" (stamp "2026-08-03T04:21:07") "A\\B" "x")
+        (completionLine (Completion "a\"b" "A\\B" "x") (stamp "2026-08-03T04:21:07"))
 
     -- A tree with no `.org-glance' keeps org's own behaviour and no ledger: no
     -- daemon makes a store directory it was not given.
   , testCase "a tree with no store has nowhere to record, and none is made" $
       withTempDirNamed "no-store" $ \dir -> do
         assertEqual "nothing to write to" Nothing =<< completionsPathOf dir
-        noteCompletion dir (Just "i") "TODO" "<2026-08-15 Sat +1w>"
+        noteCompletion dir (Completion "i" "TODO" "<2026-08-15 Sat +1w>")
         assertEqual "and none was created" False
           =<< doesFileExist (dir </> ".org-glance" </> "meta" </> completionsFile)
 
@@ -365,22 +366,14 @@ completionSpec = testGroup "Completions"
         createDirectoryIfMissing True (dir </> ".org-glance" </> "meta")
         let note = dir </> ".org-glance" </> "meta" </> completionsFile
         assertEqual "the path it answers with" (Just note) =<< completionsPathOf dir
-        noteCompletion dir (Just "i") "TODO" "<2026-08-15 Sat +1w>"
-        noteCompletion dir (Just "j") "NEXT" "<2026-08-16 Sun +1d>"
+        noteCompletion dir (Completion "i" "TODO" "<2026-08-15 Sat +1w>")
+        noteCompletion dir (Completion "j" "NEXT" "<2026-08-16 Sun +1d>")
         -- APPEND-ONLY: the second line joins the first rather than replacing it.
         lines' <- T.lines <$> document note
         assertEqual "one line per completion" 2 (length lines')
         assertBool "the first is still there" ("\"id\":\"i\"" `T.isInfixOf` head lines')
         assertBool "and the second followed it" ("\"id\":\"j\"" `T.isInfixOf` last lines')
 
-    -- An ordinal moves, so a ledger keyed by one names a different row a week
-    -- on: an entry with no `ORG_GLANCE_ID' records nothing and still repeats.
-  , testCase "an entry with no id records nothing" $
-      withTempDirNamed "idless" $ \dir -> do
-        createDirectoryIfMissing True (dir </> ".org-glance" </> "meta")
-        noteCompletion dir Nothing "TODO" "<2026-08-15 Sat +1w>"
-        assertEqual "no file, no line" False
-          =<< doesFileExist (dir </> ".org-glance" </> "meta" </> completionsFile)
 
     -- END TO END: a repeating row completed through the write route.  ONE write
     -- moves the stamp and resets the keyword, and the ledger line rides its

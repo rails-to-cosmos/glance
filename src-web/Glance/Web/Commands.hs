@@ -25,7 +25,8 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified Data.Time as Time
 
-import Glance.Query ( Repeat (..), noteCompletion, repeatOn, rowOrgId
+import Glance.Query ( Completion (..), Repeat (..), noteCompletion, repeatOn
+                    , rowOrgId
                     , BlobSeed (..), ConfigLayers
                     , HeadlineRecord (hrDigest, hrFile, hrId)
                     , Span (Span), WalkOptions, WriteFailure (..)
@@ -91,7 +92,7 @@ data Args = Args
 data FilePlan = FilePlan
   { fpPath   :: !FilePath
   , fpDigest :: !Text
-  , fpRows   :: ![(Text, [(Span, Text)], Maybe (Text, Text, Text))]
+  , fpRows   :: ![(Text, [(Span, Text)], Maybe Completion)]
       -- ^ row id, the spans it moves, and what to record on success.
   }
 
@@ -489,19 +490,18 @@ capturedParts args =
 writeOne :: ServeOptions -> Hub -> FilePlan -> IO [(Text, Value)]
 writeOne opts hub plan = do
   written <- writeSpans (walkFor opts) hub (fpPath plan) (fpDigest plan) spliced
-  -- THE LEDGER RIDES THE SUCCESS BRANCH, where `noteExternalWrite' already
-  -- sits: the file is renamed into place by now, so a note that cannot be
-  -- written changes nothing about the write that landed.
+  -- THE LEDGER RIDES THE SUCCESS BRANCH: the file is renamed into place by now,
+  -- so a note that cannot be written changes nothing about the write that
+  -- landed.  HERE rather than in `replaceSpans' beside `noteExternalWrite',
+  -- because a completion is keyed off the SERVED ROOT and no write door carries
+  -- one -- `WalkOptions' is a newtype over a Bool.
   case written of
     Right _digest -> mapM_ record (fpRows plan)
     Left _refused -> pure ()
   pure (report written)
   where
     spliced = concat [ edits | (_rid, edits, _note) <- fpRows plan ]
-    record (_rid, _edits, note) = case note of
-      Just (ident, state, shifted) ->
-        noteCompletion (soDir opts) (Just ident) state shifted
-      Nothing -> pure ()
+    record (_rid, _edits, note) = mapM_ (noteCompletion (soDir opts)) note
     report written = [ (rid, either (refused rid . why) (done rid) written)
                      | (rid, _edits, _note) <- fpRows plan ]
     why (WriteDrift found) = T.pack (fpPath plan) <> " changed on disk (it digests to "
@@ -533,7 +533,7 @@ planCommand st asked rowEdits cmd = do
       note <- csNotes (cmdSpec cmd)
       (state, shifted) <- note (stConfig st) asked (cmdArgs cmd) r
       ident <- rowOrgId r
-      pure (ident, state, shifted)
+      pure (Completion ident state shifted)
     missing = [ (rid, refused rid (noSuchRow rid)) | rid <- absent ]
     stale rs = or [ pinned /= hrDigest r
                   | (r, _edits) <- rs, Just pinned <- [Map.lookup (hrId r) (cmdDigests cmd)] ]

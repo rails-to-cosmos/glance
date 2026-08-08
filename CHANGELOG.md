@@ -492,6 +492,13 @@ section groups a feature arc, and its date is that arc's last commit.
 - **The vendored renderer's stylesheet is one declaration per line**
   (table-view `cc9dd70`, synced). Same rules and values; a re-layout.
 
+### Fixed
+- **A repeating entry whose date org did not zero-pad now repeats.** `<2026-08-8
+  Sat +2d>` is a timestamp org reads — its parser takes each part as a run of
+  digits — but the shift scanned a fixed ten-character window, missed the date
+  entirely and wrote the stamp back unmoved. The entry reset its keyword and
+  stayed due, forever. The scanner reads the date the way the parser does now.
+
 ### Added
 - **Repeating entries repeat.** Completing a row whose `SCHEDULED:` or
   `DEADLINE:` carries an org repeater cookie now shifts the stamp forward and

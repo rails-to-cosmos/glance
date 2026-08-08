@@ -16,8 +16,8 @@
 -- @id@ is the written blob's FIRST headline's @ORG_GLANCE_ID@, read the way
 -- 'Data.Org.Index.blobEntryOf' reads it, so a line names the record that will
 -- replace it; @at@ is the server clock in UTC, and nothing acts on it.  APPEND
--- ONLY: this side never truncates, never rewrites, never touches another file
--- under @meta@.
+-- ONLY: this side never truncates, never rewrites, and touches no file under
+-- @meta@ but its own two ('externalFile' and 'completionsFile').
 --
 -- THE CRASH RULE.  The reader appends every re-derived record BEFORE shortening
 -- this file, so a crash between the two costs a repeated refresh and nothing
@@ -30,7 +30,8 @@
 -- best effort and a failure is swallowed: the blob is already on disk and the
 -- answer the caller is about to send describes THAT write.  A lost line costs
 -- drift the instrument reports and the next edit of the same id repairs.
-module Data.Org.External ( blobIdOf
+module Data.Org.External ( Completion (..)
+                         , blobIdOf
                          , completionLine
                          , completionsFile
                          , completionsPathOf
@@ -95,32 +96,31 @@ completionsPathOf root = do
 -- | The line saying IDENT was completed AT into STATE, its next occurrence
 -- SHIFTED.  'externalLine''s shape one file over: hand-assembled so the field
 -- order is the contract's, values through the encoder where escaping happens.
-completionLine :: Text -> Time.UTCTime -> Text -> Text -> BS.ByteString
-completionLine ident at state shifted = BL.toStrict
-  (  "{\"id\":" <> encode ident
-  <> ",\"at\":" <> encode (spelled "%Y-%m-%dT%H:%M:%SZ" at)
-  <> ",\"state\":" <> encode state
-  <> ",\"shifted\":" <> encode shifted <> "}\n" )
+-- | One repeat, as the ledger records it.  A RECORD rather than three
+-- positional 'Text's: all three have the same type, a caller swapping two would
+-- compile, and this file is derived, so nothing downstream would catch it.
+data Completion = Completion
+  { coIdent   :: !Text  -- ^ the entry's @ORG_GLANCE_ID@, the ledger's key.
+  , coState   :: !Text  -- ^ the keyword it landed on.
+  , coShifted :: !Text  -- ^ its next occurrence, cookie and all.
+  } deriving (Eq, Show)
 
--- | Record that IDENT repeated into STATE under ROOT, its next occurrence
--- SHIFTED.  A no-op for a tree with no store, and for an entry with no id —
--- an ordinal moves, so a ledger keyed by one names a different row a week on.
+completionLine :: Completion -> Time.UTCTime -> BS.ByteString
+completionLine c at = BL.toStrict
+  (  "{\"id\":" <> encode (coIdent c)
+  <> ",\"at\":" <> encode (spelled "%Y-%m-%dT%H:%M:%SZ" at)
+  <> ",\"state\":" <> encode (coState c)
+  <> ",\"shifted\":" <> encode (coShifted c) <> "}\n" )
+
+-- | Record C under ROOT.  A no-op for a tree with no store; whether the entry
+-- HAS an id is decided where the id is looked up, so there is no second gate.
 --
 -- THE LEDGER IS DERIVED, NEVER TRUTH: the org file already carries the shifted
 -- stamp and the reset keyword, so every IO failure here is swallowed for
 -- 'noteExternalWrite''s reason — the write has landed either way.
-noteCompletion :: FilePath -> Maybe Text -> Text -> Text -> IO ()
-noteCompletion root (Just ident) state shifted = do
-  target <- completionsPathOf root
-  case target of
-    Nothing   -> pure ()
-    Just note -> do
-      now <- Time.getCurrentTime
-      swallowing $ do
-        createDirectoryIfMissing True (takeDirectory note)
-        appendLine note (completionLine ident now state shifted)
-  where swallowing act = void (try act :: IO (Either IOException ()))
-noteCompletion _root Nothing _state _shifted = pure ()
+noteCompletion :: FilePath -> Completion -> IO ()
+noteCompletion root c =
+  completionsPathOf root >>= mapM_ (\note -> appendNote note (completionLine c))
 
 -- | The line naming IDENT, written AT.  Hand-assembled rather than encoded from
 -- an object, so the field ORDER is the contract's; only the values go through
@@ -156,13 +156,19 @@ blobIdOf doc = firstHeadlineOf elems >>= identity
 -- write that landed as a write that did not.
 noteExternalWrite :: FilePath -> Text -> IO ()
 noteExternalWrite path written = case (externalPathOf path, blobIdOf written) of
-  (Just note, Just ident) -> do
-    now <- Time.getCurrentTime
-    swallowing $ do
-      createDirectoryIfMissing True (takeDirectory note)
-      appendLine note (externalLine ident now)
-  _noBlobOrNoId -> pure ()
-  where swallowing act = void (try act :: IO (Either IOException ()))
+  (Just note, Just ident) -> appendNote note (externalLine ident)
+  _noBlobOrNoId           -> pure ()
+
+-- | Put the line RENDER spells at the end of NOTE, best effort, under one clock
+-- read.  The org file is renamed into place by the time this runs, so nothing
+-- here can make the write not have happened and no failure reaches the caller's
+-- answer — the rule both ledgers keep, written once.
+appendNote :: FilePath -> (Time.UTCTime -> BS.ByteString) -> IO ()
+appendNote note render = do
+  now <- Time.getCurrentTime
+  void (try (write now) :: IO (Either IOException ()))
+  where write at = do createDirectoryIfMissing True (takeDirectory note)
+                      appendLine note (render at)
 
 -- | Put LINE at the end of PATH, creating PATH where there is none.
 --
