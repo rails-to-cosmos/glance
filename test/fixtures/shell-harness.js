@@ -966,7 +966,20 @@ globalThis.TableView = {
     if (crumbless) strip(inst.handle, CRUMB_CALLS);
     return inst.handle;
   },
-  parseQuery: () => [],
+  // A TOKEN SPLIT, not the renderer's grammar: whitespace-separated, `-'
+  // negating and the first `:' or `=' cutting a key off — which is enough for
+  // the two readers on this page (the parity tripwire's free-text scan and the
+  // capture form's tag seed) and stops the stub answering `no tokens' to
+  // questions the real renderer answers with some.
+  parseQuery: (q) => String(q || "").split(/\s+/).filter(Boolean).map((raw) => {
+    const negated = raw.startsWith("-");
+    const body = negated ? raw.slice(1) : raw;
+    const quoted = body.startsWith("\"");
+    const at = quoted ? -1 : body.search(/[:=]/);
+    return at === -1
+      ? { key: null, value: body, negated, quoted }
+      : { key: body.slice(0, at), value: body.slice(at + 1), negated, quoted };
+  }),
   displayText: (s) => String(s || ""),
 };
 /** The mark calls off the live handle: what an older table-view.js looks like. */

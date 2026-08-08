@@ -2041,6 +2041,26 @@ promptKeySpec shell = testGroup "Shell capture and reschedule"
         echoIs "the pill names the tag rather than a file"
           "+ → org-glance-overview:capture (captured · :book:)" answer
 
+    -- THE VIEW'S OWN TAG IS THE DEFAULT.  Capturing from a table filtered to one
+    -- tag almost always means another entry of that kind, so the field opens
+    -- carrying it and its template is the one that expands — settled at once,
+    -- so the asks are on screen before the reader types.  A SUGGESTION: the
+    -- field is focused and ordinary, so backspacing to the inbox is one key.
+  , keyedAt shell "?q=tag%3Abook" 500 "the capture form opens on the filter's tag"
+      "" "press:+" $ \answer -> do
+        assertEqual "the field carries it" "book" =<< textAt "ktag" answer
+        assertEqual "and it was resolved without a keystroke"
+                    ["/capture", "/capture?tag=book"] =<< textsAt "capturing" answer
+
+    -- Only for a tag a capture could WEAR.  A negation says which kind this is
+    -- not, an alternation names no one kind, and a starred word is a meta.
+  , keyedAt shell "?q=-tag%3Abook%20tag%3Aa%7Cb%20tag%3A*archive*" 500
+      "a negated, alternated or starred tag seeds nothing"
+      "" "press:+" $ \answer -> do
+        assertEqual "the field is empty" "" =<< textAt "ktag" answer
+        assertEqual "and nothing was resolved" ["/capture"]
+          =<< textsAt "capturing" answer
+
     -- A tag NOBODY configured grows nothing: the server answers no prompts and
     -- the settle moves the focus straight to the line.
   , keyed shell "a tag with no template goes straight to the line"

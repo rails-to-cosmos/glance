@@ -489,6 +489,14 @@ section groups a feature arc, and its date is that arc's last commit.
   paragraph, table-line and deletion commit the same way.
 
 ### Added
+- **`+` opens on the tag the view is filtered to.** Capturing from a table
+  narrowed to one tag almost always means another entry of that kind, so the
+  form's tag field arrives carrying it and that tag's template is already
+  expanded — its asks on screen before the reader types. A suggestion rather
+  than a rule: the field is focused and ordinary, so backspacing to the inbox
+  is one key. Only a tag a capture could WEAR seeds it — a negation says which
+  kind this is not, an alternation names no one kind, and a starred word is a
+  meta.
 - **`sort:` completes to the order in force.** Typing the key and nothing else
   now offers the chain the table is ALREADY in, in canonical arrow form, as the
   first row — so RET fills it in rather than leaving the reader to spell an

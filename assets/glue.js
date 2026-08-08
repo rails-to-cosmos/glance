@@ -2833,7 +2833,13 @@
     function openCapture(b) {
       sole("capture");
       capping = { b, vocab: [], hot: -1, tag: null, inputs: [] };
-      el("ktag").value = ""; el("ktext").value = "";
+      // THE VIEW'S OWN TAG IS THE DEFAULT.  Capturing from a table filtered to
+      // one tag almost always means another entry of that kind, so the field
+      // opens carrying it and the template it configures is the one that
+      // expands.  A SUGGESTION rather than a rule: the field is focused and
+      // ordinary, so backspacing to the inbox is one key.
+      const seed = filteredTag();
+      el("ktag").value = seed; el("ktext").value = "";
       el("kfields").textContent = ""; el("klist").textContent = "";
       showPopup("capture", "k", "capture",
                 `RET moves on · at the line it captures · ${EMPTY} tag is the inbox · ESC leaves`);
@@ -2843,6 +2849,25 @@
         capping.vocab = a.tags || [];
         drawTagList(el("ktag").value);
       }).catch(failed(b, "capture"));
+      // Settled straight away where there is one, so the template's own asks
+      // are on screen before the reader types rather than after they leave the
+      // field they never edited.
+      if (seed) settleTag();
+    }
+
+    // The ONE tag the applied query names, or `""'.  The first positive `tag:'
+    // predicate naming a single ordinary value: a negation says which kind this
+    // is NOT, an alternation names no one kind, and a starred word is a meta
+    // (`*empty*', `*archive*') rather than a tag a capture could wear.  Two
+    // different tags name no one kind either, so the first wins and the reader
+    // sees which in the field.  Feature-detected like every other renderer
+    // capability — an asset with no parser seeds nothing.
+    function filteredTag() {
+      if (!query || typeof TableView.parseQuery !== "function") return "";
+      const named = TableView.parseQuery(query, cols.map((c) => c.key))
+        .filter((t) => t.key === "tag" && !t.negated
+                    && t.value && !t.value.includes("|") && !/^\*.*\*$/.test(t.value));
+      return named.length ? named[0].value : "";
     }
     // The completion under the tag field: the vocabulary narrowed by substring
     // over the folded spelling, at most eight shown, `C-n'/`C-p' and the
