@@ -4784,8 +4784,21 @@
       deadlinePlan: (b) => planRows(b, "DEADLINE"),
       // `q' is the SUBTREE sheet's door alone, which is why it asks after
       // `editing' rather than after whichever sheet is up.
-      quitWindow: () => (editing ? leaveSheet()
-        : append("cmd", "info", "q closes the sheet; there is no window to quit")),
+      // `q' ON THE MAIN PAGE QUITS THE APP, where there is an app to quit: the
+      // native window carries a `quit' script-message handler and closing it
+      // stops the daemon, the window BEING the app.  A browser tab has no such
+      // handler — `window.close()' is refused for a tab a script did not open —
+      // so there the key says what it cannot do.  The sheet arm stays for the
+      // scope's sake: `q' is a `table' row and a sheet makes `typing()' true, so
+      // it is unreachable today and is one line rather than a rule to restate
+      // should the scope ever widen.
+      quitWindow: () => {
+        if (editing) { leaveSheet(); return; }
+        const host = window.webkit && window.webkit.messageHandlers
+                       && window.webkit.messageHandlers.quit;
+        if (host) { host.postMessage("quit"); return; }
+        append("cmd", "info", "q quits the native window; a browser tab closes itself");
+      },
       // ONE KEY OUT OF WHICHEVER OVERLAY IS UP — the prompt first, being the one
       // that can be raised over an open sheet — walked off `SURFACES' rather than
       // restated as a chain of tests: each surface's OPEN EDIT is the rung under
@@ -4981,7 +4994,11 @@
           // the FIELD's own erase, the edit branch above declining it, and a key this
           // listener declines is one it does not `preventDefault', which is the whole
           // of what leaves it to the field.
-          else if (k === "DEL") {
+          // `q' IS THE OTHER DOOR OUT, and it is dired's: a browsing surface
+          // closes on it.  Same rung and same `off' as DEL above, and the same
+          // exception — the value palette keeps its letters, `q' there being a
+          // keyword's initial like any other.
+          else if (k === "DEL" || k === "q") {
             (SURFACES.find((s) => s.name === name) || {}).off();
             keySaid(k)("keyboard-quit");
           }

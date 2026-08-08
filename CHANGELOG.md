@@ -489,6 +489,12 @@ section groups a feature arc, and its date is that arc's last commit.
   paragraph, table-line and deletion commit the same way.
 
 ### Added
+- **`q` closes a browsing popup, and quits the native window from the table.**
+  Over the link and tags popups it is DEL's rung under another key — dired's
+  own — through the same door ESC reaches; the state palette keeps its letters,
+  `q` there being a keyword's initial like any other. On the table with nothing
+  raised it asks the native window to close, which stops the daemon because the
+  window IS the app; a browser tab has no such handler and the key says so.
 - **`SPC` (and `C-c C-c`) toggles an org checkbox in the materialize sheet.**
   On a list item wearing a box — `- [ ] step`, numbered items included — `SPC`
   at the stop flips it org's own way: `[ ]` checks, `[X]` clears, the partial

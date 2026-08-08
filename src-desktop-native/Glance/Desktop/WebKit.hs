@@ -82,6 +82,13 @@ nativeWindow title url = do
   ucm <- WK.webViewGetUserContentManager view
   _ <- WK.onUserContentManagerScriptMessageReceived ucm (Just handlerName) (openMessage win)
   _ <- WK.userContentManagerRegisterScriptMessageHandler ucm handlerName
+  -- `q' ON THE MAIN PAGE QUITS, which only a window can answer: the page posts
+  -- here and this destroys the window, and closing the window stops the daemon
+  -- because the window IS the app.  A browser tab reaching for the same key
+  -- finds no handler and says so.
+  _ <- WK.onUserContentManagerScriptMessageReceived ucm (Just quitName)
+         (\_value -> Gtk.widgetDestroy win)
+  _ <- WK.userContentManagerRegisterScriptMessageHandler ucm quitName
   override <- WK.userScriptNew openOverride
                 WK.UserContentInjectedFramesTopFrame
                 WK.UserScriptInjectionTimeStart Nothing Nothing
@@ -133,6 +140,11 @@ elsewhere win decision kind
 -- | The name the page's patched @window.open@ posts to.
 handlerName :: Text
 handlerName = T.pack "popup"
+
+-- | And the one @q@ posts to.  Its PRESENCE is the page's test for "is there a
+-- window to quit", so the name is the contract.
+quitName :: Text
+quitName = T.pack "quit"
 
 -- | The document-start patch: @window.open@ posts its URL to 'handlerName'
 -- and answers null, which is what the un-patched engine answered anyway once

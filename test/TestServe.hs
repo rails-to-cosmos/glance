@@ -4710,6 +4710,17 @@ settingsSpec shell =
     -- THE BUTTON IS THE TOUCH DOOR: the renderer reports the click, this page
     -- runs the same pin, and the echo spells the command by hand since no
     -- keymap row fired.
+    -- `q' IS THE OTHER DOOR OUT OF A BROWSING POPUP, dired's own: same rung and
+    -- same `off' as DEL, and the same exception — the value palette keeps its
+    -- letters, `q' there being a keyword's initial like any other.
+  , keyed shell "q closes a browsing popup, and the palette keeps its letters"
+      "" "press:o press:q" $ \answer -> do
+        assertEqual "the link popup is gone" "" =<< textAt "popup" answer
+        echoIs "and said so" "q → keyboard-quit" answer
+  , keyed shell "q in the state palette is a letter, not a door"
+      "" "press:t press:q" $ \answer ->
+        assertBool "the palette stands" . not . T.null =<< textAt "prompt" answer
+
   , keyed shell "the pin button clicks through to the same write"
       "" "pinclick" $ \answer -> do
         writes <- listAt "configWrites" answer
@@ -4896,7 +4907,7 @@ logSpec shell = testGroup "Shell log"
         strip <- map cut <$> logOf answer
         assertEqual "the boot line and one more" 2 (length strip)
         assertEqual "counted"
-                    [("info", "cmd", "q closes the sheet; there is no window to quit ×3")]
+                    [("info", "cmd", "q quits the native window; a browser tab closes itself ×3")]
                     (drop 1 strip)
 
     -- A message that is not the LAST one is a new line, so a repeat interrupted
@@ -4905,7 +4916,7 @@ logSpec shell = testGroup "Shell log"
         strip <- map cut <$> logOf answer
         assertEqual "three lines under the boot's" 4 (length strip)
         assertEqual "the last says it once, uncounted"
-                    "q closes the sheet; there is no window to quit"
+                    "q quits the native window; a browser tab closes itself"
                     (message (last strip))
 
     -- The connection's two severities, over a daemon that went away: the fetch
