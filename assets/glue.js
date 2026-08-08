@@ -99,7 +99,35 @@
       }
       if (end) box.scrollTop = box.scrollHeight;
     }
-    const el = (id) => document.getElementById(id);
+    /**
+     * WHERE THE KEYS ARE, as a control.  `active()' is an
+     * `Element' and every reader here wants what a FORM control has — a value,
+     * a selection, a blur — so the cast is spelled once rather than at each.
+     * @returns {HTMLInputElement & HTMLTextAreaElement & HTMLElement}
+     */
+    const active = () => /** @type {any} */ (document.activeElement);
+    /**
+     * E's target, likewise: an `EventTarget' is what the DOM promises and a
+     * control is what every listener on this page was handed.
+     * @param {Event} e
+     * @returns {HTMLInputElement & HTMLTextAreaElement & HTMLElement}
+     */
+    const targetOf = (e) => /** @type {any} */ (e.target);
+    /**
+     * The element ID names.  EVERY id this page reads is in the served markup,
+     * so a miss is a page that was mis-built rather than a case to handle.
+     *
+     * Typed as the form-control intersection because most of what is looked up
+     * here IS a control and the rest never read `value'.  What that costs is
+     * element-KIND checking, which this page has never had; what it keeps is
+     * every other check, the model shapes below among them.  The narrower
+     * `document.getElementById' answer — `HTMLElement | null' — would put a
+     * cast on ~90 call sites to say what the markup already says.
+     * @param {string} id
+     * @returns {HTMLInputElement & HTMLTextAreaElement & HTMLSelectElement}
+     */
+    const el = (id) =>
+      /** @type {any} */ (document.getElementById(id));
     // THE WASH.  What is on screen stops being known to be current in exactly
     // two ways: the view is being replaced and its answer has not landed, or
     // the socket that would deliver a change is gone.  A reader cannot tell
@@ -385,7 +413,17 @@
     // showing whichever view `#cwhich' names.  `vrows' is every view with its
     // own text, the box being a VIEW of `vrows[vat]' — the layer boxes' rule, so
     // switching costs no request and loses no edit.
-    let cmpose = null, mainCols = [], vrows = [], vat = "default";
+    /**
+     * ONE SAVED VIEW as this sheet holds it: the id the wire spells, the query
+     * as served, and the query as the composer holds it now.
+     * @typedef {object} ViewRow
+     * @property {string} id
+     * @property {string} base
+     * @property {string} text
+     */
+    /** @type {ViewRow[]} */
+    let vrows = [];
+    let cmpose = null, mainCols = [], vat = "default";
     const vrow = () => vrows.find((v) => v.id === vat);
     const composerQuery = () =>
       (cmpose && can(cmpose, "getQuery") ? cmpose.getQuery().trim()
@@ -535,7 +573,14 @@
     // input in palette mode, the resident box in an asset predating one.
     // Named once, since three callers want it and none of them may reach
     // further into the chrome than this.
-    const filterBox = () => document.querySelector("#app .tv-filter");
+    /**
+     * The renderer's own resident filter box, when the asset draws one.  Cast
+     * for `el''s reason: a `querySelector' answers `Element' and every reader
+     * here wants what a control has.
+     * @returns {(HTMLInputElement & HTMLElement) | null}
+     */
+    const filterBox = () =>
+      /** @type {any} */ (document.querySelector("#app .tv-filter"));
     // The fallback for an asset without `initialQuery': the query goes in
     // the box rather than into chips.  The box is the renderer's, and
     // setting its value fires no input event, so a restored query shown
@@ -739,7 +784,7 @@
     // a headline rather than an item — the lens has taken those out already, but
     // the guard is kept here so the predicate is true on its own terms.
     const LIST_AT = /^(\s*)([-+*]|\d+[.)])(\s+|$)/;
-    function opener(line) {
+    function listOpener(line) {
       const m = LIST_AT.exec(String(line));
       return m && !(m[2] === "*" && !m[1]) ? m : null;
     }
@@ -751,7 +796,7 @@
     const closerOf = (name) => new RegExp(
       "^\\s*#\\+end_" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
         + "\\s*$", "i");
-    // Where the block ENDS, or nothing: an opener with no closer under it is
+    // Where the block ENDS, or nothing: an listOpener with no closer under it is
     // ordinary text, since guessing an end would put a stop around bytes org
     // itself reads as a paragraph.
     function blockRun(lines, i, end) {
@@ -774,7 +819,7 @@
     // What stays INSIDE a list once it has opened: another item at any depth, or
     // an indented continuation line.  An unindented line that is not an item
     // ends it.
-    const rides = (line) => !!opener(line) || /^\s/.test(String(line));
+    const rides = (line) => !!listOpener(line) || /^\s/.test(String(line));
     // A LIST RUN and its TOP-LEVEL items.  The base indent is the FIRST item's,
     // and an item deeper than it rides inside the item above rather than taking a
     // stop of its own — v1's grain, and the nesting is still there in the text.
@@ -783,7 +828,7 @@
     // item pairs are separated by exactly one.  Two, or a blank with something
     // else under it, close the list.
     function listRun(lines, i, end) {
-      const base = opener(lines[i])[1].length;
+      const base = listOpener(lines[i])[1].length;
       const items = [];
       let at = i, from = -1, last = i;
       while (at < end) {
@@ -793,7 +838,7 @@
           if (j - at > 1 || j >= end || !rides(lines[j])) break;
           at = j; continue;
         }
-        const m = opener(lines[at]);
+        const m = listOpener(lines[at]);
         if (m && m[1].length <= base) {
           if (from !== -1) items.push({ from, to: last });
           from = at;
@@ -853,9 +898,9 @@
       const pushItem = (from, to, up) => {
         const at = out.length;
         out.push({ from, to, text: cut(from, to), grain: "leaf", up });
-        const base = opener(lines[from])[1].length;
+        const base = listOpener(lines[from])[1].length;
         for (let n = from + 1; n < to; n += 1) {
-          const m = opener(lines[n]);
+          const m = listOpener(lines[n]);
           if (m && m[1].length > base) {
             const run = listRun(lines, n, to);
             for (const it of run.items) pushItem(it.from, it.to, at);
@@ -886,7 +931,7 @@
           whole(i, j, "table", rows);
           i = j; continue;
         }
-        if (opener(lines[i])) {
+        if (listOpener(lines[i])) {
           const run = listRun(lines, i, end);
           const at = out.length;
           out.push({ from: i, to: run.to, text: cut(i, run.to),
@@ -898,7 +943,7 @@
         // blank line: org lets a list follow its lead-in with no blank between.
         let j = i + 1;
         while (j < end && String(lines[j]).trim() !== ""
-               && !opener(lines[j]) && !BEGIN_AT.test(lines[j])
+               && !listOpener(lines[j]) && !BEGIN_AT.test(lines[j])
                && !TABLE_AT.test(lines[j])) j += 1;
         out.push({ from: i, to: j, text: cut(i, j), grain: "element" });
         i = j;
@@ -1052,7 +1097,7 @@
         // the rows straight after it, so the draw walks them here and the outer
         // loop steps past what it took.  What no leaf claims is drawn as an INERT
         // run — the `#+begin_' and `#+end_' lines, the blank line between two
-        // items, a lead-in the list's own opener did not take — so every byte the
+        // items, a lead-in the list's own listOpener did not take — so every byte the
         // composite covers is on screen exactly once, the lens's rule one grain
         // down.
         if (r.grain === "composite") {
@@ -1582,7 +1627,7 @@
     // lands on the first, where the two hand-written pairs put it.
     function hop() {
       const ids = edit.o.fields;
-      const at = ids.findIndex((id) => el(id) === document.activeElement);
+      const at = ids.findIndex((id) => el(id) === active());
       el(ids[(at + 1) % ids.length]).focus();
     }
     function shutEdit(o) {
@@ -1839,7 +1884,19 @@
     const PLANNING = CFG.planning;
     const PCOLS = [ { key: "key", header: "Key" },
                     { key: "value", header: "Value" } ];
-    let pmount = null, prows = [], pseq = 0;
+    /**
+     * ONE PANEL ROW: a property or one of the three fixed planning entries.
+     * `fixed` is the planning rows' — their key is org's rather than the
+     * author's, so it cannot be typed over and a delete CLEARS rather than drops.
+     * @typedef {object} PropRow
+     * @property {string} id   stable for the sheet's life: `PLN:KEYWORD` or `P<n>`.
+     * @property {string} key
+     * @property {string} val
+     * @property {boolean} fixed
+     */
+    /** @type {PropRow[]} */
+    let prows = [];
+    let pmount = null, pseq = 0;
     // A MOUNT THIS PAGE KEEPS, made on the first ask and handed back afterwards:
     // a mount per raise would leave a theme listener behind every time the
     // reader opened a sheet or followed a row.  PANE is the scroller the edit
@@ -2286,7 +2343,9 @@
     // leaves through its own ladder, pristine costing no request, and a momentary
     // is answered and gone — so the two loops are two rules rather than one with
     // a branch in it.
-    for (const [id, off] of [["links", shutLinks], ["tags", shutTags]])
+    /** @type {[string, () => void][]} */
+    const backdrops = [["links", shutLinks], ["tags", shutTags]];
+    for (const [id, off] of backdrops)
       el(id).addEventListener("click",
         (e) => { if (e.target === el(id)) off(); });
     // C-c ' — org's `edit-special' rhyme, one subtree seen two ways: body and
@@ -2324,7 +2383,8 @@
     const visible = () => (table ? table.getVisible() : []);
     const focusedId = () => {
       if (cells()) return table.getSelection().id;
-      const tr = document.querySelector("#app .tv-table tbody tr.tv-sel");
+      const tr = /** @type {HTMLElement | null} */
+        (document.querySelector("#app .tv-table tbody tr.tv-sel"));
       return tr ? tr.dataset.id : null;
     };
     function pick(list, i) {
@@ -2835,7 +2895,7 @@
       el("klist").textContent = "";
       el("ktag").value = ""; el("ktext").value = "";
       el("capture").className = "";
-      const held = document.activeElement;
+      const held = active();
       if (held && held.blur) held.blur();
     }
     function openCapture(b) {
@@ -2933,7 +2993,7 @@
     // which reaches this surface through `SURFACES' like every other.
     document.addEventListener("keydown", (e) => {
       if (!capping || e.defaultPrevented) return;
-      const held = document.activeElement;
+      const held = active();
       const k = keyName(e);
       if (held === el("ktag")) {
         const walk = k === "C-n" || k === "<down>" ? 1
@@ -3095,7 +3155,7 @@
     //
     // `raising' is that keydown, still in flight: this listener sits behind the
     // dispatch, so the press that opened the palette is the next one it sees, and
-    // `t' is both the opener and a letter in what it opens.  Every palette here
+    // `t' is both the listOpener and a letter in what it opens.  Every palette here
     // is raised that way, so it is set rather than passed.  The prompt itself is
     // handed back, so a fill landing after an ESC can tell that the overlay it
     // was asked for is gone. THE OVERLAY GOING UP, and both doors take it: the
@@ -3345,7 +3405,7 @@
     // text prompt has no list, and `+'\''s field is a name being written rather
     // than one being looked for.
     el("pinput").addEventListener("input", (e) =>
-      prompting && !prompting.text && narrowTo(e.target.value));
+      prompting && !prompting.text && narrowTo(targetOf(e).value));
     el("prompt").addEventListener("click", (e) =>
       { if (e.target === el("prompt")) unask(); });
     // What C-c C-t offers: the states the SERVER says those rows may be set to,
@@ -3967,7 +4027,9 @@
     // whole set with each layer's text in it — the on-screen box is a view of
     // `crows[cat]' rather than the place the text lives, which is what makes a
     // switch cost nothing.
-    let settings = false, crows = [], cat = 0;
+    /** @type {LayerRow[]} */
+    let crows = [];
+    let settings = false, cat = 0;
     // The settings sheet's half of the pair the ladder drives ('subtreeSheet'
     // is the other): the same four verbs, over the config layers and their own
     // digests, filed under its own log scope.
@@ -4068,7 +4130,23 @@
     // is the composer's rule and the layer boxes', so switching themes asks the
     // server nothing and loses no edit.  A keyword with an empty field carries
     // no hue and drops out of the write.
-    let hues = {}, huesBase = "", srows = [], sseq = 0, smount = null;
+    /**
+     * ONE ROW OF THE STATES TABLE: a keyword, the layer that declares it, and
+     * which side of that layer's bar it sits on.  `layer` is null for a keyword
+     * only a plain org file declares — the tree recognizes it and this sheet
+     * cannot move it, which is what `fixed` says.
+     * @typedef {object} StateRow
+     * @property {string} id
+     * @property {LayerRow|null} layer
+     * @property {string} state
+     * @property {"active"|"inactive"} group
+     * @property {boolean} fixed
+     */
+    /** @type {Record<string, Record<string, string>>} */
+    let hues = {};
+    /** @type {StateRow[]} */
+    let srows = [];
+    let huesBase = "", sseq = 0, smount = null;
     // THE STATES TABLE'S COLUMNS.  `tag' names the layer a state BELONGS to,
     // which is the file `+' and `d' write; `colour' is the tree's and rides
     // `system.org' whatever the tag says.
@@ -4091,7 +4169,7 @@
       srows = []; sseq = 0;
       const owned = new Set();
       crows.forEach((r) => {
-        ["active", "inactive"].forEach((group) => {
+        /** @type {("active"|"inactive")[]} */ (["active", "inactive"]).forEach((group) => {
           (r.kw[group] || []).forEach((state) => {
             owned.add(state);
             srows.push({ id: `S${sseq++}`, layer: r, state, group, fixed: false });
@@ -4195,6 +4273,7 @@
       const at = satAt();
       const host = (at !== -1 && srows[at].layer) || crows.find((r) => !r.tag);
       if (!host) { append("config", "warn", "no config layer to add a state to"); return; }
+      /** @type {StateRow} */
       const r = { id: `S${sseq++}`, layer: host, state: "", group: "active",
                   fixed: false };
       srows.splice(at === -1 ? srows.length : at + 1, 0, r);
@@ -4271,6 +4350,28 @@
     // two tree-wide fields are the general panel's and are bound to the system
     // layer by `drawLayers'; every layer carries the slots so one shape answers
     // `cmoved' and one shape is posted.
+    /**
+     * ONE CONFIG LAYER, as this sheet holds it.  The two boxes and the states
+     * table are all VIEWS of this record, which is why the shape is stated:
+     * a field a server answer stops sending reads as `undefined` at the point
+     * of use otherwise, where here it fails at the annotation.
+     * @typedef {object} LayerRow
+     * @property {string} path       the file, and the write's address.
+     * @property {string|null} tag   the tag it configures; null is `system.org`.
+     * @property {string} digest     the pin a write to it is checked against.
+     * @property {string} base       its `#+TODO:` lines as served.
+     * @property {string} text       as this sheet holds them now.
+     * @property {string} err        what the server last said about a write.
+     * @property {string} tpl        its capture template as served.
+     * @property {string} tplBase
+     * @property {HTMLInputElement|null} cap  the capture-target field, system only.
+     * @property {string|null} capBase
+     * @property {{active: string[], inactive: string[]}} kw  the same lines PARSED.
+     */
+    /**
+     * @param {any} layer  one entry of `GET /config`'s `layers`.
+     * @returns {LayerRow}
+     */
     const layerRow = (layer) => ({
       path: layer.path, tag: layer.tag, digest: layer.digest,
       base: (layer.lines || []).join("\n"),
@@ -4343,10 +4444,10 @@
     // edit outlives every switch, and the sync at the end writes all of them.
     el("clayer").addEventListener("change", (e) => {
       takeLayer();
-      showLayer(Number(e.target.value));
+      showLayer(Number(targetOf(e).value));
     });
     // And switching VIEWS is the same read one row up.
-    el("cwhich").addEventListener("change", (e) => showView(e.target.value));
+    el("cwhich").addEventListener("change", (e) => showView(targetOf(e).value));
     // `%' IN THE TEMPLATE BOX RAISES THE CODE LIST, which is this page's own
     // value palette in its field mode and no widget of its own.  What it offers
     // is the SERVER's list (`/capture' carries it beside the prompts), so the
@@ -4483,7 +4584,7 @@
       // focus anyway when the box goes to `display:none'; saying it makes it the
       // sheet's rule rather than a side effect, covering every control the sheet
       // will ever hold rather than costing one `blur()' per control.
-      if (typing()) document.activeElement.blur();
+      if (typing()) active().blur();
     }
     // `/' summons the filter.  `openFilter' is the renderer's one entry point
     // for it whatever mode it is in — in palette mode it raises the overlay,
@@ -4507,7 +4608,7 @@
       && matchMedia("(pointer: coarse)").matches;
     el("app").addEventListener("click", (e) => {
       if (!coarse()) return;
-      const t = e.target;
+      const t = targetOf(e);
       if (!t.closest || !t.closest(".tv-chips") || t.closest(".tv-chip")) return;
       focusFilter();
     });
@@ -4523,7 +4624,7 @@
     // the URL is carrying anyway.
     function typedFilter() {
       const box = filterBox();
-      return box && document.activeElement === box ? box.value || "" : null;
+      return box && active() === box ? box.value || "" : null;
     }
     function stash() {
       stashed = {
@@ -4789,11 +4890,11 @@
     // own keys are dead underneath either way.  A control OUTSIDE a popup owed a
     // hand-written `blur()' for that reason, and no such place is left here.
     el("themesel").addEventListener("change", (e) => {
-      setTheme(e.target.value);
+      setTheme(targetOf(e).value);
       // The hue fields describe the theme on screen, so they follow the pick —
       // the edits already typed stay on the model, each under its own theme.
       if (settings) showHues();
-      echo(`theme: ${e.target.value}`);
+      echo(`theme: ${targetOf(e).value}`);
     });
     // THE LOG'S HEIGHT, the second preference this page keeps for itself.  The
     // stylesheet owns the arithmetic and declares the default; what is written
@@ -4820,9 +4921,9 @@
     // so the box can hold a refused one and the next sheet-open draws the
     // preference back over it.
     el("clog").addEventListener("input", (e) => {
-      const n = logLines(e.target.value);
+      const n = logLines(targetOf(e).value);
       if (n === null) return;
-      logPref.set(String(e.target.value).trim());
+      logPref.set(String(targetOf(e).value).trim());
       setLogLines(n);
       echo(`log: ${n} lines`);
     });
@@ -4951,6 +5052,21 @@
     // Each entry names its `up', its `off', and the OPEN EDIT that is a rung
     // under it.  NEITHER SHEET names an `off': ESC falls through to the sheet
     // ladder, where closing a workspace belongs.
+    /**
+     * A MODAL SURFACE, as this list declares one.  Four readers ask four
+     * different questions of it, so every field but `off'/`edit'/`shut' is
+     * owed by every entry — a shape stated here rather than inferred from the
+     * literal, where an entry omitting one silently made the field optional
+     * for every reader of the list.
+     * @typedef {object} Surface
+     * @property {string} name         what `momentary()' answers with.
+     * @property {boolean} [momentary] raised over the sheet rather than beside it.
+     * @property {() => boolean} up    is it on screen.
+     * @property {() => void} [off]    close it; absent means ESC falls through.
+     * @property {() => boolean} [edit] is an edit open INSIDE it.
+     * @property {() => void} [shut]   close that edit and leave the surface up.
+     */
+    /** @type {Surface[]} */
     const SURFACES = [
       { name: "prompt", momentary: true, up: () => !!prompting, off: unask },
       { name: "capture", momentary: true, up: capUp, off: shutCapture },
@@ -4995,7 +5111,7 @@
     // take for row movement — and the modal surfaces, which hold them with
     // nothing focused at all.
     const typing = () => {
-      const a = document.activeElement;
+      const a = active();
       return SURFACES.some((s) => s.up())
         || (!!a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA"
                      || a.tagName === "SELECT" || a.isContentEditable));
@@ -5011,7 +5127,7 @@
     // A live selection means C-c and C-x are copy and cut, and the browser
     // decides that on this keydown — so the prefix does not claim them.
     function selecting() {
-      const a = document.activeElement;
+      const a = active();
       if (a && typeof a.selectionStart === "number")
         return a.selectionStart !== a.selectionEnd;
       const s = document.getSelection();
@@ -5188,7 +5304,7 @@
           if (s.off && s.up()) { s.off(); return; }
         }
         if (activeSheet()) leaveSheet();
-        else if (typing()) document.activeElement.blur();
+        else if (typing()) active().blur();
       },
       // The filter's own backspace: the renderer drops the token and the
       // shell follows it — one commit, one URL, focus left on the table.
@@ -5282,7 +5398,7 @@
     // `raising' AND EXCLUSIVITY ARE DIFFERENT RULES, which is why `sole' does not
     // absorb it: exclusivity is one surface closing ANOTHER at the door, where
     // `raising' is this surface declining the one keydown that RAISED it — `t' is
-    // both the opener and a letter in what it opens, and this listener sits
+    // both the listOpener and a letter in what it opens, and this listener sits
     // behind the dispatch, so that press arrives here next.  Only one surface is
     // involved, so no ordering between surfaces could say anything about it.
     document.addEventListener("keydown", (e) => {
@@ -5372,7 +5488,11 @@
           // exception — the value palette keeps its letters, `q' there being a
           // keyword's initial like any other.
           else if (k === "DEL" || k === "q") {
-            (SURFACES.find((s) => s.name === name) || {}).off();
+            // The surface `momentary()' just named, asked for by that name: the
+            // `|| {}' this used to fall back to would have thrown on a miss,
+            // and a surface with no `off' is one ESC falls through from.
+            const surface = SURFACES.find((s) => s.name === name);
+            if (surface && surface.off) surface.off();
             keySaid(k)("keyboard-quit");
           }
           else if (!o.keys(k, e)) return;

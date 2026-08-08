@@ -5966,7 +5966,7 @@ shellGlue =
       -- An asset predating the call has a resident box; focus that.  The field
       -- is named once, since the fallback, the restore and the stash all want
       -- it and none of them may reach further into the renderer's chrome.
-      , "const filterBox = () => document.querySelector(\"#app .tv-filter\");"
+      , "(document.querySelector(\"#app .tv-filter\"));"
       , "const box = filterBox();"
       , "if (box) { box.focus(); box.select(); }"
       -- And the map says what the key does now, which is what the echo pill
@@ -6258,7 +6258,7 @@ shellGlue =
       , "|| (b.scope === \"table\" && !typing());"
       , "a.tagName === \"INPUT\" || a.tagName === \"TEXTAREA\""
       , "cancel: () => {"
-      , "else if (typing()) document.activeElement.blur();" ]
+      , "else if (typing()) active().blur();" ]
       -- The CLASS, not the token: `--tv-veil' is the renderer's theming API
       -- and this page declares it like every other ('Glance.Web.Theme'); what
       -- it may not do is reach for the element wearing it.
@@ -6319,7 +6319,7 @@ shellGlue =
       , "at: drows[dat] ? drows[dat].id : null, col: dcol,"
       , "open: openEditState(), digest: editing.digest }"
       , "palette: typedFilter(),"
-      , "return box && document.activeElement === box ? box.value || \"\" : null;"
+      , "return box && active() === box ? box.value || \"\" : null;"
       , "function restore() {"
       , "if (box) { box.value = was.palette; box.focus(); }"
       , "if (was.sheet) reopen(was.sheet);"
@@ -6758,7 +6758,7 @@ shellGlue =
       , "const at = selectedId(lmount);"
       , "const at = selectedId(tmount);"
       , "function hop() {"
-      , "const at = ids.findIndex((id) => el(id) === document.activeElement);"
+      , "const at = ids.findIndex((id) => el(id) === active());"
       , "const VERBED = {"
       , "const verbed = (name, args, verb) => (VERBED[name] || stated)(args, verb);"
       , "const what = verbed(name, args, verb);"
@@ -6767,8 +6767,8 @@ shellGlue =
       -- The hand-written copies these replaced.
       [ "pmount.getSelection().id", "(lmount.getSelection() || {}).id"
       , "(tmount.getSelection() || {}).id"
-      , "document.activeElement === el(\"pkey\") ? el(\"pval\")"
-      , "document.activeElement === el(\"ltitle\") ? el(\"lurl\")"
+      , "active() === el(\"pkey\") ? el(\"pval\")"
+      , "active() === el(\"ltitle\") ? el(\"lurl\")"
       , "name === \"edit-link\" ? verb"
       , "if (linking()) shutLinks();" ]
 
@@ -6840,7 +6840,7 @@ shellGlue =
   , glue "the momentary veils are backdrops too"
       [ "for (const id of [\"modal\", \"config\"])"
       , "if (e.target === el(id)) leaveSheet();"
-      , "for (const [id, off] of [[\"links\", shutLinks], [\"tags\", shutTags]])"
+      , "const backdrops = [[\"links\", shutLinks], [\"tags\", shutTags]];"
       , "if (e.target === el(id)) off();" ]
 
   -- ONE COMMAND AT A TIME where a press makes several: rows sharing a FILE are

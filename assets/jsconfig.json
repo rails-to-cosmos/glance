@@ -3,10 +3,18 @@
     "checkJs": true,
     "noEmit": true,
     "target": "ES2020",
-    "lib": ["ES2020", "DOM"],
+    "lib": [
+      "ES2020",
+      "DOM"
+    ],
     "strict": false,
-    "strictNullChecks": true,
-    "skipLibCheck": true
+    "strictNullChecks": false,
+    "skipLibCheck": true,
+    "allowJs": true,
+    "noImplicitAny": false
   },
-  "include": ["glue.js", "glue.d.ts"]
+  "files": [
+    "glue.js",
+    "glue.d.ts"
+  ]
 }

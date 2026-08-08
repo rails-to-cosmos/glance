@@ -819,6 +819,15 @@ measurements and the history of superseded designs live in
 - NO SOURCE FILE names an absolute path outside the repo. `TestSelfContained`
   sweeps every `.hs` under `src*/` and `app/` for `/home/`, and asserts what it
   swept first so an empty sweep cannot pass.
+- `make check-glue` READS THE SHELL, which it did not until 2026-08-08: `checkJs`
+  without `allowJs` excludes every `.js` from the program, so tsc was type-checking
+  the five-line `glue.d.ts` and reporting clean. `files:` rather than `include:`
+  (the Go tsc resolves the two differently) plus `allowJs`. What it checks is
+  `strictNullChecks` off `el`'s control-union cast and FOUR declared model
+  shapes — `LayerRow`, `StateRow`, `ViewRow`, `PropRow`, plus `Surface` — so a
+  field a server answer stops sending fails at the annotation rather than
+  reading `undefined` at the point of use. What it does NOT check is element
+  KIND (`el` casts) and implicit `any` (~570 sites); both are open ratchets.
 - The shell is vanilla JS with no framework or dependency — a real file,
   `assets/glue.js`, compiled in the way the renderer is; the page inlines two
   JSON blobs (keymap, the `cfg` the script reads as `CFG`) and the theme boot
