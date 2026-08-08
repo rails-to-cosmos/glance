@@ -686,6 +686,16 @@ measurements and the history of superseded designs live in
   `deadline` are prefix, everything else is substring. `key:*empty*` is the empty
   cell on EVERY key; a starred word on the `tag` column is that WHOLE tag; `key:`
   narrows nothing.
+- FREE TEXT HAS A KEY: `substring:VALUE` is exactly what `VALUE` alone means, so
+  the grammar reads `KEY:VALUE` throughout and a bare word is that spelling with
+  the key elided. ONE matcher answers both — `freeTest`, reached by the `Whole`
+  field `fieldOf` resolves the key to (renderer: `freeTest` off `tokenTest`,
+  reached by `valueTest`'s own arm) — so the two cannot come to mean two things.
+  Everything else falls out of the token rules: `-substring:x` negates,
+  `substring:a|b` ORs, `substring:` narrows nothing. What the key buys over the
+  bare word is a value spelling a separator's neighbour — a leading `-`, a
+  colon, a bar — under quotes. A column keyed `substring` shadows it, the way
+  one keyed `planned` does.
 - AN ORG TAG NAMES NO KEY: `course:text` is free text, colon and all, and
   `tag:course text` is the one spelling. Two consequences are the price: `tag:`
   is a SUBSTRING of the cell, and org spells a tags cell `:web:` so the free text
@@ -1614,22 +1624,53 @@ measurements and the history of superseded designs live in
   file ride one write, since four writes would be four digests. A tag layer names
   neither. `Config.systemSetting` is the ONE "first system layer that names one"
   fold.
-- The DEFAULT VIEW is `system.org`'s `#+GLANCE_DEFAULT_FILTER:` line, read into
-  `clFilter`; absent means `builtinFilter` = `state:*active*`, a line naming
-  nothing means the empty query, and the LAST line wins. The system layer alone,
-  and the first config directory that names one — a default view belongs to a
-  tree rather than to a tag. The daemon embeds it into the served page as
-  `DEFAULT_QUERY` (off the store, per request). THE QUERY IS THE ONE CARRIER OF A
-  VIEW — filter, `sort:` and `columns:` tokens alike — so the pin persists all
-  three in that one line and `g` applies all three back; neither knows a token
-  from a token. WRITING it is `P` (`set-default-view`, ONCE): the applied query
-  goes to `POST /config` as the optional `filter` under the digest `GET /config`
-  just served — WITHOUT a `lines` key, which is why absent lines leave the
-  `#+TODO:` block standing. The settings sheet edits the same line in a COMPOSER
+- A SAVED VIEW IS A REGISTRY ENTRY: `Config.savedViews`, each a `SavedView`
+  carrying an id, a `system.org` pragma and a built-in. TWO of them — `default`
+  (`#+GLANCE_DEFAULT_FILTER:`, `state:*active*`) and `agenda`
+  (`#+GLANCE_AGENDA_FILTER:`, `state:*active* -planned:*empty* sort:scheduled`)
+  — and a third is one entry: the load folds the list into `clViews`, `/config`
+  serves it, the settings selector is built from what it serves, and the write
+  is keyed by id. `viewQuery id cfg` answers; absent means the built-in, a line
+  naming nothing means the empty query, and the LAST line wins. The system layer
+  alone, and the first config directory that names one — a saved view belongs to
+  a tree rather than to a tag. THE QUERY IS THE ONE CARRIER OF A VIEW — filter,
+  `sort:` and `columns:` tokens alike — so a view persists all three in its one
+  line and `g`/`a` apply all three back; neither knows a token from a token.
+  The wire is TWO SHAPES for two jobs: the ANSWER (`GET /config`, and the page
+  blob) is an ordered ARRAY of `{id, query}` in registry order, so a client
+  reads the order without iterating keys; the WRITE takes `views: {id: query}`,
+  three-valued per view like every other optional region (absent leaves it,
+  empty deletes the line), so editing one leaves the others where they are, and
+  a view no build carries is a 400 naming it. WRITING is `P`
+  (`set-default-view`, ONCE) under `views.default` and the digest `GET /config`
+  just served, WITHOUT a `lines` key — which is why absent lines leave the
+  `#+TODO:` block standing. The settings sheet edits any of them in ONE COMPOSER
   (`composer: true`, the omnibox bar and chips with no table behind them),
-  re-seeded per open by `setQuery`; `cmoved` compares the mount's query against
-  `viewBase`. The write reseeds, the reseed re-embeds `DEFAULT_QUERY`, and
-  `pinnedQuery` is the LIVE default `g` applies.
+  `#cwhich` naming which: `vrows` holds each view's text and the box is a VIEW
+  of the selected one, so switching asks the server nothing and loses no edit
+  (the layer boxes' rule). `pinnedQuery` and `agendaQuery` are LIVE — a write
+  under a running page is what the next press applies.
+- Settings sheet = `,` (`customize`) and it is TABS: `SECTIONS` still owns the
+  names and the order, and draws a strip of buttons over one pane at a time.
+  A hidden panel is out of the flow, so its fields leave the tab order with it
+  and native tabbing walks exactly what is on screen; the tabs are BUTTONS, so
+  that same tabbing reaches them, and the horizontal arrows walk the strip
+  through `keyName` like every other listener. THREE panels: GENERAL (the saved
+  view composer with its `#cwhich`, the capture target, the log height), THEME
+  (the reader's `auto`/`light`/`dark` preference, and the TREE's own state hues)
+  and KEYWORDS (the layer select, its two boxes, the union and its note).
+- THE THEME PANEL ASKS TWO QUESTIONS and keeps them apart: `#themesel` is the
+  READER's theme, a `localStorage` preference that applies as it is picked, and
+  `#chue` is which theme is being COLOURED, a `system.org` line. Under it one
+  field per keyword of the tree's own cycle, empty meaning the theme's own hue.
+  The model is `hues` = `{theme: {keyword: hue}}` on the SYSTEM layer beside its
+  other tree-wide lines, so it is `cmoved` and posted the way they are; the
+  fields are a VIEW of `hues[hat]`, so switching themes asks the server nothing.
+  The wire carries them FLAT — one `{theme, keyword, hue}` entry each — in both
+  directions, so nothing iterates keys to read back what it wrote, and
+  `stateColorsEdits` renders one line per theme where `stateColorsOf` reads
+  them, sharing the key so a fold cannot drift from a render. `/config` also
+  serves `themes`, the names this build carries.
 - `GET`/`POST /config` serve and replace ONE layer's `#+TODO:` block AND its
   capture template through the ordinary write path, so a `#+TITLE:` and a comment
   come back byte for byte. The optional parts are `ConfigParts`, a RECORD rather

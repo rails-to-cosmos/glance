@@ -32,7 +32,7 @@ every write already — `setPlanningEdits` replaces the timestamp's span
 alone and `planningTimestamp` keeps a bracketed value VERBATIM once it
 reparses.  THE MISSING HALF IS BEHAVIOUR: nothing shifts, nothing
 resets, nothing is recorded.  (Two of `TimestampRepeaterType`'s three
-constructors read as their org opposites — decision 7.)
+constructors read as their org opposites — decision 6.)
 
 ## What org-clock inspires, and what it gets wrong here
 
@@ -114,7 +114,7 @@ composed edit sets:
 2. the keyword → the cycle's first ACTIVE state, `setStateEdits`'
    replace arm;
 3. `CLOSED:` set to now, where the tree wants org's `org-log-done`
-   habit (decision 6).
+   habit (decision 5).
 
 They compose because `applyEdits` rejects only OVERLAP and the sets
 touch disjoint spans — the argument `rename-tag` already rides on.  ONE

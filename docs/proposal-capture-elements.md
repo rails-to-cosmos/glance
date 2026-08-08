@@ -61,16 +61,15 @@ Five diagnoses, each read off the code.
    `<input>` per prompt (`glue.js:2920`) whatever the prompt is for: a
    date gets no date control and no validation, a tag no vocabulary
    though `/capture` already serves one, a choice no list.  The template
-   can only ask `%^{PROMPT}`, so the field is honest about the grammar
-   and the grammar is the thin thing.
+   can only ask `%^{PROMPT}`, so the field is honest and the grammar
+   under it is the thin thing.
 4. **THE ANSWERING ORDER IS THE TEMPLATE'S.**  Focus walks tag → prompts
    in `templatePrompts` order → the line, fixed, so the entry's own text
    is answered LAST however early `%?` sits.  Nothing walks BACK — the
-   listener claims RET and TAB forward alone — so fixing an earlier
-   prompt is the browser's `S-TAB` or the mouse.
+   listener claims RET and TAB forward alone.
 5. **ESC LOSES EVERYTHING.**  `shutCapture` blanks `#ktag`, `#ktext` and
    `#kfields` and `openCapture` re-seeds from scratch, so a capture
-   interrupted to go look something up is a capture retyped.
+   interrupted to look something up is a capture retyped.
 
 ## The symmetry
 
@@ -83,23 +82,21 @@ serialization is already agreed on.
 SO A TEMPLATE IS A FORM DESCRIPTION AND THE CAPTURE FORM IS GENERATED
 FROM IT.  One template, read by the scan that is already there, yields
 the fields, their kinds, their domains and their order.  A reader writes
-the form by writing the template, in the settings sheet's `#ctpl` box, in
-the file that carries the tag's `#+TODO:` cycle.
+the form by writing the template, in the settings sheet's `#ctpl` box.
 
 THE WIDGETS ARE ALREADY HERE.  Text: the palette's text mode (`askText`,
 `glue.js:3182`).  Choice: its field mode over a supplied list (`askFrom`,
-`:3209`, which the tags popup's `+` already uses).  Date:
-`planningTimestamp` (`Query.hs:2439`) — ISO, `+3d`, `today`, org's own
-brackets — behind the line `C-c C-s` already raises.  Tags: `/capture`
-serves `storeTags` and `drawTagList` narrows over it.  Link: `edit-link`
-plus the link popup's two-field overlay.  Property: the sheet's panel is
-a key/value row list.  THE WORK IS A MAPPING FROM CODE TO WIDGET, plus
-one field on the wire to carry it.
+`:3209`, the tags popup's `+`).  Date: `planningTimestamp`
+(`Query.hs:2439`) — ISO, `+3d`, `today`, org's brackets — behind the line
+`C-c C-s` raises.  Tags: `/capture` serves `storeTags` and `drawTagList`
+narrows over it.  Link: `edit-link` plus the link popup's two-field
+overlay.  Property: the sheet's panel is a key/value row list.  THE WORK
+IS A MAPPING FROM CODE TO WIDGET, plus one field on the wire.
 
 ## The element table
 
-`later` means the mechanism is here and the stage is scheduled below;
-`never-here` names what this side would have to grow to host it.
+A stage number means the mechanism is here; `never-here` names what this
+side would have to grow to host it.
 
 | code | means | widget | verdict |
 | --- | --- | --- | --- |
@@ -127,10 +124,10 @@ one field on the wire to carry it.
 
 THE SUBSET STAYS ONE LIST AND ONE SCAN.  `captureCodes` grows rows,
 `templateParts` grows the matching case arms, `TestQuery`'s zip of one
-through the other keeps them in step, and `templatePrompts` /
-`expandTemplate` stay two answers off that one pass.  The mechanism
-holds; its size moves.  Everything omitted still copies through, so a
-template written for Emacs stays readable here.
+through the other keeps them in step, `templatePrompts`/`expandTemplate`
+stay two answers off that one pass.  The mechanism holds; its size moves.
+Everything omitted still copies through, so a template written for Emacs
+stays readable here.
 
 ## The body problem — fix this first
 
@@ -143,19 +140,18 @@ Refusing the newline is a proxy for that.  REFUSE THE STAR INSTEAD.
   prompt fills a slot inside a line and a newline there is a hole.  A new
   `captureBody` takes the POINT text: refused empty-after-strip, refused
   where any line answers `headingStars` (`Query.hs:2681`), the very
-  predicate `headingAt` and `topEntry` already ask.  One predicate, three
-  readers.  `capturedParts` calls one for `agText` and the other per
-  field, naming which failed.
+  predicate `headingAt` and `topEntry` ask.  One predicate, three
+  readers; `capturedParts` calls one for `agText`, the other per field.
 - `captureEdits` splits at its first newline: the head after the star,
   the drawer, then the rest verbatim in the target's own line endings.
   Still ONE insertion at the end of the file.
 - The tagged path needs nothing.  `expandTemplate` substitutes text;
   `blobDocument` reads `firstHeadlineOf` and measures the drawer off
   `planningEnd`, so a multi-line expansion is what a multi-line TEMPLATE
-  already produces.  The star refusal is what keeps `firstHeadlineOf`
-  answering the entry the id is minted for.
+  already produces.  The star refusal keeps `firstHeadlineOf` answering
+  the entry the id is minted for.
 - `blankEntry` is unaffected: the first line still has to say something,
-  which `captureBody`'s empty arm enforces exactly as before.
+  which `captureBody`'s empty arm enforces as before.
 
 One predicate, one splitter, one caller, and it moves "almost unusable"
 further than anything else here.
@@ -163,9 +159,9 @@ further than anything else here.
 ## The form
 
 GENERATED, in template order, with the POINT FIELD FIRST.  The tag field
-stays where it is, deciding which template is read.  Then the point
-field, the entry being what the reader came to write.  Then one field per
-ask in the order `templateParts` scans them.
+stays where it is, deciding which template is read; then the point field,
+the entry being what the reader came to write; then one field per ask in
+the order `templateParts` scans them.
 
 - KEYS.  RET moves forward, `S-TAB` and `C-p` move back — the walk the
   listener owes and lacks.  In the POINT field RET inserts a newline and
@@ -178,12 +174,11 @@ ask in the order `templateParts` scans them.
   `planningTimestamp` checks before the request goes out, `tags` the tag
   field's own narrowing list, `property` a key/value pair, `body` a
   textarea.
-- DEFAULTS arrive as the field's initial value: `%^{P|def|a|b}` opens
-  carrying `def`, offered among its alternatives, committed as written
-  when untouched.
+- DEFAULTS are the field's initial value: `%^{P|def|a|b}` opens carrying
+  `def`, offered among its alternatives, committed as written untouched.
 - BACK-REFERENCES ASK NOTHING.  `%\N` resolves server-side in a second
-  pass of `expandTemplate` over the answers it already holds, so no field
-  is grown for one and no reader answers a question twice;
+  pass of `expandTemplate` over the answers it holds, so no field is
+  grown for one and no reader answers a question twice;
   `templatePrompts` goes on returning the asks alone.
 - The settings box is unchanged: `%` in `#ctpl` raises the code list off
   the server's own `codes` (`glue.js:4148`), so a longer list is offered
@@ -196,7 +191,6 @@ Additive, one key.  `asks`, beside today's `prompts`:
 ```
 { "template": true, "prompts": ["Author"], "point": "headline",
   "asks": [ {"name":"Author", "kind":"text", "code":"%^{Author}"},
-            {"name":"Due", "kind":"date", "code":"%^t"},
             {"name":"Shelf", "kind":"choice", "code":"%^{Shelf|a|b}",
              "domain":["a","b"], "default":"a"} ],
   "tags": [...], "codes": [...] }
@@ -208,8 +202,8 @@ the tag vocabulary stays the top-level `tags` it already is.  `point`
 says whether `%?` sits on the template's headline line or below it, which
 is how the form knows to draw a line or a box, and it falls out of
 `templateParts` with no new scan.  `prompts` stays as the names for one
-release so the shell and `test/fixtures/shell-harness.js` can move in
-either order.
+release so the shell and `test/fixtures/shell-harness.js` move in either
+order.
 
 ## Staged path
 
@@ -220,8 +214,7 @@ the form's point field first, the backward walk, `C-c C-c` in the body.
 Fixes diagnoses 1, 4 and half of 3.
 
 **v2 — the asking widgets.**  `%^{P|def|c1|c2}`, `%^t`/`%^T`/`%^u`/`%^U`,
-`%^g`/`%^G`: three scan arms, three `kind` values, three existing widgets
-wired to them.
+`%^g`/`%^G`: three scan arms, three `kind` values, three existing widgets.
 
 **v3 — the structural elements.**  `%^{PROP}p` into the drawer
 `blobDocument` already composes, `%\N` as `expandTemplate`'s second pass,

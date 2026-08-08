@@ -174,7 +174,7 @@ entry by id.  That projection is (C)'s real cost and the reason it is v2.
 (A) for v1, (C) as the shape v2 grows into, (B) rejected on the extent and
 row-count argument above.  (A) is the smallest thing that removes the
 inconsistency a reader SEES: four refusals become four commands, and one
-optional field joins a route that already resolves `(id, child)` twice.  It
+optional field joins a route already resolving `(id, child)` twice.  It
 settles nothing about identity, which is correct — the id question is worth
 answering once, with minting, rather than twice.  Staged:
 
@@ -182,8 +182,7 @@ answering once, with minting, rather than twice.  Staged:
    glue's `atElement` refusal becomes a call carrying `editing.child`.
 2. The CHAIN FIX (Decision 1): `settableStates` over a child record today
    asks a question missing the row's tags.
-3. `edit-link` narrows its wall from the ROW's subtree to the focus's — a
-   tighter version of the check it already makes.
+3. `edit-link` narrows its wall from the ROW's subtree to the focus's.
 4. v2: mint on demand (Decision 4), key a second projection by id, add
    `child_of` as a filter key beside `ref:`.
 
@@ -202,12 +201,12 @@ answering once, with minting, rather than twice.  Staged:
    `hrDigest`, so `planCommand`'s grouping and lock need no edit.  A child
    command additionally REQUIRES the pin, its address being positional.
 4. ONE OWNER PER BYTE SURVIVES, AT EVERY FOCUS.  The lens's three regions
-   are the FOCUS's own planning line, drawer and logbook, and every other
-   byte is the body's — so a child's drawer is body text at the PARENT and
-   a drawer at the CHILD.  Two focuses over one range, held apart by the
-   FILE digest: the second write drifts and re-materializes.  The cost is
+   are the FOCUS's own planning line, drawer and logbook, every other byte
+   being the body's — so a child's drawer is body text at the PARENT and a
+   drawer at the CHILD.  Two focuses over one range, held apart by the FILE
+   digest: the second write drifts and re-materializes.  The cost is
    stating it, plus reading `ownLines` as the general rule it already is —
-   it answers "how much of this body is mine" at whatever focus asks.
+   "how much of this body is mine", at whatever focus asks.
 5. WHAT A READER IS OFFERED IS WHAT A WRITE TAKES, AT EVERY DEPTH.
    `settableStates` is `keywordSources` flattened so the palette and the
    wall cannot come apart; a child's cell must raise a palette asking
@@ -223,13 +222,13 @@ answering once, with minting, rather than twice.  Staged:
    over it today resolves a chain missing every tag the row wears.
    RECOMMEND the ROW's: the chain is the FILE's plus the ROW's tags, org's
    `org-use-tag-inheritance` makes the row's tags the child's, and the
-   palette in front of the reader at that sheet is the row's.  Spell it as
-   the row's tags UNION the entry's own — one function over the path
-   `trailTo` already walks — so a child adding `:book:` reaches the book
-   layer's cycle and a child adding nothing keeps the row's.
+   palette in front of the reader is the row's.  Spell it as the row's tags
+   UNION the entry's own, over the path `trailTo` already walks, so a child
+   adding `:book:` reaches the book layer's cycle and one adding nothing
+   keeps the row's.
 2. **What `archive` on a child means.**  `archiveEdits` IS `addTagEdits
    archiveTag`, and `/headlines` hides a row by `-tag:*archive*` over the
-   ROW's own tags cell.  Tagging a child hides nothing: the row stays on
+   ROW's own tags cell, so tagging a child hides nothing: the row stays on
    the table carrying an archived child.  RECOMMEND `csChild = False` for
    `archive` in v1, the refusal naming the reason — the word means "take
    this off the table" and a child is not on it.  Revisit under (C), where
@@ -238,18 +237,17 @@ answering once, with minting, rather than twice.  Staged:
    asymmetric.  DOWNWARD — the row's tags count as the child's — is org's
    own rule and costs the table nothing, no child having a row.  UPWARD — a
    child's tag makes the ROW match `tag:x` — changes what `/headlines`
-   answers, changes `GET /tags`' per-request counts, and breaks the
-   top-entry rule's first stated consequence, that a word only a child
-   carries matches nothing.  RECOMMEND downward only, and only where a
-   CHAIN is resolved (Decision 1); `tag:` keeps reading the row's own cell.
-   Upward, if ever wanted, is a NEW key over the graph the way `ref:` is.
+   answers and what `GET /tags` counts, and breaks the top-entry rule's
+   first stated consequence, that a word only a child carries matches
+   nothing.  RECOMMEND downward only, and only where a CHAIN is resolved
+   (Decision 1); `tag:` keeps reading the row's own cell.  Upward, if ever
+   wanted, is a NEW key over the graph the way `ref:` is.
 4. **May the daemon mint an id unasked?**  RECOMMEND no.  Minting is a
    write and every write here is a reader's act.  Mint on the FIRST command
    that addresses the child, inside the SAME atomic `replaceSpans` as the
    edit it arrived with — one file, one digest, one write, the drawer
-   splice being `blobDocument`'s `drawerEdits` already.  Never on a walk,
-   never on a materialize, never on a read: a reader who only looked leaves
-   no byte behind.
+   splice being `blobDocument`'s `drawerEdits` already.  Never on a walk, a
+   materialize or a read: a reader who only looked leaves no byte behind.
 5. **Does `?child=K` stay once ids are minted?**  RECOMMEND both.  K is how
    a client WALKS the outline — `children`, `parent` and `path` are all
    indices — and an id is how an address survives a reload.  Serve a
