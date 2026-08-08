@@ -493,6 +493,14 @@ section groups a feature arc, and its date is that arc's last commit.
   (table-view `cc9dd70`, synced). Same rules and values; a re-layout.
 
 ### Added
+- **`substring:VALUE` is free text under a key.** The filter grammar reads
+  `key:value` everywhere now, and a bare word is that spelling with the key
+  elided — ONE matcher answers both, so they can never come to mean two
+  things. Negation, alternation and the half-typed `substring:` all fall out
+  of the machinery a predicate already has. What the key buys is a value that
+  may spell a separator's neighbour — a leading `-`, a colon, a bar — under
+  quotes without being read as something else. Both sides of the wire
+  (SCHEMA.md, Filter query).
 - **The settings sheet is tabbed, and a tree colours its own states.** General,
   theme and keywords are one panel at a time now — a hidden panel is out of the
   flow, so native tabbing walks exactly what is on screen, and the horizontal

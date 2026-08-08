@@ -54,6 +54,7 @@ module Glance.Web.Filter ( FilterEnv
                          , refusedOn
                          , scanQuery
                          , sortKey
+                         , substringKey
                          , spellingOf
                          , columnsKey
                          , viewKeys
@@ -112,6 +113,20 @@ refKey = "ref"
 -- name the way a column does (SCHEMA.md, Filter query).
 plannedKey :: Text
 plannedKey = "planned"
+
+-- | FREE TEXT'S OWN KEY: @substring:VALUE@ is exactly what @VALUE@ alone
+-- means — a substring of the row as it displays ('freeTest').  So the grammar
+-- is @KEY:VALUE@ throughout and a bare word is that spelling with the key
+-- elided, which is what a reader types and what the chip may spell back.
+--
+-- The elision is the whole difference.  Everything else falls out of the
+-- machinery a predicate already has: @-substring:x@ negates, @substring:a|b@
+-- ORs its alternatives, and @substring:@ narrows nothing (the @key:@ rule).
+-- What the key BUYS over the bare word is a value that may spell a separator's
+-- neighbour — a leading @-@, a colon, a bar — under quotes without being read
+-- as something else, and a token a reader can see is a search.
+substringKey :: Text
+substringKey = "substring"
 
 -- | The key that states the ORDER: @sort:COL@, @sort:COL:desc@
 -- ('Glance.Web.Sort').  A key here so that a sort token is never read as free
@@ -369,16 +384,17 @@ matchesFilter env q = case compile env (parseFilter q) of
 -- column set, each no field at all and narrowing nothing.  Resolved once per
 -- term, so the grammar's question — is this a key — and the matcher's read one
 -- answer.
-data Field = Col !Int | Planned | Ref | Order
+data Field = Col !Int | Planned | Ref | Order | Whole
 
 -- | KEY as the field it names, or 'Nothing' where it names none — which is the
 -- test 'parseFilter' makes, so a token is a predicate exactly where there is a
 -- field for it to read.
 fieldOf :: Text -> Maybe Field
-fieldOf key | key == plannedKey    = Just Planned
-            | key == refKey        = Just Ref
-            | key `elem` viewKeys  = Just Order
-            | otherwise            = Col <$> elemIndex key filterKeys
+fieldOf key | key == plannedKey     = Just Planned
+            | key == refKey         = Just Ref
+            | key == substringKey   = Just Whole
+            | key `elem` viewKeys   = Just Order
+            | otherwise             = Col <$> elemIndex key filterKeys
 
 -- | The cells FIELD reads, by their position in 'filterKeys'.  A column is its
 -- own one cell and @planned@ is the two date columns, which is the whole of
@@ -390,6 +406,7 @@ fieldCells (Col i) = [i]
 fieldCells Planned = dateColumns
 fieldCells Ref     = []
 fieldCells Order   = []
+fieldCells Whole   = []
 
 -- | TERMS as the tests a row must all pass.  One rule, so there is nothing to
 -- group: every token narrows, and two tokens naming one key are read as the AND
@@ -472,6 +489,9 @@ keyTest env _key Ref value = case feRef env value of
 -- term before a test is built for it.  The arm is here for totality, and the
 -- answer it gives is the one that arm means — every row.
 keyTest _env _key Order _value = const True
+-- @substring@ is FREE TEXT under a key, so it is that matcher and nothing else:
+-- one implementation, so the two spellings can never come to mean two things.
+keyTest _env _key Whole value = freeTest value
 -- Every other key is a predicate over the CELLS it names ('fieldCells'), which
 -- is one for a column and the two dates for @planned@.  The two metas the set
 -- decides are @*empty*@ — every named cell empty, so an unplanned row is one

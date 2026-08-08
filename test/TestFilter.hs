@@ -27,6 +27,7 @@ import Glance.Web.Filter ( Term (..), Token (..), alternatives, archiveKey
                          , archiveMeta, cellAt, columnsKey, emptyEnv, emptyMeta, filterKeys
                          , matchesFilter, metaOf, namesArchive, parseFilter
                          , plannedKey, refKey, scanQuery, sortKey, storeEnv
+                         , substringKey
                          , tagsKey )
 import Glance.Web.Sort (sortChainIn)
 
@@ -73,7 +74,8 @@ matches q rows = assertEqual (T.unpack q) rows =<< matching q
 
 spec :: TestTree
 spec = testGroup "Filter"
-  [ tokenSpec, predicateSpec, tagsSpec, plannedSpec, sortSpec, columnsSpec
+  [ tokenSpec, predicateSpec, tagsSpec, plannedSpec, substringSpec, sortSpec
+  , columnsSpec
   , archiveSpec, metaSpec
   , shapeSpec, alternationSpec
   , degenerateSpec
@@ -330,10 +332,43 @@ plannedSpec = testGroup "Planned"
                         , key /= Nothing ]
       -- The whole vocabulary a query may name, so a key added or lost fails
       -- here rather than being noticed by a reader typing one.
-      assertEqual "the keys are exactly the columns plus the four the grammar owns"
-                  (sort (filterKeys <> [plannedKey, refKey, sortKey]))
-                  (sort [ k | k <- filterKeys <> [plannedKey, refKey, sortKey]
+      assertEqual "the keys are exactly the columns plus the ones the grammar owns"
+                  (sort (filterKeys <> grammarKeys))
+                  (sort [ k | k <- filterKeys <> grammarKeys
                             , Term _n (Just k') _v <- parsed (k <> ":x"), k' == k ])
+  ]
+  where grammarKeys = [plannedKey, refKey, sortKey, substringKey]
+
+-- | FREE TEXT UNDER A KEY.  @substring:V@ is what @V@ alone means, so the
+-- grammar reads @KEY:VALUE@ throughout and a bare word is that spelling with
+-- the key elided.  One matcher answers both, which is what the cases pin.
+substringSpec :: TestTree
+substringSpec = testGroup "Substring"
+  [ testCase "the key is spelled once, and it is not a column" $ do
+      assertEqual "the key" "substring" substringKey
+      assertBool "and no column carries it" (substringKey `notElem` filterKeys)
+
+  , testCase "it finds exactly what the bare word finds" $
+      mapM_ (\word -> do
+              bare <- matching word
+              keyed <- matching (substringKey <> ":" <> word)
+              assertEqual ("substring:" <> T.unpack word) bare keyed)
+            ["ship", "renderer", "2026-08", "zzz", ""]
+
+  , testCase "and the machinery a predicate has comes with it" $ do
+      -- A negation, an alternation and the half-typed key, none of them
+      -- spelled here: they are the token rules, and the key inherits them.
+      matches "-substring:ship" [Privet, Reply, Plain, Drop, Schema]
+      matches "substring:ship|renderer" [Ship, Drop]
+      everything <- matching ""
+      assertEqual "a key with no value narrows nothing" everything
+        =<< matching "substring:"
+
+  , testCase "a quoted value may spell what a bare word cannot" $
+      -- The point of the key: a leading `-' is the token's negation when it
+      -- opens a bare word, and the value's own text under quotes.
+      assertEqual "the hyphen is text here"
+                  [Term False (Just "substring") "-x"] (parsed "substring:\"-x\"")
   ]
 
 -- | The ORDER token: @sort:COL@, @sort:COL:desc@.

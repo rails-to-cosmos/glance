@@ -819,6 +819,18 @@
   const PLANNED_KEY = "planned";
 
   /**
+   * FREE TEXT'S OWN KEY: `substring:V' is exactly what `V' alone means — a
+   * substring of the row as it displays. So the grammar is `KEY:VALUE'
+   * throughout and a bare word is that spelling with the key elided.
+   *
+   * One matcher for both, so the two can never come to mean two things. What
+   * the key buys is a value that may spell a separator's neighbour — a leading
+   * `-', a colon, a bar — under quotes without being read as something else,
+   * and a token a reader can see is a search.
+   */
+  const SUBSTRING_KEY = "substring";
+
+  /**
    * SCHEMA's ORDER key: `sort:COL', `sort:COL:desc'. It states the order the
    * rows are read in and narrows nothing, so it is the one key in the grammar
    * that is no predicate at all — written order is precedence, and a query
@@ -2364,7 +2376,8 @@
      */
     function queryKeys() {
       const keys = columnKeys();
-      if (keys.indexOf(PLANNED_KEY) === -1) keys.push(PLANNED_KEY);
+      for (const k of [PLANNED_KEY, SUBSTRING_KEY])
+        if (keys.indexOf(k) === -1) keys.push(k);
       for (const k of VIEW_KEYS) if (keys.indexOf(k) === -1) keys.push(k);
       return keys;
     }
@@ -2442,12 +2455,10 @@
      * @param {Token} tok  @returns {(r: Row) => boolean}
      */
     function tokenTest(tok) {
-      if (tok.key === null) {
-        // The cached joined string, which is the hot path and the reason the
-        // pure-free-text query costs exactly what it did before.
-        const v = tok.value.toLowerCase();
-        return v ? (r) => rowText(r).search.includes(v) : () => true;
-      }
+      // A keyless token and `substring:' are ONE test, which is what makes the
+      // key an elision rather than a second search.  The cached joined string
+      // is the hot path, and the reason a free-text query costs what it did.
+      if (tok.key === null) return freeTest(tok.value.toLowerCase());
       const key = tok.key;
       const alts = alternatives(tok.value.toLowerCase());
       if (!alts.length) return () => true;         // half-typed: narrows nothing
@@ -2457,6 +2468,11 @@
         for (const t of tests) if (t(r)) return true;
         return false;
       };
+    }
+
+    /** V as a substring of the row as it displays; an empty V narrows nothing. */
+    function freeTest(v) {
+      return v ? (r) => rowText(r).search.includes(v) : () => true;
     }
 
     /**
@@ -2489,6 +2505,9 @@
      * @param {string} key  @param {string} v  @returns {(r: Row) => boolean}
      */
     function valueTest(key, v) {
+      // `substring:' is free text under a key, so it is that matcher.  Asked
+      // before `fieldCells', which knows about cells and this reads the row.
+      if (key === SUBSTRING_KEY && !colByKey(key)) return freeTest(v);
       const cells = fieldCells(key);
       if (!cells) return () => true;             // no such key: narrows nothing
       // Asking for an empty cell is what `*empty*' is for, on every key: it is
