@@ -22,11 +22,9 @@ behaviour:
 The guard is `r.kind === "child" || editing.child !== null`, so it covers
 the second half: materialize INTO a child with `?child=K` and that child
 becomes the sheet's HEAD line, drawn with its own stars and cells, and its
-cells stay refused.  A reader who walked in with `RET` finds the keys that
-worked one level up gone.  Everything else at that focus works — the
-panel's three planning rows, the drawer, the paragraphs, `SPC` on a
-checkbox, the whole-subtree commit.  The sheet is already a recursive
-editor of every byte except the four cells on the headline line.
+cells stay refused.  Everything else at that focus works — planning rows,
+drawer, paragraphs, `SPC` on a checkbox, the whole-subtree commit.  The
+sheet is a recursive editor of every byte except those four cells.
 
 ## The cause is structural
 
@@ -48,27 +46,23 @@ unreachable from the one route that edits a cell.
 ### (A) Extend `?child=K` to `/command`
 
 `CommandSpec` grows `csChild :: Bool`; the request grows an optional
-`child` beside `id`; `planCommand` grows one resolution step —
-`subtreeEntries` the row, `subtreeEntryAt` the index, hand `seRecord` to
-the same `RowEdits`.  Four things already hold, which is why it is cheap.
+`child` beside `id`; `planCommand` grows one step — `subtreeEntries` the
+row, `subtreeEntryAt` the index, hand `seRecord` to the same `RowEdits`.
 
-- `RowEdits = ConfigLayers -> Maybe Text -> Args -> HeadlineRecord ->
-  Either Text [(Span, Text)]` takes a RECORD.  Every edit in the table
-  (`setStateEdits`, `setPriorityEdits`, `setTitleEdits`,
-  `setPlanningEdits`, `addTagEdits`, `removeTagEdits`, `renameTagEdits`,
-  `editLinkEdits`) reads spans off `headlineSpans r` and text off
-  `hrDoc r`.  Depth is nowhere in them.
-- `subtreeEntries` already builds a full `HeadlineRecord` per descendant
-  through the same `recordOf`, carrying the child's own `hrSubtree`, cells
-  and sub-spans beside the ROW's `hrFile`, `hrDoc`, `hrDigest`,
-  `hrKeywords` and `hrDeclared`.
-- It already spells an id, `hrId = ROW/K`, decorative by its own
-  docstring: "Nothing registers one and no route resolves one: they exist
-  so a refusal names something a reader can place."
-- The write law survives untouched.  `planCommand` groups by `hrFile` and
-  pins `hrDigest r0`; a child record carries the row's file and the file's
-  digest by construction, so a marked set is still one atomic
-  `replaceSpans` per file.
+Cheap because three things already hold.  `RowEdits = ConfigLayers -> Maybe
+Text -> Args -> HeadlineRecord -> Either Text [(Span, Text)]` takes a
+RECORD, and every edit in the table (`setStateEdits`, `setPriorityEdits`,
+`setTitleEdits`, `setPlanningEdits`, `addTagEdits`, `removeTagEdits`,
+`renameTagEdits`, `editLinkEdits`) reads spans off `headlineSpans r` and
+text off `hrDoc r`, so depth is nowhere in them.  `subtreeEntries` already
+builds a full `HeadlineRecord` per descendant through the same `recordOf` —
+the child's own `hrSubtree`, cells and sub-spans beside the ROW's `hrFile`,
+`hrDoc`, `hrDigest`, `hrKeywords` and `hrDeclared` — and already spells an
+id, `hrId = ROW/K`, decorative by its own docstring: "Nothing registers one
+and no route resolves one: they exist so a refusal names something a reader
+can place."  And the write law survives untouched: `planCommand` groups by
+`hrFile` and pins `hrDigest r0`, which a child record carries by
+construction, so a marked set is still one `replaceSpans` per file.
 
 Costs, honestly.
 
@@ -77,23 +71,23 @@ Costs, honestly.
    anywhere above it INSIDE the subtree — more volatile than `FILE#K`,
    which moves only when the file's emitted rows move.
 2. THERE IS NO DIGEST PER CHILD, and there cannot be: `hrDigest` is the
-   FILE's, one lock for the whole file.  The existing lock covers every
-   concurrent EDIT — a byte moving re-digests the file and `planCommand`'s
-   `stale` refuses that id with nothing written, so a stale K can never
-   reach a headline it was not measured against.  It fails to cover a
-   request that pins NOTHING: `digests` is optional (`o .:? "digests"`) and
-   `stale` reads only the ids the client pinned.  For a ROW id that is
-   tolerable, the id naming one headline whatever moved; for a positional
-   child it is a write aimed by a number nobody checked.  ONE GUARD FIXES
-   IT — a `child` command REQUIRES the row's digest, refused in `csArgs`,
-   which is already handed the ids.
-3. `child` beside more than one id is a 400 — `wantsLink`'s own rule,
-   already in the table, for the same reason: an argument describing one
-   row's structure means nothing to a second.
-4. It puts a second addressing scheme on `/command`.  Spelling it
-   `(id, child)` keeps it the SAME scheme `/headline` uses; spelling it as
-   the `ROW/K` string would give `/` a rule and break "Nothing parses an id
-   apart (`resolveIds` is exact-string), so the separator carries no rule."
+   FILE's, one lock for the whole file.  It covers every concurrent EDIT —
+   a byte moving re-digests the file and `planCommand`'s `stale` refuses
+   that id with nothing written, so a stale K never reaches a headline it
+   was not measured against.  It fails to cover a request that pins
+   NOTHING: `digests` is optional (`o .:? "digests"`) and `stale` reads
+   only the ids the client pinned.  For a ROW id that is tolerable, the id
+   naming one headline whatever moved; for a positional child it is a write
+   aimed by a number nobody checked.  ONE GUARD FIXES IT — a `child`
+   command REQUIRES the row's digest, refused in `csArgs`, already handed
+   the ids.
+3. `child` beside more than one id is a 400 — `wantsLink`'s own rule, for
+   its reason: an argument describing one row's structure means nothing to
+   a second.
+4. It puts a second addressing scheme on `/command`.  `(id, child)` keeps
+   it the SAME scheme `/headline` uses; the `ROW/K` string would give `/` a
+   rule and break "Nothing parses an id apart (`resolveIds` is
+   exact-string), so the separator carries no rule."
 
 ### (B) Every headline is a row
 
@@ -130,9 +124,9 @@ numbers EMITTED rows, so inserting a child anywhere renumbers every row
 behind it in the file, and `ORG_GLANCE_ID` is the only immunity the
 corpus's children mostly lack.  `GET /tags`' `counts` is per-request over
 ROWS, so every count changes; `stTags` counts FILES and holds.  And the
-table stops being a list of entries and becomes a list of lines — the
-outline is what the sheet exists to show, and flattening it into the table
-deletes the distinction that makes materialize worth opening.
+table becomes a list of LINES where it was a list of ENTRIES — the outline
+is what the sheet exists to show, and flattening it into the table deletes
+the distinction that makes materialize worth opening.
 
 (B) genuinely buys one thing: every headline gets a row id, `?child=K` and
 `csChild` both go away, and there is exactly ONE addressing scheme — item
@@ -146,31 +140,27 @@ table already filters: `ref:ROWID` is "every row whose subtree points at
 the row named", and `child_of:ID` is that question over a structural edge
 rather than a textual one.
 
-What would an id for a child BE?  Four candidates, one survivor.
-
-- `ROW/K`, the positional address `subtreeEntries` already spells.  It
-  renumbers, which is the thing an id exists to avoid.
-- The character offset of its stars.  This WAS the row id once and moved on
-  any edit above the headline (`rowId`'s own note).
-- A digest over its text.  Two identical children collide, and it changes
-  on every edit to the thing it names.
-- `ORG_GLANCE_ID`.  Stable across every edit, already the row rule, and the
-  only one an org file can SPELL: `refSpellings` reads the id off the
-  HEADLINE rather than off `hrId`, "an ordinal is this view's own invention
-  and no file can hold a link to one."  A `ROW/K` address is unreachable
-  from a link by construction.
+What would an id for a child BE?  Four candidates, one survivor.  `ROW/K`,
+the positional address `subtreeEntries` spells, renumbers — the thing an id
+exists to avoid.  The character offset of its stars WAS the row id once and
+moved on any edit above the headline (`rowId`'s note).  A digest over its
+text collides between two identical children and changes on every edit to
+the thing it names.  `ORG_GLANCE_ID` is stable across every edit, already
+the row rule, and the only one an org file can SPELL: `refSpellings` reads
+the id off the HEADLINE rather than off `hrId`, "an ordinal is this view's
+own invention and no file can hold a link to one", so a `ROW/K` address is
+unreachable from a link by construction.
 
 So (C) implies MINTING `ORG_GLANCE_ID` into child headlines, a write into
 every file it touches.  The convention is established here: this repo mints
-one per stored entry (`mintBlobId` is `org-id-uuid`'s form) on every tagged
-capture, `blobDocument`'s `drawerEdits` is the span math already — join an
-existing `:PROPERTIES:` under its own indentation, else write the drawer
-whole under the PLANNING LINE — and a minted id is invisible in the panel
-by construction, `hiddenProperties`' first entry being `ORG_GLANCE_ID` and
-`hiddenProperty` folding a key while knowing nothing about depth.  Against
-it: the write is unasked-for, it costs one write per child ADDRESSED so a
-thoroughly browsed tree grows a uuid on every headline a reader visited,
-and an id in a file is permanent.
+one per stored entry on every tagged capture (`mintBlobId` is
+`org-id-uuid`'s form), `blobDocument`'s `drawerEdits` is the span math
+already — join an existing `:PROPERTIES:` under its own indentation, else
+write the drawer whole under the PLANNING LINE — and a minted id is
+invisible in the panel by construction, `hiddenProperties`' first entry
+being `ORG_GLANCE_ID` and `hiddenProperty` folding a key while knowing
+nothing about depth.  Against it: the write is unasked-for, it costs one
+write per child ADDRESSED, and an id in a file is permanent.
 
 (C) buys past (A) a name that survives a reorder, an outline that is a
 first-class graph, `ref:`-shaped filtering over structure, and one edge a
@@ -231,10 +221,10 @@ answering once, with minting, rather than twice.  Staged:
    RECORD's own tags.  A child record from `subtreeEntries` carries the
    file's declarations and the CHILD's own tags cell, so `settableStates`
    over it today resolves a chain missing every tag the row wears.
-   RECOMMEND the ROW's.  The chain is the FILE's plus the ROW's tags,
-   org's `org-use-tag-inheritance` makes the row's tags the child's, and
-   the palette in front of the reader at that sheet is the row's.  Spell it
-   as the row's tags UNION the entry's own — one function over the path
+   RECOMMEND the ROW's: the chain is the FILE's plus the ROW's tags, org's
+   `org-use-tag-inheritance` makes the row's tags the child's, and the
+   palette in front of the reader at that sheet is the row's.  Spell it as
+   the row's tags UNION the entry's own — one function over the path
    `trailTo` already walks — so a child adding `:book:` reaches the book
    layer's cycle and a child adding nothing keeps the row's.
 2. **What `archive` on a child means.**  `archiveEdits` IS `addTagEdits
