@@ -15,6 +15,9 @@ extra-source-files:
     CHANGELOG.md
     -- The renderer glance-web compiles in; vendored by `make sync-renderer'.
     assets/table-view.js
+    -- And the shell, one widget per file, concatenated by the TH splice in the
+    -- order `Glance.Web.Base.gluePartFiles' declares.
+    assets/glue/*.js
     test/fixtures/*.js
     test/fixtures/*.json
     test/fixtures/assets/*.js
@@ -170,6 +173,9 @@ library glance-web
     , http-types
     , process
     , stm
+    -- `Routes' folds `gluePartFiles' into one embed per part, which is a TH
+    -- list expression; the splice itself was always here.
+    , template-haskell
     , text
     , time
     , wai

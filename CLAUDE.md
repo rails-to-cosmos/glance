@@ -819,6 +819,15 @@ measurements and the history of superseded designs live in
 - NO SOURCE FILE names an absolute path outside the repo. `TestSelfContained`
   sweeps every `.hs` under `src*/` and `app/` for `/home/`, and asserts what it
   swept first so an empty sweep cannot pass.
+- ONE WIDGET, ONE FILE: the shell is `assets/glue/*.js`, concatenated by the TH
+  splice in the order `Glance.Web.Base.gluePartFiles` declares (ORDER IS DATA,
+  stated once). The parts are FRAGMENTS of one script scope rather than modules
+  — the script has no wrapper, every top-level name is a script-scope binding —
+  so the join is plain concatenation, `tsc` resolves across the parts by
+  listing them all, and the split was proven byte-identical against the file it
+  came from. `assets/glue.js` stays as that concatenation because `--assets DIR`
+  serves `DIR/glue.js`; `make glue` remakes it and `TestSelfContained` asserts
+  the two agree, so two copies of one script cannot drift.
 - `make check-glue` READS THE SHELL, which it did not until 2026-08-08: `checkJs`
   without `allowJs` excludes every `.js` from the program, so tsc was type-checking
   the five-line `glue.d.ts` and reporting clean. `files:` rather than `include:`

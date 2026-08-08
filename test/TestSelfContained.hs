@@ -24,6 +24,7 @@ import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
 import System.FilePath (takeExtension, (</>))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
+import Glance.Web.Base (gluePartFiles)
 import TestDefaults (holdsAll)
 
 import qualified Data.Text as T
@@ -40,6 +41,22 @@ spec = testGroup "Self-containment"
       assertBool ("too few sources swept: " <> show (length files)) (length files >= 12)
       hits <- concat <$> mapM homePaths files
       assertEqual "sources naming an absolute home directory" [] hits
+
+    -- THE SPLIT IS BYTE-PROVABLE, and this is the proof kept running.  The
+    -- shell is one widget per file and the build concatenates the parts in the
+    -- order `gluePartFiles' declares; `assets/glue.js' is that concatenation,
+    -- committed because `--assets DIR' serves `DIR/glue.js' and a dev hacking
+    -- on a served directory wants the whole script there.  Two copies of one
+    -- script is a drift hazard, so the agreement is asserted rather than
+    -- remembered: `make glue' is how you make them agree.
+  , testCase "the shell's parts concatenate to the file that is served" $ do
+      parts <- mapM (TIO.readFile . ("assets/glue" </>)) gluePartFiles
+      whole <- TIO.readFile "assets/glue.js"
+      assertBool "the part list is empty" (length gluePartFiles >= 2)
+      assertEqual "assets/glue.js is stale — run `make glue'"
+                  (T.length whole) (sum (map T.length parts))
+      assertEqual "the parts do not spell the served script"
+                  whole (T.concat parts)
 
     -- A vendored file with no way to refresh it is a fork, so the loop that
     -- ends in `assets/table-view.js' has to stay written down somewhere the

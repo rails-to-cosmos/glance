@@ -33,6 +33,7 @@ import Data.List (find, nub)
 import Data.Map.Strict (Map)
 import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import Data.FileEmbed (embedFile, makeRelativeToProject)
+import Language.Haskell.TH (listE)
 import Data.Text (Text)
 import GHC.Clock (getMonotonicTime)
 import Network.HTTP.Types ( Header, hCacheControl, hContentType, methodGet, methodHead
@@ -79,7 +80,8 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , resolveColumns, savedViews, stateColorsOf, todoLines, viewColumns
                     , viewJSONTextFor, viewOf )
 import Glance.Web.Base ( ServeOptions (..), answerWrite, bodyObject, configMoved
-                       , conflict, glueAsset, html, jsonError, jsonResponse, jsonType
+                       , conflict, glueAsset, gluePartFiles, html, jsonError
+                       , jsonResponse, jsonType
                        , noSuchRow
                        , plain, rendererAsset, reparsed, rewritten, sized, tenths
                        , unreadable, viewTitleFor, walkFor, withBody )
@@ -111,12 +113,19 @@ import Glance.Web.Watch (writeSpans)
 embeddedRenderer :: BS.ByteString
 embeddedRenderer = $(makeRelativeToProject "assets/table-view.js" >>= embedFile)
 
--- | The shell's own script, embedded the same way: @assets\/glue.js@ is a
--- real JavaScript file (docs\/proposal-glue-extraction.md), the page names it
--- beside the renderer, and @--assets@ overrides both together — the directory
--- is the whole asset set.
+-- | The shell's own script, embedded the same way and in PARTS: one file per
+-- widget under @assets\/glue\/@ (docs\/proposal-widget-files.md), concatenated
+-- in the order 'gluePartFiles' declares.  The parts are FRAGMENTS of one script
+-- scope rather than modules, so the join is plain concatenation and the split
+-- is byte-provable against the single file it came from.
+--
+-- The page still names ONE script beside the renderer's, and @--assets@ still
+-- overrides both together — the directory is the whole asset set, and a dev
+-- serving from one puts a whole @glue.js@ there.
 embeddedGlue :: BS.ByteString
-embeddedGlue = $(makeRelativeToProject "assets/glue.js" >>= embedFile)
+embeddedGlue = BS.concat
+  $(listE [ makeRelativeToProject ("assets/glue/" <> part) >>= embedFile
+          | part <- gluePartFiles ])
 
 -- | Is there a renderer to serve?  The route's own question ('assetSource'),
 -- asked of the renderer's name, so the banner and @\/@ cannot disagree with

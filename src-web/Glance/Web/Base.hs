@@ -15,6 +15,7 @@ module Glance.Web.Base ( ServeOptions (..)
                        , logLinesMax
                        , logLinesBand
                        , glueAsset
+                       , gluePartFiles
                        , rendererAsset
                        , viewTitleFor
                        , tenths
@@ -103,6 +104,27 @@ rendererAsset = "table-view.js"
 -- or neither, the directory being the whole asset set.
 glueAsset :: FilePath
 glueAsset = "glue.js"
+
+-- | THE SHELL, ONE WIDGET PER FILE, in the order they are concatenated into
+-- the one asset above.  A part is a FRAGMENT rather than a module: the script
+-- has no wrapper, so every part shares one script scope and the join is plain
+-- concatenation — which is what makes the split byte-provable against the file
+-- it came from.
+--
+-- ORDER IS DATA, so it is stated here and nowhere else: the TH splice folds
+-- this list, `tsc' checks the same files, and a name with no file fails the
+-- build rather than serving a shell with a hole in it.
+gluePartFiles :: [FilePath]
+gluePartFiles =
+  [ "00-core.js"       -- the config blob, the log strip, the wash, fetching, the query, the crumbs
+  , "10-document.js"   -- the materialize sheet's structured-document pane
+  , "20-panel.js"      -- the property panel, the edit overlay, the flag gesture, the sheet ladder
+  , "30-capture.js"    -- the capture form and the value palette
+  , "40-popups.js"     -- the link popup and the tags popup
+  , "50-settings.js"   -- the settings sheet: tabs, saved views, the states table, the theme
+  , "60-keys.js"       -- key naming and the keymap
+  , "70-shell.js"      -- the modal surfaces, the dispatch and the boot
+  ]
 
 -- | S rounded the way a banner and an indexing body both want it.
 tenths :: Double -> Double
