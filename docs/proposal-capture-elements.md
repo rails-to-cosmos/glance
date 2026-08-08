@@ -20,56 +20,49 @@ four as a case and consults no list; `templatePrompts` (`:2628`) and
 
 THE ONE-HEADLINE WALL is `captureText` (`:2563`), which is `oneLine`
 (`:2029`): empty-after-strip refused, any newline refused.  It takes the
-captured line AND every `fields` answer, through `capturedParts`
-(`src-web/Glance/Web/Commands.hs:446`).
+captured line AND every `fields` answer (`capturedParts`,
+`src-web/Glance/Web/Commands.hs:446`).
 
 TWO WRITE PATHS.  Untagged, `captureInbox` (`Commands.hs:348`) appends
 `captureEdits` (`Query.hs:2545`) to the tree's `#+GLANCE_CAPTURE_TARGET:`
-— `* <text>` plus a drawer holding `ORG_GLANCE_CREATION_TIME`, no
-template involved.  Tagged, `captureBlob` (`:394`) resolves
-`captureTemplateIn` (`Query.hs:2698`) — the tag's layer's first heading
-to EOF, else the system layer's, else `bareTemplate = "* %?"` (`:2801`) —
-expands it and composes the blob through `blobDocument` (`:2755`) at
-`blobPathIn` (`src/Data/Org/Blob.hs:59`).
+— `* <text>` plus an `ORG_GLANCE_CREATION_TIME` drawer, no template
+involved.  Tagged, `captureBlob` (`:394`) resolves `captureTemplateIn`
+(`Query.hs:2698`) — the tag's layer's first heading to EOF, else the
+system layer's, else `bareTemplate = "* %?"` (`:2801`) — and composes the
+blob through `blobDocument` (`:2755`) at `blobPathIn` (`Blob.hs:59`).
 
 THE FORM is one popup, `openCapture` (`assets/glue.js:2841`): `#ktag`
-narrowing over the tree's vocabulary (`drawTagList:2885`) and seeded from
-the applied query's tag (`filteredTag:2873`); one field per prompt grown
-into `#kfields` when the tag settles (`settleTag:2905`); the line
-`#ktext` last.  RET walks forward and captures at the line, ESC leaves
-through `SURFACES`, a refusal keeps everything typed.
+narrowing over the tree's vocabulary (`drawTagList:2885`), seeded from
+the applied query's tag (`filteredTag:2873`); a field per prompt grown
+into `#kfields` when the tag settles (`settleTag:2905`); `#ktext` last.
+RET walks forward and captures at the line, ESC leaves, a refusal keeps
+everything typed.
 
 ## Why it reads as almost unusable
 
-Five diagnoses, each read off the code.
-
 1. **A CAPTURE CANNOT CARRY A BODY.**  `captureText` refuses a newline,
-   so the whole of what a reader contributes is one line, where most org
-   captures are a headline plus a paragraph.  The line field `#ktext` is
-   a `<textarea>` (`src-web/Glance/Web/Page.hs:136`) and `S-RET` reaches
-   it: `keyName` (`glue.js:4687`) names a shifted `Enter` `S-RET` and the
-   form's listener claims `RET` alone, so the browser inserts the newline
-   and the server refuses the whole capture.  The widget affords exactly
-   what the wall forbids.
+   so all a reader contributes is one line, where most org captures are a
+   headline plus a paragraph.  `#ktext` is a `<textarea>`
+   (`src-web/Glance/Web/Page.hs:136`) and `S-RET` reaches it — `keyName`
+   (`glue.js:4687`) names a shifted `Enter` `S-RET`, the listener claims
+   `RET` alone — so the widget affords what the wall forbids.
 2. **A PLACEHOLDER TITLE STICKS.**  glance keeps the template heading
    verbatim where org-glance's renderer rewrites its title from the
-   capture — the KNOWN DIVERGENCE CLAUDE.md records.  The fixture is what
-   it costs: `book`'s template is `* Book\n*** Notes\n    %?`
-   (`test/TestQuery.hs:2630`), so every book captured under it is an
-   entry titled `Book` with the reader's line buried in a grandchild.
+   capture — CLAUDE.md's KNOWN DIVERGENCE.  `book`'s template is
+   `* Book\n*** Notes\n    %?` (`test/TestQuery.hs:2630`), so every book
+   under it is titled `Book`, the reader's line buried in a grandchild.
 3. **EVERY ANSWER IS A BARE ONE-LINE TEXT FIELD.**  `settleTag` grows an
-   `<input>` per prompt (`glue.js:2920`) whatever the prompt is for: a
-   date gets no date control and no validation, a tag no vocabulary
-   though `/capture` already serves one, a choice no list.  The template
-   can only ask `%^{PROMPT}`, so the field is honest and the grammar
-   under it is the thin thing.
+   `<input>` per prompt (`glue.js:2920`) whatever it is for: a date gets
+   no control and no validation, a tag no vocabulary though `/capture`
+   serves one, a choice no list.  The template can only ask
+   `%^{PROMPT}`, so the grammar under the field is the thin one.
 4. **THE ANSWERING ORDER IS THE TEMPLATE'S.**  Focus walks tag → prompts
    in `templatePrompts` order → the line, fixed, so the entry's own text
    is answered LAST however early `%?` sits.  Nothing walks BACK — the
    listener claims RET and TAB forward alone.
-5. **ESC LOSES EVERYTHING.**  `shutCapture` blanks `#ktag`, `#ktext` and
-   `#kfields` and `openCapture` re-seeds from scratch, so a capture
-   interrupted to look something up is a capture retyped.
+5. **ESC LOSES EVERYTHING.**  `shutCapture` blanks `#ktag`/`#ktext`/
+   `#kfields` and `openCapture` re-seeds, so a capture interrupted to
+   look something up is a capture retyped.
 
 ## The symmetry
 
@@ -80,23 +73,21 @@ org-capture's escape list IS a widget catalogue whose org-file
 serialization is already agreed on.
 
 SO A TEMPLATE IS A FORM DESCRIPTION AND THE CAPTURE FORM IS GENERATED
-FROM IT.  One template, read by the scan that is already there, yields
-the fields, their kinds, their domains and their order.  A reader writes
-the form by writing the template, in the settings sheet's `#ctpl` box.
+FROM IT.  One template, read by the scan already there, yields the
+fields, their kinds, their domains and their order.  A reader writes the
+form by writing the template, in the settings sheet's `#ctpl` box.
 
 THE WIDGETS ARE ALREADY HERE.  Text: the palette's text mode (`askText`,
 `glue.js:3182`).  Choice: its field mode over a supplied list (`askFrom`,
 `:3209`, the tags popup's `+`).  Date: `planningTimestamp`
-(`Query.hs:2439`) — ISO, `+3d`, `today`, org's brackets — behind the line
-`C-c C-s` raises.  Tags: `/capture` serves `storeTags` and `drawTagList`
-narrows over it.  Link: `edit-link` plus the link popup's two-field
-overlay.  Property: the sheet's panel is a key/value row list.  THE WORK
-IS A MAPPING FROM CODE TO WIDGET, plus one field on the wire.
+(`Query.hs:2439`), behind the line `C-c C-s` raises.  Tags: `/capture`
+serves `storeTags`, `drawTagList` narrows it.  Link: `edit-link` and the
+link popup's two-field overlay.  Property: the sheet's panel is a
+key/value row list.  THE WORK IS A MAPPING FROM CODE TO WIDGET.
 
 ## The element table
 
-A stage number means the mechanism is here; `never-here` names what this
-side would have to grow to host it.
+`never-here` names what this side would have to grow to host the code.
 
 | code | means | widget | verdict |
 | --- | --- | --- | --- |
@@ -118,40 +109,38 @@ side would have to grow to host it.
 | `%c` `%x` `%^C` `%^L` | kill ring head, X clipboard, pick one, pick one as a link | none | never-here — the daemon is not the reader's session and holds neither |
 | `%k` `%K` | title of / link to the clocked task | none | never-here until a clock exists (fixme 6's territory) |
 | `%f` `%F` | file visited when capture was called | none | never-here — a browser visits no file; the nearest fact is the row at point's, which `%a` carries better |
-| `%:keyword` | link-type context | none | never-here — needs `org-store-link`'s plist off Emacs's capture protocol, which has no producer on this side |
 | `%(sexp)` | evaluate elisp | none | never-here — needs an elisp reader |
+| `%:keyword` | link-type context | none | never-here — needs `org-store-link`'s plist off Emacs's capture protocol, which has no producer on this side |
 | `%[file]` | insert a file's contents | none | never-here — a template naming a path makes the daemon read whatever the request names |
 
 THE SUBSET STAYS ONE LIST AND ONE SCAN.  `captureCodes` grows rows,
-`templateParts` grows the matching case arms, `TestQuery`'s zip of one
-through the other keeps them in step, `templatePrompts`/`expandTemplate`
-stay two answers off that one pass.  The mechanism holds; its size moves.
-Everything omitted still copies through, so a template written for Emacs
-stays readable here.
+`templateParts` grows the matching case arms, `TestQuery`'s zip keeps
+them in step, `templatePrompts`/`expandTemplate` stay two answers off one
+pass.  The mechanism holds; its size moves.  Everything omitted copies
+through, so an Emacs template stays readable here.
 
 ## The body problem — fix this first
 
-The wall exists to keep a capture ONE ENTRY: a blob's first headline is
-what org-glance keys it by (CLAUDE.md, Scan), and a newline in the typed
-line could land a column-1 star the parser reads as a second entry.
-Refusing the newline is a proxy for that.  REFUSE THE STAR INSTEAD.
+The wall keeps a capture ONE ENTRY: a blob's first headline is what
+org-glance keys it by (CLAUDE.md, Scan), and a newline in the typed line
+could land a column-1 star the parser reads as a second entry.  Refusing
+the newline is a proxy.  REFUSE THE STAR INSTEAD.
 
 - Split the wall.  `captureText` stays for every `fields` answer — a
   prompt fills a slot inside a line and a newline there is a hole.  A new
   `captureBody` takes the POINT text: refused empty-after-strip, refused
-  where any line answers `headingStars` (`Query.hs:2681`), the very
-  predicate `headingAt` and `topEntry` ask.  One predicate, three
-  readers; `capturedParts` calls one for `agText`, the other per field.
+  where any line answers `headingStars` (`Query.hs:2681`), the predicate
+  `headingAt` and `topEntry` already ask.  One predicate, three readers;
+  `capturedParts` calls one for `agText`, the other per field.
+  `blankEntry` is unaffected — the empty arm still makes the first line
+  say something.
 - `captureEdits` splits at its first newline: the head after the star,
   the drawer, then the rest verbatim in the target's own line endings.
   Still ONE insertion at the end of the file.
-- The tagged path needs nothing.  `expandTemplate` substitutes text;
-  `blobDocument` reads `firstHeadlineOf` and measures the drawer off
-  `planningEnd`, so a multi-line expansion is what a multi-line TEMPLATE
-  already produces.  The star refusal keeps `firstHeadlineOf` answering
-  the entry the id is minted for.
-- `blankEntry` is unaffected: the first line still has to say something,
-  which `captureBody`'s empty arm enforces as before.
+- The tagged path needs nothing.  `blobDocument` reads `firstHeadlineOf`
+  and measures the drawer off `planningEnd`, so a multi-line expansion is
+  what a multi-line TEMPLATE produces; the star refusal keeps
+  `firstHeadlineOf` answering the entry the id is minted for.
 
 One predicate, one splitter, one caller, and it moves "almost unusable"
 further than anything else here.
@@ -166,20 +155,17 @@ the order `templateParts` scans them.
 - KEYS.  RET moves forward, `S-TAB` and `C-p` move back — the walk the
   listener owes and lacks.  In the POINT field RET inserts a newline and
   `C-c C-c` / `C-x C-s` captures: TWO KEYS COMMIT AN OPEN ELEMENT is
-  already the rule for the paragraph textarea and the two-field overlay,
-  and this field is one of those.  ESC leaves through `SURFACES`; a
-  refusal keeps the form up with everything typed, unchanged.
+  already the rule for the paragraph textarea and the two-field overlay.
+  ESC leaves through `SURFACES`; a refusal keeps the form up as typed.
 - WIDGET PER KIND, each a palette mode raised in place: `text` an input,
   `choice` the completing field over its alternatives, `date` a line
   `planningTimestamp` checks before the request goes out, `tags` the tag
-  field's own narrowing list, `property` a key/value pair, `body` a
-  textarea.
+  field's narrowing list, `property` a key/value pair, `body` a textarea.
 - DEFAULTS are the field's initial value: `%^{P|def|a|b}` opens carrying
   `def`, offered among its alternatives, committed as written untouched.
 - BACK-REFERENCES ASK NOTHING.  `%\N` resolves server-side in a second
   pass of `expandTemplate` over the answers it holds, so no field is
-  grown for one and no reader answers a question twice;
-  `templatePrompts` goes on returning the asks alone.
+  grown for one and no reader answers a question twice.
 - The settings box is unchanged: `%` in `#ctpl` raises the code list off
   the server's own `codes` (`glue.js:4148`), so a longer list is offered
   the day it is served.
@@ -201,24 +187,21 @@ Additive, one key.  `asks`, beside today's `prompts`:
 the tag vocabulary stays the top-level `tags` it already is.  `point`
 says whether `%?` sits on the template's headline line or below it, which
 is how the form knows to draw a line or a box, and it falls out of
-`templateParts` with no new scan.  `prompts` stays as the names for one
-release so the shell and `test/fixtures/shell-harness.js` move in either
-order.
+`templateParts` with no new scan.
 
 ## Staged path
 
-**v1 — the body and the kinds.**  `captureBody` and the split wall;
-`captureEdits` splitting at the first newline; `%t`/`%u`/`%%` joining the
-list and the scan; `asks` on the wire, every existing prompt kind `text`;
-the form's point field first, the backward walk, `C-c C-c` in the body.
-Fixes diagnoses 1, 4 and half of 3.
-
-**v2 — the asking widgets.**  `%^{P|def|c1|c2}`, `%^t`/`%^T`/`%^u`/`%^U`,
-`%^g`/`%^G`: three scan arms, three `kind` values, three existing widgets.
-
-**v3 — the structural elements.**  `%^{PROP}p` into the drawer
-`blobDocument` already composes, `%\N` as `expandTemplate`'s second pass,
-`%n` off a system setting, `%a`/`%A`/`%l`/`%L` under decision 2.
+- **v1 — the body and the kinds.**  `captureBody` and the split wall;
+  `captureEdits` splitting at the first newline; `%t`/`%u`/`%%` joining
+  the list and the scan; `asks` on the wire, every existing prompt kind
+  `text`; the point field first, the backward walk, `C-c C-c` in the
+  body.  Fixes diagnoses 1, 4 and half of 3.
+- **v2 — the asking widgets.**  `%^{P|def|c1|c2}`,
+  `%^t`/`%^T`/`%^u`/`%^U`, `%^g`/`%^G`: three scan arms, three `kind`
+  values, three existing widgets.
+- **v3 — the structural elements.**  `%^{PROP}p` into the drawer
+  `blobDocument` already composes, `%\N` as `expandTemplate`'s second
+  pass, `%n` off a system setting, `%a`/`%A`/`%l`/`%L` under decision 2.
 
 ## Open decisions
 
@@ -228,38 +211,30 @@ Fixes diagnoses 1, 4 and half of 3.
    rewrite the heading's title from the point text ONLY where the
    template's heading LINE spells no `%?`.  A template putting `%?` on
    its headline has said where the title goes; one that does not carries
-   a placeholder.  Decidable from `templateParts` with no new scan, and
-   it makes `* Book\n*** Notes\n    %?` capture a book.
-
+   a placeholder.  Decidable from `templateParts`.
 2. **Does `%a` mean anything here?**  The page HAS a row at point when
-   `+` is pressed — `filteredTag` already reads the applied query for the
-   same reason.  RECOMMEND YES: `%a` expands to
+   `+` is pressed — `filteredTag` reads the applied query for the same
+   reason.  RECOMMEND YES: `%a` expands to
    `[[org-glance-visit:<ID>][<title>]]` of the row at point, empty where
-   nothing is selected, drawn as a read-only field so the reader sees
-   what is being linked.  `%l`/`%L` are that target undressed, `%A` it
-   with the description prompted.  v3, and the one element whose value
-   comes off the CLIENT.
-
+   nothing is selected, drawn read-only so the reader sees what is being
+   linked.  `%l`/`%L` are that target undressed, `%A` it with the
+   description prompted.  v3, and the one value coming off the CLIENT.
 3. **May a multi-line capture go into the INBOX, or blobs only?**
    RECOMMEND BOTH.  A jot with two lines is still a jot, the entry is one
    headline either way, the same `captureBody` decides it, and the inbox
    path pays one split.  Blobs-only would put a rule in the target's
    spelling that has nothing to do with the target.
-
 4. **Should the form save a draft?**  RECOMMEND NO PERSISTED DRAFT AND
    ONE STASH.  A draft outliving the reader's intent is a second store,
    which this repo has a rule against.  What is owed is the sheet's own:
    `stash`/`restore` carry work the reader has NOT committed across a
-   remount, and the capture form becomes one more entry there.  ESC still
-   discards, which is what ESC means everywhere else on the page.
-
+   remount, and the form becomes one more entry there.  ESC still
+   discards, as everywhere else.
 5. **Does `asks` replace `prompts` or ride beside it?**  RECOMMEND
    BESIDE, dropping `prompts` once the shell and the harness read `asks`.
    Two producers of one fact for one release costs less than a wire
    change landing in three files at once.
-
 6. **Does the untagged path get a template?**  proposal-capture.md took
-   this as "stay bare" and the body change is the reason to keep it that
-   way: the quick-jot path is one field, where a template would make it a
-   form.  RECOMMEND KEEPING IT BARE.  A reader wanting a shape names a
-   tag, which is what a tag is for.
+   this as "stay bare" and the body change is the reason to keep it so —
+   the quick-jot path is one field.  RECOMMEND KEEPING IT BARE: a reader
+   wanting a shape names a tag, which is what a tag is for.
