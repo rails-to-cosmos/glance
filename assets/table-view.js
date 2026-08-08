@@ -1153,27 +1153,29 @@
   flex-direction:column;
   max-height:100%;
 }
-@media (prefers-color-scheme:dark){:where(.tv-root){
-  --tv-fg:#FFFFFF;
-  --tv-muted:#A4C2EB;
-  --tv-bg:#000000;
-  --tv-alt:#21252B;
-  --tv-border:#2a2d3d;
-  --tv-accent:#4CB5F5;
-  --tv-sel:#373D4F;
-  --tv-link:${LINK_DARK};
-  --tv-hover:#1F1F1F;
-  --tv-veil:#00000099;
-  --tv-shadow:#00000077;
-  --tv-chip-wash:18%;
-  --tv-chip-edge:34%;
-  --tv-mark-wash:30%;
-  --tv-flag-wash:30%;
-  --tv-col-wash:8%;
-  --tv-cell-wash:9%;
-  --tv-sort-wash:18%;
-  --tv-cols-wash:18%;
-}}
+@media (prefers-color-scheme:dark){
+  :where(.tv-root){
+    --tv-fg:#FFFFFF;
+    --tv-muted:#A4C2EB;
+    --tv-bg:#000000;
+    --tv-alt:#21252B;
+    --tv-border:#2a2d3d;
+    --tv-accent:#4CB5F5;
+    --tv-sel:#373D4F;
+    --tv-link:${LINK_DARK};
+    --tv-hover:#1F1F1F;
+    --tv-veil:#00000099;
+    --tv-shadow:#00000077;
+    --tv-chip-wash:18%;
+    --tv-chip-edge:34%;
+    --tv-mark-wash:30%;
+    --tv-flag-wash:30%;
+    --tv-col-wash:8%;
+    --tv-cell-wash:9%;
+    --tv-sort-wash:18%;
+    --tv-cols-wash:18%;
+  }
+}
 :where(:root[data-theme="dark"] .tv-root){
   --tv-fg:#FFFFFF;
   --tv-muted:#A4C2EB;
@@ -1216,40 +1218,95 @@
   --tv-sort-wash:52%;
   --tv-cols-wash:52%;
 }
-.tv-bar{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--tv-border);flex-wrap:wrap}
-.tv-title{font-weight:600;font-size:14px;margin-right:auto}
-.tv-filter{font:inherit;padding:4px 8px;border:1px solid var(--tv-border);border-radius:6px;
-  background:var(--tv-bg);color:var(--tv-fg);min-width:140px}
+.tv-bar{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:8px 12px;
+  border-bottom:1px solid var(--tv-border);
+  flex-wrap:wrap;
+}
+.tv-title{
+  font-weight:600;
+  font-size:14px;
+  margin-right:auto;
+}
+.tv-filter{
+  font:inherit;
+  padding:4px 8px;
+  border:1px solid var(--tv-border);
+  border-radius:6px;
+  background:var(--tv-bg);
+  color:var(--tv-fg);
+  min-width:140px;
+}
 /* Quiet enough to be read past, not so quiet it cannot be read. Firefox dims
    placeholders on top of the colour, which is what the opacity is undoing. */
-.tv-filter::placeholder{color:var(--tv-muted);opacity:1}
-.tv-filter-wrap{position:relative;display:flex}
+.tv-filter::placeholder{
+  color:var(--tv-muted);
+  opacity:1;
+}
+.tv-filter-wrap{
+  position:relative;
+  display:flex;
+}
 /* Omnibox: the filter is the bar's one control, and it takes the width the
    title was holding. The dropdown hangs under the whole of it. */
-.tv-omni .tv-bar{gap:8px;padding:10px 12px}
-.tv-omni .tv-filter-wrap{flex:1 1 auto}
-.tv-omni .tv-filter{flex:1 1 auto;font-size:15px;padding:7px 11px}
+.tv-omni .tv-bar{
+  gap:8px;
+  padding:10px 12px;
+}
+.tv-omni .tv-filter-wrap{
+  flex:1 1 auto;
+}
+.tv-omni .tv-filter{
+  flex:1 1 auto;
+  font-size:15px;
+  padding:7px 11px;
+}
 /* Its own row under the box, and no gap at all when nothing is applied. The
    suggestion list is positioned and z-indexed, so it lays over this rather
    than being pushed down by it. */
-.tv-omni > .tv-chips,.tv-pal > .tv-chips{padding:8px 12px;
-  border-bottom:1px solid var(--tv-border)}
+.tv-omni > .tv-chips,.tv-pal > .tv-chips{
+  padding:8px 12px;
+  border-bottom:1px solid var(--tv-border);
+}
 /* Palette: the control is summoned, not resident. The veil dims the page and
    the panel sits in the upper third, where a minibuffer or a Telescope prompt
    sits — near the eye rather than centred in it. 90/91 leaves 100/101 free for
    a consumer's own modal, so a materialize sheet still wins over this. */
-.tv-veil{position:fixed;inset:0;z-index:90;background:var(--tv-veil);
-  display:flex;justify-content:center;align-items:flex-start;padding-top:18vh}
-.tv-panel{z-index:91;width:min(560px,80vw);padding:10px;border-radius:8px;
-  background:var(--tv-alt);border:1px solid var(--tv-border);
-  box-shadow:0 10px 30px var(--tv-shadow)}
-.tv-panel .tv-filter{font-size:15px;padding:7px 11px;width:100%}
+.tv-veil{
+  position:fixed;
+  inset:0;
+  z-index:90;
+  background:var(--tv-veil);
+  display:flex;
+  justify-content:center;
+  align-items:flex-start;
+  padding-top:18vh;
+}
+.tv-panel{
+  z-index:91;
+  width:min(560px,80vw);
+  padding:10px;
+  border-radius:8px;
+  background:var(--tv-alt);
+  border:1px solid var(--tv-border);
+  box-shadow:0 10px 30px var(--tv-shadow);
+}
+.tv-panel .tv-filter{
+  font-size:15px;
+  padding:7px 11px;
+  width:100%;
+}
 /* The applied filter's identity: the theme's frost, washed over whatever the
    page's ground is, with ordinary foreground for ink. Why frost and why a wash
    rather than the solid it was: CHANGELOG, "chips are a frost wash". */
-.tv-pal .tv-chip{color:var(--tv-fg);
+.tv-pal .tv-chip{
+  color:var(--tv-fg);
   background:color-mix(in srgb,var(--tv-frost) var(--tv-chip-wash),transparent);
-  border-color:color-mix(in srgb,var(--tv-frost) var(--tv-chip-edge),transparent)}
+  border-color:color-mix(in srgb,var(--tv-frost) var(--tv-chip-edge),transparent);
+}
 /* An ORDERING's identity, washed the way the applied filter's is: the column
    band's own amber, which already means COLUMN everywhere else here — the
    crosshair, the selected band — and a sort token is about a column. The GROUND
@@ -1266,7 +1323,8 @@
    as sort wears it — "ordersRows" is that test. */
 .tv-pal .tv-chip-sort{
   background:color-mix(in srgb,var(--tv-col) var(--tv-sort-wash),transparent);
-  border-color:color-mix(in srgb,var(--tv-col) var(--tv-chip-edge),transparent)}
+  border-color:color-mix(in srgb,var(--tv-col) var(--tv-chip-edge),transparent);
+}
 /* THE ARROWS ARE DRAWN, not spelled. A chained sort chip carries "->" between
    its columns and the renderer's face is monospace, so a coding font with
    contextual alternates (JetBrains Mono, Fira Code, Cascadia) ligates the pair
@@ -1274,7 +1332,9 @@
    because it is a fact about this chip rather than a default to inherit: a page
    that turns ligatures off wholesale would otherwise turn this one off with
    them, and a face without the alternate loses nothing but the join. */
-.tv-chip-sort{font-variant-ligatures:contextual}
+.tv-chip-sort{
+  font-variant-ligatures:contextual;
+}
 /* THE COLUMNS CHIP WEARS THE LINK HUE — the third chip voice: frost is the
    applied filter, the column band is the order, and the accent-derived link
    colour marks the token that shapes what the table SHOWS. Same shape, same
@@ -1283,17 +1343,37 @@
    test — so the half-typed "columns:" keeps the ordinary chip. */
 .tv-pal .tv-chip-cols{
   background:color-mix(in srgb,var(--tv-link) var(--tv-cols-wash),transparent);
-  border-color:color-mix(in srgb,var(--tv-link) var(--tv-chip-edge),transparent)}
-.tv-pal .tv-chip:not(.tv-chip-muted):hover{border-color:var(--tv-accent);color:var(--tv-accent)}
-.tv-chips{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+  border-color:color-mix(in srgb,var(--tv-link) var(--tv-chip-edge),transparent);
+}
+.tv-pal .tv-chip:not(.tv-chip-muted):hover{
+  border-color:var(--tv-accent);
+  color:var(--tv-accent);
+}
+.tv-chips{
+  display:flex;
+  flex-wrap:wrap;
+  gap:5px;
+  align-items:center;
+}
 /* One silhouette, spelled once, for every chip in the strip: a live filter
    token and a crumb. What each of them then respells is ink, ground and
    cursor. */
-.tv-chip{display:inline-flex;align-items:center;gap:5px;
+.tv-chip{
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
   padding:1px 4px 1px 8px;
-  border-radius:999px;font-size:12px;cursor:pointer;color:var(--tv-fg);
-  border:1px solid var(--tv-border);background:var(--tv-alt)}
-.tv-chip:not(.tv-chip-muted):hover{border-color:var(--tv-accent);color:var(--tv-accent)}
+  border-radius:999px;
+  font-size:12px;
+  cursor:pointer;
+  color:var(--tv-fg);
+  border:1px solid var(--tv-border);
+  background:var(--tv-alt);
+}
+.tv-chip:not(.tv-chip-muted):hover{
+  border-color:var(--tv-accent);
+  color:var(--tv-accent);
+}
 /* A crumb: where the reader came FROM. Same silhouette and same edge as the
    live chip beside it, so the strip reads as one row: the rule respells no
    border at all, which leaves a crumb wearing whatever chip rule reaches it —
@@ -1311,39 +1391,106 @@
    quieter than a live chip's ink does on its own ground (19.9 and 15.4).
    Spelled with the row it lives in so it outranks the palette's own chip rule,
    the one other place a chip's ground is set. */
-.tv-chips .tv-chip-muted{color:var(--tv-muted);
-  background:transparent;cursor:default;padding-right:8px}
-.tv-chip-x{font-style:normal;opacity:.55;padding:0 3px}
-.tv-chip:hover .tv-chip-x{opacity:1}
+.tv-chips .tv-chip-muted{
+  color:var(--tv-muted);
+  background:transparent;
+  cursor:default;
+  padding-right:8px;
+}
+.tv-chip-x{
+  font-style:normal;
+  opacity:.55;
+  padding:0 3px;
+}
+.tv-chip:hover .tv-chip-x{
+  opacity:1;
+}
 /* The pin button-badge: far edge of the strip, dim until it is true. */
-.tv-chips .tv-pin{margin-left:auto;cursor:pointer;opacity:.35;
-  font-size:12px;line-height:1.4;user-select:none;filter:grayscale(1)}
-.tv-chips .tv-pin:hover{opacity:.7}
-.tv-chips .tv-pin.tv-pinned{opacity:1;filter:none}
+.tv-chips .tv-pin{
+  margin-left:auto;
+  cursor:pointer;
+  opacity:.35;
+  font-size:12px;
+  line-height:1.4;
+  user-select:none;
+  filter:grayscale(1);
+}
+.tv-chips .tv-pin:hover{
+  opacity:.7;
+}
+.tv-chips .tv-pin.tv-pinned{
+  opacity:1;
+  filter:none;
+}
 /* The suggestion list hangs under the box, over the table. .tv-root clips with
    overflow:hidden, so it scrolls internally rather than growing past it. */
-.tv-ac{position:absolute;top:100%;left:0;min-width:100%;z-index:5;margin-top:2px;
-  max-height:min(288px,40vh);overflow-y:auto;background:var(--tv-bg);
-  border:1px solid var(--tv-border);border-radius:6px;box-shadow:0 4px 12px var(--tv-shadow)}
-.tv-ac-item{display:flex;justify-content:space-between;align-items:baseline;gap:14px;
-  padding:3px 10px;white-space:nowrap;cursor:pointer;color:var(--tv-fg)}
-.tv-ac-n{color:var(--tv-muted);font-variant-numeric:tabular-nums}
+.tv-ac{
+  position:absolute;
+  top:100%;
+  left:0;
+  min-width:100%;
+  z-index:5;
+  margin-top:2px;
+  max-height:min(288px,40vh);
+  overflow-y:auto;
+  background:var(--tv-bg);
+  border:1px solid var(--tv-border);
+  border-radius:6px;
+  box-shadow:0 4px 12px var(--tv-shadow);
+}
+.tv-ac-item{
+  display:flex;
+  justify-content:space-between;
+  align-items:baseline;
+  gap:14px;
+  padding:3px 10px;
+  white-space:nowrap;
+  cursor:pointer;
+  color:var(--tv-fg);
+}
+.tv-ac-n{
+  color:var(--tv-muted);
+  font-variant-numeric:tabular-nums;
+}
 /* An offer that is free text rather than a predicate says so where the counts
    are, in the ink the counts wear: it annotates the row, and no row carries
    both. */
-.tv-ac-aside{color:var(--tv-muted)}
+.tv-ac-aside{
+  color:var(--tv-muted);
+}
 /* A producer meta names a set only the producer can enumerate, and reads as
    the notation it is rather than as a value beside the concrete ones. */
-.tv-ac-dim{opacity:.6;font-style:italic}
-.tv-ac-note{padding:5px 10px;border-top:1px solid var(--tv-border);
-  color:var(--tv-muted);font-size:11px;white-space:nowrap}
-.tv-ac-item:hover{background:var(--tv-hover);color:var(--tv-accent)}
+.tv-ac-dim{
+  opacity:.6;
+  font-style:italic;
+}
+.tv-ac-note{
+  padding:5px 10px;
+  border-top:1px solid var(--tv-border);
+  color:var(--tv-muted);
+  font-size:11px;
+  white-space:nowrap;
+}
+.tv-ac-item:hover{
+  background:var(--tv-hover);
+  color:var(--tv-accent);
+}
 /* The theme's own selections (ivy-current-match, company-tooltip-selection)
    are full-strength golden with bold weight and the default foreground — an
    accent-coloured label on that ground would be unreadable. */
-.tv-ac-on{background:var(--tv-sel);color:var(--tv-fg);font-weight:600}
-.tv-scroll{overflow:auto;position:relative}
-.tv-table{border-collapse:collapse;width:100%}
+.tv-ac-on{
+  background:var(--tv-sel);
+  color:var(--tv-fg);
+  font-weight:600;
+}
+.tv-scroll{
+  overflow:auto;
+  position:relative;
+}
+.tv-table{
+  border-collapse:collapse;
+  width:100%;
+}
 /* THE TITLE COLUMN FILLS; EVERY OTHER COLUMN IS EXACTLY ITS CONTENT.
    table-layout:fixed is what makes that real. Under auto a col width is a hint
    and the browser hands the window's slack to every column in proportion, so
@@ -1355,11 +1502,16 @@
    a window narrower than the sized columns plus the title's floor scrolls
    sideways, which is what overflow:auto on the scroller already did. A view
    with no title column has nothing to fill with and keeps the auto layout. */
-.tv-table.tv-fill{table-layout:fixed}
+.tv-table.tv-fill{
+  table-layout:fixed;
+}
 /* A capped column, and a title narrower than its own text, end in an ellipsis
    rather than spilling under the column beside them. The gutter stays out of
    it: its glyph is exactly its width, so a rounding hair would eat the ]. */
-.tv-fill th:not(.tv-box),.tv-fill td:not(.tv-box){overflow:hidden;text-overflow:ellipsis}
+.tv-fill th:not(.tv-box),.tv-fill td:not(.tv-box){
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
 /* A header never widens its column: the cells set the width and a longer
    header is squeezed into it. What gets squeezed is the
    WORD — the pair is a flex row, the word shrinks to an ellipsis (min-width:0
@@ -1369,34 +1521,70 @@
    than the cell itself because display:flex on a table-cell stops it being
    one. Nothing here fires without .tv-fill: with no column to fill, the header
    is paid for in the width and there is nothing to squeeze. */
-.tv-fill th .tv-hd{display:flex;align-items:baseline;min-width:0}
-.tv-fill th .tv-hn{overflow:hidden;text-overflow:ellipsis;min-width:0}
-.tv-fill th .tv-arrow{flex:none}
+.tv-fill th .tv-hd{
+  display:flex;
+  align-items:baseline;
+  min-width:0;
+}
+.tv-fill th .tv-hn{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  min-width:0;
+}
+.tv-fill th .tv-arrow{
+  flex:none;
+}
 /* A flex row does not take the cell's text-align, so the one alignment a
    column can declare is restated as the row's own. The CELLS are untouched —
    nothing made them flex — so this is the header catching up with them. */
-.tv-fill th.tv-right .tv-hd{justify-content:flex-end}
+.tv-fill th.tv-right .tv-hd{
+  justify-content:flex-end;
+}
 /* The gutter's own measure and nothing over it: [X] is three characters, and
    24px is the cell padding both sides. The slack it used to carry was the auto
    layout's share of the window, which the fixed layout above no longer hands
    it. Written on the col because a cell's width is not what fixed layout
    reads, and for the same reason the coarse-pointer target below has to be
    restated here as a width — the min-width on the cell is inert under it. */
-.tv-fill col.tv-gut{width:calc(3ch + 24px)}
-.tv-table th,.tv-table td{padding:5px 12px;text-align:left;white-space:nowrap;
-  border-bottom:1px solid var(--tv-border)}
+.tv-fill col.tv-gut{
+  width:calc(3ch + 24px);
+}
+.tv-table th,.tv-table td{
+  padding:5px 12px;
+  text-align:left;
+  white-space:nowrap;
+  border-bottom:1px solid var(--tv-border);
+}
 /* AN EMPTY CELL STILL FORMS A LINE BOX. A td with no text has no inline
    content and collapses to its padding, so a row whose cells are all empty --
    a property just added, a record awaiting its first edit -- stood a third
    the height of its neighbours, and an overlay anchored to its rect squashed
    with it. A zero-width space costs nothing visible and holds the line. */
-.tv-table td:empty::after{content:"\\200B"}
-.tv-table th{position:sticky;top:0;background:var(--tv-bg);font-weight:600;color:var(--tv-muted);
-  user-select:none;z-index:1}
-.tv-table th.tv-sortable{cursor:pointer}
-.tv-table th.tv-sortable:hover{color:var(--tv-accent)}
-.tv-table td.tv-right,.tv-table th.tv-right{text-align:right;font-variant-numeric:tabular-nums}
-.tv-table tbody tr.tv-alt{background:var(--tv-alt)}
+.tv-table td:empty::after{
+  content:"\\200B";
+}
+.tv-table th{
+  position:sticky;
+  top:0;
+  background:var(--tv-bg);
+  font-weight:600;
+  color:var(--tv-muted);
+  user-select:none;
+  z-index:1;
+}
+.tv-table th.tv-sortable{
+  cursor:pointer;
+}
+.tv-table th.tv-sortable:hover{
+  color:var(--tv-accent);
+}
+.tv-table td.tv-right,.tv-table th.tv-right{
+  text-align:right;
+  font-variant-numeric:tabular-nums;
+}
+.tv-table tbody tr.tv-alt{
+  background:var(--tv-alt);
+}
 /* A marked row's ground: the muted ink washed over the page's. It REPLACES the
    zebra rather than layering over it — one background slot, and a mark outranks
    a stripe — and it is neither of the washes that already say something, frost
@@ -1406,7 +1594,8 @@
    theme washes only as far as that ink stays above 4.5:1 on it (light 4.6,
    dark 6.3). */
 .tv-table tbody tr.tv-marked{
-  background:color-mix(in srgb,var(--tv-muted) var(--tv-mark-wash),transparent)}
+  background:color-mix(in srgb,var(--tv-muted) var(--tv-mark-wash),transparent);
+}
 /* A flagged row: the flag red washed over the page's ground, the same one-slot
    rule the mark follows. It sits between them in source order, which IS the
    precedence — cursor over flag over mark over zebra — because all four write
@@ -1416,13 +1605,18 @@
    4.5:1 (4.6 at 8%, and under the floor by 10%). Dark has the room to take
    30%. The two numbers are measured, not chosen. */
 .tv-table tbody tr.tv-flagged{
-  background:color-mix(in srgb,var(--tv-flag) var(--tv-flag-wash),transparent)}
-.tv-table tbody tr.tv-sel{background:var(--tv-sel)}
+  background:color-mix(in srgb,var(--tv-flag) var(--tv-flag-wash),transparent);
+}
+.tv-table tbody tr.tv-sel{
+  background:var(--tv-sel);
+}
 /* The background is one slot and the cursor wins it, so a flagged row under
    the cursor would otherwise stop saying it is flagged. The edge is a second
    channel that no other state writes: it survives every combination, which is
    what keeps the state readable rather than merely painted. */
-.tv-table tbody tr.tv-flagged td:first-child{box-shadow:inset 3px 0 0 var(--tv-flag)}
+.tv-table tbody tr.tv-flagged td:first-child{
+  box-shadow:inset 3px 0 0 var(--tv-flag);
+}
 /* The gutter is chrome, the way the pager is: a fixed leading box that no
    producer sent and no width measurement sees. It is the CHECKBOX's alone —
    the flag's edge rides the row's FIRST cell whichever that is (the gutter
@@ -1434,16 +1628,32 @@
    cell, and the box brightens on the rows it is checked on. The glyph is drawn
    from the row's class rather than written into the cell, so the state has one
    home: the class the row already carries. */
-.tv-table th.tv-box,.tv-table td.tv-box{width:3ch;color:var(--tv-muted);user-select:none}
-.tv-marking .tv-table td.tv-box{cursor:pointer}
-.tv-marking .tv-table td.tv-box::before{content:"[ ]"}
-.tv-marking .tv-table tbody tr.tv-marked td.tv-box{color:var(--tv-fg)}
-.tv-marking .tv-table tbody tr.tv-marked td.tv-box::before{content:"[X]"}
+.tv-table th.tv-box,.tv-table td.tv-box{
+  width:3ch;
+  color:var(--tv-muted);
+  user-select:none;
+}
+.tv-marking .tv-table td.tv-box{
+  cursor:pointer;
+}
+.tv-marking .tv-table td.tv-box::before{
+  content:"[ ]";
+}
+.tv-marking .tv-table tbody tr.tv-marked td.tv-box{
+  color:var(--tv-fg);
+}
+.tv-marking .tv-table tbody tr.tv-marked td.tv-box::before{
+  content:"[X]";
+}
 /* The selection is the row, and it crossfades in place — no overlay to keep in
    step with the rows underneath it. */
-.tv-table tbody tr,.tv-table tbody td{transition:background-color .08s ease-out,
-  box-shadow .08s ease-out}
-.tv-calm .tv-table tbody tr,.tv-calm .tv-table tbody td{transition:none}
+.tv-table tbody tr,.tv-table tbody td{
+  transition:background-color .08s ease-out,
+  box-shadow .08s ease-out;
+}
+.tv-calm .tv-table tbody tr,.tv-calm .tv-table tbody td{
+  transition:none;
+}
 /* A cell selection draws two bands and their crossing, and all three are
    grounds — no outline, no border, no shadow anywhere in the selection. The
    column's band is a wash of the amber over whatever the ROW painted: the row
@@ -1466,9 +1676,15 @@
    what the ink allows: 9% leaves the tag ink at 4.61:1 on the cursor row and
    one point more puts it under 4.5, so the dark crosshair reads by the ground
    beneath it rather than by the point of wash above it. */
-.tv-table th.tv-colsel{background:color-mix(in srgb,var(--tv-col) var(--tv-col-wash),var(--tv-bg))}
-.tv-table tbody td.tv-colsel{background:color-mix(in srgb,var(--tv-col) var(--tv-col-wash),transparent)}
-.tv-table tbody td.tv-cell-sel{background:color-mix(in srgb,var(--tv-col) var(--tv-cell-wash),transparent)}
+.tv-table th.tv-colsel{
+  background:color-mix(in srgb,var(--tv-col) var(--tv-col-wash),var(--tv-bg));
+}
+.tv-table tbody td.tv-colsel{
+  background:color-mix(in srgb,var(--tv-col) var(--tv-col-wash),transparent);
+}
+.tv-table tbody td.tv-cell-sel{
+  background:color-mix(in srgb,var(--tv-col) var(--tv-cell-wash),transparent);
+}
 /* WHAT A LINK LOOKS LIKE, spelled once for the two places one is drawn: the
    anchor a cell's own Org markup produces, and the whole title cell of a row a
    producer marked linked. One declaration, so a title that is half markup and
@@ -1480,35 +1696,74 @@
    under the cursor, with the column band across that very cell, is still a
    link. Which is what --tv-link is measured on: every one of those grounds,
    4.5:1 on all of them, rather than the page alone. */
-.tv-link,.tv-table tbody td.tv-linked{color:var(--tv-link);
-  text-decoration:underline;text-underline-offset:2px}
-.tv-table tbody tr{cursor:default}
-.tv-table tbody tr.tv-pad td{padding:0;border:0}
+.tv-link,.tv-table tbody td.tv-linked{
+  color:var(--tv-link);
+  text-decoration:underline;
+  text-underline-offset:2px;
+}
+.tv-table tbody tr{
+  cursor:default;
+}
+.tv-table tbody tr.tv-pad td{
+  padding:0;
+  border:0;
+}
 /* The third role, and the quietest: no box at all. A filled pill is a state, a
    frost chip is an applied filter, and a tag is small muted text — which is
    what a tag is, a word the row happens to carry. Several of them separate on a
    middot rather than on the colons the cell spells them with; the colons are
    the storage, not the reading. The ink is the muted one the palette already
    carries (dark #A4C2EB, light #667071), both clear of the text floor. */
-.tv-tag,.tv-tags{color:var(--tv-muted);font-size:.92em}
-.tv-tags .tv-tag{font-size:inherit;color:inherit}   /* never compound the two */
+.tv-tag,.tv-tags{
+  color:var(--tv-muted);
+  font-size:.92em;
+}
+.tv-tags .tv-tag{
+  font-size:inherit;
+  color:inherit;
+}
+/* never compound the two */
 /* Shown in the form a query spells them, so what is read is what is typed: the
    value domain lowercases, and the tag key matches its value folded. Done in
    the stylesheet rather than in the markup, so the text a copy takes is the
    text the file holds. */
-.tv-tag{text-transform:lowercase}
-.tv-pill{display:inline-block;padding:0 8px;border-radius:999px;
-  font-weight:600;color:var(--tv-ink,var(--tv-badge));
-  background:color-mix(in srgb,var(--tv-badge) 15%,transparent)}
+.tv-tag{
+  text-transform:lowercase;
+}
+.tv-pill{
+  display:inline-block;
+  padding:0 8px;
+  border-radius:999px;
+  font-weight:600;
+  color:var(--tv-ink,var(--tv-badge));
+  background:color-mix(in srgb,var(--tv-badge) 15%,transparent);
+}
 /* The order, written over the columns it orders. Every key of the chain marks
    its own header: the leading one in full ink because it is what the reader is
    reading by, the tie-breakers behind it dimmed to the muted floor, each
    wearing the place it holds in the chain. */
-.tv-arrow{margin-left:4px;opacity:.55}
-.tv-arrow.tv-lead{opacity:1}
-.tv-ord{font-style:normal;font-size:.75em;vertical-align:baseline}
-.tv-empty{padding:16px 12px;color:var(--tv-muted)}
-.tv-hint{padding:6px 12px;border-top:1px solid var(--tv-border);color:var(--tv-muted);font-size:12px}
+.tv-arrow{
+  margin-left:4px;
+  opacity:.55;
+}
+.tv-arrow.tv-lead{
+  opacity:1;
+}
+.tv-ord{
+  font-style:normal;
+  font-size:.75em;
+  vertical-align:baseline;
+}
+.tv-empty{
+  padding:16px 12px;
+  color:var(--tv-muted);
+}
+.tv-hint{
+  padding:6px 12px;
+  border-top:1px solid var(--tv-border);
+  color:var(--tv-muted);
+  font-size:12px;
+}
 /* A finger is not a pointer. Targets grow to the ~44px everyone settled on, and
    they grow by padding rather than by a set height, so the rows stay uniform
    and the measured row height carries the change into the windowing and the
@@ -1516,19 +1771,51 @@
    it makes iOS zoom the page on focus. The chip's remove mark stops hiding
    behind a hover nobody can perform. */
 @media (pointer:coarse){
-  .tv-table th,.tv-table td{padding:12px}
-  .tv-table td.tv-box{min-width:44px}
-  .tv-fill col.tv-gut{width:max(calc(3ch + 24px),44px)}
-  .tv-ac-item{padding:12px 12px}
-  .tv-chip{padding:13px 8px 13px 12px}
-  .tv-chips .tv-chip-muted{padding-right:12px}
-  .tv-chip-x{opacity:1;padding:0 8px}
-  .tv-filter,.tv-omni .tv-filter,.tv-panel .tv-filter{font-size:16px}
+  .tv-table th,.tv-table td{
+    padding:12px;
+  }
+  .tv-table td.tv-box{
+    min-width:44px;
+  }
+  .tv-fill col.tv-gut{
+    width:max(calc(3ch + 24px),44px);
+  }
+  .tv-ac-item{
+    padding:12px 12px;
+  }
+  .tv-chip{
+    padding:13px 8px 13px 12px;
+  }
+  .tv-chips .tv-chip-muted{
+    padding-right:12px;
+  }
+  .tv-chip-x{
+    opacity:1;
+    padding:0 8px;
+  }
+  .tv-filter,.tv-omni .tv-filter,.tv-panel .tv-filter{
+    font-size:16px;
+  }
 }
-.tv-key{color:var(--tv-fg);font-weight:600}
-.tv-pg{color:var(--tv-accent);font-weight:600;cursor:pointer}
-.tv-pg:hover{text-decoration:underline}
-.tv-pg-off{color:var(--tv-muted);font-weight:400;cursor:default;text-decoration:none}`;
+.tv-key{
+  color:var(--tv-fg);
+  font-weight:600;
+}
+.tv-pg{
+  color:var(--tv-accent);
+  font-weight:600;
+  cursor:pointer;
+}
+.tv-pg:hover{
+  text-decoration:underline;
+}
+.tv-pg-off{
+  color:var(--tv-muted);
+  font-weight:400;
+  cursor:default;
+  text-decoration:none;
+}
+`;
     const el = document.createElement("style");
     el.textContent = css;
     document.head.appendChild(el);

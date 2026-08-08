@@ -488,6 +488,10 @@ section groups a feature arc, and its date is that arc's last commit.
   checkbox toggle, whose flip made the revert visible; it guarded every
   paragraph, table-line and deletion commit the same way.
 
+### Changed
+- **The vendored renderer's stylesheet is one declaration per line**
+  (table-view `cc9dd70`, synced). Same rules and values; a re-layout.
+
 ### Added
 - **The settings sheet is tabbed, and a tree colours its own states.** General,
   theme and keywords are one panel at a time now — a hidden panel is out of the
