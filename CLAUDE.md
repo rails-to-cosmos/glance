@@ -1494,6 +1494,19 @@ measurements and the history of superseded designs live in
   either way, being a queue rather than a cursor. The panel's costs TWO rules,
   since the wash it suppresses is the RENDERER's `tr.tv-sel` and the `tr.tv-alt`
   stripe under it has to be put back.
+- EVERY POPUP HAS A URL, and it is shareable. PENDING ENFORCEMENT — stated here
+  first, to land after the widget split (docs/proposal-widget-files.md). A
+  surface that is up is `?page=NAME` beside `?q=`, written by the same
+  `remember` that writes the query, and a boot carrying one RAISES that surface
+  after the rows land. Within a surface the panel is the FRAGMENT, `#theme`,
+  so every header a reader can reach has a name: the settings sheet on its
+  theme tab is
+  `/?q=state%3A*active*&page=settings#theme`. The names are the surfaces' own
+  (`SURFACES` entries) and the panels' own (`SECTIONS` titles), so neither is a
+  second list. Closing a surface takes the parameter off. What this buys is the
+  thing the shell has nowhere else: a way to SEND someone a view — the settings
+  a question is about, the tag manager over a set of rows — where today the URL
+  describes the table alone and every overlay is invisible to it.
 - The applied filter query is in the URL (`replaceState`, `keys` preserved) and
   applied from it on load. `DEL` over the table drops the query's last token
   through the renderer — the chips are the renderer's, so the strip is too.
