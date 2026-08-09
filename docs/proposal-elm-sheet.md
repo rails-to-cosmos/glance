@@ -1,6 +1,6 @@
 # Proposal — the materialize sheet in Elm
 
-**Status:** stopped at step 2 — see "The recommendation" · **Date:** 2026-08-09 · **Origin:** user, asking whether
+**Status:** steps 1–3 done, step 2 DONE (the panel is Elm); 4–5 not taken · **Date:** 2026-08-09 · **Origin:** user, asking whether
 the split glue is ready for Elm · **Depends on:**
 `docs/proposal-widget-files.md`, whose step B split the shell and whose step C
 made the sheet one component
@@ -205,23 +205,29 @@ unit is ~1750 lines and two surfaces, not 1111 lines and one.
 
 1. **Move the table machinery out.** **DONE** (`9f2ea2c`) — renderer accesses
    28 → 5, the file 1225 → 1111.
-2. ~~Elm draws the property panel.~~ **WAS BLOCKED on the harness; UNBLOCKED
-   now.** Still costs the 56 stub assertions a rewrite, since they read
-   `TableView`'s stub rather than the DOM.
+2. **Elm draws the property panel.** **DONE.** The 56 stub assertions cost far
+   less than the estimate: `panel()` and `patAt()` are HARNESS-side helpers, so
+   repointing those two at the DOM left every assertion's expected value
+   untouched. Four cases changed — two source pins, and the two that asserted
+   mount OPTIONS, which became `pinits`/`pfills`.
 3. **A harness with a real DOM.** **DONE**, and hand-written rather than
    vendored: jsdom would have been 7 MB over 21 direct dependencies in a repo
    with no `package.json`, where what the page actually needs is a node tree,
    six selector shapes and `attributes`. Elm's virtual DOM renders under it.
-4. Step 2 is now reachable. What has NOT changed is the other two findings —
-   a port round trip still costs a macrotask, and the sheet still drags
-   `50-settings.js` with it.
+4. Steps 4–5 — the document pane, then the ladder — are NOT taken, and the
+   finding that argues against them stands: the sheet drags `50-settings.js`
+   with it, 25 of its 41 exported names being that file's. The macrotask
+   finding turned out manageable at panel scale (two same-turn reads, both
+   fixed by letting Elm say what happened rather than asking it), but the sheet
+   has more of them and they are the ladder's.
 
 ## The recommendation
 
-**Do not port**, and the price is lower than it was: the harness's real DOM
-came in hand-written, so the 7 MB dependency is off the bill. What is left,
-all measured: 56 rewritten assertions, since they read the renderer stub;
-62–108 KB of runtime;
+**Port the panel; stop there.** That is what was done, and both costs the plan
+feared came in low: the harness's real DOM was hand-written rather than
+vendored, and the stub assertions needed two HELPERS repointed rather than 56
+cases rewritten. What still argues against taking the rest, all measured:
+126 KB of runtime;
 a unit of ~1750 lines spanning two surfaces because the settings sheet shares
 the ladder by design; and an async boundary through code that reads its model
 synchronously.
