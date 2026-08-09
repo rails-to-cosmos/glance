@@ -167,7 +167,7 @@
         linksOf(id).then((a) => followLinks(b, id, a, a.links || []))
           .catch(failed(b, "open"));
       },
-      applyAgenda: (b) => applyView(b, agendaQuery, (total) => landedAgenda(b, total)),
+      applyAgenda: (b) => applyView(b, savedQuery("agenda"), (total) => landedAgenda(b, total)),
       schedulePlan: (b) => planRows(b, "SCHEDULED"),
       deadlinePlan: (b) => planRows(b, "DEADLINE"),
       quitWindow: () => {
@@ -247,7 +247,14 @@
         const hit = prompting.choices.find((c) => c.key === k);
         if (k === "/")
           fieldMode("RET sets it · C-n/C-p walks · ESC leaves");
-        else if (!hit) return;
+        // DEL is the popups' own rung — out of a surface with no inner ladder —
+        // wherever no entry CLAIMS it; the state palette's `*empty*' claims it
+        // and keeps its landed meaning.
+        else if (!hit) {
+          if (k !== "DEL") return;
+          unask();
+          keySaid(k)("keyboard-quit");
+        }
         else if (!repeating(e)) takeChoice(hit);
         e.preventDefault();
         return;

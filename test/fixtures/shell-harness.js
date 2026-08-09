@@ -410,10 +410,14 @@ const tagCounts = { archive: 12, book: 3, web: 40, work: 7 };
 // Every /tags URL asked for, which is what says WHICH rows the palette
 // resolved for.
 const tagged = [];
-// The SAVED VIEWS `system.org' names, which `g' and `a' apply and the settings
-// sheet edits beside that layer's cycle.
-let viewQuery = "state:*active*";
-let agendaQuery = "state:*active* -planned:*empty* sort:scheduled";
+// The SAVED VIEWS `system.org' names, which `g' and `a' apply and `P' writes.
+// A view is a LINE of that file, so an emptied one is a line TAKEN OFF and what
+// the answer then carries is the registry's own built-in — the fallback modelled
+// here because the reset half of the pin is exactly that write.
+const BUILTIN = { default: "state:*active*"
+                , agenda: "state:*active* -planned:*empty* sort:scheduled" };
+let viewQuery = BUILTIN.default;
+let agendaQuery = BUILTIN.agenda;
 // And the tree's per-theme state hues, the flat list the answer serves.
 let stateHues = [];
 // And the capture target it names, which is the other line of that file the
@@ -581,8 +585,8 @@ globalThis.fetch = (url, init) => {
     // a second digest would refuse anyway.  Each view is named on its own, so
     // one moved leaves the others where they are.
     const views = sent.views || {};
-    if (views.default !== undefined) viewQuery = views.default;
-    if (views.agenda !== undefined) agendaQuery = views.agenda;
+    if (views.default !== undefined) viewQuery = views.default || BUILTIN.default;
+    if (views.agenda !== undefined) agendaQuery = views.agenda || BUILTIN.agenda;
     if (sent.colors !== undefined) stateHues = sent.colors;
     if (sent.capture !== undefined) captureLine = sent.capture;
     layer.digest = `c${(configTick += 1)}`;
@@ -981,14 +985,12 @@ globalThis.TableView = {
   // others went up.
   mount: (host, view, options) => {
     const panel = host === field("mptable"), popup = host === field("ltable");
-    const tagbox = host === field("ttable"), maker = host === field("cfbox");
-    const states = host === field("cstates");
+    const tagbox = host === field("ttable"), states = host === field("cstates");
     const inst = makeMount(host, view, options,
-                           panel || popup || tagbox || maker || states ? [] : null);
+                           panel || popup || tagbox || states ? [] : null);
     if (panel) { pmounts += 1; pan = inst; }
     else if (popup) { lmounts += 1; lnk = inst; }
     else if (tagbox) { tmounts += 1; tgs = inst; }
-    else if (maker) { cmounts += 1; cmp = inst; }
     else if (states) { smounts += 1; sts = inst; }
     else { mounts += 1; main = inst; paints.push(((view || {}).rows || []).length); }
     if (markless) strip(inst.handle, MARK_CALLS);
@@ -1023,8 +1025,7 @@ const SORT_CALLS = ["sortBy", "sortPromote", "getSort", "setSort"];
 /** And the crumb trail, which `@' needs before it will drill at all. */
 const CRUMB_CALLS = ["setCrumbs", "getCrumbs", "pushCrumb", "popCrumb"];
 const strip = (h, names) => { for (const name of names) delete h[name]; };
-let cmp = null, cmounts = 0;
-/** And the settings sheet's states table, its fifth mount. */
+/** And the settings sheet's states table, the page's fifth mount. */
 let sts = null, smounts = 0;
 /** An older asset is one asset: every mount loses the calls it never had. */
 const stripLive = (names) => {
@@ -1205,11 +1206,9 @@ const STATEFUL = [ "mtext", "mnote", "mfile", "modal", "mprops", "mlog", "sheet"
                  // list, the container the template's fields grow into, and
                  // the line.
                  , "capture", "khead", "ktag", "klist", "kfields", "ktext", "kfoot"
-                 // The settings sheet's default-view composer host.
-                 , "cfbox"
                  // The settings sheet: its state, its panel frames, the fields
-                 // of the general panel — the two tree-wide lines, which are
-                 // `system.org''s and ride in that layer's write, plus the log
+                 // of the general panel — the capture target, which is
+                 // `system.org''s and rides in that layer's write, plus the log
                  // knob, which is this page's own preference — and the keywords
                  // panel's select, box, label and refusal line.
                  , "config", "cnote", "ceff", "csecs", "ctarget"
@@ -1217,9 +1216,7 @@ const STATEFUL = [ "mtext", "mnote", "mfile", "modal", "mprops", "mlog", "sheet"
                  // same file, kept on the layer like its cycle and riding in
                  // the same write.
                  , "clog", "clayer", "ctext", "ctpl", "clab", "clerr"
-                 // Which saved view the composer is standing on: a select the
-                 // page fills off the server's own list, like the layer one.
-                 , "cwhich", "ctabs", "chues", "cstates"
+                 , "ctabs", "chues", "cstates"
                  // The states table's edit overlay and its three fields.
                  , "sedit", "sname", "sgroup", "shue"
                  // The event strip: a line per entry, each a row of spans, so it
@@ -1840,28 +1837,11 @@ const ACTIONS = {
     if (group !== undefined && group !== "") field("sgroup").value = group;
     if (hue !== undefined && hue !== "") field("shue").value = hue;
   },
-  // Picking WHICH saved view the composer stands on, the same way: the value
-  // moves and the change fires, and what it shows is that the box swaps and an
-  // edit in the view being left survives the trip back.
-  cwhich: (id) => {
-    if (field("config").className !== "on")
-      throw new Error("the settings sheet is not open: cwhich");
-    const box = field("cwhich");
-    box.value = String(id);
-    box.fire("change", { target: box });
-  },
-  // And the general panel's three fields, which are fixed rows rather than a
-  // layer's: the default view and the capture target, bound to the system
-  // layer and posted in its write, and the log knob, which is stored here and
-  // posted nowhere.  They are markup rather than a drawn row, so typing into
-  // them with the sheet shut would write where no reader could have.
-  // The default-view composer: the act is an Enter commit — the held query
-  // moves and the consumer's onFilter hears it.
-  cview: (text) => {
-    if (!cmp) throw new Error("the composer is not mounted: cview");
-    cmp.held = text;
-    if (cmp.onFilter) cmp.onFilter(text);
-  },
+  // And the general panel's two fields, which are fixed rows rather than a
+  // layer's: the capture target, bound to the system layer and posted in its
+  // write, and the log knob, which is stored here and posted nowhere.  They are
+  // markup rather than a drawn row, so typing into them with the sheet shut
+  // would write where no reader could have.
   ccap: (text) => typeSetting("ctarget", text),
   clog: (text) => typeSetting("clog", text),
   // Every config layer moves out from under the sheet, which is the drift a
@@ -2163,12 +2143,11 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     csecs: field("ctabs").children.map((t) => t.textContent),
     ctab: (field("ctabs").children.find((t) => t.className === "ctab on")
              || { textContent: "" }).textContent,
-    // What the two tree-wide fields are showing, and what the server holds now.
-    cview: cmp ? cmp.held : "", cmounts, ccap: field("ctarget").value,
+    // What the capture field is showing, and what the server holds now — the
+    // saved views included, which is where a pin lands.
+    ccap: field("ctarget").value,
     served: viewQuery, servedAgenda: agendaQuery,
     servedCapture: captureLine, capturing: captureAsked,
-    // Which saved view the composer is standing on.
-    cwhich: field("cwhich").value,
     // The states table: one `TAG|STATE|GROUP|COLOUR' per row, in the order the
     // mount holds them, plus how many times it was mounted and where its
     // cursor is.

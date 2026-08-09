@@ -112,21 +112,6 @@
       cap.value = b.capture || "";
       const sys = crows.find((r) => r.tag === null);
       sys.cap = cap; sys.capBase = cap.value;
-      vrows = (b.views || []).map((v) => ({
-        id: v.id, base: (v.query || "").trim(), text: (v.query || "").trim() }));
-      const which = el("cwhich");
-      which.textContent = "";
-      vrows.forEach((v) => { part(which, "option", "", `${v.id} view`).value = v.id; });
-      vat = vrows.length ? vrows[0].id : "default";
-      which.value = vat;
-      const shown = vrow() ? vrow().text : "";
-      if (!cmpose)
-        cmpose = TableView.mount(el("cfbox"), { columns: mainCols, rows: [] },
-                                 { composer: true, initialQuery: shown,
-                                   onFilter: () => {} });
-      else if (can(cmpose, "setQuery")) cmpose.setQuery(shown);
-      if (can(cmpose, "setRows") && can(table, "getRows"))
-        cmpose.setRows(table.getRows());
       const kw = b.keywords || {};
       el("ceff").textContent =
         `${(kw.active || []).join(" ")} | ${(kw.inactive || []).join(" ")}`;
@@ -352,7 +337,6 @@
       takeLayer();
       showLayer(Number(targetOf(e).value));
     });
-    el("cwhich").addEventListener("change", (e) => showView(targetOf(e).value));
     el("ctpl").addEventListener("keydown", (e) => {
       if (keyName(e) !== "%") return;
       e.preventDefault();
@@ -373,26 +357,15 @@
     const cnote = (next, message) => note(configSheet, next, message);
     const cdirty = () => (takeLayer(), crows.some(cmoved));
     const cmoved = (r) => r.text !== r.base || r.tpl !== r.tplBase
-      || (r.tag === null && (movedViews().length > 0 || huesMoved()))
+      || (r.tag === null && huesMoved())
       || (r.cap !== null && r.cap.value !== r.capBase);
     const huesMoved = () => JSON.stringify(hues) !== huesBase;
-    function takeView() {
-      const r = vrow();
-      if (r) r.text = composerQuery();
-    }
-    const movedViews = () => (takeView(), vrows.filter((v) => v.text !== v.base));
+    // A pin landed: the live view moves, and the badge with it where the
+    // DEFAULT is what moved — the renderer's badge says "this is the default".
     function viewLanded(id, q) {
-      if (id === "default") {
-        pinnedQuery = q;
-        if (can(table, "setPinned"))
-          table.setPinned(table.getQuery().trim() === pinnedQuery);
-      }
-      if (id === "agenda") agendaQuery = q;
-    }
-    function showView(id) {
-      takeView();
-      vat = id;
-      if (vrow() && can(cmpose, "setQuery")) cmpose.setQuery(vrow().text);
+      saved[id] = q;
+      if (id === "default" && can(table, "setPinned"))
+        table.setPinned(table.getQuery().trim() === q);
     }
     async function flushConfig() {
       takeLayer();
@@ -402,23 +375,18 @@
         if (!cmoved(r)) { r.err = ""; continue; }
         // Snapshotted before the await: a keystroke landing mid-write stays dirty.
         const sent = r.text, tpl = r.tpl;
-        const views = r.tag === null ? movedViews() : [];
         const colors = r.tag === null && huesMoved() ? hueList() : null;
         const cap = r.cap && r.cap.value;
         const a = await postJSON("/config",
           { path: r.path, lines: sent.split("\n"),
             // Named only where it moved: always sending it hits the one-top-entry wall.
             ...(tpl !== r.tplBase ? { template: tpl } : {}),
-            ...(views.length
-                  ? { views: Object.fromEntries(views.map((v) => [v.id, v.text])) }
-                  : {}),
             ...(colors ? { colors } : {}),
             ...(r.cap ? { capture: cap } : {}),
             digest: r.digest }).then(outcome)
           .catch((e) => ({ status: 0, body: { error: e.message } }));
         if (a.status === 200) {
           r.digest = a.body.digest; r.base = sent; r.tplBase = tpl; r.err = "";
-          views.forEach((v) => { v.base = v.text; viewLanded(v.id, v.text); });
           if (colors) huesBase = JSON.stringify(hues);
           if (r.cap) r.capBase = cap;
         } else {
@@ -527,36 +495,70 @@
       if (crumbing()) table.setCrumbs([]);
       crumbLabels = {};
       crumbSels = [];
-      applyView(b, pinnedQuery);
+      applyView(b, savedQuery("default"));
     }
-    function pinCore(spoke) {
-      const q = can(table, "getQuery") ? table.getQuery().trim() : "";
+    const PIN = "set-saved-view";
+    // THE PIN ASKS WHICH SAVED VIEW the applied query becomes.  The list is the
+    // registry's own, off the boot blob, so the palette goes up filled and a
+    // view the server grows is offered with nothing here to name it.
+    //
+    // `-' IS A FLAG, magit's own shape: it toggles RESET on and off over the
+    // same list, and with it armed a letter puts that view's BUILT-IN back
+    // rather than pinning.  Toggling re-raises, which is how the flag reaches
+    // the head, the foot and the rung's own line; a commit closes the palette,
+    // so the flag never outlives the question it was set on.
+    function askView(byKey, take, back) {
+      const q = back || !can(table, "getQuery") ? "" : table.getQuery().trim();
+      const mine = ask(back ? "reset · which view" : `pin · ${q || "all rows"}`,
+                       (c) => (c.reset ? askView(false, take, !back)
+                                       : take(String(c.tag), q)),
+                       back ? "a letter resets it · - pins again · / to search · ESC leaves"
+                            : "a letter pins it · - resets one · / to search · ESC leaves");
+      // The BUTTON raises it with no keydown behind it to spend the guard, and
+      // so does the `-' that re-raises it: that press is already answered.
+      mine.raising = byKey;
+      const views = (CFG.views || []).map((v) =>
+        ({ label: v.id, hint: savedQuery(v.id) || "all rows", tag: v.id }));
+      offer(views.concat([{ label: "reset", key: "-", cut: -1, fixed: true, reset: true,
+                            hint: back ? "on · a letter puts the built-in back"
+                                       : "off · put a view's built-in back" }]));
+    }
+    // ONE WRITE for both halves: `views' names ONE view, so the others' lines
+    // stay where they are, and an EMPTY query TAKES THE LINE OFF — which is how
+    // a view goes back to its built-in.  What that built-in IS is the server's,
+    // so that half re-reads rather than guessing.
+    function writeView(id, q, spoke) {
       return getJSON("/config").then((a) => {
         const sys = (a.layers || []).find((l) => !l.tag);
         if (!sys) { spoke("no system layer to pin into"); return; }
         // Through `unwrap' so a refusal THROWS — `postJSON' resolves any status.
         return postJSON("/config",
-                        { path: sys.path, digest: sys.digest, views: { default: q } })
+                        { path: sys.path, digest: sys.digest, views: { [id]: q } })
           .then(unwrap)
-          .then(() => {
-            viewLanded("default", q);
-            const row = vrows.find((v) => v.id === "default");
-            if (row) { row.base = q; row.text = q; }
-            if (settings && row && row === vrow() && can(cmpose, "setQuery"))
-              cmpose.setQuery(q);
-            spoke(q ? `pinned · ${q}` : "pinned · all rows");
-            append("config", "info",
-                   `default view pinned: ${JSON.stringify(q)}`);
-          });
+          .then(() => (q ? landedView(id, q, false, spoke)
+                         : getJSON("/config").then((fresh) =>
+                             landedView(id, servedView(fresh, id), true, spoke))));
       });
     }
-    function pinView(b) {
-      pinCore((w) => said(b, w)).catch(failed(b, "set-default-view"));
+    const servedView = (a, id) =>
+      String(((a.views || []).find((v) => v.id === id) || {}).query || "").trim();
+    function landedView(id, q, back, spoke) {
+      viewLanded(id, q);
+      spoke(`${id}${back ? " reset" : ""} · ${q || "all rows"}`);
+      append("config", "info", back
+        ? `${id} view reset to its built-in: ${JSON.stringify(q)}`
+        : `${id} view pinned: ${JSON.stringify(q)}`);
     }
+    function pinView(b) {
+      askView(true, (id, q) =>
+        writeView(id, q, (w) => said(b, w)).catch(failed(b, PIN)));
+    }
+    // The chip strip's button, which no keymap row fired: it spells the command
+    // by hand, the way every other buttoned door does.
     function pinHere() {
-      pinCore((w) => echo(`pin → set-default-view (${w})`))
-        .catch((e) => append("config", "error",
-                            `set-default-view failed: ${e.message}`));
+      askView(false, (id, q) =>
+        writeView(id, q, (w) => echo(`pin → ${PIN} (${w})`))
+          .catch((e) => append("config", "error", `${PIN} failed: ${e.message}`)));
     }
     function relations(b) {
       const id = focusedId();

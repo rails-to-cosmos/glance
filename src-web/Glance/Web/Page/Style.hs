@@ -197,8 +197,6 @@ page head' colours title body = T.unlines
   , "  #pinput,#ktag,#kfields input{font:12px/1.5 var(--dk-mono);padding:5px 7px;border-radius:4px;"
   , "    border:1px solid var(--g-border);background:transparent;color:inherit}"
   , "  #pbox:not(.narrow) #pinput{display:none}"
-  , "  #cfbox{flex:1 1 auto;min-width:0}"
-  , "  #cfbox .tv-root{font-family:var(--dk-mono)}"
   , "  #plist{max-height:40vh;overflow-y:auto;font-size:12px}"
   , "  #klist{overflow-y:auto;font-size:12px;flex:0 1 auto}"
   , "  .ke{padding:2px 7px}"

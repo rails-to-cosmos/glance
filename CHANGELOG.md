@@ -66,6 +66,39 @@ section groups a feature arc, and its date is that arc's last commit.
   `tagsOfCell` import. `Glance.Web.Store.storeTags` stays — it is `tag:`'s value
   domain, the tag palette's vocabulary and `namesArchive`'s "is anything
   archived" guard.
+- **The settings sheet no longer edits the saved views.** Its general panel
+  carried a filter composer and a select naming which view it stood on; both are
+  gone, and the panel is the capture target and the log height. A query is
+  written where a reader already composes one — the table's own filter, with its
+  completion, its chips and its `DEL` — and `P` is what saves it. Gone with the
+  widget: `#cwhich`, `#cfbox` and its two style rules, the composer mount, the
+  `views` region of the settings sheet's own `/config` write, and the shell's
+  `vrows`/`ViewRow` bookkeeping (the live views are one map keyed by the
+  registry's ids now).
+
+### Changed
+- **`P` asks which saved view the applied query becomes.** It pinned the
+  default and nothing else; it raises the value palette over the saved-view
+  registry now — one entry per view (`default`, `agenda`), its which-key letter
+  marked inside its name, and the query that view holds now beside it — and the
+  letter commits, the way the state palette's does: `P d` pins the default,
+  `P a` the agenda. `ESC` pins nothing. So the
+  agenda `a` applies is set from the table where it is composed, and a view the
+  server grows is offered with nothing on the page naming it. The chip strip's
+  pin button asks the same question. The command is `set-saved-view` (was
+  `set-default-view`), and the echo names the view it landed in:
+  `P → set-saved-view (agenda · tag:work)`.
+- **A saved view can be reset to its built-in.** `-` in that palette is a flag,
+  magit's shape: it toggles, the same list stands under it, and with it armed
+  `d`/`a` put that view's built-in query back instead of pinning. The write
+  takes the tree's line off, and the page re-reads what the built-in then is
+  rather than guessing. A commit closes the palette, so the flag never outlives
+  the question it was set on. Pinning an empty query is the same write and now
+  says so.
+- `DEL` steps out of the value palette wherever no entry claims the key,
+  which is what it already did over the link and tag popups. The state
+  palette is unmoved: its `*empty*` entry claims `DEL` and still commits a null
+  keyword.
 
 ### Changed
 - **The theme decides the TODO and priority badge colours.** They were four

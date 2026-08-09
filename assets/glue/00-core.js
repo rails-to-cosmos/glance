@@ -109,9 +109,8 @@
         onLink: (target) => append("cmd", "info", `link: ${target}`),
         onFilter: filter,   // the server narrows; the renderer shows what it is given
         onPin: () => pinHere(),
-        pinned: query.trim() === pinnedQuery,
+        pinned: query.trim() === savedQuery("default"),
       });
-      mainCols = (view || {}).columns || [];
       if (query && !holds(query)) showQuery();
       if (crumbing() && was.trail.length) table.setCrumbs(was.trail);
       cols = view.columns || [];
@@ -171,24 +170,15 @@
 
     const params = () => new URLSearchParams(location.search);
     const urlQuery = () => params().get("q") || "";
-    const seedView = (id) =>
-      ((CFG.views.find((v) => v.id === id) || {}).query || "").trim();
-    const DEFAULT_QUERY = seedView("default");
-    let pinnedQuery = DEFAULT_QUERY.trim();
-    let agendaQuery = seedView("agenda");
-    /**
-     * @typedef {object} ViewRow
-     * @property {string} id
-     * @property {string} base
-     * @property {string} text
-     */
-    /** @type {ViewRow[]} */
-    let vrows = [];
-    let cmpose = null, mainCols = [], vat = "default";
-    const vrow = () => vrows.find((v) => v.id === vat);
-    const composerQuery = () =>
-      (cmpose && can(cmpose, "getQuery") ? cmpose.getQuery().trim()
-       : vrow() ? vrow().text : "");
+    // THE SAVED VIEWS, LIVE, keyed by the registry's own ids: seeded from the
+    // boot blob and moved by a pin, so `g' and `a' apply what the last write
+    // landed rather than the constant this page booted on.  A view the server
+    // grows joins by being in the blob — nothing here names one.
+    /** @type {Record<string, string>} */
+    const saved = {};
+    (CFG.views || []).forEach((v) => { saved[v.id] = String(v.query || "").trim(); });
+    const savedQuery = (id) => saved[id] || "";
+    const DEFAULT_QUERY = savedQuery("default");
     const bootQuery = () => (params().has("q") ? urlQuery() : DEFAULT_QUERY);
     let crumbLabels = {};
     const crumbing = () => can(table, "pushCrumb") && can(table, "popCrumb")
@@ -218,7 +208,7 @@
       // `page'/`row'/the fragment are `remembered''s and survive: a query
       // committed under an open popup leaves it named in the URL.
       history.replaceState(null, "", `?${p.toString()}${location.hash || ""}`);
-      if (can(table, "setPinned")) table.setPinned(q.trim() === pinnedQuery);
+      if (can(table, "setPinned")) table.setPinned(q.trim() === savedQuery("default"));
     }
     function bootTrail() {
       try {

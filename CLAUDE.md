@@ -906,8 +906,8 @@ measurements and the history of superseded designs live in
   without `allowJs` excludes every `.js` from the program, so tsc was type-checking
   the five-line `glue.d.ts` and reporting clean. `files:` rather than `include:`
   (the Go tsc resolves the two differently) plus `allowJs`. What it checks is
-  `strictNullChecks` off `el`'s control-union cast and FOUR declared model
-  shapes — `LayerRow`, `StateRow`, `ViewRow`, `PropRow`, plus `Surface` — so a
+  `strictNullChecks` off `el`'s control-union cast and THREE declared model
+  shapes — `LayerRow`, `StateRow`, `PropRow`, plus `Surface` — so a
   field a server answer stops sending fails at the annotation rather than
   reading `undefined` at the point of use. What it does NOT check is element
   KIND (`el` casts) and implicit `any` (~570 sites); both are open ratchets.
@@ -1086,7 +1086,7 @@ measurements and the history of superseded designs live in
   as ONE arrow-form `sort:` token and delivers it, so the press arrives as an
   ordinary commit and `DEL` takes the chip WHOLE. What it composes onto is the
   chain IN FORCE. This page keeps no record of an order and asks for none.
-- `g` is `apply-default-filter`, `P` is `set-default-view` (ONCE), `a` is
+- `g` is `apply-default-filter`, `P` is `set-saved-view` (ONCE), `a` is
   `org-glance-agenda`, `,` is `customize`, `:` is `org-agenda-set-tags`, `o` and
   `!` are `org-glance-overview:open`, `@` is `org-glance-overview:relations`, `M`
   is `mark-all`, `d` is `archive-flag`, `D` is `org-glance-overview:delete` (both
@@ -1558,9 +1558,11 @@ measurements and the history of superseded designs live in
 - AND `DEL` CLOSES A POPUP WITH NO INNER LADDER: over the LINK and TAG popups the
   popup IS the last structure standing, so `DEL` steps out where `ESC` does. The
   guard is the edit sub-mode — `DEL` inside an open rename or link edit stays the
-  FIELD's character erase. The STATE palette is the exception and keeps its
-  landed meaning (`DEL` commits `*empty*`): a value is what that surface exists
-  to hand back.
+  FIELD's character erase. OVER THE VALUE PALETTE the rule is the ENTRIES': a
+  letter palette where nothing CLAIMS the key steps out the same way, and the
+  STATE palette keeps its landed meaning because `*empty*` claims it (`DEL`
+  commits a null keyword) — a value is what that surface exists to hand back. In
+  the field mode `/` opens, `DEL` is the field's own erase.
 - A CURSOR IS ONLY DRAWN WHERE THE KEYS ARE. Each sheet pane says on its frame
   whether it holds them; the cursor inside takes the same guard, so the sheet
   never shows two. The POSITION is not gated — it is the model's, so crossing
@@ -1750,15 +1752,36 @@ measurements and the history of superseded designs live in
   reads the order without iterating keys; the WRITE takes `views: {id: query}`,
   three-valued per view like every other optional region (absent leaves it,
   empty deletes the line), so editing one leaves the others where they are, and
-  a view no build carries is a 400 naming it. WRITING is `P`
-  (`set-default-view`, ONCE) under `views.default` and the digest `GET /config`
-  just served, WITHOUT a `lines` key — which is why absent lines leave the
-  `#+TODO:` block standing. The settings sheet edits any of them in ONE COMPOSER
-  (`composer: true`, the omnibox bar and chips with no table behind them),
-  `#cwhich` naming which: `vrows` holds each view's text and the box is a VIEW
-  of the selected one, so switching asks the server nothing and loses no edit
-  (the layer boxes' rule). `pinnedQuery` and `agendaQuery` are LIVE — a write
-  under a running page is what the next press applies.
+  a view no build carries is a 400 naming it. WRITING IS THE PIN AND NOTHING
+  ELSE: `P` (`set-saved-view`, ONCE) and the chip strip's own button, under the
+  digest `GET /config` just served and WITHOUT a `lines` key — which is why
+  absent lines leave the `#+TODO:` block standing. The settings sheet edits no
+  view at all; a query is composed where a reader already composes one, the
+  table's own filter. `saved` is the LIVE map, keyed by the registry's ids and
+  seeded from the page blob — a write under a running page is what the next
+  press applies.
+- AND THE PIN ASKS WHICH ONE. `P` raises the value palette over the registry
+  (`askView`, the boot blob's own order, so a view the server grows is offered
+  with nothing on this page naming it): one entry per view, its which-key letter
+  marked inside its name, the query that view holds NOW as the aside, and the
+  letter commits — the palette IS the confirmation, as it is for `t`. LETTER
+  MODE DRAWS A PLAIN LIST wherever a raise sets no `prompting.table`:
+  source | active | inactive is the KEYWORDS' own shape, and every other list is
+  a list. `writeView` is the write, one view named per request, so pinning the
+  agenda leaves the default's line where it was. The echo is `P →
+  set-saved-view (default · state:*active*)`. The BUTTON asks the same question
+  and clears `raising` by hand: a click has no keydown behind it to spend the
+  guard, so the very next letter would otherwise be eaten.
+- AND `-` IS A FLAG OVER IT, magit's own shape: a fixed rung at the foot toggles
+  RESET on and off, and with it armed a letter puts that view's BUILT-IN back
+  instead of pinning. The toggle RE-RAISES — that is how the flag reaches the
+  head, the foot and the rung's own line — and a COMMIT closes the palette, so a
+  flag never outlives the question it was set on. The write is the EMPTY query,
+  which takes the tree's line off, so it is `writeView`'s own path rather than a
+  second route; what the built-in IS belongs to the server, so an empty write
+  RE-READS `/config` for the value to report and to live with. Pinning an empty
+  query is that same write and says so (`default reset · …`); the
+  present-but-valueless line, which would pin ALL ROWS, is unreachable from here.
 - Settings sheet = `,` (`customize`) and it is TABS: `SECTIONS` still owns the
   names and the order, and draws a strip of buttons over one pane at a time.
   A hidden panel is out of the flow, so its fields leave the tab order with it.
@@ -1766,10 +1789,10 @@ measurements and the history of superseded designs live in
   the newly shown panel's first control takes the focus — through the sheet's
   own listener, registered ahead of the dispatch and claiming nothing while the
   sheet is shut or a momentary popup stands over it. The horizontal arrows walk
-  the strip while a tab button holds the focus. THREE panels: GENERAL (the saved
-  view composer with its `#cwhich`, the capture target, the log height), THEME
-  (the reader's `auto`/`light`/`dark` preference, and the TREE's own state hues)
-  and KEYWORDS (the layer select, its two boxes, the union and its note).
+  the strip while a tab button holds the focus. THREE panels: GENERAL (the
+  capture target, the log height), THEME (the reader's `auto`/`light`/`dark`
+  preference, and the TREE's own state hues) and KEYWORDS (the layer select, its
+  two boxes, the union and its note).
 - THE STATES TABLE is the theme panel's own mount, the page's FIFTH and its
   second MUTABLE one: `tag | state | group | colour`, one row per keyword the
   tree knows. BY LAYER, THEN CYCLE ORDER — `crows`' own order (system first,
@@ -1824,8 +1847,8 @@ measurements and the history of superseded designs live in
   reseeds because `writeLayer` goes through `Watch.writeSpans`.
 - Settings sheet = `,` (`customize`), the page's ONE place for a preference and
   the materialize sheet's own ladder over `/config`. THREE PANELS from ONE list
-  (`SECTIONS`, header + part ids): GENERAL (default view, capture target, log
-  height), THEME (the `auto`/named select, a `localStorage` preference that
+  (`SECTIONS`, header + part ids): GENERAL (capture target, log height), THEME
+  (the `auto`/named select, a `localStorage` preference that
   applies as it is picked and asks no server), KEYWORDS (`clayers` — one select
   over one box holding the SELECTED layer's `#+TODO:` lines VERBATIM, since the
   page has no org parser — then the union `ceff` and its note). A fourth panel is
@@ -1834,7 +1857,7 @@ measurements and the history of superseded designs live in
   the join is by id and a `parts` id the markup lacks throws at boot. The list
   order is the TAB order and the sheet opens on the general panel's first field.
   `shutSettings` blurs on the way out. Where a field is DRAWN moves no write: the
-  two general fields stay bound to the system layer.
+  capture target stays bound to the system layer.
 - KNOWN GAP: the gear was the coarse pointer's ONLY settings door and went with
   the corner. A touch reader can filter and read; `,` cannot be typed there.
 - The KEYWORDS panel is ONE select over the layers and TWO boxes — `#ctext` for

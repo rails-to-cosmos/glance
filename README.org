@@ -67,7 +67,7 @@ the *physical key*, so =т з о л= navigates on a Cyrillic layout.
 | =t= =:= =d d= =D= | state palette · tag popup · flag-then-archive           |
 | =m= =u= =M= =U=   | dired's marks                                           |
 | =o=               | follow the row's links (one opens, several list)        |
-| =+=               | capture · =g= default view · =P= pin view as default · =a= agenda |
+| =+=               | capture · =g= default view · =a= agenda · =P= pin into one |
 | =@=               | drill into referring rows; =DEL= walks back             |
 | =/=               | filter palette · =,= settings · =C-x C-s= sync the sheet |
 
@@ -147,8 +147,8 @@ Org files under =<root>/.org-glance/config/=, never a row source:
 =tags/TAG.org= adds a per-tag cycle (and a capture template, above).
 Recognition unions every layer; classification is widest-scope
 (built-in > system > tags > file), so a file redeclaring =TODO= cannot make it
-done-like. The settings sheet (=,=) edits the layers; the default view is
-pinned from the table with =P= and shown read-only there.
+done-like. The settings sheet (=,=) edits the layers; the saved views are
+written from the table with =P=, which asks which one takes the applied query.
 
 ** org-glance interop
 

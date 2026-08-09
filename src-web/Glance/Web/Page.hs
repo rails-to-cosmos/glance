@@ -79,8 +79,6 @@ demoShell opts font colours views =
   , "      <div id=\"ctabs\"></div>"
   , "      <div id=\"csecs\"></div>"
   , "      <div id=\"cgen\" class=\"cpart\">"
-  , crow "<select id=\"cwhich\" class=\"cview\" title=\"which saved view\"></select>"
-         "<div id=\"cfbox\"></div>"
   , crow (clab "capture target")
          (cinput "ctarget" ""
                  ("where + captures; empty is " <> T.pack defaultCaptureFile))

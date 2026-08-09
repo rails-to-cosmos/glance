@@ -4767,70 +4767,29 @@ settingsSpec shell =
       "," "ccap:notes/in.org press:C-x press:C-s" $
         assertEqual "the field shows what was typed" "notes/in.org" <=< textAt "ccap"
 
-    -- The default view is edited in the SAME widget the main page filters
-    -- with: a table-view COMPOSER mount — bar and chips, no table — so the
-    -- grammar, the completion and DEL are the form control.  Mounted once,
-    -- re-seeded per open with the served value, handed the main table's rows
-    -- for value completion; a commit into it dirties the system layer and
-    -- rides that layer's own drift-locked write.
-  , keyed shell "the default view is a composer, and rides the system write"
-      "," "cview:tag:work press:Escape" $ \answer -> do
-        writes <- listAt "configWrites" answer
-        assertEqual "one write, for the system layer" 1 (length writes)
-        assertEqual "carrying the composed view" "tag:work"
-          =<< wroteView "default" (head writes)
-        assertEqual "and the server holds it now" "tag:work"
-          =<< textAt "served" answer
-
-    -- A SAVED VIEW IS A REGISTRY ENTRY, and `#cwhich' is which one the one
-    -- composer stands on.  Switching is a READ — it asks the server nothing and
-    -- writes nothing — and the write names the views that MOVED, so editing the
-    -- agenda leaves the default's line exactly where it was.
-  , keyed shell "the composer edits whichever saved view is picked"
-      "," "cwhich:agenda cview:tag:home press:Escape" $ \answer -> do
-        writes <- listAt "configWrites" answer
-        assertEqual "one write, for the system layer" 1 (length writes)
-        assertEqual "carrying the agenda alone" "tag:home"
-          =<< wroteView "agenda" (head writes)
-        assertEqual "the default view is not named" Nothing
-          =<< (field "views" (head writes) >>= sparseTextAt "default")
-        assertEqual "and the server holds the agenda now" "tag:home"
-          =<< textAt "servedAgenda" answer
-        assertEqual "with the default untouched" "state:*active*"
-          =<< textAt "served" answer
-
-  , keyed shell "switching views keeps each one's own edit and asks nothing"
-      "," "cview:tag:work cwhich:agenda cwhich:default press:Escape" $ \answer -> do
-        assertEqual "the default's edit came back" "tag:work"
-          =<< textAt "cview" answer
-        writes <- listAt "configWrites" answer
-        assertEqual "one write at the end, not one per switch" 1 (length writes)
-        assertEqual "and it carries the default" "tag:work"
-          =<< wroteView "default" (head writes)
-
-    -- `a' APPLIES THE TREE'S OWN AGENDA: the line is a saved view like the
-    -- default, so a write under a running page is what the next press applies.
-  , keyed shell "a applies the agenda the tree configures"
-      "," "cwhich:agenda cview:tag:home press:Escape press:a" $ \answer ->
-        urlIs "the freshly written agenda, not the built-in"
-              "?q=tag%3Ahome" answer
-
-  , keyed shell "the composer is one mount, re-seeded with what is served"
-      "," "cview:tag:work press:Escape press:," $ \answer -> do
-        assertEqual "one mount across two opens" 1 =<< intAt "cmounts" answer
-        assertEqual "showing the value the write landed" "tag:work"
-          =<< textAt "cview" answer
-
-  , keyed shell "an untouched composer rides no write"
-      "," "press:Escape" $ \answer ->
-        assertEqual "pristine, so nothing went" ([] :: [Value])
+    -- `P' IS THE PIN, and it ASKS WHICH SAVED VIEW the applied query becomes.
+    -- The palette is the registry drawn as a plain list — one entry per view,
+    -- its own which-key letter marked inside its name, and the query that view
+    -- holds NOW as the aside — so what a press is about to replace is on screen
+    -- ahead of the press.  Nothing is written by the raise.
+  , keyed shell "P asks which saved view the applied query becomes"
+      "" "press:P" $ \answer -> do
+        assertEqual "the palette is up" "on" =<< textAt "prompt" answer
+        assertEqual "naming what is being pinned" "pin · state:*active*"
+          =<< textAt "phead" answer
+        assertEqual "the registry in order, what each holds, then the reset flag"
+                    [ ("[d]efault", "state:*active*")
+                    , ("[a]genda", "state:*active* -planned:*empty* sort:scheduled")
+                    , ("reset", "off · put a view's built-in back") ]
+          =<< paletteHints answer
+        assertEqual "and the question wrote nothing" ([] :: [Value])
           =<< listAt "configWrites" answer
 
-    -- `P' IS THE PIN: the applied query — sort tokens and all — becomes the
-    -- system layer's own line, through the same drift-locked `/config' write
-    -- the sheet rides, under the digest `/config' just served.
-  , keyed shell "P pins the applied view as the tree's default"
-      "" "press:P" $ \answer -> do
+    -- The letter commits on its own — the palette IS the confirmation — through
+    -- the same drift-locked `/config' write the sheet rides, under the digest
+    -- `/config' just served.
+  , keyed shell "and a letter pins the query into that view"
+      "" "press:P press:d" $ \answer -> do
         writes <- listAt "configWrites" answer
         assertEqual "one write, for the system layer" 1 (length writes)
         assertEqual "at the system path" "/o/.org-glance/config/system.org"
@@ -4839,9 +4798,109 @@ settingsSpec shell =
           =<< wroteView "default" (head writes)
         assertEqual "and the server holds it now" "state:*active*"
           =<< textAt "served" answer
-        echoIs "the pill names the pin"
-          "P → set-default-view (pinned · state:*active*)" answer
+        echoIs "the pill names the view it landed in"
+          "P → set-saved-view (default · state:*active*)" answer
         assertEqual "and the badge is on" True =<< boolAt "pinned" answer
+
+  , keyed shell "ESC over the question pins nothing"
+      "" "press:P press:Escape" $ \answer -> do
+        assertEqual "nothing written" ([] :: [Value]) =<< listAt "configWrites" answer
+        assertEqual "and the palette is down" "" =<< textAt "prompt" answer
+
+    -- AND `DEL' IS THE SAME DOOR, the popups' rung: a palette no entry of which
+    -- claims the key is a surface with no inner ladder, so the backspace steps
+    -- out of it.  The state palette is the exception and keeps its landed
+    -- meaning, because `*empty*' CLAIMS the key — the case below it.
+  , keyed shell "DEL steps out of the question the way it leaves a popup"
+      "" "press:P press:Backspace" $ \answer -> do
+        assertEqual "nothing written" ([] :: [Value]) =<< listAt "configWrites" answer
+        assertEqual "and the palette is down" "" =<< textAt "prompt" answer
+        echoIs "and said so" "DEL → keyboard-quit" answer
+
+  , keyed shell "DEL over the state palette still commits *empty*"
+      "" "press:t press:Backspace" $ \answer -> do
+        assertEqual "the keyword came off" [Nothing] =<< keywordsOf answer
+        assertEqual "and the palette is down" "" =<< textAt "prompt" answer
+
+    -- AND `-' IS A FLAG over that same list, magit's own shape: armed, a letter
+    -- puts that view's BUILT-IN back instead of pinning.  The write is the empty
+    -- query, which takes the tree's line off; what the built-in then IS belongs
+    -- to the server, so the page re-reads rather than guessing, and the words
+    -- say which half ran.
+  , keyedAt shell "?q=tag%3Awork" 500 "- arms the reset, and a letter puts the built-in back"
+      "" "press:P press:d press:P press:- press:d" $ \answer -> do
+        writes <- listAt "configWrites" answer
+        assertEqual "the pin, then the reset" 2 (length writes)
+        assertEqual "the reset writes the empty query" ""
+          =<< wroteView "default" (writes !! 1)
+        assertEqual "and the server is back on the built-in" "state:*active*"
+          =<< textAt "served" answer
+        echoIs "the pill says which half ran, and what landed"
+          "P → set-saved-view (default reset · state:*active*)" answer
+
+    -- A FLAG STAYS A FLAG: the same list stands under it, the rung says which
+    -- way it is set, and a second `-' puts it back — nothing is written by
+    -- either press.
+  , keyed shell "- toggles, and the list under it does not move"
+      "" "press:P press:-" $ \answer -> do
+        assertEqual "the question says what a letter will do now"
+                    "reset · which view" =<< textAt "phead" answer
+        assertEqual "the views stand, and the rung says it is on"
+                    [ ("[d]efault", "state:*active*")
+                    , ("[a]genda", "state:*active* -planned:*empty* sort:scheduled")
+                    , ("reset", "on · a letter puts the built-in back") ]
+          =<< paletteHints answer
+        assertEqual "and nothing written by the flag" ([] :: [Value])
+          =<< listAt "configWrites" answer
+
+  , keyed shell "and a second - puts the pin back"
+      "" "press:P press:- press:-" $ \answer -> do
+        assertEqual "the pin question again" "pin · state:*active*"
+          =<< textAt "phead" answer
+        assertEqual "nothing written" ([] :: [Value]) =<< listAt "configWrites" answer
+
+    -- AND THE FLAG DIES WITH THE QUESTION IT WAS SET ON: a commit closes the
+    -- palette, so the next raise is the pin's, never a reset armed a minute ago.
+  , keyedAt shell "?q=tag%3Awork" 500 "the flag is off again on the next raise"
+      "" "press:P press:- press:d press:P" $ \answer ->
+        assertEqual "the pin question, with the flag spent"
+                    "pin · tag:work" =<< textAt "phead" answer
+
+    -- `/' is the same fallback the state palette has: the list flattens into a
+    -- field, typing narrows it and RET commits — one mechanism, whatever the
+    -- letter mode drew.
+  , keyed shell "/ falls back to the completing read over the same list"
+      "" "press:P press:/ type:agen press:Enter" $ \answer -> do
+        writes <- listAt "configWrites" answer
+        assertEqual "one write" 1 (length writes)
+        assertEqual "into the view the typing left" "state:*active*"
+          =<< wroteView "agenda" (head writes)
+
+    -- EVERY REGISTRY ENTRY TAKES THE PIN, and the write names that view ALONE,
+    -- so pinning the agenda leaves the default's line exactly where it was.
+  , keyedAt shell "?q=tag%3Awork" 500 "another letter pins it into the agenda"
+      "" "press:P press:a" $ \answer -> do
+        writes <- listAt "configWrites" answer
+        assertEqual "one write, for the system layer" 1 (length writes)
+        assertEqual "carrying the agenda alone" "tag:work"
+          =<< wroteView "agenda" (head writes)
+        assertEqual "the default view is not named" Nothing
+          =<< (field "views" (head writes) >>= sparseTextAt "default")
+        assertEqual "and the server holds the agenda now" "tag:work"
+          =<< textAt "servedAgenda" answer
+        assertEqual "with the default where it was" "state:*active*"
+          =<< textAt "served" answer
+        echoIs "and the pill names the agenda"
+          "P → set-saved-view (agenda · tag:work)" answer
+
+    -- `a' APPLIES THE TREE'S OWN AGENDA: it is a saved view like the default,
+    -- so a pin under a running page is what the next press applies.  `g' in
+    -- between is what makes the last press say something — it lands the page on
+    -- the default first.
+  , keyedAt shell "?q=tag%3Awork" 500 "a applies the agenda the pin just wrote"
+      "" "press:P press:a press:g press:a" $ \answer ->
+        urlIs "the freshly pinned agenda, not the built-in"
+              "?q=tag%3Awork" answer
 
     -- THE SORT RIDES THE PIN, because the order is the grammar's: a query
     -- carrying `sort:' tokens pins whole, and `g' a moment later applies the
@@ -4849,7 +4908,7 @@ settingsSpec shell =
     -- made a fresh pin look like it had dropped its sorting.
   , keyedAt shell "?q=tag%3Awork%20sort%3Adeadline" 500
       "the pinned view keeps its sort, and g applies it live"
-      "P" "press:g" $ \answer -> do
+      "" "press:P press:d press:g" $ \answer -> do
         writes <- listAt "configWrites" answer
         assertEqual "the write carries the order too" "tag:work sort:deadline"
           =<< wroteView "default" (head writes)
@@ -4863,7 +4922,7 @@ settingsSpec shell =
     -- knows a token from a token; that is the design being asserted.
   , keyedAt shell "?q=tag%3Awork%20columns%3Astate%2Ctitle%20sort%3Adeadline" 500
       "the pinned view keeps its columns too, and g applies the whole view"
-      "P" "press:g" $ \answer -> do
+      "" "press:P press:d press:g" $ \answer -> do
         writes <- listAt "configWrites" answer
         assertEqual "the write carries filter, columns and order"
                     "tag:work columns:state,title sort:deadline"
@@ -4876,13 +4935,10 @@ settingsSpec shell =
     -- is the pinned one, off the moment the query diverges — DEL's token drop
     -- is a divergence like any other.
   , keyedAt shell "?q=tag%3Awork" 500 "the badge follows the applied view"
-      "P" "press:Backspace" $ \answer ->
+      "" "press:P press:d press:Backspace" $ \answer ->
         assertEqual "a diverged query takes the badge off" False
           =<< boolAt "pinned" answer
 
-    -- THE BUTTON IS THE TOUCH DOOR: the renderer reports the click, this page
-    -- runs the same pin, and the echo spells the command by hand since no
-    -- keymap row fired.
     -- `q' IS THE OTHER DOOR OUT OF A BROWSING POPUP, dired's own: same rung and
     -- same `off' as DEL, and the same exception — the value palette keeps its
     -- letters, `q' there being a keyword's initial like any other.
@@ -4894,15 +4950,20 @@ settingsSpec shell =
       "" "press:t press:q" $ \answer ->
         assertBool "the palette stands" . not . T.null =<< textAt "prompt" answer
 
-  , keyed shell "the pin button clicks through to the same write"
-      "" "pinclick" $ \answer -> do
+    -- THE BUTTON IS THE TOUCH DOOR: the renderer reports the click, this page
+    -- asks the same question, and the echo spells the command by hand since no
+    -- keymap row fired.  A CLICK has no keydown behind it for the raising guard
+    -- to spend, so the very next letter commits — the half a key press covers
+    -- for itself and this door has to clear by hand.
+  , keyed shell "the pin button asks the same question, and the next letter answers"
+      "" "pinclick press:d" $ \answer -> do
         writes <- listAt "configWrites" answer
         assertEqual "one write" 1 (length writes)
         assertEqual "carrying the applied query" "state:*active*"
           =<< wroteView "default" (head writes)
         assertEqual "the badge is on" True =<< boolAt "pinned" answer
         assertEqual "and the echo names the command"
-                    "pin → set-default-view (pinned · state:*active*)"
+                    "pin → set-saved-view (default · state:*active*)"
           =<< textAt "echo" answer
 
     -- Two sheets over one page would leave `C-x C-s' and `ESC' guessing which
@@ -5378,9 +5439,9 @@ atBoot page label check = testCase label (reading check =<< page)
 onceNames :: [T.Text]
 onceNames = [ "filter-drop-token", "unmark-all", "mark-all"
             , "archive-flag", "org-glance-overview:delete"
-              -- A held pin is a config write, a reseed and a remount per
-              -- repeat.
-            , "set-default-view"
+              -- A held pin re-raises its question per repeat, over a page whose
+              -- letters commit a config write.
+            , "set-saved-view"
             , "org-glance-overview:open", "org-glance-agenda"
               -- A held `@' is a remount per repeat, each leaving a crumb behind
               -- for DEL to walk back one at a time.
@@ -5916,7 +5977,7 @@ shellGlue =
   -- any other: in the URL, mounted as a chip, asked of the server — so DEL
   -- takes it off and the whole store is one keystroke away.
   , glue "a bare boot opens on the active view"
-      [ "const DEFAULT_QUERY = seedView(\"default\");"
+      [ "const DEFAULT_QUERY = savedQuery(\"default\");"
       -- A `q' in the address bar is the reader's own, empty or not.
       , "const bootQuery = () => (params().has(\"q\") ? urlQuery() : DEFAULT_QUERY);"
       , "const asked = (query = bootQuery());"
@@ -6652,13 +6713,14 @@ shellGlue =
 
   -- The tree's own default view, embedded by the daemon and applied by `g'
   -- through the ordinary commit path: into the URL, then asked of the server.
-  -- `g' reads the LIVE default (`pinnedQuery', seeded from the constant and
-  -- moved by a pin), so a fresh pin is applied without a page reload.
+  -- `g' reads the LIVE default (`saved', keyed by the registry's own ids,
+  -- seeded from the blob and moved by a pin), so a fresh pin is applied without
+  -- a page reload.
   , Glue "the default view is the tree's, and `g' applies it"
-      [ "const DEFAULT_QUERY = seedView(\"default\");"
-      , "let pinnedQuery = DEFAULT_QUERY.trim();"
+      [ "const savedQuery = (id) => saved[id] || \"\";"
+      , "const DEFAULT_QUERY = savedQuery(\"default\");"
       , "const bootQuery = () => (params().has(\"q\") ? urlQuery() : DEFAULT_QUERY);"
-      , "applyView(b, pinnedQuery);"
+      , "applyView(b, savedQuery(\"default\"));"
       -- `g' is HOME, so it is not a step on the trail: the crumbs and the
       -- labels naming them go with it, where DEL walks back one rung at a time.
       , "if (crumbing()) table.setCrumbs([]);"
@@ -6672,8 +6734,8 @@ shellGlue =
   -- thing: it carries its own ORDER, which is a token of the query like any
   -- other rather than a call behind the answer.
   , Glue "`a' is the agenda query through the same door, its own sort included"
-      [ "let agendaQuery = seedView(\"agenda\");"
-      , "applyAgenda: (b) => applyView(b, agendaQuery, (total) => landedAgenda(b, total)),"
+      [ "(CFG.views || []).forEach((v) => { saved[v.id] = String(v.query || \"\").trim(); });"
+      , "applyAgenda: (b) => applyView(b, savedQuery(\"agenda\"), (total) => landedAgenda(b, total)),"
       , "said(b, `agenda · ${rowsWord(total)}`);"
       -- The landing is an ARGUMENT of the boot it belongs to, so a boot that
       -- never lands cannot leave one behind for the next.
@@ -10812,8 +10874,8 @@ expectedRows =
        Just "unmark all, else drop the filter's last token")
   , (["g"],          "g",       "apply-default-filter",            Just "applyDefault",   "table",
        Just "the view this tree opens on")
-  , (["P"],          "P",       "set-default-view",                Just "pinView",        "table",
-       Just "pin the applied view as the tree's default")
+  , (["P"],          "P",       "set-saved-view",                  Just "pinView",        "table",
+       Just "pin the applied view, into whichever saved view answers")
   , (["m"],          "m",       "mark-toggle",                     Just "markToggle",     "table",
        Just "toggle this row's mark, then step down")
   , (["u"],          "u",       "unmark",                          Just "unmarkRow",      "table",

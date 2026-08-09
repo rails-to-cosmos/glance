@@ -252,6 +252,12 @@
         part(list, "div", "pnone", "resolving…");
         return;
       }
+      // A LIST WITH NO TABLE draws as its entries: source | active | inactive is
+      // the KEYWORDS' own shape, and every other letter palette is a plain list.
+      if (!prompting.table) {
+        prompting.choices.forEach((c) => entry(list, "pe", c));
+        return;
+      }
       const head = part(list, "div", "pr ph");
       part(head, "div", "ps", "source");
       part(head, "div", "pc", "active");
