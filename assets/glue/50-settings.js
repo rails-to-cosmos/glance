@@ -485,11 +485,16 @@
       remember(q);
       remount((total) => { land(sel || null); if (landing) landing(total); });
     }
+    // SAVE-EXCURSION: going home is a view change rather than a place change, so
+    // point stays on the row it was on wherever the default still holds it.
+    // `land' is the whole rule — the row named, else row one, else an empty
+    // table has nowhere to land at all.
     function applyDefault(b) {
+      const here = { id: focusedId(), col: column() };
       if (crumbing()) table.setCrumbs([]);
       crumbLabels = {};
       crumbSels = [];
-      applyView(b, savedQuery("default"));
+      applyView(b, savedQuery("default"), undefined, here);
     }
     const PIN = "set-saved-view";
     // THE PIN ASKS WHICH SAVED VIEW the applied query becomes.  The list is the

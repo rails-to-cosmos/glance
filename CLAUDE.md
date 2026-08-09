@@ -1750,6 +1750,19 @@ measurements and the history of superseded designs live in
   `applyView` takes the remembered selection as a fourth argument so the rule
   runs once rather than in each caller; `fetchRows` calls it too, since a commit
   REPAINTS rather than remounting.
+- `g` IS SAVE-EXCURSION and the exception to that: going home is a view change
+  rather than a place change, so it passes the row it was on and `land`'s three
+  rules do the rest — the row where the answer still holds it, row one where it
+  has gone, nothing at all where the answer is empty. `a` and a commit still
+  take row one, being new questions.
+- AND A PAGE THAT BOOTED BLIND ADOPTS THE TREE'S VIEWS. `/` does not wait on the
+  walk, so a store still loading serves a page carrying no config and the boot
+  query is the BUILT-IN default. `adopt` re-reads `/config` on the first load
+  that lands and re-applies the default — but only where the reader has not made
+  the query theirs, a `q` in the URL or anything typed since being their intent.
+  READING THE CONFIG FIRST IS NOT AVAILABLE: an org-glance store is not obliged
+  to sit at the served root (`configDirIn`'s own note), so which directories
+  hold it is a thing only the walk knows.
 - A BOOT IS AN APPLIED VIEW, so it takes row one through that same `land`. A
   mount has no cursor of its own — the renderer selects nothing until asked — so
   a page that landed nothing opened with `d`, `D` and `RET` answering `no row`.

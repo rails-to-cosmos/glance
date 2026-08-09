@@ -31,16 +31,16 @@ import Json.Encode as E
 -- MODEL
 
 
+type alias Badge =
+    { value : String, colour : String }
+
+
 type alias Column =
-    { key : String, header : String }
+    { key : String, header : String, kind : String, badges : List Badge }
 
 
 type alias Row =
     { id : String, cells : List ( String, String ), colour : Maybe String }
-
-
-type alias Flags =
-    { cols : List Column, hint : String }
 
 
 type alias Model =
@@ -167,6 +167,20 @@ stateJSON m =
 {-| A cell arrives as whatever the surface holds — the tags popup's count is a
 NUMBER — and is drawn as text either way.
 -}
+badgeD : D.Decoder Badge
+badgeD =
+    D.map2 Badge (D.field "value" D.string) (D.field "color" D.string)
+
+
+columnD : D.Decoder Column
+columnD =
+    D.map4 Column
+        (D.field "key" D.string)
+        (D.field "header" D.string)
+        (D.oneOf [ D.field "type" D.string, D.succeed "text" ])
+        (D.oneOf [ D.field "badges" (D.list badgeD), D.succeed [] ])
+
+
 cellD : D.Decoder String
 cellD =
     D.oneOf
@@ -252,6 +266,31 @@ cellOf r key =
         (List.head (List.filterMap (\( k, v ) -> if k == key then Just v else Nothing) r.cells))
 
 
+{-| A BADGE CELL IS A PILL, the renderer's own markup: the palette hue tints the
+ground and writes the label, so one hue carries it in either scheme. A value the
+palette does not name stays plain text.
+-}
+viewCell : Row -> Column -> Html Msg
+viewCell r c =
+    let
+        val =
+            cellOf r c.key
+
+        hue =
+            List.head (List.filter (\b -> b.value == val) c.badges)
+    in
+    case ( c.kind, hue ) of
+        ( "badge", Just b ) ->
+            td []
+                [ span
+                    [ class "tv-pill", attribute "style" ("--tv-badge:" ++ b.colour) ]
+                    [ text val ]
+                ]
+
+        _ ->
+            td [ style "color" (Maybe.withDefault "" r.colour) ] [ text val ]
+
+
 viewRow : Model -> Int -> Row -> Html Msg
 viewRow m i r =
     tr
@@ -259,19 +298,12 @@ viewRow m i r =
         , attribute "data-id" r.id
         , onClick (Clicked r.id)
         ]
-        (List.map
-            (\c ->
-                td
-                    [ style "color" (Maybe.withDefault "" r.colour) ]
-                    [ text (cellOf r c.key) ]
-            )
-            m.cols
-        )
+        (List.map (viewCell r) m.cols)
 
 
 head : Column -> Html Msg
 head c =
-    th []
+    th [ attribute "data-key" c.key ]
         [ span [ class "tv-hd" ]
             [ span [ class "tv-hn" ] [ text c.header ]
             , span [ class "tv-arrow" ] []
@@ -307,10 +339,27 @@ view m =
 -- MAIN
 
 
-main : Program Flags Model Msg
+{-| FLAGS ARE DECODED BY HAND rather than by field name: a column carries `type`
+and `badges` where a caller has them and neither where it does not, and the
+automatic decoding would refuse the shorter shape.
+-}
+flagsD : D.Decoder ( List Column, String )
+flagsD =
+    D.map2 Tuple.pair
+        (D.field "cols" (D.list columnD))
+        (D.field "hint" D.string)
+
+
+main : Program D.Value Model Msg
 main =
     Browser.element
-        { init = \f -> ( Model f.cols [] 0 [] f.hint, Cmd.none )
+        { init =
+            \raw ->
+                let
+                    ( cols, hint ) =
+                        Result.withDefault ( [], "" ) (D.decodeValue flagsD raw)
+                in
+                ( Model cols [] 0 [] hint, Cmd.none )
         , update = update
         , view = view
         , subscriptions =

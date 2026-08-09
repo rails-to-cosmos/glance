@@ -211,10 +211,15 @@
     // grows joins by being in the blob — nothing here names one.
     /** @type {Record<string, string>} */
     const saved = {};
-    (CFG.views || []).forEach((v) => { saved[v.id] = String(v.query || "").trim(); });
+    const seedViews = (views) =>
+      (views || []).forEach((v) => { saved[v.id] = String(v.query || "").trim(); });
+    seedViews(CFG.views);
     const savedQuery = (id) => saved[id] || "";
-    const DEFAULT_QUERY = savedQuery("default");
-    const bootQuery = () => (params().has("q") ? urlQuery() : DEFAULT_QUERY);
+    // NOT A CONSTANT: the page is served BEFORE the walk lands, so a boot that
+    // began while the store was loading carries the BUILT-IN default and the
+    // tree's own arrives later (`adopt').
+    let bootedOn = savedQuery("default");
+    const bootQuery = () => (params().has("q") ? urlQuery() : bootedOn);
     let crumbLabels = {};
     const crumbing = () => can(table, "pushCrumb") && can(table, "popCrumb")
       && can(table, "getCrumbs") && can(table, "setCrumbs");

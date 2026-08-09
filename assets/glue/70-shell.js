@@ -358,6 +358,7 @@
       load(asking(asked), etag).then((a) => {
         // A daemon restarted while this page was away sent no `view-changed'.
         if (a.view && !sameColumns(a.view.columns || [])) { remount(); return; }
+        if (blind) adopt();
         if (a.view && query === asked) { paint(a); settled(); }
         backoff = 1000;
         listen();
@@ -373,10 +374,35 @@
       setTimeout(resync, backoff);
       backoff = Math.min(backoff * 2, 30000);
     }
+    // A BOOT THAT BEGAN BLIND OWES ONE RE-READ.  `/' does not wait on the walk —
+    // the shell has to render while it runs — so a store still loading serves a
+    // page carrying no config, and the boot query is the BUILT-IN default rather
+    // than the tree's own.  Nothing re-read it, so the reader's saved view
+    // arrived only on a manual refresh, which a native window cannot do.
+    let blind = false;
     function indexing(b) {
+      blind = true;
       append("boot", "info", `indexing … ${b.elapsed}s · the table opens when the walk lands`);
       setTimeout(resync, 1000);
     }
+    /**
+     * The tree's saved views, once there is a store to read them from.  The
+     * default is RE-APPLIED only where the reader has not made the query theirs
+     * — a `q' in the URL is their intent, and so is anything typed since.
+     */
+    function adopt() {
+      blind = false;
+      getJSON("/config").then((cfg) => {
+        const was = savedQuery("default");
+        seedViews(cfg.views);
+        const now = savedQuery("default");
+        bootedOn = now;
+        if (now === was || params().has("q") || query !== was) return;
+        append("boot", "info", `the tree's default view: ${JSON.stringify(now)}`);
+        applyView(bootBinding, now);
+      }).catch(quiet);
+    }
+    const bootBinding = { seq: "", command: "apply-default-filter" };
     function start(after) {
       const asked = (query = bootQuery());
       if (!params().has("q")) remember(asked);
@@ -385,6 +411,7 @@
       const swap = !!table;
       const narrow = asking(asked) + (asked ? "&" : "?");
       viewing(load(swap ? asking(asked) : `${narrow}limit=${PAGE}`)).then((a) => {
+        if (blind) adopt();
         mount(a.view);
         if (after) after(a.total); else land(null);
         // AFTER THE ROWS ARE IN HAND, so a rowed surface has a row to land on.

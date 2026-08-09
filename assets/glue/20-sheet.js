@@ -60,7 +60,6 @@
       if (row && typeof row.scrollIntoView === "function")
         row.scrollIntoView({ block: "nearest" });
     }
-    const docLevel = () => (editing && editing.level) || 1;
     // OFFSETS ARE IN CHARACTERS (docs/invariants.md); JS counts UTF-16 units.
     const clen = (s) => Array.from(String(s)).length;
     // The three regions the lens lifts out sit ABOVE the paragraphs, so a body
@@ -72,8 +71,6 @@
     const spanOf = (r) => (r && r.span) || null;
     /** The stops as the model has them, and where point stands among them. */
     const docRowAt = () => drows[dat] || null;
-    const dcells = (r) => (r && (r.kind === "head" || r.kind === "child")
-                            ? shown(r).length : 0);
     // MOVEMENT IS TWO AXES (docs/design-rhymes.md): siblings, then the grain.
     const colStep = (k) => (k === "<right>" || k === "l" ? 1
                           : k === "<left>" || k === "h" ? -1 : 0);

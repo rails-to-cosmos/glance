@@ -12,12 +12,21 @@ section groups a feature arc, and its date is that arc's last commit.
 ## Unreleased
 
 ### Fixed
+- **A tree's saved default filter is applied even when the page opens during
+  indexing.** The shell renders while the walk runs, so a page served before it
+  landed carried the built-in `state:*active*` and nothing re-read it — the
+  reader's own view arrived only on a manual refresh, which a native window
+  cannot do.
+- **The link popup's `Type` values wear their badge colours again**, and its
+  `Headline` column is now `Title`.
 - **The materialize sheet's state badge wears the theme's colour again**, and
   the priority badge now wears its own — it never had one.
 - **Re-opening the sheet draws its document.** Closing it used to take the
   pane's contents away for the rest of the session.
 
 ### Changed
+- **`g` keeps point where the default view still holds the row**, dropping to
+  the first row only when it does not.
 - **In an open paragraph, `RET` commits and `S-RET` inserts a newline.** The
   region is a value being handed back rather than a buffer being typed into;
   `C-x C-s` still writes it.

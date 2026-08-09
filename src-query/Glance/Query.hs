@@ -807,7 +807,7 @@ linkTypeBadges =
 linkColumns :: [Value]
 linkColumns =
   [ column "type"  "Type"     "badge" ["badges" .= linkTypeBadges]
-  , column "title" "Headline" "text"  []
+  , column "title" "Title"    "text"  []
   , column "url"   "Target"   "text"  []
   ]
 

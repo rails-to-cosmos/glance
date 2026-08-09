@@ -4,25 +4,18 @@ module Scan exposing
     , Kind(..)
     , Row
     , blank
-    , blockName
-    , Block
     , blocksIn
     , bodyText
     , cellCount
     , cut
-    , isBlank
-    , isTable
     , kidsOf
     , kindWord
     , listOpener
     , listRun
-    , ownersOf
     , placeOf
-    , rides
-    , rowById
     , rowAt
+    , rowById
     , rowsFrom
-    , runsIn
     , shown
     )
 

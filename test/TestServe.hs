@@ -1426,12 +1426,12 @@ landingSpec shell = testGroup "Shell landing"
         assertEqual "the renderer's place, the anchor having been spent"
                     (Just "r6") =<< maybeTextAt "selected" answer
 
-    -- The carve reaches the WATCH's refetch and nothing else: an applied view
-    -- is a new question and still lands on row one, immediately after an anchor
-    -- landed somewhere else.
-  , keyed shell "an applied view still lands on row one after an anchor did not"
+    -- The carve reaches the WATCH's refetch and nothing else: `g' is a new
+    -- question answered by its own rule, immediately after an anchor landed
+    -- somewhere else.  Point is where `g' kept it, never where the anchor was.
+  , keyed shell "an applied view lands by its own rule after an anchor did not"
       "n d d" "unserved:r2 frame:upsert=r2 wait:300 press:g" $
-        assertEqual "g took the top of its answer" (Just "r1")
+        assertEqual "g kept the row it was on" (Just "r3")
           <=< maybeTextAt "selected"
 
     -- An anchor belongs to the VIEW it was taken in, and a mount thrown away
@@ -1442,8 +1442,8 @@ landingSpec shell = testGroup "Shell landing"
     -- had just landed it on.
   , keyedAt shell "?q=" 500 "a remount drops an anchor the archive never spent"
       "n d d" "press:g frame:delete=r2 wait:300" $
-        assertEqual "where g landed it, not where the old view's anchor pointed"
-                    (Just "r1") <=< maybeTextAt "selected"
+        assertEqual "where g landed it, never where the old view's anchor pointed"
+                    (Just "r3") <=< maybeTextAt "selected"
 
     -- `visible()` is ONE PAGE, so "the row point was on has left the view" is
     -- only answerable about the page the anchor was taken on.  A reader who
@@ -2299,7 +2299,7 @@ openKeySpec shell =
         assertEqual "titled by the count" "open · 3 links" =<< textAt "lhead" answer
         assertEqual "one list, built on the first raise" 1
           =<< intAt "lmounts" answer
-        assertEqual "under the headers the shell declared" ["Type", "Headline", "Target"]
+        assertEqual "under the headers the shell declared" ["Type", "Title", "Target"]
           =<< textsAt "lcols" answer
 
     -- The rows carry the server's own three answers, in the order the subtree
@@ -2813,11 +2813,13 @@ drillSpec shell = testGroup "Shell drill"
         assertBool ("the pair is carried: " <> T.unpack url)
                    ("sels" `T.isInfixOf` url)
 
-    -- Every application that is NOT a pop lands on the first row of the answer:
-    -- `g' here, and a commit below, which repaints rather than remounting and
-    -- would otherwise leave the cursor on a row the answer may not hold.
-  , keyed shell "g lands on the first row rather than where the reader was" "n n g" "" $
-        rowIs "row one" "r1"
+    -- `g' IS SAVE-EXCURSION: going home is a view change rather than a place
+    -- change, so point stays on the row it was on wherever the answer still
+    -- holds it.  `land' is the whole rule and its fallbacks are the other two
+    -- halves — row one where the row has gone, nothing at all where the answer
+    -- is empty.
+  , keyed shell "g keeps point where its answer still holds the row" "n n g" "" $
+        rowIs "the row the reader was on" "r3"
 
     -- A commit REPAINTS rather than remounting, so without the rule the cursor
     -- would sit wherever it was over a set that may not hold that row at all.
@@ -6052,9 +6054,9 @@ shellGlue =
   -- any other: in the URL, mounted as a chip, asked of the server — so DEL
   -- takes it off and the whole store is one keystroke away.
   , glue "a bare boot opens on the active view"
-      [ "const DEFAULT_QUERY = savedQuery(\"default\");"
+      [ "let bootedOn = savedQuery(\"default\");"
       -- A `q' in the address bar is the reader's own, empty or not.
-      , "const bootQuery = () => (params().has(\"q\") ? urlQuery() : DEFAULT_QUERY);"
+      , "const bootQuery = () => (params().has(\"q\") ? urlQuery() : bootedOn);"
       , "const asked = (query = bootQuery());"
       -- Injected, then committed: what the page shows and what the address bar
       -- says are the same query from the first paint on.
@@ -6791,9 +6793,9 @@ shellGlue =
   -- a page reload.
   , Glue "the default view is the tree's, and `g' applies it"
       [ "const savedQuery = (id) => saved[id] || \"\";"
-      , "const DEFAULT_QUERY = savedQuery(\"default\");"
-      , "const bootQuery = () => (params().has(\"q\") ? urlQuery() : DEFAULT_QUERY);"
-      , "applyView(b, savedQuery(\"default\"));"
+      , "let bootedOn = savedQuery(\"default\");"
+      , "const bootQuery = () => (params().has(\"q\") ? urlQuery() : bootedOn);"
+      , "applyView(b, savedQuery(\"default\"), undefined, here);"
       -- `g' is HOME, so it is not a step on the trail: the crumbs and the
       -- labels naming them go with it, where DEL walks back one rung at a time.
       , "if (crumbing()) table.setCrumbs([]);"
@@ -6807,7 +6809,7 @@ shellGlue =
   -- thing: it carries its own ORDER, which is a token of the query like any
   -- other rather than a call behind the answer.
   , Glue "`a' is the agenda query through the same door, its own sort included"
-      [ "(CFG.views || []).forEach((v) => { saved[v.id] = String(v.query || \"\").trim(); });"
+      [ "    seedViews(CFG.views);"
       , "applyAgenda: (b) => applyView(b, savedQuery(\"agenda\"), (total) => landedAgenda(b, total)),"
       , "said(b, `agenda · ${rowsWord(total)}`);"
       -- The landing is an ARGUMENT of the boot it belongs to, so a boot that
