@@ -334,8 +334,11 @@ the handle and arrive as `var`.
 The Elm question is better posed than it was. `20-sheet.js` is now ONE
 component — both panes, the ladder and the opening, owning `editing`, `raw`,
 `base`, `baseProps` — where before it was a model in the floor that four files
-poked. That is a coherent thing to port, and it has ZERO synchronous renderer
-calls, which is the property that decides whether ports can carry it.
+poked. That is a coherent thing to port. CORRECTION: the "zero synchronous renderer
+calls" figure written here was measured on `10-document.js` ALONE, before the
+merge; the merged file makes 27, of which 20 belong to table machinery that
+rode in with the panel and 7 to the property panel's own mount. See
+`docs/proposal-elm-sheet.md`, which plans around the real number.
 
 What still stands between it and a port is its size (1225 lines) and its reach
 (seven forward dependencies plus a wide floor). A port would have to take the
