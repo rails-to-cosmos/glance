@@ -895,6 +895,40 @@ measurements and the history of superseded designs live in
   top-level line naming another part's `function` is fine and naming its
   destructured `const` is a TDZ error, so `20-panel`'s backdrop closers are
   called at click time rather than named at registration time.
+- THE PROPERTY PANEL IS AN ELM PROGRAM, `assets/elm/src/Panel.elm` — the one
+  thing on the page that is not vanilla JS. It owns the ROWS, the CURSOR and the
+  DELETE FLAGS and it draws them, where the renderer's list widget used to be
+  mounted. What it draws is the RENDERER'S OWN MARKUP, class for class
+  (`.tv-root.tv-pal` > `.tv-scroll` > `table.tv-table` > `tbody` > `tr.tv-alt` /
+  `.tv-sel` / `.tv-flagged` > `td`), because the served stylesheet is written
+  against it — `#mprops:not(.on) .tv-table tbody tr.tv-sel` and the rest — so the
+  theme and the palette keep working untouched.
+- AND THE SHELL MIRRORS WHAT IT PUSHES BACK. A port round trip costs a full
+  MACROTASK (measured: a shadow is null after `send`, still null after a
+  microtask, filled after `setTimeout(…, 0)`), and every reader here is
+  synchronous — `props()`, `planning()`, `patAt()`, `flagKey`'s `getFlagged()`.
+  They are correct because each runs at the TOP of a key handler, a turn after
+  whatever moved the model last. TWO reads were in the same turn as their write
+  and both moved: `+` now opens its overlay off the `panelOpen` port rather than
+  reading the cursor back, and `drawProps` SEEDS the mirror with the rows it is
+  sending, which is the one value this side already knows. The delete's echo
+  rides `panelTook` for the same reason — Elm says which planning rows it
+  CLEARED rather than the rule being spelled twice.
+- `pmount` IS AN ADAPTER, the shape `flagKey` and the movement keys ask for,
+  reading the mirror and writing ports. `dmount` one pane over is the same idea
+  over a `Set`, and it is the precedent: `flagKey`'s surfaces were never
+  renderer-only.
+- `assets/panel.js` is a COMMITTED BUILD INPUT like `assets/table-view.js`,
+  embedded by `Routes`' `embeddedPanel` splice and named as the page's THIRD
+  `<script src>`. `make elm` refreshes it, and reproduces the committed bytes.
+  The toolchain is ephemeral `npx --yes elm` — the Makefile's own
+  `npx --yes -p typescript tsc` shape, so no `package.json`, no `node_modules`
+  and no lockfile. `elm.json` must say `0.19.2`; `0.19.1` is a hard refusal.
+  The runtime costs ~126 KB against a 387 KB payload.
+- THE HARNESS READS THE PANEL OFF WHAT IT DREW, since there is no mount to ask —
+  the same turn the document pane took. What survives as a counter is the pair of
+  questions the mount counters answered: `pinits` (built once) and `pfills` (one
+  hand-over per drawer), taken by wrapping `Elm.Panel.init` and `panelIn.send`.
 - THE MATERIALIZE SHEET IS ONE FILE, `20-sheet.js`: both panes, the ladder, and
   the opening (`materialize`/`show`/`fill`/`dirty`) that used to sit in the
   floor. It owns `editing`, `raw`, `base` and `baseProps`. The step-B seam had

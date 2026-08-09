@@ -18,6 +18,8 @@ extra-source-files:
     -- And the shell, one widget per file, concatenated by the TH splice in the
     -- order `Glance.Web.Base.gluePartFiles' declares.
     assets/glue/*.js
+    -- The property panel, compiled from `assets/elm' by `make elm'.
+    assets/panel.js
     test/fixtures/*.js
     test/fixtures/*.json
     test/fixtures/assets/*.js

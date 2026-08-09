@@ -30,3 +30,6 @@ devenv.local.nix
 # haskell-gi writes the bindings it generates into the package it generates
 # them for, so the vendored sources grow a GI/ tree at configure time.
 /vendored/*/GI/
+
+# elm's own build cache, written beside the source it compiles.
+/assets/elm/elm-stuff/

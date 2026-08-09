@@ -649,7 +649,7 @@ globalThis.WebSocket = function () {
 // lets an act move the store and the table follow.  The two popups' are the
 // shell's own models and arrive through `setRows', so those instances keep what
 // they are handed.
-let mounts = 0, sets = 0, raises = 0, pmounts = 0, psets = 0, lmounts = 0;
+let mounts = 0, sets = 0, raises = 0, lmounts = 0;
 let tmounts = 0, tsets = 0;
 // Every row count the shell has ever handed the TABLE, in order: one entry per
 // mount and one per `setRows'.  A view swapping on its answer is one entry and
@@ -688,7 +688,7 @@ const withSort = (q, chain) => tokensOf(q)
  * The table starts as a standing empty one so a boot that never got to mount —
  * the indexing poll, an offline daemon — still answers about a table rather
  * than throwing. */
-let main = null, pan = null, lnk = null, tgs = null;
+let main = null, lnk = null, tgs = null;
 /** COL as a real column index, or null for the whole-row look — which is what a
  * column outside the table IS.  The real one's `cellCol', mirrored here because
  * the shell's cell movement hands the index one past an end straight back. */
@@ -831,7 +831,7 @@ const makeMount = (host, view, options, own) => {
     setRows: (list) => {
       if (m.own) {
         m.own = (list || []).slice();
-        if (m === tgs) tsets += 1; else if (m === pan) psets += 1;
+        if (m === tgs) tsets += 1;
       } else { sets += 1; paints.push((list || []).length); }
       keep();
     },
@@ -984,12 +984,11 @@ globalThis.TableView = {
   // call order, since a remount builds a second table long after any of the
   // others went up.
   mount: (host, view, options) => {
-    const panel = host === field("mptable"), popup = host === field("ltable");
+    const popup = host === field("ltable");
     const tagbox = host === field("ttable"), states = host === field("cstates");
     const inst = makeMount(host, view, options,
-                           panel || popup || tagbox || states ? [] : null);
-    if (panel) { pmounts += 1; pan = inst; }
-    else if (popup) { lmounts += 1; lnk = inst; }
+                           popup || tagbox || states ? [] : null);
+    if (popup) { lmounts += 1; lnk = inst; }
     else if (tagbox) { tmounts += 1; tgs = inst; }
     else if (states) { smounts += 1; sts = inst; }
     else {
@@ -1036,7 +1035,7 @@ const strip = (h, names) => { for (const name of names) delete h[name]; };
 let sts = null, smounts = 0;
 /** An older asset is one asset: every mount loses the calls it never had. */
 const stripLive = (names) => {
-  for (const inst of [main, pan, lnk, tgs, sts]) if (inst) strip(inst.handle, names);
+  for (const inst of [main, lnk, tgs, sts]) if (inst) strip(inst.handle, names);
 };
 // The one thing a key here does that leaves nothing on the page: the tab `o'
 // opens.  Recorded whole — the target, the tab name and the features — since
@@ -1126,6 +1125,9 @@ const makeText = (data) => {
   for (const name of ["textContent", "nodeValue"])
     Object.defineProperty(t, name,
       { get: () => t.data, set: (v) => { t.data = String(v); } });
+  // A virtual DOM rewrites a text node as `replaceData(0, node.length, text)',
+  // so the count it passes is this.
+  Object.defineProperty(t, "length", { get: () => t.data.length });
   Object.defineProperty(t, "up", { get: () => t.parentNode });
   return t;
 };
@@ -1367,6 +1369,24 @@ globalThis.requestAnimationFrame = (fn) => setTimeout(() => fn(0), 0);
 globalThis.window = globalThis;
 globalThis.addEventListener = () => {};
 
+/**
+ * THE PROPERTY PANEL IS AN ELM PROGRAM, loaded ahead of the shell the way the
+ * page loads it.  Indirect eval, since its output publishes onto `this'.
+ *
+ * `init' and the messages the shell sends it are counted here, because the two
+ * questions the mount counters used to answer — was it built once, and did
+ * every drawer arrive as one hand-over — are still worth asking of a program.
+ */
+(0, eval)(fs.readFileSync(dir + "/panel.js", "utf8"));
+let pinits = 0, pfills = 0;
+const elmInit = globalThis.Elm.Panel.init;
+globalThis.Elm.Panel.init = (opts) => {
+  pinits += 1;
+  const app = elmInit(opts);
+  const send = app.ports.panelIn.send;
+  app.ports.panelIn.send = (m) => { if (m && m.kind === "fill") pfills += 1; return send(m); };
+  return app;
+};
 eval(fs.readFileSync(dir + "/shell.js", "utf8"));
 
 // A `C-' prefix is the chord the page's own `keyName' spells that way, so a
@@ -1574,9 +1594,17 @@ const docCell = () => {
 const docFlagged = () => flatRows()
   .map((row, i) => (wears(row, "dfl") ? i : -1))
   .filter((i) => i !== -1);
-/** The property panel: a [key, value] pair per row, and where its cursor is. */
-const panel = () => cellsOf(pan, ["key", "value"]);
-const patAt = () => curOf(pan);
+/**
+ * THE PROPERTY PANEL, READ OFF WHAT IT DREW.  It is an Elm program rather than
+ * a mount, so there is no model here to ask: `#mptable' holds the renderer's own
+ * markup, class for class, and what a reader has in front of them is exactly
+ * that.  The same turn the document pane took when it stopped being a mount.
+ */
+const prowEls = () => field("mptable").querySelectorAll("tbody tr");
+const panel = () => prowEls().map((tr) => tr.children.map((td) => td.textContent));
+const patAt = () => prowEls().findIndex((tr) => wears(tr, "tv-sel"));
+const pflaggedIds = () => prowEls().filter((tr) => wears(tr, "tv-flagged"))
+  .map((tr) => tr.getAttribute("data-id"));
 /**
  * Which field has the focus, named the way an act names one: `mtext' for raw
  * mode's textarea, and the document's or a popup's overlay fields by their own
@@ -1787,10 +1815,18 @@ const ACTIONS = {
   // tells this page nothing, so what this measures is whether a commit still
   // writes the row the overlay OPENED over.
   click: (at) => {
-    const m = field("modal").className === "on" ? pan
-      : field("links").className === "on" ? lnk : tgs;
-    if (!m) throw new Error(`no modal mount to click in: click:${at}`);
     const i = Number(at);
+    // The panel draws its own rows, so the click goes to the ROW, which is the
+    // path a reader's does; the two popups are still mounts and answer to one.
+    if (field("modal").className === "on") {
+      const rows = prowEls();
+      if (!(i >= 0 && i < rows.length))
+        throw new Error(`no row ${at} to click in the panel`);
+      rows[i].fire("click", { target: rows[i] });
+      return;
+    }
+    const m = field("links").className === "on" ? lnk : tgs;
+    if (!m) throw new Error(`no modal mount to click in: click:${at}`);
     if (!(i >= 0 && i < m.own.length))
       throw new Error(`no row ${at} to click in the mount`);
     m.sit(i);
@@ -2185,7 +2221,12 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     // is, whether it is the thing holding the keys, and which of its rows carry
     // a delete flag — plus the mount options the gesture reads.
     props: panel(), pat: patAt(), pnav: field("mprops").className === "on",
-    pmounts, psets, ...mountFields("p", pan),
+    pinits, pfills, pflagged: pflaggedIds(),
+    // The two column headers it draws, and the line naming the flag keys.
+    pcols: field("mptable").querySelectorAll("thead .tv-hn").map((h) => h.textContent),
+    // Empty until a sheet opens: the program is built on the first materialize.
+    pflagHelp: (field("mptable").querySelector(".tv-hint") || { textContent: "" })
+      .textContent,
     focus: focused(),
     // Every POST the syncs sent, and which SUBTREE each was aimed at — the row,
     // or an entry inside it — beside every subtree a GET asked for.

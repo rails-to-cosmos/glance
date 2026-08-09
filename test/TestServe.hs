@@ -4337,31 +4337,26 @@ sheetSpec shell =
           assertEqual "the cursor is back on the first row" 0 =<< intAt "pat" answer
           assertEqual "and the keys back in the body" False =<< boolAt "pnav" answer
 
-    -- THE PANEL IS A MOUNT, and this is what that buys: the rows the reader
-    -- moves over are the renderer's rows, the cursor is the renderer's
-    -- selection, and this page keeps no copy of either.  The
-    -- flag ground is its own opt-in now (flags: true, no mark column drawn),
-    -- and the hint line is off, since the key line under the table names every
-    -- key once.
-  , atBoot sheet "the panel is a table-view mount of its own" $ \answer -> do
-        assertEqual "one panel mount" 1 =<< intAt "pmounts" answer
-        assertEqual "asked for flags alone — the gutter without the checkbox"
-                    True =<< boolAt "pflags" answer
-        assertEqual "and never for marks (nothing here reads one)"
-                    False =<< boolAt "pmarks" answer
-        assertEqual "and not for the renderer's own legend" False
-                    =<< boolAt "phints" answer
-        assertEqual "naming the two keys a flagged row answers to"
-                    "d/D delete · u unflag" =<< textAt "pflagHelp" answer
-        -- No page size: a drawer is short and every row of it is on screen, so
-        -- there is no page for a cursor to fall off the end of.
-        assertEqual "and for the whole list at once" 0 =<< intAt "ppage" answer
+    -- THE PANEL IS AN ELM PROGRAM, and this is what it draws: the renderer's own
+    -- markup, class for class, since the served stylesheet is written against it
+    -- (`#mprops:not(.on) .tv-table tbody tr.tv-sel' and the rest).  Read off the
+    -- DOM rather than out of a mount's bookkeeping — there is no mount to ask.
+  , atBoot sheet "the panel is an Elm program drawing the renderer's markup" $
+        \answer -> do
+          assertEqual "one panel program" 1 =<< intAt "pinits" answer
+          assertEqual "headed the two columns a drawer has"
+                      ["Key", "Value"] =<< textsAt "pcols" answer
+          assertEqual "naming the two keys a flagged row answers to"
+                      "d/D delete · u unflag" =<< textAt "pflagHelp" answer
+          -- No marks and no page size: nothing here reads a mark, and a drawer
+          -- is short enough that every row of it is on screen.
+          assertEqual "and nothing is flagged before a key says so" []
+            =<< textsAt "pflagged" answer
 
     -- The table is rebuilt by a remount and the panel is not: it is a sibling of
     -- `#app' like the sheet around it, so what a reopened sheet costs is one
-    -- `setRows' rather than a second mount with a second theme listener behind
-    -- it.
-  , testCase "the panel is mounted once and re-set per sheet" $
+    -- `fill' rather than a second program with a second subscription behind it.
+  , testCase "the panel is built once and filled per sheet" $
       -- ESC closes the sheet and leaves the body pane focused, which is a focus
       -- of its own as far as the map is concerned; the click that takes it off
       -- is what puts the table's own keys back.
@@ -4370,11 +4365,11 @@ sheetSpec shell =
                 <> " close:view-changed") $
         \answer -> do
           assertEqual "the table was rebuilt" 2 =<< intAt "mounts" answer
-          assertEqual "the panel never was" 1 =<< intAt "pmounts" answer
-          -- Three sheets opened, three drawers handed over: the mount is a view
-          -- of the model and a new model is one `setRows'.
-          assertEqual "and every drawer arrived through setRows" 3
-            =<< intAt "psets" answer
+          assertEqual "the panel never was" 1 =<< intAt "pinits" answer
+          -- Three sheets opened, three drawers handed over: the view is a
+          -- function of the model and a new model is one `fill'.
+          assertEqual "and every drawer arrived as one fill" 3
+            =<< intAt "pfills" answer
 
     -- Deletion is the TABLE's gesture over the panel's rows, and the same
     -- renderer state answers it: `d' lays a flag down and the row wears the
@@ -5438,6 +5433,7 @@ bootedPage shell store search total keys acts = do
     Just exe -> withTempDir $ \dir -> do
       page <- shell
       glueOf page >>= TIO.writeFile (dir </> "shell.js")
+      panelOf page >>= TIO.writeFile (dir </> "panel.js")
       keysOf page >>= TIO.writeFile (dir </> "keys.json")
       cfgOf page >>= TIO.writeFile (dir </> "cfg.json")
       (code, out, err) <- readProcessWithExitCode exe
@@ -6482,13 +6478,14 @@ shellGlue =
       , "kind: \"para\","
       , "drows.push({ id: `C${c.index}`, kind: \"child\", index: c.index,"
       , "function drawDoc() {"
-      -- THE PANEL IS ONE, and for the same reason read the other way: a drawer
-      -- is a list of records.  The model is this page's and the mount is a view
-      -- of it, every change going back through `setRows'.
-      , "pmount = mountOnce(\"mptable\", PCOLS, {"
-      , "        flagHelp: \"d/D delete · u unflag\","
-      , "      m.setRows(prowsOf());"
-      , "prows.map((r) => ({ id: r.id, cells: { key: r.key, value: r.val } }));"
+      -- AND THE PANEL IS AN ELM PROGRAM, which owns the rows, the cursor and the
+      -- flags and draws them.  This side keeps a MIRROR of what it pushes back,
+      -- since a port round trip costs a macrotask and every reader here is
+      -- synchronous.
+      , "pport = Elm.Panel.init({ node: part(el(\"mptable\"), \"div\", \"\"),"
+      , "                               flags: \"d/D delete · u unflag\" }).ports;"
+      , "        prows = now.rows; pat = now.at; pflags = now.flags;"
+      , "const psend = (m) => mounted().panelIn.send(m);"
       , "function addProperty() {"
       , "else if (k === \"+\") addProperty();"
       -- Trimmed both sides, since the server hands them over trimmed: what the
@@ -6870,7 +6867,7 @@ shellGlue =
   , Glue "the page reads a cursor, a hop and a verb in one place each"
       [ "const selectedId = (mount) =>"
       , "(can(mount, \"getSelection\") ? (mount.getSelection() || {}).id : null) || null;"
-      , "const patAt = () => prows.findIndex((r) => r.id === selectedId(pmount));"
+      , "const patAt = () => pat;"
       , "const at = selectedId(lmount);"
       , "const at = selectedId(tmount);"
       , "function hop() {"
@@ -11039,6 +11036,14 @@ glueOf :: T.Text -> IO T.Text
 glueOf shell = do
   assertBool "the page names glue.js" ("src=\"glue.js\"" `T.isInfixOf` shell)
   stripGlueComments <$> glueSource
+
+-- | The Elm property panel as the build embeds it, asserted to be the script
+-- the page names.  Read off disk rather than out of the served page: it is a
+-- committed build input like the renderer, and @make elm@ is what refreshes it.
+panelOf :: T.Text -> IO T.Text
+panelOf shell = do
+  assertBool "the page names panel.js" ("src=\"panel.js\"" `T.isInfixOf` shell)
+  TIO.readFile "assets/panel.js"
 
 -- | The shell as the build reads it: the parts, in `gluePartFiles`' order.
 glueSource :: IO T.Text

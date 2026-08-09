@@ -8,7 +8,7 @@ import qualified Data.Text as T
 
 import Glance.Query (defaultCaptureFile)
 import Glance.Web.Base ( ServeOptions (..), escape, glueAsset, logLinesBand, logLinesDefault
-                       , rendererAsset, viewTitleFor )
+                       , panelAsset, rendererAsset, viewTitleFor )
 import Glance.Web.Keymap (keyBindingsJSON)
 import Glance.Web.Theme (Theme (..), themes)
 import Glance.Web.Page.Glue (glueConfig)
@@ -125,6 +125,7 @@ demoShell opts font colours views =
   , "  <script id=\"keys\" type=\"application/json\">" <> keyBindingsJSON <> "</script>"
   , "  <script id=\"cfg\" type=\"application/json\">" <> glueConfig views <> "</script>"
   , "  <script src=\"" <> T.pack rendererAsset <> "\"></script>"
+  , "  <script src=\"" <> T.pack panelAsset <> "\"></script>"
   , "  <script src=\"" <> T.pack glueAsset <> "\"></script>"
   ]
 

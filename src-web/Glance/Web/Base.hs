@@ -15,6 +15,7 @@ module Glance.Web.Base ( ServeOptions (..)
                        , logLinesMax
                        , logLinesBand
                        , glueAsset
+                       , panelAsset
                        , gluePartFiles
                        , rendererAsset
                        , viewTitleFor
@@ -104,6 +105,11 @@ rendererAsset = "table-view.js"
 -- or neither, the directory being the whole asset set.
 glueAsset :: FilePath
 glueAsset = "glue.js"
+
+-- | The property panel, compiled from Elm and embedded like the other two.  The
+-- page names a THIRD @\<script src\>@; @--assets@ replaces the whole set.
+panelAsset :: FilePath
+panelAsset = "panel.js"
 
 -- | THE SHELL, ONE WIDGET PER FILE, in the order they are concatenated into
 -- the one asset above.  A part is a FRAGMENT rather than a module: the script
