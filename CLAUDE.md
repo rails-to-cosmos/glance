@@ -932,6 +932,23 @@ measurements and the history of superseded designs live in
   the same turn the document pane took. What survives as a counter is the pair of
   questions the mount counters answered: `pinits` (built once) and `pfills` (one
   hand-over per drawer), taken by wrapping `Elm.Panel.init` and `panelIn.send`.
+- THE PANE'S PURE HALF IS `Scan.elm`, and it is split out so it can be ASKED:
+  the structure scanner, the parse into rows, the splice, and the readings a
+  cursor moves by, over plain `List String` and `List Row` rather than the
+  Model — extensible records (`{ a | rows : … }`) keep every call site as it
+  was. `Doc.elm` keeps the Model, the ports, the movement and the view.
+- `make elm-test` RUNS THAT HALF'S OWN TESTS (35 cases,
+  `assets/elm/tests/ScanTest.elm`) and is OUT of `cabal test` on purpose:
+  elm-test fetches `elm-explorations/test` at run time and the Haskell suite
+  stays offline. The Haskell suite is still the contract; these ask the rules
+  that would otherwise cost a booted page each — org's one-blank-line rule, a
+  block closing by NAME, an indented `*` against a column-1 one, the ladder's
+  immediate owner, and the splice.
+- KNOWN ABOUT "ONE GRAIN SPEAKS FOR A RANGE": bottom-up ordering keeps most
+  composite-and-leaf cases right on its own, because the composite's range
+  covers the leaf's and lands LAST. What it cannot survive is a leaf splice that
+  CHANGES THE LINE COUNT under it, which is the case the rule exists for and the
+  only one that fails when the silencing is removed.
 - AND THE DOCUMENT PANE IS AN ELM PROGRAM TOO, `assets/elm/src/Doc.elm`. It owns
   the STRUCTURE SCANNER (list runs, `#+begin_X` blocks by name, tables, the
   paragraph cut at `ownLines`), the parse into rows, the SPLICE that composes a

@@ -1,4 +1,4 @@
-.PHONY: test native elm sync-renderer run run-native run-wasm wasm-spike check-glue
+.PHONY: test native elm elm-test sync-renderer run run-native run-wasm wasm-spike check-glue
 
 # The run targets' knobs: .env carries them (committed, edit to taste), and
 # the ?= pair means a missing .env still runs against the defaults.
@@ -28,6 +28,15 @@ elm:
 	@if command -v npx >/dev/null 2>&1; then \
 	  cd assets/elm && npx --yes elm make src/Panel.elm src/Doc.elm --optimize --output=../elm.js; \
 	else echo "elm: no npx on PATH -- assets/elm.js left as committed"; fi
+
+# THE SCANNER'S OWN TESTS, and they are OUT of `cabal test' on purpose: elm-test
+# fetches `elm-explorations/test' at run time, and the Haskell suite must stay
+# offline.  That suite is still the contract -- this one asks the pure half of
+# the document pane the questions that would otherwise cost a booted page each.
+elm-test:
+	@if command -v npx >/dev/null 2>&1; then \
+	  cd assets/elm && npx --yes -p elm -p elm-test elm-test; \
+	else echo "elm-test: no npx on PATH -- skipped"; fi
 
 sync-renderer:
 	@if [ ! -f "$(RENDERER)" ]; then \
