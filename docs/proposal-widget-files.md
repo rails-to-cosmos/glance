@@ -260,3 +260,32 @@ The smaller residue is genuinely upward and stays: `20-panel` and
 `50-settings` need `momentary`/`typing` from the shell, which is the
 composition root answering about surfaces. A root is allowed to be needed;
 that is what makes it the root.
+
+### Where the graph stands after the merge
+
+`sameColumns` moved down too — it compares against `cols`, which is the
+floor's. Two of the core's three remaining names turned out to be a
+MEASUREMENT ARTEFACT rather than a dependency: `asked` and `landing` are
+PARAMETER names in `00-core` (`const post = (id, digest, asked, …)`,
+`const fetchRows = (landing) =>`), and the scan was not reading parameter
+lists as bindings. Fixed, the graph is:
+
+| part | lines | late `const`/`let` |
+| --- | --- | --- |
+| `00-core.js` | 308 | **0** |
+| `05-keys.js` | 63 | **0** |
+| `30-capture.js` | 353 | **0** |
+| `40-popups.js` | 253 | **0** |
+| `70-shell.js` | 406 | **0** |
+| `50-settings.js` | 643 | 2 — `momentary`, `typing` |
+| `20-sheet.js` | 1236 | 7 — `config`, `configSheet`, `docTargets`, `landing`, `momentary`, `prompting`, `settings` |
+
+FIVE OF SEVEN ARE WRAPPABLE by the eager-evaluation rule, where two were
+before the merge. What is left in the other two points forward — at the
+settings sheet, the capture form, the popups and the shell — which is the
+composition-root direction rather than a cycle.
+
+A lesson worth keeping with the numbers: a measurement that has not been
+checked against a false positive is a claim. The first count of this graph
+read 45 dependencies for the document pane where the honest figure was
+lower, because locals and parameters were being counted as reaches.

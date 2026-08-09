@@ -368,8 +368,6 @@
         quiet(e); again();
       });
     }
-    // Whole-compare: the state column's badge palette rides inside the columns.
-    const sameColumns = (next) => JSON.stringify(next) === JSON.stringify(cols);
     function again() {
       append("ws", "warn", `disconnected · retrying in ${Math.round(backoff / 1000)}s`);
       setTimeout(resync, backoff);

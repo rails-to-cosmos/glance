@@ -79,6 +79,8 @@
       (((cols.find((c) => c.key === "state") || {}).badges || [])
         .find((b) => b.value === keyword) || {}).color || "";
     const rowOf = (id) => visible().concat(all).find((r) => r.id === id) || {};
+    // Whole-compare: the state column's badge palette rides inside the columns.
+    const sameColumns = (next) => JSON.stringify(next) === JSON.stringify(cols);
     const WASH = { view: 300, socket: 400 };
     const wash = {
       n: { view: 0, socket: 0 }, at: { view: 0, socket: 0 },
