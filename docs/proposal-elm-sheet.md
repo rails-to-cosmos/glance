@@ -9,20 +9,21 @@ made the sheet one component
 
 Earlier notes in that proposal said the sheet has ZERO synchronous renderer
 calls. That was measured on `10-document.js` ALONE, before the merge, and
-repeated about the merged file. **`20-sheet.js` makes 27 synchronous calls into
+repeated about the merged file. **`20-sheet.js` made 28 synchronous accesses into
 table-view handles**, and that is the exact property deciding whether Elm's
 ports can carry it. Split by whose handle:
 
-| handle | calls | what it is |
+| handle | accesses | what it is |
 | --- | --- | --- |
-| `table.*` | 20 | the MAIN table — `select`, `getSelection`, `getMarked`, `getFlagged`, `markedCount`, `toggleMark`, `selectStep`, `nextPage`, `pageInfo` |
-| `pmount`/`m` | 7 | the PROPERTY PANEL's own mount — `setRows`, `select`, `flagRow`, `unflagRow`, `getFlagged`, `clearFlags` |
+| `table.*` | 20 | the MAIN table — `select`, `getSelection`, `getMarked`, `getFlagged`, `markedCount`, `toggleMark`, `selectStep`, `nextPage`/`previousPage`, `pageInfo` |
+| `m.*` in `flagKey` | 4 | POLYMORPHIC — whichever mount the surface's shape names |
+| `pmount` | 4 | the PROPERTY PANEL's own mount — `el`, `setRows`, `select`, `clearFlags` |
 
-The two are different problems and the plan treats them separately.
+The three are different problems and the plan treats them separately.
 
 ## What the port would take
 
-`assets/glue/20-sheet.js`, 1225 lines. It owns `editing`, `raw`, `base`,
+`assets/glue/20-sheet.js`, 1111 lines after step 1. It owns `editing`, `raw`, `base`,
 `baseProps` and the document model (`drows`, `dat`, `dcol`, `dgrain`,
 `dparent`, `dlines`, `dcursor`, `dflags`, `dlinks`). Thirteen DOM ids:
 `modal`, `sheet`, `mdoc`, `dlist`, `mprops`, `mtext`, `dtext`, `dtin`, `pkey`,
@@ -43,18 +44,24 @@ Twelve table-level definitions arrived with the panel and stayed:
 TABLE's marks, flags, movement and paging, sharing a file with the sheet
 because step B cut by line count.
 
-**Move them out first**, into `00-core` beside the other floor helpers. This is
-the same relocation the eleven earlier ones took, it is verifiable the same way
-(pure move, no test changes), and it drops the sheet's synchronous renderer
-calls from 27 to 7 — all of them its own panel's.
+**Move them out first**, into `00-core` beside the other floor helpers, and
+`flagKey` with them — the gesture is generic over a surface's shape and belongs
+on the floor beside `flagsOn`.
 
-This step is worth doing whether or not Elm ever happens.
+**DONE.** 114 lines moved, the line multiset proving a pure move, suite green
+at 1735. The sheet's `table.*` accesses went 20 → 1 and its polymorphic 4 went
+with `flagKey`, leaving **five**: `unmark`'s single `table.toggleMark`, which
+sits with `fire` because `fire` re-pins `editing.digest`, and the panel's own
+four.
+
+This step was worth doing whether or not Elm ever happens.
 
 ### 2. The property panel is a table-view mount, and Elm cannot read one
 
-After step 1 the sheet still drives `pmount`: `setRows`, `select`, `flagRow`,
-`unflagRow`, `getFlagged`, `clearFlags`. The writes are fire-and-forget and a
-port carries them fine. **`getFlagged` is a READ**, and Elm's ports are
+After step 1 the sheet still drives `pmount`: `el`, `setRows`, `select`,
+`clearFlags`, and reaches its flags through `flagKey`'s `getFlagged`. The
+writes are fire-and-forget and a port carries them fine. **`getFlagged` and
+`el` are READS**, and Elm's ports are
 asynchronous one-way — a `subscribe` cannot answer a question inside the update
 that asked it.
 
@@ -137,11 +144,11 @@ before starting.
 ## Staging
 
 1. **Move the table machinery out** (§1). Pure relocation, suite green, no
-   Elm. Sheet's renderer calls 27 → 7.
+   Elm. **Done** — sheet's renderer accesses 28 → 5, its file 1225 → 1111.
 2. **Elm draws the property panel** — inside the existing JS sheet, as a first
    Elm program with a narrow surface, replacing `pmount`. Proves the toolchain,
    the committed-output pattern, and the port shapes on ~150 lines rather than
-   1225. Sheet's renderer calls 7 → 0.
+   1111. Sheet's renderer accesses 5 → 1.
 3. **Measure** the remaining interface (§3) and write it down.
 4. **Port the document pane** into the same program.
 5. **Port the ladder and the opening**, and delete the JS sheet.

@@ -825,31 +825,6 @@
       }
       e.preventDefault();
     });
-    // dired's `d'/`D'/`u' over four surfaces, each declaring a SHAPE — CLAUDE.md (UI).
-    function flagKey(k, s, say) {
-      const m = s.mount();
-      const at = s.at();
-      if (at === null) { say(s.none); return; }
-      const flags = flagsOn(m) ? m.getFlagged() : [];
-      if (k === "D" || (k === "d" && flags.indexOf(at) !== -1)) {
-        const ids = flags.length ? flags : [at];
-        // SPENT before the take, or the set is taken again by the next press.
-        if (can(m, "clearFlags")) m.clearFlags();
-        s.take(ids, flags.length ? (n) => `${n} flagged` : (n) => (n ? "row" : n));
-        return;
-      }
-      if (!flagsOn(m)) { say(s.missing); return; }
-      if (k === "u") {
-        m.unflagRow(at);
-        s.note(at, false);
-        say(s.unflag);
-        s.walk();
-        return;
-      }
-      m.flagRow(at);
-      s.note(at, true);
-      say(s.flag);
-    }
     const unlogged = () => {};
     const PFLAGS = {
       mount: () => pmount, take: pdelete, note: unlogged,
@@ -975,95 +950,6 @@
         .catch(() => {});
     });
 
-    // The renderer virtualizes; the DOM read is the fallback for an older asset.
-    const focusedId = () => {
-      if (cells()) return table.getSelection().id;
-      const tr = /** @type {HTMLElement | null} */
-        (document.querySelector("#app .tv-table tbody tr.tv-sel"));
-      return tr ? tr.dataset.id : null;
-    };
-    function pick(list, i) {
-      if (!list.length) { append("cmd", "info", "no rows to move through"); return; }
-      const id = list[Math.max(0, Math.min(list.length - 1, i))].id;
-      table.select(id, column());
-    }
-    // `selectStep' turns the page at either end, which only the renderer knows about.
-    const steps = () => can(table, "selectStep");
-    function move(step) {
-      if (steps()) {
-        if (visible().length) table.selectStep(step);
-        else append("cmd", "info", "no rows to move through");
-        return;
-      }
-      const list = visible(), at = list.findIndex((r) => r.id === focusedId());
-      pick(list, at === -1 ? (step > 0 ? 0 : list.length - 1) : at + step);
-    }
-    // The COMMAND is verbatim — a rebinding config addresses a function by this string.
-    const pager = () => can(table, "nextPage") && can(table, "pageInfo");
-    const pageNow = () => (pager() ? table.pageInfo().page : 1);
-    const sorts = () => can(table, "sortPromote");
-    function turnPage(b, step) {
-      if (!pager()) { said(b, "this table-view.js has no pager"); return; }
-      if (step > 0) table.nextPage(); else table.previousPage();
-      const at = table.pageInfo();
-      said(b, `page ${at.page}/${at.pages}`);
-    }
-    // A turn lands the cursor at the end it ARRIVES at, so each climb re-selects.
-    function endStop(b, last) {
-      const list = visible();
-      if (!list.length) { append("cmd", "info", "no rows to move through"); return; }
-      const end = (rows) => rows[last ? rows.length - 1 : 0].id;
-      if (!pager() || focusedId() !== end(list)) {
-        table.select(end(list), column());
-        said(b, "");
-        return;
-      }
-      if (!(last ? table.nextPage() : table.previousPage())) { said(b, ""); return; }
-      const turned = visible();
-      if (turned.length) table.select(end(turned), column());
-      const at = table.pageInfo();
-      said(b, `page ${at.page}/${at.pages}`);
-    }
-    function moveCol(b, step) {
-      if (!cells()) { said(b, "this table-view.js has no cell selection"); return; }
-      const at = column(), want = at === null ? 0 : at + step;
-      // Out of range on purpose: the renderer nulls it and gives the whole-row look.
-      const id = focusedId();
-      if (!id || !table.select(id, want)) { said(b, "no row"); return; }
-      const now = column();
-      said(b, now === null ? "row mode" : (cols[now].header || cols[now].key));
-    }
-    const marking = () => can(table, "toggleMark");
-    const flagging = () => flagsOn(table);
-    const isFlagged = (id) => flagging() && table.getFlagged().indexOf(id) !== -1;
-    const isMarked = (id) => marking() && table.getMarked().indexOf(id) !== -1;
-    const titleOf = (id) => {
-      const cell = (rowOf(id).cells || {}).title;
-      const shown = typeof TableView.displayText === "function"
-        ? TableView.displayText(cell) : String(cell || "");
-      return shown || id;
-    };
-    const noted = (id, what) =>
-      append("cmd", "info", `headline ${JSON.stringify(titleOf(id))} ${what}`);
-    function mark(b, toggling) {
-      if (!marking()) { said(b, "this table-view.js has no marks"); return; }
-      const id = focusedId();
-      if (!id) { said(b, "no row"); return; }
-      // `u' takes the archive FLAG off first — it is the one that would write a file.
-      if (!toggling && isFlagged(id))
-        { flagKey("u", XFLAGS(b), (what) => said(b, what)); return; }
-      // `u' flips, then puts back anything it just laid down.
-      let on = table.toggleMark(id);
-      if (on && !toggling) on = table.toggleMark(id);
-      said(b, `${on ? "marked" : "unmarked"} · ${table.markedCount()}`);
-      move(1);
-    }
-    const targets = () => {
-      const marked = marking() ? table.getMarked() : [];
-      if (marked.length) return marked;
-      const id = focusedId();
-      return id ? [id] : [];
-    };
     const postCommand = (body) => postJSON("/command", body).then(unwrap);
     const askFailed = (mine, name) => (e) => {
       if (promptNow() === mine) unask();
