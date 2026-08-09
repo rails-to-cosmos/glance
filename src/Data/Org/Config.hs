@@ -36,7 +36,6 @@ module Data.Org.Config ( ConfigLayerFile (..)
                        , captureTargetIn
                        , captureTargetOf
                        , stateColorsEdits
-                       , stateColorsKey
                        , stateColorsOf
                        , classify
                        , configDirIn

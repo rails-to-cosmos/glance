@@ -5,7 +5,6 @@
 module Glance.Web.Store
   ( -- * The store
     Store (..)
-  , FileEntry
   , emptyStore
   , loadStore
   , loadStoreWith

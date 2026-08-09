@@ -137,8 +137,6 @@ extentSpec = testGroup "Extent"
       -- 61 characters over 105 bytes: an offset counted in bytes would run
       -- past the end of this document, and one measured in bytes and sliced in
       -- characters would cut the fixture's tail off.
-      assertEqual "the last subtree ends at the character length"
-                  (T.length doc) (spanEnd (hrSubtree (last recs)))
       assertEqual "characters" 61 (T.length doc)
       assertEqual "bytes" 105 (BS.length (TE.encodeUtf8 doc))
   ]

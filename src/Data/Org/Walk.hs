@@ -3,7 +3,6 @@
 module Data.Org.Walk ( Found (..)
                      , LoadFailure (..)
                      , WalkOptions (..)
-                     , beatsForId
                      , blobFile
                      , claimById
                      , configDir
@@ -103,10 +102,6 @@ derivedTail t = mirrorTail t || occurrenceTail t
 mirrorTail :: [FilePath] -> Bool
 mirrorTail (d : _rest) = d `elem` derivedDirs
 mirrorTail []          = False
-
--- | Is PATH a blob's occurrence snapshot?  Depth open: a short id is unsharded.
-isOccurrence :: FilePath -> Bool
-isOccurrence = any occurrenceTail . orgGlanceTails
 
 occurrenceTail :: [FilePath] -> Bool
 occurrenceTail (d : rest) = d == storeDir && occurrenceDir `elem` rest

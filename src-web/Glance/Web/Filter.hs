@@ -23,9 +23,7 @@ module Glance.Web.Filter ( FilterEnv
                          , scanQuery
                          , sortKey
                          , substringKey
-                         , spellingOf
                          , columnsKey
-                         , viewKeys
                          , storeEnv
                          , tagsKey
                          ) where

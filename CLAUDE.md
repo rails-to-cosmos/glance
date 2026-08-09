@@ -185,7 +185,7 @@ measurements and the history of superseded designs live in
 
 - Org files are the truth, so org-glance's derived mirrors are not walked. The
   rule is a DENYLIST of names directly under a `.org-glance` component —
-  `overviews` and `meta`, whole subtrees — plus `isOccurrence`, a blob's history
+  `overviews` and `meta`, whole subtrees — plus `occurrenceTail`, a blob's history
   one level in (`data/<id>/occurrences/<STAMP>.org`), which carries the LIVE
   entry's `ORG_GLANCE_ID` and used to tie with it in `beatsForId`. The name is
   asked for ANYWHERE under `data`, since a two-character id is unsharded.

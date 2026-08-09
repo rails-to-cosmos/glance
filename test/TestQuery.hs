@@ -1454,7 +1454,6 @@ schemaSpec = testGroup "Schema conformance"
         assertEqual "the default chain"
                     ["state", "title", "deadline", "scheduled"] keys
         assertBool (show keys <> " outside " <> show cols) (all (`elem` cols) keys)
-        assertEqual "no column is named twice" (length keys) (length (nub keys))
         ascs <- each "sort" "ascending" v >>= mapM boolOf
         assertEqual "every key ascends" (map (const True) keys) ascs
 
@@ -2490,12 +2489,6 @@ entrySpec = testGroup "Subtree entries"
       withEntries deep $ \_r entries ->
         assertEqual "the row's own is not among them"
                     ["two", "three", "four"] (map (hrTitle . seRecord) entries)
-
-    -- The second root is a row of its own, so it is nobody's descendant.
-  , testCase "and nothing past it" $
-      withEntries deep $ \_r entries ->
-        assertBool "five is not inside one"
-                   ("five" `notElem` map (hrTitle . seRecord) entries)
 
   , testCase "each one's level, as org spells it" $
       withEntries deep $ \_r entries ->

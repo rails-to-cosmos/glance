@@ -21,7 +21,6 @@ module Glance.Web.Theme
   , Theme (..)
   , themes
   , themeIds
-  , defaultFor
   , themeCSS
   , themeOverrides
   ) where

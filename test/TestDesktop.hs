@@ -22,7 +22,8 @@ import System.Directory ( doesDirectoryExist, doesFileExist, getPermissions
 import System.Environment (getEnvironment, lookupEnv)
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
 import System.FilePath ((</>))
-import System.IO (IOMode (WriteMode), hClose, hFlush, stdout, withFile)
+import System.IO ( IOMode (WriteMode), hClose, hFlush, hPutStrLn, stderr, stdout
+                 , withFile )
 import System.Process (CreateProcess (env), proc, readCreateProcessWithExitCode)
 import Test.Tasty (TestTree, testGroup, withResource)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
@@ -251,7 +252,11 @@ withBuiltBinary :: [String] -> (FilePath -> [(String, String)])
 withBuiltBinary names extra k = do
   built <- glanceBinary
   case built of
-    Nothing  -> pure ()
+    -- A SKIP SAYS SO.  `glanceBinary' globs one build directory, so a
+    -- `--builddir' run or a moved tree makes these cases green having asserted
+    -- nothing; `TestDefaults.withCorpusSample' answers the same silence the
+    -- same way.
+    Nothing  -> hPutStrLn stderr "\nSKIPPED - no glance binary built: desktop probe"
     Just exe -> withTempDir $ \dir -> do
       fakeBrowsers dir names
       controlled <- pathOnly dir

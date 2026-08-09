@@ -50,7 +50,6 @@ module Glance.Query ( BlobSeed (..)
                     , bareTemplate
                     , blobDocument
                     , blobPathIn
-                    , builtinAgenda
                     , builtinFilter
                     , captureCodes
                     , captureEdits
@@ -62,7 +61,6 @@ module Glance.Query ( BlobSeed (..)
                     , captureTemplateIn
                     , captureTemplateOf
                     , cellSep
-                    , configDirIn
                     , configDirsIn
                     , configEdits
                     , configPath
@@ -150,7 +148,6 @@ module Glance.Query ( BlobSeed (..)
                     , tagText
                     , tagged
                     , clStateColors
-                    , stateColorsEdits
                     , stateColorsOf
                     , prioritySlots
                     , stateSlots
@@ -160,8 +157,6 @@ module Glance.Query ( BlobSeed (..)
                     , todoPragmas
                     , uuidFrom
                     , viewJSON
-                    , ViewColumn
-                    , customCell
                     , resolveColumns
                     , viewColumns
                     , viewJSONTextFor

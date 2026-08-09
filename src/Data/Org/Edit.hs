@@ -8,7 +8,6 @@ module Data.Org.Edit ( Edit (..)
                      , ParsedDocument (..)
                      , Snapshot (..)
                      , applyEdits
-                     , digestOf
                      , digestOfText
                      , editFile
                      , eolOf

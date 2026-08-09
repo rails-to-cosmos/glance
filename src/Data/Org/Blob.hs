@@ -14,7 +14,7 @@
 -- @04a14d10-41c1-4a3d-91b4-ea5c09364015@ lives at
 -- @data\/04\/a14d10-41c1-4a3d-91b4-ea5c09364015\/data.org@.  An id of two
 -- characters or fewer is not sharded at all, which is the case
--- 'Data.Org.Walk.isOccurrence' leaves its depth open for.
+-- 'Data.Org.Walk.occurrenceTail' leaves its depth open for.
 --
 -- READING an id is a different question from writing one.  ~\/sync's 6073 blobs
 -- carry four generations of the scheme — @Article-20210511-\<md5\>@,

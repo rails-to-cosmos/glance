@@ -11108,8 +11108,9 @@ keymapSpec shell = testGroup "Shell keymap"
       node <- findExecutable "node"
       case node of
         -- No node on this machine: the syntax of the glue is checked wherever
-        -- there is one, and the rest of this group still reads it as text.
-        Nothing  -> pure ()
+        -- there is one, and the rest of this group still reads it as text.  The
+        -- skip SAYS so, as every other one here does.
+        Nothing  -> hPutStrLn stderr "\nSKIPPED - node is not on PATH: glue syntax"
         Just exe -> withTempDir $ \dir -> do
           inline <- glueOf =<< shell
           let path = dir </> "shell.js"
