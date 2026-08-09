@@ -1,3 +1,17 @@
+    // THE FORM'S OWN STATE, which the step-B seam had left in the sheet's file
+    // (docs/proposal-widget-files.md): it is up or it is not, and shutting it
+    // empties the fields the form itself drew.
+    let capping = null;   // the capture form's state while it is up
+    const capUp = () => !!capping;
+    function shutCapture() {
+      capping = null;
+      el("kfields").textContent = "";
+      el("klist").textContent = "";
+      el("ktag").value = ""; el("ktext").value = "";
+      el("capture").className = "";
+      const held = active();
+      if (held && held.blur) held.blur();
+    }
     function openCapture(b) {
       sole("capture");
       capping = { b, vocab: [], hot: -1, tag: null, inputs: [] };

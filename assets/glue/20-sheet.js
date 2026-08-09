@@ -1178,17 +1178,6 @@
         await fire(b, "set-priority", over, { priority: key || null },
                    key ? `[#${key}]` : EMPTY).catch(failed(b, "set-priority"));
     }
-    let capping = null;   // the capture form's state while it is up
-    const capUp = () => !!capping;
-    function shutCapture() {
-      capping = null;
-      el("kfields").textContent = "";
-      el("klist").textContent = "";
-      el("ktag").value = ""; el("ktext").value = "";
-      el("capture").className = "";
-      const held = active();
-      if (held && held.blur) held.blur();
-    }
 
     // THE OPENING, which is the sheet's own: a row's subtree fetched, shown
     // across both panes, and compared against what it arrived as.
