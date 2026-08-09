@@ -435,7 +435,7 @@
         sheet: editing && dirty()
           ? { id: editing.id, child: editing.child, raw,
               text: el("mtext").value, props: props(), plan: planning(),
-              at: drows[dat] ? drows[dat].id : null, col: dcol,
+              at: docCursor().at, col: docCursor().col,
               open: openEditState(), digest: editing.digest }
           : null,
         palette: typedFilter(),
@@ -465,9 +465,7 @@
         el("mtext").value = s.text;   // dirty again, against the file now
         if (!s.raw) {
           drawProps(s.props, s.plan);
-          const back = drows.findIndex((r) => r.id === s.at);
-          if (back !== -1) dat = back;
-          dcol = s.col;
+          docRestore(s.at, s.col);
           drawDoc();
           if (s.open) reopenEdit(s.open);
         }
@@ -475,7 +473,7 @@
       }).catch((e) => append("sync", "error", `sheet restore failed: ${e.message}`));
     }
     function reopenEdit(o) {
-      const r = o.box === "dpara" ? drows.find((x) => x.id === o.id)
+      const r = o.box === "dpara" ? docRowById(o.id)
                                   : { id: o.id, val: o.val };
       if (!r) return;
       openEdit(o.box === "dpara" ? DPARA : DTITLE, r);

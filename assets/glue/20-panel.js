@@ -177,7 +177,7 @@
       none: "org-delete-element (no element)",
       unflag: "delete-unflag (flag cleared)",
       flag: "delete-flag (d again deletes)",
-      at: () => (drows[dat] ? drows[dat].id : null),
+      at: () => docCursor().at,
     };
     const keySaid = (k) => (what) => echo(`${k} → ${what}`);
     // The held-key guard is here: `ONCE' governs dispatch rows, these three live outside.
@@ -221,8 +221,7 @@
       el("modal").className = ""; editing = null; base = ""; baseProps = null;
       soon(remembered);
       shutEdit(DTITLE); shutEdit(DPARA); shutEdit(PROW);
-      drows = []; dlines = []; dflags.clear(); dcursor = null;
-      dlinks = [];
+      docClear();
       el("dlist").textContent = "";
       el("mprops").className = ""; el("mdoc").className = "";
     }

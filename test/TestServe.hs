@@ -6394,7 +6394,7 @@ shellGlue =
       -- whatever an open edit is holding, and both ride across.
       , "sheet: editing"
       , "? { id: editing.id, child: editing.child, raw,"
-      , "at: drows[dat] ? drows[dat].id : null, col: dcol,"
+      , "at: docCursor().at, col: docCursor().col,"
       , "open: openEditState(), digest: editing.digest }"
       , "palette: typedFilter(),"
       , "return box && active() === box ? box.value || \"\" : null;"
@@ -6434,7 +6434,7 @@ shellGlue =
       [ "<div id=\"mpanes\">", "<div id=\"mdoc\"><div id=\"dlist\"></div>"
       , "<div id=\"mprops\"><div id=\"mptable\"></div>"
       , "base = raw ? h.org : \"\";"
-      , "if (raw) { drows = []; dlines = []; drawDoc(); } else docFrom(h);"
+      , "docFill(h, raw);"
       , "drawProps(raw ? [] : h.properties || [], raw ? [] : h.planning || []);"
       , "{ body: bodyText(), properties: props(), planning: planning() }"
       -- THE DOCUMENT IS NOT A MOUNT, and that is the doctrine line: the

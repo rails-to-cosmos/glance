@@ -154,7 +154,7 @@
       save: saveSheet,
       commitEdit: (b) => { if (docOpen()) commitDocEdit(b);
                            else if (editing && !raw && !pnav()
-                                    && checkboxAt(drows[dat]) !== null)
+                                    && checkboxHere() !== null)
                              toggleCheckbox(b);
                            else said(b, "nothing open here"); },
       archiveRows: (b) => flagKey("D", XFLAGS(b), (what) => said(b, what)),

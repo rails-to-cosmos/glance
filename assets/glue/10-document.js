@@ -1,3 +1,25 @@
+    // THE PANE'S OWN MODEL, which lived in the core while four files wrote it
+    // (docs/proposal-widget-files.md, step C).  It is this widget's now, and
+    // what the others need of it they ask for by name below.
+    const DCELLS = CFG.dcells;
+    let drows = [], dat = 0, dcol = null, dgrain = "element";
+    let dparent = {};
+    const downersOf = (id) => {
+      const chain = [];
+      for (let o = dparent[id]; o; o = dparent[o]) chain.push(o);
+      return chain;
+    };
+    let dlines = [];
+    // Not `#dlist''s `dat'-th child: a composite draws its leaves inside it.
+    let dcursor = null;
+    const dflags = new Set();
+    const dmount = {
+      flagRow: (id) => { dflags.add(id); drawDoc(); },
+      unflagRow: (id) => { dflags.delete(id); drawDoc(); },
+      getFlagged: () => [...dflags],
+      clearFlags: () => { dflags.clear(); drawDoc(); },
+    };
+    const cellsOf = (o) => DCELLS.map((k) => ({ key: k, val: (o || {})[k] || "" }));
     // A `* ' at COLUMN 1 is a headline rather than an item, hence the guard.
     const LIST_AT = /^(\s*)([-+*]|\d+[.)])(\s+|$)/;
     function listOpener(line) {
@@ -631,3 +653,28 @@
      * @property {boolean} fixed  planning row: org's key, and a delete CLEARS.
      */
     /** @type {PropRow[]} */
+
+    // WHAT THE REST OF THE PAGE MAY DO TO THIS MODEL, and the whole of it.
+    // Each replaces a line that reached in and assigned.
+    /** Empty the pane: the sheet shut, so the document it held is gone. */
+    function docClear() {
+      drows = []; dlines = []; dflags.clear(); dcursor = null; dlinks = [];
+    }
+    /** Fill it from H, or empty it in RAW mode where the textarea is the view. */
+    function docFill(h, isRaw) {
+      dflags.clear();
+      dlinks = h.links || [];
+      if (isRaw) { drows = []; dlines = []; drawDoc(); } else docFrom(h);
+    }
+    /** Where point stands, as a row ID and a column — what a remount stashes. */
+    const docCursor = () => ({ at: drows[dat] ? drows[dat].id : null, col: dcol });
+    /** Put it back after one, landing on the row ID names where it survives. */
+    function docRestore(at, col) {
+      const back = drows.findIndex((r) => r.id === at);
+      if (back !== -1) dat = back;
+      dcol = col;
+    }
+    /** The row ID names, for a caller holding an id rather than a place. */
+    const docRowById = (id) => drows.find((x) => x.id === id);
+    /** The checkbox under point, when the stop there has one. */
+    const checkboxHere = () => checkboxAt(drows[dat]);

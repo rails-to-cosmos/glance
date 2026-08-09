@@ -290,9 +290,7 @@
       // TOGGLE, never assign: the class also carries the sheet's size tier.
       el("sheet").classList.toggle("raw", raw);
       shutEdit(DTITLE); shutEdit(DPARA);
-      dflags.clear();
-      dlinks = h.links || [];
-      if (raw) { drows = []; dlines = []; drawDoc(); } else docFrom(h);
+      docFill(h, raw);
       drawProps(raw ? [] : h.properties || [], raw ? [] : h.planning || []);
       el("mdoc").className = raw ? "" : "on";
       drawWhere(h.path || []);
@@ -315,22 +313,3 @@
     }
     const dirty = () => editing !== null
       && (raw ? el("mtext").value !== base : edited() !== baseProps);
-    const DCELLS = CFG.dcells;
-    let drows = [], dat = 0, dcol = null, dgrain = "element";
-    let dparent = {};
-    const downersOf = (id) => {
-      const chain = [];
-      for (let o = dparent[id]; o; o = dparent[o]) chain.push(o);
-      return chain;
-    };
-    let dlines = [];
-    // Not `#dlist''s `dat'-th child: a composite draws its leaves inside it.
-    let dcursor = null;
-    const dflags = new Set();
-    const dmount = {
-      flagRow: (id) => { dflags.add(id); drawDoc(); },
-      unflagRow: (id) => { dflags.delete(id); drawDoc(); },
-      getFlagged: () => [...dflags],
-      clearFlags: () => { dflags.clear(); drawDoc(); },
-    };
-    const cellsOf = (o) => DCELLS.map((k) => ({ key: k, val: (o || {})[k] || "" }));
