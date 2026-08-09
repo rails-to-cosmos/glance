@@ -11,26 +11,29 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ## Unreleased
 
+### Fixed
+- **The materialize sheet's state badge wears the theme's colour again**, and
+  the priority badge now wears its own — it never had one.
+- **Re-opening the sheet draws its document.** Closing it used to take the
+  pane's contents away for the rest of the session.
+
 ### Changed
-- **Every small list on the page is drawn by Elm.** One widget serves four
-  surfaces — the sheet's property panel, the link popup, the tags popup and the
-  settings sheet's states table — where each used to be its own table-view
-  mount. The table itself is unchanged and stays the renderer's. Every key,
-  cursor and flag behaves as it did.
-- **The materialize sheet is drawn by Elm — both panes.** The document pane
-  follows the property panel: `assets/elm/src/Doc.elm` owns the structure
-  scanner, the parse, the splice that composes a body back, the two-axis cursor
-  and the grain ladder, and draws them. Every key behaves as it did — `n`/`p`
-  and `f`/`b`, `RET` to edit, `SPC` to toggle a checkbox, `d`/`dd`/`D`/`u` to
-  delete.
-- **The materialize sheet's property panel is drawn by an Elm program.** The
-  key/value list beside the document pane was a table-view mount; it is now
-  `assets/elm/src/Panel.elm`, which owns the rows, the cursor and the delete
-  flags. It draws the renderer's own markup class for class, so the theme, the
-  palette and every key behave as they did — `RET` to edit a row, `+` to add
-  one, `d`/`dd`/`D`/`u` to delete. `assets/elm.js` is a committed build input
-  like the vendored renderer; `make elm` refreshes it and needs no installed
-  toolchain.
+- **In an open paragraph, `RET` commits and `S-RET` inserts a newline.** The
+  region is a value being handed back rather than a buffer being typed into;
+  `C-x C-s` still writes it.
+- **`b` walks the headline's cells leftward**, mirroring `f`, instead of leaving
+  them in one press whatever the column.
+- **The materialize sheet and every small list are drawn by Elm.** The sheet's
+  document pane (`Doc.elm`) owns the structure scanner, the parse, the splice
+  that composes a body back, the two-axis cursor and the grain ladder. One
+  widget (`Listing.elm`) serves the four small lists — the property panel, the
+  link popup, the tags popup and the settings sheet's states table — where each
+  used to be its own table-view mount. The table itself is unchanged and stays
+  the renderer's. Every key, cursor and flag behaves as it did: `n`/`p` and
+  `f`/`b`, `RET` to edit, `SPC` to toggle a checkbox, `+` to add,
+  `d`/`dd`/`D`/`u` to delete. `assets/elm.js` is a committed build input like
+  the vendored renderer; `make elm` refreshes it and needs no installed
+  toolchain, and `make elm-test` runs the scanner's own tests.
 
 ### Removed
 - **BREAKING: `?order=` is gone from `/headlines`.** `?order=document` and

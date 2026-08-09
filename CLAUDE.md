@@ -1126,6 +1126,10 @@ measurements and the history of superseded designs live in
   theme's ink rather than leaving a token undefined and a pill unpainted.
   `paletteSweep` reads the slots the served ROWS name, asserts every theme
   declares each, and counts the slots rather than the hues behind them.
+- A BADGE CELL IN THE SHEET WEARS THE COLUMN'S OWN HUE, handed over WITH the
+  cell: the pane looks nothing up, since a palette read there would be a second
+  copy to keep in step. `badgeColor(value, key)` is asked per badge column, so
+  `priority` is coloured beside `state`.
 - AND A TREE NAMES ITS OWN, per keyword and per theme:
   `#+GLANCE_STATE_COLORS: light TODO=#7B1FA2 DONE=#00695C` in `system.org`,
   the theme first and `KEYWORD=VALUE` pairs after. EVERY such line is read (one
@@ -1566,6 +1570,15 @@ measurements and the history of superseded designs live in
 - Its movement is the TABLE's two axes; `TAB` crosses to the panel and back, each
   pane keeping its own cursor and wearing the accent on its own frame
   (`#mdoc.on`, `#mprops.on`). The cursor's `dgrain` names its level.
+- OVER AN OPEN PARAGRAPH `RET` COMMITS — org's `C-c C-c` under another name —
+  and `S-RET` is the newline. The region is a VALUE being handed back rather
+  than a buffer being typed into, so the commit is the unshifted key and the
+  newline is the shifted one. `C-x C-s` still writes it, being the BUFFER's own.
+- `f`/`b` OVER A HEADLINE'S CELLS ARE MIRRORS. `f` enters the cells and walks
+  RIGHT one at a time; `b` walks LEFT the same way, and off EITHER end is the
+  whole-element look. Climbing out in one press whatever the column read as a
+  reset rather than as the other half of `f`. The ladder is unchanged where a
+  row has no cells: `f` dives into a composite's leaves, `b` climbs to the owner.
 - RET is BY KIND: a CHILD re-materializes into it (`?child=`), a PARAGRAPH opens
   as a textarea over itself, and the TITLE edits IN PLACE and commits
   `set-title` — one field (`DTITLE`/`#dtitle`, `tight` placement off the title

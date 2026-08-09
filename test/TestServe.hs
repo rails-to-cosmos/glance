@@ -3078,7 +3078,38 @@ sheetSpec :: IO T.Text -> TestTree
 sheetSpec shell =
   overBoot shell "Enter" "" $ \sheet ->
   testGroup "Shell sheet"
-  [ atBoot sheet "materialize opens two panes over one subtree" $ \answer -> do
+  [ -- A BADGE CELL WEARS THE COLUMN'S OWN HUE, which is the THEME's: the wire
+    -- carries a slot (`var(--g-state-a0)') rather than a colour, so a theme
+    -- switched client-side moves the pane with it.  The pane looks nothing up —
+    -- the cell is handed the hue the column declared, since a palette read here
+    -- would be a second copy to keep in step.
+    --
+    -- Both badge columns, because only `state' was ever coloured and `priority'
+    -- was the half nobody drew.
+    atBoot sheet "the headline's badge cells wear the theme's own hues" $ \answer -> do
+        -- The FIXTURE's own declared badge, which is the whole point: the cell
+        -- wears what the column said, whatever that is.  A tree serving slots
+        -- (`var(--g-state-a0)') reaches the pane the same way.
+        assertEqual "the declared hue, and nothing for an absent priority"
+                    ["#e0af68", ""] =<< textsAt "dhues" answer
+
+    -- RE-OPENING IS A FRESH FILL, and the pane has to survive the close: it is
+    -- an Elm program mounted INSIDE `#dlist', so emptying that element used to
+    -- take the program's node with it and every later sheet opened blank.
+  , keyed shell "the sheet closed and opened again still draws its document"
+      "Enter" "press:Escape press:Enter" $ \answer -> do
+        assertEqual "the document is there the second time"
+          [ ["head", "* ", "TODO", "one"]
+          , ["para", "first para"]
+          , ["para", "second para"]
+          , ["child", "  * ", "two", ":web:"] ]
+          =<< pairsAt "doc" answer
+        assertEqual "and the panel with it"
+          [["SCHEDULED", "<2026-08-01 Sat>"], ["DEADLINE", ""], ["CLOSED", ""],
+           ["EFFORT", "0:30"]]
+          =<< pairsAt "props" answer
+
+  , atBoot sheet "materialize opens two panes over one subtree" $ \answer -> do
         -- The left pane is the subtree's TEXT as its elements: the headline
         -- line, the body's own paragraphs, and the child under it.  Every
         -- headline line opens with its STARS, org-cleaned — every star but the
@@ -3163,9 +3194,10 @@ sheetSpec shell =
     -- CELLS ARE THE HEADLINE'S FINER GRAIN, and the stops are the parts that
     -- are THERE: this entry has a state and a title and neither a priority nor
     -- tags, so it is two stops and the absent pair are not walked onto at all.
-    -- `f' enters the grain, `l'/`h' and the arrows walk within it — off either
-    -- end into the whole-element look — and `b' broadens to the whole line in
-    -- ONE press, whatever the column.
+    -- `f' enters the grain and walks RIGHT, `l'/`h' and the arrows walk within
+    -- it, and `b' is `f' read backwards.  Off EITHER end is the whole-element
+    -- look, which is what leaves the cells: `b' climbing out in one press
+    -- whatever the column read as a reset rather than as the other half of `f'.
   , testCase "f enters the cells, l/h and the arrows walk the PRESENT ones" $ do
       insheet "press:f" $ \answer -> do
         assertEqual "the first cell" (0, 0) =<< pointOf answer
@@ -3177,9 +3209,13 @@ sheetSpec shell =
       insheet "press:f press:l press:l" $
         assertEqual "and off the right end is the whole element" (0, -1) <=< pointOf
       insheet "press:f press:l press:b" $ \answer -> do
-        assertEqual "b broadens from any column in one press" (0, -1)
+        assertEqual "b walks back one, the way f walked in" (0, 0)
           =<< pointOf answer
-        echoIs "and says so" "b → grain-broader (element)" answer
+        echoIs "and names the cell it landed on" "b → next-column (state)" answer
+      insheet "press:f press:b" $ \answer -> do
+        assertEqual "and off the LEFT end is the whole element, as off the right"
+                    (0, -1) =<< pointOf answer
+        echoIs "which is what leaves the cells" "b → next-column (element mode)" answer
       insheet "press:f press:ArrowRight" $
         assertEqual "the arrows are the within-grain walk" (0, 1) <=< pointOf
       -- A paragraph has no finer grain at all, so the key says so and moves
@@ -3296,10 +3332,26 @@ sheetSpec shell =
         assertEqual "the sheet is closed" "" =<< textAt "modal" answer
         urlIs "and the applied query is where it was" "?q=state%3A*active*" answer
 
-    -- A PARAGRAPH opens as text, and its commit is `C-x C-s': RET is a newline
-    -- inside one, so `save-buffer' over the open edit is the only commit it has.
+    -- A PARAGRAPH opens as text, and `RET' COMMITS it — org's `C-c C-c' under
+    -- another name, since the region is a value being handed back rather than a
+    -- buffer being typed into.  `S-RET' is the newline.  `C-x C-s' still writes
+    -- it, being the BUFFER's own key.
     -- What goes back is the BODY with that block's own lines spliced over, every
     -- other byte where it was.
+  , testCase "RET commits the open paragraph and S-RET is the newline" $ do
+      bootOf shell "" 500 "Enter" "press:n press:Enter dpara:rewritten press:Enter" $
+        \answer -> do
+          assertEqual "the body with that block replaced"
+            ["* TODO one\nrewritten\n\nsecond para\n** two\nchild body\n"]
+            =<< traverse (textAt "body") =<< listAt "writes" answer
+          assertEqual "and the edit is shut" False =<< boolAt "dparaopen" answer
+      -- The shifted press writes a newline INTO the field and commits nothing.
+      bootOf shell "" 500 "Enter" "press:n press:Enter dpara:one press:S-Enter" $
+        \answer -> do
+          assertEqual "nothing was written" [] =<< textsAt "wroteAt" answer
+          assertEqual "the edit is still open" True =<< boolAt "dparaopen" answer
+          assertEqual "with a newline at the caret" "one\n" =<< textAt "dtext" answer
+
   , testCase "RET opens a paragraph as text, and C-x C-s writes it" $ do
       insheet "press:n press:Enter" $ \answer -> do
         assertEqual "the block is open" True =<< boolAt "dparaopen" answer

@@ -234,8 +234,13 @@ broader m =
             ( m, "" )
 
         Just r ->
+            -- MIRRORS `finer', which walks the cells RIGHTWARD one at a time:
+            -- climbing out of them in one press whatever the column made `b'
+            -- read as a reset rather than as the other half of `f'.  Walking
+            -- off the LEFT end is what leaves the cells, exactly as walking off
+            -- the right end does.
             if m.col /= Nothing then
-                ( { m | col = Nothing, grain = "element" }, "grain-broader (element)" )
+                moveCol -1 m
 
             else if r.grain == Leaf then
                 case Maybe.map (placeOf m) r.owner of
@@ -448,7 +453,11 @@ port docTook : E.Value -> Cmd msg
 
 cellJSON : Cell -> E.Value
 cellJSON c =
-    E.object [ ( "key", E.string c.key ), ( "val", E.string c.val ) ]
+    E.object
+        [ ( "key", E.string c.key )
+        , ( "val", E.string c.val )
+        , ( "colour", E.string c.colour )
+        ]
 
 
 rowJSON : Model -> Row -> E.Value
@@ -509,7 +518,10 @@ stateJSON m =
 
 cellD : D.Decoder Cell
 cellD =
-    D.map2 Cell (D.field "key" D.string) (D.field "val" D.string)
+    D.map3 Cell
+        (D.field "key" D.string)
+        (D.field "val" D.string)
+        (D.field "colour" D.string)
 
 
 linkD : D.Decoder Link
@@ -738,13 +750,7 @@ viewCells m i r =
                                     ""
                                )
                         )
-                    , style "color"
-                        (if c.key == "state" then
-                            "var(--g-state-" ++ c.val ++ ", inherit)"
-
-                         else
-                            ""
-                        )
+                    , style "color" c.colour
                     ]
                     (case ( c.key, r.kind, m.titleAt ) of
                         ( "title", Head, Just t ) ->

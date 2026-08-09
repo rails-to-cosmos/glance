@@ -75,9 +75,9 @@
     // Three more of the floor's, for the same reason: a constant, a lookup into
     // the view's own badges, and a row by id over the rows this file holds.
     const EMPTY = "*empty*";
-    const badgeColor = (keyword) =>
-      (((cols.find((c) => c.key === "state") || {}).badges || [])
-        .find((b) => b.value === keyword) || {}).color || "";
+    const badgeColor = (value, key) =>
+      (((cols.find((c) => c.key === (key || "state")) || {}).badges || [])
+        .find((b) => b.value === value) || {}).color || "";
     const rowOf = (id) => visible().concat(all).find((r) => r.id === id) || {};
     // Whole-compare: the state column's badge palette rides inside the columns.
     const sameColumns = (next) => JSON.stringify(next) === JSON.stringify(cols);

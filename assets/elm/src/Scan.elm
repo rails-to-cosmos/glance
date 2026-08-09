@@ -48,7 +48,7 @@ type Kind
 
 
 type alias Cell =
-    { key : String, val : String }
+    { key : String, val : String, colour : String }
 
 
 type alias Row =

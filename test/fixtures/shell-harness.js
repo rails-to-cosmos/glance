@@ -1462,6 +1462,10 @@ const typeSetting = (id, text) => {
  * and what the widgets narrowing on one are listening for. */
 const typed = (box, text) => {
   box.value = text;
+  // The caret ends up AFTER what was typed, which is where a reader's is and
+  // what a key splicing at the caret then reads.
+  box.selectionStart = text.length;
+  box.selectionEnd = text.length;
   box.fire("input", { target: box });
 };
 /**
@@ -2167,6 +2171,14 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     downers: ownerOf(),
     // What the document drew as links, and how each element was cut up.
     dsegs: flatRows().map(segsOf),
+    // THE HUE THE HEADLINE'S BADGE CELLS WEAR.  The column declares it and the
+    // cell is handed it; a pane looking one up for itself would be a second
+    // palette to keep in step.
+    dhues: ["state", "priority"].map((key) => {
+      const head = flatRows()[0];
+      const cell = head && head.children.find((c) => wears(c, `dc-${key}`));
+      return cell ? String(cell.style.color || "") : "";
+    }),
     // The head row's title cell's OWN text node.  A browser shows textContent
     // and appended children side by side, so a cell that drew segments must
     // hold no raw text of its own — the double-draw this field exists to see.

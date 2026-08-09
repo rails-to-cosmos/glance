@@ -22,7 +22,10 @@
     let drows = [], dat = 0, dcol = null, dgrain = "element";
     let dflags = [], dbody = "", dlinks = [];
     let dport = null, dtook = null, dwrote = null;
-    const cellsOf = (o) => DCELLS.map((k) => ({ key: k, val: (o || {})[k] || "" }));
+    const cellsOf = (o) => DCELLS.map((k) => {
+      const val = (o || {})[k] || "";
+      return { key: k, val, colour: val ? badgeColor(val, k) : "" };
+    });
     const shown = (r) => (r.cells || []).filter((c) => c.val);
     function docPane() {
       if (dport) return dport;
@@ -317,6 +320,13 @@
     // The document holds the keys with NOTHING focused and raw mode's textarea
     // is blurrable, so an open sheet counts as typing or `table' rows go live.
     const docHolds = () => editing !== null;
+    const paraBinding = docBinding("org-ctrl-c-ctrl-c", "RET");
+    /** Put a newline in at the caret, which is what the key would have done. */
+    function newlineIn(id) {
+      const box = el(id), at = box.selectionStart, to = box.selectionEnd;
+      box.value = `${box.value.slice(0, at)}\n${box.value.slice(to)}`;
+      box.setSelectionRange(at + 1, at + 1);
+    }
     function commitDocEdit(b) {
       const spoke = (what) => (b ? said(b, what) : echo(`RET → ${what}`));
       if (!edit) return;
@@ -438,13 +448,26 @@
       ports.listState.subscribe((now) => Object.assign(seen, now));
       // Caught in the CAPTURE phase, so the scroller inside PANE need not be named.
       if (pane) el(pane).addEventListener("scroll", placeEdit, true);
+      // SEEDED WITH WHAT IS BEING SENT.  A port round trip costs a macrotask, and
+      // both of these are followed IN THE SAME TURN by a reader asking where
+      // point is — `RET' over a popup the raise just filled is the case.  What
+      // is seeded is the value this side already holds, never a rule of Elm's;
+      // the answer confirms it a turn later.
+      const landed = (id) => {
+        const at = seen.ids.indexOf(id);
+        if (at === -1) return;
+        seen.at = at; seen.id = id;
+      };
       return {
         get el() { return el(host); },
         at: () => seen.at,
         onClick: (f) => ports.listClicked.subscribe(f),
-        setRows: (rows, at) =>
-          ports.listIn.send({ kind: "setRows", rows, at: at === undefined ? null : at }),
-        select: (id) => ports.listIn.send({ kind: "select", id }),
+        setRows: (rows, at) => {
+          seen.ids = rows.map((r) => r.id);
+          if (at) landed(at);
+          ports.listIn.send({ kind: "setRows", rows, at: at === undefined ? null : at });
+        },
+        select: (id) => { landed(id); ports.listIn.send({ kind: "select", id }); },
         selectStep: (by) => ports.listIn.send({ kind: "step", by }),
         getSelection: () => ({ id: seen.id || null }),
         flagRow: (id) => ports.listIn.send({ kind: "flag", id }),
@@ -539,8 +562,16 @@
       if (!editing || raw || momentary()) return;
       const k = keyName(e), crossing = k === "TAB" || k === "S-TAB";
       if (!k) return;
-      if (dparaing()) return;   // the textarea's; C-x C-s commits and ESC restores
+      // OVER THE OPEN TEXTAREA `RET' COMMITS, org's `C-c C-c' by another name,
+      // and `S-RET' is the newline — the region is a value being handed back
+      // rather than a buffer being typed into.  Everything else is the
+      // textarea's, and ESC still restores.
       const once = (act) => { if (!repeating(e)) act(); };
+      if (dparaing()) {
+        if (k === "RET") { e.preventDefault(); once(() => commitDocEdit(paraBinding)); }
+        else if (k === "S-RET") { e.preventDefault(); newlineIn("dtext"); }
+        return;
+      }
       if (pediting()) {
         if (crossing) hop();
         else if (k === "RET") once(commitRow);
@@ -637,7 +668,6 @@
       soon(remembered);
       shutEdit(DTITLE); shutEdit(DPARA); shutEdit(PROW);
       docClear();
-      el("dlist").textContent = "";
       el("mprops").className = ""; el("mdoc").className = "";
     }
     function flush(digest) {
