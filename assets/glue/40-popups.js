@@ -23,12 +23,17 @@
       opening = b;
       if (lrows.length) m.select(lrows[0].id);
     }
-    function shutPopup(id, shape) { shutEdit(shape); el(id).className = ""; }
+    // Every raise and every close ends in the URL: `soon' so the surface's own
+    // state has settled -- a closer clears its flag AFTER the class comes off.
+    function shutPopup(id, shape) {
+      shutEdit(shape); el(id).className = ""; soon(remembered);
+    }
     // Callers call `sole()' first; from here it would wipe what they just wrote.
     function showPopup(id, p, head, foot) {
       el(p + "head").textContent = head;
       if (foot !== undefined) el(p + "foot").textContent = foot;
       el(id).className = "on";
+      soon(remembered);
     }
     function shutLinks() {
       shutPopup("links", LROW);

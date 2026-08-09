@@ -57,7 +57,7 @@ serve opts = serveAs "serve" opts (pure ())
 
 -- | Serve OPTS until killed, running LISTENING once the socket is bound.  A
 -- missing org directory fails here rather than per request: the operator learns
--- at startup, not from a 500.
+-- at startup, where a 500 would tell them too late.
 --
 -- MODE is the subcommand that asked — one daemon either way, and what the
 -- banner and the startup failure call it, so @glance desktop@ does not report

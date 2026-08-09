@@ -628,13 +628,17 @@ shellLives =
     -- the text the reader had not saved comes back with it.
   , Live "view-changed mid-edit rebuilds the mount and keeps the sheet's text"
       "" "Enter" "press:C-c press:' sheet:hello close:view-changed"
-      (booted <> [reasked]) [] 2 "hello" "synced" "?q=state%3A*active*"
+      -- THE OPEN SHEET IS IN THE URL: a remount carries the surface across, so
+      -- the address still names the sheet and the row it stands on.
+      (booted <> [reasked]) [] 2 "hello" "synced"
+      "?q=state%3A*active*&page=sheet&row=r1"
 
     -- And when the file moved under the open sheet, the restore says so rather
     -- than flushing over it later: the text stands, at `conflict'.
   , Live "a sheet restored over a moved file lands in the conflict flow"
       "" "Enter" "press:C-c press:' sheet:hello rewritten close:view-changed"
-      (booted <> [reasked]) [] 2 "hello" "conflict" "?q=state%3A*active*"
+      (booted <> [reasked]) [] 2 "hello" "conflict"
+      "?q=state%3A*active*&page=sheet&row=r1"
 
     -- A cleared filter is a `?q=' in the URL and nothing re-injects the default
     -- over it — which is what the reader saw as the filter resetting itself.
@@ -3470,7 +3474,7 @@ sheetSpec shell =
   , testCase "the toggle survives its own reload: the stale store answer is dropped" $ do
       bootOf shell "" 500 ""
              "checky press:Enter press:n press:f press:Space" $ \answer -> do
-        assertEqual "the box is flipped ON SCREEN, not just in the file"
+        assertEqual "the box is flipped ON SCREEN as well as in the file"
                     ["- [X] alpha"]
           =<< (take 1 . partsOf "item" <$> docOf answer)
         assertEqual "and the sheet is synced, never conflict"
@@ -4535,6 +4539,18 @@ settingsSpec shell =
         (  ["<option value=\"auto\">auto</option>"]
         <> [ "<option value=\"" <> thId t <> "\">" <> thLabel t <> "</option>"
            | t <- themes ]) page
+
+    -- EVERY POPUP HAS A URL.  `?page=NAME' beside `q', written by every raise
+    -- and every close, with the panel as the FRAGMENT — so a reader can send
+    -- the view they are looking at rather than describing it.
+  , keyed shell "the settings sheet says so in the URL, panel and all"
+      "," "ctab:theme" $ \answer -> do
+        urlIs "the surface, and the panel it is showing"
+              "?q=state%3A*active*&page=config#theme" answer
+
+  , keyed shell "and closing it takes the parameter off"
+      "," "press:Escape" $ \answer ->
+        urlIs "the query alone again" "?q=state%3A*active*" answer
 
   , keyed shell "a tab shows its own panel and no other"
       "," "ctab:theme" $ \answer ->
@@ -5944,7 +5960,7 @@ shellGlue =
   -- it.  Deleting the parameter is what made a cleared view come back filtered
   -- on the next remount, so the write is unconditional.
   , Glue "the applied query lives in the URL, an empty one included"
-      [ "history.replaceState(null, \"\", `?${p.toString()}`);"
+      [ "history.replaceState(null, \"\", `?${p.toString()}${location.hash || \"\"}`);"
       , "p.set(\"q\", q);"
       -- `keys' rides in the same query string and has to survive a commit.
       , "new URLSearchParams(location.search)"
@@ -6404,7 +6420,7 @@ shellGlue =
       -- is the FIRST of the modal surfaces, its listener registering ahead of
       -- the dispatch, and `typing()' reads that one list rather than naming any
       -- of them.
-      , "{ name: \"sheet\", up: docHolds, edit: sheetOpen, shut: cancelSheetEdit },"
+      , "{ name: \"sheet\", up: docHolds, edit: sheetOpen, shut: cancelSheetEdit,"
       , "return SURFACES.some((s) => s.up())"
       -- The panel stacks under the text when there is no room beside it, which
       -- is a wrap rather than a second breakpoint to keep in step.
@@ -7878,8 +7894,7 @@ materializeSpec = testGroup "GET /headline"
 
     -- The same subtree, split: the drawer lifted out of the text and named
     -- beside it, so a client can edit the two apart without an org parser.  The
-    -- whole `org' rides along untouched — the split is an addition, not a
-    -- replacement.
+    -- whole `org' rides along untouched — the split is an addition.
   , testCase "the drawer arrives beside the body, lifted out of it" $ do
       (a, _hub) <- serverOver viewDir
       v <- getFrom a (headlinePath "ship-table-view") >>= decoded
@@ -8081,7 +8096,7 @@ commitSpec = testGroup "POST /headline"
         assertEqual "reason" "stale" =<< textAt "reason" =<< decoded r
         assertEqual "untouched" committable =<< document path
 
-  , testCase "and by the file on disk, not only by the store" $
+  , testCase "and by the file on disk as well as by the store" $
       withCommitted $ \a path v -> do
         digest <- textAt "digest" v
         body' <- textAt "body" v

@@ -492,6 +492,14 @@ section groups a feature arc, and its date is that arc's last commit.
 - **The vendored renderer's stylesheet is one declaration per line**
   (table-view `cc9dd70`, synced). Same rules and values; a re-layout.
 
+### Added
+- **Every popup has a URL you can send.** A surface on screen writes
+  `?page=NAME` beside the query — `&row=ID` where it stands on a row, and the
+  panel as the fragment, so the settings sheet on its theme tab is
+  `/?q=state%3A*active*&page=config#theme`. Opening the link lands on the row
+  and raises the surface once the rows are in hand; closing it takes the
+  parameter and the fragment off.
+
 ### Fixed
 - **A repeating entry whose date org did not zero-pad now repeats.** `<2026-08-8
   Sat +2d>` is a timestamp org reads — its parser takes each part as a run of

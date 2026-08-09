@@ -215,7 +215,9 @@
       const t = trail(), labels = Object.keys(crumbLabels).length ? crumbLabels : null;
       if (!t.length && !labels) p.delete("crumbs");
       else p.set("crumbs", JSON.stringify( { trail: t, labels: crumbLabels, sels: selsFit() ? crumbSels : [] }));
-      history.replaceState(null, "", `?${p.toString()}`);
+      // `page'/`row'/the fragment are `remembered''s and survive: a query
+      // committed under an open popup leaves it named in the URL.
+      history.replaceState(null, "", `?${p.toString()}${location.hash || ""}`);
       if (can(table, "setPinned")) table.setPinned(q.trim() === pinnedQuery);
     }
     function bootTrail() {
@@ -289,6 +291,7 @@
       fill(h);
       sync("synced");
       el("modal").className = "on";
+      soon(remembered);
       if (raw) el("mtext").focus(); else el("mtext").blur();
     }
     function fill(h) {

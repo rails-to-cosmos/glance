@@ -17,7 +17,7 @@ porting never forks the UI, the grammar, or the write path.
   127.0.0.1. A host that serves the page from anywhere serves the whole app.
 - **The transport is two helpers.** `getJSON`/`postJSON` (+ the socket open)
   are the page's entire wire surface — a different transport is a ~50-line
-  adapter behind three names, not a rewrite.
+  adapter behind three names.
 - **The window is already an argument.** `Glance.Desktop.Native` takes the
   window as `String -> IO ()`; the GTK engine lives alone in the one
   flag-gated stanza (`glance-desktop-native`), and both flag states compile.

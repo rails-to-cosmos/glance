@@ -1,14 +1,68 @@
+    // `open' is what a shared URL raises: `?page=NAME', beside the query and
+    // the crumbs.  ROWED says the surface needs a row under it, so its URL
+    // carries one.  The value palette has none — it is a keystroke's answer
+    // rather than a place, and a link with nothing typed into it would restore
+    // an empty question.
     const SURFACES = [
       { name: "prompt", momentary: true, up: () => !!prompting, off: unask },
-      { name: "capture", momentary: true, up: capUp, off: shutCapture },
+      { name: "capture", momentary: true, up: capUp, off: shutCapture,
+        open: () => openCapture(RESTORED) },
+      // The rowed three open the way their keys do, over the row `bootPage'
+      // has already landed on — `targets()' and `focusedId()' answer for it.
       { name: "links", momentary: true, up: linking, off: shutLinks,
-        edit: lediting, shut: cancelLinkEdit },
+        edit: lediting, shut: cancelLinkEdit, rowed: true,
+        open: () => HANDLERS.openLinks(RESTORED) },
       { name: "tags", momentary: true, up: managing, off: shutTags,
-        edit: renaming, shut: cancelRename },
-      { name: "sheet", up: docHolds, edit: sheetOpen, shut: cancelSheetEdit },
+        edit: renaming, shut: cancelRename, rowed: true,
+        open: () => overTargets(RESTORED, "tags", askTags) },
+      { name: "sheet", up: docHolds, edit: sheetOpen, shut: cancelSheetEdit,
+        rowed: true, open: (id) => materialize(id) },
       { name: "config", up: () => settings, edit: sediting,
-        shut: () => shutEdit(SROW) },
+        shut: () => shutEdit(SROW), open: () => openSettings(),
+        panel: () => (SECTIONS[ctab] || {}).title },
     ];
+    // What a restored surface echoes as: no key was pressed, so `said' is given
+    // the URL as the thing that asked.
+    const RESTORED = { seq: "?page", command: "restore-view" };
+    // WHICH surface is on screen, by name, and the row under it where it has
+    // one — the two halves of `?page='.  Read off the list, so a surface added
+    // there is shareable with nothing else to edit.
+    const surfaceUp = () => SURFACES.find((s) => s.up()) || null;
+    // The URL says what is on screen: `?page=NAME' beside `q', the row where the
+    // surface needs one, and the panel as the FRAGMENT.  Called by every raise
+    // and every close, so a reader can send the view they are looking at.
+    function remembered() {
+      const p = params(), s = surfaceUp();
+      if (!s || !s.open) { p.delete("page"); p.delete("row"); }
+      else {
+        p.set("page", s.name);
+        const id = s.rowed && focusedId();
+        if (id) p.set("row", id); else p.delete("row");
+      }
+      // ONE WRITER for the whole address: the panel rides as the FRAGMENT and
+      // goes with the surface, so a closed sheet leaves neither behind.
+      const at = s && s.panel && s.panel();
+      history.replaceState(null, "", `?${p.toString()}${at ? `#${at}` : ""}`);
+    }
+    // AND BACK: the surface a booted URL names, raised once the rows are in
+    // hand — a rowed one lands on its row first, so the popup opens over the
+    // entry the sender was looking at.  A row the view no longer holds raises
+    // nothing and says so.
+    function bootPage() {
+      const want = params().get("page");
+      const s = SURFACES.find((x) => x.name === want && x.open);
+      if (!s) return;
+      const id = params().get("row");
+      // The fragment names the panel, where the surface has panels.
+      const at = (location.hash || "").replace(/^#/, "");
+      if (at && s.panel) wantPanel = at;
+      if (s.rowed) {
+        if (!id) { append("boot", "warn", `${want} needs a row: add &row=ID`); return; }
+        if (!can(table, "select") || !table.select(id))
+          { append("boot", "warn", `${want}: no row ${id} in this view`); return; }
+      }
+      s.open(id);
+    }
     // The list ORDER breaks one tie: `+' over the tags popup leaves both up.
     const momentary = () =>
       (SURFACES.find((s) => s.momentary && s.up()) || {}).name || null;
@@ -316,6 +370,10 @@
       viewing(load(swap ? asking(asked) : `${narrow}limit=${PAGE}`)).then((a) => {
         mount(a.view);
         if (after) after(a.total); else land(null);
+        // AFTER THE ROWS ARE IN HAND, so a rowed surface has a row to land on.
+        // A boot only: a re-application is a view the reader asked for here,
+        // and raising a popup over it would be answering a question nobody put.
+        if (!swap) bootPage();
         listen();
         if (!swap && a.total > (a.view.rows || []).length)
           load(asking(asked))

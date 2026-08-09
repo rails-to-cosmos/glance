@@ -1231,7 +1231,7 @@ measurements and the history of superseded designs live in
   press, both outcomes alike — forced, since the spans describe a file the write
   has just moved. KNOWN CONSEQUENCE: a row with exactly ONE link is followed
   rather than listed, so that link has no editor.
-- `a` is a canned VIEW, not a mode: `state:*active* -planned:*empty*
+- `a` is a canned VIEW: `state:*active* -planned:*empty*
   sort:scheduled` through `applyView`, the door `g` uses. No agenda state
   anywhere; `g` is the way home. The order is a token rather than a call behind
   the answer, so the whole view is one string. What arrives through `landed` — a
@@ -1544,19 +1544,20 @@ measurements and the history of superseded designs live in
   either way, being a queue rather than a cursor. The panel's costs TWO rules,
   since the wash it suppresses is the RENDERER's `tr.tv-sel` and the `tr.tv-alt`
   stripe under it has to be put back.
-- EVERY POPUP HAS A URL, and it is shareable. PENDING ENFORCEMENT — stated here
-  first, to land after the widget split (docs/proposal-widget-files.md). A
-  surface that is up is `?page=NAME` beside `?q=`, written by the same
-  `remember` that writes the query, and a boot carrying one RAISES that surface
-  after the rows land. Within a surface the panel is the FRAGMENT, `#theme`,
-  so every header a reader can reach has a name: the settings sheet on its
-  theme tab is
-  `/?q=state%3A*active*&page=settings#theme`. The names are the surfaces' own
+- EVERY POPUP HAS A URL, and it is shareable. A surface that is up is
+  `?page=NAME` beside `?q=`; a ROWED one carries `&row=ID` too, and the panel is
+  the FRAGMENT — the settings sheet on its theme tab is
+  `/?q=state%3A*active*&page=config#theme`. The names are the surfaces' own
   (`SURFACES` entries) and the panels' own (`SECTIONS` titles), so neither is a
-  second list. Closing a surface takes the parameter off. What this buys is the
-  thing the shell has nowhere else: a way to SEND someone a view — the settings
-  a question is about, the tag manager over a set of rows — where today the URL
-  describes the table alone and every overlay is invisible to it.
+  second list, and a surface joins by declaring `open` (plus `rowed`/`panel`
+  where it has them). ONE WRITER, `remembered`, called by every raise and every
+  close through `showPopup`/`shutPopup` and the two sheets' own doors — `soon`,
+  because a closer clears its flag after the class comes off — so a closed
+  surface leaves neither parameter nor fragment behind. A BOOT raises what the
+  URL names once the rows are in hand (`bootPage`, boot only: a re-application
+  is a view the reader asked for here). A rowed surface lands on its row first
+  and says so where the view no longer holds it. The value palette declares no
+  `open`: it is a keystroke's answer rather than a place.
 - The applied filter query is in the URL (`replaceState`, `keys` preserved) and
   applied from it on load. `DEL` over the table drops the query's last token
   through the renderer — the chips are the renderer's, so the strip is too.

@@ -219,6 +219,7 @@
     const sync = (next, message) => note(subtreeSheet, next, message);
     function shut() {
       el("modal").className = ""; editing = null; base = ""; baseProps = null;
+      soon(remembered);
       shutEdit(DTITLE); shutEdit(DPARA); shutEdit(PROW);
       drows = []; dlines = []; dflags.clear(); dcursor = null;
       dlinks = [];

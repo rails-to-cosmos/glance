@@ -38,6 +38,9 @@
       takeLayer();
       showTab(i);
       if (SECTIONS[i].enter) SECTIONS[i].enter();
+      // THE PANEL IS THE FRAGMENT (`?page=config#theme'), written by the one
+      // URL writer so a closed sheet leaves no stale hash behind.
+      remembered();
     }
     // TAB walks the panels; its listener registers ahead of the key dispatch.
     function stepTab(step) {
@@ -56,6 +59,8 @@
     /** @type {LayerRow[]} */
     let crows = [];
     let settings = false, cat = 0;
+    // The panel a booted `#fragment' asked for, spent on the next open.
+    let wantPanel = "";
     const configSheet = {
       noteId: "cnote", scope: "config", state: "synced",
       closed: "settings closed — the files are as they were",
@@ -80,6 +85,13 @@
         el("clog").value = logPref.get();
         cnote("synced");
         el("config").className = "on";
+        // A URL naming a panel opens on it.
+        if (wantPanel) {
+          const at = SECTIONS.findIndex((x) => x.title === wantPanel);
+          wantPanel = "";
+          if (at !== -1) pickTab(at);
+        }
+        soon(remembered);
         el("ctarget").focus();
       }).catch((e) => {
         settings = false;
@@ -425,6 +437,7 @@
     }
     function shutSettings() {
       el("config").className = ""; settings = false; crows = []; cat = 0;
+      soon(remembered);
       configSheet.state = "synced";
       if (typing()) active().blur();
     }

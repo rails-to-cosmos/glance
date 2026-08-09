@@ -783,9 +783,9 @@ hubSpec = testGroup "Hub"
 
   -- The overflow that matters is across STEPS, not inside one: `publish'
   -- coalesces a file's save into one transaction, and a bulk write is a
-  -- transaction per file with nothing coalescing between them.  What the
-  -- client gets back is not the backlog — that is gone — but the store as it
-  -- stands, in the one frame a resubscribe opens with.
+  -- transaction per file with nothing coalescing between them.  The backlog
+  -- is gone; what the client gets back is the store as it stands, in the one
+  -- frame a resubscribe opens with.
   , testCase "a burst of steps overflows, and the resubscribe is the whole store"
       $ withTempDir $ \dir -> do
       (path, hub, client) <- subscribed dir
