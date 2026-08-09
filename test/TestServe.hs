@@ -6106,7 +6106,7 @@ shellGlue =
       -- And second, that both modes commit through one call, so the letter and
       -- the fallback's RET are the same delivery.
       , "else if (!repeating(e)) takeChoice(hit);"
-      , "else if (k === \"RET\") takeChoice(prompting.shown[prompting.at] || freely());" ]
+      , "else if (k === \"RET\") takeChoice(promptNow().shown[promptNow().at] || freely());" ]
       -- No second copy of the assignment, no confirmation step behind a letter
       -- (the palette IS the confirmation), no underline as an element of its
       -- own, and no token slot for an entry that claimed nothing.
@@ -6873,7 +6873,7 @@ shellGlue =
       , "function askState(b, ids, title) {"
       , "function askTags(b, ids, title) {"
       , "const docTargets = (b, label, k) =>"
-      , "k(b, [editing.id], `${label} · ${docTitle()}`);"
+      , "k(b, [entryNow().id], `${label} · ${docTitle()}`);"
       , "setState: (b) => overTargets(b, \"set state\", askState),"
       , "manageTags: (b) => overTargets(b, \"tags\", askTags),"
       , "docTargets(docBinding(\"org-glance-overview:todo\"), \"set state\", askState);"

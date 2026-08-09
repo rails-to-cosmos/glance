@@ -16,7 +16,7 @@
      */
     /** @type {Surface[]} */
     const SURFACES = [
-      { name: "prompt", momentary: true, up: () => !!prompting, off: unask },
+      { name: "prompt", momentary: true, up: () => !!promptNow(), off: unask },
       { name: "capture", momentary: true, up: capUp, off: shutCapture,
         open: () => openCapture(RESTORED) },
       // The rowed three open the way their keys do, over the row `bootPage'
@@ -232,19 +232,19 @@
       echo(`${keys.join(" ")} is undefined`);
     });
     document.addEventListener("keydown", (e) => {
-      if (!prompting) return;
+      if (!promptNow()) return;
       // The press that RAISED this lands here next — `t' is a letter in it too.
-      if (prompting.raising) { prompting.raising = false; return; }
+      if (promptNow().raising) { promptNow().raising = false; return; }
       const k = keyName(e);
       if (!k) return;
-      if (prompting.text) {
+      if (promptNow().text) {
         if (k !== "RET") return;
         takeChoice(freely() || { text: el("pinput").value });
         e.preventDefault();
         return;
       }
-      if (!prompting.narrow) {
-        const hit = prompting.choices.find((c) => c.key === k);
+      if (!promptNow().narrow) {
+        const hit = promptNow().choices.find((c) => c.key === k);
         if (k === "/")
           fieldMode("RET sets it · C-n/C-p walks · ESC leaves");
         // DEL is the popups' own rung — out of a surface with no inner ladder —
@@ -262,7 +262,7 @@
       const step = k === "<down>" || k === "C-n" ? 1
                  : k === "<up>" || k === "C-p" ? -1 : 0;
       if (step) walkChoices(step);
-      else if (k === "RET") takeChoice(prompting.shown[prompting.at] || freely());
+      else if (k === "RET") takeChoice(promptNow().shown[promptNow().at] || freely());
       else return;
       e.preventDefault();
     });

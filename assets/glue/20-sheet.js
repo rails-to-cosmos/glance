@@ -1066,7 +1066,7 @@
     };
     const postCommand = (body) => postJSON("/command", body).then(unwrap);
     const askFailed = (mine, name) => (e) => {
-      if (prompting === mine) unask();
+      if (promptNow() === mine) unask();
       append("cmd", "error", `${name} failed: ${e.message}`);
     };
     const VERBED = {

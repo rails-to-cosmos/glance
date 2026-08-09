@@ -42,7 +42,18 @@ wrappedWidgets =
     -- on the list; `!!edit' and `edit.o' name it where `openEdit' and
     -- `lediting' merely contain the letters.
   , ("40-popups.js", [ "table.", "query", "prompting", "SURFACES", "MAPS"
-                     , "socket", "!!edit", "edit.o", "drows", "crows" ]) ]
+                     , "socket", "!!edit", "edit.o", "drows", "crows" ])
+    -- The capture form takes the query, the columns, the entry on show and the
+    -- landing anchor as accessors, so the bindings themselves are on its list.
+  , ("30-capture.js", [ "can(table", "table.get", "SURFACES", "MAPS", "socket"
+                      , "crows", "drows", "editing.", "arriving =" ]) ]
+
+-- | The widget\'s BODY: what sits inside the wrapper, with the call site that
+-- SUPPLIES the dependencies left out. The call site names the very bindings the
+-- widget may not reach — that is what it is for — so checking the whole file
+-- would report every accessor it was handed.
+widgetBody :: T.Text -> T.Text
+widgetBody = T.unlines . takeWhile (not . T.isPrefixOf "    return {") . T.lines
 
 -- | PART with its comment-only lines out, so a name in prose is not a reach.
 glueCode :: FilePath -> IO T.Text
@@ -87,7 +98,7 @@ spec = testGroup "Self-containment"
     -- and listed here, one widget at a time.
   , testCase "a wrapped widget reaches around its arguments for nothing" $
       forM_ wrappedWidgets $ \(part, forbidden) -> do
-        body <- glueCode part
+        body <- widgetBody <$> glueCode part
         let reached = [ name | name <- forbidden, name `T.isInfixOf` body ]
         assertEqual (part <> " reaches past its argument list") [] reached
 

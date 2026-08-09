@@ -1,3 +1,13 @@
+// THE CAPTURE FORM AND THE VALUE PALETTE, behind an argument list
+// (docs/proposal-widget-files.md, step C).  What it takes from the shell and
+// the sheet -- the applied query, the view's columns, the entry on show, and
+// where point is owed after a capture -- arrives as accessors, since a handle
+// cannot carry a `let'.
+const Capture = ((deps) => {
+    const { CFG, EMPTY, active, append, askFailed, badgeColor, cells, docTitle, el,
+            failed, fire, getJSON, headline, keyName, part, planning, postCommand,
+            said, shown, targetOf, targets } = deps;
+    const { queryNow, colsNow, entryNow, arrivingNow, setArriving } = deps;
     // THE FORM'S OWN STATE, which the step-B seam had left in the sheet's file
     // (docs/proposal-widget-files.md): it is up or it is not, and shutting it
     // empties the fields the form itself drew.
@@ -32,8 +42,8 @@
     // The ONE tag the applied query names: the first positive `tag:' predicate
     // over a single ordinary value.  A starred word is a meta (`*archive*').
     function filteredTag() {
-      if (!query || typeof TableView.parseQuery !== "function") return "";
-      const named = TableView.parseQuery(query, cols.map((c) => c.key))
+      if (!queryNow() || typeof TableView.parseQuery !== "function") return "";
+      const named = TableView.parseQuery(queryNow(), colsNow().map((c) => c.key))
         .filter((t) => t.key === "tag" && !t.negated
                     && t.value && !t.value.includes("|") && !/^\*.*\*$/.test(t.value));
       return named.length ? named[0].value : "";
@@ -119,7 +129,7 @@
       if (tag) args.tag = tag;
       if (fields && Object.keys(fields).length) args.fields = fields;
       postCommand({ name: "capture", args }).then((a) => {
-        arriving = a.id || null;
+        setArriving(a.id || null);
         shutCapture();
         said(b, tag ? `captured · :${tag}:` : `captured · ${a.file}`);
         append("cmd", "info", `headline ${JSON.stringify(typed)} captured into ${a.file}`);
@@ -134,7 +144,7 @@
       k(b, ids, `${label} · ${rowsWord(ids.length)}`);
     }
     const docTargets = (b, label, k) =>
-      k(b, [editing.id], `${label} · ${docTitle()}`);
+      k(b, [entryNow().id], `${label} · ${docTitle()}`);
     function askState(b, ids, title) {
       const mine = ask(title,
         (c) => fire(b, "set-state", ids, { keyword: c.keyword },
@@ -365,3 +375,30 @@
       said(b, link.desc);
       append("cmd", "info", `link ${JSON.stringify(link.target)} opened`);
     }
+
+    // `prompting' is this widget's own, so it leaves as an answer.
+    const promptNow = () => prompting;
+    return { whichKeys, letterAt, CODES, ask, askFrom, askState, askTags, capUp, docTargets, entry,
+             fieldMode, foldTag, followLinks, freely, linksOf, mode, offer,
+             openCapture, openLink, overTargets, planRows, promptNow, raise,
+             rowsWord, shortly, shutCapture, tagFrom, takeChoice, unask,
+             walkChoices };
+})({ CFG, EMPTY, active, append, askFailed, badgeColor, cells, docTitle, el,
+     failed, fire, getJSON, headline, keyName, part, planning, postCommand,
+     said, shown, targetOf, targets,
+     // FORWARD deps go in as thunks: these are declared in later parts, and a
+     // wrapped part's exports are destructured `const's -- naming one here
+     // would read it before its initialiser has run.
+     showLinks: (...a) => showLinks(...a), showPopup: (...a) => showPopup(...a),
+     showTags: (...a) => showTags(...a), sole: (...a) => sole(...a),
+     queryNow: () => query, colsNow: () => cols, entryNow: () => editing,
+     arrivingNow: () => arriving, setArriving: (id) => { arriving = id; } });
+const { CODES, ask, askFrom, askState, askTags, capUp, docTargets, entry,
+        fieldMode, foldTag, followLinks, freely, linksOf, mode, offer,
+        openCapture, openLink, overTargets, planRows, promptNow, raise,
+        rowsWord, shortly, shutCapture, tagFrom, takeChoice, unask,
+        walkChoices } = Capture;
+// The suite drives these two as the pure functions they are, through a direct
+// `eval' -- where a `const' stays in the eval's own scope and a `var' reaches
+// the caller's.  The widget keeps them; this is how the harness sees them.
+var whichKeys = Capture.whichKeys, letterAt = Capture.letterAt;
