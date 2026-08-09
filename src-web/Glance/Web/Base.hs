@@ -118,8 +118,7 @@ gluePartFiles :: [FilePath]
 gluePartFiles =
   [ "00-core.js"       -- the config blob, the log strip, the wash, fetching, the query, the crumbs
   , "05-keys.js"       -- key naming and the echo pill, behind an argument list
-  , "10-document.js"   -- the materialize sheet's structured-document pane
-  , "20-panel.js"      -- the property panel, the edit overlay, the flag gesture, the sheet ladder
+  , "20-sheet.js"      -- the materialize sheet: both panes, the ladder, the opening
   , "30-capture.js"    -- the capture form and the value palette
   , "40-popups.js"     -- the link popup and the tags popup
   , "50-settings.js"   -- the settings sheet: tabs, saved views, the states table, the theme

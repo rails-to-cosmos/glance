@@ -117,8 +117,7 @@
     const soon = (fn) =>
       (typeof requestAnimationFrame === "function" ? requestAnimationFrame(fn)
                                                     : setTimeout(fn, 0));
-    let table = null, socket = null, backoff = 1000, editing = null;
-    let base = "", baseProps = null, raw = false;
+    let table = null, socket = null, backoff = 1000;
     let query = "", inflight = null, requeryAt = 0;
     let leaving = null;
     let arriving = null;
@@ -305,45 +304,3 @@
     const headline = (id, child) => getJSON(at(id, child));
     const post = (id, digest, asked, extra, child) =>
       postJSON(at(id, child), { ...asked, digest }, extra);
-    function materialize(id) {
-      headline(id).then((h) => show(h, false))
-        .catch((e) => append("sync", "error", `materialize failed: ${e.message}`));
-    }
-    function show(h, asRaw) {
-      editing = h; raw = !!asRaw;
-      el("mfile").textContent = `${h.file}  ·  ${h.id}`;
-      fill(h);
-      sync("synced");
-      el("modal").className = "on";
-      soon(remembered);
-      if (raw) el("mtext").focus(); else el("mtext").blur();
-    }
-    function fill(h) {
-      base = raw ? h.org : "";
-      el("mtext").value = base;
-      // TOGGLE, never assign: the class also carries the sheet's size tier.
-      el("sheet").classList.toggle("raw", raw);
-      shutEdit(DTITLE); shutEdit(DPARA);
-      docFill(h, raw);
-      drawProps(raw ? [] : h.properties || [], raw ? [] : h.planning || []);
-      el("mdoc").className = raw ? "" : "on";
-      drawWhere(h.path || []);
-      drawLog(raw ? "" : h.logbook || "");
-      baseProps = raw ? null : edited();
-    }
-    const edited = () => JSON.stringify([props(), planning()]);
-    function drawWhere(path) {
-      const bar = el("mwhere");
-      bar.textContent = "";
-      path.forEach((title, i) =>
-        part(bar, "span", "wc" + (i === path.length - 1 ? " wat" : ""),
-             title || "(untitled)"));
-    }
-    // Display-only: the file keeps the whole drawer, delimiters and all.
-    function drawLog(text) {
-      const inner = text.replace(/\n$/, "").split("\n").slice(1, -1).join("\n");
-      el("mlog").textContent = inner;
-      el("mlog").className = inner ? "on" : "";
-    }
-    const dirty = () => editing !== null
-      && (raw ? el("mtext").value !== base : edited() !== baseProps);

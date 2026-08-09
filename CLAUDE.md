@@ -895,6 +895,13 @@ measurements and the history of superseded designs live in
   top-level line naming another part's `function` is fine and naming its
   destructured `const` is a TDZ error, so `20-panel`'s backdrop closers are
   called at click time rather than named at registration time.
+- THE MATERIALIZE SHEET IS ONE FILE, `20-sheet.js`: both panes, the ladder, and
+  the opening (`materialize`/`show`/`fill`/`dirty`) that used to sit in the
+  floor. It owns `editing`, `raw`, `base` and `baseProps`. The step-B seam had
+  cut one widget into three, and every cycle that survived relocation was that
+  cut — a flush is ONE `POST /headline` carrying the document's body beside the
+  panel's properties and planning, so the pane that writes reads the pane that
+  does not.
 - ONE WIDGET, ONE FILE: the shell is `assets/glue/*.js`, concatenated by the TH
   splice in the order `Glance.Web.Base.gluePartFiles` declares (ORDER IS DATA,
   stated once). The parts are FRAGMENTS of one script scope rather than modules
