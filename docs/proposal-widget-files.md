@@ -289,3 +289,58 @@ A lesson worth keeping with the numbers: a measurement that has not been
 checked against a false positive is a claim. The first count of this graph
 read 45 dependencies for the document pane where the honest figure was
 lower, because locals and parameters were being counted as reaches.
+
+### Which parts are worth wrapping, and which are not
+
+Three are wrapped. The interface each one needed is the whole argument:
+
+| part | lines | in | out | verdict |
+| --- | --- | --- | --- | --- |
+| `05-keys.js` | 63 | 1 | 5 | a widget |
+| `40-popups.js` | 253 | 22 | 21 | a widget |
+| `30-capture.js` | 404 | 25 | 28 | a widget |
+| `50-settings.js` | 643 | **90** | 20 | not a widget |
+| `20-sheet.js` | 1225 | — | — | not yet measured, larger |
+| `00-core.js` | 308 | — | **70 out** | the FLOOR |
+| `70-shell.js` | 406 | **138** | 10 | the ROOT |
+
+A NINETY-NAME ARGUMENT LIST DOCUMENTS NOTHING. The three that wrapped have
+interfaces a reader can hold; the rest do not, and the reason is structural
+rather than fixable by more relocation: `00-core` is the floor every part
+stands on and `70-shell` is the root that composes them, so both are SUPPOSED
+to be wide. `50-settings` and `20-sheet` sit between — big surfaces with
+genuinely broad reach, and a wrapper around either states a boundary nobody
+could keep in their head.
+
+So step C is DONE at three, not seven. What it bought is real and bounded:
+three widgets whose reach is stated and enforced, a floor and a root that are
+now honestly named as such, and a graph with no cycles left in it.
+
+### Two shapes worth keeping, whatever comes next
+
+**Forward dependencies go in as thunks.** Wrapping turns a part's exports into
+destructured `const`s, so an earlier part naming one in an eagerly built
+dependency object reads it before its initialiser has run.
+`(...a) => showLinks(...a)` defers to call time, which is when it was always
+used. This is what makes any remaining wrap possible in any order.
+
+**A direct `eval` does not leak a `const`.** The suite drives `whichKeys` and
+`letterAt` as pure functions, which worked because a `function` declaration
+leaks out of a direct eval; inside a closure it does not. They leave through
+the handle and arrive as `var`.
+
+### What this means for a port
+
+The Elm question is better posed than it was. `20-sheet.js` is now ONE
+component — both panes, the ladder and the opening, owning `editing`, `raw`,
+`base`, `baseProps` — where before it was a model in the floor that four files
+poked. That is a coherent thing to port, and it has ZERO synchronous renderer
+calls, which is the property that decides whether ports can carry it.
+
+What still stands between it and a port is its size (1225 lines) and its reach
+(seven forward dependencies plus a wide floor). A port would have to take the
+DOM of both panes, and the four accessors it hands out (`editNow`, `dlinksNow`,
+`docCursor`, `docRowById`) become its port API. Nothing about that is blocked;
+it is simply a large piece of work that should be started with the interface
+measured rather than estimated — which is now possible, and was not this
+morning.
