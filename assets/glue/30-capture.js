@@ -318,10 +318,6 @@
     el("prompt").addEventListener("click", (e) =>
       { if (e.target === el("prompt")) unask(); });
     // A starred meta (docs/invariants.md): commits a null keyword under DEL.
-    const EMPTY = "*empty*";
-    const badgeColor = (keyword) =>
-      (((cols.find((c) => c.key === "state") || {}).badges || [])
-        .find((b) => b.value === keyword) || {}).color || "";
     // ONE parameter per id: a fallback row id is a path, a comma in one would
     // split it, and encoding cannot help — the server splits after decoding.
     const askIds = (route, ids) =>

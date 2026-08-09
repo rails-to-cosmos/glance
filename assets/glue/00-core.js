@@ -72,6 +72,13 @@
       return m ? m[1].toUpperCase() : (t ? t.toUpperCase() : null);
     };
     const priorityOf = (id) => priorityIn((rowOf(id).cells || {}).priority);
+    // Three more of the floor's, for the same reason: a constant, a lookup into
+    // the view's own badges, and a row by id over the rows this file holds.
+    const EMPTY = "*empty*";
+    const badgeColor = (keyword) =>
+      (((cols.find((c) => c.key === "state") || {}).badges || [])
+        .find((b) => b.value === keyword) || {}).color || "";
+    const rowOf = (id) => visible().concat(all).find((r) => r.id === id) || {};
     const WASH = { view: 300, socket: 400 };
     const wash = {
       n: { view: 0, socket: 0 }, at: { view: 0, socket: 0 },

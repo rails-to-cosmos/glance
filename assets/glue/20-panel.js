@@ -346,7 +346,6 @@
     const flagging = () => flagsOn(table);
     const isFlagged = (id) => flagging() && table.getFlagged().indexOf(id) !== -1;
     const isMarked = (id) => marking() && table.getMarked().indexOf(id) !== -1;
-    const rowOf = (id) => visible().concat(all).find((r) => r.id === id) || {};
     const titleOf = (id) => {
       const cell = (rowOf(id).cells || {}).title;
       const shown = typeof TableView.displayText === "function"

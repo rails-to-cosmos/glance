@@ -220,3 +220,43 @@ ways forward, and they are the real choice:
 
 The model move that preceded this attempt stands on its own either way: the
 document pane owns its state now, which is a prerequisite for both.
+
+### Breaking the cycles: what was accidental, and what is structural
+
+Eleven names moved down into the floor — `said`, `failed`, `keySaid`, `cycled`,
+`cells`, `column`, `visible`, `priorityIn`/`PRIORITY_RING`, `EMPTY`,
+`badgeColor`, `rowOf`. Each reads `echo`, `append`, `cols` or the renderer
+handle and nothing of the part it had settled in. Pure relocation, no test
+changed. Backward `const` dependencies:
+
+| part | before | after |
+| --- | --- | --- |
+| `10-document.js` | 18 | 9 |
+| `00-core.js` | 11 | 8 |
+| `20-panel.js` | 6 | 5 |
+| `50-settings.js` | 2 | 2 |
+
+WHAT IS LEFT IS NOT MISPLACEMENT. Read the remainder by owner:
+
+- `10-document` needs `props`, `planning`, `pediting`, `cancelRow` from the
+  panel, and `subtreeSheet`, `sync`, `stuck` — the sheet LADDER — from it too.
+- `00-core` needs `DPARA`/`DTITLE` from the document pane and `asked`,
+  `props`, `planning`, `sync` from the panel, because `fill`/`show` are the
+  sheet's own opening.
+
+THE MATERIALIZE SHEET IS ONE WIDGET CUT INTO THREE FILES. Its two panes and
+its ladder reference each other in every direction because they are one thing:
+a flush is one `POST /headline` carrying the document's body beside the panel's
+properties and planning, so the pane that writes must read the pane that does
+not. CLAUDE.md says as much already — "The sheet is two panes over one subtree"
+— and the (B) seam cut through it.
+
+So the cycles that remain are closed by a MERGE rather than by more moves: the
+sheet's three fragments become one widget, `sheet.js`, owning `editing`, `raw`,
+`base`, `baseProps`, both panes and the ladder. That is the next step, and it
+is the last one before `10-document`'s successor can be wrapped — or ported.
+
+The smaller residue is genuinely upward and stays: `20-panel` and
+`50-settings` need `momentary`/`typing` from the shell, which is the
+composition root answering about surfaces. A root is allowed to be needed;
+that is what makes it the root.
