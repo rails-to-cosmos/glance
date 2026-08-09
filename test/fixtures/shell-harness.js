@@ -649,8 +649,8 @@ globalThis.WebSocket = function () {
 // lets an act move the store and the table follow.  The two popups' are the
 // shell's own models and arrive through `setRows', so those instances keep what
 // they are handed.
-let mounts = 0, sets = 0, raises = 0, lmounts = 0;
-let tmounts = 0, tsets = 0;
+let mounts = 0, sets = 0, raises = 0;
+let lmounts = 0, tmounts = 0, tsets = 0;
 // Every row count the shell has ever handed the TABLE, in order: one entry per
 // mount and one per `setRows'.  A view swapping on its answer is one entry and
 // a view painted before its answer is two, so what a reader would have seen
@@ -688,7 +688,7 @@ const withSort = (q, chain) => tokensOf(q)
  * The table starts as a standing empty one so a boot that never got to mount —
  * the indexing poll, an offline daemon — still answers about a table rather
  * than throwing. */
-let main = null, lnk = null, tgs = null;
+let main = null;
 /** COL as a real column index, or null for the whole-row look — which is what a
  * column outside the table IS.  The real one's `cellCol', mirrored here because
  * the shell's cell movement hands the index one past an end straight back. */
@@ -831,7 +831,6 @@ const makeMount = (host, view, options, own) => {
     setRows: (list) => {
       if (m.own) {
         m.own = (list || []).slice();
-        if (m === tgs) tsets += 1;
       } else { sets += 1; paints.push((list || []).length); }
       keep();
     },
@@ -984,14 +983,8 @@ globalThis.TableView = {
   // call order, since a remount builds a second table long after any of the
   // others went up.
   mount: (host, view, options) => {
-    const popup = host === field("ltable");
-    const tagbox = host === field("ttable"), states = host === field("cstates");
-    const inst = makeMount(host, view, options,
-                           popup || tagbox || states ? [] : null);
-    if (popup) { lmounts += 1; lnk = inst; }
-    else if (tagbox) { tmounts += 1; tgs = inst; }
-    else if (states) { smounts += 1; sts = inst; }
-    else {
+    const inst = makeMount(host, view, options, null);
+    {
       mounts += 1; main = inst; paints.push(((view || {}).rows || []).length);
       // The renderer draws its filter box inside the mount, and the page finds
       // it by selector — so the stub has to put one where that selector looks.
@@ -1031,11 +1024,9 @@ const SORT_CALLS = ["sortBy", "sortPromote", "getSort", "setSort"];
 /** And the crumb trail, which `@' needs before it will drill at all. */
 const CRUMB_CALLS = ["setCrumbs", "getCrumbs", "pushCrumb", "popCrumb"];
 const strip = (h, names) => { for (const name of names) delete h[name]; };
-/** And the settings sheet's states table, the page's fifth mount. */
-let sts = null, smounts = 0;
 /** An older asset is one asset: every mount loses the calls it never had. */
 const stripLive = (names) => {
-  for (const inst of [main, lnk, tgs, sts]) if (inst) strip(inst.handle, names);
+  if (main) strip(main.handle, names);
 };
 // The one thing a key here does that leaves nothing on the page: the tab `o'
 // opens.  Recorded whole — the target, the tab name and the features — since
@@ -1379,12 +1370,23 @@ globalThis.addEventListener = () => {};
  */
 (0, eval)(fs.readFileSync(dir + "/elm.js", "utf8"));
 let pinits = 0, pfills = 0;
-const elmInit = globalThis.Elm.Panel.init;
-globalThis.Elm.Panel.init = (opts) => {
-  pinits += 1;
+const elmInit = globalThis.Elm.Listing.init;
+globalThis.Elm.Listing.init = (opts) => {
+  // WHICH LIST this is, by the element it was given — the same question the
+  // mount counters used to answer, asked of one program with four instances.
+  const host = opts && opts.node && opts.node.up ? opts.node.up.id : "";
+  if (host === "mptable") pinits += 1;
+  if (host === "ltable") lmounts += 1;
+  if (host === "ttable") tmounts += 1;
   const app = elmInit(opts);
-  const send = app.ports.panelIn.send;
-  app.ports.panelIn.send = (m) => { if (m && m.kind === "fill") pfills += 1; return send(m); };
+  const send = app.ports.listIn.send;
+  app.ports.listIn.send = (m) => {
+    if (m && m.kind === "setRows") {
+      if (host === "mptable") pfills += 1;
+      if (host === "ttable") tsets += 1;
+    }
+    return send(m);
+  };
   return app;
 };
 eval(fs.readFileSync(dir + "/shell.js", "utf8"));
@@ -1593,11 +1595,18 @@ const docFlagged = () => flatRows()
  * markup, class for class, and what a reader has in front of them is exactly
  * that.  The same turn the document pane took when it stopped being a mount.
  */
-const prowEls = () => field("mptable").querySelectorAll("tbody tr");
-const panel = () => prowEls().map((tr) => tr.children.map((td) => td.textContent));
-const patAt = () => prowEls().findIndex((tr) => wears(tr, "tv-sel"));
-const pflaggedIds = () => prowEls().filter((tr) => wears(tr, "tv-flagged"))
+const listEls = (host) => field(host).querySelectorAll("tbody tr");
+const listCells = (host) =>
+  listEls(host).map((tr) => tr.children.map((td) => td.textContent));
+const listAt = (host) => listEls(host).findIndex((tr) => wears(tr, "tv-sel"));
+const listFlagged = (host) => listEls(host).filter((tr) => wears(tr, "tv-flagged"))
   .map((tr) => tr.getAttribute("data-id"));
+const listHint = (host) =>
+  (field(host).querySelector(".tv-hint") || { textContent: "" }).textContent;
+const listCols = (host) =>
+  field(host).querySelectorAll("thead .tv-hn").map((h) => h.textContent);
+const panel = () => listCells("mptable");
+const patAt = () => listAt("mptable");
 /**
  * Which field has the focus, named the way an act names one: `mtext' for raw
  * mode's textarea, and the document's or a popup's overlay fields by their own
@@ -1809,20 +1818,14 @@ const ACTIONS = {
   // writes the row the overlay OPENED over.
   click: (at) => {
     const i = Number(at);
-    // The panel draws its own rows, so the click goes to the ROW, which is the
-    // path a reader's does; the two popups are still mounts and answer to one.
-    if (field("modal").className === "on") {
-      const rows = prowEls();
-      if (!(i >= 0 && i < rows.length))
-        throw new Error(`no row ${at} to click in the panel`);
-      rows[i].fire("click", { target: rows[i] });
-      return;
-    }
-    const m = field("links").className === "on" ? lnk : tgs;
-    if (!m) throw new Error(`no modal mount to click in: click:${at}`);
-    if (!(i >= 0 && i < m.own.length))
-      throw new Error(`no row ${at} to click in the mount`);
-    m.sit(i);
+    // Every small list draws its own rows, so the click goes to the ROW — the
+    // path a reader's takes, and the widget's own handler answers it.
+    const host = field("modal").className === "on" ? "mptable"
+      : field("links").className === "on" ? "ltable" : "ttable";
+    const rows = listEls(host);
+    if (!(i >= 0 && i < rows.length))
+      throw new Error(`no row ${at} to click in ${host}`);
+    rows[i].fire("click", { target: rows[i] });
   },
   // The settings sheet's theme select, driven the way a reader drives it: focus
   // it, pick a theme, and let the change event fire.  What it is here to show is
@@ -1953,10 +1956,10 @@ const ACTIONS = {
   },
   // Landing the states table's cursor on the row for one keyword.
   sat: (state) => {
-    if (!sts) throw new Error("the states table is not mounted: sat");
-    const row = sts.own.find((r) => r.cells.state === state);
+    const rows = listEls("cstates");
+    const row = rows.find((tr) => tr.children[1].textContent === state);
     if (!row) throw new Error(`no state row for ${state}`);
-    sts.handle.select(row.id);
+    row.fire("click", { target: row });
   },
   // And what the open edit overlay's three fields hold: `sfields:NAME/GROUP/HUE'
   // — an empty part leaves that field as it was.
@@ -2214,12 +2217,10 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     // is, whether it is the thing holding the keys, and which of its rows carry
     // a delete flag — plus the mount options the gesture reads.
     props: panel(), pat: patAt(), pnav: field("mprops").className === "on",
-    pinits, pfills, pflagged: pflaggedIds(),
-    // The two column headers it draws, and the line naming the flag keys.
-    pcols: field("mptable").querySelectorAll("thead .tv-hn").map((h) => h.textContent),
-    // Empty until a sheet opens: the program is built on the first materialize.
-    pflagHelp: (field("mptable").querySelector(".tv-hint") || { textContent: "" })
-      .textContent,
+    pinits, pfills, pflagged: listFlagged("mptable"),
+    // The columns it draws, and the line naming the flag keys.  Both empty
+    // until a sheet opens: the program is built on the first materialize.
+    pcols: listCols("mptable"), pflagHelp: listHint("mptable"),
     focus: focused(),
     // Every POST the syncs sent, and which SUBTREE each was aimed at — the row,
     // or an entry inside it — beside every subtree a GET asked for.
@@ -2270,8 +2271,9 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     // mounted with — no marks, no flags, no hint line, no page.
     popup: field("links").className, lhead: field("lhead").textContent,
     lfoot: field("lfoot").textContent, lmounts,
-    llinks: cellsOf(lnk, ["type", "title", "url"]), lat: curOf(lnk),
-    ...mountFields("l", lnk),
+    llinks: listCells("ltable"), lat: listAt("ltable"),
+    lcols: listCols("ltable"), lflagged: listFlagged("ltable"),
+    lflagHelp: listHint("ltable"),
     // The link popup's edit overlay: whether a link is open for editing and what
     // its two fields are holding.
     lopen: field("ledit").className === "on",
@@ -2285,9 +2287,9 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     tfoot: field("tfoot").textContent, tmounts, tsets,
     // Spelled, since the count cell is a number and the other two are words:
     // one shape for a reader to assert against.
-    ttags: cellsOf(tgs, ["title", "on", "rows"]).map((cells) => cells.map(String)),
-    tat: curOf(tgs),
-    ...mountFields("t", tgs),
+    ttags: listCells("ttable"), tat: listAt("ttable"),
+    tcols: listCols("ttable"), tflagged: listFlagged("ttable"),
+    tflagHelp: listHint("ttable"),
     // The rename overlay: whether a tag is open for editing and what its one
     // field is holding.
     trename: field("tedit").className === "on", tname: field("tname").value,
@@ -2321,8 +2323,8 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
     // The states table: one `TAG|STATE|GROUP|COLOUR' per row, in the order the
     // mount holds them, plus how many times it was mounted and where its
     // cursor is.
-    chues: cellsOf(sts, ["tag", "state", "group", "colour"]).map((c) => c.join("|")),
-    smounts, sat: curOf(sts),
+    chues: listCells("cstates").map((c) => c.join("|")),
+    sat: listAt("cstates"), sflagged: listFlagged("cstates"),
     // The states table's edit overlay, and what its three fields hold.
     sedit: field("sedit").className,
     sfields: [field("sname").value, field("sgroup").value, field("shue").value],

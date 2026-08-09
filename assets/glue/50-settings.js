@@ -161,10 +161,7 @@
     }
     function statesMounted() {
       if (smount) return smount;
-      smount = mountOnce("cstates", SCOLS, {
-        palette: true, flags: true, actionHints: false,
-        flagHelp: "d/D remove · u unflag",
-      }, "cstates");
+      smount = listing("cstates", SCOLS, "d/D remove · u unflag", "cstates");
       return smount;
     }
     const stateLabel = (r) => (r.layer ? layerName(r.layer) : "file");

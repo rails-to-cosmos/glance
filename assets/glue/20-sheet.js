@@ -419,74 +419,69 @@
     const docRowById = (id) => drows.find((x) => x.id === id);
     /** The checkbox under point, when the stop there has one. */
     const checkboxHere = () => checkboxAt(drows[dat]);
-    // THE PANEL IS AN ELM PROGRAM, `assets/elm/src/Panel.elm\': it owns the rows,
-    // the cursor and the delete flags, and it draws them where a table-view
-    // mount used to be.  This side keeps a MIRROR of the state Elm pushes back,
-    // because a port round trip costs a macrotask and the readers below are
-    // synchronous — every one of them runs at the top of a key handler, a turn
-    // after whatever moved the model last.
-    let prows = [], pat = -1, pflags = [], pseq = 0;
-    let pport = null, ptook = null;
-    // Caught in the CAPTURE phase, so the scroller inside PANE need not be named.
-    function mountOnce(host, cols, opts, pane) {
-      const m = TableView.mount(el(host), { columns: cols, rows: [] }, opts);
-      el(pane).addEventListener("scroll", placeEdit, true);
-      return m;
+    // THE SHELL'S SMALL LISTS ARE ONE ELM PROGRAM, `assets/elm/src/Listing.elm\',
+    // mounted once per surface: the property panel here, the link and tags
+    // popups, and the settings sheet's states table.  What a row MEANS stays
+    // with the surface — this side keeps the rows — and the widget draws them,
+    // holds the cursor and the delete flags, and says where point is.
+    //
+    // The handle it hands back is the shape `flagKey\', `stepIn\' and
+    // `selectedId\' already ask for, so no call site knows the difference.
+    // READS answer off the mirror, which is a macrotask behind and correct
+    // because every reader runs at the top of a key handler.
+    function listing(host, cols, hint, pane) {
+      // `Browser.element\' REPLACES the node it is given, so it takes a child
+      // and HOST survives as the container an overlay is anchored inside.
+      const ports = Elm.Listing.init({ node: part(el(host), "div", ""),
+                                       flags: { cols, hint: hint || "" } }).ports;
+      const seen = { at: -1, id: "", ids: [], flags: [] };
+      ports.listState.subscribe((now) => Object.assign(seen, now));
+      // Caught in the CAPTURE phase, so the scroller inside PANE need not be named.
+      if (pane) el(pane).addEventListener("scroll", placeEdit, true);
+      return {
+        get el() { return el(host); },
+        at: () => seen.at,
+        onClick: (f) => ports.listClicked.subscribe(f),
+        setRows: (rows, at) =>
+          ports.listIn.send({ kind: "setRows", rows, at: at === undefined ? null : at }),
+        select: (id) => ports.listIn.send({ kind: "select", id }),
+        selectStep: (by) => ports.listIn.send({ kind: "step", by }),
+        getSelection: () => ({ id: seen.id || null }),
+        flagRow: (id) => ports.listIn.send({ kind: "flag", id }),
+        unflagRow: (id) => ports.listIn.send({ kind: "unflag", id }),
+        getFlagged: () => seen.flags.slice(),
+        clearFlags: () => ports.listIn.send({ kind: "clearFlags" }),
+      };
     }
+    const PCOLS = [ { key: "key", header: "Key" },
+                    { key: "value", header: "Value" } ];
+    let prows = [], pseq = 0, pmount = null;
     function mounted() {
-      if (pport) return pport;
-      // `Browser.element\' REPLACES the node it is given, so it takes a child and
-      // `#mptable\' survives as the container `anchorOf\' queries.
-      pport = Elm.Panel.init({ node: part(el("mptable"), "div", ""),
-                               flags: "d/D delete · u unflag" }).ports;
-      pport.panelState.subscribe((now) => {
-        prows = now.rows; pat = now.at; pflags = now.flags;
-      });
-      pport.panelOpen.subscribe((row) => openEdit(PROW, row));
-      // The delete's echo rides the answer rather than a second copy of the
-      // rule: Elm says which planning rows it CLEARED, and `pdelete\' left the
-      // wording it was called with here.
-      pport.panelTook.subscribe((cleared) => {
-        if (!ptook) return;
-        const also = cleared.join(", ");
-        echo(`D → org-delete-property (${ptook.how(ptook.n)}`
-             + `${also ? ` · ${also} cleared` : ""})`);
-        ptook = null;
-      });
-      el("mprops").addEventListener("scroll", placeEdit, true);
-      return pport;
+      if (pmount) return pmount;
+      pmount = listing("mptable", PCOLS, "d/D delete · u unflag", "mprops");
+      return pmount;
     }
-    const psend = (m) => mounted().panelIn.send(m);
-    /**
-     * The panel's handle, the shape `flagKey\' and the movement keys ask for —
-     * `dmount\' one pane over is the same idea over a `Set\'.  Reads answer off
-     * the mirror; writes go out as ports.
-     */
-    const pmount = {
-      get el() { return el("mptable"); },
-      selectStep: (by) => psend({ kind: "step", by }),
-      getSelection: () => ({ id: pat === -1 ? null : (prows[pat] || {}).id }),
-      flagRow: (id) => psend({ kind: "flag", id }),
-      unflagRow: (id) => psend({ kind: "unflag", id }),
-      getFlagged: () => pflags.slice(),
-      clearFlags: () => psend({ kind: "clearFlags" }),
-    };
+    const prowsOf = () =>
+      prows.map((r) => ({ id: r.id, cells: { key: r.key, value: r.val } }));
+    const repaint = (at) => mounted().setRows(prowsOf(), at);
     function drawProps(list, plan) {
       pseq = 0;
       shutEdit(PROW);
       el("mprops").className = "";   // and the panel gives the keys back
       const held = new Map(plan || []);
-      const rows = PLANNING.map((key) =>
+      prows = PLANNING.map((key) =>
         ({ id: `PLN:${key}`, key, val: held.get(key) || "", fixed: true }))
         .concat(list.map((p) => ({ id: `P${pseq++}`, key: p[0], val: p[1], fixed: false })));
-      // SEEDED with what is being sent, so `baseProps\' can be taken in this same
-      // turn.  Every other mutation waits for Elm, whose rules decide it.
-      prows = rows; pat = 0; pflags = [];
-      psend({ kind: "fill", rows, at: rows[0].id });
+      // `setRows\' keeps flags deliberately, so a new drawer must ask for the drop.
+      mounted().clearFlags();
+      repaint(prows[0].id);
     }
-    const patAt = () => pat;
+    const patAt = () => prows.findIndex((r) => r.id === selectedId(pmount));
     function addProperty() {
-      psend({ kind: "add", id: `P${pseq++}` });
+      const id = `P${pseq++}`;
+      prows.push({ id, key: "", val: "", fixed: false });
+      repaint(id);
+      openRow();
     }
     const props = () => prows
       .filter((r) => !r.fixed)
@@ -521,13 +516,22 @@
     // The row is the one the overlay OPENED over, never the one point is on now.
     function commitRow() {
       const r = edit.row;
-      psend({ kind: "commit", id: r.id, key: el("pkey").value, val: el("pval").value });
+      if (!r.fixed) r.key = el("pkey").value;
+      r.val = el("pval").value;
       shutEdit(PROW);
+      repaint();
     }
     const cancelRow = () => cancelEdit("row", PROW);
+    // A PLANNING ROW IS CLEARED AND STAYS, since an empty value is already how
+    // an entry is absent; a property is DROPPED.
     function pdelete(ids, how) {
-      ptook = { how, n: ids.length };
-      psend({ kind: "delete", ids });
+      const gone = new Set(ids);
+      const cleared = prows.filter((r) => gone.has(r.id) && r.fixed);
+      for (const r of cleared) r.val = "";
+      prows = prows.filter((r) => r.fixed || !gone.has(r.id));
+      repaint();
+      const also = cleared.map((r) => r.key).join(", ");
+      echo(`D → org-delete-property (${how(ids.length)}${also ? ` · ${also} cleared` : ""})`);
     }
     // Registers AHEAD of the dispatch, so it sees a key first — CLAUDE.md (UI).
     document.addEventListener("keydown", (e) => {
@@ -579,7 +583,7 @@
       none: "org-delete-property (no row)",
       unflag: "delete-unflag (flag cleared)",
       flag: "delete-flag (d again deletes)",
-      at: () => (pat === -1 ? null : (prows[pat] || {}).id),
+      at: () => { const i = patAt(); return i === -1 ? null : prows[i].id; },
     };
     // This mount is a Set of ids rather than a renderer, so `missing' is unreachable.
     const DFLAGS = {

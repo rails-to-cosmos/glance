@@ -26,7 +26,7 @@ RENDERER := ../table-view/web/table-view.js
 # same shape as `check-glue' -- nothing installed, no lockfile, no node_modules.
 elm:
 	@if command -v npx >/dev/null 2>&1; then \
-	  cd assets/elm && npx --yes elm make src/Panel.elm src/Doc.elm --optimize --output=../elm.js; \
+	  cd assets/elm && npx --yes elm make src/Listing.elm src/Doc.elm --optimize --output=../elm.js; \
 	else echo "elm: no npx on PATH -- assets/elm.js left as committed"; fi
 
 # THE SCANNER'S OWN TESTS, and they are OUT of `cabal test' on purpose: elm-test

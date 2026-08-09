@@ -895,31 +895,30 @@ measurements and the history of superseded designs live in
   top-level line naming another part's `function` is fine and naming its
   destructured `const` is a TDZ error, so `20-panel`'s backdrop closers are
   called at click time rather than named at registration time.
-- THE PROPERTY PANEL IS AN ELM PROGRAM, `assets/elm/src/Panel.elm` — the one
-  thing on the page that is not vanilla JS. It owns the ROWS, the CURSOR and the
-  DELETE FLAGS and it draws them, where the renderer's list widget used to be
-  mounted. What it draws is the RENDERER'S OWN MARKUP, class for class
-  (`.tv-root.tv-pal` > `.tv-scroll` > `table.tv-table` > `tbody` > `tr.tv-alt` /
-  `.tv-sel` / `.tv-flagged` > `td`), because the served stylesheet is written
-  against it — `#mprops:not(.on) .tv-table tbody tr.tv-sel` and the rest — so the
-  theme and the palette keep working untouched.
-- AND THE SHELL MIRRORS WHAT IT PUSHES BACK. A port round trip costs a full
-  MACROTASK (measured: a shadow is null after `send`, still null after a
-  microtask, filled after `setTimeout(…, 0)`), and every reader here is
-  synchronous — `props()`, `planning()`, `patAt()`, `flagKey`'s `getFlagged()`.
-  They are correct because each runs at the TOP of a key handler, a turn after
-  whatever moved the model last. TWO reads were in the same turn as their write
-  and both moved: `+` now opens its overlay off the `panelOpen` port rather than
-  reading the cursor back, and `drawProps` SEEDS the mirror with the rows it is
-  sending, which is the one value this side already knows. The delete's echo
-  rides `panelTook` for the same reason — Elm says which planning rows it
-  CLEARED rather than the rule being spelled twice.
-- `pmount` IS AN ADAPTER, the shape `flagKey` and the movement keys ask for,
-  reading the mirror and writing ports. `dmount` one pane over is the same idea
-  over a `Set`, and it is the precedent: `flagKey`'s surfaces were never
-  renderer-only.
+- THE SHELL'S SMALL LISTS ARE ONE ELM PROGRAM, `assets/elm/src/Listing.elm`,
+  mounted FOUR times: the sheet's property panel, the link popup, the tags popup
+  and the settings sheet's states table. Each is a list of RECORDS under declared
+  columns with a cursor, optional delete flags and a click that selects — which
+  is the whole widget. What a row MEANS stays with the surface, so every one of
+  them keeps its own rows, as three of the four always did.
+- THE ONE LIST THAT IS NOT ELM'S is the table at `#app`. That is the renderer's
+  own job — hundreds of virtualized rows, filtering, sorting, marks and the crumb
+  trail — and the doctrine line "the renderer is the app's ONE list widget" is
+  now narrower and truer: it draws THE TABLE, and Elm draws the small lists the
+  shell composes.
+- `listing(host, cols, hint, pane)` HANDS BACK THE SHAPE ALREADY ASKED FOR —
+  `getSelection`, `selectStep`, `flagRow`, `unflagRow`, `getFlagged`,
+  `clearFlags`, `setRows`, `el` — so `flagKey`, `stepIn` and `selectedId` never
+  learned that a mount became a program. `dmount` one pane over is the same idea
+  over a `Set`.
+- FLAGS COME BACK IN THE ORDER THEY WERE LAID DOWN, oldest first, never in row
+  order: a caller firing one command per flag runs them the way the reader
+  pressed them, and `p` walks either way. The tags popup's `D` is the case that
+  pins it.
+- A CELL IS DRAWN AS TEXT whatever it arrives as — the tags popup's count is a
+  NUMBER — so the decoder takes a string, an int or a float.
 - `assets/elm.js` is a COMMITTED BUILD INPUT like `assets/table-view.js`,
-  carrying BOTH programs (`elm make Panel.elm Doc.elm` emits one file),
+  carrying BOTH programs (`elm make Listing.elm Doc.elm` emits one file),
   embedded by `Routes`' `embeddedElm` splice and named as the page's THIRD
   `<script src>`. `make elm` refreshes it, and reproduces the committed bytes.
   The toolchain is ephemeral `npx --yes elm` — the Makefile's own
@@ -928,10 +927,16 @@ measurements and the history of superseded designs live in
   The runtime costs 182 KB raw and 38 KB gzipped, which is what the wire
   carries — less than the renderer's 78 KB or the shell's 41 KB. Minifying
   would take it to 13 KB gzipped; nothing does, and no step needs to.
-- THE HARNESS READS THE PANEL OFF WHAT IT DREW, since there is no mount to ask —
-  the same turn the document pane took. What survives as a counter is the pair of
-  questions the mount counters answered: `pinits` (built once) and `pfills` (one
-  hand-over per drawer), taken by wrapping `Elm.Panel.init` and `panelIn.send`.
+- THE HARNESS READS EVERY SMALL LIST OFF WHAT IT DREW, since there is no mount
+  to ask — one reading (`listCells`/`listAt`/`listFlagged`/`listCols`/`listHint`)
+  per host, the same turn the document pane took. The counters survive by asking
+  WHICH list an init was for, off the host element: `Elm.Listing.init` and
+  `listIn.send` are wrapped once and answer for all four.
+- AND NOTHING HERE REBUILDS THE ELM, so a broken `make elm` ships green — it did
+  once, when hand-added test dependencies left the indirect list short. What is
+  asserted offline is that `assets/elm.js` carries every program the target
+  NAMES and that each of those sources is on disk, which catches a module
+  renamed, added or dropped without a rebuild.
 - THE PANE'S PURE HALF IS `Scan.elm`, and it is split out so it can be ASKED:
   the structure scanner, the parse into rows, the splice, and the readings a
   cursor moves by, over plain `List String` and `List Row` rather than the

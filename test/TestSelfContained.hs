@@ -112,6 +112,29 @@ spec = testGroup "Self-containment"
     -- A vendored file with no way to refresh it is a fork, so the loop that
     -- ends in `assets/table-view.js' has to stay written down somewhere the
     -- next reader runs into.
+    -- THE COMMITTED ELM IS WHAT SHIPS, and nothing here rebuilds it: the suite
+    -- reads `assets/elm.js' off disk, so a `make elm' that has stopped working
+    -- goes green.  It bit once already — test dependencies added by hand left
+    -- the indirect list short and elm refused the whole set.  What CAN be
+    -- asserted offline is that the asset carries every program the target
+    -- names, and that each of those sources is on disk; a module renamed,
+    -- added or dropped without a rebuild fails here.
+  , testCase "the committed Elm carries every program the build names" $ do
+      makefile <- TIO.readFile "Makefile"
+      let target = T.takeWhile (/= '\n')
+                 . snd . T.breakOn "npx --yes elm make" $ makefile
+          mains = [ T.drop 4 (T.dropEnd 4 w)
+                  | w <- T.words target, "src/" `T.isPrefixOf` w, ".elm" `T.isSuffixOf` w ]
+      assertBool ("no Elm sources named in the target: " <> show target)
+                 (length mains >= 2)
+      built <- TIO.readFile "assets/elm.js"
+      forM_ mains $ \m -> do
+        there <- doesFileExist ("assets/elm/src" </> T.unpack m <> ".elm")
+        assertBool ("the target names src/" <> T.unpack m <> ".elm, which is not there") there
+        assertBool ("assets/elm.js carries no " <> T.unpack m
+                      <> " — `make elm' has not been run since it was named")
+                   (("'" <> m <> "':") `T.isInfixOf` built)
+
   , testCase "the vendored renderer has a target that refreshes it" $ do
       makefile <- TIO.readFile "Makefile"
       holdsAll "the Makefile no longer refreshes the vendored renderer"

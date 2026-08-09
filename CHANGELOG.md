@@ -12,6 +12,11 @@ section groups a feature arc, and its date is that arc's last commit.
 ## Unreleased
 
 ### Changed
+- **Every small list on the page is drawn by Elm.** One widget serves four
+  surfaces — the sheet's property panel, the link popup, the tags popup and the
+  settings sheet's states table — where each used to be its own table-view
+  mount. The table itself is unchanged and stays the renderer's. Every key,
+  cursor and flag behaves as it did.
 - **The materialize sheet is drawn by Elm — both panes.** The document pane
   follows the property panel: `assets/elm/src/Doc.elm` owns the structure
   scanner, the parse, the splice that composes a body back, the two-axis cursor

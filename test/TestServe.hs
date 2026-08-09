@@ -1714,9 +1714,9 @@ tagKeySpec shell =
                     "tags · 1 row" =<< textAt "thead" answer
         assertEqual "one request, naming the row" ["/tags?ids=r1"]
           =<< textsAt "tagged" answer
-        assertEqual "one mount, built on the first raise" 1 =<< intAt "tmounts" answer
-        assertEqual "the columns the shell declared" ["title", "on", "rows"]
-          =<< traverse (textAt "key") =<< listAt "tcols" answer
+        assertEqual "one list, built on the first raise" 1 =<< intAt "tmounts" answer
+        assertEqual "under the headers the shell declared" ["Tag", "On", "Rows"]
+          =<< textsAt "tcols" answer
 
     -- A ROW IS A RECORD: the tag, how much of the set carries it, and what the
     -- whole tree has under it.  The third is the server's count and the one
@@ -1728,15 +1728,12 @@ tagKeySpec shell =
                     "RET renames · d flags · D removes · + adds · ESC leaves"
           =<< textAt "tfoot" answer
 
-    -- MUTABLE, and stated in the mount: flags for the removal gesture, no marks
-    -- (the set this runs over is the TABLE's and was settled before it went up),
-    -- no per-row hint and no page.
-  , atBoot tagged "the mount is mutable: flags on, marks off, no hints, no page" $ \answer -> do
-        assertEqual "marks off" False =<< boolAt "tmarks" answer
-        assertEqual "flags on" True =<< boolAt "tflags" answer
-        assertEqual "hints off" False =<< boolAt "thints" answer
-        assertEqual "no page size, so the whole list is on show" 0
-          =<< intAt "tpage" answer
+    -- MUTABLE, and the flag gesture is what says so.  There is no mark column
+    -- and no page: the set this runs over is the TABLE's and was settled before
+    -- it went up, and every tag of it is on screen.
+  , atBoot tagged "the list is mutable: it flags, and says which keys do it" $ \answer -> do
+        assertEqual "nothing flagged before a key says so" []
+          =<< textsAt "tflagged" answer
         assertEqual "and the flag's own hint names the two keys that answer it"
                     "d/D remove · u unflag" =<< textAt "tflagHelp" answer
 
@@ -1782,7 +1779,7 @@ tagKeySpec shell =
           =<< postedOf answer
         -- Mounted once and kept, like the panel and the link popup: a write is
         -- a `setRows' over the same instance, never a second mount.
-        assertEqual "still one mount" 1 =<< intAt "tmounts" answer
+        assertEqual "still one list" 1 =<< intAt "tmounts" answer
         assertEqual "and a repaint for the raise and for what landed" 2
           =<< intAt "tsets" answer
         assertEqual "as the tag the row named" ["web"] =<< tagsPosted answer
@@ -2300,10 +2297,10 @@ openKeySpec shell =
         assertEqual "raised" "on" =<< textAt "popup" answer
         assertEqual "no value palette went up" "" =<< textAt "prompt" answer
         assertEqual "titled by the count" "open · 3 links" =<< textAt "lhead" answer
-        assertEqual "one mount, built on the first raise" 1
+        assertEqual "one list, built on the first raise" 1
           =<< intAt "lmounts" answer
-        assertEqual "the columns the shell declared" ["type", "title", "url"]
-          =<< traverse (textAt "key") =<< listAt "lcols" answer
+        assertEqual "under the headers the shell declared" ["Type", "Headline", "Target"]
+          =<< textsAt "lcols" answer
 
     -- The rows carry the server's own three answers, in the order the subtree
     -- writes them: the type it derived, the description the entry itself wrote,
@@ -2318,15 +2315,10 @@ openKeySpec shell =
         assertEqual "and the foot names the three keys that work"
                     "RET edits · o opens it · ESC leaves" =<< textAt "lfoot" answer
 
-    -- READ-ONLY, and stated in the mount rather than inherited: nothing here
-    -- writes, so a mark column, a flag wash and a per-row hint would each be
-    -- chrome about a gesture the popup does not have.
-  , atBoot opened "the mount is read-only: no marks, no flags, no hints, no page" $ \answer -> do
-        assertEqual "marks off" False =<< boolAt "lmarks" answer
-        assertEqual "flags off" False =<< boolAt "lflags" answer
-        assertEqual "hints off" False =<< boolAt "lhints" answer
-        assertEqual "and no page size, so the whole list is on show" 0
-          =<< intAt "lpage" answer
+    -- READ-ONLY: nothing here writes, so there is no flag hint to draw and no
+    -- gesture the popup would answer with one.
+  , atBoot opened "the list is read-only: it names no flag keys" $ \answer ->
+        assertEqual "no flag hint under it" "" =<< textAt "lflagHelp" answer
 
     -- The whole point of `typing()' counting the popup: every `table' row is
     -- dead under it, so the keys that WRITE do nothing at all while a reader is
@@ -2337,7 +2329,6 @@ openKeySpec shell =
           assertEqual "nothing was flagged, here or in the table" []
             =<< textsAt "lflagged" answer
           assertEqual "nor in the table under it" [] =<< textsAt "flagged" answer
-          assertEqual "nothing was marked" [] =<< textsAt "lmarked" answer
           assertEqual "nor there" [] =<< textsAt "marked" answer
           assertEqual "and no command was posted" [] =<< namesOf answer
           assertEqual "the popup is still up" "on" =<< textAt "popup" answer
@@ -4611,7 +4602,6 @@ settingsSpec shell =
     -- and this sheet cannot move it, so it is here to be COLOURED.
   , keyed shell "the states table is every keyword the tree knows, by layer"
       "," "ctab:theme" $ \answer -> do
-        assertEqual "one mount for it" 1 =<< intAt "smounts" answer
         -- System first then the tags alphabetically — the layer select's own
         -- order — and inside a layer its `#+TODO:' line left to right, actives
         -- before the done-like.  A word TWO layers declare is TWO rows: a state
@@ -6183,9 +6173,9 @@ shellGlue =
   -- because the suite's page has no layout for a geometry read to find.
   , Glue "the tags popup is a mutable mount with a rename overlay"
       [ "const TCOLS = "
-      , "tmount = mountOnce(\"ttable\", TCOLS,"
-      , "{ palette: true, marks: false, flags: true, actionHints: false,"
-      , "flagHelp: \"d/D remove · u unflag\" },"
+      , "tmount = listing(\"ttable\", TCOLS, \"d/D remove · u unflag\", \"tpane\");"
+      , "tmount = listing(\"ttable\", TCOLS, \"d/D remove · u unflag\", \"tpane\");"
+      , "const managing = () => !!tagging;"
       -- The overlay is the SHARED mechanism over one cell: the popup declares a
       -- shape and nothing about the gesture is spelled twice.
       , "cells: [\"title\"], cols: TCOLS,"
@@ -6479,10 +6469,10 @@ shellGlue =
       -- flags and draws them.  This side keeps a MIRROR of what it pushes back,
       -- since a port round trip costs a macrotask and every reader here is
       -- synchronous.
-      , "pport = Elm.Panel.init({ node: part(el(\"mptable\"), \"div\", \"\"),"
-      , "                               flags: \"d/D delete · u unflag\" }).ports;"
-      , "        prows = now.rows; pat = now.at; pflags = now.flags;"
-      , "const psend = (m) => mounted().panelIn.send(m);"
+      , "pmount = listing(\"mptable\", PCOLS, \"d/D delete · u unflag\", \"mprops\");"
+      , "const repaint = (at) => mounted().setRows(prowsOf(), at);"
+      , "      ports.listState.subscribe((now) => Object.assign(seen, now));"
+      , "const prowsOf = () =>"
       , "function addProperty() {"
       , "else if (k === \"+\") addProperty();"
       -- Trimmed both sides, since the server hands them over trimmed: what the
@@ -6791,7 +6781,7 @@ shellGlue =
       -- list spliced in rather than a regex this page runs over the target a
       -- second time.  What the mount was given and what the foot says are the
       -- popup cases' business, which read them off behaviour.
-      , "lmount = mountOnce(\"ltable\", LCOLS,"
+      , "lmount = listing(\"ltable\", LCOLS, \"\", \"lpane\");"
       , "const followable = (l) => FOLLOWABLE.indexOf(l.type) !== -1;" ]
       -- No bracket grammar here: `[[T][D]]' is read where `displayText' is.  No
       -- which-key letters either: the popup replaced them, so nothing assigns
@@ -6864,7 +6854,7 @@ shellGlue =
   , Glue "the page reads a cursor, a hop and a verb in one place each"
       [ "const selectedId = (mount) =>"
       , "(can(mount, \"getSelection\") ? (mount.getSelection() || {}).id : null) || null;"
-      , "const patAt = () => pat;"
+      , "const patAt = () => prows.findIndex((r) => r.id === selectedId(pmount));"
       , "const at = selectedId(lmount);"
       , "const at = selectedId(tmount);"
       , "function hop() {"

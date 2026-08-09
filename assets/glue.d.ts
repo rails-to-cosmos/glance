@@ -10,27 +10,27 @@ interface Window {
   webkit?: { messageHandlers?: Record<string, { postMessage(v: any): void }> };
 }
 
-/**
- * ONE PANEL ROW, the shape both sides of the port agree on: a property, or one
- * of the three fixed planning entries whose key is org's and whose delete
- * CLEARS rather than drops.  `assets/elm/src/Panel.elm' decodes exactly this.
- */
-interface PanelRow {
+/** ONE ROW of a small list: an id, its cells by column key, and an optional ink. */
+interface ListRow {
   id: string;
-  key: string;
-  val: string;
-  fixed: boolean;
+  cells: Record<string, string | number>;
+  colour?: string;
 }
 
-/** The whole model, pushed back after every change for the shell to mirror. */
-interface PanelState {
-  rows: PanelRow[];
+/** Where point is and what is flagged, pushed back after every change. */
+interface ListState {
   at: number;
   id: string;
+  ids: string[];
   flags: string[];
 }
 
-/** A stop in the document pane: a headline line, a body element, or a child. */
+interface ListPorts {
+  listIn: { send(m: { kind: string } & Record<string, any>): void };
+  listState: { subscribe(f: (s: ListState) => void): void };
+  listClicked: { subscribe(f: (id: string) => void): void };
+}
+
 interface DocRow {
   id: string;
   kind: string;
@@ -68,16 +68,14 @@ interface DocPorts {
   };
 }
 
-interface PanelPorts {
-  panelIn: { send(m: { kind: string } & Record<string, any>): void };
-  panelState: { subscribe(f: (s: PanelState) => void): void };
-  panelOpen: { subscribe(f: (r: PanelRow) => void): void };
-  panelTook: { subscribe(f: (cleared: string[]) => void): void };
-}
-
-// The Elm programs, compiled from `assets/elm' and served beside the shell:
-// the property panel and the sheet's document pane.
+// The Elm programs, compiled from `assets/elm' and served beside the shell: the
+// small-list widget (four instances) and the sheet's document pane.
 declare const Elm: {
-  Panel: { init(opts: { node: any; flags: string }): { ports: PanelPorts } };
+  Listing: {
+    init(opts: {
+      node: any;
+      flags: { cols: { key: string; header: string }[]; hint: string };
+    }): { ports: ListPorts };
+  };
   Doc: { init(opts: { node: any }): { ports: DocPorts } };
 };

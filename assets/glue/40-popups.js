@@ -4,7 +4,7 @@
 // reassigns, so it arrives as the ACCESSOR `editNow' -- a destructured `let' is
 // a copy of whatever it held at boot.
 const Popups = ((deps) => {
-    const { CFG, again, askFrom, cancelEdit, echo, el, failed, fire, foldTag, mountOnce,
+    const { CFG, again, askFrom, cancelEdit, echo, el, failed, fire, foldTag, listing,
             openEdit, remembered, rowsWord, said, selectedId, shortly, shutEdit,
             sole, soon, stepIn, tagFrom, unlogged } = deps;
     const editNow = deps.editNow;
@@ -14,9 +14,7 @@ const Popups = ((deps) => {
     const linking = () => !!opening;
     function linksMounted() {
       if (lmount) return lmount;
-      lmount = mountOnce("ltable", LCOLS,
-        { palette: true, marks: false, flags: false, actionHints: false },
-        "lpane");
+      lmount = listing("ltable", LCOLS, "", "lpane");
       return lmount;
     }
     function showLinks(b, id, answer) {
@@ -92,10 +90,7 @@ const Popups = ((deps) => {
     const managing = () => !!tagging;
     function tagsMounted() {
       if (tmount) return tmount;
-      tmount = mountOnce("ttable", TCOLS,
-        { palette: true, marks: false, flags: true, actionHints: false,
-          flagHelp: "d/D remove · u unflag" },
-        "tpane");
+      tmount = listing("ttable", TCOLS, "d/D remove · u unflag", "tpane");
       return tmount;
     }
     // First-seen order: an alphabetical insert would move rows under the cursor.
@@ -243,7 +238,7 @@ const Popups = ((deps) => {
              linking, managing, openLinkEdit, openRename, pointedLink,
              renameTag, renaming, showLinks, showPopup, showTags, shutLinks,
              shutTags, TFLAGS };
-})({ CFG, again, askFrom, cancelEdit, echo, el, failed, fire, foldTag, mountOnce,
+})({ CFG, again, askFrom, cancelEdit, echo, el, failed, fire, foldTag, listing,
      openEdit, remembered, rowsWord, said, selectedId, shortly, shutEdit,
      sole, soon, stepIn, tagFrom, unlogged,
      editNow: () => edit });
