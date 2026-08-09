@@ -501,6 +501,11 @@ section groups a feature arc, and its date is that arc's last commit.
   parameter and the fragment off.
 
 ### Fixed
+- **`set-planning` takes `+1y`.** Org spells four units and its parser reads all
+  four, but this one reader hand-wrote three — so `+1y` parsed everywhere and
+  was refused here alone, by a message that did not mention `y` either way.
+  `unitOf` reads `unitChar` backwards, so the parser's units and this reader's
+  are one list, and the refusal sentence is derived from it.
 - **A repeating entry whose date org did not zero-pad now repeats.** `<2026-08-8
   Sat +2d>` is a timestamp org reads — its parser takes each part as a run of
   digits — but the shift scanned a fixed ten-character window, missed the date

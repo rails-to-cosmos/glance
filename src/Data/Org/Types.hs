@@ -52,7 +52,10 @@ module Data.Org.Types ( Context (..)
                       , stripSpans
                       , tsBrackets
                       , typeChar
+                      , addUnit
+                      , relativeForms
                       , unitChar
+                      , unitOf
                       ) where
 
 import Data.List (find, foldl', intersperse, nub, sortOn)
@@ -543,6 +546,24 @@ unitChar Days = 'd'
 unitChar Weeks = 'w'
 unitChar Months = 'm'
 unitChar Years = 'y'
+
+-- | The unit LETTER spells, 'unitChar' read backwards -- org's whole charset,
+-- so a reader of a relative date and the parser answer over one list and a
+-- fifth unit reaches both.
+unitOf :: Char -> Maybe TimestampUnit
+unitOf c = find ((== c) . unitChar) [minBound ..]
+
+-- | DAY moved N of UNIT on, org's own calendar arithmetic.
+addUnit :: TimestampUnit -> Integer -> Time.Day -> Time.Day
+addUnit Days   n = Time.addDays n
+addUnit Weeks  n = Time.addDays (7 * n)
+addUnit Months n = Time.addGregorianMonthsClip n
+addUnit Years  n = Time.addGregorianYearsClip n
+
+-- | The relative forms a reader may spell, as the sentence a refusal lists --
+-- derived, so a unit added to 'TimestampUnit' is offered rather than forgotten.
+relativeForms :: Text
+relativeForms = T.intercalate ", " [ "+1" <> T.singleton (unitChar u) | u <- [minBound ..] ]
 
 -- | T under FMT in the default locale — the one @formatTime@ spelling.
 spelled :: Time.FormatTime t => String -> t -> Text

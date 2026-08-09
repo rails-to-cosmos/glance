@@ -196,7 +196,8 @@ import Data.Org ( Context, Element (EHeadline), Headline
                 , isTagChar, levelOf
                 , metaCategory
                 , orgParse, priority, schedule, shiftSpan, sliceSpan, spans, spelled
-                , repeaterFormat, tags, title, todo, tsBrackets )
+                , addUnit, relativeForms, repeaterFormat, tags, title, todo
+                , tsBrackets, unitOf )
 import Data.Org.Config ( ConfigLayerFile (..), ConfigLayers (..), TodoKeywords (..)
                        , builtinAgenda, builtinFilter, captureTargetEdits, captureTargetIn
                        , captureTargetOf, classify, configDirIn, configDirsIn
@@ -2097,13 +2098,6 @@ repeatDay today interval day
   where
     once = addUnit (repeaterUnit interval) (fromIntegral (repeaterValue interval))
 
--- | DAY moved N of UNIT on, org's own calendar arithmetic.
-addUnit :: TimestampUnit -> Integer -> Time.Day -> Time.Day
-addUnit Days   n = Time.addDays n
-addUnit Weeks  n = Time.addDays (7 * n)
-addUnit Months n = Time.addGregorianMonthsClip n
-addUnit Years  n = Time.addGregorianYearsClip n
-
 -- | TEXT with every date in it moved one repeat on, or 'Nothing' where it
 -- carries no repeater.  The rule as a function of TEXT ALONE, which is what the
 -- suite exercises; `repeatOn` reads the interval off the parsed headline
@@ -2602,8 +2596,9 @@ planningTimestamp today text
   where
     want      = T.strip text
     bracketed = any (`T.isPrefixOf` want) timestampOpeners
-    refusal   = Left (text <> " is not a date: spell it 2026-08-05, 2026-08-05 09:30,"
-                        <> " +3d, +2w, +1m, today, tomorrow, or org's own <2026-08-05 Wed>")
+    refusal   = Left (text <> " is not a date: spell it 2026-08-05, 2026-08-05 09:30, "
+                        <> relativeForms
+                        <> ", today, tomorrow, or org's own <2026-08-05 Wed>")
 
     -- One rendering site: a relative form and a bare ISO date differ in how the
     -- DAY is worked out and in nothing else, and a @+3d@ can never parse as ISO,
@@ -2613,14 +2608,14 @@ planningTimestamp today text
       "today"    -> Just today
       "tomorrow" -> Just (Time.addDays 1 today)
       offset     -> shifted offset
+    -- ORG'S WHOLE CHARSET, through the one reverse map: the parser reads four
+    -- units and this read three, so `+1y' parsed everywhere and was refused
+    -- here alone.
     shifted offset = do
       digits <- T.stripPrefix "+" offset
-      (n, unit) <- either (const Nothing) Just (TR.decimal digits :: Either String (Integer, Text))
-      case unit of
-        "d" -> Just (Time.addDays n today)
-        "w" -> Just (Time.addDays (7 * n) today)
-        "m" -> Just (Time.addGregorianMonthsClip n today)
-        _no -> Nothing
+      (n, rest) <- either (const Nothing) Just (TR.decimal digits :: Either String (Integer, Text))
+      (c, "") <- T.uncons rest
+      (\u -> addUnit u n today) <$> unitOf c
 
     asDay :: Maybe Time.Day
     asDay = Time.parseTimeM True Time.defaultTimeLocale "%Y-%m-%d" (T.unpack want)

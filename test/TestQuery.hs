@@ -2149,7 +2149,10 @@ commandSpec = testGroup "Commands"
         , ("+0d",                   "<2026-08-01 Sat>")
         , ("+3d",                   "<2026-08-04 Tue>")
         , ("+2w",                   "<2026-08-15 Sat>")
-        , ("+1m",                   "<2026-09-01 Tue>") ]
+        , ("+1m",                   "<2026-09-01 Tue>")
+        -- ORG'S WHOLE CHARSET: the parser reads four units, so this reader
+        -- takes four.  `+1y' parsed as a repeater and was refused here alone.
+        , ("+1y",                   "<2027-08-01 Sun>") ]
 
       -- THE COMPUTED BRANCH CHECKS NOTHING OF ITS OWN.  Only an already-
       -- bracketed value is reparsed before it is kept, so what the other three
@@ -2161,8 +2164,18 @@ commandSpec = testGroup "Commands"
                  Left why    -> assertFailure (T.unpack text' <> " refused: " <> T.unpack why)
                  Right stamp -> assertBool (T.unpack stamp <> " does not reparse")
                                            (readsAsTimestamp stamp))
-              [ "today", "tomorrow", "+3d", "+2w", "+1m"
+              [ "today", "tomorrow", "+3d", "+2w", "+1m", "+1y"
               , "2026-08-05", "2026-08-05 09:30", "2026-08-05 9:05" ]
+
+      -- AND THE REFUSAL LISTS WHAT IT TAKES, derived off `TimestampUnit' rather
+      -- than spelled: a unit the parser gains is offered here rather than
+      -- silently missing from the sentence.
+    , testCase "the refusal names every relative form there is" $
+        case planningTimestamp today "next tuesday" of
+          Right stamp -> assertFailure ("accepted: " <> T.unpack stamp)
+          Left why    -> mapM_ (\form -> assertBool (T.unpack (form <> " unnamed: " <> why))
+                                                    (form `T.isInfixOf` why))
+                               ["+1d", "+1w", "+1m", "+1y"]
 
     , testCase "and everything else is refused, by name" $ mapM_ refuses
         [ "", "   ", "next tuesday", "05/08/2026", "2026-13-01", "+3", "+3x", "-3d"

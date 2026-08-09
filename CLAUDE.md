@@ -479,7 +479,9 @@ measurements and the history of superseded designs live in
   leading one where the entry ends its line, and takes the WHOLE LINE when it was
   the last entry. Clearing what was never there costs no edit. `planningTimestamp`
   parses once per request against the server's today: a bracketed value is kept
-  verbatim once it REPARSES, `today`/`tomorrow` and `+Nd`/`+Nw`/`+Nm` work a date
+  verbatim once it REPARSES, `today`/`tomorrow` and `+N` in ANY unit org spells
+  (`unitOf`, `unitChar` read backwards, so the parser's four reach this reader
+  and the refusal sentence lists them from `relativeForms`) work a date
   out, a bare ISO date takes an optional `HH:MM`. Everything else is a 400.
 - `setPriorityEdits` is `setStateEdits`' three shapes one part along: a token
   already there is its own span; a headline with none takes `" [#X]"` behind the
