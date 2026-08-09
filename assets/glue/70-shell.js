@@ -3,6 +3,18 @@
     // carries one.  The value palette has none — it is a keystroke's answer
     // rather than a place, and a link with nothing typed into it would restore
     // an empty question.
+    /** @typedef {object} Surface
+     * @property {string} name         what `momentary()' answers with.
+     * @property {boolean} [momentary] raised over the sheet rather than beside it.
+     * @property {() => boolean} up    is it on screen.
+     * @property {() => void} [off]    close it; absent means ESC falls through.
+     * @property {() => boolean} [edit] is an edit open INSIDE it.
+     * @property {() => void} [shut]   close that edit and leave the surface up.
+     * @property {(id?: string|null) => void} [open]  raise it from `?page='.
+     * @property {boolean} [rowed]     it needs a row, so its URL carries one.
+     * @property {() => string} [panel] the panel it is showing, as the fragment.
+     */
+    /** @type {Surface[]} */
     const SURFACES = [
       { name: "prompt", momentary: true, up: () => !!prompting, off: unask },
       { name: "capture", momentary: true, up: capUp, off: shutCapture,
@@ -200,7 +212,7 @@
       if (e.defaultPrevented) return;
       const k = keyName(e);
       if (!k) return;
-      const keys = pending.concat([k]);
+      const keys = pendingKeys().concat([k]);
       const here = MAPS.rows.filter(live);
       const opens = (b) => keys.every((key, i) => b.keys[i] === key);
       const hit = here.find((b) => b.keys.length === keys.length && opens(b));
@@ -214,7 +226,7 @@
         if (!selecting()) { e.preventDefault(); prefix(keys); }
         return;
       }
-      if (!pending.length) return;   // not ours; the browser keeps it
+      if (!pendingKeys().length) return;   // not ours; the browser keeps it
       prefix([]);
       if (MAPS.reserved.indexOf(k) === -1) e.preventDefault();
       echo(`${keys.join(" ")} is undefined`);

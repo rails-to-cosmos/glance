@@ -15,12 +15,12 @@
   },
   "files": [
     "glue/00-core.js",
+    "glue/05-keys.js",
     "glue/10-document.js",
     "glue/20-panel.js",
     "glue/30-capture.js",
     "glue/40-popups.js",
     "glue/50-settings.js",
-    "glue/60-keys.js",
     "glue/70-shell.js",
     "glue.d.ts"
   ]

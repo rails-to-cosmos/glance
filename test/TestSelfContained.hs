@@ -18,7 +18,7 @@
 -- be re-asserting the type checker.
 module TestSelfContained (spec) where
 
-import Control.Monad (filterM)
+import Control.Monad (filterM, forM_)
 import Data.List (isPrefixOf, (\\))
 import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
 import System.FilePath (takeExtension, (</>))
@@ -29,6 +29,20 @@ import TestDefaults (holdsAll)
 
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
+
+-- | The parts converted to step C, each with the shell state it must not name.
+-- The renderer handle and the shell's own view state are what a widget would
+-- reach for around its arguments, and what a port to another language could
+-- not take with it.
+wrappedWidgets :: [(FilePath, [T.Text])]
+wrappedWidgets =
+  [ ("05-keys.js", [ "table.", "cols", "query", "editing", "prompting"
+                   , "SURFACES", "MAPS", "socket" ]) ]
+
+-- | PART with its comment-only lines out, so a name in prose is not a reach.
+glueCode :: FilePath -> IO T.Text
+glueCode part = strip <$> TIO.readFile ("assets/glue" </> part)
+  where strip = T.unlines . filter (not . T.isPrefixOf "//" . T.stripStart) . T.lines
 
 spec :: TestTree
 spec = testGroup "Self-containment"
@@ -53,6 +67,31 @@ spec = testGroup "Self-containment"
       assertEqual "a part on disk the build never reads" [] (found \\ gluePartFiles)
       stray <- doesFileExist "assets/glue.js"
       assertBool "assets/glue.js is back — the parts are the source" (not stray)
+
+    -- A WIDGET REACHES ONLY WHAT IT WAS HANDED — and JS does nothing to hold
+    -- that, since the parts share one script scope and an IIFE still sees every
+    -- name around it.  The argument list DOCUMENTS the boundary; this keeps it.
+    --
+    -- A MUST-NOT-APPEAR LIST rather than an allowlist, the idiom this suite
+    -- already uses for renderer internals: an allowlist over a shared scope
+    -- cannot tell a local `t' from a foreign one without a parser, where a
+    -- denylist over the names that MATTER is exact.  What matters is the state
+    -- a widget must not reach around its arguments for.
+    --
+    -- `docs/proposal-widget-files.md' step C.  A part joins by being wrapped
+    -- and listed here, one widget at a time.
+  , testCase "a wrapped widget reaches around its arguments for nothing" $
+      forM_ wrappedWidgets $ \(part, forbidden) -> do
+        body <- glueCode part
+        let reached = [ name | name <- forbidden, name `T.isInfixOf` body ]
+        assertEqual (part <> " reaches past its argument list") [] reached
+
+    -- And the wrapper says what it takes, so the list above and the code agree.
+  , testCase "a wrapped widget declares its dependencies in its header" $
+      forM_ wrappedWidgets $ \(part, _forbidden) -> do
+        body <- glueCode part
+        assertBool (part <> " is not wrapped: no `((deps) => {' header")
+                   ("= ((" `T.isInfixOf` body && "})(" `T.isInfixOf` body)
 
     -- A vendored file with no way to refresh it is a fork, so the loop that
     -- ends in `assets/table-view.js' has to stay written down somewhere the

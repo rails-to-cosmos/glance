@@ -1,3 +1,8 @@
+// KEY NAMING AND THE ECHO PILL, the shell's first widget behind an argument
+// list (docs/proposal-widget-files.md, step C).  It takes `el' and nothing
+// else, so what it may reach is stated rather than inherited from the script
+// scope every other part still shares.
+const Keys = ((el) => {
     const NAMED = { Enter: "RET", Tab: "TAB", " ": "SPC", Escape: "ESC",
       Backspace: "DEL", Delete: "<delete>", ArrowUp: "<up>", ArrowDown: "<down>",
       ArrowLeft: "<left>", ArrowRight: "<right>", Home: "<home>", End: "<end>",
@@ -47,12 +52,12 @@
       echo(`${shown} -`, true);
       pendingAt = setTimeout(() => { pending = []; echo(`${shown} - timed out`); }, 2000);
     }
-    /** @typedef {object} Surface
-     * @property {string} name         what `momentary()' answers with.
-     * @property {boolean} [momentary] raised over the sheet rather than beside it.
-     * @property {() => boolean} up    is it on screen.
-     * @property {() => void} [off]    close it; absent means ESC falls through.
-     * @property {() => boolean} [edit] is an edit open INSIDE it.
-     * @property {() => void} [shut]   close that edit and leave the surface up.
-     */
-    /** @type {Surface[]} */
+
+    // `pending' is the widget's own and leaves as an ANSWER rather than as the
+    // array: the dispatch reads what is held, `prefix' is the only way to move it.
+    const pendingKeys = () => pending.slice();
+    return { echo, keyName, prefix, pendingKeys, repeating };
+})(el);
+// Consumers keep their spelling: the boundary is what the widget may SEE, and
+// renaming forty call sites would buy nothing the argument list has not.
+const { echo, keyName, prefix, pendingKeys, repeating } = Keys;

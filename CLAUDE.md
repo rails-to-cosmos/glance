@@ -875,6 +875,17 @@ measurements and the history of superseded designs live in
 - NO SOURCE FILE names an absolute path outside the repo. `TestSelfContained`
   sweeps every `.hs` under `src*/` and `app/` for `/home/`, and asserts what it
   swept first so an empty sweep cannot pass.
+- AND A WRAPPED WIDGET TAKES ITS DEPENDENCIES: step C of
+  docs/proposal-widget-files.md, one widget at a time. `05-keys.js` is the
+  first — `const Keys = ((el) => { … return {…} })(el)`, its body at the same
+  indentation it always had, so wrapping costs no re-indentation and consumers
+  destructure the handle and keep their spelling. THE ARGUMENT LIST DOCUMENTS
+  THE BOUNDARY AND JS DOES NOT HOLD IT: the parts share one script scope, so
+  the IIFE still sees every name around it and `tsc` says nothing. The
+  enforcement is `TestSelfContained`'s `wrappedWidgets` — a MUST-NOT-APPEAR
+  list per widget, this suite's own idiom, because an allowlist over a shared
+  scope cannot tell a local `t` from a foreign one without a parser. State
+  a widget must never reach for goes on its list.
 - ONE WIDGET, ONE FILE: the shell is `assets/glue/*.js`, concatenated by the TH
   splice in the order `Glance.Web.Base.gluePartFiles` declares (ORDER IS DATA,
   stated once). The parts are FRAGMENTS of one script scope rather than modules
