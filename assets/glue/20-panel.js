@@ -179,7 +179,6 @@
       flag: "delete-flag (d again deletes)",
       at: () => docCursor().at,
     };
-    const keySaid = (k) => (what) => echo(`${k} → ${what}`);
     // The held-key guard is here: `ONCE' governs dispatch rows, these three live outside.
     const flagPress = (k, e, shape) => {
       if (k !== "d" && k !== "D" && k !== "u") return false;
@@ -286,7 +285,6 @@
     });
 
     // The renderer virtualizes; the DOM read is the fallback for an older asset.
-    const visible = () => (table ? table.getVisible() : []);
     const focusedId = () => {
       if (cells()) return table.getSelection().id;
       const tr = /** @type {HTMLElement | null} */
@@ -310,8 +308,6 @@
       pick(list, at === -1 ? (step > 0 ? 0 : list.length - 1) : at + step);
     }
     // The COMMAND is verbatim — a rebinding config addresses a function by this string.
-    const said = (b, what) =>
-      echo(`${b.seq} → ${b.command}${what ? ` (${what})` : ""}`);
     const pager = () => can(table, "nextPage") && can(table, "pageInfo");
     const pageNow = () => (pager() ? table.pageInfo().page : 1);
     const sorts = () => can(table, "sortPromote");
@@ -337,8 +333,6 @@
       const at = table.pageInfo();
       said(b, `page ${at.page}/${at.pages}`);
     }
-    const cells = () => can(table, "getSelection");
-    const column = () => (cells() ? table.getSelection().col : null);
     function moveCol(b, step) {
       if (!cells()) { said(b, "this table-view.js has no cell selection"); return; }
       const at = column(), want = at === null ? 0 : at + step;
@@ -381,10 +375,6 @@
       return id ? [id] : [];
     };
     const postCommand = (body) => postJSON("/command", body).then(unwrap);
-    const failed = (b, name) => (e) => {
-      said(b, e.message);
-      append("cmd", "error", `${name} failed: ${e.message}`);
-    };
     const askFailed = (mine, name) => (e) => {
       if (prompting === mine) unask();
       append("cmd", "error", `${name} failed: ${e.message}`);
@@ -481,19 +471,7 @@
       unflag: "flag cleared",
       flag: "flagged — d again archives",
     });
-    const PRIORITY_RING = [null, "C", "B", "A"];
-    const cycled = (now, step) => {
-      const at = PRIORITY_RING.indexOf(now || null);
-      const n = PRIORITY_RING.length;
-      return PRIORITY_RING[((at === -1 ? 0 : at) + (step > 0 ? 1 : n - 1)) % n];
-    };
     // `priorityLetter' on the page's side of the wire.
-    const priorityIn = (cell) => {
-      const t = String(cell || "").trim();
-      const m = /^\[#(.)\]$/.exec(t);
-      return m ? m[1].toUpperCase() : (t ? t.toUpperCase() : null);
-    };
-    const priorityOf = (id) => priorityIn((rowOf(id).cells || {}).priority);
     // `args' is one object per call, so a MIXED set is one command per landing value.
     async function cyclePriority(b, step) {
       const ids = targets();

@@ -45,6 +45,33 @@
      */
     const el = (id) =>
       /** @type {any} */ (document.getElementById(id));
+    // THE FLOOR'S OWN HELPERS, moved down from the panel where they had settled
+    // (docs/proposal-widget-files.md, step C).  Each reads `echo', `append' or
+    // the renderer handle and nothing of the panel's, and living ABOVE the parts
+    // that need them is what made those parts unwrappable: a `const' declared
+    // later is a TDZ error in an eagerly built dependency object.
+    const keySaid = (k) => (what) => echo(`${k} → ${what}`);
+    const cells = () => can(table, "getSelection");
+    const column = () => (cells() ? table.getSelection().col : null);
+    const visible = () => (table ? table.getVisible() : []);
+    const said = (b, what) =>
+      echo(`${b.seq} → ${b.command}${what ? ` (${what})` : ""}`);
+    const failed = (b, name) => (e) => {
+      said(b, e.message);
+      append("cmd", "error", `${name} failed: ${e.message}`);
+    };
+    const PRIORITY_RING = [null, "C", "B", "A"];
+    const cycled = (now, step) => {
+      const at = PRIORITY_RING.indexOf(now || null);
+      const n = PRIORITY_RING.length;
+      return PRIORITY_RING[((at === -1 ? 0 : at) + (step > 0 ? 1 : n - 1)) % n];
+    };
+    const priorityIn = (cell) => {
+      const t = String(cell || "").trim();
+      const m = /^\[#(.)\]$/.exec(t);
+      return m ? m[1].toUpperCase() : (t ? t.toUpperCase() : null);
+    };
+    const priorityOf = (id) => priorityIn((rowOf(id).cells || {}).priority);
     const WASH = { view: 300, socket: 400 };
     const wash = {
       n: { view: 0, socket: 0 }, at: { view: 0, socket: 0 },
