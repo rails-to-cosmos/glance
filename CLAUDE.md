@@ -155,11 +155,15 @@ measurements and the history of superseded designs live in
 - `Asked` is what a request resolved before any row was touched — the day, and
   `set-planning`'s rendered stamp — read from one clock and handed to every row
   function, `ConfigParts`' reason: the next request-level value joins the record
-  rather than widening ten signatures. `csNotes` is the command table's fourth
-  field, so WHICH commands record something is data beside WHAT they edit; only
-  `set-state` carries one, and the line rides `writeSpans`' success branch where
-  `noteExternalWrite` sits one layer down in `replaceSpans`. The two notes are
-  at two layers because they are keyed differently: a blob's note off the PATH
+  rather than widening ten signatures.
+- A ROW'S ANSWER CARRIES BOTH: `RowWrite` is the spans a command moves and the
+  ledger line riding their success, so `set-state`'s repeat decides once. Two
+  table fields would have to agree about org's two-part condition, and asking
+  them apart ran `repeatOn` — and so `keywordSources` — twice a row for one
+  write. Nine commands answer through `plain`, which is the spans and nothing
+  recorded. The line goes out from `writeOne`'s success branch, where
+  `noteExternalWrite` sits one layer down in `replaceSpans`: the two notes are
+  at two layers because they are keyed differently — a blob's off the PATH
   written, a completion off the SERVED ROOT, which no write door carries.
 - The drift FIX is a one-file contract: every successful write to a BLOB
   (`isBlob` — `data.org` in the canonical store) appends `{"id","at"}` to
@@ -371,7 +375,7 @@ measurements and the history of superseded designs live in
   `glance-internal`; cells are sliced from spans and the view `Value` is
   hand-built — no `ToJSON` on an internal type (SCHEMA.md is the contract).
 - Commands: one route, `POST /command {name, id | ids, args, digests?}`, over ONE
-  table — `commands`, name to `{argument shape, dated, edits, records}`. Ten
+  table — `commands`, name to `{argument shape, dated, edits}`. Ten
   entries: `set-state`, `set-planning`, `set-title`, `set-priority`, `archive`,
   `capture`, `add-tag`, `remove-tag`, `rename-tag`, `edit-link`. `rename-tag`
   names both ends and is a command rather than a remove plus an add: those two
