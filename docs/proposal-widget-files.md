@@ -179,3 +179,44 @@ operations — `docClear()`, `docRestore(at, col)`, `docShow(h)`. Three call
 sites, five bindings. That is the most valuable single change left here: it
 turns the document pane from a model in core that four files poke into a
 component, and nothing can be ported until it is one.
+
+### The rule that decides which parts can wrap, measured
+
+A wrapper evaluates its dependency object EAGERLY, at the point the part sits
+in the concatenation. So a part can be wrapped exactly when every name it needs
+is already bound there. Function declarations hoist and cost nothing; a `const`
+or `let` declared in a LATER part is a TDZ error the moment the object is built.
+
+Counting backward dependencies — names a part needs that a later part declares:
+
+| part | late deps | of them `const`/`let` | wrapped? |
+| --- | --- | --- | --- |
+| `05-keys.js` | 0 | 0 | yes |
+| `40-popups.js` | 4 | 0 | yes |
+| `30-capture.js` | 4 | 0 | not tried |
+| `50-settings.js` | 5 | 2 | no |
+| `20-panel.js` | 12 | 6 | no |
+| `00-core.js` | 22 | 11 | no |
+| `10-document.js` | 25 | 18 | no |
+
+THE TWO THAT WRAPPED ARE EXACTLY THE TWO WITH NO LATE `const`. That is the
+whole rule, and hoisting is what had been hiding it: the shell has genuine
+cycles — the document pane needs `pediting`, `cancelRow` and `props` from the
+panel, and the panel needs `momentary`, `settings` and `configSheet` from the
+settings sheet and the shell.
+
+So the remaining parts cannot be converted one at a time in this order. Two
+ways forward, and they are the real choice:
+
+1. **A composition root.** Every part defines a factory and NOTHING else;
+   a final part constructs them in dependency order and destructures the
+   handles. This is what step C originally described. It is a flag day — a
+   part that still uses free bindings cannot read a converted part's exports
+   at its own top level, so the conversion is all-or-nothing.
+2. **Break the cycles first.** Move the shared pieces down into the floor
+   (`00-core`) or up into the root (`70-shell`) until the graph is acyclic,
+   then convert bottom-up one at a time as before. `10-document`'s 18 late
+   `const`s are the measure of that work.
+
+The model move that preceded this attempt stands on its own either way: the
+document pane owns its state now, which is a prerequisite for both.
