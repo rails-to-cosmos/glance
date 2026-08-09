@@ -1,23 +1,10 @@
-// THE MATERIALIZE SHEET, one widget over two panes (docs/proposal-widget-files.md).
-// The step-B seam cut it into three files, and the cycles that survived every
-// relocation were all this: a flush is ONE `POST /headline' carrying the
-// document's body beside the panel's properties and planning, so the pane that
-// writes must read the pane that does not.  CLAUDE.md's own words for it are
-// "two panes over one subtree".
-//
-// Its model lives here now -- the entry on show, whether the sheet is raw, and
-// what it was opened holding, which is what `dirty' compares against.
+// THE MATERIALIZE SHEET: two panes over one subtree, and one flush carrying
+// both — CLAUDE.md (UI), docs/proposal-widget-files.md.
     let editing = null;
     let base = "", baseProps = null, raw = false;
-    // THE PANE'S OWN MODEL, which lived in the core while four files wrote it
-    // (docs/proposal-widget-files.md, step C).  It is this widget's now, and
-    // what the others need of it they ask for by name below.
-    // THE DOCUMENT PANE IS AN ELM PROGRAM, `assets/elm/src/Doc.elm': it owns the
-    // parse, the rows, the two-axis cursor, the grain and the delete flags, and
-    // it draws them.  This side keeps a MIRROR of what it pushes back — the same
-    // arrangement the property panel is under, and for the same reason: a port
-    // round trip costs a macrotask and every reader here is synchronous, running
-    // at the top of a key handler a turn after whatever moved the model last.
+    // THE DOCUMENT PANE IS AN ELM PROGRAM (`assets/elm/src/Doc.elm').  The
+    // MIRROR below is a macrotask behind it, which every reader here survives by
+    // running at the top of a key handler — CLAUDE.md (UI).
     const DCELLS = CFG.dcells;
     let drows = [], dat = 0, dcol = null, dgrain = "element";
     let dflags = [], dbody = "", dlinks = [];
@@ -27,6 +14,18 @@
       return { key: k, val, colour: val ? badgeColor(val, k) : "" };
     });
     const shown = (r) => (r.cells || []).filter((c) => c.val);
+    /**
+     * THE FIVE CALLS A FLAG SURFACE OWES, over whichever program holds its rows.
+     * `flagKey' and the movement keys ask for exactly these, and every surface
+     * answers them the same way — a port out, the mirror in.
+     */
+    const flagPort = (send, held) => ({
+      flagRow: (id) => send({ kind: "flag", id }),
+      unflagRow: (id) => send({ kind: "unflag", id }),
+      getFlagged: () => held().slice(),
+      clearFlags: () => send({ kind: "clearFlags" }),
+      selectStep: (by) => send({ kind: "step", by }),
+    });
     function docPane() {
       if (dport) return dport;
       dport = Elm.Doc.init({ node: part(el("dlist"), "div", "") }).ports;
@@ -43,17 +42,9 @@
       return dport;
     }
     const dsend = (m) => docPane().docIn.send(m);
-    // A GRAIN KEY'S ECHO is Elm's answer: the word for what it landed on is the
-    // model's, so it is said where the move was decided.
+    // The word for what a grain key landed on is the model's, so Elm says it.
     const dsay = (k, m) => { dwrote = keySaid(k); dsend(m); };
-    /** The handle `flagKey' asks for — `pmount' one pane over is the same idea. */
-    const dmount = {
-      flagRow: (id) => dsend({ kind: "flag", id }),
-      unflagRow: (id) => dsend({ kind: "unflag", id }),
-      getFlagged: () => dflags.slice(),
-      clearFlags: () => dsend({ kind: "clearFlags" }),
-      selectStep: (by) => dsend({ kind: "step", by }),
-    };
+    const dmount = flagPort(dsend, () => dflags);
     // Forbidden over the TABLE's rows (the renderer's); the suite counts call
     // sites.  `block:"nearest"' honours `.de''s `scroll-margin', the scrolloff.
     function keepInView(row) {
@@ -67,7 +58,6 @@
     const bodyShift = (h) => clen(h.org || "") - clen(h.body || "");
     const linksIn = (at, links) => (links || dlinks).filter((l) =>
       l.span && l.span[0] >= at[0] && l.span[1] <= at[1]);
-    // The row's own span, worked out where the model is and carried in the state.
     const spanOf = (r) => (r && r.span) || null;
     /** The stops as the model has them, and where point stands among them. */
     const docRowAt = () => drows[dat] || null;
@@ -385,7 +375,6 @@
     /** @type {PropRow[]} */
 
     // WHAT THE REST OF THE PAGE MAY DO TO THIS MODEL, and the whole of it.
-    // Each replaces a line that reached in and assigned.
     /** Empty the pane: the sheet shut, so the document it held is gone. */
     function docClear() {
       dlinks = [];
@@ -426,16 +415,9 @@
     const docRowById = (id) => drows.find((x) => x.id === id);
     /** The checkbox under point, when the stop there has one. */
     const checkboxHere = () => checkboxAt(drows[dat]);
-    // THE SHELL'S SMALL LISTS ARE ONE ELM PROGRAM, `assets/elm/src/Listing.elm\',
-    // mounted once per surface: the property panel here, the link and tags
-    // popups, and the settings sheet's states table.  What a row MEANS stays
-    // with the surface — this side keeps the rows — and the widget draws them,
-    // holds the cursor and the delete flags, and says where point is.
-    //
-    // The handle it hands back is the shape `flagKey\', `stepIn\' and
-    // `selectedId\' already ask for, so no call site knows the difference.
-    // READS answer off the mirror, which is a macrotask behind and correct
-    // because every reader runs at the top of a key handler.
+    // THE SHELL'S SMALL LISTS ARE ONE ELM PROGRAM (`assets/elm/src/Listing.elm'),
+    // one instance per surface, handing back the shape `flagKey', `stepIn' and
+    // `selectedId' already ask for — CLAUDE.md (UI).
     function listing(host, cols, hint, pane) {
       // `Browser.element\' REPLACES the node it is given, so it takes a child
       // and HOST survives as the container an overlay is anchored inside.
@@ -455,22 +437,19 @@
         if (at === -1) return;
         seen.at = at; seen.id = id;
       };
+      const send = (m) => ports.listIn.send(m);
       return {
+        ...flagPort(send, () => seen.flags),
         get el() { return el(host); },
         at: () => seen.at,
         onClick: (f) => ports.listClicked.subscribe(f),
         setRows: (rows, at) => {
           seen.ids = rows.map((r) => r.id);
           if (at) landed(at);
-          ports.listIn.send({ kind: "setRows", rows, at: at === undefined ? null : at });
+          send({ kind: "setRows", rows, at: at === undefined ? null : at });
         },
-        select: (id) => { landed(id); ports.listIn.send({ kind: "select", id }); },
-        selectStep: (by) => ports.listIn.send({ kind: "step", by }),
+        select: (id) => { landed(id); send({ kind: "select", id }); },
         getSelection: () => ({ id: seen.id || null }),
-        flagRow: (id) => ports.listIn.send({ kind: "flag", id }),
-        unflagRow: (id) => ports.listIn.send({ kind: "unflag", id }),
-        getFlagged: () => seen.flags.slice(),
-        clearFlags: () => ports.listIn.send({ kind: "clearFlags" }),
       };
     }
     const PCOLS = [ { key: "key", header: "Key" },

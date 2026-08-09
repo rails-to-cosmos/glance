@@ -1,8 +1,5 @@
-    // `open' is what a shared URL raises: `?page=NAME', beside the query and
-    // the crumbs.  ROWED says the surface needs a row under it, so its URL
-    // carries one.  The value palette has none — it is a keystroke's answer
-    // rather than a place, and a link with nothing typed into it would restore
-    // an empty question.
+    // `open' is the name a shared URL raises; ROWED means the surface owes a
+    // row with it.  The value palette declares neither — CLAUDE.md (UI).
     /** @typedef {object} Surface
      * @property {string} name         what `momentary()' answers with.
      * @property {boolean} [momentary] raised over the sheet rather than beside it.
@@ -36,13 +33,9 @@
     // What a restored surface echoes as: no key was pressed, so `said' is given
     // the URL as the thing that asked.
     const RESTORED = { seq: "?page", command: "restore-view" };
-    // WHICH surface is on screen, by name, and the row under it where it has
-    // one — the two halves of `?page='.  Read off the list, so a surface added
-    // there is shareable with nothing else to edit.
+    // Read off the list, so a surface added there is shareable with no edit here.
     const surfaceUp = () => SURFACES.find((s) => s.up()) || null;
-    // The URL says what is on screen: `?page=NAME' beside `q', the row where the
-    // surface needs one, and the panel as the FRAGMENT.  Called by every raise
-    // and every close, so a reader can send the view they are looking at.
+    // ONE WRITER for the address, called by every raise and every close.
     function remembered() {
       const p = params(), s = surfaceUp();
       if (!s || !s.open) { p.delete("page"); p.delete("row"); }
@@ -51,15 +44,11 @@
         const id = s.rowed && focusedId();
         if (id) p.set("row", id); else p.delete("row");
       }
-      // ONE WRITER for the whole address: the panel rides as the FRAGMENT and
-      // goes with the surface, so a closed sheet leaves neither behind.
+      // The panel rides as the FRAGMENT, so a closed sheet leaves neither behind.
       const at = s && s.panel && s.panel();
       history.replaceState(null, "", `?${p.toString()}${at ? `#${at}` : ""}`);
     }
-    // AND BACK: the surface a booted URL names, raised once the rows are in
-    // hand — a rowed one lands on its row first, so the popup opens over the
-    // entry the sender was looking at.  A row the view no longer holds raises
-    // nothing and says so.
+    // AND BACK: raised once the rows are in hand, so a rowed surface has a row.
     function bootPage() {
       const want = params().get("page");
       const s = SURFACES.find((x) => x.name === want && x.open);

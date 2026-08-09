@@ -29,7 +29,7 @@ import Glance.Query ( Completion (..), Repeat (..), noteCompletion, repeatOn
                     , rowOrgId
                     , BlobSeed (..), ConfigLayers
                     , HeadlineRecord (hrDigest, hrFile, hrId)
-                    , Span (Span), WalkOptions, WriteFailure (..)
+                    , Span (Span), WriteFailure (..)
                     , addTagEdits, archiveEdits, bareTemplate, blobDocument
                     , blobPathIn, captureEdits, captureStamp, captureText
                     , captureTargetIn, captureTemplateIn, currentDocument

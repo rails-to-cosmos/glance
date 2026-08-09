@@ -906,6 +906,10 @@ measurements and the history of superseded designs live in
   trail — and the doctrine line "the renderer is the app's ONE list widget" is
   now narrower and truer: it draws THE TABLE, and Elm draws the small lists the
   shell composes.
+- `flagPort(send, held)` IS THE FIVE CALLS A FLAG SURFACE OWES — `flagRow`,
+  `unflagRow`, `getFlagged`, `clearFlags`, `selectStep` — over whichever program
+  holds its rows. Both the document pane's handle and the small lists' are made
+  of it, so a sixth surface writes none of them again.
 - `listing(host, cols, hint, pane)` HANDS BACK THE SHAPE ALREADY ASKED FOR —
   `getSelection`, `selectStep`, `flagRow`, `unflagRow`, `getFlagged`,
   `clearFlags`, `setRows`, `el` — so `flagKey`, `stepIn` and `selectedId` never
