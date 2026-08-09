@@ -729,6 +729,13 @@ measurements and the history of superseded designs live in
   `deadline` are prefix, everything else is substring. `key:*empty*` is the empty
   cell on EVERY key; a starred word on the `tag` column is that WHOLE tag; `key:`
   narrows nothing.
+- AND IT IS THE SPELLING ON SCREEN: a chip over a keyless token reads
+  `substring:VALUE` (`chipText` through `spelled`, quoting a value carrying a
+  separator), and the completion's text-search row — row one for a word that
+  spells nothing else — inserts that rather than the bare word. So committing a
+  search writes the grammar's own form and the strip reads `key:value`
+  throughout. The QUERY still takes a bare word: the display and the completion
+  moved, the matcher did not.
 - FREE TEXT HAS A KEY: `substring:VALUE` is exactly what `VALUE` alone means, so
   the grammar reads `KEY:VALUE` throughout and a bare word is that spelling with
   the key elided. ONE matcher answers both — `freeTest`, reached by the `Whole`
