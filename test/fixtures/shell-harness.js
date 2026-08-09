@@ -992,7 +992,14 @@ globalThis.TableView = {
     else if (popup) { lmounts += 1; lnk = inst; }
     else if (tagbox) { tmounts += 1; tgs = inst; }
     else if (states) { smounts += 1; sts = inst; }
-    else { mounts += 1; main = inst; paints.push(((view || {}).rows || []).length); }
+    else {
+      mounts += 1; main = inst; paints.push(((view || {}).rows || []).length);
+      // The renderer draws its filter box inside the mount, and the page finds
+      // it by selector — so the stub has to put one where that selector looks.
+      const box = field("filter");
+      box.className = "tv-filter";
+      if (host) host.appendChild(box);
+    }
     if (markless) strip(inst.handle, MARK_CALLS);
     if (pagerless) strip(inst.handle, PAGE_CALLS);
     if (sortnone) strip(inst.handle, SORT_CALLS);
@@ -1062,22 +1069,7 @@ const KEYS = fs.readFileSync(dir + "/keys.json", "utf8");
 // And the configuration blob the glue boots from — the page's second JSON
 // script element, extracted the same way.
 const CFGJSON = fs.readFileSync(dir + "/cfg.json", "utf8");
-const node = new Proxy(
-  {},
-  {
-    get: (_target, key) =>
-      key === "textContent" || key === "className" || key === "value" ? ""
-        : key === "scrollTop" || key === "clientHeight" || key === "scrollHeight" ? 0
-        : () => node,
-    set: () => true,
-  }
-);
-// The few elements whose contents are the answer to a question asked here: the
-// sheet's two panes and its one-word state, and the renderer's filter field.  A
-// proxy answering "" to everything cannot hold text a restore is checked
-// against, cannot hold a tree the property panel is built into, and
-// `document.activeElement' is what tells a raised palette from a committed
-// query.
+/** Whichever element holds the focus: what `document.activeElement' answers. */
 let active = null;
 const fields = {};
 // The tag matters: `typing()' reads it off `document.activeElement' to decide
@@ -1106,15 +1098,87 @@ const styleOf = () => ({
   setProperty(name, value) { this.custom[name] = String(value); },
   getPropertyValue(name) { return this.custom[name] || ""; },
 });
-/** A stand-in element, enough of one for the page to build its own chrome in. */
-// Every `scrollIntoView' the page made, oldest first.  See the stub below.
+/**
+ * A REAL NODE TREE.  The page's chrome is built out of these, so what it drew
+ * is read back rather than guessed at, and a write to an element nobody modelled
+ * lands somewhere instead of vanishing into a proxy.  Text nodes, parents,
+ * siblings, attributes and a selector engine — everything but an HTML parser,
+ * which only `innerHTML' needs and the glue never writes one.
+ */
+const ELEMENT_NODE = 1, TEXT_NODE = 3, FRAGMENT_NODE = 11;
+// Every `scrollIntoView' the page made, oldest first.
 const scrolls = [];
+const isEl = (n) => n && n.nodeType === ELEMENT_NODE;
+function unlink(n) {
+  const up = n.parentNode;
+  if (!up) return n;
+  const at = up.childNodes.indexOf(n);
+  if (at !== -1) up.childNodes.splice(at, 1);
+  n.parentNode = null;
+  return n;
+}
+const makeText = (data) => {
+  const t = { nodeType: TEXT_NODE, nodeName: "#text", data: String(data),
+              parentNode: null, childNodes: [],
+              replaceData(off, count, s) {
+                t.data = t.data.slice(0, off) + s + t.data.slice(off + count);
+              } };
+  for (const name of ["textContent", "nodeValue"])
+    Object.defineProperty(t, name,
+      { get: () => t.data, set: (v) => { t.data = String(v); } });
+  Object.defineProperty(t, "up", { get: () => t.parentNode });
+  return t;
+};
+
+/**
+ * The selector subset this page and its renderer write: a comma list of
+ * descendant chains, each step a tag, `#id', `.class' and `:not(...)' in any
+ * combination.  No child or sibling combinator, since nothing here asks for one.
+ */
+const parseSel = (sel) => String(sel).split(",")
+  .map((alt) => alt.trim().split(/\s+/).filter(Boolean).map((step) => {
+    const s = { tag: "", id: "", cls: [], not: [] };
+    let rest = step.replace(/:not\(([^)]*)\)/g, (_m, inner) => { s.not.push(inner); return ""; });
+    const tag = rest.match(/^[A-Za-z][\w-]*/);
+    if (tag) { s.tag = tag[0].toUpperCase(); rest = rest.slice(tag[0].length); }
+    for (const bit of rest.split(/(?=[.#])/).filter(Boolean))
+      if (bit[0] === "#") s.id = bit.slice(1); else if (bit[0] === ".") s.cls.push(bit.slice(1));
+    return s;
+  }))
+  .filter((chain) => chain.length);
+const stepHits = (el, s) => isEl(el)
+  && (!s.tag || el.tagName === s.tag)
+  && (!s.id || el.id === s.id)
+  && s.cls.every((c) => el.classList.contains(c))
+  && s.not.every((inner) => !selHits(el, parseSel(inner)));
+// A chain matches EL when its last step does and every step above it is an
+// ancestor, in order — the descendant combinator and nothing else.
+const chainHits = (el, chain) => {
+  if (!stepHits(el, chain[chain.length - 1])) return false;
+  let up = el.parentNode, k = chain.length - 2;
+  while (k >= 0 && up) { if (stepHits(up, chain[k])) k -= 1; up = up.parentNode; }
+  return k < 0;
+};
+const selHits = (el, chains) => chains.some((c) => chainHits(el, c));
+function descend(root, into) {
+  for (const kid of root.childNodes) { if (isEl(kid)) { into.push(kid); descend(kid, into); } }
+  return into;
+}
+
+/** A stand-in element, enough of one for the page to build its own chrome in. */
 const make = (tag) => {
   const e = {
+    nodeType: ELEMENT_NODE,
     tagName: String(tag).toUpperCase(),
-    value: "", className: "", placeholder: "", spellcheck: false,
-    style: styleOf(), dataset: {}, children: [],
-    scrollTop: 0, clientHeight: 0, scrollHeight: 0,
+    nodeName: String(tag).toUpperCase(),
+    id: "", value: "", className: "", placeholder: "", spellcheck: false,
+    readOnly: false, disabled: false, selectedIndex: -1,
+    style: styleOf(), dataset: {}, attrs: {},
+    parentNode: null, childNodes: [],
+    scrollTop: 0, clientHeight: 0, scrollHeight: 0, clientTop: 0, clientLeft: 0,
+    // A field's caret, which the template box reads to splice a code in at.
+    selectionStart: 0, selectionEnd: 0,
+    setSelectionRange(from, to) { this.selectionStart = from; this.selectionEnd = to; },
     focus() { active = this; },
     blur() { if (active === this) active = null; },
     // Kept rather than dropped: the value palette narrows on its field's own
@@ -1122,31 +1186,84 @@ const make = (tag) => {
     // which a document-level press can stand in for.
     on: {},
     addEventListener(type, fn) { (this.on[type] = this.on[type] || []).push(fn); },
-    fire(type, event) { for (const fn of this.on[type] || []) fn(event); },
-    appendChild(child) { child.up = this; this.children.push(child); return child; },
-    // Nothing here has a layout or a real tree, so a selector finds nothing —
-    // which is the honest answer, and the one every geometry read is written to
-    // survive.
-    querySelector: () => null,
-    // What the log's ring drops the oldest line with.
-    removeChild(child) {
-      const at = this.children.indexOf(child);
-      if (at !== -1) this.children.splice(at, 1);
+    removeEventListener(type, fn) {
+      this.on[type] = (this.on[type] || []).filter((f) => f !== fn);
+    },
+    fire(type, event) { for (const fn of (this.on[type] || []).slice()) fn(event); },
+    appendChild(child) { return this.insertBefore(child, null); },
+    insertBefore(child, before) {
+      if (child.nodeType === FRAGMENT_NODE) {
+        for (const kid of child.childNodes.slice()) this.insertBefore(kid, before);
+        return child;
+      }
+      unlink(child);
+      const at = before ? this.childNodes.indexOf(before) : -1;
+      if (at === -1) this.childNodes.push(child); else this.childNodes.splice(at, 0, child);
+      child.parentNode = this;
       return child;
     },
+    replaceChild(now, was) {
+      this.insertBefore(now, was);
+      return unlink(was);
+    },
+    removeChild(child) { return unlink(child); },
+    remove() { unlink(this); },
+    // `id' and `class' live on the properties alone, so `attributes' below
+    // cannot report either of them twice.
+    setAttribute(name, value) {
+      if (name === "id") this.id = String(value);
+      else if (name === "class") this.className = String(value);
+      else this.attrs[name] = String(value);
+    },
+    setAttributeNS(_ns, name, value) { this.setAttribute(name, value); },
+    getAttribute(name) {
+      return name === "id" ? this.id
+        : name === "class" ? this.className
+        : Object.prototype.hasOwnProperty.call(this.attrs, name) ? this.attrs[name] : null;
+    },
+    hasAttribute(name) { return this.getAttribute(name) !== null; },
+    removeAttribute(name) { delete this.attrs[name]; if (name === "id") this.id = ""; },
+    matches(sel) { return selHits(this, parseSel(sel)); },
+    closest(sel) {
+      const chains = parseSel(sel);
+      for (let at = this; at; at = at.parentNode) if (selHits(at, chains)) return at;
+      return null;
+    },
+    querySelector(sel) { return this.querySelectorAll(sel)[0] || null; },
+    querySelectorAll(sel) {
+      const chains = parseSel(sel);
+      return descend(this, []).filter((el) => selHits(el, chains));
+    },
     select() {},
-    // Geometry is beyond this stub — nothing here has a layout, so whether an
+    // Geometry is beyond this harness — nothing here has a layout, so whether an
     // element IS out of view can never be answered.  What can be answered is
-    // whether the page ASKED, which is the half that is this page's: the call
-    // is recorded with the class of what it was made on and the options it
-    // carried, and the tests pin that.  Same caveat as the overlay's placing.
+    // whether the page ASKED, which is the half that is this page's.
     scrollIntoView(opts) { scrolls.push({ className: this.className, opts }); },
+    getBoundingClientRect: () => ({ top: 0, left: 0, right: 0, bottom: 0,
+                                    width: 0, height: 0, x: 0, y: 0 }),
   };
+  // `children' is the ELEMENT children, which is what a real one answers and
+  // what every probe below walks.
+  Object.defineProperty(e, "children", { get: () => e.childNodes.filter(isEl) });
+  // A `NamedNodeMap' as far as anything reads one: a length and `{name, value}'
+  // by index, which is how a virtual DOM takes an existing element over.
+  Object.defineProperty(e, "attributes", { get: () => {
+    const out = Object.keys(e.attrs).map((name) => ({ name, value: e.attrs[name] }));
+    if (e.id) out.push({ name: "id", value: e.id });
+    if (e.className) out.push({ name: "class", value: e.className });
+    return out;
+  } });
+  Object.defineProperty(e, "firstChild", { get: () => e.childNodes[0] || null });
+  Object.defineProperty(e, "nextSibling", { get: () => {
+    const up = e.parentNode;
+    return up ? up.childNodes[up.childNodes.indexOf(e) + 1] || null : null;
+  } });
+  // `up' is this harness's own name for the parent, which its probes climb by.
+  Object.defineProperty(e, "up", { get: () => e.parentNode });
+  Object.defineProperty(e, "parentElement",
+    { get: () => (isEl(e.parentNode) ? e.parentNode : null) });
   // A real element's `classList', which the page uses where it means "set one
   // class, keep the rest" — the sheet's shape flag riding beside its size tier.
-  // The document element models one already; this is the same three calls on
-  // every element, since a stub that answered "" to `toggle' would silently
-  // drop whichever class the page was keeping.
   e.classList = {
     contains: (name) => String(e.className).split(" ").indexOf(name) !== -1,
     add: (name) => { if (!e.classList.contains(name)) e.className = `${e.className} ${name}`.trim(); },
@@ -1159,78 +1276,47 @@ const make = (tag) => {
       return on;
     },
   };
-  // The real one drops every child when it is set, which is how the panel is
-  // cleared before it is drawn again.
-  let text = "";
   // Every value the text was SET to, in order.  A pill that is last-writer-wins
   // on screen — the echo — leaves no trace of a second identical write, so a
   // case asking "did this run twice" has nothing to read; the history is that
   // trace, and it costs one push per set.
   e.wrote = [];
   Object.defineProperty(e, "textContent", {
-    // The real one is the whole SUBTREE's text, which is what an element drawn
-    // as segments — text, link, text — reads as.  Setting it drops the
-    // children, so the two halves never double-count.
-    get: () => text + e.children.map((c) => c.textContent).join(""),
-    set: (v) => { text = String(v); e.wrote.push(text); e.children.length = 0; },
+    // The whole SUBTREE's text, which is what an element drawn as segments —
+    // text, link, text — reads as.  Setting it drops the children, so the two
+    // halves never double-count.
+    get: () => e.childNodes.map((n) => n.textContent).join(""),
+    set: (v) => {
+      e.wrote.push(String(v));
+      for (const kid of e.childNodes.splice(0)) kid.parentNode = null;
+      if (String(v) !== "") e.appendChild(makeText(v));
+    },
   });
   return e;
 };
-const field = (id) => (fields[id] = fields[id] || make(TAGS[id] || "div"));
-const STATEFUL = [ "mtext", "mnote", "mfile", "modal", "mprops", "mlog", "sheet"
-                 , "mwhere"
-                 // The structured document, which is the page's OWN widget
-                 // rather than a mount: `dlist' is the tree it draws its
-                 // elements into, and the four below are the two edit overlays
-                 // laid over the element at point.
-                 , "mdoc", "dlist", "dtitle", "dtin", "dpara", "dtext"
-                 // And the property panel, which IS a mount: `mptable' is the
-                 // element it is given, and the three below are its own edit
-                 // overlay laid over the row at point.
-                 , "mptable", "pedit", "pkey", "pval"
-                 // The value palette: its list is a tree of key tokens and
-                 // underlined words, so it has to hold one.
-                 , "echo", "prompt", "phead", "pinput", "pbox", "plist", "pfoot"
-                 // The link popup, which is a MOUNT like the panel: `ltable' is
-                 // the element it is given, `lpane' the box the edit overlay is
-                 // placed inside, `ledit'/`ltitle'/`lurl' the edit itself, and
-                 // the two lines around them the only chrome it draws.
-                 , "links", "lhead", "lpane", "ltable", "lfoot"
-                 , "ledit", "ltitle", "lurl"
-                 // And the tags popup, which is a mount and an edit overlay:
-                 // `ttable' is the element, `tpane' the box the overlay is
-                 // placed inside, and `tedit'/`tname' the rename itself.
-                 , "tags", "thead", "tpane", "ttable", "tfoot", "tedit", "tname"
-                 // The capture form: the one popup `+' raises whole — its
-                 // backdrop, head and foot, the tag field with its narrowed
-                 // list, the container the template's fields grow into, and
-                 // the line.
-                 , "capture", "khead", "ktag", "klist", "kfields", "ktext", "kfoot"
-                 // The settings sheet: its state, its panel frames, the fields
-                 // of the general panel — the capture target, which is
-                 // `system.org''s and rides in that layer's write, plus the log
-                 // knob, which is this page's own preference — and the keywords
-                 // panel's select, box, label and refusal line.
-                 , "config", "cnote", "ceff", "csecs", "ctarget"
-                 // `ctpl' is the layer's capture template — a REGION of the
-                 // same file, kept on the layer like its cycle and riding in
-                 // the same write.
-                 , "clog", "clayer", "ctext", "ctpl", "clab", "clerr"
-                 , "ctabs", "chues", "cstates"
-                 // The states table's edit overlay and its three fields.
-                 , "sedit", "sname", "sgroup", "shue"
-                 // The event strip: a line per entry, each a row of spans, so it
-                 // has to hold a tree rather than answer "" to everything.
-                 , "log"
-                 // The sheet's theme select, which has to be a real element for
-                 // the focus it holds to be observable.
-                 , "themesel" ];
+/** The tree every id-named element hangs under. */
+const docBody = make("body");
+/**
+ * The element an id names, made on demand.  Every id the page asks for exists —
+ * an unmodelled one would crash the page rather than teach anything — and each
+ * lands under `body', so a document-level selector has a tree to walk.  FLAT,
+ * where the served page nests: reproducing `Page.hs''s nesting here would be a
+ * second copy of it to keep in step.
+ */
+const field = (id) => {
+  if (fields[id]) return fields[id];
+  const e = make(TAGS[id] || "div");
+  e.id = id;
+  fields[id] = e;
+  docBody.appendChild(e);
+  return e;
+};
 // The document element, which is where the stale wash lands and where the theme
-// pins its attribute.  A real element rather than the catch-all proxy, because
-// the wash IS a class going on and coming off and a stub that swallows every
-// write can show none of it.  Every transition of that class is recorded, so a
-// wash that armed and cleared reads differently from one that never armed.
+// pins its attribute.  Its class list records every transition, because
+// the wash IS a class going on and coming off and a run that armed and cleared
+// reads differently from one that never armed.
 const root = make("html");
+root.appendChild(docBody);
 const washed = [];
 root.classList = {
   contains: (name) => root.className.split(" ").indexOf(name) !== -1,
@@ -1248,22 +1334,36 @@ root.classList = {
 const pressed = [];
 const released = [];
 globalThis.document = {
+  // The two JSON blobs are the page's own script elements rather than chrome.
   getElementById: (id) =>
     id === "keys" ? { textContent: KEYS }
       : id === "cfg" ? { textContent: CFGJSON }
-      : STATEFUL.indexOf(id) === -1 ? node : field(id),
-  querySelector: (sel) => (sel === "#app .tv-filter" ? field("filter") : null),
-  querySelectorAll: () => [],
+      : field(id),
+  querySelector: (sel) => docBody.querySelector(sel),
+  querySelectorAll: (sel) => docBody.querySelectorAll(sel),
   createElement: (tag) => make(tag),
+  createElementNS: (_ns, tag) => make(tag),
+  createTextNode: (data) => makeText(data),
+  createDocumentFragment: () => {
+    const f = make("#document-fragment");
+    f.nodeType = FRAGMENT_NODE;
+    return f;
+  },
   addEventListener: (type, handler) => {
     if (type === "keydown") pressed.push(handler);
     if (type === "keyup") released.push(handler);
   },
+  removeEventListener: () => {},
   getSelection: () => null,
   get activeElement() { return active; },
   documentElement: root,
-  body: node,
+  body: docBody,
+  title: "",
+  location: { href: "http://127.0.0.1/" },
 };
+// Elm's virtual DOM schedules its paints on this; the page's own `soon' already
+// falls back to `setTimeout' when it is absent, so both take the same turn.
+globalThis.requestAnimationFrame = (fn) => setTimeout(() => fn(0), 0);
 globalThis.window = globalThis;
 globalThis.addEventListener = () => {};
 
@@ -1300,7 +1400,7 @@ const press = (name, repeating, held) => {
     key: bare === "Space" ? " " : bare,
     code,
     ctrlKey: ctrl, altKey: false, metaKey: false, shiftKey: shift,
-    repeat: !!repeating, target: node,
+    repeat: !!repeating, target: active || docBody,
     // The DOM's own record of "a listener has handled this", which the later
     // listeners on one document read to stay off a key an earlier one took.
     defaultPrevented: false,
@@ -2042,6 +2142,42 @@ const settle = () => new Promise((done) => setTimeout(done, 20));
       const head = flatRows()[0];
       const cell = head && head.children.find((c) => wears(c, "dc-title"));
       return cell ? String(cell.textContent || "") : "";
+    })(),
+    // THE HARNESS'S OWN DOM, ASSERTED RATHER THAN ASSUMED.  The selector engine
+    // above is this file's, and one broken by an edit would answer `null'
+    // forever while every case that never queries went on passing.  Built and
+    // read here, over one tree, so every shape the page and the renderer write
+    // is exercised each run.
+    dom: (() => {
+      const box = make("div");
+      box.className = "tv-root";
+      // A DECOY FIRST, wearing the class but under no `tbody': without it a
+      // chain that never checked its ancestors would answer this correctly.
+      const decoy = box.appendChild(make("tr"));
+      decoy.className = "tv-sel";
+      decoy.textContent = "decoy";
+      const table = box.appendChild(make("table"));
+      table.className = "tv-table";
+      const rows = table.appendChild(make("tbody"));
+      ["tv-alt", "tv-sel", ""].forEach((cls, i) => {
+        const tr = rows.appendChild(make("tr"));
+        tr.className = cls;
+        tr.appendChild(make("td")).className = "tv-box";
+        const td = tr.appendChild(make("td"));
+        td.textContent = `c${i}`;
+      });
+      const sel = box.querySelector("tbody tr.tv-sel");
+      return {
+        rows: box.querySelectorAll("tbody tr").length,
+        sel: sel ? sel.textContent : null,
+        gutterless: box.querySelectorAll("td:not(.tv-box)").map((td) => td.textContent),
+        list: box.querySelectorAll("tr.tv-alt, tr.tv-sel").length,
+        decoyed: box.querySelectorAll("tr.tv-sel").length,
+        closest: !!sel && sel.closest(".tv-root") === box,
+        matches: !!sel && sel.matches("tr.tv-sel") && !sel.matches("tr.tv-alt"),
+        detached: box.parentNode === null,
+        text: box.textContent,
+      };
     })(),
     scrolled: scrolls.map((s) => s.className),
     scrollAsked: scrolls.length ? scrolls[scrolls.length - 1].opts : null,

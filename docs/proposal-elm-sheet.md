@@ -124,7 +124,15 @@ shell's dispatch standing down while the sheet is up (it already does — every
 be ported exactly: `e.code` for `KeyA`–`KeyZ`, `e.key` otherwise. It is 20
 lines and `05-keys.js` is the reference.
 
-## What the suite does about it — THE PLAN WAS WRONG HERE
+## What the suite does about it — THE PLAN WAS WRONG HERE, AND THE BLOCKER IS NOW GONE
+
+**Superseded by the harness's own DOM.** `shell-harness.js` now owns a real node
+tree and a selector engine, Elm's virtual DOM starts and renders under it, and
+the descendant / `:not` / alternation / `closest` / `matches` shapes are asserted
+by `domSpec`. Step 3 of the staging below is DONE. What follows is the finding
+as it stood, kept because the two facts under it still hold: the renderer is a
+stub, and the 56 panel assertions read that stub rather than the page.
+
 
 This section claimed the port is safe because "~200 harness-driven cases in
 `TestServe` press keys and read back the DOM", so "the same cases must pass
@@ -197,22 +205,23 @@ unit is ~1750 lines and two surfaces, not 1111 lines and one.
 
 1. **Move the table machinery out.** **DONE** (`9f2ea2c`) — renderer accesses
    28 → 5, the file 1225 → 1111.
-2. ~~Elm draws the property panel.~~ **BLOCKED, and the blocker is not the
-   panel.** Nothing Elm RENDERS can be tested here until the harness has a real
-   DOM.
-3. **A harness with a real DOM** is the actual prerequisite, and it is its own
-   project rather than a step of this one. jsdom is 7 MB unpacked over 21 direct
-   dependencies, in a repo with no `package.json`, no `node_modules`, and a JS
-   toolchain that is one ephemeral `npx` line; and the 56 assertions reading the
-   stub would each have to be repointed at the DOM. It has merit on its own —
-   it would test the page rather than a stub — and should be judged on that,
-   not as an Elm enabler.
-4. Only after 3 is any of the original 2, 4, 5 reachable.
+2. ~~Elm draws the property panel.~~ **WAS BLOCKED on the harness; UNBLOCKED
+   now.** Still costs the 56 stub assertions a rewrite, since they read
+   `TableView`'s stub rather than the DOM.
+3. **A harness with a real DOM.** **DONE**, and hand-written rather than
+   vendored: jsdom would have been 7 MB over 21 direct dependencies in a repo
+   with no `package.json`, where what the page actually needs is a node tree,
+   six selector shapes and `attributes`. Elm's virtual DOM renders under it.
+4. Step 2 is now reachable. What has NOT changed is the other two findings —
+   a port round trip still costs a macrotask, and the sheet still drags
+   `50-settings.js` with it.
 
 ## The recommendation
 
-**Do not port.** The price, all measured: a 7 MB test dependency and 56
-rewritten assertions to make the port testable at all; 62–108 KB of runtime;
+**Do not port**, and the price is lower than it was: the harness's real DOM
+came in hand-written, so the 7 MB dependency is off the bill. What is left,
+all measured: 56 rewritten assertions, since they read the renderer stub;
+62–108 KB of runtime;
 a unit of ~1750 lines spanning two surfaces because the settings sheet shares
 the ladder by design; and an async boundary through code that reads its model
 synchronously.

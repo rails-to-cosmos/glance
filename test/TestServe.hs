@@ -564,10 +564,47 @@ shellBoots =
 -- | The boots above, run where the machine has a node to run them.
 bootSpec :: IO T.Text -> TestTree
 bootSpec shell = testGroup "Shell boot"
-  [ testCase boLabel $ bootOf shell boSearch boTotal boKeys "" $ \answer -> do
-      assertEqual (boLabel <> ": the fetches") boAsked =<< textsAt "asked" answer
-      urlIs (boLabel <> ": the URL it settles on") boUrl answer
-  | Boot{..} <- shellBoots ]
+  ([ testCase boLabel $ bootOf shell boSearch boTotal boKeys "" $ \answer -> do
+       assertEqual (boLabel <> ": the fetches") boAsked =<< textsAt "asked" answer
+       urlIs (boLabel <> ": the URL it settles on") boUrl answer
+   | Boot{..} <- shellBoots ]
+   <> [ domSpec shell ])
+
+-- | THE HARNESS'S OWN DOM, ASSERTED BEFORE ANYTHING IS READ THROUGH IT.  The
+-- node tree and the selector engine in @shell-harness.js@ are that file's own
+-- code, and a broken one would answer @null@ for every query while every case
+-- that never asks went on passing — the same reason 'TestSelfContained' asserts
+-- what it swept.  The harness builds one tree per run and reports what it finds
+-- in it; this reads that back.
+--
+-- The shapes are the ones the page and the renderer actually write: a
+-- descendant chain, a tag with a class, @:not(.class)@ for the gutterless cell
+-- run, an alternation, plus 'closest' and 'matches'.  What it does NOT cover is
+-- @innerHTML@, which needs an HTML parser and which the glue never writes —
+-- only the renderer does, and the renderer is stubbed here.
+domSpec :: IO T.Text -> TestTree
+domSpec shell = overBoot shell "" "" $ \booted ->
+  atBoot booted "the harness's own DOM answers the selectors the page writes" $
+    \answer -> do
+      dom <- field "dom" answer
+      assertEqual "every row of the tree" 3 =<< intAt "rows" dom
+      assertEqual "the descendant chain finds the selected row alone" "c1"
+        =<< textAt "sel" dom
+      assertEqual "`:not' takes the gutter cell out of the run" ["c0", "c1", "c2"]
+        =<< textsAt "gutterless" dom
+      assertEqual "an alternation is the union" 3 =<< intAt "list" dom
+      -- The tree carries a DECOY wearing the class outside any `tbody', so the
+      -- chain above is answered by its ancestors rather than by its last step.
+      assertEqual "and the class alone reaches the decoy too" 2
+        =<< intAt "decoyed" dom
+      assertEqual "`closest' climbs to the root it is under" True
+        =<< boolAt "closest" dom
+      assertEqual "`matches' answers about the element alone" True
+        =<< boolAt "matches" dom
+      assertEqual "a tree nobody attached stays detached" True
+        =<< boolAt "detached" dom
+      assertEqual "and the subtree's text is every text node in order" "decoyc0c1c2"
+        =<< textAt "text" dom
 
 -- | What happens to a booted page when the socket goes, and what it still holds
 -- afterwards.  The distinction the whole group is about is 'lvMounts': a

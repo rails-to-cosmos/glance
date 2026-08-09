@@ -927,6 +927,23 @@ measurements and the history of superseded designs live in
   field a server answer stops sending fails at the annotation rather than
   reading `undefined` at the point of use. What it does NOT check is element
   KIND (`el` casts) and implicit `any` (~570 sites); both are open ratchets.
+- THE HARNESS RUNS THE SHELL AGAINST A REAL NODE TREE. `shell-harness.js` owns
+  it: text nodes, parents and siblings, attributes (`attributes` included, which
+  is how a virtual DOM takes an element over), and a selector engine over
+  tag / `#id` / `.class` / `:not(...)` / descendant / comma. NO HTML PARSER —
+  `innerHTML` is unimplemented, the glue writes none, and only the RENDERER
+  does, which is why `TableView` stays a stub and the 56 panel assertions read
+  that stub's own rows. Every id the page asks for exists (an unmodelled one
+  would crash the page rather than teach anything) and hangs FLAT off `body`
+  where the served page nests — reproducing `Page.hs`'s nesting here would be a
+  second copy of it. Geometry is beyond it: `getBoundingClientRect` is zeros and
+  `placeEdit` is written to survive that.
+- AND THE ENGINE IS ASSERTED BEFORE ANYTHING IS READ THROUGH IT (`domSpec`):
+  the harness builds ONE tree per run and reports what its own selectors find,
+  because a broken one would answer `null` forever while every case that never
+  queries went on passing. The tree carries a DECOY wearing the class outside
+  any `tbody`, which is what makes the descendant constraint load-bearing —
+  without it, deleting the ancestor walk left the suite green.
 - The shell is vanilla JS with no framework or dependency — a real file,
   `assets/glue.js`, compiled in the way the renderer is; the page inlines two
   JSON blobs (keymap, the `cfg` the script reads as `CFG`) and the theme boot
