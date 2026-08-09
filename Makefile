@@ -21,13 +21,13 @@ test:
 # exits non-zero when the two differ, and prints nothing and exits 0 when they
 # do not, so one command decides whether to copy and says what moved.
 RENDERER := ../table-view/web/table-view.js
-# The property panel, compiled from `assets/elm' and committed like the renderer,
+# The Elm programs, compiled from `assets/elm' and committed like the renderer,
 # so the bytes a build embeds are the bytes in the tree.  Ephemeral `npx', the
 # same shape as `check-glue' -- nothing installed, no lockfile, no node_modules.
 elm:
 	@if command -v npx >/dev/null 2>&1; then \
-	  cd assets/elm && npx --yes elm make src/Panel.elm --optimize --output=../panel.js; \
-	else echo "elm: no npx on PATH -- assets/panel.js left as committed"; fi
+	  cd assets/elm && npx --yes elm make src/Panel.elm src/Doc.elm --optimize --output=../elm.js; \
+	else echo "elm: no npx on PATH -- assets/elm.js left as committed"; fi
 
 sync-renderer:
 	@if [ ! -f "$(RENDERER)" ]; then \

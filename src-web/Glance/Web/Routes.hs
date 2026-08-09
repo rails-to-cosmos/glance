@@ -81,7 +81,7 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , viewJSONTextFor, viewOf )
 import Glance.Web.Base ( ServeOptions (..), answerWrite, bodyObject, configMoved
                        , conflict, glueAsset, gluePartFiles, html, jsonError
-                       , panelAsset
+                       , elmAsset
                        , jsonResponse, jsonType
                        , noSuchRow
                        , plain, rendererAsset, reparsed, rewritten, sized, tenths
@@ -128,10 +128,10 @@ embeddedGlue = BS.concat
   $(listE [ makeRelativeToProject ("assets/glue/" <> part) >>= embedFile
           | part <- gluePartFiles ])
 
--- | THE PROPERTY PANEL, compiled from @assets\/elm@ by @make elm@ and committed
+-- | THE ELM PROGRAMS, compiled from @assets\/elm@ by @make elm@ and committed
 -- like the renderer, so the bytes a build embeds are the bytes in the tree.
-embeddedPanel :: BS.ByteString
-embeddedPanel = $(makeRelativeToProject "assets/panel.js" >>= embedFile)
+embeddedElm :: BS.ByteString
+embeddedElm = $(makeRelativeToProject "assets/elm.js" >>= embedFile)
 
 -- | Is there a renderer to serve?  The route's own question ('assetSource'),
 -- asked of the renderer's name, so the banner and @\/@ cannot disagree with
@@ -1233,7 +1233,7 @@ assetSource :: ServeOptions -> FilePath -> IO (Maybe (Either FilePath BS.ByteStr
 assetSource opts name = case soAssets opts of
   Nothing  -> pure (if name == rendererAsset then Just (Right embeddedRenderer)
                     else if name == glueAsset then Just (Right embeddedGlue)
-                    else if name == panelAsset then Just (Right embeddedPanel)
+                    else if name == elmAsset then Just (Right embeddedElm)
                     else Nothing)
   -- THE SHELL IS ITS PARTS in a served directory too, read per request so an
   -- edit shows up on a reload: one source, `gluePartFiles`' order, and the same

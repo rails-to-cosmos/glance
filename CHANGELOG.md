@@ -12,12 +12,18 @@ section groups a feature arc, and its date is that arc's last commit.
 ## Unreleased
 
 ### Changed
+- **The materialize sheet is drawn by Elm — both panes.** The document pane
+  follows the property panel: `assets/elm/src/Doc.elm` owns the structure
+  scanner, the parse, the splice that composes a body back, the two-axis cursor
+  and the grain ladder, and draws them. Every key behaves as it did — `n`/`p`
+  and `f`/`b`, `RET` to edit, `SPC` to toggle a checkbox, `d`/`dd`/`D`/`u` to
+  delete.
 - **The materialize sheet's property panel is drawn by an Elm program.** The
   key/value list beside the document pane was a table-view mount; it is now
   `assets/elm/src/Panel.elm`, which owns the rows, the cursor and the delete
   flags. It draws the renderer's own markup class for class, so the theme, the
   palette and every key behave as they did — `RET` to edit a row, `+` to add
-  one, `d`/`dd`/`D`/`u` to delete. `assets/panel.js` is a committed build input
+  one, `d`/`dd`/`D`/`u` to delete. `assets/elm.js` is a committed build input
   like the vendored renderer; `make elm` refreshes it and needs no installed
   toolchain.
 

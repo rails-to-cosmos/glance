@@ -1,6 +1,6 @@
 # Proposal — the materialize sheet in Elm
 
-**Status:** steps 1–3 done, step 2 DONE (the panel is Elm); 4–5 not taken · **Date:** 2026-08-09 · **Origin:** user, asking whether
+**Status:** steps 1–4 DONE (both panes are Elm); step 5 not taken · **Date:** 2026-08-09 · **Origin:** user, asking whether
 the split glue is ready for Elm · **Depends on:**
 `docs/proposal-widget-files.md`, whose step B split the shell and whose step C
 made the sheet one component
@@ -214,12 +214,14 @@ unit is ~1750 lines and two surfaces, not 1111 lines and one.
    vendored: jsdom would have been 7 MB over 21 direct dependencies in a repo
    with no `package.json`, where what the page actually needs is a node tree,
    six selector shapes and `attributes`. Elm's virtual DOM renders under it.
-4. Steps 4–5 — the document pane, then the ladder — are NOT taken, and the
-   finding that argues against them stands: the sheet drags `50-settings.js`
-   with it, 25 of its 41 exported names being that file's. The macrotask
-   finding turned out manageable at panel scale (two same-turn reads, both
-   fixed by letting Elm say what happened rather than asking it), but the sheet
-   has more of them and they are the ladder's.
+4. **The document pane.** **DONE.** 268 lines out of the shell, 1458 lines of
+   Elm in — the scanner, the parse, the splice, the cursor and the grain. The
+   same-turn reads were four, and each took the panel's own answer: `docBody`
+   for an edit, `docTook` for a delete, `docSaid` for a grain key's echo, and
+   `soon` for the anchor, since Elm pushes a port before it paints.
+5. **The ladder** is NOT taken, and the finding that argues against it stands:
+   it is shared with `50-settings.js`, 25 of the sheet's 41 exported names being
+   that file's. Porting it moves two surfaces, not one.
 
 ## The recommendation
 

@@ -466,7 +466,6 @@
         if (!s.raw) {
           drawProps(s.props, s.plan);
           docRestore(s.at, s.col);
-          drawDoc();
           if (s.open) reopenEdit(s.open);
         }
         if (h.digest !== s.digest) sync("conflict");

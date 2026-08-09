@@ -1377,7 +1377,7 @@ globalThis.addEventListener = () => {};
  * questions the mount counters used to answer — was it built once, and did
  * every drawer arrive as one hand-over — are still worth asking of a program.
  */
-(0, eval)(fs.readFileSync(dir + "/panel.js", "utf8"));
+(0, eval)(fs.readFileSync(dir + "/elm.js", "utf8"));
 let pinits = 0, pfills = 0;
 const elmInit = globalThis.Elm.Panel.init;
 globalThis.Elm.Panel.init = (opts) => {
@@ -1541,17 +1541,10 @@ const wears = (e, cls) => String(e.className).split(" ").indexOf(cls) !== -1;
 /** THE WALK, FLATTENED OUT OF THE DRAW.  A composite is drawn ONCE with its
  * leaves inside it and a leaf with children draws THEM inside itself — the
  * grain ladder — so the elements are a tree on screen and a flat sequence to
- * the cursor.  Flattened recursively, in draw order, which is the builder's
- * emission order. */
-const flatRows = () => {
-  const out = [];
-  const walk = (e) => {
-    for (const kid of e.children)
-      if (wears(kid, "de")) { out.push(kid); walk(kid); }
-  };
-  walk(field("dlist"));
-  return out;
-};
+ * the cursor.  Document order IS the builder's emission order, and taking it
+ * off the selector rather than a walk leaves the pane free to wear a wrapper —
+ * which it does now, being an Elm program mounted inside `#dlist'. */
+const flatRows = () => field("dlist").querySelectorAll(".de");
 /** Which row each stop hangs under, by place in the walk — the IMMEDIATE
  * parent up the ladder, -1 for a top-level stop. */
 const ownerOf = () => {

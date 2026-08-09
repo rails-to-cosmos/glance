@@ -918,17 +918,46 @@ measurements and the history of superseded designs live in
   reading the mirror and writing ports. `dmount` one pane over is the same idea
   over a `Set`, and it is the precedent: `flagKey`'s surfaces were never
   renderer-only.
-- `assets/panel.js` is a COMMITTED BUILD INPUT like `assets/table-view.js`,
-  embedded by `Routes`' `embeddedPanel` splice and named as the page's THIRD
+- `assets/elm.js` is a COMMITTED BUILD INPUT like `assets/table-view.js`,
+  carrying BOTH programs (`elm make Panel.elm Doc.elm` emits one file),
+  embedded by `Routes`' `embeddedElm` splice and named as the page's THIRD
   `<script src>`. `make elm` refreshes it, and reproduces the committed bytes.
   The toolchain is ephemeral `npx --yes elm` — the Makefile's own
   `npx --yes -p typescript tsc` shape, so no `package.json`, no `node_modules`
   and no lockfile. `elm.json` must say `0.19.2`; `0.19.1` is a hard refusal.
-  The runtime costs ~126 KB against a 387 KB payload.
+  The runtime costs 182 KB raw and 38 KB gzipped, which is what the wire
+  carries — less than the renderer's 78 KB or the shell's 41 KB. Minifying
+  would take it to 13 KB gzipped; nothing does, and no step needs to.
 - THE HARNESS READS THE PANEL OFF WHAT IT DREW, since there is no mount to ask —
   the same turn the document pane took. What survives as a counter is the pair of
   questions the mount counters answered: `pinits` (built once) and `pfills` (one
   hand-over per drawer), taken by wrapping `Elm.Panel.init` and `panelIn.send`.
+- AND THE DOCUMENT PANE IS AN ELM PROGRAM TOO, `assets/elm/src/Doc.elm`. It owns
+  the STRUCTURE SCANNER (list runs, `#+begin_X` blocks by name, tables, the
+  paragraph cut at `ownLines`), the parse into rows, the SPLICE that composes a
+  body back, the two-axis cursor, the grain ladder and the delete flags — and it
+  draws them. The markup is the one the stylesheet and the harness read: `.de`
+  per stop wearing its kind as `d-*`, `.dat` at point, `.dfl` on a flag, `.dc.dc-KEY`
+  with `.don`, `.dt`/`.dl` for text and a link's shown half, `.dg` for what no
+  rung claims. The shell keeps the KEYS, the two edit overlays, the writes and
+  the actions.
+- THE BODY A WRITE SENDS IS ELM'S ANSWER, never a reconstruction on the shell's
+  side: a paragraph edit and a checkbox toggle go out as `edit` and come back on
+  `docBody`, a delete goes out as `delete` and comes back on `docTook` carrying
+  what it took beside the body it left. A splice cannot be rebuilt out of the
+  model it just changed, so the rule lives once, where the model is. `docSaid`
+  is the same shape for a grain key's echo — the word for what it landed on is
+  the model's.
+- ELM PUSHES A PORT BEFORE IT PAINTS, so `keepInView` and `placeEdit` run a turn
+  later (`soon`). The cursor anchor is READ off the draw — `#dlist .dat`, which
+  is not `#dlist`'s `dat`-th child, a composite drawing its leaves inside itself.
+- `dmount` is the adapter `flagKey` asks for, and `pmount` beside it is the same
+  shape. Both were once a renderer handle and a `Set`; they are ports now, and
+  the gesture never knew the difference.
+- THE HARNESS READS THE PANE OFF WHAT IT DREW and always did, which is why the
+  port cost it one line: `flatRows` takes its stops off a SELECTOR rather than a
+  walk, so the pane is free to wear the wrapper an Elm mount adds. Document
+  order is the builder's emission order either way.
 - THE MATERIALIZE SHEET IS ONE FILE, `20-sheet.js`: both panes, the ladder, and
   the opening (`materialize`/`show`/`fill`/`dirty`) that used to sit in the
   floor. It owns `editing`, `raw`, `base` and `baseProps`. The step-B seam had

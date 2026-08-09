@@ -5433,7 +5433,7 @@ bootedPage shell store search total keys acts = do
     Just exe -> withTempDir $ \dir -> do
       page <- shell
       glueOf page >>= TIO.writeFile (dir </> "shell.js")
-      panelOf page >>= TIO.writeFile (dir </> "panel.js")
+      elmOf page >>= TIO.writeFile (dir </> "elm.js")
       keysOf page >>= TIO.writeFile (dir </> "keys.json")
       cfgOf page >>= TIO.writeFile (dir </> "cfg.json")
       (code, out, err) <- readProcessWithExitCode exe
@@ -6269,14 +6269,12 @@ shellGlue =
       -- subtree's body, so the paragraphs stop at `ownLines' and the children
       -- are drawn from the entries the server named.  Without the cut the same
       -- lines would be a paragraph AND the child that owns them.
-      [ "function blocksIn(lines, own) {"
-      , "const own = h.ownLines === undefined ? dlines.length : h.ownLines;"
-      , "for (const b of blocksIn(dlines, own))"
-      -- The commit is a SPLICE: each paragraph remembers the line range it came
-      -- out of, so what goes back is the body with those lines replaced and
-      -- every other byte where it was.
-      , "function bodyText(drop) {"
-      , "out.splice(p.from, p.to - p.from, ...p.text.split(\"\\n\"));"
+      [ "own: h.ownLines === undefined ? body.split(\"\\n\").length : h.ownLines,"
+      -- The commit is a SPLICE, and it is the Doc program's — see 'docRules'.
+      -- What the shell keeps is that the body a write sends is the ANSWER to
+      -- the edit rather than a reconstruction on this side.
+      , "const editPara = (r, text, say) => {"
+      , "dcommit = say;"
       -- DEL IS UP, and at the top it is the sheet's door.
       , "if (editing.child === null) { leaveSheet(); return; }"
       , "reread(up === null ? undefined : up, (h, fresh) => {"
@@ -6288,7 +6286,7 @@ shellGlue =
       -- expand-region moves rather than every reader of the cursor learning
       -- about it twice.
       , "let drows = [], dat = 0, dcol = null, dgrain = \"element\";"
-      , "dgrain = dcol === null ? \"element\" : \"cell\";"
+      , "dgrain = now.grain; dflags = now.flags; dbody = now.body;"
       -- A HEADLINE LINE IS LAID OUT AS ORG LAYS ONE OUT: the two headline kinds
       -- are flex rows, the title takes the room the line has left, and the tags
       -- are flushed to the far edge (`org-tags-column').  A paragraph beside
@@ -6311,7 +6309,7 @@ shellGlue =
       -- line — and the width is written onto the pane as a NUMBER, with the
       -- arithmetic in the stylesheet, the way the log's cap is.
       , "el(\"mdoc\").style.setProperty(\"--g-doc-indent\","
-      , "String(dstars(docLevel()).length));"
+      , "el(\"mdoc\").style.setProperty(\"--g-doc-indent\", String(\"* \".length));"
       , "padding-left:calc(var(--g-doc-pad) + var(--g-doc-indent, 2) * 1ch)}" ]
       -- The document is not a mount and never asks the renderer to draw it.
       [ "TableView.mount(el(\"mdoc\")", "TableView.mount(el(\"dlist\")" ]
@@ -6469,15 +6467,14 @@ shellGlue =
       , "base = raw ? h.org : \"\";"
       , "docFill(h, raw);"
       , "drawProps(raw ? [] : h.properties || [], raw ? [] : h.planning || []);"
-      , "{ body: bodyText(), properties: props(), planning: planning() }"
+      , "{ body: dbody, properties: props(), planning: planning() }"
       -- THE DOCUMENT IS NOT A MOUNT, and that is the doctrine line: the
       -- renderer's list widget draws a list of RECORDS, one shape per row, and
-      -- this is a list of KINDS.  The model is `drows' and the whole view is one
-      -- draw.
-      , "drows.push({ id: \"H\", kind: \"head\", cells: cellsOf(h.cells) });"
-      , "kind: \"para\","
-      , "drows.push({ id: `C${c.index}`, kind: \"child\", index: c.index,"
-      , "function drawDoc() {"
+      -- this is a list of KINDS.  It is an Elm program of its own, so the model
+      -- is over in 'docRules' and what stands here is the fill and the mirror.
+      , "dport = Elm.Doc.init({ node: part(el(\"dlist\"), \"div\", \"\") }).ports;"
+      , "drows = now.rows; dat = now.at; dcol = now.col;"
+      , "kids: (h.children || []).map((c) =>"
       -- AND THE PANEL IS AN ELM PROGRAM, which owns the rows, the cursor and the
       -- flags and draws them.  This side keeps a MIRROR of what it pushes back,
       -- since a port round trip costs a macrotask and every reader here is
@@ -6854,8 +6851,8 @@ shellGlue =
   -- `commitDocWith' with the body rebuilt out of the model.
   , glue "one ladder answers every subtree write"
       [ "function landed(h, onOk) {"
-      , "const commitDoc = (what, drop) =>"
-      , "commitDocWith(bodyText(drop), () => { if (what) echo(`RET → ${what}`); });"
+      , "const commitDoc = (body) => {"
+      , "dport.docBody.subscribe(commitDoc);"
       , "function commitDocWith(body, say) {"
       , ".then((a) => { if (editing === h && landed(h, say)(a)) reload(); })"
       , ".then(landed(h, () => {" ]
@@ -6921,19 +6918,20 @@ shellGlue =
   -- composite's nested leaves make a different element; and the element ordinal
   -- is the BUILD's, spent by a loop rather than kept in module scope.
   , Glue "the document counts characters and anchors what it drew"
-      [ "const chars = (s) => Array.from(String(s));"
-      , "const clen = (s) => chars(s).length;"
-      , "const cslice = (s, a, b) => chars(s).slice(a, b).join(\"\");"
-      , "const bodyShift = () => clen(editing.org || \"\") - clen(editing.body || \"\");"
-      , "dlines.slice(0, line).reduce((n, l) => n + clen(l), 0) + line;"
-      , "for (const l of linksIn([at, at + n], links)) {"
-      , "part(into, \"span\", \"dt\", cslice(text, cut, a));"
-      , "const docElAt = () => dcursor;"
+      [ "const clen = (s) => Array.from(String(s)).length;"
+      , "const bodyShift = (h) => clen(h.org || \"\") - clen(h.body || \"\");"
+      , "const linksIn = (at, links) => (links || dlinks).filter((l) =>"
+      -- The anchor is READ off what was drawn rather than remembered by the
+      -- draw, since the draw is the Doc program's; `.dat' is the one marker,
+      -- and it is not `#dlist''s `dat'-th child — a composite draws its leaves
+      -- inside itself.
+      , "const docElAt = () => el(\"dlist\").querySelector(\".dat\");"
       -- And the cell at point is READ rather than assumed: a stash put back over
       -- a headline that has since lost one names a column that is not there.
       , "const c = dcol === null ? null : shown(r)[dcol];"
-      , "owner: b.up === undefined ? null : idOf[b.up],"
-      , "const id = `B${seq++}`;" ]
+      -- The ownership chain and the element ordinals are the Doc program's, so
+      -- what stands here is the span it hands back per row.
+      , "const spanOf = (r) => (r && r.span) || null;" ]
       -- The UTF-16 readings and the two positional reaches they replaced.
       [ "(editing.org || \"\").length", "n + l.length, 0"
       , "text.slice(cut, a)", "at + text.length"
@@ -11037,13 +11035,13 @@ glueOf shell = do
   assertBool "the page names glue.js" ("src=\"glue.js\"" `T.isInfixOf` shell)
   stripGlueComments <$> glueSource
 
--- | The Elm property panel as the build embeds it, asserted to be the script
--- the page names.  Read off disk rather than out of the served page: it is a
--- committed build input like the renderer, and @make elm@ is what refreshes it.
-panelOf :: T.Text -> IO T.Text
-panelOf shell = do
-  assertBool "the page names panel.js" ("src=\"panel.js\"" `T.isInfixOf` shell)
-  TIO.readFile "assets/panel.js"
+-- | The Elm programs as the build embeds them, asserted to be the script the
+-- page names.  Read off disk rather than out of the served page: a committed
+-- build input like the renderer, refreshed by @make elm@.
+elmOf :: T.Text -> IO T.Text
+elmOf shell = do
+  assertBool "the page names elm.js" ("src=\"elm.js\"" `T.isInfixOf` shell)
+  TIO.readFile "assets/elm.js"
 
 -- | The shell as the build reads it: the parts, in `gluePartFiles`' order.
 glueSource :: IO T.Text

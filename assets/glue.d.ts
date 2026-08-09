@@ -30,6 +30,44 @@ interface PanelState {
   flags: string[];
 }
 
+/** A stop in the document pane: a headline line, a body element, or a child. */
+interface DocRow {
+  id: string;
+  kind: string;
+  grain: string;
+  name: string | null;
+  owner: string | null;
+  from: number;
+  to: number;
+  text: string;
+  index: number;
+  level: number;
+  cells: { key: string; val: string }[];
+  span: [number, number] | null;
+}
+
+/** The pane's whole model, pushed back after every change. */
+interface DocState {
+  rows: DocRow[];
+  at: number;
+  id: string;
+  col: number | null;
+  grain: string;
+  flags: string[];
+  lines: number;
+  body: string;
+}
+
+interface DocPorts {
+  docIn: { send(m: { kind: string } & Record<string, any>): void };
+  docState: { subscribe(f: (s: DocState) => void): void };
+  docSaid: { subscribe(f: (said: string) => void): void };
+  docBody: { subscribe(f: (body: string) => void): void };
+  docTook: {
+    subscribe(f: (a: { taken: string[]; named: number; body: string }) => void): void;
+  };
+}
+
 interface PanelPorts {
   panelIn: { send(m: { kind: string } & Record<string, any>): void };
   panelState: { subscribe(f: (s: PanelState) => void): void };
@@ -37,7 +75,9 @@ interface PanelPorts {
   panelTook: { subscribe(f: (cleared: string[]) => void): void };
 }
 
-// The property panel, compiled from `assets/elm' and served beside the shell.
+// The Elm programs, compiled from `assets/elm' and served beside the shell:
+// the property panel and the sheet's document pane.
 declare const Elm: {
   Panel: { init(opts: { node: any; flags: string }): { ports: PanelPorts } };
+  Doc: { init(opts: { node: any }): { ports: DocPorts } };
 };
