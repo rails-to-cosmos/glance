@@ -6156,7 +6156,7 @@ shellGlue =
       -- The overlay is the SHARED mechanism over one cell: the popup declares a
       -- shape and nothing about the gesture is spelled twice.
       , "cells: [\"title\"], cols: TCOLS,"
-      , "const renaming = () => !!edit && edit.o === TROW;"
+      , "const renaming = () => { const e = editNow(); return !!e && e.o === TROW; };"
       -- Raised over the tag at point, through the guard both browsing popups
       -- open their overlay by: a row or the refusal, never a box over nothing.
       , "openOver(TROW, tagAt(), \"org-rename-tag (no tag)\")"
@@ -6778,7 +6778,7 @@ shellGlue =
       -- columns takes the box with them, where a positional pair had nothing
       -- tying it to the list it indexed.
       , "cells: [\"title\", \"url\"], cols: LCOLS,"
-      , "const lediting = () => !!edit && edit.o === LROW;"
+      , "const lediting = () => { const e = editNow(); return !!e && e.o === LROW; };"
       , "openOver(LROW, pointedRow(), \"org-insert-link (no link)\")"
       , "else if (k === \"RET\") commitLink(edit.row);"
       , "const args = { span: link.span, target };"
@@ -6857,8 +6857,8 @@ shellGlue =
   , Glue "the two browsing popups share one listener"
       [ "function popupKeys(name, mount, o) {"
       , "if (momentary() !== name || e.defaultPrevented) return;"
-      , "popupKeys(\"links\", () => lmount, {"
-      , "popupKeys(\"tags\", () => tmount, {"
+      , "popupKeys(\"links\", linkMount, {"
+      , "popupKeys(\"tags\", tagMount, {"
       , "flagPress(k, e, TFLAGS)" ]
       [ "if (momentary() !== \"links\") return;"
       , "if (momentary() !== \"tags\" || e.defaultPrevented) return;" ]
@@ -6919,7 +6919,7 @@ shellGlue =
   , glue "the momentary veils are backdrops too"
       [ "for (const id of [\"modal\", \"config\"])"
       , "if (e.target === el(id)) leaveSheet();"
-      , "const backdrops = [[\"links\", shutLinks], [\"tags\", shutTags]];"
+      , "const backdrops = [[\"links\", () => shutLinks()], [\"tags\", () => shutTags()]];"
       , "if (e.target === el(id)) off();" ]
 
   -- ONE COMMAND AT A TIME where a press makes several: rows sharing a FILE are

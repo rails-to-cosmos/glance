@@ -286,7 +286,7 @@
         e.preventDefault();
       });
     }
-    popupKeys("links", () => lmount, {
+    popupKeys("links", linkMount, {
       editing: lediting,
       editKeys: (k) => {
         if (k === "TAB" || k === "S-TAB") hop();
@@ -297,7 +297,7 @@
       keys: (k) => {
         if (k === "o") {
           const link = pointedLink();
-          const b = opening;
+          const b = openedBy();
           shutLinks();
           if (link) openLink(b, link);
         }
@@ -306,7 +306,7 @@
         return true;
       },
     });
-    popupKeys("tags", () => tmount, {
+    popupKeys("tags", tagMount, {
       editing: renaming,
       editKeys: (k) => {
         if (k !== "RET") return false;   // ESC is the keymap's, and puts the tag back

@@ -37,7 +37,12 @@ import qualified Data.Text.IO as TIO
 wrappedWidgets :: [(FilePath, [T.Text])]
 wrappedWidgets =
   [ ("05-keys.js", [ "table.", "cols", "query", "editing", "prompting"
-                   , "SURFACES", "MAPS", "socket" ]) ]
+                   , "SURFACES", "MAPS", "socket" ])
+    -- The popups take `edit' as the ACCESSOR `editNow', so the `let' itself is
+    -- on the list; `!!edit' and `edit.o' name it where `openEdit' and
+    -- `lediting' merely contain the letters.
+  , ("40-popups.js", [ "table.", "query", "prompting", "SURFACES", "MAPS"
+                     , "socket", "!!edit", "edit.o", "drows", "crows" ]) ]
 
 -- | PART with its comment-only lines out, so a name in prose is not a reach.
 glueCode :: FilePath -> IO T.Text

@@ -1,3 +1,13 @@
+// THE LINK AND TAGS POPUPS, and the popup chrome both wear
+// (docs/proposal-widget-files.md, step C).  Twenty-two of its dependencies are
+// `const'/`function' and destructure safely; `edit' is a `let' the panel
+// reassigns, so it arrives as the ACCESSOR `editNow' -- a destructured `let' is
+// a copy of whatever it held at boot.
+const Popups = ((deps) => {
+    const { CFG, again, askFrom, cancelEdit, echo, el, failed, fire, foldTag, mountOnce,
+            openEdit, remembered, rowsWord, said, selectedId, shortly, shutEdit,
+            sole, soon, stepIn, tagFrom, unlogged } = deps;
+    const editNow = deps.editNow;
     // The link and tags popups.  Full rules live in CLAUDE.md.
     const LCOLS = CFG.lcols;
     let lmount = null, lrows = [], opening = null, lfor = null, lpin = "";
@@ -54,7 +64,7 @@
       },
       focus: () => { el("lurl").focus(); el("lurl").select(); },
     };
-    const lediting = () => !!edit && edit.o === LROW;
+    const lediting = () => { const e = editNow(); return !!e && e.o === LROW; };
     const openOver = (shape, at, none) =>
       (at ? openEdit(shape, at) : echo(`RET → ${none}`));
     const openLinkEdit = () =>
@@ -207,7 +217,7 @@
       fill: (tag) => (el("tname").value = tag),
       focus: () => { el("tname").focus(); el("tname").select(); },
     };
-    const renaming = () => !!edit && edit.o === TROW;
+    const renaming = () => { const e = editNow(); return !!e && e.o === TROW; };
     const openRename = () =>
       openOver(TROW, tagAt(), "org-rename-tag (no tag)");
     const cancelRename = () => cancelEdit("tag", TROW);
@@ -219,3 +229,25 @@
       unflag: "tag-unflag (flag cleared)",
       flag: "tag-flag (d again removes)",
     };
+
+    // The binding the popup was RAISED by, which `o' inside it needs to echo
+    // through.  An answer rather than the `let': a handle carrying a mutable
+    // by value hands out whatever it held at boot.
+    const openedBy = () => opening;
+    // The mounts are made on first raise, so they leave as ANSWERS too: a
+    // handle carrying a `let' by value hands out the `null' it held at boot,
+    // and the popups' own `n'/`p' would step nothing forever.
+    const linkMount = () => lmount;
+    const tagMount = () => tmount;
+    return { openedBy, linkMount, tagMount, addFlow, cancelLinkEdit, cancelRename, commitLink, landing, lediting,
+             linking, managing, openLinkEdit, openRename, pointedLink,
+             renameTag, renaming, showLinks, showPopup, showTags, shutLinks,
+             shutTags, TFLAGS };
+})({ CFG, again, askFrom, cancelEdit, echo, el, failed, fire, foldTag, mountOnce,
+     openEdit, remembered, rowsWord, said, selectedId, shortly, shutEdit,
+     sole, soon, stepIn, tagFrom, unlogged,
+     editNow: () => edit });
+const { openedBy, linkMount, tagMount, addFlow, cancelLinkEdit, cancelRename, commitLink, landing, lediting,
+        linking, managing, openLinkEdit, openRename, pointedLink,
+        renameTag, renaming, showLinks, showPopup, showTags, shutLinks,
+        shutTags, TFLAGS } = Popups;

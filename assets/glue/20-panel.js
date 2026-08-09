@@ -259,7 +259,10 @@
       el(id).addEventListener("click",
         (e) => { if (e.target === el(id)) leaveSheet(); });
     /** @type {[string, () => void][]} */
-    const backdrops = [["links", shutLinks], ["tags", shutTags]];
+    // CALLED at click time, never named at registration time: a wrapped widget
+    // hands its closers out through a `const' handle, which -- unlike the
+    // hoisted `function' these were -- is in TDZ while this line runs.
+    const backdrops = [["links", () => shutLinks()], ["tags", () => shutTags()]];
     for (const [id, off] of backdrops)
       el(id).addEventListener("click",
         (e) => { if (e.target === el(id)) off(); });

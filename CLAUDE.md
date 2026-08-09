@@ -886,6 +886,15 @@ measurements and the history of superseded designs live in
   list per widget, this suite's own idiom, because an allowlist over a shared
   scope cannot tell a local `t` from a foreign one without a parser. State
   a widget must never reach for goes on its list.
+- MUTABLE STATE CANNOT BE DESTRUCTURED, which is the whole cost of step C. A
+  handle carrying a `let` hands out whatever it held at boot, so `40-popups.js`
+  takes `edit` as the accessor `editNow` and gives `opening`, `lmount` and
+  `tmount` back as `openedBy`, `linkMount` and `tagMount` — `lmount` by value
+  was `null` forever and stepped nothing, which the SUITE caught and `tsc` did
+  not. And HOISTING was doing load-bearing work across the part boundaries: a
+  top-level line naming another part's `function` is fine and naming its
+  destructured `const` is a TDZ error, so `20-panel`'s backdrop closers are
+  called at click time rather than named at registration time.
 - ONE WIDGET, ONE FILE: the shell is `assets/glue/*.js`, concatenated by the TH
   splice in the order `Glance.Web.Base.gluePartFiles` declares (ORDER IS DATA,
   stated once). The parts are FRAGMENTS of one script scope rather than modules
