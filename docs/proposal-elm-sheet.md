@@ -1,6 +1,6 @@
 # Proposal — the materialize sheet in Elm
 
-**Status:** proposed · **Date:** 2026-08-09 · **Origin:** user, asking whether
+**Status:** stopped at step 2 — see "The recommendation" · **Date:** 2026-08-09 · **Origin:** user, asking whether
 the split glue is ready for Elm · **Depends on:**
 `docs/proposal-widget-files.md`, whose step B split the shell and whose step C
 made the sheet one component
@@ -85,16 +85,11 @@ that is the gate.
 
 ### 3. The remaining interface must be measured, not estimated
 
-After steps 1 and 2, measure the sheet's dependencies the way the other widgets
-were measured (`docs/proposal-widget-files.md`). Today it names seven forward
-dependencies (`config`, `configSheet`, `settings`, `momentary`, `docTargets`,
-`promptNow`, `landing`) plus the floor. The port's port-API is exactly that
-list plus the four accessors it already hands out — `editNow`, `dlinksNow`,
-`docCursor`, `docRowById` — and the named operations `docClear`, `docFill`,
-`docRestore`, `checkboxHere`.
-
 **Do not start the Elm until that number is on paper.** Every estimate in this
-programme that was not measured came in high.
+programme that was not measured came in high — and this one did too. The
+estimate written here was "seven forward dependencies plus the floor". The
+measurement is **50 out and 41 in**, and it moved the verdict: see "The sheet is
+not an island" below.
 
 ## The port itself
 
@@ -104,7 +99,8 @@ beside `sync-renderer`. No new build step in `cabal build`; the binary stays the
 whole deployment and `--assets` still serves a directory. This is the one part
 of the earlier objection that dissolves: the repo already has the pattern.
 
-**Shape.** One Elm program, `Browser.element`, mounted on `#modal`. Its model
+**Shape** (as designed, before the stop). One Elm program, `Browser.element`,
+mounted on `#modal`. Its model
 is the sheet's: the entry, `raw`, the two baselines, the document rows and the
 property rows, the cursor and the flags. Its view draws both panes. Its update
 takes keys.
@@ -118,7 +114,8 @@ takes keys.
 `keyPressed` for the keys the shell dispatches rather than the sheet.
 
 **What must NOT become a port**: any question the update needs answered inside
-the same tick. After step 2 there are none — that is what step 2 is for.
+the same tick. This was written expecting step 2 to leave none. It leaves two,
+and the port round trip turns out to cost a whole macrotask — measured below.
 
 **Keys.** The sheet's key handling is its own listener today, ahead of the
 dispatch. In Elm it is `Browser.Events.onKeyDown` inside the program, with the
@@ -127,50 +124,112 @@ shell's dispatch standing down while the sheet is up (it already does — every
 be ported exactly: `e.code` for `KeyA`–`KeyZ`, `e.key` otherwise. It is 20
 lines and `05-keys.js` is the reference.
 
-## What the suite does about it
+## What the suite does about it — THE PLAN WAS WRONG HERE
 
-This is the part that decides whether the port is safe, and the answer is good.
-The sheet's behaviour is pinned by ~200 harness-driven cases in `TestServe`
-that press keys and read back the DOM — `insheet`, `onTable`, `keyed`. Those
-tests do not know how the sheet is implemented; they drive a served page in
-node and assert what the elements say.
+This section claimed the port is safe because "~200 harness-driven cases in
+`TestServe` press keys and read back the DOM", so "the same cases must pass
+against the Elm sheet with no edit". **Both halves are false, and step 2 found
+it in an hour.**
 
-So the port is verifiable in the way that matters: **the same cases must pass
-against the Elm sheet with no edit.** Where a case pins a line of glue source
-(`holdsAll` over the served script), it pins the JS implementation and must be
-retired or repointed — those are countable in advance and should be counted
-before starting.
+`test/fixtures/shell-harness.js` has NO DOM. `globalThis.document` is a
+hand-written object of nine members over a `Proxy` that answers `""` to every
+property and returns itself from every call; `querySelectorAll` is `() => []`.
+And `globalThis.TableView` is a STUB — `makeMount` keeps rows and a selection
+in memory. The panel probes read that stub, never the page:
+`panel() = cellsOf(pan, ["key","value"])` walks `inst.own`, `patAt() = curOf(pan)`
+reads its selection index. **56 assertions in `TestServe` read it.**
 
-## Staging
+So an Elm panel is invisible to the cases meant to protect it — and it does not
+even start. Run under the harness's own globals:
 
-1. **Move the table machinery out** (§1). Pure relocation, suite green, no
-   Elm. **Done** — sheet's renderer accesses 28 → 5, its file 1225 → 1111.
-2. **Elm draws the property panel** — inside the existing JS sheet, as a first
-   Elm program with a narrow surface, replacing `pmount`. Proves the toolchain,
-   the committed-output pattern, and the port shapes on ~150 lines rather than
-   1111. Sheet's renderer accesses 5 → 1.
-3. **Measure** the remaining interface (§3) and write it down.
-4. **Port the document pane** into the same program.
-5. **Port the ladder and the opening**, and delete the JS sheet.
+```
+TypeError: _VirtualDom_doc.createTextNode is not a function
+```
 
-Stages 1–3 are worth doing on their own merits and leave the repo better if
-stages 4–5 never happen. Stage 2 is the real decision point: if writing a
-two-column list plus flags in Elm is unpleasant against this suite, that is the
-signal to stop, and it costs a day rather than a month.
+## Two toolchain results, both measured
 
-## Open decisions
+**`npx --yes elm` works** — elm 0.19.2-0, `elm/compiler`, nothing installed,
+the same ephemeral shape as the Makefile's `npx --yes -p typescript tsc`. The
+`elm.json` must say `0.19.2`; `0.19.1` is a hard version-mismatch refusal.
 
-1. **Does the sheet keep table-view's look?** Elm redrawing the panel means
-   re-implementing `.tv-*` classes or writing new ones. RECOMMEND: reuse the
-   existing class names and stylesheet, so the palette and the theme keep
-   working untouched — the renderer ships its palette at zero specificity and
-   the page's own rules already win.
-2. **Where does `keyName` live?** Two copies (Elm and `05-keys.js`) would be
-   two grammars. RECOMMEND: Elm's program receives already-named keys through
-   a port from `05-keys.js`, so the physical-key rule stays in one place.
-3. **Does `--assets` still work?** The Elm output is one more file in the
-   directory. RECOMMEND: yes, and it joins `gluePartFiles`' list so the
-   concatenation is unchanged in shape.
-4. **What happens to `check-glue`?** `tsc` cannot check Elm output usefully.
-   RECOMMEND: exclude the generated file and let `elm make` be its own check;
-   record it in `Makefile` beside `check-glue` so a reader sees both.
+**`Platform.worker` runs under the fake DOM and `Browser.element` does not.**
+Ports carry values both ways. But the round trip takes a full MACROTASK, which
+was measured rather than assumed:
+
+```
+shadow IMMEDIATELY after send: null
+shadow after a microtask     : null
+shadow after a macrotask     : {"seen":1,"got":{"k":1}}
+```
+
+So Elm cannot back state JS reads in the same tick — and the panel has two such
+paths: `addProperty` → `repaint` → `openRow` → `patAt`, and `drawProps` →
+`repaint` → `edited()` for `baseProps`.
+
+**Sizes**, against a 387 KB payload (`table-view.js` 242 KB + glue 145 KB):
+`Browser.element` hello-world 108 KB, `Platform.worker` 62 KB. That is the
+runtime, before any panel code.
+
+## The sheet is not an island — step 3, measured
+
+Measured with a scope-accurate walk over acorn's AST (`bindings` per scope,
+free identifiers per scope, member expressions counted at the object alone), so
+locals and parameters are not mistaken for reaches:
+
+| direction | count |
+| --- | --- |
+| names `20-sheet.js` reaches in other parts | 50, across all five, plus 13 globals |
+| names other parts reach IN `20-sheet.js` | **41 distinct** |
+
+The second number is the one that decides it, and its shape more so: **25 of the
+41 are reached by `50-settings.js` and 25 by `70-shell.js`.** The settings sheet
+borrows the materialize sheet's whole apparatus — `openEdit`, `shutEdit`, `hop`,
+`flagPress`, `mountOnce`, `activeSheet`, `dirty`, `sync`, `note`, `show`,
+`drawProps`, `props`, `planning`, `DTITLE`, `DPARA`, `edit`, `editing`, `raw` —
+which is CLAUDE.md's own design: "ONE BUTTONLESS SHEET, and there are two of
+them: the materialize sheet and the settings sheet run the SAME ladder, written
+once".
+
+Porting `20-sheet.js` therefore drags `50-settings.js` (643 lines) with it. The
+unit is ~1750 lines and two surfaces, not 1111 lines and one.
+
+## Staging — the gate moved
+
+1. **Move the table machinery out.** **DONE** (`9f2ea2c`) — renderer accesses
+   28 → 5, the file 1225 → 1111.
+2. ~~Elm draws the property panel.~~ **BLOCKED, and the blocker is not the
+   panel.** Nothing Elm RENDERS can be tested here until the harness has a real
+   DOM.
+3. **A harness with a real DOM** is the actual prerequisite, and it is its own
+   project rather than a step of this one. jsdom is 7 MB unpacked over 21 direct
+   dependencies, in a repo with no `package.json`, no `node_modules`, and a JS
+   toolchain that is one ephemeral `npx` line; and the 56 assertions reading the
+   stub would each have to be repointed at the DOM. It has merit on its own —
+   it would test the page rather than a stub — and should be judged on that,
+   not as an Elm enabler.
+4. Only after 3 is any of the original 2, 4, 5 reachable.
+
+## The recommendation
+
+**Do not port.** The price, all measured: a 7 MB test dependency and 56
+rewritten assertions to make the port testable at all; 62–108 KB of runtime;
+a unit of ~1750 lines spanning two surfaces because the settings sheet shares
+the ladder by design; and an async boundary through code that reads its model
+synchronously.
+
+What the port was reaching for has largely been banked by cheaper means already:
+`make check-glue` type-checks the shell for real, the widgets are separate
+files, three are wrapped with enforced boundaries, and this step put the table's
+machinery back where it belongs. Those are the wins that were available; this
+one is not, at this price.
+
+The finding that stands on its own merits and outlives the Elm question is
+step 3's: **the harness tests a stub, not the page.** That is worth knowing
+whatever happens next.
+
+## Open decisions, now moot
+
+Kept because they record what was decided before the stop: reuse the `.tv-*`
+class names and stylesheet; keep `keyName` in `05-keys.js` and port already-named
+keys; let the Elm output join the asset directory; exclude it from `check-glue`
+and let `elm make` be its own check.
