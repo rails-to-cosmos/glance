@@ -126,3 +126,56 @@ to the log and the settings sheet READS it.
    file by a factor of two and holds both the model (`drows`) and the
    grain walk. RECOMMEND: one for now; splitting a model from its only
    view is a boundary with nothing on the other side of it.
+
+## Step C, as it has gone (2026-08-09)
+
+Two widgets converted, and what they cost was the finding rather than the
+wrapping.
+
+**Wrapping is free; the mutable state is not.** The parts sit at a cosmetic
+four-space indent, so an IIFE re-indents nothing and every test pin on a body
+line survives. What costs is that a handle CANNOT CARRY A `let`: destructuring
+copies whatever it held at boot. `40-popups`' `lmount` went out by value, was
+`null` for the life of the page, and its `n`/`p` stepped nothing — the suite
+caught it, `tsc` did not.
+
+So a dependency that is a `let` arrives as an accessor, and an export that is a
+`let` leaves as one:
+
+| widget | in | out | accessors it forced |
+| --- | --- | --- | --- |
+| `05-keys.js` | 1 | 5 | `pendingKeys` |
+| `40-popups.js` | 22 | 21 | `editNow`, `openedBy`, `linkMount`, `tagMount` |
+
+**Hoisting was load-bearing across the part boundaries.** A top-level line in
+one part naming another's `function` is fine; naming its destructured `const`
+is a TDZ error. `20-panel`'s backdrop closers are called at click time now
+rather than named at registration time.
+
+**The argument list documents the boundary and JS does not hold it** — the
+parts share one script scope, so the IIFE still sees everything around it. A
+planted reach compiles clean. The enforcement is `TestSelfContained`'s
+`wrappedWidgets`, a must-not-appear list per widget, which is exact where an
+allowlist over a shared scope cannot tell a local `t` from a foreign one
+without a parser. A guard nobody has watched fail is not a guard: this one was
+passing over `40-popups` for a while because the widget had been wrapped and
+never added to the list.
+
+### `10-document.js` needs its model back first
+
+It is the best Elm candidate — zero synchronous renderer calls, already
+model-view-update shaped — and it is the one part that CANNOT be wrapped as it
+stands. Its model (`drows`, `dat`, `dcol`, `dgrain`, `dparent`, `dlinks`) is
+declared in `00-core.js` and WRITTEN from three other files:
+
+- `20-panel.js` clears it when the sheet shuts;
+- `50-settings.js` restores `dat`/`dcol` across a remount;
+- `00-core.js` fills `dlinks` and empties `drows` on materialize.
+
+Read accessors do not cover writes, and accessor-plus-setter pairs for six
+bindings would be a worse interface than the tangle. The prerequisite is to
+move the five `let`s into the widget and give the three writers named
+operations — `docClear()`, `docRestore(at, col)`, `docShow(h)`. Three call
+sites, five bindings. That is the most valuable single change left here: it
+turns the document pane from a model in core that four files poke into a
+component, and nothing can be ported until it is one.
