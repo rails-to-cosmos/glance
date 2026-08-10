@@ -12,6 +12,7 @@ section groups a feature arc, and its date is that arc's last commit.
 ## Unreleased
 
 ### Added
+- **The agenda is `A` rather than `a`.** `a` is free.
 - **`+` adds a paragraph in the materialize sheet's document pane.** The empty
   paragraph is DRAWN where it is going and point moves to it, so the textarea
   is over a line of your own rather than over the one you were standing on —

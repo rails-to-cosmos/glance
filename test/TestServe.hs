@@ -2600,7 +2600,7 @@ openedOf answer = traverse one =<< listAt "opened" answer
 agendaSpec :: IO T.Text -> TestTree
 agendaSpec shell = testGroup "Shell agenda"
   [ keyedAt shell "?q=" 500 "applies its query the way g applies the tree's default"
-      "a" "" $ \answer -> do
+      "A" "" $ \answer -> do
         assertEqual "the boot's two, then the remount's one"
           [ "/headlines?limit=100", "/headlines"
           , "/headlines?q=state%3A*active*%20-planned%3A*empty*%20sort%3Ascheduled" ]
@@ -2613,7 +2613,7 @@ agendaSpec shell = testGroup "Shell agenda"
     -- handle: a canned view that had to call for its order could state one the
     -- query it applied did not.
   , keyedAt shell "?q=" 500 "the rows land in scheduled order, and the query is what says so"
-      "a" "" $ \answer -> do
+      "A" "" $ \answer -> do
         assertEqual "the chain the query named" [("scheduled", True)]
           =<< chainOf answer
         assertEqual "and no sort was asked of the renderer" 0
@@ -2623,26 +2623,26 @@ agendaSpec shell = testGroup "Shell agenda"
     -- token is the query's last one, so one press takes it off and the answer
     -- comes back in the view's own order.
   , keyedAt shell "?q=" 500 "and DEL takes the order back off, one token like any other"
-      "a" "press:Backspace" $ \answer -> do
+      "A" "press:Backspace" $ \answer -> do
         urlIs "the query the strip left" "?q=state%3A*active*+-planned%3A*empty*" answer
         assertEqual "asked for without the order"
                     (Just "/headlines?q=state%3A*active*%20-planned%3A*empty*")
           . lastOf =<< textsAt "asked" answer
 
   , keyedAt shell "?q=" 3 "and the pill names the command and the count the server answered"
-      "a" "" $
+      "A" "" $
         echoIs "counted by the server, not by the page it painted"
-          "a → org-glance-agenda (agenda · 3 rows)"
+          "A → org-glance-agenda (agenda · 3 rows)"
 
-  , keyedAt shell "?q=" 1 "one row is one row" "a" "" $
-        echoIs "singular" "a → org-glance-agenda (agenda · 1 row)"
+  , keyedAt shell "?q=" 1 "one row is one row" "A" "" $
+        echoIs "singular" "A → org-glance-agenda (agenda · 1 row)"
 
     -- An asset with no sort calls at all applies the same view: the order is a
     -- token of the query, so there is nothing for this page to ask for and
     -- nothing to feature-detect on the way in.  What an old asset loses is the
     -- ORDER, which the server still answers in.
   , keyedAt shell "?q=" 500 "an asset without a programmatic sort still applies the view"
-      "" "sortless press:a" $ \answer -> do
+      "" "sortless press:A" $ \answer -> do
         assertEqual "no sort was asked for" Nothing =<< sortOf answer
         urlIs "the query still went, order and all"
           "?q=state%3A*active*+-planned%3A*empty*+sort%3Ascheduled" answer
@@ -2654,9 +2654,9 @@ agendaSpec shell = testGroup "Shell agenda"
     -- The landing is armed for ONE boot: a second remount that nobody asked an
     -- agenda of must not re-sort and must not echo a count.
   , keyedAt shell "?q=" 500 "the landing is spent by the boot it was armed for"
-      "a" "close:view-changed" $ \answer -> do
+      "A" "close:view-changed" $ \answer -> do
         echoIs "the remount behind the close echoed no agenda"
-          "a → org-glance-agenda (agenda · 500 rows)" answer
+          "A → org-glance-agenda (agenda · 500 rows)" answer
         -- The echo pill's FINAL text cannot see this regression: it is
         -- last-writer-wins, so an unspent landing re-runs the agenda and writes
         -- the very string above.  Neither can the fetches — the remount
@@ -2668,7 +2668,7 @@ agendaSpec shell = testGroup "Shell agenda"
         assertEqual ("the agenda landed once: " <> show wrote)
                     1 (length (filter ("(agenda · " `T.isInfixOf`) wrote))
 
-  , keyedAt shell "?q=" 500 "a held a remounts once" "a" "repeat:a repeat:a repeat:a" $
+  , keyedAt shell "?q=" 500 "a held A remounts once" "A" "repeat:A repeat:A repeat:A" $
         assertEqual "one remount, so one fetch behind the boot's"
           [ "/headlines?limit=100", "/headlines"
           , "/headlines?q=state%3A*active*%20-planned%3A*empty*%20sort%3Ascheduled" ]
@@ -5221,12 +5221,13 @@ settingsSpec shell =
         echoIs "and the pill names the agenda"
           "P → set-saved-view (agenda · tag:work)" answer
 
-    -- `a' APPLIES THE TREE'S OWN AGENDA: it is a saved view like the default,
+    -- `A' APPLIES THE TREE'S OWN AGENDA: it is a saved view like the default,
     -- so a pin under a running page is what the next press applies.  `g' in
     -- between is what makes the last press say something — it lands the page on
-    -- the default first.
-  , keyedAt shell "?q=tag%3Awork" 500 "a applies the agenda the pin just wrote"
-      "" "press:P press:a press:g press:a" $ \answer ->
+    -- the default first.  The FIRST `a' is the pin palette's own which-key
+    -- letter for the agenda view, which is a letter rather than this binding.
+  , keyedAt shell "?q=tag%3Awork" 500 "A applies the agenda the pin just wrote"
+      "" "press:P press:a press:g press:A" $ \answer ->
         urlIs "the freshly pinned agenda, not the built-in"
               "?q=tag%3Awork" answer
 
@@ -11346,7 +11347,7 @@ expectedRows =
   , (["!"],          "!",       "org-glance-overview:open",        Just "openLinks",      "table", openHelp)
   -- A canned VIEW rather than a mode: one query, applied the way `g' applies
   -- the tree's default.
-  , (["a"],          "a",       "org-glance-agenda",               Just "applyAgenda",    "table",
+  , (["A"],          "A",       "org-glance-agenda",               Just "applyAgenda",    "table",
        Just "the active rows carrying a date, earliest first")
   -- The drill: the rows pointing AT the one at point, applied as a `ref:' view
   -- with a crumb left behind for DEL to walk back along.
