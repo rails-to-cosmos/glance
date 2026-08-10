@@ -88,6 +88,18 @@ edited id written lines =
     }
 
 
+{-| The same, with a paragraph spelling WRITTEN joined under ROW — what \`+' does
+before a flush. The rows come back unchanged where the stop takes none.
+-}
+inserted : String -> String -> List String -> { rows : List Row, lines : List String }
+inserted id written lines =
+    let
+        m =
+            model lines
+    in
+    { m | rows = Maybe.withDefault m.rows (Scan.insertion m id written) }
+
+
 suite : Test
 suite =
     describe "Scan"
@@ -306,5 +318,71 @@ suite =
                             (edited "B2" "- rewritten" [ "* head", "- alpha", "- beta" ])
                             []
                         )
+            ]
+        , describe "insertion — where a paragraph joins"
+            [ test "under the paragraph at point, one blank between" <|
+                \_ ->
+                    Expect.equal "* head\nalpha\n\nmid\n\nbeta"
+                        (Scan.bodyText (inserted "B0" "mid" [ "* head", "alpha", "", "beta" ]) [])
+
+            -- THE BLANK BELOW IS DECIDED, never spelled: prose at the carrier's
+            -- end reads back as ONE paragraph with what was written, so the
+            -- separator is asked of the line rather than fixed at "\n\n".
+            , test "and a blank below where what follows is prose" <|
+                \_ ->
+                    Expect.equal "* head\n- a\n\nnote\n\nafter"
+                        (Scan.bodyText (inserted "B0" "note" [ "* head", "- a", "after" ]) [])
+            , test "the headline's leads the body" <|
+                \_ ->
+                    Expect.equal "* head\ntop\n\nalpha\n\nbeta"
+                        (Scan.bodyText (inserted "H" "top" [ "* head", "alpha", "", "beta" ]) [])
+            , test "and a body with no block at all is seeded with one" <|
+                \_ ->
+                    Expect.equal "* head\nfirst\n"
+                        (Scan.bodyText (inserted "H" "first" [ "* head", "" ]) [])
+
+            -- A LEAF'S RIDES ITS OUTERMOST OWNER.  Grown in place, org closes
+            -- the list, cuts the table, or takes the prose for source.
+            , test "a list item's rides the whole list, which stays one list" <|
+                \_ ->
+                    Expect.equal "* head\n- alpha\n- beta\n\nnote\n\nafter"
+                        (Scan.bodyText
+                            (inserted "B2" "note" [ "* head", "- alpha", "- beta", "", "after" ])
+                            []
+                        )
+            , test "a nested item's climbs past its own item to the list" <|
+                \_ ->
+                    Expect.equal "* head\n- alpha\n  - deep\n\nnote"
+                        (Scan.bodyText (inserted "B2" "note" [ "* head", "- alpha", "  - deep" ]) [])
+            , test "a table's line rides the table, which stays whole" <|
+                \_ ->
+                    Expect.equal "* head\n| a |\n| b |\n\nnote\n\nafter"
+                        (Scan.bodyText
+                            (inserted "B2" "note" [ "* head", "| a |", "| b |", "", "after" ])
+                            []
+                        )
+            , test "a block's run rides the block, so no prose lands in source" <|
+                \_ ->
+                    Expect.equal "* head\n#+begin_src\nx\n#+end_src\n\nnote\n\nafter"
+                        (Scan.bodyText
+                            (inserted "B1"
+                                "note"
+                                [ "* head", "#+begin_src", "x", "#+end_src", "", "after" ]
+                            )
+                            []
+                        )
+            , test "a child takes none, its bytes being outside this window" <|
+                \_ ->
+                    Expect.equal Nothing
+                        (Scan.insertion
+                            { rows = Scan.rowsFrom [ "* head", "mine", "** kid" ] 2 [] [ ( 0, 2, [] ) ]
+                            , lines = [ "* head", "mine", "** kid" ]
+                            }
+                            "C0"
+                            "note"
+                        )
+            , test "nor an id no row wears" <|
+                \_ ->
+                    Expect.equal Nothing (Scan.insertion (model [ "* head", "alpha" ]) "B9" "note")
             ]
         ]

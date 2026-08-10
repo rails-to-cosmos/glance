@@ -184,6 +184,38 @@
       const now = was === " " ? "X" : was === "-" ? "X" : " ";
       editPara(r, r.text.replace(CHECKBOX, `$1[${now}]`), () => said(b, `[${now}]`));
     }
+    const INSERT = docBinding("org-insert-element", "+");
+    const dOwner = (r) => (r && r.owner ? docRowById(r.owner) : null);
+    /** WHERE a paragraph would land, in the reader's own words. */
+    function insertWord(r) {
+      if (r.kind === "head") return "at the top";
+      let top = r;
+      for (let up = dOwner(top); up; up = dOwner(top)) top = up;
+      return top === r && r.grain !== "composite"
+        ? "after this paragraph"
+        : `after the ${top.name || "block"}`;
+    }
+    /**
+     * `+' ADDS A PARAGRAPH under the stop, in the widget `RET' edits one with.
+     * NOTHING joins the model: the row is this snapshot until `RET' grows the
+     * carrier, so `ESC' undoes it by having nothing to undo.
+     */
+    function insertHere() {
+      const r = docRowAt();
+      if (!r) { said(INSERT, "no element"); return; }
+      if (r.kind === "child")
+        { said(INSERT, "a child's body is its own — RET opens it"); return; }
+      said(INSERT, insertWord(r));
+      openEdit(DPARA, { id: r.id, text: "", add: true });
+    }
+    /** Put TEXT in under ROW, and commit whichever answer Elm sends back. */
+    const insertPara = (r, text, done) => {
+      // TWO ANSWERS, ONE ASK — a body to write, or a word instead of one — so
+      // each one-shot disarms the other and neither outlives the press.
+      dcommit = () => { dwrote = null; done(); };
+      dwrote = (what) => { dcommit = null; keySaid("+")(what); };
+      dsend({ kind: "insert", id: r.id, text });
+    };
     // THE STORE LAGS THE WRITE: the watch is a debounce away, so an answer
     // under any digest but the 200's own is dropped and retried once.  Taking
     // it reverted the pane and poisoned the pin, which no frame then corrected.
@@ -295,9 +327,16 @@
       fill: (r) => { el("dtin").value = r.val; },
       focus: () => el("dtin").focus(),
     };
+    // AN INSERT'S BOX SITS OVER THE STRUCTURE IT JOINS, which for a leaf is
+    // the composite already drawn around it; an edit's sits over the stop.
+    const dInsertAt = () => {
+      const at = docElAt();
+      return (at && at.closest && at.closest(".d-comp")) || at;
+    };
     const DPARA = {
       box: "dpara", pane: "mdoc", fields: ["dtext"],
-      mount: () => null, anchor: docElAt,
+      mount: () => null,
+      anchor: () => (edit && edit.row.add ? dInsertAt() : docElAt()),
       fill: (r) => { el("dtext").value = r.text; },
       focus: () => el("dtext").focus(),
     };
@@ -321,7 +360,15 @@
       const r = edit.row;
       if (edit.o === DPARA) {
         const text = el("dtext").value;
+        const add = !!r.add;
         shutEdit(DPARA);
+        if (add) {
+          // NO PLACEHOLDERS, EVER: a paragraph with nothing in it is not one,
+          // and no row was ever made, so this writes nothing and says so.
+          if (!text.trim()) { spoke("nothing added"); return; }
+          insertPara(r, text, () => spoke("paragraph added"));
+          return;
+        }
         if (text === r.text) { spoke("paragraph unchanged"); return; }
         editPara(r, text, () => spoke("paragraph written"));
         return;
@@ -588,6 +635,7 @@
         else if (k === ":") once(() => atElement(tagsHere));
         else if (k === "SPC")
           once(() => toggleCheckbox(docBinding("org-toggle-checkbox", "SPC")));
+        else if (k === "+") once(insertHere);
         else if (!flagPress(k, e, DFLAGS)) return;
       }
       e.preventDefault();

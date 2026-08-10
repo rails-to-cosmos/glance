@@ -3462,6 +3462,96 @@ sheetSpec shell =
           =<< traverse (textAt "body") =<< listAt "writes" answer
         assertEqual "and the sheet is synced" "synced" =<< textAt "state" answer
 
+    -- `+' ADDS A PARAGRAPH, in the widget `RET' edits one with.  The overlay
+    -- opens EMPTY and NOTHING moves until `RET', so `ESC' is a no-op by
+    -- construction and no unwritten paragraph can ride out on a flush some
+    -- other key fired.  WHERE it lands is `Scan.insertion'.
+  , testCase "+ opens an empty paragraph and writes nothing yet" $
+      insheet "press:n press:+" $ \answer -> do
+        assertEqual "the overlay is up" True =<< boolAt "dparaopen" answer
+        assertEqual "and EMPTY, where RET opens with the text" ""
+          =<< textAt "dtext" answer
+        assertEqual "with the focus in it" "dtext" =<< textAt "focus" answer
+        assertEqual "and nothing written" [] =<< textsAt "wroteAt" answer
+        echoIs "the echo names where it would land"
+               "+ \8594 org-insert-element (after this paragraph)" answer
+
+  , testCase "RET writes it in under the paragraph point stood on" $
+      insheet "press:n press:+ dpara:added press:Enter" $ \answer -> do
+        assertEqual "one write, aimed at the row" ["r1"] =<< textsAt "wroteAt" answer
+        assertEqual "the paragraph joined and nothing else"
+          ["* TODO one\nfirst para\n\nadded\n\nsecond para\n** two\nchild body\n"]
+          =<< traverse (textAt "body") =<< listAt "writes" answer
+        assertEqual "the overlay is shut" False =<< boolAt "dparaopen" answer
+        echoIs "" "RET \8594 org-ctrl-c-ctrl-c (paragraph added)" answer
+
+    -- THE SEPARATOR IS DECIDED rather than spelled: under the LAST block the
+    -- line at its end is the child's headline, so the blank below is written.
+    -- Prose there would otherwise read back as ONE paragraph with what was
+    -- typed, which is the case a fixed "\n\n" gets wrong.
+  , testCase "+ under the last paragraph keeps a blank before the child" $
+      insheet "press:n press:n press:+ dpara:added press:Enter" $ \answer ->
+        assertEqual ""
+          ["* TODO one\nfirst para\n\nsecond para\n\nadded\n\n** two\nchild body\n"]
+          =<< traverse (textAt "body") =<< listAt "writes" answer
+
+  , testCase "+ on the headline line leads the body" $ do
+      insheet "press:+" $ \answer ->
+        echoIs "the echo says so before a byte moves"
+               "+ \8594 org-insert-element (at the top)" answer
+      insheet "press:+ dpara:opener press:Enter" $ \answer ->
+        assertEqual "and the paragraph goes in ahead of the first"
+          ["* TODO one\nopener\n\nfirst para\n\nsecond para\n** two\nchild body\n"]
+          =<< traverse (textAt "body") =<< listAt "writes" answer
+
+    -- A LEAF'S PARAGRAPH RIDES ITS OUTERMOST OWNER.  Grown in place, org
+    -- closes the list, cuts the table in half, or takes the prose for source —
+    -- one rule for three traps, and `Scan.insertion' is where it lives.
+  , testCase "+ inside a list lands under the WHOLE list" $ do
+      onTable "grain press:Enter press:n press:n press:f press:+ dpara:note press:Enter" $
+        \answer ->
+          assertEqual "past the last item, never between two"
+            [ "* TODO one\nlead in\n- alpha\n  more alpha\n  - nested\n\n- beta\n- gamma\n\n"
+              <> "note\n\n#+begin_quote\nquoted one\n\nquoted two\n#+end_quote\n\n"
+              <> "tail para\n** two\nchild body\n" ]
+            =<< traverse (textAt "body") =<< listAt "writes" answer
+      onTable "grain press:Enter press:n press:n press:f press:+" $
+        echoIs "and the echo names the structure, not the item"
+               "+ \8594 org-insert-element (after the list)"
+
+  , testCase "+ inside a block lands under #+end_, never in the source" $ do
+      onTable ("grain press:Enter press:n press:n press:n press:f press:+"
+               <> " dpara:note press:Enter") $ \answer ->
+        assertEqual "the quote is byte for byte what it was"
+          [ "* TODO one\nlead in\n- alpha\n  more alpha\n  - nested\n\n- beta\n- gamma\n\n"
+            <> "#+begin_quote\nquoted one\n\nquoted two\n#+end_quote\n\nnote\n\n"
+            <> "tail para\n** two\nchild body\n" ]
+          =<< traverse (textAt "body") =<< listAt "writes" answer
+      onTable "grain press:Enter press:n press:n press:n press:f press:+" $
+        echoIs "named by the block's own word"
+               "+ \8594 org-insert-element (after the quote)"
+
+  , testCase "+ over a child refuses and names the door" $
+      insheet "press:n press:n press:n press:+" $ \answer -> do
+        assertEqual "no overlay" False =<< boolAt "dparaopen" answer
+        assertEqual "nothing written" [] =<< textsAt "wroteAt" answer
+        echoIs ""
+          "+ \8594 org-insert-element (a child's body is its own \8212 RET opens it)" answer
+
+    -- NO PLACEHOLDERS, EVER, at the one place it could be broken: a paragraph
+    -- with nothing in it is not one, and no row was ever made.
+  , testCase "an empty + adds nothing, and ESC undoes nothing" $ do
+      insheet "press:n press:+ press:Enter" $ \answer -> do
+        assertEqual "nothing written" [] =<< textsAt "wroteAt" answer
+        echoIs "" "RET \8594 org-ctrl-c-ctrl-c (nothing added)" answer
+      insheet "press:n press:+ dpara:__ press:Enter" $ \answer ->
+        assertEqual "nor whitespace" [] =<< textsAt "wroteAt" answer
+      insheet "press:n press:+ dpara:typed press:Escape" $ \answer -> do
+        assertEqual "nothing written" [] =<< textsAt "wroteAt" answer
+        assertEqual "and the pane is the document it was"
+                    ["first para", "second para"] . partsOf "para" =<< docOf answer
+        echoIs "" "ESC \8594 keyboard-quit (element unchanged)" answer
+
     -- MOVEMENT IS TWO AXES, the table's habit read into the document.  A list
     -- and a `#+begin_'/`#+end_' block each take TWO KINDS OF STOP over the same
     -- bytes, laid out in document order as `[whole, item1..itemN]' and inline

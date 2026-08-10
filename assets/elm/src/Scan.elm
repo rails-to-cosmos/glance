@@ -8,6 +8,7 @@ module Scan exposing
     , bodyText
     , cellCount
     , cut
+    , insertion
     , kidsOf
     , kindWord
     , listOpener
@@ -578,6 +579,123 @@ bodyText m gone =
                 out
     in
     String.join "\n" (List.foldl splice m.lines paras)
+
+
+
+-- THE INSERT
+--
+-- A paragraph JOINS by growing the structure it lands under, so the splice
+-- above is the whole mechanism and no row is made that the reader has not
+-- written. One exception: a body holding no block has nothing to grow.
+
+
+{-| ROWS with a paragraph spelling WRITTEN joined under the stop ID.
+
+A LEAF's rides its OUTERMOST owner — grown in place, org would close the list,
+cut the table or take the prose for source. The HEADLINE's leads the body,
+joined to the FIRST block from the front. A body with no block at all is SEEDED
+with one, the only row this ever makes. 'Nothing' for a CHILD, whose bytes are
+outside this window, and for an id no row wears.
+
+-}
+insertion :
+    { a | rows : List Row, lines : List String }
+    -> String
+    -> String
+    -> Maybe (List Row)
+insertion m id written =
+    case rowById m id of
+        Nothing ->
+            Nothing
+
+        Just r ->
+            case r.kind of
+                Child ->
+                    Nothing
+
+                Head ->
+                    case List.filter (\x -> x.kind == Para) m.rows of
+                        first :: _ ->
+                            Just (grown m first.id (written ++ "\n\n" ++ first.text))
+
+                        [] ->
+                            Just (seeded m written)
+
+                Para ->
+                    let
+                        up =
+                            outermost m r
+                    in
+                    Just (grown m up.id (up.text ++ "\n\n" ++ apart m.lines up.to written))
+
+
+{-| The structure a stop belongs to, itself where it belongs to none.
+-}
+outermost : { a | rows : List Row } -> Row -> Row
+outermost m r =
+    case List.reverse (ownersOf m r.id) of
+        top :: _ ->
+            Maybe.withDefault r (rowById m top)
+
+        [] ->
+            r
+
+
+{-| WRITTEN with the blank line that keeps it a paragraph of its own. Prose at
+LINE runs on, and reads back as ONE paragraph with this; the end of the file is
+a blank by 'at''s own answer.
+-}
+apart : List String -> Int -> String -> String
+apart lines line written =
+    if isBlank (at line lines) then
+        written
+
+    else
+        written ++ "\n"
+
+
+{-| Grow ID's range to TEXT. ONE GRAIN SPEAKS FOR A RANGE, so a composite grown
+this way silences its own leaves and the structure splices once.
+-}
+grown : { a | rows : List Row } -> String -> String -> List Row
+grown m id text =
+    List.map
+        (\r ->
+            if r.id == id then
+                { r | text = text }
+
+            else
+                r
+        )
+        m.rows
+
+
+{-| The body's first paragraph where there was none: a ZERO-WIDTH range at line
+1, under the headline's own line, which the splice takes as an insert with no
+arm of its own. It wears \`B0' because that is the id the rescan will mint.
+-}
+seeded : { a | rows : List Row, lines : List String } -> String -> List Row
+seeded m written =
+    let
+        row =
+            { blank
+                | id = "B0"
+                , kind = Para
+                , grain = Element
+                , from = 1
+                , to = 1
+                , text = apart m.lines 1 written
+            }
+    in
+    List.concatMap
+        (\r ->
+            if r.kind == Head then
+                [ r, row ]
+
+            else
+                [ r ]
+        )
+        m.rows
 
 
 

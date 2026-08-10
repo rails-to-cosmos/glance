@@ -441,6 +441,7 @@
     function openEditState() {
       if (!docOpen()) return null;
       return { box: dparaing() ? "dpara" : "dtitle", id: edit.row.id,
+               add: !!(dparaing() && edit.row.add),
                val: el(dparaing() ? "dtext" : "dtin").value };
     }
     function restore() {
@@ -469,8 +470,14 @@
       }).catch((e) => append("sync", "error", `sheet restore failed: ${e.message}`));
     }
     function reopenEdit(o) {
-      const r = o.box === "dpara" ? docRowById(o.id)
-                                  : { id: o.id, val: o.val };
+      // AN INSERT NAMES THE STOP it was raised from and holds none of the
+      // file's text, so it is rebuilt rather than looked up as a paragraph —
+      // reopened as one, RET would REPLACE the paragraph it meant to join.
+      const stop = o.box === "dpara" ? docRowById(o.id) : null;
+      const r = o.box !== "dpara" ? { id: o.id, val: o.val }
+              : !stop ? null
+              : o.add ? { id: stop.id, text: "", add: true }
+              : stop;
       if (!r) return;
       openEdit(o.box === "dpara" ? DPARA : DTITLE, r);
       el(o.box === "dpara" ? "dtext" : "dtin").value = o.val;

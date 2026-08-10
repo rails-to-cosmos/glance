@@ -1690,6 +1690,17 @@ measurements and the history of superseded designs live in
   command yet. A CHILD's cells are read-only in v1 — no row id, so no `/command`
   addresses it — while its planning, drawer, paragraphs and children are all
   editable through the lens that materialized it.
+- `+` ADDS A PARAGRAPH, one of what the surface holds, as it does in the panel.
+  The overlay opens EMPTY over the stop and NOTHING moves until `RET`, so `ESC`
+  is a no-op by construction and no unwritten paragraph can ride out on a flush
+  another key fired. WHERE it lands is `Scan.insertion`: a LEAF's rides its
+  OUTERMOST owner, since org would close the list, cut the table or take the
+  prose for source; the HEADLINE's leads the body, and a body with no block is
+  SEEDED with one, the only row that rule ever makes. THE SEPARATOR IS DECIDED
+  rather than spelled — a blank above always, one below only where the line at
+  the carrier's end is prose that would otherwise run on. The shell sends the
+  STOP's id and the typed text and composes nothing; a child refuses and a
+  blank one writes nothing.
 - `SPC` TOGGLES AN ORG CHECKBOX at the stop under point, and `C-c C-c` with no
   element open is the same toggle (org's second meaning of the key). The box is
   the item's FIRST line (`CHECKBOX`: bullet or number, then `[ ]`/`[X]`/`[x]`/

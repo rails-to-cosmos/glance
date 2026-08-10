@@ -30,6 +30,7 @@ import Scan
         , bodyText
         , cellCount
         , cut
+        , insertion
         , kidsOf
         , kindWord
         , nth
@@ -337,6 +338,7 @@ type Msg
     | ClearFlags
     | Delete (List String)
     | Edit String String
+    | Insert String String
     | Ignore
 
 
@@ -421,21 +423,37 @@ update msg model =
 
                     else
                         r
-
-                after =
-                    { model | rows = List.map write model.rows }
             in
-            ( after
-            , Cmd.batch
-                [ docState (stateJSON after)
-                , docBody (E.string (bodyText after []))
-                ]
-            )
+            composed { model | rows = List.map write model.rows }
+
+        -- THE MODEL HOLDS NO UNWRITTEN ROW: `+' opens a box and sends nothing,
+        -- so this arrives with the text already typed and the write leaves in
+        -- the same turn.  A refusal is a WORD and composes no body.
+        Insert id written ->
+            case insertion model id written of
+                Just rows ->
+                    composed { model | rows = rows }
+
+                Nothing ->
+                    ( model
+                    , docSaid (E.string "org-insert-element (nothing here takes a paragraph)")
+                    )
 
 
 told : Model -> ( Model, Cmd Msg )
 told m =
     ( m, docState (stateJSON m) )
+
+
+{-| A model whose rows have MOVED: the state the mirror keeps, and the body the
+write that follows is made of. BOTH, always — a `docBody' with no`docState'
+would leave the shell's own copy a flush behind the file.
+-}
+composed : Model -> ( Model, Cmd Msg )
+composed m =
+    ( m
+    , Cmd.batch [ docState (stateJSON m), docBody (E.string (bodyText m [])) ]
+    )
 
 
 spoke : ( Model, String ) -> ( Model, Cmd Msg )
@@ -634,6 +652,9 @@ msgD =
 
                     "edit" ->
                         D.map2 Edit (D.field "id" D.string) (D.field "text" D.string)
+
+                    "insert" ->
+                        D.map2 Insert (D.field "id" D.string) (D.field "text" D.string)
 
                     _ ->
                         D.succeed Ignore
