@@ -245,7 +245,7 @@
     const SFLAGS = {
       mount: () => smount, take: sdelete, note: unlogged,
       walk: () => stepIn(smount, 1),
-      missing: "this table-view.js has no delete flags",
+      missing: lacks("delete flags"),
       none: "org-todo-remove-state (no row)",
       unflag: "delete-unflag (flag cleared)",
       flag: "delete-flag (d again removes)",
@@ -575,7 +575,8 @@
     function relations(b) {
       const id = focusedId();
       if (!id) { said(b, "no row"); return; }
-      if (!crumbing()) { said(b, "this table-view.js has no crumbs"); return; }
+      if (!wants(b, "crumbs", "pushCrumb", "popCrumb", "getCrumbs", "setCrumbs"))
+        return;
       const token = refToken(id), name = titleOf(id);
       load(`${asking(token)}&limit=1`).then((a) => {
         if (!a.total) {

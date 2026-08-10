@@ -7146,9 +7146,7 @@ shellGlue =
       , "if (step > 0) table.nextPage(); else table.previousPage();"
       , "said(b, `page ${at.page}/${at.pages}`);"
       -- An asset without a pager says so rather than throwing.
-      , "can(table, \"nextPage\")"
-      , "can(table, \"pageInfo\")"
-      , "this table-view.js has no pager" ]
+      , "wants(b, \"pager\", \"nextPage\", \"pageInfo\")" ]
 
   -- The buffer ends climb: the page's end row first, and the same key again
   -- turns onto the next page's.  The landing is a select of its own in BOTH
@@ -7165,6 +7163,22 @@ shellGlue =
       -- The column stays the renderer's across a turn: no local carries it.
       ["const col = ", "let col = "]
 
+  -- ONE CAPABILITY DOOR.  Every optional renderer call is feature-detected
+  -- before use, and the refusal is ONE sentence: `can' asks whether a mount
+  -- carries every name, `lacks' spells the sentence, `wants' is the two of them
+  -- as the guard a handler opens with.  The needles below pin the CALL rather
+  -- than the words, so the spelling can only be changed here.
+  , Glue "the capability door is one question and one refusal sentence"
+      [ "const can = (mount, ...names) =>"
+      , "names.every((n) => typeof mount[n] === \"function\")"
+      , "const lacks = (what) => `this table-view.js has no ${what}`;"
+      , "const wants = (b, what, ...names) =>"
+      , "can(table, ...names) || (said(b, lacks(what)), false);" ]
+      -- No handler spells the sentence itself, and no alias survives whose only
+      -- reader was the guard that now asks `wants'.
+      [ "said(b, \"this table-view.js has no"
+      , "const strips = ", "const sorts = " ]
+
   -- The column is the renderer's to hold: the shell reads it back out of
   -- `getSelection()' every time, which is why it survives a profile switch and
   -- goes when the selection does.  No second copy of it lives here.
@@ -7178,7 +7192,7 @@ shellGlue =
       , "table.select(id, want)"
       -- An asset without cell selection says so rather than throwing.
       , "can(table, \"getSelection\")"
-      , "this table-view.js has no cell selection"
+      , "wants(b, \"cell selection\", \"getSelection\")"
       -- The row is handed to its handler so the echo can open the same way.
       , "if (handler) handler(b);" ]
       ["let col = ", "selCol", "lastColumn"]
@@ -7198,7 +7212,7 @@ shellGlue =
       , "if (!table.sortPromote(c.key)) { said(b, `${named} does not sort`); return; }"
       , "const chain = table.getSort() || [], head = chain[0];"
       -- An asset with no promotion says so rather than throwing.
-      , "if (!sorts()) { said(b, \"this table-view.js has no sort\"); return; }" ]
+      , "wants(b, \"sort\", \"sortPromote\")" ]
       -- No sort record and no sort CALL survive: `sortAt' was the page's copy of
       -- what the handle publishes, and `sortBy' was how a canned view stated an
       -- order the query now carries.  The header marks stay the renderer's
@@ -10916,8 +10930,8 @@ pageSpec shell = testGroup "GET /"
             , "filterDrop: (b) => {", "said(b, \"no filter\")"
             , "said(b, left ? `filter: ${JSON.stringify(left)}` : \"filter cleared\");"
             -- An asset without the pair says so instead of guessing.
-            , "can(table, \"stripLastToken\")"
-            , "this table-view.js has no filter tokens"
+            , "wants(b, \"filter tokens\", \"stripLastToken\", \"getQuery\")"
+            , "wants(b, \"filter tokens\", \"stripLastToken\", \"getQuery\")"
             -- One press, one token: a held DEL claims the key and runs once,
             -- where held movement keeps repeating.  The table is the blob's.
             , "if (!(repeating(e) && MAPS.once.indexOf(hit.command) !== -1)) run(hit);" ]

@@ -108,12 +108,23 @@
           this.on.view || this.on.socket);
       },
     };
-    const can = (mount, name) => !!mount && typeof mount[name] === "function";
+    // WHETHER MOUNT CARRIES EVERY NAME.  Variadic because a capability is
+    // usually a PAIR the shell needs whole — a pager is `nextPage' with
+    // `pageInfo', crumbs are three calls — and one question is what the
+    // graceful floor asks: an asset carrying half of one can do neither half.
+    const can = (mount, ...names) =>
+      !!mount && names.every((n) => typeof mount[n] === "function");
+    // THE REFUSAL SENTENCE, SPELLED ONCE.  `wants' is the guard-and-say pair
+    // every capability handler opens with; `lacks' is the same sentence for a
+    // surface that declares its refusal as data (`flagKey''s `missing').
+    const lacks = (what) => `this table-view.js has no ${what}`;
+    const wants = (b, what, ...names) =>
+      can(table, ...names) || (said(b, lacks(what)), false);
     const rowStep = (k) => (k === "<down>" || k === "n" || k === "j" ? 1
                           : k === "<up>" || k === "p" || k === "k" ? -1 : 0);
     const stepIn = (mount, step) =>
       can(mount, "selectStep") && mount.selectStep(step);
-    const flagsOn = (mount) => can(mount, "flagRow") && can(mount, "getFlagged");
+    const flagsOn = (mount) => can(mount, "flagRow", "getFlagged");
     const selectedId = (mount) =>
       (can(mount, "getSelection") ? (mount.getSelection() || {}).id : null) || null;
     const soon = (fn) =>
@@ -238,8 +249,8 @@
       return named ? savedQuery(named) : q;
     }
     let crumbLabels = {};
-    const crumbing = () => can(table, "pushCrumb") && can(table, "popCrumb")
-      && can(table, "getCrumbs") && can(table, "setCrumbs");
+    const crumbing = () =>
+      can(table, "pushCrumb", "popCrumb", "getCrumbs", "setCrumbs");
     const trail = () => (crumbing() ? table.getCrumbs() : []);
     let crumbSels = [];
     const selsFit = () => crumbSels.length === trail().length;
@@ -300,7 +311,6 @@
       if (named) { applyNamed(named); return; }
       commit(q.trim());
     };
-    const strips = () => can(table, "stripLastToken") && can(table, "getQuery");
     const holds = (q) => can(table, "getQuery") && table.getQuery() === q;
     /**
      * @returns {(HTMLInputElement & HTMLElement) | null}
@@ -384,11 +394,10 @@
       pick(list, at === -1 ? (step > 0 ? 0 : list.length - 1) : at + step);
     }
     // The COMMAND is verbatim — a rebinding config addresses a function by this string.
-    const pager = () => can(table, "nextPage") && can(table, "pageInfo");
+    const pager = () => can(table, "nextPage", "pageInfo");
     const pageNow = () => (pager() ? table.pageInfo().page : 1);
-    const sorts = () => can(table, "sortPromote");
     function turnPage(b, step) {
-      if (!pager()) { said(b, "this table-view.js has no pager"); return; }
+      if (!wants(b, "pager", "nextPage", "pageInfo")) return;
       if (step > 0) table.nextPage(); else table.previousPage();
       const at = table.pageInfo();
       said(b, `page ${at.page}/${at.pages}`);
@@ -410,7 +419,7 @@
       said(b, `page ${at.page}/${at.pages}`);
     }
     function moveCol(b, step) {
-      if (!cells()) { said(b, "this table-view.js has no cell selection"); return; }
+      if (!wants(b, "cell selection", "getSelection")) return;
       const at = column(), want = at === null ? 0 : at + step;
       // Out of range on purpose: the renderer nulls it and gives the whole-row look.
       const id = focusedId();
@@ -431,7 +440,7 @@
     const noted = (id, what) =>
       append("cmd", "info", `headline ${JSON.stringify(titleOf(id))} ${what}`);
     function mark(b, toggling) {
-      if (!marking()) { said(b, "this table-view.js has no marks"); return; }
+      if (!wants(b, "marks", "toggleMark")) return;
       const id = focusedId();
       if (!id) { said(b, "no row"); return; }
       // `u' takes the archive FLAG off first — it is the one that would write a file.

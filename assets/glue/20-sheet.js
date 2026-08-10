@@ -596,7 +596,7 @@
     const PFLAGS = {
       mount: () => pmount, take: pdelete, note: unlogged,
       walk: () => stepIn(pmount, 1),
-      missing: "this table-view.js has no delete flags",
+      missing: lacks("delete flags"),
       none: "org-delete-property (no row)",
       unflag: "delete-unflag (flag cleared)",
       flag: "delete-flag (d again deletes)",
@@ -834,7 +834,7 @@
       take: (ids, how) => archive(b, ids, how),
       note: (id, on) =>
         noted(id, on ? "marked for deletion" : "unmarked for deletion"),
-      missing: "this table-view.js has no archive flags",
+      missing: lacks("archive flags"),
       none: "no row",
       unflag: "flag cleared",
       flag: "flagged — d again archives",

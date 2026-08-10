@@ -1,8 +1,13 @@
 # Proposal — one door for the renderer's optional capabilities
 
-**Status:** proposed · **Date:** 2026-08-05 · **Source:** generalizer round 3
+**Status:** DONE 2026-08-10 · **Date:** 2026-08-05 · **Source:** generalizer round 3
 (hand-run) over the pin/composer/ladder day
 
+**Re-validated 2026-08-10:** HOLDS, and had GROWN — the widget split took
+the refusal sentences from 8 to 12, three of them the identical
+`"…has no delete flags"` in three surfaces.  Implemented by making `can'
+VARIADIC (all 16 existing call sites unchanged), which collapses the four
+conjunction aliases; `lacks'/`wants' give the sentence one home.
 ## Pattern
 
 The shell feature-detects every optional renderer capability — the documented

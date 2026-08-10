@@ -1,6 +1,6 @@
 # Proposal — one surface list, many readers
 
-**Status:** proposed · **Date:** 2026-08-04
+**Status:** EXPIRED 2026-08-10 · **Date:** 2026-08-04
 
 Doctrine names `SURFACES` in the same breath as `viewColumns` and
 `keywordScopes` — "the order is spelled once and every consumer reads it"
@@ -9,6 +9,13 @@ fifth overlay costs seven registration lines across three files, none of them
 enforced, and the fifth overlay is already here: the settings sheet has markup, a
 z-band and a size tier, and never joined the list.
 
+**Re-validated 2026-08-10:** EXPIRED.  The central claim — that the settings
+sheet "never joined the list" — stopped being true when every popup earned a
+URL (`?page=NAME`): `SURFACES` now carries SIX entries including `config' and
+`capture', each declaring `name'/`open'/`rowed'/`panel', and nine readers walk
+the list.  `live' asks it rather than special-casing config.  What survives is
+much smaller than the proposal: the stylesheet still spells five ids by hand,
+which is inherent — CSS is static and the list is runtime.
 ## The seven sites
 
 `SURFACES` (`src-web/Glance/Web/Page/Glue.hs:4109-4116`) carries four entries —

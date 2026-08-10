@@ -1,8 +1,14 @@
 # Proposal — the value palette's ask kinds as a closed set
 
-**Status:** proposed · **Date:** 2026-08-04 · **Source:** generalizer sweep over
+**Status:** proposed (re-validated) · **Date:** 2026-08-04 · **Source:** generalizer sweep over
 the capture-v2 territory
 
+**Re-validated 2026-08-10:** HOLDS, and is STRONGER than when written.  The
+flag space GREW a third member: `drawChoices' now reads
+`prompting.table && !prompting.narrow && !prompting.text', so the undefined
+combinations went from one pair to a triple.  `askOn' is gone (three doors,
+not four).  Deferred as MEDIUM risk: the palette is load-bearing for `t',
+`P', `:', `+' and the template box's `%'.
 ## Pattern
 
 The value palette has three ask kinds — letter mode, completing-field mode,

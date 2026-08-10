@@ -92,7 +92,7 @@
     // Returns whether the press was spent — only `DEL''s ladder reads that.
     function clearMarking(b, alsoFlags) {
       if (!marking()) {
-        if (alsoFlags) said(b, "this table-view.js has no marks");
+        if (alsoFlags) said(b, lacks("marks"));
         return false;
       }
       const n = table.markedCount();
@@ -114,7 +114,7 @@
       firstRow: (b) => endStop(b, false),
       lastRow: (b) => endStop(b, true),
       toggleSort: (b) => {
-        if (!sorts()) { said(b, "this table-view.js has no sort"); return; }
+        if (!wants(b, "sort", "sortPromote")) return;
         const at = column(), c = at === null ? null : cols[at];
         if (!c) { said(b, "no column selected — f/l to pick one"); return; }
         const named = c.header || c.key;
@@ -131,8 +131,7 @@
       unmarkRow: (b) => mark(b, false),
       unmarkAll: (b) => clearMarking(b, true),
       markAll: (b) => {
-        if (!marking() || !can(table, "markAll"))
-          { said(b, "this table-view.js has no mark-all"); return; }
+        if (!wants(b, "mark-all", "toggleMark", "markAll")) return;
         table.markAll();
         said(b, `marked · ${table.markedCount()}`);
       },
@@ -176,7 +175,7 @@
       },
       filterDrop: (b) => {
         if (clearMarking(named(b, "unmark-all"), false)) return;
-        if (!strips()) { said(b, "this table-view.js has no filter tokens"); return; }
+        if (!wants(b, "filter tokens", "stripLastToken", "getQuery")) return;
         if (!table.stripLastToken()) { said(b, "no filter"); return; }
         const left = table.getQuery().trim();
         if (!left && crumbing() && trail().length) {

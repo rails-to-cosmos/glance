@@ -1,8 +1,14 @@
 # Proposal — a capture shape resolved once
 
-**Status:** proposed · **Date:** 2026-08-04 · **Source:** generalizer sweep over
+**Status:** proposed (re-validated, premature) · **Date:** 2026-08-04 · **Source:** generalizer sweep over
 the capture-v2 territory
 
+**Re-validated 2026-08-10:** the five sites are all still there
+(`Commands.hs:465`'s `maybe captureInbox captureBlob`, the shell's `!tag`,
+`Routes.hs:813`).  Held back anyway: shape #3 is hypothetical — this proposal
+says so itself — and generalizing a two-member family over a variant nobody
+has asked for is the skill's own anti-target.  Revisit when a third target
+shape is actually wanted.
 ## Pattern
 
 Capture has two target shapes — untagged inbox, tagged blob — and the

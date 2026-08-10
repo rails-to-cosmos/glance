@@ -219,7 +219,7 @@ const Popups = ((deps) => {
     const TFLAGS = {
       mount: () => tmount, at: tagAt, take: removeTags, note: unlogged,
       walk: () => stepIn(tmount, 1),
-      missing: "this table-view.js has no delete flags",
+      missing: lacks("delete flags"),
       none: "org-toggle-tag (no tag)",
       unflag: "tag-unflag (flag cleared)",
       flag: "tag-flag (d again removes)",
