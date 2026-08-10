@@ -132,8 +132,17 @@
       unmarkAll: (b) => clearMarking(b, true),
       markAll: (b) => {
         if (!wants(b, "mark-all", "toggleMark", "markAll")) return;
+        // AND IT TOGGLES. `markAll' only ADDS, so a count that did not move
+        // says every row was already carrying a mark — and the second press of
+        // a key means the opposite of the first rather than the same number
+        // twice.  Read off the COUNT rather than off the set, which is the
+        // renderer's; `clearMarks' takes the marks a filter is hiding too,
+        // exactly as `U' does.
+        const was = table.markedCount();
         table.markAll();
-        said(b, `marked · ${table.markedCount()}`);
+        const now = table.markedCount();
+        if (was && now === was) { table.clearMarks(); said(b, `unmarked · ${was}`); return; }
+        said(b, `marked · ${now}`);
       },
       archiveFlag: (b) => flagKey("d", XFLAGS(b), (what) => said(b, what)),
       priorityUp: (b) => cyclePriority(b, 1),

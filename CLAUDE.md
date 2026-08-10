@@ -1502,7 +1502,10 @@ measurements and the history of superseded designs live in
   of its own. dired's: `m` toggles and takes the renderer's word for where it
   landed, `u` toggles and puts back anything it just laid down, both then
   `selectStep(+1)`, `U` clears, `M` is `markAll()` — the renderer's call because
-  the SET is. `m`/`u` stay out of `ONCE` because the walk IS the feature.
+  the SET is, AND IT TOGGLES: `markAll` only ADDS, so a count that did not move
+  says every row already carried one and the second press takes them all off,
+  the marks a filter is hiding included, exactly as `U` does. `m`/`u` stay out
+  of `ONCE` because the walk IS the feature.
 - The mount passes `actionHints: false`: the renderer's per-row hint said RET
   materializes, which the resident key line already says for every command.
 - STARRED METAS, and the family is TOTAL: `*word*` marks a value with semantics

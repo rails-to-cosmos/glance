@@ -1105,6 +1105,21 @@ markSpec shell =
         echoIs "counted by the renderer" "M → mark-all (marked · 3)" answer
         assertEqual "and the cursor stayed where it was" 0 =<< intAt "cursor" answer
 
+    -- AND THE SECOND PRESS MEANS THE OPPOSITE. `markAll' only ADDS, so a count
+    -- that did not move says every row was already carrying one — read off the
+    -- COUNT rather than off the set, which is the renderer's.
+  , keyed shell "and M again takes them all off" "M" "press:M" $ \answer -> do
+        assertEqual "nothing marked" [] =<< textsAt "marked" answer
+        echoIs "and it says which way it went" "M → mark-all (unmarked · 3)" answer
+  , keyed shell "M over a partly marked set marks the rest rather than clearing"
+      "m" "press:M" $ \answer -> do
+        assertEqual "all three" ["r1", "r2", "r3"] =<< textsAt "marked" answer
+        echoIs "" "M → mark-all (marked · 3)" answer
+  , keyed shell "and a third press marks again, so the pair is a toggle"
+      "M" "press:M press:M" $ \answer -> do
+        assertEqual "all three" ["r1", "r2", "r3"] =<< textsAt "marked" answer
+        echoIs "" "M → mark-all (marked · 3)" answer
+
     -- dired's flag, in two presses: the first marks the row for archiving and
     -- the second is the confirmation.  One press writes nothing at all.
   , testCase "d flags the row, and a second d archives it" $ do

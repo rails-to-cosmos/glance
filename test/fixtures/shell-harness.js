@@ -968,7 +968,9 @@ const makeMount = (host, view, options, own) => {
     getMarked: () => [...m.marks],
     clearMarks: () => m.marks.clear(),
     markedCount: () => m.marks.size,
-    markAll: () => { for (const r of all()) m.marks.add(r.id); },
+    // The count AFTER, which is the handle's documented answer — a stub
+    // returning nothing would let a caller read `undefined' and pass.
+    markAll: () => { for (const r of all()) m.marks.add(r.id); return m.marks.size; },
     // Archive flags, keyed by id the way marks are: `d' puts one on and a
     // second `d' on the same row is what archives it.
     flagRow: (id) => m.flags.add(id),
