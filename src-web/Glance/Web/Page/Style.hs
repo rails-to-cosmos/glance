@@ -46,6 +46,9 @@ page head' colours title body = T.unlines
   , "    --g-doc-padx:10px;--g-doc-pady:8px;"
   , "    --g-doc-fs:13px;--g-doc-lh:1.6;"
   , "    --g-doc-off:calc(3 * var(--g-doc-fs) * var(--g-doc-lh));"
+      -- The EDIT BOX's own metrics, declared once: the field reads them as
+      -- its font, and the box reads them to stand N lines tall.
+  , "    --g-edit-fs:13px;--g-edit-lh:1.5;"
   , "    --g-pop-top:5vh;--g-pop-pad:24px;"
   , "    --g-pop-max:min(90vh,"
   , "      calc(100vh - 2 * var(--g-pop-top)))}"
@@ -133,16 +136,16 @@ page head' colours title body = T.unlines
   , "    padding:1px var(--g-doc-pad);border-radius:4px;white-space:pre-wrap;"
   , "    overflow-wrap:anywhere}"
   , "  #mdoc.on .de.dat{background:var(--g-sel);color:var(--g-fg)}"
-  -- A FLAG WEARS THE TABLE'S OWN RED at the table's own measured wash, being
-  -- the same gesture over the same queue: `--g-bad' IS `--tv-flag', and
-  -- `--g-flag-wash' is the strength the renderer's themes measured for it.
-  -- WHAT IS NOT COPIED is the second channel — the renderer keeps the cursor's
-  -- ground and says FLAG with an inset edge, which this pane may not do: a
-  -- document is read as TEXT and every state in it is a GROUND
-  -- (`TestServe.groundSweep').  So the two states combine as one ground, and
-  -- the flag is mixed far enough into the cursor's to survive it.
-  , "  .de.dfl{background:color-mix(in srgb, var(--g-bad) var(--g-flag-wash), transparent)}"
-  , "  #mdoc.on .de.dat.dfl{background:color-mix(in srgb, var(--g-bad) 38%, var(--g-sel))}"
+  -- A FLAG IS DRESSED THE WAY THE TABLE DRESSES ONE, being the same gesture
+  -- over the same queue: `--g-bad' IS `--tv-flag', `--g-flag-wash' the strength
+  -- its themes measured, and the INSET EDGE its second channel.  The background
+  -- is ONE SLOT and the cursor wins it — `#mdoc.on .de.dat' outranks this — so
+  -- a flagged row under point would otherwise stop saying it is flagged.  The
+  -- edge is the one line this pane draws, and it draws INSIDE the box: it
+  -- paints over the ground rather than taking width, so the text does not move,
+  -- which is the whole of what the ground rule is for.
+  , "  .de.dfl{background:color-mix(in srgb, var(--g-bad) var(--g-flag-wash), transparent);"
+  , "    box-shadow:inset 3px 0 0 var(--g-bad)}"
   -- PADDING, never a margin: a margin takes the selection wash off the line.
   , "  .d-para,.d-comp{margin:.5em 0;"
   , "    padding-left:calc(var(--g-doc-pad) + var(--g-doc-indent, 2) * 1ch)}"
@@ -172,11 +175,18 @@ page head' colours title body = T.unlines
   , "  #chues{position:relative}"
   , "  #cstates{overflow:auto;max-height:40vh}"
       -- `left:0' is the PADDING box, so these read the pane's own inset.
-  , "  #dpara{left:var(--g-doc-padx);right:var(--g-doc-padx)}"
+      -- AND IT GROWS WITH WHAT IS TYPED.  `placeEdit' sizes the box to the
+      -- BLOCK it covers, which for a paragraph being added is one line; the
+      -- shell writes the line count as a NUMBER and the arithmetic is here,
+      -- so a page whose glue never ran still opens at one line.  The 2px is
+      -- the textarea's own vertical padding.
+  , "  #dpara{left:var(--g-doc-padx);right:var(--g-doc-padx);"
+  , "    min-height:calc(var(--g-doc-rows, 1) * var(--g-edit-fs) * var(--g-edit-lh)"
+  , "      + 2px)}"
   , "  #dtitle.on,#pedit.on,#sedit.on,#tedit.on,#ledit.on{display:flex;align-items:center}"
   , "  #dpara.on{display:flex}"
   , "  #pedit input,#sedit input,#tedit input,#ledit input,#dpara textarea{"
-  , "    font:13px/1.5 var(--dk-mono);"
+  , "    font:var(--g-edit-fs)/var(--g-edit-lh) var(--dk-mono);"
   , "    padding:5px 12px;border:none;border-bottom:1px solid transparent;"
   , "    background:transparent;color:var(--g-fg);min-width:0}"
   , "  #dtin{flex:1;font:inherit;padding:0;border:none;"

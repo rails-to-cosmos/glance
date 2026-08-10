@@ -1664,8 +1664,15 @@ measurements and the history of superseded designs live in
 - EVERY SELECTION IN IT IS A GROUND, never a line. Vertical is the ROW language
   (`--g-sel`) and horizontal is the COLUMN language: the cell under point wears
   the table's crosshair (`--g-col`/`--g-cell-wash`). No underline, no border, no
-  outline in any of the four rules; `TestServe`'s ground sweep cuts them out of
-  the page and asserts it, and asserts what it swept first.
+  outline and no DROP shadow in any of the three rules; `TestServe`'s ground
+  sweep cuts them out of the page and asserts it, and asserts what it swept
+  first. THE RULE IS THAT A LOCATOR MUST NOT MOVE THE TEXT, so an INSET shadow
+  is permitted — it paints over the ground inside the box rather than taking
+  width — and the FLAG is the one thing that draws one. It has to: the
+  background is one slot and the cursor's rule outranks the flag's, so a flagged
+  row under point says FLAG with its edge or stops saying it. The renderer's own
+  shape (`tr.tv-flagged td:first-child`) in the renderer's own red, which is why
+  the cursor and a flag together need no rule of their own.
 - Its movement is the TABLE's two axes; `TAB` crosses to the panel and back, each
   pane keeping its own cursor and wearing the accent on its own frame
   (`#mdoc.on`, `#mprops.on`). The cursor's `dgrain` names its level.
@@ -1796,6 +1803,16 @@ measurements and the history of superseded designs live in
   white) and accent `#4CB5F5` → `#31769F` (2.3:1 → 5.0:1), the hue held — muted
   text is read and a focus frame is looked for. The sheet keeps exactly one
   variable of its own, `--dk-mono` (Hack first).
+- AN EDIT BOX IS THE BLOCK IT COVERS, and grows past it only for what is TYPED.
+  `placeEdit` sizes it to the block, which for a paragraph being ADDED is one
+  line, so the shell writes the typed line count onto `#dpara` as a NUMBER
+  (`--g-doc-rows`) and the stylesheet holds the arithmetic off `--g-edit-fs`/
+  `--g-edit-lh` — the metrics the field itself reads, so neither restates the
+  other. The CAP is `DOCROWS`, spelled in the shell and nowhere else, since what
+  is written is already capped; ten, so the document under it stays readable.
+  Three doors change the text and each re-sizes: the fill, `S-RET`'s splice at
+  the caret, and the field's own `input`. A page whose glue never ran opens at
+  one line.
 - `DEL` IN THE TABLE IS A LADDER, and the rhyme is the backspace's: ERASE THE
   LAST STRUCTURE STANDING. A MARKED SET is one, so while marks exist `DEL` clears
   them and stops — the MARKS alone, since a flag is the archive queue and a

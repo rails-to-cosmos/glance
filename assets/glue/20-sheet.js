@@ -316,6 +316,9 @@
       if (!at.length || at.some((i) => i < 0)) return null;
       return [Math.min(...at), Math.max(...at)];
     }
+    // Typing is the third door — the field itself, since nothing else sees a
+    // character land.  `placeEdit' after it, so a box that grew is re-laid.
+    el("dtext").addEventListener("input", () => { sizeDocEdit(); placeEdit(); });
     window.addEventListener("resize", placeEdit);
     el("mdoc").addEventListener("scroll", placeEdit, true);
     // The stop under point, read off what Elm drew — the pane is not `#dlist''s
@@ -335,7 +338,7 @@
     const DPARA = {
       box: "dpara", pane: "mdoc", fields: ["dtext"],
       mount: () => null, anchor: docElAt,
-      fill: (r) => { el("dtext").value = r.text; },
+      fill: (r) => { el("dtext").value = r.text; sizeDocEdit(); },
       focus: () => el("dtext").focus(),
     };
     const dediting = () => !!edit && edit.o === DTITLE;
@@ -346,11 +349,20 @@
     const docHolds = () => editing !== null;
     const paraBinding = docBinding("org-ctrl-c-ctrl-c", "RET");
     const quitBinding = docBinding("quit-window", "q");
+    // AT MOST N LINES.  The box is sized to the BLOCK it covers, which for a
+    // paragraph being added is one line, so what is TYPED has to grow it — a
+    // reader writing three lines must see three.  The cap keeps the document
+    // under it readable; the arithmetic is the stylesheet's, which is handed a
+    // NUMBER, so a page whose glue never ran still opens at one line.
+    const DOCROWS = 10;   // the knob, and the only place the cap is spelled
+    const sizeDocEdit = () => el("dpara").style.setProperty("--g-doc-rows",
+      String(Math.max(1, Math.min(DOCROWS, el("dtext").value.split("\n").length))));
     /** Put a newline in at the caret, which is what the key would have done. */
     function newlineIn(id) {
       const box = el(id), at = box.selectionStart, to = box.selectionEnd;
       box.value = `${box.value.slice(0, at)}\n${box.value.slice(to)}`;
       box.setSelectionRange(at + 1, at + 1);
+      sizeDocEdit();
     }
     function commitDocEdit(b) {
       const spoke = (what) => (b ? said(b, what) : echo(`RET → ${what}`));

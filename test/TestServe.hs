@@ -3448,6 +3448,29 @@ sheetSpec shell =
           assertEqual "the edit is still open" True =<< boolAt "dparaopen" answer
           assertEqual "with a newline at the caret" "one\n" =<< textAt "dtext" answer
 
+    -- THE BOX GROWS WITH WHAT IS TYPED, to a cap.  `placeEdit' sizes it to the
+    -- BLOCK it covers, which for a paragraph being ADDED is one line, so a
+    -- reader writing three lines would otherwise see one.  The shell writes the
+    -- count as a NUMBER and the stylesheet owns the arithmetic.
+  , testCase "the paragraph box stands as tall as what is in it, up to ten" $ do
+      insheet "press:n press:Enter" $
+        assertEqual "one line to open with" "1" <=< textAt "dprows"
+      insheet "press:n press:Enter dpara:one|two|three" $
+        assertEqual "three where three were typed" "3" <=< textAt "dprows"
+      -- The shifted key is a door of its own: it splices at the caret rather
+      -- than going through the field's own event.
+      insheet "press:n press:Enter dpara:one press:S-Enter" $
+        assertEqual "and S-RET grows it by the line it just made" "2"
+          <=< textAt "dprows"
+      insheet ("press:n press:Enter dpara:"
+               <> T.intercalate "|" (map (T.pack . show) [1 :: Int .. 14])) $
+        assertEqual "capped, so the document under it stays readable" "10"
+          <=< textAt "dprows"
+      -- An INSERT opens over a row holding nothing, which is the case the
+      -- growth exists for: the block is one line whatever is written.
+      insheet "press:n press:+ dpara:one|two|three|four" $
+        assertEqual "an added paragraph grows the same way" "4" <=< textAt "dprows"
+
   , testCase "RET opens a paragraph as text, and C-x C-s writes it" $ do
       insheet "press:n press:Enter" $ \answer -> do
         assertEqual "the block is open" True =<< boolAt "dparaopen" answer
@@ -5818,8 +5841,9 @@ editIndentSweep shell = testCase "the paragraph's edit box is the block it cover
              ("padding:1px var(--g-doc-pad)" `T.isInfixOf` box)
   assertBool ("the box takes the block's wrap: " <> T.unpack box)
              ("overflow-wrap:anywhere" `T.isInfixOf` box)
-  -- And nothing of its own that would move the text or draw a line — a floor of
-  -- its own included, since `placeEdit' sizes the box off the block.
+  -- And nothing of its own that would move the text or draw a line.  A FIXED
+  -- floor included: `placeEdit' sizes the box off the block, and the one floor
+  -- it may have is the DERIVED one below.
   mapM_ (\decl -> assertBool ("the box declares " <> T.unpack decl <> ": " <> T.unpack box)
                              (decl `T.isInfixOf` box))
         ["width:100%", "margin:0", "border:none", "resize:none"]
@@ -5833,8 +5857,18 @@ editIndentSweep shell = testCase "the paragraph's edit box is the block it cover
   -- scroll offset back out of the vertical.  A bare delta put the box 10px left
   -- and 1px high over `#mdoc', and walked it further on every scroll.
   span' <- need "the paragraph overlay's span" (between "  #dpara{" "}" page)
-  assertEqual "the paragraph overlay spans the pane's content box"
-              "left:var(--g-doc-padx);right:var(--g-doc-padx)" span'
+  assertBool "the paragraph overlay spans the pane's content box"
+             ("left:var(--g-doc-padx);right:var(--g-doc-padx)" `T.isInfixOf` span')
+  -- AND IT GROWS WITH WHAT IS TYPED, the one thing it may stand taller than the
+  -- block for: `placeEdit' sizes it to the block, and a paragraph being ADDED
+  -- covers ONE line while the reader writes ten.  The floor is DERIVED from a
+  -- number the shell writes — the cap is spelled in the shell and nowhere else
+  -- — and the metrics are READ rather than restated, so a page whose glue never
+  -- ran still opens the box at one line.
+  assertBool ("the box's floor is the line count it was handed: " <> T.unpack span')
+             ("min-height:calc(var(--g-doc-rows, 1)" `T.isInfixOf` span')
+  assertEqual "a metric the floor restates instead of reading" []
+              [ n | n <- ["13px", "1.5 "], n `T.isInfixOf` span' ]
   assertBool "the pane's inset is one name, read by both"
              ("padding:var(--g-doc-pady) var(--g-doc-padx)" `T.isInfixOf` page)
   assertBool "the placement takes the pane's border and scroll back out"
@@ -6199,11 +6233,30 @@ groundSweep shell = testCase "every document selection is a ground, never a line
            mapM_ (\line -> assertBool
                     (T.unpack sel <> " draws a " <> T.unpack line <> ": " <> T.unpack body)
                     (not (line `T.isInfixOf` body)))
-                 ["underline", "outline", "border", "text-decoration", "box-shadow"])
+                 ["underline", "outline", "border", "text-decoration"]
+           -- A SHADOW ONLY INSET.  The rule is that a locator must not MOVE
+           -- the text, and an inset shadow paints over the ground inside the
+           -- box rather than taking width from it; a drop shadow sits outside
+           -- the line box, which is the shape this still refuses.
+           assertBool (T.unpack sel <> " draws a shadow outside its box: " <> T.unpack body)
+                      (not ("box-shadow" `T.isInfixOf` body)
+                         || "box-shadow:inset" `T.isInfixOf` body))
         bodies
+  -- AND THE FLAG OWNS THE SECOND CHANNEL, which is what makes the permission
+  -- above load-bearing rather than merely allowed: the cursor wins the one
+  -- background slot, so a flagged row under point says FLAG with its edge or
+  -- stops saying it at all.  The renderer's own rule, in the renderer's own
+  -- red.
+  flag <- maybe (assertFailure "no .de.dfl rule in the page") pure (ruleIn ".de.dfl" page)
+  mapM_ (\decl -> assertBool (".de.dfl drops " <> T.unpack decl <> ": " <> T.unpack flag)
+                             (decl `T.isInfixOf` flag))
+        ["box-shadow:inset 3px 0 0 var(--g-bad)", "var(--g-flag-wash)"]
   where
-    -- The four states a document element or one of its cells can be in.
-    selectors = [".de.dat", ".de.dfl", ".de.dat.dfl", ".dc.don"]
+    -- The three states a document element or one of its cells can be in.  The
+    -- CURSOR AND A FLAG TOGETHER need no rule of their own: the background is
+    -- one slot and the cursor's outranks the flag's, which is exactly why the
+    -- flag owns a channel the cursor never writes.
+    selectors = [".de.dat", ".de.dfl", ".dc.don"]
 
 -- | The body of the first rule whose SELECTOR LIST names SEL, or 'Nothing' when
 -- no rule does.

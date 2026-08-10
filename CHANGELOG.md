@@ -24,10 +24,15 @@ section groups a feature arc, and its date is that arc's last commit.
   refuses and names `RET`, which opens it.
 
 ### Fixed
-- **A flag in the materialize sheet wears the table's red.** The document
-  pane drew one in the warning orange at a strength of its own, so the same
-  gesture over the same queue looked like two different things; it now takes
-  `--tv-flag`'s hue at the theme's own measured wash.
+- **The paragraph editor grows with what you type,** to ten lines. It was the
+  height of the block it covered, so writing a second line into an added
+  paragraph left nine tenths of it out of sight.
+- **A flag in the materialize sheet is dressed the way the table dresses one.**
+  The document pane drew one in the warning orange at a strength of its own,
+  so the same gesture over the same queue looked like two different things.
+  It now takes `--tv-flag`'s hue at the theme's own measured wash, with the
+  renderer's inset left edge — so a flagged row under the cursor still says
+  it is flagged.
 - **Closing the capture form takes `?page=capture` off the URL.** It opened
   through the shared popup door and closed around it, so the parameter the
   raise wrote was never taken off: a URL copied afterwards reopened a form the
