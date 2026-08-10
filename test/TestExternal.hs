@@ -33,7 +33,13 @@ import qualified Data.Time as Time
 import Data.Org.External ( Completion (..), blobIdOf, completionLine, completionsFile
                          , completionsPathOf, externalFile, externalLine
                          , externalPathOf, noteCompletion )
+import Data.Maybe (fromJust)
 import Data.Org.Index (metaDir)
+import Data.Org.Trash (trashBlob, trashPathFor)
+import Data.Org.Walk (isDerived)
+
+import qualified Codec.Compression.GZip as GZip
+import qualified Data.ByteString.Lazy as BL
 import Glance.Query (Span (Span), WriteFailure, blobPathIn, replaceSpans, storeRootIn)
 
 -- Fixtures
@@ -331,7 +337,62 @@ serverOver dir = fst <$> serverAt Nothing dir
 
 spec :: TestTree
 spec = testGroup "External"
-  [doorSpec, formatSpec, pathSpec, appendSpec, routeSpec, completionSpec]
+  [doorSpec, formatSpec, pathSpec, appendSpec, routeSpec, completionSpec, trashSpec]
+
+-- | DELETION IS A MOVE, never an unlink.  A blob is the canonical document and
+-- the index is its projection, so the one destructive command this daemon has
+-- takes the bytes out of the live tree and keeps them: compressed, under
+-- @trash\/@, with the shard the id is spelled by carried over.
+trashSpec :: TestTree
+trashSpec = testGroup "Trash"
+  [ testCase "a blob's trash path keeps the shard the id is spelled by" $
+      assertEqual "under trash, gzipped"
+        (Just (storeRootIn "/t" </> "trash" </> "a7" </> "92f0" </> "data.org.gz"))
+        (trashPathFor "/t" (blobPathIn (storeRootIn "/t") "a792f0"))
+
+    -- Only a blob: a row in a shared org file is many rows' document, and
+    -- moving it would take the others with it.
+  , testCase "and nothing else has one" $
+      assertEqual "not a blob" Nothing (trashPathFor "/t" "/t/inbox.org")
+
+  , testCase "the bytes are kept, and the live tree loses them" $
+      withTempDirNamed "trash-move" $ \root -> do
+        let blob = blobPathIn (storeRootIn root) "a792f0"
+        createDirectoryIfMissing True (takeDirectory blob)
+        TIO.writeFile blob "* TODO one :archive:\n"
+        put <- trashBlob root blob
+        dest <- either (assertFailure . T.unpack) pure put
+        assertEqual "the original is out of the tree" False =<< doesFileExist blob
+        assertEqual "and the trash holds it" True =<< doesFileExist dest
+        kept <- GZip.decompress <$> BL.readFile dest
+        assertEqual "byte for byte" "* TODO one :archive:\n" kept
+
+    -- A SECOND DELETION OF ONE ID is the first one's bytes being asked for
+    -- again: refused, and what is already kept is what stays.
+  , testCase "a trash that already holds the id keeps what it has" $
+      withTempDirNamed "trash-twice" $ \root -> do
+        let blob = blobPathIn (storeRootIn root) "a792f0"
+            write t = do createDirectoryIfMissing True (takeDirectory blob)
+                         TIO.writeFile blob t
+        write "first\n"
+        _ <- trashBlob root blob
+        write "second\n"
+        again <- trashBlob root blob
+        case again of
+          Right _  -> assertFailure "a second deletion overwrote the first"
+          Left why -> assertBool ("names the trash: " <> T.unpack why)
+                                 ("trash" `T.isInfixOf` why)
+        assertEqual "the second is still in the tree" True =<< doesFileExist blob
+        kept <- GZip.decompress <$> BL.readFile
+                  (fromJust (trashPathFor root blob))
+        assertEqual "and the first is what is kept" "first\n" kept
+
+    -- THE TRASH IS NOT WALKED, and gets that from the denylist rather than from
+    -- the extension: a `.org' put there is still declined.
+  , testCase "nothing under trash is walked" $
+      assertEqual "declined like every other derived name" True
+        (isDerived (storeRootIn "/t" </> "trash" </> "a7" </> "92f0" </> "data.org"))
+  ]
 
 -- | THE SECOND LEDGER, and the first one keyed by something other than a blob:
 -- one line per completion of a repeating entry, under the SERVED root's own

@@ -165,6 +165,18 @@ measurements and the history of superseded designs live in
   `noteExternalWrite` sits one layer down in `replaceSpans`: the two notes are
   at two layers because they are keyed differently — a blob's off the PATH
   written, a completion off the SERVED ROOT, which no write door carries.
+- DELETION IS A MOVE, never an unlink (`Data.Org.Trash`). A blob is the
+  canonical document and the index is its projection, so the destructive
+  command takes the bytes OUT of the live tree and keeps them: gzipped under
+  `<store>/.org-glance/trash/<shard>/<rest>/data.org.gz`, the shard carried over
+  because that is how an id is spelled by a path. THE COPY LANDS BEFORE THE
+  ORIGINAL GOES, so a failure at either step leaves the document somewhere; a
+  destination that already exists is a SECOND deletion of one id and is refused,
+  the first one's bytes being what is kept. ONLY A BLOB — a row in a shared org
+  file is many rows' document, and moving it would take the others with it.
+  `trash` is on the walk's DENYLIST rather than resting on the `.gz`: a deleted
+  row must not come back as a live one, and that is a fact about the directory
+  rather than about how the bytes are stored.
 - The drift FIX is a one-file contract: every successful write to a BLOB
   (`isBlob` — `data.org` in the canonical store) appends `{"id","at"}` to
   `meta/EXTERNAL.jsonl` — the blob's FIRST headline's `ORG_GLANCE_ID`, no id no
@@ -200,7 +212,7 @@ measurements and the history of superseded designs live in
 
 - Org files are the truth, so org-glance's derived mirrors are not walked. The
   rule is a DENYLIST of names directly under a `.org-glance` component —
-  `overviews` and `meta`, whole subtrees — plus `occurrenceTail`, a blob's history
+  `overviews`, `meta` and `trash`, whole subtrees — plus `occurrenceTail`, a blob's history
   one level in (`data/<id>/occurrences/<STAMP>.org`), which carries the LIVE
   entry's `ORG_GLANCE_ID` and used to tie with it in `beatsForId`. The name is
   asked for ANYWHERE under `data`, since a two-character id is unsharded.

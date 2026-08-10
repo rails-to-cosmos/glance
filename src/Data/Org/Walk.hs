@@ -19,6 +19,7 @@ module Data.Org.Walk ( Found (..)
                      , orgGlanceDir
                      , orgGlanceRoot
                      , storeDir
+                     , trashDir
                      ) where
 
 import Control.Concurrent (getNumCapabilities)
@@ -60,16 +61,23 @@ data LoadFailure
   deriving (Eq, Ord, Show)
 
 -- | Derived buffers under a @.org-glance@ directory.  @data@ is absent on purpose.
+--
+-- @trash@ is here because a DELETED blob must not come back as a live row, and
+-- the denylist is what says so: the trash keeps @.gz@ files, which
+-- 'isDocument' declines anyway, but resting on the extension would make the
+-- rule an accident of how the bytes are stored rather than a fact about the
+-- directory ('Data.Org.Trash').
 derivedDirs :: [FilePath]
-derivedDirs = ["overviews", metaDir]
+derivedDirs = ["overviews", metaDir, trashDir]
 
 -- | org-glance's store layout, spelled once for the rules and callers below.
-orgGlanceDir, storeDir, configDir, occurrenceDir, blobFile :: FilePath
+orgGlanceDir, storeDir, configDir, occurrenceDir, blobFile, trashDir :: FilePath
 orgGlanceDir = ".org-glance"
 storeDir = "data"
 configDir = "config"
 occurrenceDir = "occurrences"
 blobFile = "data.org"
+trashDir = "trash"
 
 -- | What sits under each @.org-glance@ component of PATH, one entry each.  The
 -- 'namesOrgGlance' guard is what makes it affordable over ~703k walk entries.
