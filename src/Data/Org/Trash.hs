@@ -20,8 +20,9 @@ module Data.Org.Trash ( trashDirIn
 
 import Control.Exception (IOException, try)
 import Data.Text (Text)
-import System.Directory ( createDirectoryIfMissing, doesFileExist, removeFile )
-import System.FilePath ((</>), splitDirectories, takeDirectory)
+import System.Directory ( createDirectoryIfMissing, doesDirectoryExist, doesFileExist
+                       , listDirectory, removeDirectoryRecursive )
+import System.FilePath ((</>), makeRelative, splitDirectories, takeDirectory)
 
 import Data.Org.Blob (storeRootIn)
 import Data.Org.Walk (isBlob, trashDir)
@@ -56,6 +57,12 @@ trashPathFor root path
 -- | Move the blob at PATH into ROOT's trash, compressed, and take the original
 -- out of the live tree.  Answers where it was put, or why it was not.
 --
+-- THE WHOLE BLOB DIRECTORY GOES, not the document alone: org-glance keeps a
+-- blob's history beside it in @occurrences\/@, and leaving that behind would
+-- make a deleted entry a directory nothing reads and nothing prunes.  Each file
+-- lands under the mirror of its own path, so what comes back out is the
+-- directory that went in.
+--
 -- THE COPY LANDS BEFORE THE ORIGINAL GOES, so a failure at either step leaves
 -- the document somewhere: a write that cannot finish is a blob still in the
 -- tree, never one in neither place.  A destination that already exists is a
@@ -69,9 +76,30 @@ trashBlob root path = case trashPathFor root path of
     if taken
       then pure (Left ("the trash already holds " <> T.pack dest))
       else do
-        moved <- try (do createDirectoryIfMissing True (takeDirectory dest)
-                         BL.readFile path >>= BL.writeFile dest . GZip.compress
-                         removeFile path)
+        let blobDir = takeDirectory path
+            mirror  = takeDirectory dest
+        moved <- try (do here <- filesUnder blobDir
+                         mapM_ (keep blobDir mirror) here
+                         removeDirectoryRecursive blobDir)
         pure $ case moved :: Either IOException () of
           Left err -> Left (T.pack (show err))
           Right () -> Right dest
+  where
+    -- ONE FILE OF THE BLOB, under the mirror of its own directory: a stamp in
+    -- @occurrences\/@ lands at @occurrences\/\<STAMP\>.org.gz@, so what comes
+    -- back out is the directory that went in.
+    keep from to file = do
+      let dest = to </> makeRelative from file <> ".gz"
+      createDirectoryIfMissing True (takeDirectory dest)
+      BL.readFile file >>= BL.writeFile dest . GZip.compress
+
+-- | Every regular file under DIR, at any depth.  A blob is @data.org@ plus
+-- whatever history org-glance keeps beside it, and the whole directory goes.
+filesUnder :: FilePath -> IO [FilePath]
+filesUnder dir = do
+  names <- listDirectory dir
+  fmap concat . mapM one $ map (dir </>) names
+  where
+    one path = do
+      isDir <- doesDirectoryExist path
+      if isDir then filesUnder path else pure [path]

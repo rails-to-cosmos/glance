@@ -26,7 +26,8 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ### Added
 - **`D` over archived rows deletes them, after asking.** A row org has archived
-  is one step from gone, so the same key takes the next step: the blob is
+  is one step from gone, so the same key takes the next step: the blob's whole
+  directory — its document and the history org-glance keeps beside it — is
   gzipped into `<store>/.org-glance/trash/` and leaves the live tree. It asks
   for the word `delete` rather than a keystroke, a mixed set is archived rather
   than deleted, and a row in a file other rows share is refused — only a blob is

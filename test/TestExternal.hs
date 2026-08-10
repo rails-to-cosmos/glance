@@ -17,7 +17,8 @@ import Data.List (sort)
 import Data.Text (Text)
 import Network.HTTP.Types (renderQuery)
 import Network.Wai (Application)
-import System.Directory (createDirectoryIfMissing, doesFileExist)
+import System.Directory ( createDirectoryIfMissing, doesDirectoryExist
+                        , doesFileExist )
 import System.FilePath (takeDirectory, (</>))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
@@ -366,6 +367,28 @@ trashSpec = testGroup "Trash"
         assertEqual "and the trash holds it" True =<< doesFileExist dest
         kept <- GZip.decompress <$> BL.readFile dest
         assertEqual "byte for byte" "* TODO one :archive:\n" kept
+
+    -- THE HISTORY GOES WITH IT.  org-glance keeps a blob's occurrences beside
+    -- its document, and leaving them would make a deleted entry a directory
+    -- nothing reads and nothing prunes.  Each file lands under the mirror of
+    -- its own path, so what comes back out is the directory that went in.
+  , testCase "the occurrences go with the document, and the directory with them" $
+      withTempDirNamed "trash-history" $ \root -> do
+        let blob = blobPathIn (storeRootIn root) "a792f0"
+            past = takeDirectory blob </> "occurrences" </> "20260101.org"
+        createDirectoryIfMissing True (takeDirectory past)
+        TIO.writeFile blob "* TODO one :archive:\n"
+        TIO.writeFile past "* TODO one, as it was\n"
+        put <- trashBlob root blob
+        dest <- either (assertFailure . T.unpack) pure put
+        assertEqual "the blob's directory is gone" False
+          =<< doesDirectoryExist (takeDirectory blob)
+        assertEqual "the document is kept" True =<< doesFileExist dest
+        let keptPast = takeDirectory dest </> "occurrences" </> "20260101.org.gz"
+        assertEqual "and its history under the mirror of its own path" True
+          =<< doesFileExist keptPast
+        was <- GZip.decompress <$> BL.readFile keptPast
+        assertEqual "byte for byte" "* TODO one, as it was\n" was
 
     -- A SECOND DELETION OF ONE ID is the first one's bytes being asked for
     -- again: refused, and what is already kept is what stays.

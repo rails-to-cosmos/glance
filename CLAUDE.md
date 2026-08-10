@@ -180,7 +180,11 @@ measurements and the history of superseded designs live in
   canonical document and the index is its projection, so the destructive
   command takes the bytes OUT of the live tree and keeps them: gzipped under
   `<store>/.org-glance/trash/<shard>/<rest>/data.org.gz`, the shard carried over
-  because that is how an id is spelled by a path. THE COPY LANDS BEFORE THE
+  because that is how an id is spelled by a path. THE WHOLE BLOB DIRECTORY GOES,
+  not the document alone — org-glance keeps a blob's history beside it in
+  `occurrences/`, and leaving that behind would make a deleted entry a directory
+  nothing reads and nothing prunes. Each file lands under the mirror of its own
+  path, so what comes back out is the directory that went in. THE COPY LANDS BEFORE THE
   ORIGINAL GOES, so a failure at either step leaves the document somewhere; a
   destination that already exists is a SECOND deletion of one id and is refused,
   the first one's bytes being what is kept. ONLY A BLOB — a row in a shared org
