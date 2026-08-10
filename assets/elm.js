@@ -5437,6 +5437,16 @@ var $author$project$Listing$placeOf = F2(
 								}),
 							m.p)))));
 	});
+var $elm$json$Json$Encode$int = _Json_wrap;
+var $elm$json$Json$Encode$list = F2(
+	function (func, entries) {
+		return _Json_wrap(
+			A3(
+				$elm$core$List$foldl,
+				_Json_addEntry(func),
+				_Json_emptyArray(0),
+				entries));
+	});
 var $elm$core$List$drop = F2(
 	function (n, list) {
 		drop:
@@ -5458,15 +5468,10 @@ var $elm$core$List$drop = F2(
 			}
 		}
 	});
-var $elm$json$Json$Encode$int = _Json_wrap;
-var $elm$json$Json$Encode$list = F2(
-	function (func, entries) {
-		return _Json_wrap(
-			A3(
-				$elm$core$List$foldl,
-				_Json_addEntry(func),
-				_Json_emptyArray(0),
-				entries));
+var $author$project$Scan$nth = F2(
+	function (i, xs) {
+		return $elm$core$List$head(
+			A2($elm$core$List$drop, i, xs));
 	});
 var $elm$json$Json$Encode$object = function (pairs) {
 	return _Json_wrap(
@@ -5500,8 +5505,7 @@ var $author$project$Listing$stateJSON = function (m) {
 							function ($) {
 								return $.y;
 							},
-							$elm$core$List$head(
-								A2($elm$core$List$drop, m.r, m.p)))))),
+							A2($author$project$Scan$nth, m.r, m.p))))),
 				_Utils_Tuple2(
 				'ids',
 				A2(
@@ -6088,8 +6092,7 @@ var $author$project$Scan$at = F2(
 		return A2(
 			$elm$core$Maybe$withDefault,
 			'',
-			$elm$core$List$head(
-				A2($elm$core$List$drop, i, xs)));
+			A2($author$project$Scan$nth, i, xs));
 	});
 var $elm$core$String$toLower = _String_toLower;
 var $elm$core$String$trimLeft = _String_trimLeft;
@@ -6812,8 +6815,7 @@ var $author$project$Scan$rowsFrom = F4(
 			return A2(
 				$elm$core$Maybe$withDefault,
 				'',
-				$elm$core$List$head(
-					A2($elm$core$List$drop, k, ids)));
+				A2($author$project$Scan$nth, k, ids));
 		};
 		var body = A3(
 			$elm$core$List$map2,
@@ -7075,8 +7077,7 @@ var $author$project$Scan$cellCount = function (mr) {
 	}
 };
 var $author$project$Scan$rowAt = function (m) {
-	return $elm$core$List$head(
-		A2($elm$core$List$drop, m.r, m.p));
+	return A2($author$project$Scan$nth, m.r, m.p);
 };
 var $author$project$Doc$moveCol = F2(
 	function (by, m) {
@@ -7110,11 +7111,10 @@ var $author$project$Doc$moveCol = F2(
 							function ($) {
 								return $.at;
 							},
-							$elm$core$List$head(
-								A2(
-									$elm$core$List$drop,
-									c,
-									$author$project$Scan$shown(r)))));
+							A2(
+								$author$project$Scan$nth,
+								c,
+								$author$project$Scan$shown(r))));
 				} else {
 					return 'element mode';
 				}
@@ -7173,8 +7173,7 @@ var $author$project$Doc$broader = function (m) {
 					var up = A2(
 						$elm$core$Maybe$withDefault,
 						$author$project$Scan$blank,
-						$elm$core$List$head(
-							A2($elm$core$List$drop, i, m.p)));
+						A2($author$project$Scan$nth, i, m.p));
 					var word = function () {
 						var _v2 = up.av;
 						if (!_v2.$) {
@@ -7430,8 +7429,7 @@ var $author$project$Doc$step = F2(
 					function ($) {
 						return $.ab;
 					},
-					$elm$core$List$head(
-						A2($elm$core$List$drop, i, m.p)));
+					A2($author$project$Scan$nth, i, m.p));
 			};
 			var n = $elm$core$List$length(m.p);
 			var grainAt = function (i) {
@@ -7440,8 +7438,7 @@ var $author$project$Doc$step = F2(
 					function ($) {
 						return $.l;
 					},
-					$elm$core$List$head(
-						A2($elm$core$List$drop, i, m.p)));
+					A2($author$project$Scan$nth, i, m.p));
 			};
 			var overLeaves = function (i) {
 				overLeaves:
@@ -7897,8 +7894,7 @@ var $author$project$Doc$viewKids = F4(
 						])) : out;
 			});
 		var rowN = function (j) {
-			return $elm$core$List$head(
-				A2($elm$core$List$drop, j, m.p));
+			return A2($author$project$Scan$nth, j, m.p);
 		};
 		var n = $elm$core$List$length(m.p);
 		var go = F3(
@@ -8027,8 +8023,7 @@ var $author$project$Doc$view = function (m) {
 					var r = A2(
 						$elm$core$Maybe$withDefault,
 						$author$project$Scan$blank,
-						$elm$core$List$head(
-							A2($elm$core$List$drop, i, m.p)));
+						A2($author$project$Scan$nth, i, m.p));
 					if (r.l === 1) {
 						var _v0 = A4($author$project$Doc$viewKids, m, r, i + 1, -1);
 						var inner = _v0.a;

@@ -12,6 +12,7 @@ module Scan exposing
     , kindWord
     , listOpener
     , listRun
+    , nth
     , placeOf
     , rowAt
     , rowById
@@ -202,9 +203,16 @@ rides line =
     listOpener line /= Nothing || String.startsWith " " line || String.startsWith "\t" line
 
 
+{-| The Nth of a list, which ten sites were spelling out.
+-}
+nth : Int -> List a -> Maybe a
+nth i xs =
+    List.head (List.drop i xs)
+
+
 at : Int -> List String -> String
 at i xs =
-    Maybe.withDefault "" (List.head (List.drop i xs))
+    Maybe.withDefault "" (nth i xs)
 
 
 cut : List String -> Int -> Int -> String
@@ -484,7 +492,7 @@ rowsFrom lines own headCells kids =
             List.indexedMap (\i _ -> "B" ++ String.fromInt i) blocks
 
         idAt k =
-            Maybe.withDefault "" (List.head (List.drop k ids))
+            Maybe.withDefault "" (nth k ids)
 
         body =
             List.map2
@@ -583,7 +591,7 @@ rowById m id =
 
 rowAt : { a | rows : List Row, at : Int } -> Maybe Row
 rowAt m =
-    List.head (List.drop m.at m.rows)
+    nth m.at m.rows
 
 
 placeOf : { a | rows : List Row, at : Int } -> String -> Int

@@ -25,6 +25,7 @@ import Html.Attributes exposing (attribute, class, style)
 import Html.Events exposing (onClick)
 import Json.Decode as D
 import Json.Encode as E
+import Scan
 
 
 
@@ -157,7 +158,7 @@ stateJSON m =
         [ ( "at", E.int m.at )
         , ( "id"
           , E.string
-                (Maybe.withDefault "" (Maybe.map .id (List.head (List.drop m.at m.rows))))
+                (Maybe.withDefault "" (Maybe.map .id (Scan.nth m.at m.rows)))
           )
         , ( "ids", E.list E.string (List.map .id m.rows) )
         , ( "flags", E.list E.string m.flags )

@@ -32,6 +32,7 @@ import Scan
         , cut
         , kidsOf
         , kindWord
+        , nth
         , placeOf
         , rowAt
         , rowById
@@ -85,10 +86,10 @@ step by m =
                     List.length m.rows
 
                 grainAt i =
-                    Maybe.map .grain (List.head (List.drop i m.rows))
+                    Maybe.map .grain (nth i m.rows)
 
                 ownerAt i =
-                    Maybe.andThen .owner (List.head (List.drop i m.rows))
+                    Maybe.andThen .owner (nth i m.rows)
 
                 overLeaves i =
                     if i < 0 || i >= n then
@@ -186,7 +187,7 @@ moveCol by m =
             named =
                 case ( col, rowAt m ) of
                     ( Just c, Just r ) ->
-                        Maybe.withDefault "" (Maybe.map .key (List.head (List.drop c (shown r))))
+                        Maybe.withDefault "" (Maybe.map .key (nth c (shown r)))
 
                     _ ->
                         "element mode"
@@ -258,7 +259,7 @@ broader m =
                     Just i ->
                         let
                             up =
-                                Maybe.withDefault blank (List.head (List.drop i m.rows))
+                                Maybe.withDefault blank (nth i m.rows)
 
                             word =
                                 case up.name of
@@ -790,7 +791,7 @@ viewKids m parent from at0 =
             List.length m.rows
 
         rowN j =
-            List.head (List.drop j m.rows)
+            nth j m.rows
 
         go j mark out =
             case rowN j of
@@ -875,7 +876,7 @@ view m =
             else
                 let
                     r =
-                        Maybe.withDefault blank (List.head (List.drop i m.rows))
+                        Maybe.withDefault blank (nth i m.rows)
                 in
                 if r.grain == Composite then
                     let
