@@ -11,6 +11,7 @@ The markup is the one the harness and the stylesheet read: `#dlist` holds one
 `.de` per stop, wearing its KIND as a `d-*` class, `.dat` where point is, `.dfl`
 where a flag is, cells as `.dc.dc-KEY` with `.don` on the one under point, text
 as `.dt` and a link's shown text as `.dl`, and whatever no rung claims as `.dg`.
+
 -}
 
 import Browser
@@ -66,7 +67,6 @@ type alias Model =
 empty : Model
 empty =
     Model [] [] 0 Nothing "element" [] [] Nothing 0 1 Nothing False
-
 
 
 {-| A sibling step at the cursor's own grain. A composite is ONE stop; a leaf
@@ -191,7 +191,15 @@ moveCol by m =
                     _ ->
                         "element mode"
         in
-        ( { m | col = col, grain = if col == Nothing then "element" else "cell" }
+        ( { m
+            | col = col
+            , grain =
+                if col == Nothing then
+                    "element"
+
+                else
+                    "cell"
+          }
         , "next-column (" ++ named ++ ")"
         )
 
@@ -264,7 +272,15 @@ broader m =
                                         else
                                             kindWord up.kind
                         in
-                        ( { m | at = i, grain = if up.grain == Leaf then "leaf" else "element" }
+                        ( { m
+                            | at = i
+                            , grain =
+                                if up.grain == Leaf then
+                                    "leaf"
+
+                                else
+                                    "element"
+                          }
                         , "grain-broader (" ++ word ++ ")"
                         )
 
@@ -507,6 +523,7 @@ stateJSON m =
         , ( "grain", E.string m.grain )
         , ( "flags", E.list E.string m.flags )
         , ( "lines", E.int (List.length m.lines) )
+
         -- The body as it stands, so a flush that follows no edit still has one.
         , ( "body", E.string (bodyText m []) )
         ]

@@ -8,6 +8,7 @@ range".
 
 The body always opens with a headline line, because `blocksIn` starts at index
 1: the line the entry wears is the sheet's headline row, never a paragraph.
+
 -}
 
 import Expect

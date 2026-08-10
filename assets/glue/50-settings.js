@@ -496,6 +496,19 @@
       crumbSels = [];
       applyView(b, savedQuery("default"), undefined, here);
     }
+    /**
+     * THE VIEW A QUERY NAMED, applied by the door its key uses: `default' is
+     * home and throws the crumbs away, and every other view is one application.
+     * The registry is the server's, so a view it grows is applicable here with
+     * nothing named on this page.
+     */
+    function applyNamed(id) {
+      // The TOKEN is what asked, so the echo names it where a key would be.
+      const b = { seq: `view:${id}`, command: NAMED_VIEW[id] || `apply-view:${id}` };
+      if (id === "default") { applyDefault(b); return; }
+      applyView(b, savedQuery(id), (total) => said(b, `${id} · ${rowsWord(total)}`));
+    }
+    const NAMED_VIEW = { default: "apply-default-filter", agenda: "org-glance-agenda" };
     const PIN = "set-saved-view";
     // THE PIN ASKS WHICH SAVED VIEW the applied query becomes.  The list is the
     // registry's own, off the boot blob, so the palette goes up filled and a

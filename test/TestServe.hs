@@ -2818,6 +2818,26 @@ drillSpec shell = testGroup "Shell drill"
     -- holds it.  `land' is the whole rule and its fallbacks are the other two
     -- halves — row one where the row has gone, nothing at all where the answer
     -- is empty.
+    -- `view:NAME' IS A MACRO: it stands for the query that view holds, so a
+    -- reader who types one gets what the key does, and the chips they end up
+    -- with are the VIEW's own — the token never survives into the applied
+    -- query.  Which is what makes a custom view need nothing here: the registry
+    -- is the server's.
+  , keyed shell "view:agenda applies the agenda, and leaves no token behind"
+      "" "commit:view:agenda" $ \answer -> do
+        urlIs "the agenda's own query, not the token that asked for it"
+              "?q=state%3A*active*+-planned%3A*empty*+sort%3Ascheduled" answer
+        echoIs "the token names the command it stands for"
+               "view:agenda \8594 org-glance-agenda (agenda \183 500 rows)" answer
+  , keyed shell "view:default is home, crumbs and all" "n @" "commit:view:default" $
+        \answer -> do
+          urlIs "the tree's default view" "?q=state%3A*active*" answer
+          assertEqual "and the trail it threw away" [] =<< textsAt "crumbs" answer
+    -- A name no view carries is left alone: `view' is none of the renderer's
+    -- query keys, so the token is free text on both sides.
+  , keyed shell "a view nobody carries stays the text it is" "" "commit:view:nope" $
+        urlIs "committed as written" "?q=view%3Anope"
+
   , keyed shell "g keeps point where its answer still holds the row" "n n g" "" $
         rowIs "the row the reader was on" "r3"
 
@@ -3340,6 +3360,21 @@ sheetSpec shell =
     -- it, being the BUFFER's own key.
     -- What goes back is the BODY with that block's own lines spliced over, every
     -- other byte where it was.
+  , testCase "q closes the sheet, and is a letter inside an open edit" $ do
+      -- `quit-window' ONE WINDOW IN: over the table it closes the app's window,
+      -- over the sheet it closes the sheet's.  Free here because the document
+      -- pane holds the keys with NOTHING focused.
+      insheet "press:q" $ \answer -> do
+        assertEqual "the sheet is shut" "" =<< textAt "modal" answer
+        echoIs "named as the command it is" "q → quit-window" answer
+      -- Inside the paragraph textarea it is a character, so the sheet stands.
+      bootOf shell "" 500 "Enter" "press:n press:Enter press:q" $ \answer -> do
+        assertEqual "the sheet stands" "on" =<< textAt "modal" answer
+        assertEqual "and the edit with it" True =<< boolAt "dparaopen" answer
+      -- And over an open panel row, where the fields have the keys.
+      bootOf shell "" 500 "Enter" "press:Tab press:Enter press:q" $ \answer ->
+        assertEqual "the sheet stands over an open row" "on" =<< textAt "modal" answer
+
   , testCase "RET commits the open paragraph and S-RET is the newline" $ do
       bootOf shell "" 500 "Enter" "press:n press:Enter dpara:rewritten press:Enter" $
         \answer -> do
@@ -6056,7 +6091,7 @@ shellGlue =
   , glue "a bare boot opens on the active view"
       [ "let bootedOn = savedQuery(\"default\");"
       -- A `q' in the address bar is the reader's own, empty or not.
-      , "const bootQuery = () => (params().has(\"q\") ? urlQuery() : bootedOn);"
+      , "      const q = params().has(\"q\") ? urlQuery() : bootedOn;"
       , "const asked = (query = bootQuery());"
       -- Injected, then committed: what the page shows and what the address bar
       -- says are the same query from the first paint on.
@@ -6080,7 +6115,7 @@ shellGlue =
       , "const asking = (q) => (q ? `?q=${encodeURIComponent(q)}` : \"\");"
       , "e.name !== \"AbortError\""
       -- The string as typed: the grammar is the server's to parse.
-      , "const filter = (q) => commit(q.trim());" ]
+      , "      if (named) { applyNamed(named); return; }" ]
 
   -- A key the columns do not name is a producer virtual key, which is the one
   -- place the renderer's suggestions and the server's parser can be different
@@ -6794,7 +6829,7 @@ shellGlue =
   , Glue "the default view is the tree's, and `g' applies it"
       [ "const savedQuery = (id) => saved[id] || \"\";"
       , "let bootedOn = savedQuery(\"default\");"
-      , "const bootQuery = () => (params().has(\"q\") ? urlQuery() : bootedOn);"
+      , "      const q = params().has(\"q\") ? urlQuery() : bootedOn;"
       , "applyView(b, savedQuery(\"default\"), undefined, here);"
       -- `g' is HOME, so it is not a step on the trail: the crumbs and the
       -- labels naming them go with it, where DEL walks back one rung at a time.

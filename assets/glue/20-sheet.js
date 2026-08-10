@@ -308,6 +308,7 @@
     // is blurrable, so an open sheet counts as typing or `table' rows go live.
     const docHolds = () => editing !== null;
     const paraBinding = docBinding("org-ctrl-c-ctrl-c", "RET");
+    const quitBinding = docBinding("quit-window", "q");
     /** Put a newline in at the caret, which is what the key would have done. */
     function newlineIn(id) {
       const box = el(id), at = box.selectionStart, to = box.selectionEnd;
@@ -546,6 +547,15 @@
       if (dparaing()) {
         if (k === "RET") { e.preventDefault(); once(() => commitDocEdit(paraBinding)); }
         else if (k === "S-RET") { e.preventDefault(); newlineIn("dtext"); }
+        return;
+      }
+      // `q' IS `quit-window' ONE WINDOW IN: over the table it closes the app's,
+      // here it closes the sheet's, by the door ESC leaves through.  Dead inside
+      // an open edit, where it is a letter being typed — which is also why the
+      // SETTINGS sheet keeps ESC alone: its panels are fields.
+      if (k === "q" && !pediting() && !dediting()) {
+        e.preventDefault();
+        once(() => { said(quitBinding, ""); leaveSheet(); });
         return;
       }
       if (pediting()) {

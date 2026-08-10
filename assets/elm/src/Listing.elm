@@ -263,7 +263,18 @@ rowClass m i r =
 cellOf : Row -> String -> String
 cellOf r key =
     Maybe.withDefault ""
-        (List.head (List.filterMap (\( k, v ) -> if k == key then Just v else Nothing) r.cells))
+        (List.head
+            (List.filterMap
+                (\( k, v ) ->
+                    if k == key then
+                        Just v
+
+                    else
+                        Nothing
+                )
+                r.cells
+            )
+        )
 
 
 {-| A BADGE CELL IS A PILL, the renderer's own markup: the palette hue tints the

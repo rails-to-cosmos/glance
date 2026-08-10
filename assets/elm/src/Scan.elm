@@ -25,6 +25,7 @@ moved by.
 
 Split out of `Doc` so it can be tested as what it is — functions over lines —
 rather than only through a page that has to be booted to ask.
+
 -}
 
 
@@ -63,6 +64,7 @@ type alias Row =
 blank : Row
 blank =
     Row "" Para Element Nothing Nothing 0 0 "" "" [] 0 1
+
 
 
 -- THE STRUCTURE SCANNER
@@ -127,8 +129,14 @@ numberedAt rest =
     if String.isEmpty digits then
         Nothing
 
-    else if String.startsWith ". " after || String.startsWith ") " after
-            || after == "." || after == ")" then
+    else if
+        String.startsWith ". " after
+            || String.startsWith ") " after
+            || after
+            == "."
+            || after
+            == ")"
+    then
         Just digits
 
     else
@@ -384,10 +392,14 @@ blocksIn lines own =
             if j >= end then
                 j
 
-            else if isBlank (at j lines)
-                || listOpener (at j lines) /= Nothing
-                || blockName (at j lines) /= Nothing
-                || isTable (at j lines) then
+            else if
+                isBlank (at j lines)
+                    || listOpener (at j lines)
+                    /= Nothing
+                    || blockName (at j lines)
+                    /= Nothing
+                    || isTable (at j lines)
+            then
                 j
 
             else
@@ -558,6 +570,7 @@ bodyText m gone =
                 out
     in
     String.join "\n" (List.foldl splice m.lines paras)
+
 
 
 -- CURSOR AND GRAIN

@@ -215,11 +215,28 @@
       (views || []).forEach((v) => { saved[v.id] = String(v.query || "").trim(); });
     seedViews(CFG.views);
     const savedQuery = (id) => saved[id] || "";
+    /**
+     * `view:NAME' IS A MACRO rather than a predicate: it stands for the query
+     * that view holds, so choosing one does what `g' and `a' do and the token
+     * never survives into the applied query — the chips a reader ends up with
+     * are the view's own.  A name no view carries is left alone, which is what
+     * it already looks like to the renderer: `view' is none of its query keys,
+     * so the token reaches here as free text either way.
+     */
+    const VIEW_AT = /(?:^|\s)view:([A-Za-z0-9_-]+)(?=\s|$)/;
+    function viewNamed(q) {
+      const m = VIEW_AT.exec(String(q || ""));
+      return m && Object.prototype.hasOwnProperty.call(saved, m[1]) ? m[1] : null;
+    }
     // NOT A CONSTANT: the page is served BEFORE the walk lands, so a boot that
     // began while the store was loading carries the BUILT-IN default and the
     // tree's own arrives later (`adopt').
     let bootedOn = savedQuery("default");
-    const bootQuery = () => (params().has("q") ? urlQuery() : bootedOn);
+    function bootQuery() {
+      const q = params().has("q") ? urlQuery() : bootedOn;
+      const named = viewNamed(q);
+      return named ? savedQuery(named) : q;
+    }
     let crumbLabels = {};
     const crumbing = () => can(table, "pushCrumb") && can(table, "popCrumb")
       && can(table, "getCrumbs") && can(table, "setCrumbs");
@@ -278,7 +295,11 @@
       remember(q);
       fetchRows();
     }
-    const filter = (q) => commit(q.trim());
+    const filter = (q) => {
+      const named = viewNamed(q);
+      if (named) { applyNamed(named); return; }
+      commit(q.trim());
+    };
     const strips = () => can(table, "stripLastToken") && can(table, "getQuery");
     const holds = (q) => can(table, "getQuery") && table.getQuery() === q;
     /**

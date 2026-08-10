@@ -1757,6 +1757,16 @@ const ACTIONS = {
   },
   sheet: (text) => { field("mtext").value = text; },
   filter: (text) => { field("filter").value = text; },
+  // A QUERY COMMITTED the way a reader commits one: the renderer hands the text
+  // to `onFilter', which is the shell's one door for a typed query.  `_' is a
+  // space, the way every other act here spells one.
+  commit: (text) => {
+    if (!main) throw new Error("no table to commit a query to");
+    const q = String(text).replace(/_/g, " ");
+    main.held = q;
+    field("filter").value = q;
+    if (main.onFilter) main.onFilter(q);
+  },
   moved: () => {
     step();
     rows = rows.concat([{ id: "r4", cells: { state: "TODO", title: "four", tag: "" } }]);

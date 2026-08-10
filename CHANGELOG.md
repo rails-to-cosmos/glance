@@ -24,7 +24,15 @@ section groups a feature arc, and its date is that arc's last commit.
 - **Re-opening the sheet draws its document.** Closing it used to take the
   pane's contents away for the rest of the session.
 
+### Added
+- **`view:default` and `view:agenda` in the filter box** apply those views, the
+  same as pressing `g` and `a`. The token expands to the view's own query rather
+  than surviving in it, and a view the server grows works with no page change —
+  which is what makes `view:{custom}` a server-side addition.
+
 ### Changed
+- **`q` closes the materialize sheet**, the way it closes the app's window from
+  the table. It stays a letter inside an open edit.
 - **`g` keeps point where the default view still holds the row**, dropping to
   the first row only when it does not.
 - **In an open paragraph, `RET` commits and `S-RET` inserts a newline.** The

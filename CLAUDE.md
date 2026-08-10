@@ -1212,6 +1212,20 @@ measurements and the history of superseded designs live in
   as ONE arrow-form `sort:` token and delivers it, so the press arrives as an
   ordinary commit and `DEL` takes the chip WHOLE. What it composes onto is the
   chain IN FORCE. This page keeps no record of an order and asks for none.
+- `q` IS `quit-window` ONE WINDOW IN: over the table it closes the app's window,
+  over the materialize sheet it closes the sheet's, by the door ESC leaves
+  through. Dead inside an open edit, where it is a letter being typed — which is
+  why the SETTINGS sheet keeps ESC alone: its panels are fields.
+- `view:NAME` IS A MACRO rather than a predicate: it stands for the query that
+  view holds, so a reader typing one gets what its key does and the chips they
+  end up with are the VIEW's own — the token never survives into the applied
+  query. `default` goes through `applyDefault` (home throws the crumbs away),
+  every other view through `applyView`. The registry is the SERVER's, so a view
+  it grows is applicable with nothing named on this page. A name no view carries
+  is left alone, which is what it already looks like to the renderer: `view` is
+  none of its query keys, so the token arrives as free text either way — and
+  OFFERING it in the completion is the renderer's own `VIEW_KEYS`, a one-line
+  addition in `../table-view` that this side does not need.
 - `g` is `apply-default-filter`, `P` is `set-saved-view` (ONCE), `a` is
   `org-glance-agenda`, `,` is `customize`, `:` is `org-agenda-set-tags`, `o` and
   `!` are `org-glance-overview:open`, `@` is `org-glance-overview:relations`, `M`
