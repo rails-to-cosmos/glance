@@ -20,6 +20,7 @@ import Network.Wai (Application)
 import System.Directory ( createDirectoryIfMissing, doesDirectoryExist
                         , doesFileExist )
 import System.FilePath (takeDirectory, (</>))
+import System.Posix.Files (createSymbolicLink)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
 import TestDefaults (digestOnDisk, document, entryAs, withTempDirNamed)
@@ -389,6 +390,30 @@ trashSpec = testGroup "Trash"
           =<< doesFileExist keptPast
         was <- GZip.decompress <$> BL.readFile keptPast
         assertEqual "byte for byte" "* TODO one, as it was\n" was
+
+    -- ONE TRAVERSAL POLICY.  A symlinked directory is never followed — the
+    -- walk's own rule, read from the walk ('Data.Org.Walk.entryOf') rather
+    -- than guessed at again here.  Followed, a link's whole target tree would
+    -- be copied into the trash while the removal took only the link.
+  , testCase "a symlinked directory in a blob is declined, not followed" $
+      withTempDirNamed "trash-link" $ \root -> do
+        let blob = blobPathIn (storeRootIn root) "a792f0"
+            away = root </> "elsewhere"
+        createDirectoryIfMissing True (away </> "deep")
+        TIO.writeFile (away </> "deep" </> "secret.org") "* not the blob's\n"
+        createDirectoryIfMissing True (takeDirectory blob)
+        TIO.writeFile blob "* TODO one :archive:\n"
+        createSymbolicLink away (takeDirectory blob </> "link")
+        put <- trashBlob root blob
+        dest <- either (assertFailure . T.unpack) pure put
+        let mirror = takeDirectory dest
+        assertEqual "the link is not the blob's content" False
+          =<< doesFileExist (mirror </> "link.gz")
+        assertEqual "the document still went" True =<< doesFileExist dest
+        assertEqual "and nothing of what it pointed at came with it" False
+          =<< doesFileExist (mirror </> "link" </> "deep" </> "secret.org.gz")
+        assertEqual "which is still where it was" True
+          =<< doesFileExist (away </> "deep" </> "secret.org")
 
     -- A SECOND DELETION OF ONE ID is the first one's bytes being asked for
     -- again: refused, and what is already kept is what stays.

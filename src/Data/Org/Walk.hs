@@ -18,6 +18,8 @@ module Data.Org.Walk ( Found (..)
                      , mapFilesConcurrently
                      , orgGlanceDir
                      , orgGlanceRoot
+                     , Entry (..)
+                     , entryOf
                      , storeDir
                      , trashDir
                      ) where
@@ -171,13 +173,33 @@ walk opts acc dir = do
 
 -- | Classify NAME inside DIR: recurse, keep, or ignore.  The accumulator is
 -- forced per entry, and ONE @lstat@ classifies it — a symlink pays a second.
+-- | WHAT ONE DIRECTORY ENTRY IS, by a single 'getSymbolicLinkStatus' that never
+-- follows — the reading every traversal in this program takes an entry by.
+--
+-- A failed @lstat@ answers 'Regular', which is the keep-on-name branch: a
+-- dangling @.org@ symlink is walked and its load fails as a @ReadFailed@,
+-- counted once for the life of the process.
+data Entry = Dir | Regular | Linked
+  deriving (Eq, Show)
+
+-- | 'Entry' for PATH.  ONE stat: whoever needs to know what a LINK points at
+-- pays a second one of their own, and only where the answer could change what
+-- they collect.
+entryOf :: FilePath -> IO Entry
+entryOf path = do
+  probe <- try (getSymbolicLinkStatus path) :: IO (Either IOException FileStatus)
+  pure $ case probe of
+    Right st | isDirectory st    -> Dir
+             | isSymbolicLink st -> Linked
+    _notADirectory               -> Regular
+
 visit :: WalkOptions -> FilePath -> Found -> FilePath -> IO Found
 visit opts dir acc name = do
-  probe <- try (getSymbolicLinkStatus path) :: IO (Either IOException FileStatus)
-  case probe of
-    Right st | isDirectory st    -> maybe (walk opts acc path) pure declined
-             | isSymbolicLink st -> linked
-    _notADirectory               -> pure $! file
+  what <- entryOf path
+  case what of
+    Dir     -> maybe (walk opts acc path) pure declined
+    Linked  -> linked
+    Regular -> pure $! file
   where
     path = dir </> name
     -- ONE split per entry, read by both decline rules.

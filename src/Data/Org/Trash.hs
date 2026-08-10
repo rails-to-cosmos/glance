@@ -25,7 +25,7 @@ import System.Directory ( createDirectoryIfMissing, doesDirectoryExist, doesFile
 import System.FilePath ((</>), makeRelative, splitDirectories, takeDirectory)
 
 import Data.Org.Blob (storeRootIn)
-import Data.Org.Walk (isBlob, trashDir)
+import Data.Org.Walk (Entry (..), entryOf, isBlob, trashDir)
 
 import qualified Codec.Compression.GZip as GZip
 import qualified Data.ByteString.Lazy as BL
@@ -95,11 +95,22 @@ trashBlob root path = case trashPathFor root path of
 
 -- | Every regular file under DIR, at any depth.  A blob is @data.org@ plus
 -- whatever history org-glance keeps beside it, and the whole directory goes.
+--
+-- THE WALK'S OWN READING ('Data.Org.Walk.entryOf'), and its symlink rule with
+-- it: a link pays a SECOND stat, and one pointing at a directory is DECLINED —
+-- it is not the blob's content, and following it would copy a whole foreign
+-- tree into the trash while the removal took only the link.  A link to a FILE
+-- is read as the file it names, which is what a file symlink means.
 filesUnder :: FilePath -> IO [FilePath]
 filesUnder dir = do
   names <- listDirectory dir
   fmap concat . mapM one $ map (dir </>) names
   where
     one path = do
-      isDir <- doesDirectoryExist path
-      if isDir then filesUnder path else pure [path]
+      what <- entryOf path
+      case what of
+        Dir     -> filesUnder path
+        Regular -> pure [path]
+        Linked  -> do
+          away <- doesDirectoryExist path   -- FOLLOWS, and only here
+          pure [path | not away]

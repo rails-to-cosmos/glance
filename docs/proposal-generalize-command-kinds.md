@@ -1,6 +1,6 @@
 # Proposal — a command's KIND, rather than a Maybe and two string tests
 
-**Status:** proposed · **Date:** 2026-08-10 · **Found by:** /generalizer over
+**Status:** DONE 2026-08-10 · **Date:** 2026-08-10 · **Found by:** /generalizer over
 `e1ba099..6412f4a` (the `delete` command)
 
 ## Pattern
@@ -89,9 +89,12 @@ nothing then dispatches on it.
 - Removed immediately: the two string tests, and the `otherwise` arm that makes
   an unknown edit-less command a capture.
 - Saved per future variant: nothing measurable in lines — the win is that a
-  fourth kind is a **compiler error at three sites** instead of a silent
-  mis-dispatch. That is the whole of what this buys, and it is why the metric
-  here is safety rather than LOC.
+  fourth kind is NAMED BY THE COMPILER instead of silently mis-dispatched.
+  MEASURED on implementing, by adding a fourth constructor: **six sites**, not
+  the three estimated. They are `-Wincomplete-patterns` WARNINGS rather than
+  errors, there being no `-Werror` in any stanza — which is exactly what
+  `docs/proposal-generalize-closed-sums.md` asks for, and this finding now
+  depends on it for the guarantee to be a wall rather than a log line.
 
 ## Risk
 

@@ -165,9 +165,12 @@ measurements and the history of superseded designs live in
   `noteExternalWrite` sits one layer down in `replaceSpans`: the two notes are
   at two layers because they are keyed differently — a blob's off the PATH
   written, a completion off the SERVED ROOT, which no write door carries.
-- `delete` IS THE ONE DESTRUCTIVE COMMAND and the SECOND with no row function:
-  it moves a FILE rather than splicing spans, so its edits are `Nothing` and the
-  dispatch reaches it by NAME (`cmdName`). THREE WALLS PER ROW, each a per-id
+- `delete` IS THE ONE DESTRUCTIVE COMMAND and the SECOND with no row function.
+  A spec declares its `CommandKind` — `Splices`/`Makes`/`Moves` — so the
+  dispatch is ONE TOTAL CASE and the id wall asks `namesRows` rather than
+  comparing the name to a string; `Makes` is the one kind owing no ids. It was a
+  `Maybe RowEdits` while one command sat on the `Nothing` side, which made the
+  bit and the member the same fact. THREE WALLS PER ROW, each a per-id
   refusal and each checked on the SERVER as well as in the shell, because a
   request is a request whoever wrote it: a row the store does not hold, a row
   NOT CARRYING the archive tag (archiving is the step before, so a live entry
@@ -246,9 +249,13 @@ measurements and the history of superseded designs live in
   the mirrors are walked. Nothing canonicalizes the root.
 - The scan's `derived skipped` counts DIRECTORIES: `keepDerived` runs only where
   a directory is declined. A skipped file is dropped with no record.
-- ONE `lstat` classifies an entry (`getSymbolicLinkStatus`, never follows); a
-  SYMLINK pays a second `getFileStatus` on its target, and only when the answer
-  could change what is collected — which is where Emacs's lock exits. Symlinked
+- ONE `lstat` classifies an entry (`Data.Org.Walk.entryOf`,
+  `getSymbolicLinkStatus`, never follows); a SYMLINK pays a second
+  `getFileStatus` on its target, and only when the answer could change what is
+  collected. `entryOf` is that reading and BOTH traversals take it — the walk's
+  and `Data.Org.Trash.filesUnder`'s — so a link to a directory is declined in
+  each, where a second policy copied a foreign tree into the trash while the
+  removal took only the link — which is where Emacs's lock exits. Symlinked
   directories are never followed; a failed `lstat` falls to the keep-on-name
   branch silently. An unlistable directory IS reported; a symlinked one vanishes
   silently.
@@ -426,6 +433,11 @@ measurements and the history of superseded designs live in
   second row. `wantsLink` owns that message and puts it FIRST — the row count is
   the coarsest thing wrong. `parseCommand` resolves the name BEFORE anything
   else and a `Command` cannot be built without the entry it resolved to.
+- THE IDS A COMMAND NAMED ARE RESOLVED ONCE, in the order they were NAMED
+  (`namedRows`): the wire answers `{results: […]}` in that order so a caller can
+  zip them against the request, and keeping it in one place is what stops one
+  route holding it on purpose while another holds it as a property of `mapM`. An
+  id the store does not hold is refused the same way wherever it is asked for.
 - Ids group by FILE and each file is one drift-locked `replaceSpans` call, so a
   marked set over three files is three atomic writes; no cross-file rollback, and
   the answer is per id (`{results: [{id, ok, digest | error}]}`, in the order the

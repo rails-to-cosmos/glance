@@ -1,6 +1,6 @@
 # Proposal — one traversal policy, not two
 
-**Status:** proposed · **Date:** 2026-08-10 · **Found by:** /generalizer over
+**Status:** DONE 2026-08-10 · **Date:** 2026-08-10 · **Found by:** /generalizer over
 `e1ba099..6412f4a` (the `delete` command)
 
 ## Pattern
@@ -85,3 +85,19 @@ stat rather than folding it in.
 The repo's own reason for one `isDerived` serving both the walk and the watch:
 "so a file the store never loaded cannot arrive by inotify". One policy, two
 readers, is the shape already argued for there.
+
+## What it turned out to be, on implementing
+
+The lift found a bug rather than just an asymmetry. With `entryOf` in place the
+link stopped being descended — and `BL.readFile` on a symlink-to-directory opens
+the directory, so the whole deletion aborted where it used to silently copy the
+target's tree. Neither is right.
+
+The walk's rule is not "never touch a link": it is that a link pays a SECOND
+stat, and one pointing at a DIRECTORY is declined while one pointing at a file
+is taken as the file it names. `filesUnder` mirrors that now, second stat and
+all, so a directory link is left alone and the removal takes only the link.
+
+`visit` keeps its single `lstat` per entry: `entryOf` returns what its two
+predicates asked of the one `FileStatus` it already had, and the conditional
+second stat stays where it was.

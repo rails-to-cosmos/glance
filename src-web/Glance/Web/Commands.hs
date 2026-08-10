@@ -14,7 +14,7 @@ import Data.Aeson (Object, Value, object, (.:), (.:!), (.:?), (.=))
 import Data.Aeson.Types (Pair, Parser)
 import Data.List (nub)
 import Data.Map.Strict (Map)
-import Data.Maybe (fromMaybe, isJust, listToMaybe)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import Network.HTTP.Types (status200, status400)
 import Network.Wai (Request, Response)
@@ -142,8 +142,32 @@ data CommandSpec = CommandSpec
   { csArgs  :: [Text] -> Args -> Maybe Text
       -- ^ why the request's shape is refused, where it is.
   , csDated :: Bool                -- ^ its @date@ is read against today, once per request.
-  , csEdits :: Maybe RowEdits      -- ^ what it does to each named row.
+  , csKind  :: CommandKind         -- ^ what it does to the rows it names.
   }
+
+-- | WHAT A COMMAND DOES TO THE ROWS IT NAMES.  A CLOSED SET, so the dispatch is
+-- total and a fourth kind is named by the compiler at every site rather than
+-- falling through to whichever arm a catch-all reaches.
+--
+-- It was a @Maybe RowEdits@ while one command sat on the @Nothing@ side, which
+-- made the bit and the member the same fact; a second one made it two, and the
+-- type stopped saying which.  What said it instead was a string test at the
+-- dispatch and another at the id wall, in different parts of this file and
+-- agreeing by nobody's enforcement.
+data CommandKind
+  = Splices RowEdits
+    -- ^ edits each named row in place; the eight that write spans.
+  | Makes
+    -- ^ MAKES a row rather than naming one: @capture@, the one that owes no ids.
+  | Moves
+    -- ^ moves a file out of the tree: @delete@.
+
+-- | Does a command of this KIND name the rows it works on?  Every kind but
+-- 'Makes', which makes one instead — total, so a fourth answers here.
+namesRows :: CommandKind -> Bool
+namesRows Makes = False
+namesRows (Splices _) = True
+namesRows Moves = True
 
 -- | The commands this route implements, which is also the whole of what @args@
 -- can mean: @set-state@ @{"keyword": "DONE"}@ or @{"keyword": null}@,
@@ -161,13 +185,13 @@ data CommandSpec = CommandSpec
 commands :: [(Text, CommandSpec)]
 commands =
   [ ("add-tag", CommandSpec (overIds (wantsTag "add-tag")) False
-      (Just (\_cfg _asked args r -> plain (addTagEdits (tagOf args) r))))
+      (Splices (\_cfg _asked args r -> plain (addTagEdits (tagOf args) r))))
     -- @archive@ is 'addTagEdits' at a fixed name, and it takes no @tag@ of its
     -- own: the name is org's and a client cannot aim it elsewhere.  Idempotent,
     -- so a row already tagged costs no edit and still answers @ok@.
   , ("archive", CommandSpec (overIds (const Nothing)) False
-      (Just (\_cfg _asked _args r -> plain (archiveEdits r))))
-  , ("capture", CommandSpec (overIds wantsText) False Nothing)
+      (Splices (\_cfg _asked _args r -> plain (archiveEdits r))))
+  , ("capture", CommandSpec (overIds wantsText) False Makes)
     -- The ONE command whose args describe a row's own TEXT rather than a
     -- property of it, so its shape includes the ROW COUNT ('wantsLink', which
     -- refuses a missing span or target too, so neither can refuse per row).
@@ -176,23 +200,23 @@ commands =
     -- dispatch reaches it by NAME.  Every wall it has is per row and checked
     -- HERE as well as in the shell, so a hand-made request cannot reach a live
     -- entry ('deleteRows').
-  , ("delete", CommandSpec (overIds (const Nothing)) False Nothing)
+  , ("delete", CommandSpec (overIds (const Nothing)) False Moves)
   , ("edit-link", CommandSpec wantsLink False
-      (Just (\_cfg _asked args r ->
+      (Splices (\_cfg _asked args r ->
                plain =<< editLinkEdits (fromMaybe (Span 0 0) (agSpan args))
                                        (word agTarget args) (agDesc args) r)))
   , ("remove-tag", CommandSpec (overIds (wantsTag "remove-tag")) False
-      (Just (\_cfg _asked args r -> plain (removeTagEdits (tagOf args) r))))
+      (Splices (\_cfg _asked args r -> plain (removeTagEdits (tagOf args) r))))
     -- One command rather than a @remove-tag@ and an @add-tag@ fired in turn:
     -- the rename is ONE drift-locked write per file, and the pair it would
     -- compose from spells the tag onto the title ('Glance.Query.renameTagEdits').
   , ("rename-tag", CommandSpec (overIds wantsRename) False
-      (Just (\_cfg _asked args r ->
+      (Splices (\_cfg _asked args r ->
                plain (renameTagEdits (word agFrom args) (word agTo args) r))))
     -- The keyword is there and the date has been resolved: 'csArgs' refuses a
     -- @set-planning@ without either, so neither can refuse per row.
   , ("set-planning", CommandSpec (overIds wantsPlanning) True
-      (Just (\_cfg asked args r ->
+      (Splices (\_cfg asked args r ->
                plain =<< setPlanningEdits (fromMaybe "" (join (agKeyword args)))
                                           (askStamp asked) r)))
     -- A REPEAT IS A `set-state', and the one command that RECORDS anything: a
@@ -200,7 +224,7 @@ commands =
     -- repeater shifts and resets in ONE write, and the ledger line rides its
     -- success ('Glance.Query.repeatOn').
   , ("set-state", CommandSpec (overIds wantsState) False
-      (Just stateEdits))
+      (Splices stateEdits))
     -- The title is the one CELL a reader edits as text, so it is a command
     -- rather than a subtree write: 'Glance.Query.setTitleEdits' replaces the
     -- title's own span and leaves the keyword, the priority and the tags around
@@ -209,9 +233,9 @@ commands =
     -- CYCLES it and this takes the letter that cycle landed on — nullable for
     -- the reason @set-state@ is, the wrap going through NONE.
   , ("set-priority", CommandSpec (overIds wantsPriority) False
-      (Just (\_cfg _asked args r -> plain =<< setPriorityEdits (join (agPriority args)) r)))
+      (Splices (\_cfg _asked args r -> plain =<< setPriorityEdits (join (agPriority args)) r)))
   , ("set-title", CommandSpec (overIds wantsTitle) False
-      (Just (\_cfg _asked args r -> plain =<< setTitleEdits (word agTitle args) r)))
+      (Splices (\_cfg _asked args r -> plain =<< setTitleEdits (word agTitle args) r)))
   ]
   where
     -- A shape that has nothing to say about HOW MANY rows were named, which is
@@ -321,17 +345,17 @@ runCommand opts hub request = withBody request $ \raw -> do
   st <- readTVarIO (hubStore hub)
   case parseCommand raw of
     Left why -> pure (jsonError status400 why)
-    -- The commands with no row function do not EDIT a row: one makes a file and
-    -- one moves a file away.  The 'Maybe' is destructured HERE, once, so nothing
-    -- below has an arm for a command that edits nothing, and which of the two it
-    -- is comes off the name.
-    Right cmd -> case csEdits (cmdSpec cmd) of
-      Nothing | cmdName cmd == "delete" -> deleteRows opts hub st cmd
-              | otherwise               -> captureInto opts hub st cmd
+    -- ONE TOTAL CASE over the kinds there are, so a fourth is named by the
+    -- compiler here rather than falling through to whichever arm a catch-all
+    -- would reach.  The kind is destructured ONCE, so nothing below has an arm
+    -- for a command that edits no row.
+    Right cmd -> case csKind (cmdSpec cmd) of
+      Moves -> deleteRows opts hub st cmd
+      Makes -> captureInto opts hub st cmd
       -- The clock is read ONCE per request, ahead of any row ('resolveDate'),
       -- and everything that can refuse is decided before a file is opened,
       -- leaving the 400 or the IO that writes.
-      Just edits -> do
+      Splices edits -> do
         asked <- resolveAsked cmd
         either (pure . jsonError status400) id
                (asked >>= \at -> overRows opts hub st at edits cmd)
@@ -353,27 +377,34 @@ runCommand opts hub request = withBody request $ \raw -> do
 -- only one that splices no spans, so it queues the path itself or the row would
 -- sit in the table until a restart.
 deleteRows :: ServeOptions -> Hub -> Store -> Command -> IO Response
-deleteRows opts hub st cmd = do
-  answers <- mapM taken (cmdIds cmd)
-  pure (jsonResponse status200 ["results" .= [ v | (_rid, v) <- answers ]])
+deleteRows opts hub st cmd =
+  jsonResponse status200 . pure . ("results" .=) <$> mapM (either pure taken) (namedRows st cmd)
   where
-    (held, absent) = headlinesIn (storeRecords st) (cmdIds cmd)
-    row rid = listToMaybe [ r | r <- held, hrId r == rid ]
-    taken rid
-      | rid `elem` absent = pure (rid, refused rid (noSuchRow rid))
-      | otherwise = case row rid of
-          Nothing -> pure (rid, refused rid (noSuchRow rid))
-          Just r
-            | not (archived r) ->
-                pure (rid, refused rid (rid <> " is not archived: archive it first"))
-            | otherwise -> do
-                put <- trashBlob (soDir opts) (hrFile r)
-                case put of
-                  Left why   -> pure (rid, refused rid why)
-                  Right dest -> do
-                    nudge (walkFor opts) hub (hrFile r)
-                    pure (rid, object [ "id" .= rid, "ok" .= True
-                                      , "trash" .= T.pack dest ])
+    taken r
+      | not (archived r) =
+          pure (refused (hrId r) (hrId r <> " is not archived: archive it first"))
+      | otherwise = do
+          put <- trashBlob (soDir opts) (hrFile r)
+          case put of
+            Left why   -> pure (refused (hrId r) why)
+            Right dest -> do
+              nudge (walkFor opts) hub (hrFile r)
+              pure (object [ "id" .= hrId r, "ok" .= True, "trash" .= T.pack dest ])
+
+-- | CMD's ids in the order they were NAMED, each an answer already or a row to
+-- work on.
+--
+-- THE ORDER IS THE WIRE'S — SCHEMA.md's @{results: […]}@ is answered in the
+-- order the ids were named, so a caller can zip the results against what it
+-- asked for — and it is kept HERE rather than by each caller's choice of
+-- traversal, which is how one of them came to keep it as a property of `mapM'
+-- and the other on purpose.  An id the store does not hold is refused the same
+-- way wherever it is asked for, for the same reason.
+namedRows :: Store -> Command -> [Either Value HeadlineRecord]
+namedRows st cmd =
+  [ maybe (Left (refused rid (noSuchRow rid))) Right (lookup rid found)
+  | rid <- cmdIds cmd ]
+  where found = [ (hrId r, r) | r <- fst (headlinesIn (storeRecords st) (cmdIds cmd)) ]
 
 -- | CMD's rows written, as the IO that writes them or the 400 that stops it.
 -- STAMP is @set-planning@'s date already worked out, and is nothing to every
@@ -647,10 +678,10 @@ parseCommand raw = bodyObject "command" command raw >>= checked
       Nothing -> Left ("no such command: " <> name <> "; this server runs "
                          <> T.intercalate " and " commandNames)
       Just spec
-        -- `capture' is the ONE id-less command: it makes a row rather than
-        -- editing one.  Every other command owes ids, `delete' included, whose
-        -- edits are 'Nothing' because it moves a file rather than splicing it.
-        | name /= "capture", null ids ->
+        -- `Makes' is the ONE kind that owes no ids: it makes a row rather than
+        -- naming one.  Asked of the KIND rather than of the name, so a command
+        -- added to the table declares this with the rest of what it is.
+        | namesRows (csKind spec), null ids ->
             Left "a command names rows: {\"ids\": [\"…\"]}, or {\"id\": \"…\"} for one"
         | Just why <- csArgs spec ids args -> Left why
         | otherwise -> Right (Command name spec ids args digests)
