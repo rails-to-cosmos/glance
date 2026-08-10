@@ -455,6 +455,58 @@ globalThis.history = {
     location.search = String(url).startsWith("?") ? url : "";
   },
 };
+/**
+ * EVERY TIMER THE PAGE SETS, and when it was due.  A loaded machine fires a
+ * timer late, so an act that slept for a fixed span could sail past work the
+ * page had already scheduled inside it — which is a flake rather than a
+ * failure, and the one this exists to remove.  `wait' and `settle' drain on
+ * this instead of on the clock: they run until nothing DUE BY THEN is still
+ * owed, however long the machine takes to get there.
+ *
+ * Long timers are untouched: a 30s reconnect backoff is not owed to a 900ms
+ * wait, and the drain never looks at it.
+ */
+const owing = new Set();
+const realTimeout = globalThis.setTimeout, realClear = globalThis.clearTimeout;
+globalThis.setTimeout = (fn, ms, ...rest) => {
+  const box = { due: Date.now() + (Number(ms) || 0) };
+  box.id = realTimeout((...a) => { owing.delete(box); return fn(...a); }, ms, ...rest);
+  owing.add(box);
+  return box.id;
+};
+globalThis.clearTimeout = (id) => {
+  for (const box of owing) if (box.id === id) { owing.delete(box); break; }
+  return realClear(id);
+};
+/** Let the page's schedule catch up to WHEN, whatever the machine is doing. */
+const drainTo = async (when) => {
+  for (let turn = 0; turn < 600; turn += 1) {
+    let due = false;
+    for (const box of owing) if (box.due <= when) { due = true; break; }
+    if (!due) return;
+    await new Promise((go) => realTimeout(go, 2));
+  }
+};
+/**
+ * And FOLLOW THE CHAIN: a fetch that lands schedules a paint, which schedules
+ * the next thing, each a turn or two out.  Draining to a fixed instant lets the
+ * first of those through and sails past the rest, so the window moves with the
+ * clock — anything the page owes SOON keeps the drain going, and a long timer
+ * (the echo's fade, a reconnect backoff) never does.
+ */
+const SOON = 30;
+/** What one act is given before its own drain: a turn of the loop, not a wager. */
+const TURN = 20;
+const drainSoon = async () => {
+  for (let turn = 0; turn < 600; turn += 1) {
+    const by = Date.now() + SOON;
+    let due = false;
+    for (const box of owing) if (box.due <= by) { due = true; break; }
+    if (!due) return;
+    await new Promise((go) => realTimeout(go, 2));
+  }
+};
+
 const answer = (status, body, headers) => Promise.resolve({
   ok: status >= 200 && status < 300,
   status,
@@ -2110,7 +2162,14 @@ const ACTIONS = {
   // Time passing, which is the one thing a delayed state needs and no other act
   // can stand in for: the wash arms on a timer and a script has to be able to
   // sit either side of it.
-  wait: (ms) => new Promise((done) => setTimeout(done, Number(ms))),
+  // MS of the PAGE'S schedule rather than of the clock: sleep the span, then
+  // let everything that fell due inside it actually run.
+  wait: async (ms) => {
+    const until = Date.now() + Number(ms);
+    await new Promise((done) => realTimeout(done, Number(ms)));
+    await drainTo(until);
+    await drainSoon();
+  },
 };
 
 // Every fetch here settles as a microtask, so one turn of the event loop is
@@ -2118,7 +2177,10 @@ const ACTIONS = {
 // keys go in after that, then the acts one at a time, and the answer last: a
 // close leads to a fetch which leads to a mount, and each of those needs its
 // own turn before the next act can mean anything.
-const settle = () => new Promise((done) => setTimeout(done, 20));
+const settle = async () => {
+  await new Promise((done) => realTimeout(done, TURN));
+  await drainSoon();
+};
 (async () => {
   await settle();
   for (const key of (keys || "").split(/\s+/).filter(Boolean)) press(key);

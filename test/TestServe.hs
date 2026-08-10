@@ -2824,10 +2824,11 @@ drillSpec shell = testGroup "Shell drill"
   , testCase "the view JSON declares the saved views view: completes from" $ do
       v <- get assetsDir "/headlines" >>= decoded
       views <- listAt "views" v
-      assertEqual "the registry's own order" ["default", "agenda"]
+      assertEqual "the registry's own order" ["default", "agenda", "archive"]
         =<< traverse (textAt "name") views
       assertEqual "each with the query it holds"
-                  ["state:*active*", "state:*active* -planned:*empty* sort:scheduled"]
+                  [ "state:*active*", "state:*active* -planned:*empty* sort:scheduled"
+                  , "tag:*archive*" ]
         =<< traverse (textAt "query") views
 
     -- `view:NAME' IS A MACRO: it stands for the query that view holds, so a
@@ -4903,6 +4904,7 @@ settingsSpec shell =
         assertEqual "the registry in order, what each holds, then the reset flag"
                     [ ("[d]efault", "state:*active*")
                     , ("[a]genda", "state:*active* -planned:*empty* sort:scheduled")
+                    , ("a[r]chive", "tag:*archive*")
                     , ("reset", "off · put a view's built-in back") ]
           =<< paletteHints answer
         assertEqual "and the question wrote nothing" ([] :: [Value])
@@ -4971,6 +4973,7 @@ settingsSpec shell =
         assertEqual "the views stand, and the rung says it is on"
                     [ ("[d]efault", "state:*active*")
                     , ("[a]genda", "state:*active* -planned:*empty* sort:scheduled")
+                    , ("a[r]chive", "tag:*archive*")
                     , ("reset", "on · a letter puts the built-in back") ]
           =<< paletteHints answer
         assertEqual "and nothing written by the flag" ([] :: [Value])
@@ -6242,7 +6245,8 @@ shellGlue =
   -- element of its own, and the source column wears the muted small lowercase
   -- a tag wears everywhere else on this page.
   , Glue "the palette's hairlines are the table's own borders"
-      [ ".pr{display:grid;grid-template-columns:6.5em 1fr 1fr"
+      [ "#plist.ptable{display:grid;"
+      , ".ptable>.pr{display:grid;grid-template-columns:subgrid;grid-column:1/-1}"
       , ".pr+.pr{border-top:1px solid var(--g-border)}"
       , ".ph,.ps{font-size:11px;color:var(--g-mute)}"
       -- `*empty*' spans, since no source declares taking a keyword off.

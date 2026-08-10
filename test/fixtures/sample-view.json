@@ -194,6 +194,10 @@
     {
       "name": "agenda",
       "query": "state:*active* -planned:*empty* sort:scheduled"
+    },
+    {
+      "name": "archive",
+      "query": "tag:*archive*"
     }
   ]
 }

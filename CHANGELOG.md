@@ -25,6 +25,9 @@ section groups a feature arc, and its date is that arc's last commit.
   pane's contents away for the rest of the session.
 
 ### Added
+- **A third saved view, `archive` (`tag:*archive*`)** — the one query that lifts
+  `/headlines`' own exclusion, now reachable as `view:archive`, from `P`, and
+  from the settings sheet like the other two.
 - **`view:default` and `view:agenda` in the filter box** apply those views, the
   same as pressing `g` and `a`, and the box **offers them**: the view JSON
   declares every saved view with the query it holds, and `view:` completes from

@@ -1905,10 +1905,11 @@ measurements and the history of superseded designs live in
   neither. `Config.systemSetting` is the ONE "first system layer that names one"
   fold.
 - A SAVED VIEW IS A REGISTRY ENTRY: `Config.savedViews`, each a `SavedView`
-  carrying an id, a `system.org` pragma and a built-in. TWO of them — `default`
-  (`#+GLANCE_DEFAULT_FILTER:`, `state:*active*`) and `agenda`
+  carrying an id, a `system.org` pragma and a built-in. THREE of them —
+  `default` (`#+GLANCE_DEFAULT_FILTER:`, `state:*active*`), `agenda`
   (`#+GLANCE_AGENDA_FILTER:`, `state:*active* -planned:*empty* sort:scheduled`)
-  — and a third is one entry: the load folds the list into `clViews`, `/config`
+  and `archive` (`#+GLANCE_ARCHIVE_FILTER:`, `tag:*archive*`, the one query that
+  lifts `/headlines`' own exclusion) — and a fourth is one entry: the load folds the list into `clViews`, `/config`
   serves it, the settings selector is built from what it serves, and the write
   is keyed by id. `viewQuery id cfg` answers; absent means the built-in, a line
   naming nothing means the empty query, and the LAST line wins. The system layer

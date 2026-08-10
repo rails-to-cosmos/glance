@@ -266,6 +266,10 @@ const Capture = ((deps) => {
     function drawChoices() {
       const list = el("plist");
       list.textContent = "";
+      // THE TABLE IS ONE GRID and the rows borrow its tracks, so the class says
+      // which shape is being drawn — every other mode is a plain list.
+      list.className = prompting.table && !prompting.narrow && !prompting.text
+        ? "ptable" : "";
       if (prompting.text) return;
       if (prompting.narrow) {
         prompting.shown.forEach((c, i) => entry(list, "pe"

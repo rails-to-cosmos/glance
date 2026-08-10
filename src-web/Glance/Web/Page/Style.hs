@@ -207,12 +207,22 @@ page head' colours title body = T.unlines
   , "  #ktext{flex:1 1 auto;min-height:0;font:12px/1.5 var(--dk-mono);"
   , "    padding:5px 7px;border-radius:4px;border:1px solid var(--g-border);"
   , "    background:transparent;color:inherit;resize:none}"
-  , "  .pr{display:grid;grid-template-columns:6.5em 1fr 1fr;gap:4px 8px;padding:4px 7px}"
+    -- ONE TABLE, not a row of grids that have to agree.  The tracks are the
+    -- LIST's and every row borrows them (`subgrid'), so the header's columns and
+    -- the values under them are the same columns rather than two independent
+    -- `1fr' splits a long keyword can pull apart.  The row keeps a box of its
+    -- own, which is what its separator is drawn on.
+  , "  #plist.ptable{display:grid;"
+  , "    grid-template-columns:6.5em minmax(0,1fr) minmax(0,1fr)}"
+  , "  .ptable>.pr{display:grid;grid-template-columns:subgrid;grid-column:1/-1}"
+  , "  .pr{display:grid;grid-template-columns:6.5em minmax(0,1fr) minmax(0,1fr);"
+  , "    gap:4px 8px;padding:4px 7px}"
   , "  .pr+.pr{border-top:1px solid var(--g-border)}"
   , "  .ph,.ps{font-size:11px;color:var(--g-mute)}"
   , "  .ps{overflow-wrap:anywhere}"
   , "  .pc{display:flex;flex-wrap:wrap;gap:2px 10px}"
   , "  .pr.pm{grid-template-columns:1fr}"
+  , "  .ptable>.pr.pm>*{grid-column:1/-1}"
   , "  .pnone{padding:4px 7px;color:var(--g-mute)}"
   , "  .pe{display:flex;align-items:center;gap:6px;border-radius:4px}"
   , "  #plist>.pe{padding:3px 7px}"

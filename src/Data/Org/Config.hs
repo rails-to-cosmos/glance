@@ -193,6 +193,13 @@ builtinFilter = "state:*active*"
 builtinAgenda :: Text
 builtinAgenda = "state:*active* -planned:*empty* sort:scheduled"
 
+-- | And the query the archive view applies: the one query that lifts
+-- @\/headlines@' own exclusion, so the rows a reader archived are reachable
+-- without spelling the starred meta.  `tag:archive' is the ordinary substring
+-- predicate and lifts nothing — the stars are the whole of it.
+builtinArchive :: Text
+builtinArchive = "tag:*archive*"
+
 -- | A SAVED VIEW: the query a key applies, kept in @system.org@ under a line of
 -- its own.  A third view is one entry here — the wire, the settings selector
 -- and the write all fold this list.
@@ -207,6 +214,7 @@ savedViews :: [SavedView]
 savedViews =
   [ SavedView "default" "GLANCE_DEFAULT_FILTER" builtinFilter
   , SavedView "agenda"  "GLANCE_AGENDA_FILTER"  builtinAgenda
+  , SavedView "archive" "GLANCE_ARCHIVE_FILTER" builtinArchive
   ]
 
 -- | The view ID names, or 'Nothing' where no build carries one.
