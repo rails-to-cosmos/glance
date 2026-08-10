@@ -12,13 +12,16 @@ section groups a feature arc, and its date is that arc's last commit.
 ## Unreleased
 
 ### Added
-- **`+` adds a paragraph in the materialize sheet's document pane.** It opens
-  the same textarea `RET` edits one with — `RET` writes it, `S-RET` is the
-  newline, `ESC` writes nothing and leaves nothing behind. It lands under the
-  whole structure the cursor stands in, never between a list's items, through a
-  table or inside a `#+begin_` block; on the headline line it leads the body,
-  and it gives a body to an entry that had none. A blank one adds nothing, and
-  a child refuses and names `RET`, which opens it.
+- **`+` adds a paragraph in the materialize sheet's document pane.** The empty
+  paragraph is DRAWN where it is going and point moves to it, so the textarea
+  is over a line of your own rather than over the one you were standing on —
+  the same textarea `RET` edits one with, so `RET` writes it and `S-RET` is the
+  newline. Point stays on the new paragraph afterwards. `ESC` leaves behind
+  what it found, point included, and writes nothing. It lands under the whole
+  structure the cursor stands in, never between a list's items, through a table
+  or inside a `#+begin_` block; on the headline line it leads the body, and it
+  gives a body to an entry that had none. A blank one adds nothing, and a child
+  refuses and names `RET`, which opens it.
 
 ### Fixed
 - **Closing the capture form takes `?page=capture` off the URL.** It opened

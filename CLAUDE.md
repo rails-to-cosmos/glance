@@ -1691,16 +1691,23 @@ measurements and the history of superseded designs live in
   addresses it — while its planning, drawer, paragraphs and children are all
   editable through the lens that materialized it.
 - `+` ADDS A PARAGRAPH, one of what the surface holds, as it does in the panel.
-  The overlay opens EMPTY over the stop and NOTHING moves until `RET`, so `ESC`
-  is a no-op by construction and no unwritten paragraph can ride out on a flush
-  another key fired. WHERE it lands is `Scan.insertion`: a LEAF's rides its
-  OUTERMOST owner, since org would close the list, cut the table or take the
-  prose for source; the HEADLINE's leads the body, and a body with no block is
-  SEEDED with one, the only row that rule ever makes. THE SEPARATOR IS DECIDED
-  rather than spelled — a blank above always, one below only where the line at
-  the carrier's end is prose that would otherwise run on. The shell sends the
-  STOP's id and the typed text and composes nothing; a child refuses and a
-  blank one writes nothing.
+  THE ROW IS DRAWN BEFORE IT IS WRITTEN and point goes to it, so the box is laid
+  over a line of the reader's own rather than over the one they stood on, and
+  point is still on that paragraph when the write lands. The drawn row is
+  ZERO-WIDTH and empty (`Scan.draftId`), which `bodyText` passes over because
+  its text has not moved off its `was`, so nothing is owed until it is filled
+  and `ESC` leaves behind what it found — the STOP is NAMED rather than counted
+  back to, a leaf's row standing past its whole composite. Elm pushes state
+  before it paints, so `+` opens the box and the state push re-anchors it.
+  WHERE it lands is `Scan.joinAt`: a LEAF's rides its OUTERMOST owner, since org
+  would close the list, cut the table or take the prose for source; the
+  HEADLINE's leads the body at line 1. THE SEPARATOR IS THE SPLICE'S, never the
+  text's — a zero-width range ADDS lines rather than replacing any, so
+  `Scan.apart` reads BOTH neighbours at splice time and what is drawn stays
+  content. Line 0 is the entry's own line, the one place no blank is owed above.
+  A cursor is owed a LINE rather than an id across the write (`joinLine`,
+  `placeOfLine`, `Model.landing`), block ids being positional: the rescan mints
+  the row. A child refuses and a blank one writes nothing.
 - `SPC` TOGGLES AN ORG CHECKBOX at the stop under point, and `C-c C-c` with no
   element open is the same toggle (org's second meaning of the key). The box is
   the item's FIRST line (`CHECKBOX`: bullet or number, then `[ ]`/`[X]`/`[x]`/

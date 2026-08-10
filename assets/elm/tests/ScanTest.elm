@@ -385,4 +385,85 @@ suite =
                 \_ ->
                     Expect.equal Nothing (Scan.insertion (model [ "* head", "alpha" ]) "B9" "note")
             ]
+
+        -- `+' DRAWS THE ROW BEFORE ANYTHING IS WRITTEN.  It is zero-width and
+        -- empty, so its text has not moved off its `was' and the splice passes
+        -- it over: the reader sees the line they are about to fill and the file
+        -- is the file it was.
+        , describe "drafted — a paragraph drawn before it is written"
+            [ test "the drawn row writes nothing at all" <|
+                \_ ->
+                    let
+                        m =
+                            model [ "* head", "alpha", "", "beta" ]
+
+                        rows =
+                            Maybe.withDefault m.rows (Scan.drafted m "B0")
+                    in
+                    Expect.equal ( 4, "* head\nalpha\n\nbeta" )
+                        ( List.length rows, Scan.bodyText { m | rows = rows } [] )
+            , test "and it stands under the WHOLE list, never between two items" <|
+                \_ ->
+                    let
+                        m =
+                            model [ "* head", "- alpha", "- beta", "", "after" ]
+                    in
+                    Expect.equal (Just [ "H", "B0", "B1", "B2", "D", "B3" ])
+                        (Maybe.map (List.map .id) (Scan.drafted m "B1"))
+            , test "a second ask draws one paragraph rather than two" <|
+                \_ ->
+                    let
+                        m =
+                            model [ "* head", "alpha" ]
+
+                        once =
+                            Maybe.withDefault m.rows (Scan.drafted m "B0")
+
+                        twice =
+                            Maybe.withDefault once (Scan.drafted { m | rows = once } "B0")
+                    in
+                    Expect.equal 1
+                        (List.length (List.filter (\r -> r.id == Scan.draftId) twice))
+            , test "and undrafted leaves behind what it found" <|
+                \_ ->
+                    let
+                        m =
+                            model [ "* head", "alpha" ]
+
+                        rows =
+                            Maybe.withDefault m.rows (Scan.drafted m "B0")
+                    in
+                    Expect.equal (List.map .id m.rows)
+                        (List.map .id (Scan.undrafted { m | rows = rows }))
+            ]
+
+        -- WHERE THE CURSOR IS OWED after the write: block ids are POSITIONAL,
+        -- so the row an insert makes has no id until the rescan mints one and
+        -- the LINE it starts at is what names it instead.
+        , describe "the landing — a line, since no id names the new row yet"
+            [ test "under a paragraph the text lands a blank on" <|
+                \_ ->
+                    Expect.equal (Just 3)
+                        (Scan.joinLine (model [ "* head", "alpha", "", "beta" ]) "B0")
+            , test "and under the headline it leads the body with no blank owed" <|
+                \_ ->
+                    Expect.equal (Just 1)
+                        (Scan.joinLine (model [ "* head", "alpha", "", "beta" ]) "H")
+            , test "a child owes none" <|
+                \_ ->
+                    Expect.equal Nothing
+                        (Scan.joinLine
+                            { rows = Scan.rowsFrom [ "* head", "mine", "** kid" ] 2 [] [ ( 0, 2, [] ) ]
+                            , lines = [ "* head", "mine", "** kid" ]
+                            }
+                            "C0"
+                        )
+            , test "and the row taking that line is the one point lands on" <|
+                \_ ->
+                    let
+                        m =
+                            model [ "* head", "alpha", "", "mid", "", "beta" ]
+                    in
+                    Expect.equal 2 (Scan.placeOfLine { rows = m.rows, at = 0 } 3)
+            ]
         ]

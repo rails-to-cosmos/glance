@@ -3476,6 +3476,31 @@ sheetSpec shell =
         echoIs "the echo names where it would land"
                "+ \8594 org-insert-element (after this paragraph)" answer
 
+    -- THE PARAGRAPH IS DRAWN BEFORE IT IS WRITTEN, so the reader fills a line
+    -- of their own rather than the one they were standing on.  The row is
+    -- zero-width and empty, which `bodyText' passes over.
+  , testCase "+ draws the empty paragraph, and point goes to it" $ do
+      insheet "press:n press:+" $ \answer -> do
+        assertEqual "a line of its own, under the one point stood on"
+                    ["head", "para", "draft:para", "para", "child"]
+          =<< map head <$> docOf answer
+        assertEqual "holding nothing" [""] . partsOf "draft:para" =<< docOf answer
+        assertEqual "and the cursor is on it" 2 =<< intAt "dat" answer
+      -- A LEAF'S stands past the WHOLE list, where its paragraph will go.
+      onTable "grain press:Enter press:n press:n press:f press:+" $ \answer -> do
+        assertEqual "never between two items"
+                    [ "head", "para", "comp:list", "item", "item", "item", "item"
+                    , "draft:para", "comp:quote", "item", "item", "para", "child" ]
+          =<< map head <$> docOf answer
+        assertEqual "and the cursor is on it" 7 =<< intAt "dat" answer
+
+  , testCase "and ESC leaves behind what it found, point included" $
+      insheet "press:n press:+ dpara:typed press:Escape" $ \answer -> do
+        assertEqual "the drawn row goes with the box"
+                    ["head", "para", "para", "child"] =<< map head <$> docOf answer
+        assertEqual "and point is back on the stop it was pressed from"
+                    1 =<< intAt "dat" answer
+
   , testCase "RET writes it in under the paragraph point stood on" $
       insheet "press:n press:+ dpara:added press:Enter" $ \answer -> do
         assertEqual "one write, aimed at the row" ["r1"] =<< textsAt "wroteAt" answer
@@ -3483,6 +3508,11 @@ sheetSpec shell =
           ["* TODO one\nfirst para\n\nadded\n\nsecond para\n** two\nchild body\n"]
           =<< traverse (textAt "body") =<< listAt "writes" answer
         assertEqual "the overlay is shut" False =<< boolAt "dparaopen" answer
+        -- AND POINT IS ON THE PARAGRAPH JUST MADE, which it never left: the
+        -- row `+' drew is the row the text went into.
+        assertEqual "the pane shows it where it was drawn"
+                    ["added"] . partsOf "draft:para" =<< docOf answer
+        assertEqual "with the cursor still on it" 2 =<< intAt "dat" answer
         echoIs "" "RET \8594 org-ctrl-c-ctrl-c (paragraph added)" answer
 
     -- THE SEPARATOR IS DECIDED rather than spelled: under the LAST block the

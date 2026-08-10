@@ -30,15 +30,20 @@ import Scan
         , bodyText
         , cellCount
         , cut
+        , draftId
+        , drafted
         , insertion
+        , joinLine
         , kidsOf
         , kindWord
         , nth
         , placeOf
+        , placeOfLine
         , rowAt
         , rowById
         , rowsFrom
         , shown
+        , undrafted
         )
 
 
@@ -63,12 +68,16 @@ type alias Model =
     , level : Int
     , titleAt : Maybe Int
     , child : Bool
+
+    -- THE LINE A CURSOR IS OWED at the next fill, where the row it must land
+    -- on does not exist yet: an insert's paragraph is minted by the RESCAN.
+    , landing : Maybe Int
     }
 
 
 empty : Model
 empty =
-    Model [] [] 0 Nothing "element" [] [] Nothing 0 1 Nothing False
+    Model [] [] 0 Nothing "element" [] [] Nothing 0 1 Nothing False Nothing
 
 
 {-| A sibling step at the cursor's own grain. A composite is ONE stop; a leaf
@@ -338,7 +347,9 @@ type Msg
     | ClearFlags
     | Delete (List String)
     | Edit String String
+    | Draft String
     | Insert String String
+    | Undraft String
     | Ignore
 
 
@@ -359,14 +370,22 @@ update msg model =
                     Maybe.map .id (rowAt model)
 
                 landed =
-                    case was of
-                        Just id ->
-                            placeOf fresh id
+                    case model.landing of
+                        -- A LANDING IS OWED and is spent here: the paragraph an
+                        -- insert made has no id until this rescan mints one, so
+                        -- the cursor is owed the LINE it starts at instead.
+                        Just line ->
+                            placeOfLine fresh line
 
                         Nothing ->
-                            0
+                            case was of
+                                Just id ->
+                                    placeOf fresh id
+
+                                Nothing ->
+                                    0
             in
-            told { fresh | at = landed, col = Nothing }
+            told { fresh | at = landed, col = Nothing, landing = Nothing }
 
         Select id ->
             told { model | at = placeOf model id }
@@ -426,18 +445,43 @@ update msg model =
             in
             composed { model | rows = List.map write model.rows }
 
-        -- THE MODEL HOLDS NO UNWRITTEN ROW: `+' opens a box and sends nothing,
-        -- so this arrives with the text already typed and the write leaves in
-        -- the same turn.  A refusal is a WORD and composes no body.
-        Insert id written ->
-            case insertion model id written of
+        -- `+' DRAWS THE PARAGRAPH BEFORE IT IS WRITTEN, so the reader fills a
+        -- line of their own rather than the one they were standing on.  The row
+        -- is zero-width and empty, which `bodyText' passes over, and the cursor
+        -- goes to it: the box is laid over whatever `dat' names.
+        Draft id ->
+            case drafted model id of
                 Just rows ->
-                    composed { model | rows = rows }
+                    told { model | rows = rows, at = placeOf { model | rows = rows } draftId, col = Nothing }
 
                 Nothing ->
                     ( model
                     , docSaid (E.string "org-insert-element (nothing here takes a paragraph)")
                     )
+
+        -- And the same row filled, which IS the write: zero-width, so the
+        -- splice already written puts the lines in rather than replacing any.
+        -- The cursor stays where it is — on the paragraph just made — and the
+        -- LINE it starts at is what the rescan will be asked to land on.
+        Insert id written ->
+            case ( insertion model id written, joinLine model id ) of
+                ( Just rows, line ) ->
+                    composed { model | rows = rows, landing = line }
+
+                ( Nothing, _ ) ->
+                    ( model
+                    , docSaid (E.string "org-insert-element (nothing here takes a paragraph)")
+                    )
+
+        -- ESC, and an empty commit: what it leaves behind is what it found,
+        -- point included — the STOP is named rather than a place counted back
+        -- to, a leaf's draft standing past its whole composite.
+        Undraft id ->
+            let
+                rows =
+                    undrafted model
+            in
+            told { model | rows = rows, at = placeOf { model | rows = rows } id }
 
 
 told : Model -> ( Model, Cmd Msg )
@@ -656,6 +700,12 @@ msgD =
                     "insert" ->
                         D.map2 Insert (D.field "id" D.string) (D.field "text" D.string)
 
+                    "draft" ->
+                        D.map Draft (D.field "id" D.string)
+
+                    "undraft" ->
+                        D.map Undraft (D.field "id" D.string)
+
                     _ ->
                         D.succeed Ignore
             )
@@ -674,7 +724,12 @@ stars m level =
 
 rowClass : Model -> Int -> Row -> String
 rowClass m i r =
-    "de d-"
+    (if r.id == draftId then
+        "de d-draft d-"
+
+     else
+        "de d-"
+    )
         ++ (case r.grain of
                 Leaf ->
                     "item"

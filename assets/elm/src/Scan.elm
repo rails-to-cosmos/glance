@@ -8,17 +8,22 @@ module Scan exposing
     , bodyText
     , cellCount
     , cut
+    , draftId
+    , drafted
     , insertion
+    , joinLine
     , kidsOf
     , kindWord
     , listOpener
     , listRun
     , nth
     , placeOf
+    , placeOfLine
     , rowAt
     , rowById
     , rowsFrom
     , shown
+    , undrafted
     )
 
 {-| THE DOCUMENT PANE'S PURE HALF: the structure a subtree's body has, the rows
@@ -573,7 +578,18 @@ bodyText m gone =
                 List.take r.from out ++ List.drop (r.to + spare) out
 
             else if r.text /= r.was then
-                List.take r.from out ++ String.split "\n" r.text ++ List.drop r.to out
+                List.take r.from out
+                    ++ (if r.from == r.to then
+                            -- AN INSERTION, and the blanks that keep it a
+                            -- paragraph of its own are the SPLICE's rather than
+                            -- the text's: a zero-width range ADDS lines instead
+                            -- of replacing any, and what is drawn is content.
+                            apart out r.from (String.split "\n" r.text)
+
+                        else
+                            String.split "\n" r.text
+                       )
+                    ++ List.drop r.to out
 
             else
                 out
@@ -584,26 +600,31 @@ bodyText m gone =
 
 -- THE INSERT
 --
--- A paragraph JOINS by growing the structure it lands under, so the splice
--- above is the whole mechanism and no row is made that the reader has not
--- written. One exception: a body holding no block has nothing to grow.
+-- A paragraph is DRAWN before it is written: `+' puts a ZERO-WIDTH row in under
+-- the structure the stop rides, holding nothing, and `bodyText' passes it over
+-- because its text has not moved off its `was'. So the reader sees the line
+-- they are about to fill, and not a byte is owed until they fill it.
 
 
-{-| ROWS with a paragraph spelling WRITTEN joined under the stop ID.
+{-| The row a paragraph waits in before it says anything.
+-}
+draftId : String
+draftId =
+    "D"
+
+
+{-| WHERE a paragraph joins: the row it goes in under, the BODY LINE it takes,
+and whether a blank line is owed ABOVE it.
 
 A LEAF's rides its OUTERMOST owner — grown in place, org would close the list,
-cut the table or take the prose for source. The HEADLINE's leads the body,
-joined to the FIRST block from the front. A body with no block at all is SEEDED
-with one, the only row this ever makes. 'Nothing' for a CHILD, whose bytes are
-outside this window, and for an id no row wears.
+cut the table or take the prose for source. The HEADLINE's leads the body at
+line 1, under the line the entry wears, which is the one place nothing is owed
+above. 'Nothing' for a CHILD, whose bytes are outside this window, and for an
+id no row wears.
 
 -}
-insertion :
-    { a | rows : List Row, lines : List String }
-    -> String
-    -> String
-    -> Maybe (List Row)
-insertion m id written =
+joinAt : { a | rows : List Row } -> String -> Maybe ( String, Int )
+joinAt m id =
     case rowById m id of
         Nothing ->
             Nothing
@@ -614,19 +635,56 @@ insertion m id written =
                     Nothing
 
                 Head ->
-                    case List.filter (\x -> x.kind == Para) m.rows of
-                        first :: _ ->
-                            Just (grown m first.id (written ++ "\n\n" ++ first.text))
-
-                        [] ->
-                            Just (seeded m written)
+                    Just ( r.id, 1 )
 
                 Para ->
                     let
                         up =
                             outermost m r
                     in
-                    Just (grown m up.id (up.text ++ "\n\n" ++ apart m.lines up.to written))
+                    Just ( up.id, up.to )
+
+
+{-| ROWS with an EMPTY paragraph drawn in under the stop ID, for \`+' to open a
+box over. It is zero-width and holds nothing, so no write any other gesture
+composes can carry it out.
+-}
+drafted : { a | rows : List Row } -> String -> Maybe (List Row)
+drafted m id =
+    Maybe.map (\( under, line ) -> joined m under (draftRow line "")) (joinAt m id)
+
+
+{-| ROWS with that paragraph filled with TEXT, which is the write.
+
+THE SEPARATOR IS DECIDED rather than spelled: a blank ABOVE unless the headline
+is the line above, and one BELOW only where the line the row takes is prose that
+would otherwise read back as ONE paragraph with this.
+
+-}
+insertion :
+    { a | rows : List Row, lines : List String }
+    -> String
+    -> String
+    -> Maybe (List Row)
+insertion m id text =
+    Maybe.map (\( under, line ) -> joined m under (draftRow line text)) (joinAt m id)
+
+
+{-| The FIRST LINE the paragraph joined under ID would take, for a cursor that
+must land on a row the rescan has not minted: block ids are POSITIONAL, so no
+id names it until the body comes back.
+-}
+joinLine : { a | rows : List Row, lines : List String } -> String -> Maybe Int
+joinLine m id =
+    Maybe.map
+        (\( _, line ) ->
+            if line > 1 && not (isBlank (at (line - 1) m.lines)) then
+                line + 1
+
+            else
+                line
+        )
+        (joinAt m id)
 
 
 {-| The structure a stop belongs to, itself where it belongs to none.
@@ -641,61 +699,91 @@ outermost m r =
             r
 
 
-{-| WRITTEN with the blank line that keeps it a paragraph of its own. Prose at
-LINE runs on, and reads back as ONE paragraph with this; the end of the file is
-a blank by 'at''s own answer.
+{-| WRITTEN wearing the blank lines that keep it a paragraph of its own at LINE.
+
+One ABOVE unless line 0 is what sits there — the entry's own headline line, and
+the one place nothing is owed — and one BELOW where the line it lands on is
+prose that would otherwise read back as ONE paragraph with this.
+
 -}
-apart : List String -> Int -> String -> String
+apart : List String -> Int -> List String -> List String
 apart lines line written =
-    if isBlank (at line lines) then
-        written
+    (if line > 1 && not (isBlank (at (line - 1) lines)) then
+        [ "" ]
 
-    else
-        written ++ "\n"
-
-
-{-| Grow ID's range to TEXT. ONE GRAIN SPEAKS FOR A RANGE, so a composite grown
-this way silences its own leaves and the structure splices once.
--}
-grown : { a | rows : List Row } -> String -> String -> List Row
-grown m id text =
-    List.map
-        (\r ->
-            if r.id == id then
-                { r | text = text }
+     else
+        []
+    )
+        ++ written
+        ++ (if isBlank (at line lines) then
+                []
 
             else
-                r
-        )
-        m.rows
+                [ "" ]
+           )
 
 
-{-| The body's first paragraph where there was none: a ZERO-WIDTH range at line
-1, under the headline's own line, which the splice takes as an insert with no
-arm of its own. It wears \`B0' because that is the id the rescan will mint.
+draftRow : Int -> String -> Row
+draftRow line text =
+    { blank
+        | id = draftId
+        , kind = Para
+        , grain = Element
+        , from = line
+        , to = line
+        , text = text
+    }
+
+
+{-| ROWS with ROW put in after UNDER and everything UNDER owns — past a list's
+last item rather than between two — with any draft already standing taken out
+first, so a second ask draws one paragraph rather than two.
 -}
-seeded : { a | rows : List Row, lines : List String } -> String -> List Row
-seeded m written =
+joined : { a | rows : List Row } -> String -> Row -> List Row
+joined m under row =
     let
-        row =
-            { blank
-                | id = "B0"
-                , kind = Para
-                , grain = Element
-                , from = 1
-                , to = 1
-                , text = apart m.lines 1 written
-            }
-    in
-    List.concatMap
-        (\r ->
-            if r.kind == Head then
-                [ r, row ]
+        kept =
+            List.filter (\r -> r.id /= draftId) m.rows
 
-            else
-                [ r ]
-        )
-        m.rows
+        owned r =
+            List.member under (ownersOf { rows = kept } r.id)
+
+        place out rows =
+            case rows of
+                [] ->
+                    out
+
+                r :: rest ->
+                    if r.id == under then
+                        let
+                            kin =
+                                takeWhileList owned rest
+                        in
+                        out ++ (r :: kin) ++ (row :: List.drop (List.length kin) rest)
+
+                    else
+                        place (out ++ [ r ]) rest
+    in
+    place [] kept
+
+
+{-| Where the row taking LINE as its first stands, for the landing above.
+-}
+placeOfLine : { a | rows : List Row, at : Int } -> Int -> Int
+placeOfLine m line =
+    List.indexedMap Tuple.pair m.rows
+        |> List.filter (\( _, r ) -> r.kind == Para && r.from == line)
+        |> List.head
+        |> Maybe.map Tuple.first
+        |> Maybe.withDefault m.at
+
+
+{-| ROWS with no draft standing: what \`ESC' leaves behind, which is what it
+found.
+-}
+undrafted : { a | rows : List Row } -> List Row
+undrafted m =
+    List.filter (\r -> r.id /= draftId) m.rows
 
 
 

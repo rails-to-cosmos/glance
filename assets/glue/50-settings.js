@@ -479,6 +479,9 @@
               : o.add ? { id: stop.id, text: "", add: true }
               : stop;
       if (!r) return;
+      // The row an insert was filling is the model's, and the remount refilled
+      // it away — so it is drawn again under the stop it was raised from.
+      if (o.add) redraft(r);
       openEdit(o.box === "dpara" ? DPARA : DTITLE, r);
       el(o.box === "dpara" ? "dtext" : "dtin").value = o.val;
     }

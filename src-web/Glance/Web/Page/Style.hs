@@ -139,6 +139,10 @@ page head' colours title body = T.unlines
   , "  .d-para,.d-comp{margin:.5em 0;"
   , "    padding-left:calc(var(--g-doc-pad) + var(--g-doc-indent, 2) * 1ch)}"
   , "  .d-comp{padding-top:0;padding-bottom:0}"
+  -- A PARAGRAPH DRAWN BEFORE IT IS WRITTEN still owns a line: the row `+' puts
+  -- in holds nothing, and `:empty' cannot find it — Elm emits an empty text
+  -- node — so the height is declared rather than tested for.
+  , "  .d-draft{min-height:calc(var(--g-doc-fs) * var(--g-doc-lh))}"
   , "  .d-item{padding-left:0;padding-right:0}"
   , "  .dg{padding:0;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--g-mute)}"
   , "  .dl{color:var(--g-link);text-decoration:underline}"

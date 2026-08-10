@@ -206,6 +206,11 @@
       if (r.kind === "child")
         { said(INSERT, "a child's body is its own — RET opens it"); return; }
       said(INSERT, insertWord(r));
+      // THE ROW IS DRAWN FIRST and the cursor goes to it, so the box is laid
+      // over a line of the reader's own rather than over the one they stood
+      // on.  Elm pushes its state a turn later and `placeEdit' runs again
+      // there, which is what moves the box onto the paragraph just drawn.
+      dsend({ kind: "draft", id: r.id });
       openEdit(DPARA, { id: r.id, text: "", add: true });
     }
     /** Put TEXT in under ROW, and commit whichever answer Elm sends back. */
@@ -327,16 +332,9 @@
       fill: (r) => { el("dtin").value = r.val; },
       focus: () => el("dtin").focus(),
     };
-    // AN INSERT'S BOX SITS OVER THE STRUCTURE IT JOINS, which for a leaf is
-    // the composite already drawn around it; an edit's sits over the stop.
-    const dInsertAt = () => {
-      const at = docElAt();
-      return (at && at.closest && at.closest(".d-comp")) || at;
-    };
     const DPARA = {
       box: "dpara", pane: "mdoc", fields: ["dtext"],
-      mount: () => null,
-      anchor: () => (edit && edit.row.add ? dInsertAt() : docElAt()),
+      mount: () => null, anchor: docElAt,
       fill: (r) => { el("dtext").value = r.text; },
       focus: () => el("dtext").focus(),
     };
@@ -365,7 +363,7 @@
         if (add) {
           // NO PLACEHOLDERS, EVER: a paragraph with nothing in it is not one,
           // and no row was ever made, so this writes nothing and says so.
-          if (!text.trim()) { spoke("nothing added"); return; }
+          if (!text.trim()) { undraft(r); spoke("nothing added"); return; }
           insertPara(r, text, () => spoke("paragraph added"));
           return;
         }
@@ -381,7 +379,13 @@
       fire(docBinding("org-glance-overview:rename"), "set-title", [editing.id],
            { title: val }, `retitled ${JSON.stringify(val.trim())}`);
     }
-    const cancelDocEdit = () => cancelEdit("element", DTITLE, DPARA);
+    const redraft = (r) => dsend({ kind: "draft", id: r.id });
+    const undraft = (r) => dsend({ kind: "undraft", id: r.id });
+    const cancelDocEdit = () => {
+      const drawn = edit && edit.o === DPARA && edit.row.add ? edit.row : null;
+      cancelEdit("element", DTITLE, DPARA);
+      if (drawn) undraft(drawn);
+    };
     const sheetOpen = () => docOpen() || pediting();
     const cancelSheetEdit = () => (pediting() ? cancelRow() : cancelDocEdit());
     function ddelete(ids, how) {
