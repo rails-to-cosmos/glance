@@ -2162,6 +2162,20 @@ const ACTIONS = {
   // Time passing, which is the one thing a delayed state needs and no other act
   // can stand in for: the wash arms on a timer and a script has to be able to
   // sit either side of it.
+  /**
+   * WAIT FOR THE THING, not for a span: poll until the wash is on or off, or
+   * give up after a cap and let the assertion say what it found.  A duration
+   * cannot express "once the reconnect lands" — the page's own backoff decides
+   * when that is, and a machine under load moves it.
+   */
+  until: async (spec) => {
+    const [what, want] = String(spec).split("=");
+    const reads = { stale: () => (root.classList.contains("stale") ? "on" : "off") };
+    const read = reads[what];
+    if (!read) throw new Error(`no such condition: until:${spec}`);
+    for (let turn = 0; turn < 400 && read() !== want; turn += 1)
+      await new Promise((go) => realTimeout(go, 25));
+  },
   // MS of the PAGE'S schedule rather than of the clock: sleep the span, then
   // let everything that fell due inside it actually run.
   wait: async (ms) => {

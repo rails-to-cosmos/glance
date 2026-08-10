@@ -179,6 +179,17 @@ measurements and the history of superseded designs live in
   PREFIX IT READ; a crash between = a repeated refresh, no-op by construction.
 - Corpus check: `cabal run -v0 glance -- scan ~/sync` — expect 0 span
   violations, ~12.6k headlines, ~10 s walk.
+- THE HARNESS SETTLES ON THE PAGE'S SCHEDULE, never on the clock. Every
+  `setTimeout` is tracked with WHEN IT IS DUE, and `settle`/`wait:` drain on
+  that: `wait:900` is nine hundred milliseconds OF THE PAGE'S SCHEDULE, and
+  `settle` follows the chain a landed fetch starts until nothing is owed SOON
+  (`TURN`, `SOON`). A long timer is never waited on — a 30 s reconnect backoff
+  is not owed to a 900 ms wait.
+- AND WHERE THE PAGE'S OWN BACKOFF DECIDES THE MOMENT, a duration cannot say it
+  at all: `until:stale=off` polls for the CONDITION with a cap. Draining makes a
+  wait take longer in WALL time, which is what let a 1000 ms retry fire ahead of
+  the act that was meant to precede it and double the backoff out of reach —
+  the flake the condition removes.
 - The `GLANCE_CORPUS` groups PASS when the variable is unset and say so:
   `TestDefaults.withCorpusSample` prints `SKIPPED — GLANCE_CORPUS is unset` on
   stderr. A green run without those lines is unverified on the corpus half. A

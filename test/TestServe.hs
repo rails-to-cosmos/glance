@@ -771,7 +771,7 @@ washSpec shell = testGroup "Shell wash"
     -- so.  The daemon comes back, the retry behind the backoff finds it, and
     -- the socket that opens is what takes the wash off.
   , washes shell "a socket that stays gone dims the page, and the reconnect clears it"
-           "offline close:x wait:500 online wait:900" ["on", "off"] False
+           "offline close:x wait:500 online until:stale=off" ["on", "off"] False
 
     -- And it stays on for as long as the socket is gone: the arming is not a
     -- flash that goes by itself.
