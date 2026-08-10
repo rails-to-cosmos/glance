@@ -133,8 +133,16 @@ page head' colours title body = T.unlines
   , "    padding:1px var(--g-doc-pad);border-radius:4px;white-space:pre-wrap;"
   , "    overflow-wrap:anywhere}"
   , "  #mdoc.on .de.dat{background:var(--g-sel);color:var(--g-fg)}"
-  , "  .de.dfl{background:color-mix(in srgb, var(--g-warn) 22%, transparent)}"
-  , "  #mdoc.on .de.dat.dfl{background:color-mix(in srgb, var(--g-warn) 38%, var(--g-sel))}"
+  -- A FLAG WEARS THE TABLE'S OWN RED at the table's own measured wash, being
+  -- the same gesture over the same queue: `--g-bad' IS `--tv-flag', and
+  -- `--g-flag-wash' is the strength the renderer's themes measured for it.
+  -- WHAT IS NOT COPIED is the second channel — the renderer keeps the cursor's
+  -- ground and says FLAG with an inset edge, which this pane may not do: a
+  -- document is read as TEXT and every state in it is a GROUND
+  -- (`TestServe.groundSweep').  So the two states combine as one ground, and
+  -- the flag is mixed far enough into the cursor's to survive it.
+  , "  .de.dfl{background:color-mix(in srgb, var(--g-bad) var(--g-flag-wash), transparent)}"
+  , "  #mdoc.on .de.dat.dfl{background:color-mix(in srgb, var(--g-bad) 38%, var(--g-sel))}"
   -- PADDING, never a margin: a margin takes the selection wash off the line.
   , "  .d-para,.d-comp{margin:.5em 0;"
   , "    padding-left:calc(var(--g-doc-pad) + var(--g-doc-indent, 2) * 1ch)}"

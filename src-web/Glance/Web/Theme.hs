@@ -76,6 +76,7 @@ pageTokens p =
   , ("--g-link",      pLink p)
   , ("--g-col",       pColumn p)
   , ("--g-cell-wash", pCellWash p)
+  , ("--g-flag-wash", pFlagWash p)
   , ("--g-ok",        pOk p)
   , ("--g-warn",      pWarn p)
   , ("--g-bad",       pBad p)

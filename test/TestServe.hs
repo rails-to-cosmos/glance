@@ -6060,8 +6060,10 @@ paletteSweep shell = testCase "one palette, two namespaces, every theme" $ do
         , ("--g-border", "--tv-border"), ("--g-accent", "--tv-accent")
         , ("--g-sel", "--tv-sel"), ("--g-link", "--tv-link")
         , ("--g-col", "--tv-col"), ("--g-cell-wash", "--tv-cell-wash")
-        -- One red for an error and for the archive flag.
-        , ("--g-bad", "--tv-flag") ]
+        -- One red for an error and for the archive flag, at one strength: the
+        -- sheet's own flag is the table's gesture over the same queue, so it
+        -- wears the table's hue washed the way the table washes it.
+        , ("--g-bad", "--tv-flag"), ("--g-flag-wash", "--tv-flag-wash") ]
   -- A BADGE HUE IS THE THEME'S, so the wire carries a SLOT and every theme
   -- declares it.  Derived both ways: the slots the served ROWS name are read
   -- off the view document and each must be declared in the page, and the count
