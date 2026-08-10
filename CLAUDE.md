@@ -22,6 +22,12 @@ measurements and the history of superseded designs live in
   that triple by `spanStart` and leaves the other five positional. `hsFull` and
   `headlineSpanParts` read that one ordering. A planning span covers the
   timestamp alone — the keyword is not part of it.
+- EVERY CLOSED SUM IS CLOSED, and the compiler is what says so:
+  `-Werror=incomplete-patterns` is on in all seven stanzas, so a missing arm
+  fails the build rather than printing a line on the way to a green suite. The
+  two catch-alls that made `Field` half-enforced are gone — `valueFor` spells
+  its five, and `keyTest`'s `Col`/`Planned` arms share one named `cellsTest`
+  rather than one wildcard.
 - `stripSpans` must cover every span-carrying constructor; a new `Element` that
   embeds spans must extend it. The suite reads elements through `bare =
   map (stripSpans . valueOf)`, so ~150 span-insensitive assertions go
@@ -407,8 +413,12 @@ measurements and the history of superseded designs live in
   takes the window as a `String -> IO ()`, so both flag states compile and the
   suite tests the flow against a fake window in either.
 - The socket carries SCHEMA.md's row ops alone. A column change closes it with
-  reason `view-changed` and the client re-fetches. `ViewChanged` is a `Frame`
-  whose `frameJSON` is `Nothing` — it travels as a close — and `guarded` REPLACES
+  reason `view-changed` and the client re-fetches. A `Frame` is `Op RowOp` or
+  `Close CloseReason`, so a message and a close are told apart by the COMPILER
+  rather than by `frameJSON` answering `Nothing`; `CloseReason` is the whole
+  vocabulary of a server-initiated close (`view-changed`, `resync`) and
+  `closeReason` spells it, where two strings used to sit at their call sites.
+  A close — and `guarded` REPLACES
   the step's frames with it, so a column change never also ships rows describing
   the palette that just moved. The bootstrap `set-rows` is snapshotted inside the
   subscribing transaction, so there is no journal and no gap; `?bootstrap=off`

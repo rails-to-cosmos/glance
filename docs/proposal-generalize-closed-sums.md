@@ -1,6 +1,6 @@
 # Proposal — make the closed sums actually closed
 
-**Status:** proposed · **Date:** 2026-08-04
+**Status:** DONE 2026-08-10 · **Date:** 2026-08-04
 
 Four modules spell every constructor of a sum with no catch-all, and say in
 their own comments that this is what makes the obligation enforceable.  Two more
@@ -123,3 +123,25 @@ Step 3 can be declined without losing steps 1 and 2.
 the obligation enforceable … Under `-Wall` the compiler now asks for the arm."
 The proposal is to make that sentence true everywhere it is claimed, and to make
 "asks" mean the build stops.
+
+## What it turned out to be, on implementing
+
+All three edits landed and the suite stayed green throughout, which is what a
+zero-behaviour-change refactor owes.
+
+`-Werror=incomplete-patterns` went into all SEVEN `ghc-options` lines, not six —
+the count in this proposal predates a stanza. Nothing in the tree warned, so it
+was inert on landing, and it is inert until someone adds a constructor. MEASURED
+after: a fifth `Field` is now a build ERROR at three sites (`fieldCells`,
+`valueFor`, `keyTest`) where it used to be a warning at one; a third
+`CloseReason` is an error at `closeReason`.
+
+`keyTest`'s catch-all did not become two equations but one named helper,
+`cellsTest`, that `Col` and `Planned` both call: the two arms are the same body,
+and spelling it twice to satisfy the compiler would have been the duplication
+this proposal exists to remove.
+
+`Resync` was NOT a `Frame` before — it was the mailbox-overflow branch reading
+`Nothing` off the mailbox, with its string typed at the call site. Folding it
+into `CloseReason` is what makes "the whole vocabulary of a server-initiated
+close" a type rather than a sentence in CLAUDE.md.

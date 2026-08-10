@@ -21,6 +21,9 @@ module Glance.Web.Store
   , reseeded
     -- * Frames
   , Frame (..)
+  , RowOp (..)
+  , CloseReason (..)
+  , closeReason
   , frameJSON
   , frameText
   , bootstrapFrame
@@ -162,7 +165,7 @@ reseeded fresh st = installed st fresh (outcomes st /= outcomes fresh) out
     before   = rowsById st
     after    = rowsById fresh
     everyId  = Set.toAscList (Map.keysSet before <> Map.keysSet after)
-    out      = if storeKeywords st /= storeKeywords fresh then [ViewChanged]
+    out      = if storeKeywords st /= storeKeywords fresh then [Close ViewChanged]
                                                           else rowFrames everyId before after
     outcomes = Map.map feFailure . stFiles
 
@@ -173,9 +176,9 @@ rowsById st = Map.fromList [ (hrId r, rowJSON r) | r <- storeRecords st ]
 -- applying the batch in order never shows fewer rows than the store has.
 rowFrames :: [Text] -> Map Text Value -> Map Text Value -> [Frame]
 rowFrames ids before after =
-  [ UpsertRow row | i <- ids, Just row <- [Map.lookup i after]
+  [ Op (UpsertRow row) | i <- ids, Just row <- [Map.lookup i after]
                             , Map.lookup i before /= Just row ]
-    <> [ DeleteRow i | i <- ids, Map.notMember i after ]
+    <> [ Op (DeleteRow i) | i <- ids, Map.notMember i after ]
 
 -- | NEXT installed over ST, the generation stepped where the view moved.  ONE
 -- rule for both writers, and the counter is ST's so 'reseeded' carries it over.
@@ -188,7 +191,7 @@ guarded path step st = installed st next (outcome st /= outcome next) out
   where
     (next, frames) = step st
     palette  = declared st /= declared next && storeKeywords st /= storeKeywords next
-    out      = if palette then [ViewChanged] else frames
+    out      = if palette then [Close ViewChanged] else frames
     declared = fmap hrKeywords . (listToMaybe . feRecords <=< Map.lookup path) . stFiles
     outcome  = fmap feFailure . Map.lookup path . stFiles
 
@@ -233,27 +236,51 @@ tagsOf :: [HeadlineRecord] -> Set Text
 tagsOf = Set.fromList . concatMap (tagsOfCell . hrTags)
 
 
--- | What a live client receives.  'ViewChanged' travels as a close.
+-- | What a live client receives.  A ROW OP travels as a message; a CLOSE
+-- travels as a reason, and 'guarded' REPLACES a step's ops with one — rows
+-- built against a view that has already moved are rows a client draws wrong.
+--
+-- TWO CONSTRUCTORS rather than a row op that happens to encode as no JSON: the
+-- distinction was carried by 'frameJSON' answering 'Nothing', which is a
+-- convention a reader has to know rather than a thing the compiler checks.
 data Frame
+  = Op !RowOp             -- ^ a row op, as JSON.
+  | Close !CloseReason    -- ^ the socket is to be closed, and why.
+  deriving (Eq, Show)
+
+-- | The row operations SCHEMA.md's socket carries, and the whole of them.
+data RowOp
   = SetRows ![Value]   -- ^ every row, as sent on connect.
   | UpsertRow !Value   -- ^ one row, added or replaced by @id@.
   | DeleteRow !Text    -- ^ one row's @id@, dropped.
-  | ViewChanged        -- ^ the columns moved; reconnect and re-fetch the view.
   deriving (Eq, Show)
+
+-- | THE WHOLE VOCABULARY OF A SERVER-INITIATED CLOSE.  'Bounded' and 'Enum' so
+-- the list is generated where two hand-typed strings used to sit, and a third
+-- reason joins by being a constructor.
+data CloseReason
+  = ViewChanged   -- ^ the columns moved; reconnect and re-fetch the view.
+  | Resync        -- ^ the mailbox filled; the backlog is gone, so re-ask.
+  deriving (Eq, Show, Enum, Bounded)
+
+-- | The word a close reason travels as.
+closeReason :: CloseReason -> Text
+closeReason ViewChanged = "view-changed"
+closeReason Resync      = "resync"
 
 frameJSON :: Frame -> Maybe Value
 frameJSON frame = case frame of
-  SetRows rows -> Just (object [ "op" .= ("set-rows" :: Text),   "rows" .= rows ])
-  UpsertRow r  -> Just (object [ "op" .= ("upsert-row" :: Text), "row"  .= r ])
-  DeleteRow i  -> Just (object [ "op" .= ("delete-row" :: Text), "id"   .= i ])
-  ViewChanged  -> Nothing
+  Op (SetRows rows) -> Just (object [ "op" .= ("set-rows" :: Text),   "rows" .= rows ])
+  Op (UpsertRow r)  -> Just (object [ "op" .= ("upsert-row" :: Text), "row"  .= r ])
+  Op (DeleteRow i)  -> Just (object [ "op" .= ("delete-row" :: Text), "id"   .= i ])
+  Close _           -> Nothing
 
 frameText :: Frame -> Maybe BL.ByteString
 frameText = fmap encode . frameJSON
 
 -- | The frame a socket opens with, snapshotted in the subscribing transaction.
 bootstrapFrame :: Store -> Frame
-bootstrapFrame = SetRows . map rowJSON . storeRecords
+bootstrapFrame = Op . SetRows . map rowJSON . storeRecords
 
 
 -- | The live store, its sockets, and the paths waiting to be re-read.

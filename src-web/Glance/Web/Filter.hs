@@ -219,9 +219,14 @@ compile env = map inverted . filter ((`notElem` map Just viewKeys) . tmKey)
   where inverted t | tmNegated t = not . termTest env t
                    | otherwise   = termTest env t
 
+-- ONE EQUATION PER CONSTRUCTOR and no wildcard, so a fifth key is named HERE by
+-- the compiler rather than folded into the column arm and silently case-folded.
 valueFor :: Field -> Term -> Text
-valueFor Ref = tmValue
-valueFor _   = T.toLower . tmValue
+valueFor Ref       = tmValue
+valueFor (Col _)   = T.toLower . tmValue
+valueFor Planned   = T.toLower . tmValue
+valueFor Order     = T.toLower . tmValue
+valueFor Whole     = T.toLower . tmValue
 
 folded :: Term -> Text
 folded = T.toLower . tmValue
@@ -248,7 +253,16 @@ keyTest env _key Ref value = case feRef env value of
   Just row -> \r -> hrId r /= rrId row && any (`elem` hrLinks r) (rrTargets row)
 keyTest _env _key Order _value = const True
 keyTest _env _key Whole value = freeTest value
-keyTest _env key field value
+-- The two that read a row's CELLS, spelled rather than left to a wildcard: a
+-- fifth key falling in here would read `fieldCells'' empty list and match
+-- nothing, with no warning.
+keyTest _env key field@(Col _) value = cellsTest key field value
+keyTest _env key field@Planned value = cellsTest key field value
+
+-- | The cell reading `Col' and `Planned' share: every cell the key names, the
+-- empty meta asking whether all of them are empty.
+cellsTest :: Text -> Field -> Text -> HeadlineRecord -> Bool
+cellsTest key field value
   | value == emptyMeta = \r -> all (T.null . (`cellOf` r)) cells
   | otherwise          = \r -> any ($ r) tests
   where

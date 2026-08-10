@@ -30,7 +30,8 @@ import Glance.Query ( HeadlineRecord (hrDigest, hrFile, hrId, hrLinked, hrTitle)
                     , LoadFailure (..), QueryResult (..), TodoKeywords (..)
                     , WalkOptions (..), defaultWalk, loadDir, loadDirWith, loadFile
                     , noConfig, replaceSpans, rowJSON, setStateEdits, subtreeText )
-import Glance.Web.Store ( Client, Frame (..), Hub (hubPending, hubStore)
+import Glance.Web.Store ( Client, CloseReason (..), Frame (..), Hub (hubPending, hubStore)
+                        , RowOp (..)
                         , Store (stGen, stPrint), applyFile, bootstrapFrame
                         , clientCapacity, dropFile, emptyStore, frameJSON, loadStore
                         , loadStoreWith, newHub, nextFrame, publish, storeKeywords
@@ -74,15 +75,15 @@ rowsUnder path store = [ r | r <- storeRecords store, hrFile r == path ]
 
 -- | Ids the frames touch, upserts and deletes apart.
 upsertIds, deleteIds :: [Frame] -> [T.Text]
-upsertIds frames = [ i | UpsertRow row <- frames, Just i <- [stringAt "id" row] ]
-deleteIds frames = [ i | DeleteRow i <- frames ]
+upsertIds frames = [ i | Op (UpsertRow row) <- frames, Just i <- [stringAt "id" row] ]
+deleteIds frames = [ i | Op (DeleteRow i) <- frames ]
 
 -- | The title cell of every row the frames upsert.  Which id a frame names says
 -- nothing about which file's row it carries, and that is the whole subject of
 -- the shared-id group: two files claiming one id stream under the same id and
 -- differ in the cells.
 upsertTitles :: [Frame] -> [T.Text]
-upsertTitles frames = [ t | UpsertRow row <- frames, Just t <- [cellIn "title" row] ]
+upsertTitles frames = [ t | Op (UpsertRow row) <- frames, Just t <- [cellIn "title" row] ]
 
 -- | KEY's cell of a row object, when it holds a string there.
 cellIn :: T.Text -> Value -> Maybe T.Text
@@ -195,7 +196,7 @@ sharedSpec = testGroup "Shared id"
       (next, frames) <- rewrite path
         (entryAs "dup" "TODO alpha edited" <> entryAs "dup" "TODO omega edited") store
       assertEqual "the streamed row is the served row"
-                  [ UpsertRow (rowJSON r) | r <- storeRecords next ] frames
+                  [ Op (UpsertRow (rowJSON r)) | r <- storeRecords next ] frames
       assertEqual "which is the first of the two" ["alpha edited"]
                   (map hrTitle (storeRecords next))
   ]
@@ -492,7 +493,7 @@ diffSpec = testGroup "File diff"
       assertEqual "upserts" ["one"] (upsertIds frames)
       assertEqual "deletes" [] (deleteIds frames)
       expected <- recordsOf path
-      assertEqual "row" [UpsertRow (rowJSON r) | r <- expected] frames
+      assertEqual "row" [Op (UpsertRow (rowJSON r)) | r <- expected] frames
 
   , testCase "a removed headline is one delete"
       $ withStoreOf [("a.org", entry "one" <> entry "two")] $ \_dir path store -> do
@@ -694,14 +695,14 @@ keywordSpec = testGroup "Keyword palette"
       $ withStoreOf [("a.org", "* TODO one\n")] $ \_dir path store -> do
       assertEqual "before" (TodoKeywords ["TODO"] ["DONE"]) (storeKeywords store)
       (next, frames) <- rewrite path "#+TODO: TODO WAITING | DONE\n* WAITING one\n" store
-      assertEqual "frames" [ViewChanged] frames
+      assertEqual "frames" [Close ViewChanged] frames
       assertEqual "after" (TodoKeywords ["TODO", "WAITING"] ["DONE"]) (storeKeywords next)
 
   , testCase "a keyword another file still declares is not a view change" $
       let declared = "#+TODO: TODO WAITING | DONE\n* WAITING one\n" in
       withStoreOf [("a.org", declared), ("b.org", declared)] $ \_dir path store -> do
       (next, frames) <- rewrite path "* TODO one\n" store
-      assertBool ("view change in " <> show frames) (ViewChanged `notElem` frames)
+      assertBool ("view change in " <> show frames) (Close ViewChanged `notElem` frames)
       assertEqual "palette" (storeKeywords store) (storeKeywords next)
 
     -- Down to org's own pair rather than to nothing: TODO and DONE are
@@ -712,7 +713,7 @@ keywordSpec = testGroup "Keyword palette"
       $ \_dir path store -> do
       removeFile path
       let (next, frames) = dropFile path store
-      assertEqual "frames" [ViewChanged] frames
+      assertEqual "frames" [Close ViewChanged] frames
       assertEqual "palette" (TodoKeywords ["TODO"] ["DONE"]) (storeKeywords next)
   ]
 
@@ -723,7 +724,7 @@ bootstrapSpec = testGroup "Bootstrap"
       $ withStoreOf [("a.org", "* TODO one\n* NEXT two\n"), ("b.org", "* DONE three\n")]
       $ \_dir _path store ->
       case bootstrapFrame store of
-        SetRows rows -> do
+        Op (SetRows rows) -> do
           assertEqual "rows" (map rowJSON (storeRecords store)) rows
           assertEqual "count" 3 (length rows)
         other -> assertFailure ("expected set-rows, got " <> show other)
@@ -732,9 +733,9 @@ bootstrapSpec = testGroup "Bootstrap"
       $ withStoreOf [("a.org", "* TODO one\n")] $ \_dir path store -> do
       rows <- map rowJSON <$> recordsOf path
       assertEqual "set-rows" (Just "set-rows") (opOf (bootstrapFrame store))
-      assertEqual "upsert-row" [Just "upsert-row"] (map (opOf . UpsertRow) rows)
-      assertEqual "delete-row" (Just "delete-row") (opOf (DeleteRow "x"))
-      assertEqual "a view change is no op at all" Nothing (frameJSON ViewChanged)
+      assertEqual "upsert-row" [Just "upsert-row"] (map (opOf . Op . UpsertRow) rows)
+      assertEqual "delete-row" (Just "delete-row") (opOf (Op (DeleteRow "x")))
+      assertEqual "a view change is no op at all" Nothing (frameJSON (Close ViewChanged))
 
   , testCase "a subscriber's bootstrap is the store at subscription"
       $ withStoreOf [("a.org", "* TODO one\n")] $ \dir path store -> do
@@ -744,7 +745,7 @@ bootstrapSpec = testGroup "Bootstrap"
       _ <- publish hub (applyFile path fresh)
       (_cid, _client, boot) <- atomically (subscribe hub)
       case boot of
-        SetRows rows -> assertEqual "rows" 2 (length rows)
+        Op (SetRows rows) -> assertEqual "rows" 2 (length rows)
         other        -> assertFailure ("expected set-rows, got " <> show other)
   ]
   where opOf frame = frameJSON frame >>= stringAt "op"
@@ -765,12 +766,12 @@ hubSpec = testGroup "Hub"
 
   , testCase "a client that stops reading is dropped and publishing goes on" $ withTempDir $ \dir -> do
       (_path, hub, client) <- subscribed dir
-      _ <- publish hub (streaming (replicate (fromIntegral clientCapacity + 1) (DeleteRow "x")))
+      _ <- publish hub (streaming (replicate (fromIntegral clientCapacity + 1) (Op (DeleteRow "x"))))
       next <- atomically (nextFrame client)
       assertEqual "dropped" Nothing next
       -- And the store keeps taking updates with the dead client still around.
-      after <- publish hub (streaming [DeleteRow "y"])
-      assertEqual "published anyway" [DeleteRow "y"] after
+      after <- publish hub (streaming [Op (DeleteRow "y")])
+      assertEqual "published anyway" [Op (DeleteRow "y")] after
 
   -- The mailbox was 256 and an editor writing a directory overran it in a
   -- second, which cost the page its socket every time.  The size is not
@@ -778,8 +779,8 @@ hubSpec = testGroup "Hub"
   -- is for and what a number here would only restate.
   , testCase "a burst four times the old mailbox is still delivered" $ withTempDir $ \dir -> do
       (_path, hub, client) <- subscribed dir
-      _ <- publish hub (streaming (replicate 1024 (DeleteRow "x")))
-      assertEqual "still live" (Just (DeleteRow "x")) =<< atomically (nextFrame client)
+      _ <- publish hub (streaming (replicate 1024 (Op (DeleteRow "x"))))
+      assertEqual "still live" (Just (Op (DeleteRow "x"))) =<< atomically (nextFrame client)
 
   -- The overflow that matters is across STEPS, not inside one: `publish'
   -- coalesces a file's save into one transaction, and a bulk write is a
@@ -790,14 +791,14 @@ hubSpec = testGroup "Hub"
       $ withTempDir $ \dir -> do
       (path, hub, client) <- subscribed dir
       replicateM_ (fromIntegral clientCapacity + 1)
-                  (publish hub (streaming [DeleteRow "x"]))
+                  (publish hub (streaming [Op (DeleteRow "x")]))
       assertEqual "the backlog is abandoned" Nothing =<< atomically (nextFrame client)
       -- And an edit that landed while it was away is in what it comes back to.
       _ <- orgFile dir "a.org" "* TODO one\n* TODO two\n"
       _ <- publish hub . applyFile path =<< loadFile path
       (_cid', _client', boot) <- atomically (subscribe hub)
       case boot of
-        SetRows rows -> assertEqual "the resync carries both rows" 2 (length rows)
+        Op (SetRows rows) -> assertEqual "the resync carries both rows" 2 (length rows)
         other        -> assertFailure ("expected set-rows, got " <> show other)
   ]
   -- One file, a hub over it and a subscriber on the hub: what every case in

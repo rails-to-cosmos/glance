@@ -44,7 +44,8 @@ import qualified System.FSNotify as FS
 import Glance.Query ( LoadFailure (..), Span, WalkOptions (..), WriteFailure
                     , configPath, derivedPath, documentPath, loadFileWith
                     , replaceSpans )
-import Glance.Web.Store ( Frame (..), Hub (hubPending, hubStore), Store (stConfig)
+import Glance.Web.Store ( CloseReason (ViewChanged), Frame (..), Hub (hubPending, hubStore)
+                        , RowOp (..), Store (stConfig)
                         , applyFile, dropFile, loadStoreWith, publish, reseeded )
 
 -- | How long a path must stay quiet before it is re-parsed, in seconds.  An
@@ -240,9 +241,9 @@ report path outcome frames elapsed = unless (null note && null frames) $
 -- that is neither one a delete.
 frameSummary :: [Frame] -> String
 frameSummary frames
-  | ViewChanged `elem` frames = "keywords changed — clients reconnect"
-  | otherwise = count [ () | UpsertRow _ <- frames ] <> " upsert, "
-             <> count [ () | DeleteRow _ <- frames ] <> " delete"
+  | Close ViewChanged `elem` frames = "keywords changed — clients reconnect"
+  | otherwise = count [ () | Op (UpsertRow _) <- frames ] <> " upsert, "
+             <> count [ () | Op (DeleteRow _) <- frames ] <> " delete"
   where count = show . length
 
 -- | LINES to stdout, flushed.  Redirected stdout is block-buffered and every

@@ -34,7 +34,8 @@ import Glance.Query ( ConfigLayerFile (..), ConfigLayers (..), ConfigParts (..)
                     , loadDirFilesSerially, loadDirWith, loadDirWithConfig, loadFile
                     , noConfig, noParts, readConfigLayers, sortedForViewWith
                     , todoLines )
-import Glance.Web.Store ( Frame (..), Hub (hubStore), Store (stConfig, stGen, stPrint)
+import Glance.Web.Store ( CloseReason (..), Frame (..), Hub (hubStore), RowOp (..)
+                        , Store (stConfig, stGen, stPrint)
                         , loadStore, newHub, reseeded, storeKeywords, storeRecords )
 import Glance.Web.Watch (settle, watched)
 
@@ -449,7 +450,7 @@ reloadSpec = testGroup "Reload"
       let systemFile = systemFileIn dir
       TIO.writeFile systemFile "#+TODO: TODO STARTED | DONE\n"
       (next, frames) <- afterEdit store dir
-      assertEqual "one close, no rows behind it" [ViewChanged] frames
+      assertEqual "one close, no rows behind it" [Close ViewChanged] frames
       assertBool "the generation moved" (stGen next == stGen store + 1)
 
   , testCase "a config edit that moves no keyword moves no rows" $
@@ -475,8 +476,8 @@ reloadSpec = testGroup "Reload"
       TIO.writeFile systemFile "#+TITLE: States\n#+TODO: TODO STARTED | DONE\n"
       TIO.writeFile (dir </> "a.org") "* STARTED one renamed\n"
       (next, frames) <- afterEdit store dir
-      assertEqual "one upsert" 1 (length [ () | UpsertRow _ <- frames ])
-      assertEqual "no deletes" 0 (length [ () | DeleteRow _ <- frames ])
+      assertEqual "one upsert" 1 (length [ () | Op (UpsertRow _) <- frames ])
+      assertEqual "no deletes" 0 (length [ () | Op (DeleteRow _) <- frames ])
       assertBool "the generation moved" (stGen next == stGen store + 1)
 
   , testCase "a config deleted takes its keywords with it" $

@@ -93,7 +93,8 @@ import Glance.Web.Page.Style (fontAssets)
 import Glance.Web.Columns (columnNamesIn)
 import Glance.Web.Sort (sortChainIn)
 import Glance.Web.Theme (themeIds)
-import Glance.Web.Store ( Client, Frame (ViewChanged), Hub, LoadState (..)
+import Glance.Web.Store ( Client, CloseReason (Resync), Frame (Close), Hub
+                        , LoadState (..), closeReason
                         , Store (stConfig, stGen, stPrint), frameText, layersFor
                         , hubLoad, hubStore, nextFrame
                         , headlinesIn
@@ -1192,11 +1193,13 @@ pump conn client = do
         -- rows.  Named for that rather than for the client's speed: the shell
         -- answers it by revalidating /headlines and re-attaching, keeping the
         -- page it had.
-        Nothing          -> WS.sendClose conn ("resync" :: Text)
+        Nothing            -> WS.sendClose conn (closeReason Resync)
         -- The columns moved, and SCHEMA.md streams rows only.  Reconnecting
-        -- re-fetches /headlines, which is where columns come from.
-        Just ViewChanged -> WS.sendClose conn ("view-changed" :: Text)
-        Just frame       -> send conn frame >> feed
+        -- re-fetches /headlines, which is where columns come from.  Every
+        -- server-initiated close spells its reason ONE way ('closeReason'), so
+        -- a third one is a constructor rather than a fourth string.
+        Just (Close why)   -> WS.sendClose conn (closeReason why)
+        Just frame         -> send conn frame >> feed
 
 -- | FRAME down CONN, when it is one of the ops that travels as a message.
 send :: WS.Connection -> Frame -> IO ()
