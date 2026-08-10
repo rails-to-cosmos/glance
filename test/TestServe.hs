@@ -2818,6 +2818,19 @@ drillSpec shell = testGroup "Shell drill"
     -- holds it.  `land' is the whole rule and its fallbacks are the other two
     -- halves — row one where the row has gone, nothing at all where the answer
     -- is empty.
+    -- AND THE TAGS COLUMN OFFERS NO META.  `tag:*archive*' was the one it
+    -- declared, and the ARCHIVE VIEW is the door now: a reader reaches those
+    -- rows by NAME rather than by knowing that the stars are what lifts the
+    -- exclusion.  The PREDICATE is untouched, which the filter suite pins —
+    -- what changed is that nothing offers it.
+  , testCase "the tags column declares no metas, the archive view being the door" $ do
+      v <- get assetsDir "/headlines" >>= decoded
+      cols <- listAt "columns" v
+      tagCol <- filterM (fmap (== "tag") . textAt "key") cols
+      case tagCol of
+        (c:_) -> assertEqual "no values declared" Nothing =<< sparseAt "values" c
+        []    -> assertFailure "no tag column"
+
     -- THE VOCABULARY IS THE SERVER'S, which is what makes a custom view cost
     -- the renderer nothing: the view JSON declares every saved view by name
     -- with the query it holds NOW, and `view:' completes from that.

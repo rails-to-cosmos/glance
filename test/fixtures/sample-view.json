@@ -86,10 +86,7 @@
       "header": "Tags",
       "type": "text",
       "sortable": true,
-      "multi": true,
-      "values": [
-        "*archive*"
-      ]
+      "multi": true
     }
   ],
   "actions": [

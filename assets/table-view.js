@@ -4425,6 +4425,18 @@
                          || b.count - a.count
                          || (a.text < b.text ? -1 : 1));
         const exact = hits.length > 0 && hits[0].whole;
+        // 0. A SAVED VIEW the word opens, offered whole as `view:NAME'. It leads
+        //    everything: a view is a question already composed, so a reader who
+        //    types its name wants the view rather than the rows that happen to
+        //    hold the word. One a producer declared is a fact about the view,
+        //    like a column key and unlike a guess at the data.
+        for (const v of savedViews()) {
+          if (out.length >= AC_MAX) break;
+          const name = String(v.name || "");
+          if (!name.toLowerCase().startsWith(p)) continue;
+          out.push({ text: VIEW_KEY + ":" + name, count: -1, full: true, dim: false,
+                     aside: v.query ? String(v.query) : undefined });
+        }
         // 1. The value the word already SPELLS, where a column holds one:
         //    `book' is `tag:book'. It leads, because it is the one offer that
         //    needs no more typing — ahead of the `book:' key beside it, which

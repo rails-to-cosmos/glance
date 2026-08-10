@@ -3227,7 +3227,7 @@ columnsFor cols palette =
       -- than two tagged rows finds none at all — and then @tag:*archive*@ is
       -- the literal it matches nothing with, where this producer reads it as
       -- the whole tag.  The declaration wins there.
-      "tag"      -> [ "multi" .= True, "values" .= tagValues ]
+      "tag"      -> [ "multi" .= True ]
       _          -> []
 
 -- | A priority LETTER as the cell spells it, which is org's own @[#A]@ rather
@@ -3288,14 +3288,13 @@ inactiveMeta = "*inactive*"
 stateValues :: [Text]
 stateValues = [activeMeta, inactiveMeta]
 
--- | The tags column's meta value: @tag:*archive*@, the whole tag rather than
--- the substring @tag:archive@ matches, and the one query that reaches the rows
--- @\/headlines@ leaves out ('Glance.Web.Filter.archiveMeta').  Declared for the
--- same reason 'stateValues' is — it is how a renderer offers a value no cell
--- holds — and the tags column needs it more, its domain being derived from the
--- cells rather than declared.
-tagValues :: [Text]
-tagValues = ["*archive*"]
+-- | THE TAGS COLUMN DECLARES NO METAS, and @tag:*archive*@ is the one it used
+-- to: the ARCHIVE VIEW is the door now ('Config.savedViews'), so a reader
+-- reaches those rows by name rather than by knowing that the stars are what
+-- lifts @\/headlines@' exclusion.  The PREDICATE is untouched — the starred
+-- spelling still works and is still the only one that does
+-- ('Glance.Web.Filter.archiveMeta'); it is no longer OFFERED, which is a
+-- different thing.
 
 -- | A column object: KEY, HEADER and TYPE, then whatever EXTRA the kind needs.
 --
