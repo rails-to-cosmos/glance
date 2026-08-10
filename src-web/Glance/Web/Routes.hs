@@ -324,7 +324,8 @@ headlines opts hub request = case pageParams request of
             -- customs reading the rows' own drawers ('resolveColumns').
             cols    = maybe viewColumns resolveColumns paPicked
             body    = TLE.encodeUtf8
-                        (viewJSONTextFor cols paChain (viewTitleFor dir) (storeKeywords st) shown)
+                        (viewJSONTextFor cols (savedViewsIn st) paChain
+                                         (viewTitleFor dir) (storeKeywords st) shown)
         -- The encode is lazy, so it needs its own 'try': an exception raised
         -- inside warp's sender would truncate a 200 that has already gone out.
         forced <- try (evaluate (BL.length body))
@@ -1320,6 +1321,12 @@ localFont opts = listToMaybe <$> filterM (fmap isJust . assetSource opts) fontAs
 -- page served carries what the file says now.  This route does not wait on the
 -- load — the shell has to render while the walk runs — and a store still
 -- loading carries no config, which is exactly the built-in fallback.
+-- | The tree's saved views as the wire carries them: the registry's order, each
+-- with the query it holds NOW.  One fold, so the page's boot blob and the view
+-- JSON's `views' vocabulary cannot name different views.
+savedViewsIn :: Store -> [(Text, Text)]
+savedViewsIn st = [ (svId v, viewQuery (svId v) (stConfig st)) | v <- savedViews ]
+
 shellPage :: ServeOptions -> Hub -> IO Response
 shellPage opts hub = do
   ok <- hasRenderer opts
@@ -1328,5 +1335,4 @@ shellPage opts hub = do
   pure . html $ case soAssets opts of
     Just dir | not ok -> assetsMissing opts dir
     _rendererInHand   -> demoShell opts font (clStateColors (stConfig st))
-                                   [ (svId v, viewQuery (svId v) (stConfig st))
-                                   | v <- savedViews ]
+                                   (savedViewsIn st)

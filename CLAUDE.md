@@ -1223,9 +1223,16 @@ measurements and the history of superseded designs live in
   every other view through `applyView`. The registry is the SERVER's, so a view
   it grows is applicable with nothing named on this page. A name no view carries
   is left alone, which is what it already looks like to the renderer: `view` is
-  none of its query keys, so the token arrives as free text either way — and
-  OFFERING it in the completion is the renderer's own `VIEW_KEYS`, a one-line
-  addition in `../table-view` that this side does not need.
+  a view token on BOTH sides, so it narrows nothing wherever it is read.
+- AND THE VOCABULARY IS THE SERVER'S, which is what makes a custom view cost the
+  renderer nothing: the view JSON declares `views` — every saved view by NAME
+  with the query it holds NOW, in registry order — and `view:` completes from
+  that. `savedViewsIn` is the one fold, so the page's boot blob and the wire's
+  vocabulary cannot name different views; `builtinViews` is what the convenience
+  builder declares with no config in hand, which is what a tree carrying none is
+  served. THE PICK IS THE COMMIT: a view is the whole answer, so accepting one
+  applies it and hands the table back, where every other completion stage leaves
+  the box open for the next token.
 - `g` is `apply-default-filter`, `P` is `set-saved-view` (ONCE), `a` is
   `org-glance-agenda`, `,` is `customize`, `:` is `org-agenda-set-tags`, `o` and
   `!` are `org-glance-overview:open`, `@` is `org-glance-overview:relations`, `M`

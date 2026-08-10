@@ -3063,19 +3063,36 @@ viewJSON viewTitle records =
 -- view whose declaration disagrees with its rows is one a renderer re-sorts out
 -- from under the reader.
 viewJSONWith :: SortChain -> Text -> TodoKeywords -> [HeadlineRecord] -> Value
-viewJSONWith = viewJSONFor viewColumns
+viewJSONWith = viewJSONFor viewColumns builtinViews
+
+-- | The registry's views under NO config: each id with the query its build
+-- carries.  What a tree declaring none is served, so the convenience builder and
+-- the route agree wherever a tree has no config to differ by.
+builtinViews :: [(Text, Text)]
+builtinViews = [ (svId v, viewQuery (svId v) noConfig) | v <- savedViews ]
 
 -- | 'viewJSONWith' over COLS instead of the default view — what a query's
 -- @columns:@ token serves ('resolveColumns').  The row cells are keyed by
 -- COLS' own keys, so the columns declared and the cells filled cannot drift
 -- however the set was chosen.
-viewJSONFor :: [ViewColumn] -> SortChain -> Text -> TodoKeywords
+viewJSONFor :: [ViewColumn] -> [(Text, Text)] -> SortChain -> Text -> TodoKeywords
             -> [HeadlineRecord] -> Value
-viewJSONFor cols chain viewTitle palette records = object
+viewJSONFor cols views chain viewTitle palette records = object
   (  [ "title" .= viewTitle, "columns" .= columnsFor cols palette
      , "actions" .= actions ]
   <> declaredSort chain
+  <> declaredViews views
   <> [ "rows" .= map (rowJSONFor cols) records ])
+
+-- | The @views@ field VIEWS declares, or nothing at all where a tree has none —
+-- SCHEMA.md reads an absent @views@ as the empty list, which is what a renderer
+-- with no vocabulary to offer wants.
+--
+-- The vocabulary of the @view:@ token and the whole of what a renderer is told:
+-- APPLYING one is this side's, since only it knows what a name holds.
+declaredViews :: [(Text, Text)] -> [Pair]
+declaredViews [] = []
+declaredViews vs = ["views" .= [object ["name" .= n, "query" .= q] | (n, q) <- vs]]
 
 -- | The @sort@ field CHAIN declares, or nothing at all for the empty one —
 -- SCHEMA.md reads an absent @sort@ as the order the rows arrived in, which is
@@ -3105,10 +3122,10 @@ actions =
 
 -- | 'viewJSONFor' encoded — the one the routes call, COLS being the query's
 -- @columns:@ answer or the default view.
-viewJSONTextFor :: [ViewColumn] -> SortChain -> Text -> TodoKeywords
-                -> [HeadlineRecord] -> TL.Text
-viewJSONTextFor cols chain viewTitle palette =
-  encodeToLazyText . viewJSONFor cols chain viewTitle palette
+viewJSONTextFor :: [ViewColumn] -> [(Text, Text)] -> SortChain -> Text
+                -> TodoKeywords -> [HeadlineRecord] -> TL.Text
+viewJSONTextFor cols views chain viewTitle palette =
+  encodeToLazyText . viewJSONFor cols views chain viewTitle palette
 
 -- | The view's columns in draw order: the key a filter names, the header, the
 -- SCHEMA.md type, and where the cell comes out of a row.  A cell is a 'Maybe':

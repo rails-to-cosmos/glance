@@ -62,7 +62,14 @@ columnsKey :: Text
 columnsKey = "columns"
 
 viewKeys :: [Text]
-viewKeys = [sortKey, columnsKey]
+viewKeys = [sortKey, columnsKey, viewKey]
+
+-- | @view:NAME@ — the saved view a query names.  A VIEW TOKEN like its two
+-- siblings, so it narrows nothing here: what a name MEANS is the shell's, which
+-- expands it before the fetch, and a query that reaches this side still holding
+-- one is answered with every row rather than with a guess.
+viewKey :: Text
+viewKey = "view"
 
 dateColumns :: [Int]
 dateColumns = mapMaybe (`elemIndex` filterKeys) dateKeys

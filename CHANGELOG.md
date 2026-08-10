@@ -26,9 +26,12 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ### Added
 - **`view:default` and `view:agenda` in the filter box** apply those views, the
-  same as pressing `g` and `a`. The token expands to the view's own query rather
-  than surviving in it, and a view the server grows works with no page change —
-  which is what makes `view:{custom}` a server-side addition.
+  same as pressing `g` and `a`, and the box **offers them**: the view JSON
+  declares every saved view with the query it holds, and `view:` completes from
+  that with the query shown beside each name. Picking one applies it and closes
+  the box — a view is the whole answer, not another narrowing. The token expands
+  to the view's own query rather than surviving in it, so a view the server
+  grows works with no page or renderer change.
 
 ### Changed
 - **`q` closes the materialize sheet**, the way it closes the app's window from

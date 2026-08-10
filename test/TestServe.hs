@@ -2818,6 +2818,18 @@ drillSpec shell = testGroup "Shell drill"
     -- holds it.  `land' is the whole rule and its fallbacks are the other two
     -- halves — row one where the row has gone, nothing at all where the answer
     -- is empty.
+    -- THE VOCABULARY IS THE SERVER'S, which is what makes a custom view cost
+    -- the renderer nothing: the view JSON declares every saved view by name
+    -- with the query it holds NOW, and `view:' completes from that.
+  , testCase "the view JSON declares the saved views view: completes from" $ do
+      v <- get assetsDir "/headlines" >>= decoded
+      views <- listAt "views" v
+      assertEqual "the registry's own order" ["default", "agenda"]
+        =<< traverse (textAt "name") views
+      assertEqual "each with the query it holds"
+                  ["state:*active*", "state:*active* -planned:*empty* sort:scheduled"]
+        =<< traverse (textAt "query") views
+
     -- `view:NAME' IS A MACRO: it stands for the query that view holds, so a
     -- reader who types one gets what the key does, and the chips they end up
     -- with are the VIEW's own — the token never survives into the applied
@@ -7416,7 +7428,7 @@ statsSpec = testGroup "Load stats"
       v <- get assetsDir "/headlines" >>= decoded
       case v of
         Object o -> assertEqual "top-level keys"
-                                ["actions", "columns", "rows", "sort", "title"]
+                                ["actions", "columns", "rows", "sort", "title", "views"]
                                 (sort (map Key.toText (KM.keys o)))
         _        -> assertFailure ("expected an object, got " <> show v)
   ]
@@ -7729,7 +7741,9 @@ orderSpec = testGroup "GET /headlines?q=sort:*none*"
 
   , testCase "document order declares none at all" $ do
       v <- get assetsDir "/headlines?q=sort:*none*" >>= decoded
-      assertEqual "top-level keys" ["actions", "columns", "rows", "title"]
+      -- `views' rides whatever the order is: it is the `view:' token's
+       -- vocabulary, which no query turns off.
+      assertEqual "top-level keys" ["actions", "columns", "rows", "title", "views"]
         . sort =<< fieldsOf v
 
   , testCase "and the page it cuts is walk order, where the default's is sorted" $ do

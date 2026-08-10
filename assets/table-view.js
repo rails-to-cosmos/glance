@@ -401,10 +401,15 @@
  * @typedef {{ id: string, cells?: Record<string, Cell>, linked?: boolean }} Row
  *          `linked' says the row leads somewhere; its `title' cell is
  *          underlined, and a view with no such column shows nothing.
+ * @typedef {{ name: string, query?: string }} SavedView
+ *          A view the producer has named, which `view:NAME' completes from.
+ *          What applying one MEANS is the producer's: this side offers the
+ *          vocabulary and narrows nothing.
  * @typedef {{ title?: string,
  *             columns: Column[],
  *             actions?: Action[],
  *             sort?: Sort | Sort[],
+ *             views?: SavedView[],
  *             rows?: Row[] }} View
  * @typedef {{ op: "insert", index: number, row: Row }
  *        | { op: "delete", index: number }
@@ -855,7 +860,16 @@
    * silently demote the token to free text or silently narrow. A new view
    * token is one entry here beside its chip class.
    */
-  const VIEW_KEYS = [SORT_KEY, COLUMNS_KEY];
+  /**
+   * `view:NAME' — the SAVED VIEW a producer has named. Like its two siblings it
+   * states a fact about the view and narrows nothing here: what a name MEANS is
+   * the producer's, so a page holding one un-expanded shows every row rather
+   * than guessing. The names are the view's own (`views'), so a producer that
+   * grows one is offered with nothing here to edit.
+   */
+  const VIEW_KEY = "view";
+
+  const VIEW_KEYS = [SORT_KEY, COLUMNS_KEY, VIEW_KEY];
 
   /** The directions a sort token may spell; the empty one ascends. */
   const SORT_DIRS = { "": true, asc: true, desc: false };
@@ -1356,6 +1370,15 @@
 .tv-pal .tv-chip-cols{
   background:color-mix(in srgb,var(--tv-link) var(--tv-cols-wash),transparent);
   border-color:color-mix(in srgb,var(--tv-link) var(--tv-chip-edge),transparent);
+}
+/* THE SAVED-VIEW CHIP WEARS THE ACCENT — the fourth chip voice, and the token
+   that names a whole view rather than shaping one. Same shape, same edge rule,
+   same wash arithmetic as its two siblings, one hue over. Only a token naming a
+   view the producer DECLARED wears it — "namesView" is that test — so a
+   half-typed "view:" and a name nobody carries keep the ordinary chip. */
+.tv-pal .tv-chip-view{
+  background:color-mix(in srgb,var(--tv-accent) var(--tv-cols-wash),transparent);
+  border-color:color-mix(in srgb,var(--tv-accent) var(--tv-chip-edge),transparent);
 }
 .tv-pal .tv-chip:not(.tv-chip-muted):hover{
   border-color:var(--tv-accent);
@@ -2286,6 +2309,14 @@
     }
 
     function columns() { return state.view.columns || []; }
+    /**
+     * The SAVED VIEWS the producer named, each a `{name, query}'. The
+     * vocabulary `view:' completes from, and the whole of what this side knows
+     * about them: a view is APPLIED by whoever owns the fetching, so a producer
+     * that grows one needs nothing here.
+     * @returns {{name: string, query?: string}[]}
+     */
+    function savedViews() { return state.view.views || []; }
     function actions() { return state.view.actions || []; }
     function colByKey(k) { return columns().find((c) => c.key === k); }
     /** The columns a sort key may name: every one the view carries, `sortable'
@@ -3974,13 +4005,30 @@
     }
 
     /**
+     * Whether TOK names a saved view: a view key naming one the producer
+     * declared. An unknown name keeps the ordinary chip — what a name MEANS is
+     * the producer's, so this side calls none of them wrong — and so does the
+     * half-typed `view:', naming none.
+     * @param {string} tok  @returns {boolean}
+     */
+    function namesView(tok) {
+      const t = asToken(tok);
+      if (!t || t.key !== VIEW_KEY || t.negated) return false;
+      const want = t.value.toLowerCase();
+      return savedViews().some((v) => String(v.name || "").toLowerCase() === want);
+    }
+
+    /**
      * The dress a chip wears for the view token it states: the sort hue, the
-     * columns hue, or none — one classifier, so the strip's render names no
-     * token kind of its own and a new view token registers its class here.
+     * columns hue, the saved-view hue, or none — one classifier, so the strip's
+     * render names no token kind of its own and a new view token registers its
+     * class here.
      * @param {string} tok  @returns {string}
      */
     const chipClassOf = (tok) =>
-      ordersRows(tok) ? " tv-chip-sort" : showsColumns(tok) ? " tv-chip-cols" : "";
+      ordersRows(tok) ? " tv-chip-sort"
+        : showsColumns(tok) ? " tv-chip-cols"
+        : namesView(tok) ? " tv-chip-view" : "";
 
     /**
      * The ONE token spelling the order query Q names, in canonical arrow form.
@@ -4232,6 +4280,10 @@
           return { stage: "columns", tok: t, col: null,
                    prefix: comma === -1 ? v : v.slice(comma + 1) };
         }
+        // `view' likewise has a domain of its own and it is no column's: the
+        // saved views the producer named, completed whole.
+        if (t.key === VIEW_KEY)
+          return { stage: "view", tok: t, col: null, prefix: t.value.toLowerCase() };
         // `planned' takes no value list: what follows it is a date prefix over
         // several columns at once, which is no domain to enumerate. It is the
         // one key with no column behind it, so every other one has a domain.
@@ -4332,6 +4384,19 @@
           if (taken.indexOf(lower) !== -1) continue;
           if (!lower.startsWith(p)) continue;
           out.push({ text: key, count: -1, full: true, dim: false });
+        }
+        return out.slice(0, AC_MAX);
+      }
+      // `view:' — the saved views the producer named, each with the query it
+      // holds now as the aside, so a reader picks by what it DOES rather than by
+      // what it is called.  Every offer finishes the token: a view is one name.
+      if (st.stage === "view") {
+        for (const v of savedViews()) {
+          if (out.length >= AC_MAX) break;
+          const name = String(v.name || "");
+          if (!name.toLowerCase().startsWith(p)) continue;
+          out.push({ text: name, count: -1, full: true, dim: false,
+                     aside: v.query ? String(v.query) : undefined });
         }
         return out.slice(0, AC_MAX);
       }
@@ -4591,6 +4656,7 @@
      */
     function acceptAc(item) {
       if (!ac) return;
+      const stage = ac.stage;
       const v = input.value, t = ac.tok;
       const bar = v.lastIndexOf(ALT, t.end - 1);
       const arrow = ac.stage === "sort" ? v.lastIndexOf(SORT_ARROW, t.end - 1) : -1;
@@ -4606,6 +4672,10 @@
       const caret = t.start + ins.length;
       if (input.setSelectionRange) input.setSelectionRange(caret, caret);
       armFilter();
+      // A VIEW IS THE WHOLE ANSWER, so the pick is the commit: what a name holds
+      // replaces the query rather than narrowing it, and there is nothing left
+      // to type.  Every other stage leaves the box open for the next token.
+      if (stage === "view") { flushFilter(true); handOver(); return; }
       openAc();          // a key opens its values; a finished value closes the list
     }
 
