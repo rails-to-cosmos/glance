@@ -14,7 +14,7 @@ import Data.Aeson (Object, Value, object, (.:), (.:!), (.:?), (.=))
 import Data.Aeson.Types (Pair, Parser)
 import Data.List (nub)
 import Data.Map.Strict (Map)
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import Data.Text (Text)
 import Network.HTTP.Types (status200, status400)
 import Network.Wai (Request, Response)
@@ -30,7 +30,8 @@ import Glance.Query ( Completion (..), Repeat (..), noteCompletion, repeatOn
                     , BlobSeed (..), ConfigLayers
                     , HeadlineRecord (hrDigest, hrFile, hrId)
                     , Span (Span), WriteFailure (..)
-                    , addTagEdits, archiveEdits, bareTemplate, blobDocument
+                    , addTagEdits, archiveEdits, archived, bareTemplate
+                    , blobDocument
                     , blobPathIn, captureEdits, captureStamp, captureText
                     , captureTargetIn, captureTemplateIn, currentDocument
                     , editLinkEdits, expandTemplate, mintBlobId
@@ -38,12 +39,12 @@ import Glance.Query ( Completion (..), Repeat (..), noteCompletion, repeatOn
                     , removeTagEdits
                     , renameTagEdits, rowIdIn, setPlanningEdits
                     , setPriorityEdits, setStateEdits, setTitleEdits
-                    , storeRootIn, tagText, titleText )
+                    , storeRootIn, tagText, titleText, trashBlob )
 import Glance.Web.Base ( ServeOptions (soDir), answerWrite, bodyObject, captureMoved
                        , jsonError, jsonResponse, noSuchRow, walkFor, withBody )
 import Glance.Web.Store ( Hub, Store (stConfig), headlinesIn, hubStore, layersFor
                         , recordsUnder, storeDocument, storeRecords )
-import Glance.Web.Watch (writeSpans)
+import Glance.Web.Watch (nudge, writeSpans)
 
 -- Commands
 
@@ -52,7 +53,8 @@ import Glance.Web.Watch (writeSpans)
 -- everything else: what reaches the planner is a command this server
 -- implements, and the NAME has no reader left past the lookup that resolved it.
 data Command = Command
-  { cmdSpec    :: !CommandSpec      -- ^ its entry in 'commands'.
+  { cmdName    :: !Text             -- ^ the name it resolved BY; two commands edit nothing.
+  , cmdSpec    :: !CommandSpec      -- ^ its entry in 'commands'.
   , cmdIds     :: ![Text]           -- ^ in the order named, deduplicated; empty for @capture@.
   , cmdArgs    :: !Args             -- ^ whatever @args@ carried.
   , cmdDigests :: !(Map Text Text)  -- ^ id to the digest the client holds for its file.
@@ -169,6 +171,12 @@ commands =
     -- The ONE command whose args describe a row's own TEXT rather than a
     -- property of it, so its shape includes the ROW COUNT ('wantsLink', which
     -- refuses a missing span or target too, so neither can refuse per row).
+    -- THE ONE DESTRUCTIVE COMMAND, and the second with no row function: it moves
+    -- a FILE rather than splicing spans, so the edits are 'Nothing' and the
+    -- dispatch reaches it by NAME.  Every wall it has is per row and checked
+    -- HERE as well as in the shell, so a hand-made request cannot reach a live
+    -- entry ('deleteRows').
+  , ("delete", CommandSpec (overIds (const Nothing)) False Nothing)
   , ("edit-link", CommandSpec wantsLink False
       (Just (\_cfg _asked args r ->
                plain =<< editLinkEdits (fromMaybe (Span 0 0) (agSpan args))
@@ -313,11 +321,13 @@ runCommand opts hub request = withBody request $ \raw -> do
   st <- readTVarIO (hubStore hub)
   case parseCommand raw of
     Left why -> pure (jsonError status400 why)
-    -- The one command with no row function MAKES a row, and the 'Maybe' is
-    -- destructured HERE, once: what goes down to the planner is the edits
-    -- themselves, so nothing below has an arm for a command that edits nothing.
+    -- The commands with no row function do not EDIT a row: one makes a file and
+    -- one moves a file away.  The 'Maybe' is destructured HERE, once, so nothing
+    -- below has an arm for a command that edits nothing, and which of the two it
+    -- is comes off the name.
     Right cmd -> case csEdits (cmdSpec cmd) of
-      Nothing -> captureInto opts hub st cmd
+      Nothing | cmdName cmd == "delete" -> deleteRows opts hub st cmd
+              | otherwise               -> captureInto opts hub st cmd
       -- The clock is read ONCE per request, ahead of any row ('resolveDate'),
       -- and everything that can refuse is decided before a file is opened,
       -- leaving the 400 or the IO that writes.
@@ -325,6 +335,45 @@ runCommand opts hub request = withBody request $ \raw -> do
         asked <- resolveAsked cmd
         either (pure . jsonError status400) id
                (asked >>= \at -> overRows opts hub st at edits cmd)
+
+-- | CMD's rows deleted: each blob gzipped into the store's trash and taken out
+-- of the live tree ('Data.Org.Trash.trashBlob'), answered per id in the order
+-- the ids were named.
+--
+-- THREE WALLS PER ROW, and they are here rather than only in the shell because
+-- a request is a request whoever wrote it:
+--
+--   * a row the store does not hold,
+--   * a row NOT CARRYING the archive tag — archiving is the step before this
+--     one, so a live entry cannot be reached by asking twice as fast, and
+--   * a row whose file is not a BLOB — a shared org file is many rows'
+--     document, and moving it would take the others with it.
+--
+-- The path is NUDGED on success: this is the write door's sixth site and the
+-- only one that splices no spans, so it queues the path itself or the row would
+-- sit in the table until a restart.
+deleteRows :: ServeOptions -> Hub -> Store -> Command -> IO Response
+deleteRows opts hub st cmd = do
+  answers <- mapM taken (cmdIds cmd)
+  pure (jsonResponse status200 ["results" .= [ v | (_rid, v) <- answers ]])
+  where
+    (held, absent) = headlinesIn (storeRecords st) (cmdIds cmd)
+    row rid = listToMaybe [ r | r <- held, hrId r == rid ]
+    taken rid
+      | rid `elem` absent = pure (rid, refused rid (noSuchRow rid))
+      | otherwise = case row rid of
+          Nothing -> pure (rid, refused rid (noSuchRow rid))
+          Just r
+            | not (archived r) ->
+                pure (rid, refused rid (rid <> " is not archived: archive it first"))
+            | otherwise -> do
+                put <- trashBlob (soDir opts) (hrFile r)
+                case put of
+                  Left why   -> pure (rid, refused rid why)
+                  Right dest -> do
+                    nudge (walkFor opts) hub (hrFile r)
+                    pure (rid, object [ "id" .= rid, "ok" .= True
+                                      , "trash" .= T.pack dest ])
 
 -- | CMD's rows written, as the IO that writes them or the 400 that stops it.
 -- STAMP is @set-planning@'s date already worked out, and is nothing to every
@@ -598,7 +647,10 @@ parseCommand raw = bodyObject "command" command raw >>= checked
       Nothing -> Left ("no such command: " <> name <> "; this server runs "
                          <> T.intercalate " and " commandNames)
       Just spec
-        | isJust (csEdits spec), null ids ->
+        -- `capture' is the ONE id-less command: it makes a row rather than
+        -- editing one.  Every other command owes ids, `delete' included, whose
+        -- edits are 'Nothing' because it moves a file rather than splicing it.
+        | name /= "capture", null ids ->
             Left "a command names rows: {\"ids\": [\"…\"]}, or {\"id\": \"…\"} for one"
         | Just why <- csArgs spec ids args -> Left why
-        | otherwise -> Right (Command spec ids args digests)
+        | otherwise -> Right (Command name spec ids args digests)

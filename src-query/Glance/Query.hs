@@ -140,6 +140,9 @@ module Glance.Query ( BlobSeed (..)
                     , sortedForViewWith
                     , sortedTagsCell
                     , storeRootIn
+                    , trashBlob
+                    , trashDirIn
+                    , trashPathFor
                     , subtreeLinks
                     , subtreeText
                     , systemSetting
@@ -213,6 +216,7 @@ import Data.Org.Config ( ConfigLayerFile (..), ConfigLayers (..), TodoKeywords (
                        , systemSetting, todoLineEdits, todoLines, todoPragmas )
 import Data.Org.External (Completion (..))
 import Data.Org.Blob (blobPathIn, mintBlobId, storeRootIn, uuidFrom)
+import Data.Org.Trash (trashBlob, trashDirIn, trashPathFor)
 import Data.Org.Walk ( Found (..), LoadFailure (..), WalkOptions (..), claimById
                      , defaultWalk, findOrgFilesWith, isConfig, isDerived, isDocument
                      , mapFilesConcurrently )

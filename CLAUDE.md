@@ -165,6 +165,17 @@ measurements and the history of superseded designs live in
   `noteExternalWrite` sits one layer down in `replaceSpans`: the two notes are
   at two layers because they are keyed differently — a blob's off the PATH
   written, a completion off the SERVED ROOT, which no write door carries.
+- `delete` IS THE ONE DESTRUCTIVE COMMAND and the SECOND with no row function:
+  it moves a FILE rather than splicing spans, so its edits are `Nothing` and the
+  dispatch reaches it by NAME (`cmdName`). THREE WALLS PER ROW, each a per-id
+  refusal and each checked on the SERVER as well as in the shell, because a
+  request is a request whoever wrote it: a row the store does not hold, a row
+  NOT CARRYING the archive tag (archiving is the step before, so a live entry
+  cannot be reached by asking twice as fast), and a row whose file is not a
+  BLOB. It NAMES ROWS like every command but `capture` — the id wall reads the
+  NAME rather than "has edits", which `delete` would otherwise slip through. The
+  path is nudged on success: the write door's sixth site and the only one that
+  splices no spans.
 - DELETION IS A MOVE, never an unlink (`Data.Org.Trash`). A blob is the
   canonical document and the index is its projection, so the destructive
   command takes the bytes OUT of the live tree and keeps them: gzipped under
@@ -398,7 +409,7 @@ measurements and the history of superseded designs live in
   `glance-internal`; cells are sliced from spans and the view `Value` is
   hand-built — no `ToJSON` on an internal type (SCHEMA.md is the contract).
 - Commands: one route, `POST /command {name, id | ids, args, digests?}`, over ONE
-  table — `commands`, name to `{argument shape, dated, edits}`. Ten
+  table — `commands`, name to `{argument shape, dated, edits}`. Eleven
   entries: `set-state`, `set-planning`, `set-title`, `set-priority`, `archive`,
   `capture`, `add-tag`, `remove-tag`, `rename-tag`, `edit-link`. `rename-tag`
   names both ends and is a command rather than a remove plus an add: those two

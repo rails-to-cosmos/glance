@@ -13,7 +13,7 @@ import Data.ByteString (ByteString)
 import Data.Char (isDigit, isLower)
 import Data.Foldable (toList)
 import Data.List (elemIndex, find, isInfixOf, nub, sort, sortOn)
-import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Maybe (fromJust, fromMaybe, listToMaybe)
 import GHC.Clock (getMonotonicTime)
 import Network.HTTP.Types ( HeaderName, RequestHeaders, methodDelete, methodPost
                           , renderQuery )
@@ -40,15 +40,16 @@ import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
+import qualified Codec.Compression.GZip as GZip
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 
-import Glance.Query ( QueryResult (qrRecords), builtinFilter
+import Glance.Query ( QueryResult (qrRecords), blobPathIn, builtinFilter
                     , linkColumns, loadDir, loadFile, prioritySlots, stateSlots
-                    , tagColumns, todoLines
-                    , viewJSON )
+                    , storeRootIn, tagColumns, todoLines
+                    , trashPathFor, viewJSON )
 import Glance.Web ( ServeOptions (..), application, bannerLines, bootstrapWanted
                   , defaultPort, viewTitleFor )
 import Glance.Web.Base (gluePartFiles)
@@ -450,7 +451,7 @@ spec = withResource ((<>) <$> (body <$> get assetsDir "/")
     [ headlineSpec, bannerSpec, statsSpec, cacheSpec, gzipSpec, querySpec
     , orderSpec, sortQuerySpec, columnsQuerySpec, archiveViewSpec
     , bootstrapSpec, materializeSpec, commitSpec, commandSpec, planningSpec
-    , tagCommandSpec, renameCommandSpec, tagsSpec, captureSpec
+    , tagCommandSpec, deleteCommandSpec, renameCommandSpec, tagsSpec, captureSpec
     , blobCaptureSpec, captureViewSpec
     , configSpec, keywordsSpec, linksSpec, editLinkSpec, indexingSpec
     , pageSpec shell, keymapSpec shell, layoutSpec shell
@@ -8454,6 +8455,14 @@ outcomesOf r = do
   results <- listAt "results" =<< decoded r
   traverse (\v -> (,) <$> textAt "id" v <*> boolAt "ok" v) results
 
+-- | The reasons R gives for the rows it refused, joined — what a per-id refusal
+-- is asserted against, the way 'digestsOf' is for the ones that landed.
+errorOf :: SResponse -> IO T.Text
+errorOf r = do
+  results <- listAt "results" =<< decoded r
+  bad <- filterM (fmap not . boolAt "ok") results
+  T.unwords <$> traverse (textAt "error") bad
+
 -- | The digest R reports for each row that landed.
 digestsOf :: SResponse -> IO [T.Text]
 digestsOf r = do
@@ -8804,6 +8813,75 @@ planningSpec = testGroup "POST /command set-planning"
 -- functions; what belongs here is the route — the batching, the per-id answer,
 -- and the refusals that are the request's shape rather than a row's state.
 tagCommandSpec :: TestTree
+deleteCommandSpec :: TestTree
+deleteCommandSpec = testGroup "POST /command delete"
+  [ testCase "an archived blob is gzipped into the trash and leaves the tree" $
+      withDeletable $ \a root archived' _live _shared -> do
+        r <- ok =<< postTo a "/command" (command "delete" ["gone"] (object []))
+        assertEqual "the row landed" [("gone", True)] =<< outcomesOf r
+        assertEqual "and the blob is out of the live tree" False
+          =<< doesFileExist archived'
+        let kept = fromJust (trashPathFor root archived')
+        assertEqual "the trash holds it" True =<< doesFileExist kept
+        assertEqual "byte for byte" archivedBlob . TE.decodeUtf8 . BL.toStrict
+          . GZip.decompress =<< BL.readFile kept
+
+    -- ARCHIVING IS THE STEP BEFORE THIS ONE, so a live entry cannot be reached
+    -- by asking twice as fast.  The wall is the SERVER's as much as the shell's.
+  , testCase "a row that is not archived is refused, and stands" $
+      withDeletable $ \a _root _archived live _shared -> do
+        r <- ok =<< postTo a "/command" (command "delete" ["here"] (object []))
+        assertEqual "refused" [("here", False)] =<< outcomesOf r
+        assertContains "naming the step it owes" "not archived" =<< errorOf r
+        assertEqual "and the blob stands" True =<< doesFileExist live
+
+    -- A SHARED ORG FILE IS MANY ROWS' DOCUMENT, and moving it would take the
+    -- others with it.  Archived or not, only a blob is deleted.
+  , testCase "an archived row in a shared file is refused, and stands" $
+      withDeletable $ \a _root _archived _live shared -> do
+        r <- ok =<< postTo a "/command" (command "delete" ["shared"] (object []))
+        assertEqual "refused" [("shared", False)] =<< outcomesOf r
+        assertContains "naming what it deletes" "blob" =<< errorOf r
+        assertEqual "and the file stands" True =<< doesFileExist shared
+
+  , testCase "an id the store does not hold is refused like any other" $
+      withDeletable $ \a _root _archived _live _shared -> do
+        r <- ok =<< postTo a "/command" (command "delete" ["nope"] (object []))
+        assertEqual "refused" [("nope", False)] =<< outcomesOf r
+
+    -- It NAMES ROWS, which `capture' alone does not: its edits are `Nothing'
+    -- because it moves a file, and the id wall reads the name rather than that.
+  , testCase "and it owes ids" $
+      withDeletable $ \a _root _archived _live _shared -> do
+        r <- postTo a "/command" (encode (object ["name" .= ("delete" :: T.Text)]))
+        assertEqual "400" 400 (status r)
+        assertContains "asks for them" "names rows" (body r)
+  ]
+
+-- | A tree with the three shapes @delete@ tells apart: an archived blob, a live
+-- blob, and an archived row in a file other rows share.  K is handed the ROOT,
+-- which is what every trash function takes — the store dir is derived from it.
+withDeletable :: (Application -> FilePath -> FilePath -> FilePath -> FilePath -> Assertion)
+              -> Assertion
+withDeletable k = withTempDir $ \dir -> do
+  let store = storeRootIn dir
+      blob ident text = do
+        let path = blobPathIn store ident
+        createDirectoryIfMissing True (takeDirectory path)
+        TIO.writeFile path text
+        pure path
+  archived' <- blob "a7deadbeef" archivedBlob
+  live <- blob "b8cafebabe" liveBlob
+  shared <- orgFile dir "shared.org" sharedOrg
+  (a, _hub) <- serverOver dir
+  k a dir archived' live shared
+
+archivedBlob, liveBlob, sharedOrg :: T.Text
+archivedBlob = "* DONE Gone :archive:\n:PROPERTIES:\n:ORG_GLANCE_ID: gone\n:END:\n"
+liveBlob = "* TODO Here\n:PROPERTIES:\n:ORG_GLANCE_ID: here\n:END:\n"
+sharedOrg = "* DONE Shared :archive:\n:PROPERTIES:\n:ORG_GLANCE_ID: shared\n:END:\n\
+            \* TODO Neighbour\n:PROPERTIES:\n:ORG_GLANCE_ID: neighbour\n:END:\n"
+
 tagCommandSpec = testGroup "POST /command add-tag and remove-tag"
   [ testCase "add-tag joins the run and moves no other byte" $
       withCommandable $ \a _hub path _other -> do
