@@ -798,10 +798,36 @@
         leaving = null;
       unmark(results);
     };
+    // THE TAG DECIDES WHAT `D' MEANS.  A row org has archived is one step from
+    // gone, so the same key takes the next step over it — and a MIXED set
+    // archives, which moves the whole set one step rather than doing two things
+    // in one press.  The cell is org's own run, `:a:b:'.
+    const ARCHIVE = CFG.archiveTag;
+    const archivedRow = (id) =>
+      String((rowOf(id).cells || {}).tag || "").split(":").indexOf(ARCHIVE) !== -1;
     function archive(b, ids, how) {
+      if (ids.length && ids.every(archivedRow)) { confirmDelete(b, ids, how); return; }
       leaving = anchorFor(ids);
       fire(b, "archive", ids, {}, "archived", how)
         .then(spent(leaving)).catch(failed(b, "archive"));
+    }
+    // THE ONE KEY THAT MOVES A FILE OUT OF THE TREE, so it is the one that asks
+    // for a word rather than a letter: a palette entry commits on a keystroke,
+    // and this is not a keystroke's worth of decision.  Anything but the word
+    // writes nothing and says so.
+    const DELETE_WORD = "delete";
+    function confirmDelete(b, ids, how) {
+      askText(`delete · ${rowsWord(ids.length)} permanently`,
+              `type ${DELETE_WORD} and RET · ESC leaves them`, "",
+              (c) => {
+                if (c.text.trim().toLowerCase() !== DELETE_WORD) {
+                  said(b, "not deleted");
+                  return;
+                }
+                leaving = anchorFor(ids);
+                fire(b, "delete", ids, {}, "deleted", how)
+                  .then(spent(leaving)).catch(failed(b, "delete"));
+              });
     }
     const XFLAGS = (b) => ({
       mount: () => table, at: focusedId, walk: () => move(1),

@@ -25,6 +25,12 @@ section groups a feature arc, and its date is that arc's last commit.
   pane's contents away for the rest of the session.
 
 ### Added
+- **`D` over archived rows deletes them, after asking.** A row org has archived
+  is one step from gone, so the same key takes the next step: the blob is
+  gzipped into `<store>/.org-glance/trash/` and leaves the live tree. It asks
+  for the word `delete` rather than a keystroke, a mixed set is archived rather
+  than deleted, and a row in a file other rows share is refused — only a blob is
+  a single row's document.
 - **A third saved view, `archive` (`tag:*archive*`)** — the one query that lifts
   `/headlines`' own exclusion, now reachable as `view:archive`, from `P`, and
   from the settings sheet like the other two.

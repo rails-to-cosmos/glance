@@ -1795,6 +1795,17 @@ const ACTIONS = {
   // The mixed set normalize-up is about: two of the three rows carry `web' and
   // the third does not, so the first press over the set is the levelling one.
   partly: () => { rowTags = { r1: ["web"], r2: ["web"], r3: [] }; },
+  // ARCHIVED ROWS: the cell org writes, since `D' reads the tag rather than
+  // asking the server what it means.  `archived:r1,r2' names the ones that
+  // carry it; everything else keeps the fixture's own `:web:'.
+  archived: (which) => {
+    const want = new Set(String(which).split(",").filter(Boolean));
+    // The tag the SERVER names, off the same blob the page reads it from —
+    // org's own `ARCHIVE', which a second spelling here would get wrong.
+    const tag = JSON.parse(CFGJSON).archiveTag;
+    for (const r of rows)
+      if (want.has(r.id)) r.cells.tag = `:web:${tag}:`;
+  },
   // Rows with no tags at all, which is where a first `:' has nothing to list
   // and `/' is the only way in.
   untagged: () => { rowTags = { r1: [], r2: [], r3: [] }; },

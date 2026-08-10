@@ -15,7 +15,8 @@ module Glance.Web.Page.Glue (glueConfig) where
 import Data.Aeson (Value, object, (.=))
 import Data.Text (Text)
 
-import Glance.Query (captureCodes, followableTypes, linkColumns, planningKeywords, tagColumns)
+import Glance.Query ( archiveTag, captureCodes, followableTypes, linkColumns
+                    , planningKeywords, tagColumns )
 import Glance.Web.Base (jsonValue, logLinesDefault, logLinesMax, logLinesMin)
 
 -- | The blob for VIEWS, the tree's saved views in registry order.  Member names are the
@@ -26,6 +27,9 @@ glueConfig views = jsonValue $ object
   [ "views"        .= [ object ["id" .= i, "query" .= q] | (i, q) <- views ]
   , "dcells"       .= (["state", "priority", "title", "tags"] :: [Text])
   , "planning"     .= planningKeywords
+    -- The tag `archive' adds and `delete' reads: ONE spelling, the server's, so
+    -- the page cannot come to believe in a different one.
+  , "archiveTag"   .= archiveTag
   , "followable"   .= followableTypes
   , "codes"        .= codeList
   , "lcols"        .= linkColumns

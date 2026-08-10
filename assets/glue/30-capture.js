@@ -382,7 +382,8 @@ const Capture = ((deps) => {
 
     // `prompting' is this widget's own, so it leaves as an answer.
     const promptNow = () => prompting;
-    return { whichKeys, letterAt, CODES, ask, askFrom, askState, askTags, capUp, docTargets, entry,
+    return { whichKeys, letterAt, CODES, ask, askFrom, askState, askTags, askText,
+             capUp, docTargets, entry,
              fieldMode, foldTag, followLinks, freely, linksOf, mode, offer,
              openCapture, openLink, overTargets, planRows, promptNow, raise,
              rowsWord, shortly, shutCapture, tagFrom, takeChoice, unask,
@@ -397,7 +398,7 @@ const Capture = ((deps) => {
      showTags: (...a) => showTags(...a), sole: (...a) => sole(...a),
      queryNow: () => query, colsNow: () => cols, entryNow: () => editing,
      arrivingNow: () => arriving, setArriving: (id) => { arriving = id; } });
-const { CODES, ask, askFrom, askState, askTags, capUp, docTargets, entry,
+const { CODES, ask, askFrom, askState, askTags, askText, capUp, docTargets, entry,
         fieldMode, foldTag, followLinks, freely, linksOf, mode, offer,
         openCapture, openLink, overTargets, planRows, promptNow, raise,
         rowsWord, shortly, shutCapture, tagFrom, takeChoice, unask,

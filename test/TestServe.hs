@@ -1792,6 +1792,38 @@ tagKeySpec shell =
                     "nothing tagged here · + adds one · ESC leaves"
           =<< textAt "tfoot" answer
 
+  , keyed shell "D over an archived row asks for the word before it deletes"
+      "" "archived:r1 press:D" $ \answer -> do
+        assertEqual "nothing posted on the press alone" [] =<< namesOf answer
+        assertEqual "the question is up" "on" =<< textAt "prompt" answer
+        assertContains "naming what it will do" "delete" =<< textAt "phead" answer
+
+  , keyed shell "and the word is what sends it"
+      "" "archived:r1 press:D type:delete press:Enter" $ \answer -> do
+        assertEqual "one delete, over the row at point"
+                    [("delete", ["r1"])] =<< postedOf answer
+        assertEqual "and the question is gone" "" =<< textAt "prompt" answer
+
+    -- ANYTHING BUT THE WORD WRITES NOTHING.  The prompt is the whole of what
+    -- stands between two keystrokes and a file leaving the tree.
+  , keyed shell "and anything else writes nothing"
+      "" "archived:r1 press:D type:yes press:Enter" $ \answer -> do
+        assertEqual "nothing posted" [] =<< namesOf answer
+        echoIs "and it says so" "D → org-glance-overview:delete (not deleted)" answer
+
+    -- A MIXED SET ARCHIVES, which moves the whole set one step rather than
+    -- doing two things in one press.  FLAGGED, never marked: `D' reads the
+    -- flags alone, which is what keeps a mark from being a loaded gun.
+  , keyed shell "a set only partly archived is archived, not deleted"
+      "" "archived:r1 press:d press:n press:d press:D" $ \answer -> do
+        assertEqual "archive, over both" [("archive", ["r1", "r2"])] =<< postedOf answer
+        assertEqual "and nothing was asked" "" =<< textAt "prompt" answer
+
+    -- And a set EVERY row of which is archived asks, once, for the whole set.
+  , keyed shell "a wholly archived set is asked for once"
+      "" "archived:r1,r2 press:d press:n press:d press:D type:delete press:Enter" $ \answer -> do
+        assertEqual "one delete over both" [("delete", ["r1", "r2"])] =<< postedOf answer
+
   , keyed shell "D is the same handler without the flagging press" "m m :" "press:D" $ \answer -> do
         assertEqual "both rows" [("remove-tag", ["r1", "r2"])] =<< postedOf answer
         assertEqual "and the popup stands" "on" =<< textAt "tagpop" answer

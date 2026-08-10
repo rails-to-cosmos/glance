@@ -1328,6 +1328,20 @@ measurements and the history of superseded designs live in
   remount: an anchor belongs to its view. KNOWN LIMIT: it is spent at the FIRST
   door, so an unrelated watch step landing between the 200 and the delivery
   spends it.
+- AND THE ARCHIVE TAG DECIDES WHAT `D` MEANS. A row org has archived is one step
+  from gone, so the same key takes the next step over it: every target already
+  carrying `archiveTag` is a DELETE, anything else is the archive it always was.
+  A MIXED set archives — one step for the whole set rather than two things in
+  one press. The tag is read off the row's own cell (`:a:b:`), and its spelling
+  is the SERVER'S, carried in the config blob (`CFG.archiveTag`, org's own
+  `ARCHIVE`) so the page cannot come to believe in a different one.
+- THE DELETE ASKS FOR A WORD, not a letter. Every other palette commits on a
+  keystroke and the palette IS the confirmation; this is the one key that moves
+  a file out of the tree, which is not a keystroke's worth of decision. `askText`
+  in its text mode, the word `delete`, and anything else writes nothing and says
+  so. The prompt is the whole of what stands between two presses and a moved
+  file, and `D` reads FLAGS rather than marks, which is what keeps a mark from
+  being a loaded gun.
 - `d` is dired's FLAG and dired's `dd`, in two presses: the first flags the row
   at point, and a second `d` on an already-flagged row IS `D` — it calls the same
   handler, so it archives EVERY flagged row. A lone flag is a set of one. There
