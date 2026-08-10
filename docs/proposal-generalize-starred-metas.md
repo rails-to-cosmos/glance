@@ -1,6 +1,6 @@
 # Proposal — the starred metas, as a list
 
-**Status:** proposed · **Date:** 2026-08-04
+**Status:** DONE 2026-08-10 · **Date:** 2026-08-04
 
 `docs/design-rhymes.md:66-69` names a family: "**Stars mean meta.** `*active*`,
 `*inactive*`, `*empty*`, `*archive*`, `*none*` — a starred word is reserved
@@ -11,6 +11,16 @@ in prose: the one comment that tries to enumerate it
 omits `*empty*` and `*none*`, which do.  `CLAUDE.md` carries the same stale
 member.
 
+**Re-validated and implemented 2026-08-10.**  Two premises had already
+self-healed: the stale `*clear*` comment is gone from both `Sort.hs` and
+`CLAUDE.md`, and `tagValues` went with the `view:archive` work, so
+`*archive*` is now `Filter`'s and derived from `archiveTag`.  The
+structural half held — five words, four constants, three modules, no
+owner — and is what was implemented.  `Meta`/`metaWord`/`metas`/`starred`
+live in `Glance.Query`; the four constants stayed as aliases, so no call
+site moved.  The payoff is the suite case rather than the type: it
+asserts the five constants ARE `map metaWord metas`, which a sixth
+constructor added to the type alone fails (verified by mutation).
 ## Where the five members live
 
 | Meta | Producer | Renderer |

@@ -18,7 +18,7 @@ import TestDefaults (columnKeysOf, field, maybeTextAt, refusedNaming, viewDir, w
 import qualified Data.Text as T
 
 import Glance.Query ( HeadlineRecord (..), QueryResult (qrRecords), defaultSortChain
-                    , displayText
+                    , activeMeta, displayText, inactiveMeta, metaWord, metas
                     , loadDir, matchesSearch, refTargetOf, refTargets, resolveColumns
                     , rowJSON
                     , tagsOfCell, viewJSON )
@@ -29,7 +29,7 @@ import Glance.Web.Filter ( Term (..), Token (..), alternatives, archiveKey
                          , plannedKey, refKey, scanQuery, sortKey, storeEnv
                          , substringKey
                          , tagsKey )
-import Glance.Web.Sort (sortChainIn)
+import Glance.Web.Sort (noOrder, sortChainIn)
 
 -- Fixtures
 --
@@ -693,7 +693,24 @@ metaMatching q = withMetaTree $ \records ->
 
 metaSpec :: TestTree
 metaSpec = testGroup "Starred metas"
-  [ testCase "the empty meta is the empty cell, on every column key" $ do
+  -- THE ROSTER IS THE FAMILY, and this case is what ties its two halves
+  -- together: every starred word the code spells is one of 'metas', and every
+  -- one of 'metas' is spelled by a constant somewhere.  A sixth meta added to
+  -- the type and to nothing else fails here rather than shipping as a word no
+  -- predicate evaluates; one spelled by a constant and left off the type fails
+  -- here too.  The family was doctrine with no list until the type carried it.
+  [ testCase "the roster is every starred word the code spells" $ do
+      assertEqual "the family, in the order the type declares it"
+        [activeMeta, inactiveMeta, emptyMeta, archiveMeta, noOrder]
+        (map metaWord metas)
+      -- And each wears the stars 'metaOf' reads back off a value, so no member
+      -- can be a bare word — which is what keeps every cell spelling reachable
+      -- as itself.
+      mapM_ (\m -> assertBool (show m <> " is not a starred word")
+                              (maybe False (not . T.null) (metaOf (metaWord m))))
+            metas
+
+  , testCase "the empty meta is the empty cell, on every column key" $ do
       assertEqual "the spelling" "*empty*" emptyMeta
       assertEqual "state" ["Nothing stated"] =<< metaMatching "state:*empty*"
       assertEqual "tag" ["Nothing stated"] =<< metaMatching "tag:*empty*"

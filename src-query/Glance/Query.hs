@@ -43,6 +43,10 @@ module Glance.Query ( BlobSeed (..)
                     , WalkOptions (..)
                     , WriteFailure (..)
                     , activeMeta
+                    , Meta (..)
+                    , metaWord
+                    , metas
+                    , starred
                     , addTagEdits
                     , archiveEdits
                     , archiveTag
@@ -3270,18 +3274,56 @@ priorityBadges =
     -- `priorityLetter' folds, which is the MATCHER's rule rather than a name.
   , let letter = T.filter isAsciiUpper v ]
 
+-- | THE RESERVED METAS, WHOLE.  A starred word carries semantics of its own in
+-- every context — never a literal keyword, never a tag, never a cell value —
+-- and no BARE word is reserved, so every spelling a cell can hold stays
+-- reachable as itself.
+--
+-- The family was doctrine with no list: five words spelled by four constants in
+-- three modules, and the one comment that tried to enumerate them named a
+-- member that never existed.  A sixth meta is a constructor here, and the
+-- roster a suite iterates is 'metas' rather than a hand-copied list of strings.
+--
+-- THE OTHER HALF IS ALREADY CLOSED, by two charset walls rather than by this
+-- type: 'Data.Org.Parser.keywordTextP' spells a keyword out of letters and
+-- underscores and 'tagText' does the same for a tag, so a starred word cannot
+-- be smuggled in as data.  This list is what a completion OFFERS, what a
+-- refusal NAMES, and what the suite quantifies over.
+data Meta = MActive | MInactive | MEmpty | MArchive | MNone
+  deriving (Eq, Show, Enum, Bounded)
+
+-- | Every meta, so a roster cannot go stale.
+metas :: [Meta]
+metas = [minBound .. maxBound]
+
+-- | META as it is spelled, stars and all.
+--
+-- 'MArchive' is DERIVED from 'archiveTag' rather than spelled: the tag org
+-- writes is what the meta names, and one tree renaming it must move both.
+metaWord :: Meta -> Text
+metaWord = starred . bare
+  where
+    bare MActive   = "active"
+    bare MInactive = "inactive"
+    bare MEmpty    = "empty"
+    bare MArchive  = T.toLower archiveTag
+    bare MNone     = "none"
+
+-- | WORD wearing the stars that make it a meta.  The shape rule, spelled once
+-- where the words are; 'Glance.Web.Filter.metaOf' reads it backwards.
+starred :: Text -> Text
+starred word = "*" <> word <> "*"
+
 -- | The two keyword groups a @#+TODO:@ line's bar divides: every keyword ahead
--- of it, and every one behind it.  Starred metas, so no file can declare either
--- as a keyword ('Data.Org.Parser.keywordTextP' spells one out of letters and
--- underscores) and no cell can hold one.
+-- of it, and every one behind it.
 --
 -- SPELLED HERE, where the view OFFERS them ('stateValues'), and read by the
 -- predicate that EVALUATES them ('Glance.Web.Filter'), so the vocabulary a
 -- renderer completes over and the words the filter answers to cannot come
 -- apart.
 activeMeta, inactiveMeta :: Text
-activeMeta = "*active*"
-inactiveMeta = "*inactive*"
+activeMeta = metaWord MActive
+inactiveMeta = metaWord MInactive
 
 -- | The state column's meta values: filter vocabulary rather than cell text.
 -- SCHEMA.md lets a producer add values over a column's own domain, and this one

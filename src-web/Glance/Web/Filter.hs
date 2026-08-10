@@ -35,7 +35,8 @@ import Data.Text (Text)
 import qualified Data.Text as T
 
 import Glance.Query ( HeadlineRecord (hrActive, hrId, hrLinks, hrSearch)
-                    , activeMeta, archiveTag, cellSep, filterKeys, inactiveMeta
+                    , Meta (..), activeMeta, archiveTag, cellSep, filterKeys
+                    , inactiveMeta, metaWord
                     , priorityLetter, refSpellings, tagRunEntries )
 
 
@@ -143,10 +144,10 @@ archiveKey = T.toLower archiveTag
 
 -- | The archive tag as the META — the one query that lifts the exclusion.
 archiveMeta :: Text
-archiveMeta = "*" <> archiveKey <> "*"
+archiveMeta = metaWord MArchive
 
 emptyMeta :: Text
-emptyMeta = "*empty*"
+emptyMeta = metaWord MEmpty
 
 -- | VALUE's word where VALUE is a starred meta; a bare word is never one.
 metaOf :: Text -> Maybe Text

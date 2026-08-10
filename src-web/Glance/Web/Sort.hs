@@ -29,14 +29,17 @@
 -- column, and it ADMITS NO COMPANIONS: a reader who wrote both meant one of
 -- them, so the request is refused rather than resolved by a precedence rule
 -- nobody would remember.  A SEGMENT is a companion like any other.
-module Glance.Web.Sort (sortChainIn) where
+-- `noOrder' rides out for the suite alone: it is this module's member of the
+-- starred family ('Glance.Query.Meta'), and the roster case asserts the five
+-- constants and the type agree.
+module Glance.Web.Sort (noOrder, sortChainIn) where
 
 import Control.Monad (foldM)
 import Data.Text (Text)
 
 import qualified Data.Text as T
 
-import Glance.Query (SortChain, defaultSortChain)
+import Glance.Query (Meta (..), SortChain, defaultSortChain, metaWord)
 import Glance.Web.Filter ( Term (tmKey, tmNegated, tmValue), filterKeys
                          , parseFilter, refusedOn, sortKey )
 
@@ -49,7 +52,7 @@ directions = [("", True), ("asc", True), ("desc", False)]
 -- | The meta that spells the empty chain: document order, and no @sort@ field
 -- on the wire.  A starred word, so it can never be a column and never a cell.
 noOrder :: Text
-noOrder = "*none*"
+noOrder = metaWord MNone
 
 -- | The separator that CHAINS one token's columns.  @sort:a->b@ is @sort:a
 -- sort:b@ said once, so this is where the sugar begins and ends.
