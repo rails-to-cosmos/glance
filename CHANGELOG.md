@@ -12,6 +12,10 @@ section groups a feature arc, and its date is that arc's last commit.
 ## Unreleased
 
 ### Fixed
+- **Closing the capture form takes `?page=capture` off the URL.** It opened
+  through the shared popup door and closed around it, so the parameter the
+  raise wrote was never taken off: a URL copied afterwards reopened a form the
+  reader had left.
 - **A tree's saved default filter is applied even when the page opens during
   indexing.** The shell renders while the walk runs, so a page served before it
   landed carried the built-in `state:*active*` and nothing re-read it — the

@@ -237,7 +237,7 @@ const Popups = ((deps) => {
     return { openedBy, linkMount, tagMount, addFlow, cancelLinkEdit, cancelRename, commitLink, landing, lediting,
              linking, managing, openLinkEdit, openRename, pointedLink,
              renameTag, renaming, showLinks, showPopup, showTags, shutLinks,
-             shutTags, TFLAGS };
+             shutPopup, shutTags, TFLAGS };
 })({ CFG, again, askFrom, cancelEdit, echo, el, failed, fire, foldTag, listing,
      openEdit, remembered, rowsWord, said, selectedId, shortly, shutEdit,
      sole, soon, stepIn, tagFrom, unlogged,
@@ -245,4 +245,4 @@ const Popups = ((deps) => {
 const { openedBy, linkMount, tagMount, addFlow, cancelLinkEdit, cancelRename, commitLink, landing, lediting,
         linking, managing, openLinkEdit, openRename, pointedLink,
         renameTag, renaming, showLinks, showPopup, showTags, shutLinks,
-        shutTags, TFLAGS } = Popups;
+        shutPopup, shutTags, TFLAGS } = Popups;

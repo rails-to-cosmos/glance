@@ -4723,6 +4723,19 @@ settingsSpec shell =
       "," "press:Escape" $ \answer ->
         urlIs "the query alone again" "?q=state%3A*active*" answer
 
+    -- AND THE CAPTURE FORM LEAVES BY THE DOOR IT CAME IN BY.  It opened through
+    -- `showPopup' and used to close by clearing its own class, so the raise
+    -- wrote `?page=capture' and nothing took it off: a reader who captured and
+    -- carried on was sending a URL that reopened a form they had left.  ONE
+    -- WRITER means one door at each end.
+  , keyed shell "the capture form says so in the URL"
+      "+" "" $ \answer ->
+        urlIs "the surface" "?q=state%3A*active*&page=capture" answer
+
+  , keyed shell "and closing the capture form takes the parameter off"
+      "+" "press:Escape" $ \answer ->
+        urlIs "the query alone again" "?q=state%3A*active*" answer
+
   , keyed shell "a tab shows its own panel and no other"
       "," "ctab:theme" $ \answer ->
         assertEqual "the theme panel" "theme" =<< textAt "ctab" answer

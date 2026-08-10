@@ -18,7 +18,7 @@ const Capture = ((deps) => {
       el("kfields").textContent = "";
       el("klist").textContent = "";
       el("ktag").value = ""; el("ktext").value = "";
-      el("capture").className = "";
+      shutPopup("capture");
       const held = active();
       if (held && held.blur) held.blur();
     }
