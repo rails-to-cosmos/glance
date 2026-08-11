@@ -5,6 +5,27 @@ where ~10 hand-run mutations over a green 1781-case suite found two real holes,
 and four bugs shipped past that same green suite because nobody thought to
 mutate the thing they lived in.
 
+**Four instrument defects fixed 2026-08-11**, all found by the `Data.Org.Edit`
+sitting and each one poisoning a score rather than a build:
+
+- **CPP was graded.** The masker read comments and literals and knew nothing of
+  `#ifdef`, so a mutant rewrote a line inside `#ifdef PURE_CRYPTO` — which the
+  graded build never compiles — and SURVIVED for the wrong reason. `mask_cpp`
+  takes the whole block, live arm included: which arm compiles is a FLAG's
+  answer rather than the file's, so a site this cannot reason about is declined.
+- **`arms` looked only at position 0.** The disjoint-constructor refusal missed
+  `(_a, _b, Just e)` beside `(a, b, Nothing)` — as equivalent-by-construction as
+  the `Left`/`Right` pair the rule was hardened for. `disjoint` now asks every
+  TUPLE COMPONENT.
+- **`LIST=1` DESTROYED THE SHARED WORKTREE.** It set the worktree up before the
+  list branch and the `EXIT` trap removed it, so a `make mutate-list` against
+  the default scratch killed a concurrent `make mutate` mid-run — it cost the
+  sitting a full run. Listing needs the file's TEXT alone, which the revision
+  holds: it reads `git show` into a temp dir and creates nothing.
+- **A runaway mutant was bounded in wall time and not in memory.** A
+  non-terminating `zero` reached 7.8 GB RSS and filled swap before the timeout
+  counted it killed, slowing every neighbouring verdict. The suite is built
+  `-rtsopts`, so `+RTS -M2G` is one flag.
 ## The measurement that decides it
 
 The suite is DENSE and it is DERIVED. 1781 Haskell cases in eighteen groups

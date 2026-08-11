@@ -87,6 +87,29 @@ sub eat_string {           # a "…" literal, backslash-escaped, ended by the li
   return $j;
 }
 
+# A CPP-GUARDED LINE IS NO SITE, whichever branch is live.  This runner grades
+# the build `cabal test' makes, and which arm of an `#ifdef' that build compiles
+# is a FLAG's answer rather than the file's — so a mutant inside one can rewrite
+# a line GHC never saw and SURVIVE for the wrong reason (`pure-crypto' did
+# exactly that, and the score paid for it).  The whole block goes, live arm
+# included: declining a site this cannot reason about costs a few sites, and
+# grading dead code costs the number its own meaning.
+sub mask_cpp {
+  my ($code) = @_;
+  my $depth = 0;
+  my $at = 0;
+  for my $line (split /(?<=\n)/, $$code) {
+    my $len = length $line;
+    my $directive = $line =~ /^\s*#\s*(if|ifdef|ifndef|elif|else|endif)\b/ ? $1 : '';
+    $depth++ if $directive =~ /^if/;
+    if ($depth > 0 || $directive) {
+      blank_into($code, $$code, $at, $at + $len, ' ');
+    }
+    $depth-- if $directive eq 'endif' && $depth > 0;
+    $at += $len;
+  }
+}
+
 sub mask_haskellish {      # hs and elm: `--' to eol, nested {- -}, "…", '…'
   my ($src, $elm) = @_;
   my $code = $src;
@@ -328,6 +351,49 @@ sub guard_sites {
 #   A LAYOUT-OPENING RHS IS INVALID BY CONSTRUCTION.  `Just d -> do' owns the
 #   indented block under it; carry the line up and the block belongs to the arm
 #   above, which is a parse error every time.
+# ARE THE TWO PATTERNS DISJOINT — do they match no value in common?  Asked of
+# every TUPLE COMPONENT rather than of the pattern's first token: the
+# discriminating constructor is often nested, and `(_a, _b, Just e)' beside
+# `(a, b, Nothing)' is as equivalent-by-construction as `Left'/`Right' is.
+# Two named constructors that differ ANYWHERE make the pair disjoint; a
+# variable or a wildcard in that slot makes it overlap, and the order is a fact
+# again.
+sub disjoint {
+  my ($a, $b) = @_;
+  my @x = components($a);
+  my @y = components($b);
+  return 0 unless @x && @x == @y;
+  for my $i (0 .. $#x) {
+    my ($u, $v) = ($x[$i], $y[$i]);
+    my ($cu) = $u =~ /^([A-Z][\w.']*)/;
+    my ($cv) = $v =~ /^([A-Z][\w.']*)/;
+    next unless defined $cu && defined $cv;
+    return 1 if $cu ne $cv;
+  }
+  return 0;
+}
+
+# A PATTERN'S TOP-LEVEL COMPONENTS: a tuple's parts, or the pattern itself.
+# Split at commas OUTSIDE any bracket, so `(a, Just (b, c))' is two.
+sub components {
+  my ($p) = @_;
+  $p =~ s/^\s+|\s+$//g;
+  return ($p) unless $p =~ /^\((.*)\)$/s;
+  my $inner = $1;
+  my @out;
+  my $cur = '';
+  my $d = 0;
+  for my $c (split //, $inner) {
+    $d++ if $c =~ /[\(\[]/;
+    $d-- if $c =~ /[\)\]]/;
+    if ($c eq ',' && $d == 0) { push @out, $cur; $cur = ''; next }
+    $cur .= $c;
+  }
+  push @out, $cur;
+  s/^\s+|\s+$//g for @out;
+  return @out;
+}
+
 sub arms_sites {
   return if $LANG eq 'js';   # an if/else exchange is a block move, not a line one
   my @lines;
@@ -342,9 +408,7 @@ sub arms_sites {
     my ($pat2, $rhs2) = ($1, $2);
     next if $l1 =~ /::|\\\s/ || $l2 =~ /::|\\\s/;
     next if "$rhs1$rhs2" =~ /\b(?:do|of|where|let)\s*$/m;
-    next if $pat1 !~ /\|/ && $pat2 !~ /\|/
-         && $pat1 =~ /^([A-Z]\w*)\b/ && $pat2 =~ /^([A-Z]\w*)\b/
-         && substr($pat1, 0, index("$pat1 ", ' ')) ne substr($pat2, 0, index("$pat2 ", ' '));
+    next if $pat1 !~ /\|/ && $pat2 !~ /\|/ && disjoint($pat1, $pat2);
     my ($r1, $r2) = (substr($SRC, $p1, length $l1), substr($SRC, $p2, length $l2));
     site($p1, $p2 + length $l2, 'arms', $r2 . $r1);
   }
@@ -427,6 +491,7 @@ sub cmd_sites {
   $LANG = lang_of($file);
   $SRC  = slurp($file);
   ($CODE, $LITS) = $LANG eq 'js' ? mask_js($SRC) : mask_haskellish($SRC, $LANG eq 'elm');
+  mask_cpp(\$CODE);
   $CTX  = contexts($CODE, $LANG);
   table_sites(read_rules($rules, $LANG));
   zero_sites();

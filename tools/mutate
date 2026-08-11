@@ -71,6 +71,34 @@ case "$TARGET" in
   *) echo "mutate: $TARGET is neither a .hs, a .js under assets/glue nor an .elm under assets/elm" >&2; exit 2 ;;
 esac
 
+
+# --- LISTING NEEDS NO WORKTREE, and taking one was destructive: the EXIT trap
+# removes the shared `SCRATCH' worktree, so a `make mutate-list' against the
+# default path killed a concurrent `make mutate' mid-run.  The sites come out of
+# the file's TEXT, which the revision already holds.
+
+if [ "$LIST" = 1 ]; then
+  LTMP=$(mktemp -d)
+  trap 'rm -rf "$LTMP"' EXIT INT TERM
+  git -C "$ROOT" show "$REV:$TARGET" > "$LTMP/$(basename "$TARGET")"
+  LSITES="$LTMP/sites.tsv"
+  "$TOOLS/mutate-sites" sites "$TOOLS/mutate.rules" "$LTMP/$(basename "$TARGET")" > "$LSITES"
+  LTOTAL=$(wc -l < "$LSITES")
+  LDIGEST=$(git -C "$ROOT" rev-parse "$REV:$TARGET")
+  if [ "$SAMPLE" -gt 0 ] && [ "$LTOTAL" -gt "$SAMPLE" ]; then
+    perl -MDigest::MD5=md5_hex -ne 'BEGIN { $s = shift @ARGV } chomp; print md5_hex("$s\0$_"), "\t$_\n"' \
+         "$LDIGEST" "$LSITES" | sort -k1,1 | awk -v n="$SAMPLE" 'NR<=n' | cut -f2- \
+       | sort -t"$(printf '\t')" -k1,1n > "$LTMP/picked.tsv"
+  else
+    cp "$LSITES" "$LTMP/picked.tsv"
+  fi
+  printf '%s @ %s — %d sites, %d picked\n' \
+         "$TARGET" "${LDIGEST:0:12}" "$LTOTAL" "$(wc -l < "$LTMP/picked.tsv")"
+  awk -F'\t' '{printf "  %s:%s:%s  rule=%-10s %s\n", "'"$TARGET"'", $3, $4, $5, $6}' \
+      "$LTMP/picked.tsv"
+  exit 0
+fi
+
 mkdir -p "$SCRATCH"
 
 # --- the worktree ----------------------------------------------------------
@@ -148,12 +176,6 @@ else
 fi
 PICKED_N=$(wc -l < "$PICKED")
 
-if [ "$LIST" = 1 ]; then
-  printf '%s @ %s — %d sites, %d picked\n' "$TARGET" "${DIGEST:0:12}" "$TOTAL" "$PICKED_N"
-  awk -F'\t' '{printf "  %s:%s:%s  rule=%-10s %s\n", "'"$TARGET"'", $3, $4, $5, $6}' "$PICKED"
-  exit 0
-fi
-
 # --- the suite -------------------------------------------------------------
 #
 # TWO COMMANDS, not one, and that is what tells INVALID from KILLED: a build
@@ -183,7 +205,13 @@ run_suite() {   # -> green | red | invalid | timeout
   [ "$rc" = 124 ] && { echo timeout; return; }
   [ "$rc" = 0 ]   || { echo invalid; return; }
   set +e
-  ( cd "$WT" && timeout "$TMO" cabal test --builddir="$D0" --disable-optimization ) >> "$LOG" 2>&1
+  # A NON-TERMINATING MUTANT IS BOUNDED TWICE.  The timeout catches it in wall
+  # time and counts it killed; without a heap cap it first takes the box's
+  # memory with it — 7.8 GB and into swap, measured — which slows every
+  # neighbouring mutant's verdict.  The suite is built `-rtsopts', so the cap
+  # is one flag.
+  ( cd "$WT" && timeout "$TMO" cabal test --builddir="$D0" --disable-optimization \
+      --test-options='+RTS -M2G -RTS' ) >> "$LOG" 2>&1
   rc=$?
   set -e
   [ "$rc" = 0 ]   && { echo green;   return; }
