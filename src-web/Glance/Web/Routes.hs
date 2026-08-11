@@ -68,18 +68,19 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , SubtreeEntry (..)
                     , TodoKeywords (..)
                     , SavedView (..), archived, captureCodes, configDirsIn
-                    , captureTargetOf, captureTemplateIn, captureTemplateOf
-                    , clStateColors, configEdits, viewQuery
+                    , captureTemplateIn, captureTemplateOf
+                    , ConfigLayers (clTree), TreeSettings (..), treeSettings
+                    , configEdits, viewQuery, viewQueryIn
                     , headlineParts, keywordSources, linkShown, linkType
                     , planningKeywords, readConfigLayers, readsAsTimestamp
                     , untrailed
                     , recomposedSubtree
                     , ownBodyLines, sortedForViewWith
                     , subtreeEntries, subtreeEntryAt, subtreeLinks
-                    , subtreeText, systemSetting, tagsOfCell
+                    , subtreeText, tagsOfCell
                     , templatePrompts, titleSpan, todoPragmas
-                    , resolveColumns, savedViews, stateColorsOf, todoLines, viewColumns
-                    , viewJSONTextFor, viewOf )
+                    , resolveColumns, savedViews, todoLines, viewColumns
+                    , viewJSONTextFor )
 import Glance.Web.Base ( ServeOptions (..), answerWrite, bodyObject, configMoved
                        , conflict, glueAsset, gluePartFiles, html, jsonError
                        , elmAsset
@@ -915,6 +916,10 @@ configView :: ServeOptions -> Hub -> IO Response
 configView opts hub = do
   st <- readTVarIO (hubStore hub)
   layers <- layersFor (soDir opts) st
+  -- THE SAME FOLD THE LOAD CACHES IN `clTree', over files read a line ago: what
+  -- a sheet shows and what its write is pinned to describe one file, and a
+  -- tree-wide member joins both answers by joining `TreeSettings'.
+  let tree = treeSettings layers
   pure (jsonResponse status200
           [ "layers"   .= map layerJSON layers
           , "keywords" .= keywordsJSON (storeKeywords st)
@@ -922,7 +927,7 @@ configView opts hub = do
           -- does, read off the files beside the lines, each being a line of the
           -- same file whose write rides in the same request.  The capture
           -- target is a line of that kind and travels the same way.
-          , "views"    .= [ object [ "id" .= svId v, "query" .= servedView v layers ]
+          , "views"    .= [ object [ "id" .= svId v, "query" .= viewQueryIn (svId v) tree ]
                           | v <- savedViews ]
           -- THE THEMES THIS BUILD CARRIES and the tree's own hue for a keyword
           -- under each: a flat list, so the order is the file's and a client
@@ -930,29 +935,12 @@ configView opts hub = do
           -- system layer, so it rides the same request and the same digest.
           , "themes"   .= themeIds
           , "colors"   .= [ object [ "theme" .= theme, "keyword" .= kw, "hue" .= hue ]
-                          | (theme, pairs) <- servedColors layers, (kw, hue) <- pairs ]
+                          | (theme, pairs) <- tsColors tree, (kw, hue) <- pairs ]
           -- Empty rather than null where no layer names one: the fallback here
           -- is a PATH this server computes rather than a value to show, and the
           -- settings field's placeholder is what says so.
-          , "capture"  .= fromMaybe "" (systemSetting captureTargetOf layers)
+          , "capture"  .= fromMaybe "" (tsCapture tree)
           ])
-
--- | The query LAYERS name for VIEW, or its built-in where none does.  The
--- system layer's line, read off the same bytes the digests were taken from, so
--- what a settings sheet shows and what its write is pinned to describe one file.
---
--- 'Glance.Query.viewQuery' answers the same question off the loaded config and
--- the two CANNOT disagree, being one fold: 'systemSetting' fills 'clViews' at
--- load and is what this route reads, so "the first SYSTEM layer that names a
--- line" is written once and a file that is not there names nothing either way.
-servedView :: SavedView -> [ConfigLayerFile] -> Text
-servedView v layers = fromMaybe (svBuiltin v) (systemSetting (viewOf v) layers)
-
--- | The per-theme keyword hues LAYERS name.  EVERY system layer's lines rather
--- than the first that says anything, which is 'loadConfigDirs'' own rule for
--- this setting and the one place it differs from the settings above.
-servedColors :: [ConfigLayerFile] -> [(Text, [(Text, Text)])]
-servedColors layers = concat [ stateColorsOf (lfText f) | f <- layers, lfTag f == Nothing ]
 
 -- | One layer as a settings client holds it.  @template@ is the layer's capture
 -- template, verbatim, empty where it has none — a REGION of the same file rather
@@ -1014,18 +1002,16 @@ writeLayer opts hub dirs want = do
   layers <- readConfigLayers dirs
   case find ((== path) . T.pack . lfPath) layers of
     Nothing -> pure (jsonError status400 (noSuchLayer path layers))
-    Just f  -> case configEdits (lfText f) (lwLines want) (scoped f (lwParts want)) of
+    -- THE SCOPE MASK RIDES THE FILE: `configEdits' reads the layer's tag and
+    -- folds `configSettings', so a tree-wide setting is the SYSTEM layer's
+    -- whatever a tag layer's request named, and a new member is masked by
+    -- declaring its scope rather than by an edit here.
+    Just f  -> case configEdits f (lwLines want) (lwParts want) of
       Left why    -> pure (jsonError status400 why)
       Right edits -> answerWrite configMoved written
                        <$> writeSpans (walkFor opts) hub (lfPath f) (lwDigest want) edits
   where
     path = lwPath want
-    -- Both tree-wide LINES are the SYSTEM layer's and no other's, so a tag
-    -- layer's write leaves them alone whatever the request said.  The template
-    -- is every layer's, which is the whole point of it being one.
-    scoped f p | Just _tag <- lfTag f =
-                   p { cpViews = [], cpCapture = Nothing, cpColors = Nothing }
-               | otherwise            = p
     written fresh = ["path" .= path, "digest" .= fresh]
 
 noSuchLayer :: Text -> [ConfigLayerFile] -> Text
@@ -1342,5 +1328,5 @@ shellPage opts hub = do
   st <- readTVarIO (hubStore hub)
   pure . html $ case soAssets opts of
     Just dir | not ok -> assetsMissing opts dir
-    _rendererInHand   -> demoShell opts font (clStateColors (stConfig st))
+    _rendererInHand   -> demoShell opts font (tsColors (clTree (stConfig st)))
                                    (savedViewsIn st)

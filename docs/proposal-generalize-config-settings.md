@@ -1,7 +1,34 @@
 # Proposal — one registry for config-layer settings
 
-**Status:** proposed · **Date:** 2026-08-04 · **Source:** generalizer sweep over
-the capture-v2 territory
+**Status:** DELIVERED 2026-08-11 · **Date:** 2026-08-04 · **Source:**
+generalizer sweep over the capture-v2 territory
+
+## What landed
+
+`Glance.Query.configSettings` is the registry — one `ConfigSetting` per member
+carrying `csName`, `csScope` (`TreeWide`/`PerLayer`) and `csEdits`.
+`configEdits` takes the `ConfigLayerFile` rather than its text and folds
+`settingsFor`, which filters the list by scope, so **the mask is the registry**:
+`writeLayer.scoped` is gone and a tree-wide member is masked out of tag-layer
+writes by declaring its scope.
+
+Finding #2 is settled BOTH-ARE-OWED, with the choice removed rather than made:
+`Config.TreeSettings` + `treeSettings` is ONE fold with two callers — the load
+caches it in `ConfigLayers.clTree`, and `GET /config` runs it over files it has
+just read (its digest is the lock a write presents back, so it cannot serve the
+store).  `clViews`/`clCapture`/`clStateColors` are gone; `viewQueryIn` carries
+the built-in fallback for both paths.  A member joins `TreeSettings` and both
+answers move.
+
+The proof is quantified over the registry, so it covers member #4:
+`TestConfig`'s four cases (the sweep asserts what it swept, a tag layer reaches
+no `TreeWide` row, still reaches every `PerLayer` row, the system layer reaches
+all) plus one route case in `TestServe` guarding its wire body against
+`map csName configSettings`.  The two hand-written route cases it replaced went.
+
+The shell half is `CFIELDS` in `assets/glue/50-settings.js`, folded by `cmoved`
+and `flushConfig`.  `Page/Glue.hs` is `assets/glue/*.js` now; `Page.hs` needed
+no edit.
 
 ## Pattern
 

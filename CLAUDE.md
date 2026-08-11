@@ -2074,17 +2074,36 @@ measurements and the history of superseded designs live in
   (`pragmaLineEdits`: replace where it stands, insert under the header, empty
   deletes). The reader folds the key and the writer renders it off one
   `settingPragma`, so a fold that drifted from a render can no longer rewrite a
-  line nothing reads. Carried by `clFilter`/`clCapture`, spliced in the SAME
-  `configEdits` call as the block and the layer's TEMPLATE — four regions of one
-  file ride one write, since four writes would be four digests. A tag layer names
-  neither. `Config.systemSetting` is the ONE "first system layer that names one"
-  fold.
+  line nothing reads. Carried by `clTree`, spliced in the SAME `configEdits`
+  call as the block and the layer's TEMPLATE — four regions of one file ride one
+  write, since four writes would be four digests. A tag layer names neither.
+  `Config.systemSetting` is the ONE "first system layer that names one" fold.
+- A CONFIG SETTING IS A REGISTRY ROW, `Query.configSettings`: the field the wire
+  names it by, its SCOPE, and the edits writing it. `configEdits` folds the list
+  and takes the scope mask off it (`settingsFor`, filtered by `csScope`), so a
+  TREE-WIDE member is `system.org`'s alone by DECLARING that and a tag layer's
+  write cannot reach one. The mask used to be a hand-written record update in
+  `writeLayer` — `p { cpViews = [], cpCapture = Nothing, cpColors = Nothing }` —
+  which a new member joined by being remembered, and the only guard was a
+  hand-written test per setting. `TestConfig` QUANTIFIES over the registry now:
+  every row's own edits are non-empty over `everyPart` (the sweep asserts what it
+  swept), a tag layer's write carries none of a TreeWide row's lines and all of a
+  PerLayer row's, and the route case asserts the same over the wire against
+  `map csName configSettings`. ORDER IS DATA — two absent pragmas insert at one
+  offset, resolved in list order.
+- AND A TREE-WIDE SETTING IS READ ONCE, `Config.treeSettings` into
+  `TreeSettings`. TWO CONSUMERS ARE OWED and neither is a member's choice: the
+  LOAD caches it in `clTree` for every reader downstream of the store, and
+  `GET /config` calls the same fold on files it has JUST READ, because the digest
+  it hands out is the lock a write presents back and a route serving the store
+  would pin a fresh digest to a stale value. `viewQueryIn` carries the built-in
+  fallback for both. A member joins `TreeSettings` and both answers move.
 - A SAVED VIEW IS A REGISTRY ENTRY: `Config.savedViews`, each a `SavedView`
   carrying an id, a `system.org` pragma and a built-in. THREE of them —
   `default` (`#+GLANCE_DEFAULT_FILTER:`, `state:*active*`), `agenda`
   (`#+GLANCE_AGENDA_FILTER:`, `state:*active* -planned:*empty* sort:scheduled`)
   and `archive` (`#+GLANCE_ARCHIVE_FILTER:`, `tag:*archive*`, the one query that
-  lifts `/headlines`' own exclusion) — and a fourth is one entry: the load folds the list into `clViews`, `/config`
+  lifts `/headlines`' own exclusion) — and a fourth is one entry: the load folds the list into `clTree`'s `tsViews`, `/config`
   serves it, the settings selector is built from what it serves, and the write
   is keyed by id. `viewQuery id cfg` answers; absent means the built-in, a line
   naming nothing means the empty query, and the LAST line wins. The system layer
@@ -2212,9 +2231,15 @@ measurements and the history of superseded designs live in
   tag layers by `localeCompare`; `sort` is stable, so two system layers keep the
   walk's order. Both texts live on the LAYER and the boxes are VIEWS:
   `takeLayer()` copies both back and every door calls it first, so an edit
-  outlives every switch and a switch asks the server nothing. `cmoved(r)` is
-  `r.text !== r.base || r.tpl !== r.tplBase` plus the two general fields, and a
-  part is SENT only where it moved. `%` in the template box raises the value
+  outlives every switch and a switch asks the server nothing. EVERY SETTING THE
+  SHEET WRITES BESIDE THE CYCLE IS A `CFIELDS` ROW, the shell half of
+  `configSettings`: whether this LAYER carries it, what it holds NOW, what it was
+  SERVED as, the field the write names it by, and how a receipt is taken.
+  `cmoved(r)` is `r.text !== r.base` plus that fold, and the flush names a part
+  only where it moved — always sending the template hits the one-top-entry wall
+  on a layer whose heading nobody touched. `now` is the COMPARABLE and `send` the
+  wire value, since `colors` holds an object; both are read BEFORE the await, so
+  a keystroke landing mid-write leaves the sheet dirty. `%` in the template box raises the value
   palette in its field mode over the SERVER's code list, so the completion cannot
   offer a code the expansion does not know. Still one drift-locked `POST /config`
   per FILE that moved, each awaited, each under its own digest. A refusal SELECTS

@@ -360,12 +360,43 @@
       box.setSelectionRange(at + code.length, at + code.length);
       takeLayer();
     }
+    /**
+     * @typedef {object} CField
+     * @property {string} key  the field a `POST /config` names it by.
+     * @property {(r: LayerRow) => boolean} on  does this layer carry it?
+     * @property {(r: LayerRow) => string} now  what it holds, comparable.
+     * @property {(r: LayerRow) => string} was  what it was served as.
+     * @property {(r: LayerRow) => any} send  the wire value.
+     * @property {(r: LayerRow, was: string) => void} kept  take the receipt.
+     */
+    /**
+     * ONE ROW PER SETTING the sheet writes beside the cycle — the shell half of
+     * the server's `configSettings'.  A row says whether this LAYER carries the
+     * setting, what it holds NOW, what it was SERVED as, what the write names it
+     * by, and how a receipt is taken.  `cmoved' and `flushConfig' fold it, so a
+     * fourth setting is a row here and no edit in either.
+     *
+     * `now' is the COMPARABLE — a string, since the model behind `colors' is an
+     * object — and `send' is the wire value.  Both are read before the await, so
+     * a keystroke landing mid-write leaves the sheet dirty.
+     * @type {CField[]}
+     */
+    const CFIELDS = [
+      { key: "template", on: () => true,
+        now: (r) => r.tpl, was: (r) => r.tplBase, send: (r) => r.tpl,
+        kept: (r, was) => { r.tplBase = was; } },
+      { key: "capture", on: (r) => r.cap !== null,
+        now: (r) => (r.cap ? r.cap.value : ""), was: (r) => String(r.capBase),
+        send: (r) => (r.cap ? r.cap.value : ""),
+        kept: (r, was) => { r.capBase = was; } },
+      { key: "colors", on: (r) => r.tag === null,
+        now: () => JSON.stringify(hues), was: () => huesBase,
+        send: () => hueList(), kept: (_r, was) => { huesBase = was; } },
+    ];
+    const cfmoved = (r) => CFIELDS.filter((f) => f.on(r) && f.now(r) !== f.was(r));
     const cnote = (next, message) => note(configSheet, next, message);
     const cdirty = () => (takeLayer(), crows.some(cmoved));
-    const cmoved = (r) => r.text !== r.base || r.tpl !== r.tplBase
-      || (r.tag === null && huesMoved())
-      || (r.cap !== null && r.cap.value !== r.capBase);
-    const huesMoved = () => JSON.stringify(hues) !== huesBase;
+    const cmoved = (r) => r.text !== r.base || cfmoved(r).length > 0;
     // A pin landed: the live view moves, and the badge with it where the
     // DEFAULT is what moved — the renderer's badge says "this is the default".
     function viewLanded(id, q) {
@@ -380,21 +411,18 @@
       for (const r of crows) {
         if (!cmoved(r)) { r.err = ""; continue; }
         // Snapshotted before the await: a keystroke landing mid-write stays dirty.
-        const sent = r.text, tpl = r.tpl;
-        const colors = r.tag === null && huesMoved() ? hueList() : null;
-        const cap = r.cap && r.cap.value;
-        const a = await postJSON("/config",
-          { path: r.path, lines: sent.split("\n"),
-            // Named only where it moved: always sending it hits the one-top-entry wall.
-            ...(tpl !== r.tplBase ? { template: tpl } : {}),
-            ...(colors ? { colors } : {}),
-            ...(r.cap ? { capture: cap } : {}),
-            digest: r.digest }).then(outcome)
+        const sent = r.text;
+        // NAMED ONLY WHERE IT MOVED: always sending the template hits the
+        // one-top-entry wall on a layer whose heading nobody touched.
+        const moved = cfmoved(r).map((f) => ({ f, was: f.now(r), body: f.send(r) }));
+        /** @type {Record<string, any>} */
+        const body = { path: r.path, lines: sent.split("\n"), digest: r.digest };
+        for (const m of moved) body[m.f.key] = m.body;
+        const a = await postJSON("/config", body).then(outcome)
           .catch((e) => ({ status: 0, body: { error: e.message } }));
         if (a.status === 200) {
-          r.digest = a.body.digest; r.base = sent; r.tplBase = tpl; r.err = "";
-          if (colors) huesBase = JSON.stringify(hues);
-          if (r.cap) r.capBase = cap;
+          r.digest = a.body.digest; r.base = sent; r.err = "";
+          for (const m of moved) m.f.kept(r, m.was);
         } else {
           ok = false;
           if (a.status === 409) clashed = true;

@@ -11,6 +11,16 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ## Unreleased
 
+### Fixed
+- **A tag's config file can no longer set a tree-wide setting.** The default
+  view, the agenda and archive views, the capture target and the tree's state
+  hues belong to `system.org`; a settings write aimed at a tag layer that named
+  one used to be stopped by a list kept beside the rule, and a setting missing
+  from that list would have been written into the tag file silently. Which file
+  a setting belongs to is now declared once, with the setting, and the write
+  reads that declaration. What a tag layer does own — its keyword cycle and its
+  capture template — is written exactly as before.
+
 ### Changed
 - **A write spells no trailing space.** Every text glance composes for a write —
   a subtree the materialize sheet hands back, a captured entry, the document a

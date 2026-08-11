@@ -7,7 +7,7 @@ module TestServe (spec) where
 
 import Control.Monad (filterM, forM_, (<=<))
 import Data.Aeson ( FromJSON, Value (Array, Bool, Null, Number, Object, String)
-                  , eitherDecode, encode, object, parseJSON, (.=) )
+                  , eitherDecode, encode, object, parseJSON, toJSON, (.=) )
 import Data.Aeson.Types (parseEither)
 import Data.ByteString (ByteString)
 import Data.Char (isDigit, isLower)
@@ -46,7 +46,8 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 
-import Glance.Query ( QueryResult (qrRecords), blobPathIn, builtinFilter
+import Glance.Query ( ConfigSetting (csName), QueryResult (qrRecords)
+                    , blobPathIn, builtinFilter, configSettings
                     , linkColumns, loadDir, loadFile, prioritySlots, stateSlots
                     , storeRootIn, tagColumns, todoLines
                     , trashPathFor, viewJSON )
@@ -7305,19 +7306,22 @@ shellGlue =
       , "crows[cat].text = el(\"ctext\").value;"
       , "el(\"clayer\").addEventListener(\"change\""
       , "const cdirty = () => (takeLayer(), crows.some(cmoved));"
-      , "const cmoved = (r) => r.text !== r.base || r.tpl !== r.tplBase"
+      -- ONE LIST for every setting the sheet writes beside the cycle: `cmoved'
+      -- and the flush fold `CFIELDS', so a fourth one is a row and no edit here.
+      , "const cmoved = (r) => r.text !== r.base || cfmoved(r).length > 0;"
+      , "const cfmoved = (r) => CFIELDS.filter((f) => f.on(r) && f.now(r) !== f.was(r));"
       -- The layer's SECOND box: the capture template, a region of the same file
       -- riding in the same write, kept on the layer the way its cycle is.
       , "<textarea id=\"ctpl\" class=\"ctext\""
       , "crows[cat].tpl = el(\"ctpl\").value;"
       , "tpl: layer.template || \"\", tplBase: layer.template || \"\","
-      , "...(tpl !== r.tplBase ? { template: tpl } : {}),"
+      , "{ key: \"template\", on: () => true,"
       -- One POST per layer that moved, each awaited, each under its own digest.
       -- A layer with nothing to send drops the refusal it was carrying, since
       -- the edit that earned it has been taken back.
       , "if (!cmoved(r)) { r.err = \"\"; continue; }"
-      , "postJSON(\"/config\","
-      , "{ path: r.path, lines: sent.split(\"\\n\"),"
+      , "postJSON(\"/config\", body)"
+      , "for (const m of moved) body[m.f.key] = m.body;"
       -- A refusal brings its layer with it, since one box shows one file; a
       -- flush that refused nothing redraws what sits AROUND the box and leaves
       -- the box alone, since `C-x C-s' syncs mid-edit and a redraw there would
@@ -10371,16 +10375,29 @@ configSpec = testGroup "GET and POST /config"
         assertEqual "and the file is untouched" before
           =<< document (T.unpack (tagAt dir "book"))
 
-    -- A default view belongs to a TREE rather than to a tag, so a tag layer's
-    -- write leaves the line alone whatever it named.
-  , testCase "a tag layer cannot set the default view" $
+    -- A TREE-WIDE SETTING BELONGS TO A TREE rather than to a tag, and the route
+    -- takes that off the LAYER it looked up: 'Glance.Query.configEdits' folds
+    -- 'configSettings' and drops the tree-wide rows for a tag layer, so this
+    -- covers a member nobody has written yet.  A hand-written case per setting
+    -- is what member #3 shipped without.
+  , testCase "a tag layer's write reaches no tree-wide setting" $
       withConfigTree $ \a dir -> do
+        assertEqual "the body names every setting the registry carries"
+                    (sort (map csName configSettings)) (sort (map fst everySetting))
         digest <- digestOnDisk (T.unpack (tagAt dir "book"))
-        assertOk =<< postTo a "/config"
-               (viewBody (tagAt dir "book") ["#+TODO: TODO | DONE"] (Just "tag:work") digest)
+        assertOk =<< postTo a "/config" (encode (object
+          ([ "path" .= tagAt dir "book", "digest" .= digest
+           , "lines" .= (["#+TODO: TODO | DONE"] :: [T.Text]) ]
+             <> [ Key.fromText k .= v | (k, v) <- everySetting ])))
         after <- document (T.unpack (tagAt dir "book"))
-        assertBool ("nothing was written: " <> show after)
-                   (not ("GLANCE_DEFAULT_FILTER" `T.isInfixOf` after))
+        -- Every tree-wide member is a `#+GLANCE_' line of `system.org', so the
+        -- claim is over the family rather than over three spellings.
+        assertBool ("a tree-wide line reached a tag layer: " <> show after)
+                   (not ("#+GLANCE_" `T.isInfixOf` after))
+        -- And the mask is not a blanket one, or the claim above would hold for
+        -- a route that wrote nothing at all.
+        assertContains "while the template, which every layer owns, landed"
+                       "* %?" after
 
     -- The capture target is the second tree-wide line of the same file, and it
     -- travels the same way: read off the layers, written in their write.
@@ -10406,15 +10423,6 @@ configSpec = testGroup "GET and POST /config"
         assertOk =<< postTo a "/config" (captureBody (systemAt dir) [] (Just "") fresh)
         after <- document (T.unpack (systemAt dir))
         assertBool ("the line is gone: " <> show after)
-                   (not ("GLANCE_CAPTURE_TARGET" `T.isInfixOf` after))
-
-  , testCase "a tag layer cannot set it either" $
-      withConfigTree $ \a dir -> do
-        digest <- digestOnDisk (T.unpack (tagAt dir "book"))
-        assertOk =<< postTo a "/config"
-               (captureBody (tagAt dir "book") ["#+TODO: TODO | DONE"] (Just "in.org") digest)
-        after <- document (T.unpack (tagAt dir "book"))
-        assertBool ("nothing was written: " <> show after)
                    (not ("GLANCE_CAPTURE_TARGET" `T.isInfixOf` after))
 
     -- The page carries it as DEFAULT_QUERY, read off the store at request time.
@@ -11164,6 +11172,19 @@ captureBody path lines' = layerBody path lines' Nothing
 -- ANSWER's is an ordered array: two shapes for two jobs, and this is the write's.
 wroteView :: T.Text -> Value -> IO T.Text
 wroteView vid v = field "views" v >>= textAt vid
+
+-- | A write naming EVERY setting 'configSettings' carries, in the shapes the
+-- wire spells them.  The names are asserted against the registry where this is
+-- used, so a member left out of it fails rather than passing vacuously.
+everySetting :: [(T.Text, Value)]
+everySetting =
+  [ ("views",    object ["default" .= ("tag:work" :: T.Text)])
+  , ("capture",  toJSON ("notes/in.org" :: T.Text))
+  , ("colors",   toJSON [ object [ "theme" .= ("light" :: T.Text)
+                                 , "keyword" .= ("TODO" :: T.Text)
+                                 , "hue" .= ("#7B1FA2" :: T.Text) ] ])
+  , ("template", toJSON ("* %?" :: T.Text))
+  ]
 
 -- | A layer write over all three of its lines.  Absent leaves a line alone; the
 -- three ride in one request because they are lines of one file.

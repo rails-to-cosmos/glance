@@ -29,6 +29,9 @@
 -- moment one reaches a palette a tree's cycle comes back alphabetized.
 module Data.Org.Config ( ConfigLayerFile (..)
                        , ConfigLayers (..)
+                       , TreeSettings (..)
+                       , noTreeSettings
+                       , treeSettings
                        , TodoKeywords (..)
                        , builtinAgenda
                        , builtinFilter
@@ -50,6 +53,7 @@ module Data.Org.Config ( ConfigLayerFile (..)
                        , viewEdits
                        , viewOf
                        , viewQuery
+                       , viewQueryIn
                        , firstBy
                        , isTodoPragma
                        , keywordScopes
@@ -338,7 +342,7 @@ stateColorsEdits doc colours =
 -- walk declines, so stopping at the extension would bless exactly the paths
 -- this refusal exists for.
 captureTargetIn :: FilePath -> ConfigLayers -> Either Text FilePath
-captureTargetIn root cfg = case fmap T.strip (clCapture cfg) of
+captureTargetIn root cfg = case fmap T.strip (tsCapture (clTree cfg)) of
   Just want | not (T.null want) -> checked want
   _unconfigured                 -> Right (root </> defaultCaptureFile)
   where
@@ -440,14 +444,45 @@ data ConfigLayers = ConfigLayers
   { clSystem  :: !TodoKeywords            -- ^ @config\/system.org@'s sets; empty when there is no such file.
   , clTags    :: ![(Text, TodoKeywords)]  -- ^ @config\/tags\/TAG.org@'s sets, tag lowercased, in file-name order.
   , clSeed    :: !TodoKeywords            -- ^ the recognition union: every keyword any layer names.
-  , clViews   :: ![(Text, Text)]          -- ^ the views @system.org@ names, by id; see 'viewQuery'.
-  , clCapture :: !(Maybe Text)            -- ^ the capture target it names; see 'captureTargetIn'.
-  , clStateColors :: ![(Text, [(Text, Text)])]  -- ^ per-theme keyword hues; see 'stateColorsOf'.
+  , clTree    :: !TreeSettings            -- ^ what @system.org@ says about every tree-wide setting.
   , clPrint   :: !Text                    -- ^ digest over the config files read, @\"\"@ when none were.
   , clDirs    :: ![FilePath]              -- ^ the config directories these were read from, in walk order.
   } deriving (Eq, Show)
 
--- | The query view ID under CFG applies: what @system.org@'s line for it names,
+-- | Every TREE-WIDE setting's value, as one record.
+--
+-- One field per member and nothing else: a reader downstream of the store takes
+-- it off 'clTree' and the settings route takes it off 'treeSettings' over files
+-- it has just read, so a member owes ONE line and both paths have it.
+data TreeSettings = TreeSettings
+  { tsViews   :: ![(Text, Text)]                -- ^ the saved views @system.org@ names, by id; see 'viewQueryIn'.
+  , tsCapture :: !(Maybe Text)                  -- ^ the capture target it names; see 'captureTargetIn'.
+  , tsColors  :: ![(Text, [(Text, Text)])]      -- ^ per-theme keyword hues; see 'stateColorsOf'.
+  } deriving (Eq, Show)
+
+-- | A tree that configures none of them.
+noTreeSettings :: TreeSettings
+noTreeSettings = TreeSettings [] Nothing []
+
+-- | What LAYERS say about every tree-wide setting.
+--
+-- TWO CONSUMERS, ONE FOLD, and that is what makes a new member's reader
+-- automatic rather than a decision.  The LOAD caches this in 'clTree', for every
+-- reader that sits downstream of the store; @GET \/config@ calls it on files it
+-- has JUST READ, because the digest it hands out is the lock a write presents
+-- back and has to be the digest of the bytes it showed.  Both paths are owed —
+-- a route serving the store would pin a fresh digest to a stale value — and
+-- neither is a place a member picks.
+treeSettings :: [ConfigLayerFile] -> TreeSettings
+treeSettings files = TreeSettings
+  { tsViews   = [ (svId v, q) | v <- savedViews, Just q <- [systemSetting (viewOf v) files] ]
+  , tsCapture = systemSetting captureTargetOf files
+  -- EVERY system layer's lines rather than the first that says anything: a tree
+  -- names one line per theme, and a second config directory adds to them.
+  , tsColors  = concat [ stateColorsOf (lfText f) | f <- files, isSystem f ]
+  }
+
+-- | The query view ID applies given TS: what @system.org@'s line for it names,
 -- or that view's built-in where no layer names one.  A view no build carries is
 -- the empty query.
 --
@@ -455,9 +490,16 @@ data ConfigLayers = ConfigLayers
 -- to say: a saved view is a property of a tree rather than of a tag, and two
 -- stores nested under one root would otherwise take turns deciding what the
 -- table opens on.
+--
+-- The FALLBACK is here rather than at each caller, so the store's answer and the
+-- settings route's cannot differ over a tree that names no line.
+viewQueryIn :: Text -> TreeSettings -> Text
+viewQueryIn vid ts =
+  fromMaybe (maybe "" svBuiltin (savedView vid)) (lookup vid (tsViews ts))
+
+-- | The query view ID under CFG applies.
 viewQuery :: Text -> ConfigLayers -> Text
-viewQuery vid cfg =
-  fromMaybe (maybe "" svBuiltin (savedView vid)) (lookup vid (clViews cfg))
+viewQuery vid = viewQueryIn vid . clTree
 
 -- | The query a table under CFG opens on.
 defaultFilter :: ConfigLayers -> Text
@@ -467,7 +509,7 @@ defaultFilter = viewQuery "default"
 -- what every caller that does not want one passes.  Parsing under it is
 -- byte-identical to parsing from 'defaultContext'.
 noConfig :: ConfigLayers
-noConfig = ConfigLayers noKeywords [] noKeywords [] Nothing [] "" []
+noConfig = ConfigLayers noKeywords [] noKeywords noTreeSettings "" []
 
 -- | Where ROOT would keep its config directory.  For a writer — the settings UI
 -- creating @system.org@ — rather than for a reader: a reader is given the
@@ -518,12 +560,9 @@ loadConfigDirs dirs = combine <$> readConfigLayers dirs
       { clSystem  = mergeKeywords [ keywordsIn f | f <- entries, isSystem f ]
       , clTags    = firstBy fst [ (tag, keywordsIn f) | f <- entries, Just tag <- [lfTag f] ]
       , clSeed    = mergeKeywords (map keywordsIn entries)
-      , clViews   = [ (svId v, q) | v <- savedViews
-                                  , Just q <- [systemSetting (viewOf v) files] ]
-      , clCapture = systemSetting captureTargetOf files
-      -- The SYSTEM layer's, like the other two tree-wide settings: a colour for
-      -- a keyword is a property of the tree rather than of one tag.
-      , clStateColors = concat [ stateColorsOf (lfText f) | f <- files, isSystem f ]
+      -- Every tree-wide setting through the one fold the settings route reads
+      -- them with: a member joins there and this line does not move.
+      , clTree    = treeSettings files
       , clPrint   = fingerprint [ (lfPath f, lfDigest f) | f <- entries ]
       , clDirs    = dirs
       }
@@ -537,10 +576,8 @@ loadConfigDirs dirs = combine <$> readConfigLayers dirs
 -- or 'Nothing' where none does.  A tree-wide setting belongs to a tree rather
 -- than to a tag, so a tag layer is never asked.
 --
--- Every tree-wide setting is read this way and both readers share it — the
--- load, which fills 'clViews' and 'clCapture', and the settings route, which reads the
--- same bytes the digests it hands out were taken from, so what a sheet shows
--- and what its write is pinned to describe one file.
+-- Every tree-wide setting is read this way, through the one fold both consumers
+-- share ('treeSettings').
 systemSetting :: (Text -> Maybe Text) -> [ConfigLayerFile] -> Maybe Text
 systemSetting reader layers =
   listToMaybe [ v | l <- layers, isSystem l, Just v <- [reader (lfText l)] ]

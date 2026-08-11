@@ -25,6 +25,9 @@ import Data.Org.Config ( TodoKeywords (..), classify, configDirIn, noKeywords
                        , todoPragmas )
 import Data.Org.Edit (Edit (Edit), applyEdits)
 import Glance.Query ( ConfigLayerFile (..), ConfigLayers (..), ConfigParts (..)
+                    , ConfigSetting (..), SettingScope (..), configSettings
+                    , TreeSettings (..), noTreeSettings, treeSettings
+                    , Span
                     , SavedView (..), savedView, savedViews, viewOf
                     , HeadlineRecord (..)
                     , QueryResult (..), WalkOptions (..), builtinFilter
@@ -352,9 +355,7 @@ classificationSpec = testGroup "Classification"
       let cfg = ConfigLayers { clSystem  = TodoKeywords [] ["TODO", "STARTED"]
                              , clTags    = [("book", TodoKeywords ["READING"] [])]
                              , clSeed    = TodoKeywords ["READING", "STARTED"] ["TODO"]
-                             , clViews   = []
-                             , clCapture = Nothing
-                             , clStateColors = []
+                             , clTree    = noTreeSettings
                              , clPrint   = ""
                              , clDirs    = [] }
           file = TodoKeywords ["STARTED"] ["READING"]
@@ -570,12 +571,12 @@ writeSpec = testGroup "Writing a layer"
         (Right ("#+TITLE: Book\n#+TODO:  TODO READING | READ ABANDONED\n"
                 <> "#+GLANCE_DEFAULT_FILTER: state:*active* sort:state->title\n"
                 <> "\n* Book\n*** Notes\n    %?\n"))
-        (do edits <- configEdits bookConfig Nothing
+        (do edits <- configEdits (systemLayer bookConfig) Nothing
                        noParts { cpViews = [("default", "state:*active* sort:state->title")] }
             first (T.pack . show)
                   (applyEdits bookConfig [ Edit sp new | (sp, new) <- edits ]))
       assertEqual "and absent everything is no edit at all"
-        (Right []) (configEdits bookConfig Nothing noParts)
+        (Right []) (configEdits (systemLayer bookConfig) Nothing noParts)
 
   , testCase "a file spelling its cycle twice comes back spelling it once" $
       -- The first line's offset is kept and every later one goes: a block is
@@ -626,7 +627,7 @@ writeSpec = testGroup "Writing a layer"
   , testCase "what a layer may say, and what it may not" $ do
       mapM_ (\(what, lines') ->
                assertBool what (either (const True) (const False)
-                                       (configEdits bookConfig (Just lines') noParts)))
+                                       (configEdits (systemLayer bookConfig) (Just lines') noParts)))
             [ ("a headline is not a pragma", ["* TODO not a pragma"])
             , ("nor is a title", ["#+TITLE: no"])
             , ("a pragma declaring nothing", ["#+TODO:"])
@@ -643,7 +644,7 @@ writeSpec = testGroup "Writing a layer"
             , ("and a starred word beside real ones", ["#+TODO: TODO *x* | DONE"]) ]
       assertBool "a cycle with fast-access keys is a block"
                  (either (const False) (const True)
-                         (configEdits bookConfig (Just ["#+TODO: TODO(t) | DONE(d)"]) noParts))
+                         (configEdits (systemLayer bookConfig) (Just ["#+TODO: TODO(t) | DONE(d)"]) noParts))
 
     -- The two tree-wide lines of `system.org'.  One reader finds either
     -- ('lastPragmaValue') and one splice writes either ('pragmaLineEdits'), so
@@ -674,14 +675,14 @@ writeSpec = testGroup "Writing a layer"
   , testCase "with no line anywhere the built-in is what answers" $
       withTree Nothing [] [("a.org", "* TODO x\n")] $ \dir -> do
         (cfg, _rows) <- loaded dir
-        assertEqual "nothing configured" [] (clViews cfg)
+        assertEqual "nothing configured" [] (tsViews (clTree cfg))
         assertEqual "so the tree opens on the active group" builtinFilter (defaultFilter cfg)
 
   , testCase "and the system layer's line is what the tree opens on" $
       withTree (Just "#+TODO: TODO | DONE\n#+GLANCE_DEFAULT_FILTER: tag:work\n")
                [] [("a.org", "* TODO x\n")] $ \dir -> do
         (cfg, _rows) <- loaded dir
-        assertEqual "read at load" (Just "tag:work") (lookup "default" (clViews cfg))
+        assertEqual "read at load" (Just "tag:work") (lookup "default" (tsViews (clTree cfg)))
         assertEqual "and it is what answers" "tag:work" (defaultFilter cfg)
 
     -- Where a capture lands is decided HERE, when the config is read, and not
@@ -712,7 +713,7 @@ writeSpec = testGroup "Writing a layer"
       withTree (Just "#+TODO: TODO | DONE\n#+GLANCE_CAPTURE_TARGET: notes/in.org\n")
                [] [("a.org", "* TODO x\n")] $ \dir -> do
         (cfg, _rows) <- loaded dir
-        assertEqual "read at load" (Just "notes/in.org") (clCapture cfg)
+        assertEqual "read at load" (Just "notes/in.org") (tsCapture (clTree cfg))
         assertEqual "and it is what a capture would write to"
                     (Right (dir </> "notes/in.org")) (captureTargetIn dir cfg)
 
@@ -806,7 +807,100 @@ writeSpec = testGroup "Writing a layer"
                   ( TodoKeywords ["TODO", "WAITING", "STARTED"] ["DONE"]
                   , ["alpha", "beta"] )
         =<< reseedWith "#+TODO: WAITING STARTED | DONE"
+
+    -- THE SWEEP ASSERTS WHAT IT SWEPT.  Every case below quantifies over
+    -- 'configSettings', so it covers a member nobody has written yet — but only
+    -- while `everyPart' names every row, and a row it does not name would write
+    -- nothing and pass every claim vacuously.
+  , testCase "the write shape names every setting the registry carries" $
+      mapM_ (\s -> assertBool (T.unpack (csName s) <> " is named by no test write")
+                              (not (null (partEdits s bookConfig))))
+            configSettings
+
+    -- THE SCOPE HAZARD, closed by quantification.  A tree-wide setting omitted
+    -- from the mask let a TAG layer's write set a TREE-WIDE value silently, and
+    -- the only guard was a hand-written case per member — which is what member
+    -- #3 shipped without.  The mask is 'csScope' now, so this covers member #4.
+  , testCase "a tag layer's write reaches no tree-wide setting" $ do
+      let after = written (tagLayer bookConfig)
+      mapM_ (\s -> do
+               let says = T.unpack (csName s)
+                   lines' = addedLines bookConfig (partEdits s bookConfig)
+               assertBool (says <> " writes nothing, so the case proves nothing")
+                          (not (null lines'))
+               mapM_ (\l -> assertBool (says <> " reached a tag layer: " <> show l)
+                                       (l `notElem` T.lines after)) lines')
+            [ s | s <- configSettings, csScope s == TreeWide ]
+
+    -- And the mask is not a blanket one: what a tag layer OWNS still lands, or
+    -- the refusal above would be indistinguishable from a write that stopped.
+  , testCase "and every per-layer setting still lands in one" $ do
+      let after = written (tagLayer bookConfig)
+      mapM_ (\s -> mapM_ (\l -> assertBool (T.unpack (csName s) <> " was masked: " <> show l)
+                                           (l `elem` T.lines after))
+                         (addedLines bookConfig (partEdits s bookConfig)))
+            [ s | s <- configSettings, csScope s == PerLayer ]
+
+  , testCase "and the system layer reaches all of them" $ do
+      let after = written (systemLayer bookConfig)
+      mapM_ (\s -> mapM_ (\l -> assertBool (T.unpack (csName s) <> " never landed: " <> show l)
+                                           (l `elem` T.lines after))
+                         (addedLines bookConfig (partEdits s bookConfig)))
+            configSettings
+
+    -- ONE FOLD, TWO CONSUMERS.  The load caches the tree-wide values for every
+    -- reader downstream of the store and `GET /config' computes them off files
+    -- it has just re-read, because the digest it hands out is the lock a write
+    -- presents back.  Both are owed, and a member picks neither: it joins
+    -- 'TreeSettings' and both answers move.
+  , testCase "the load and the settings route read the tree through one fold" $
+      withTree (Just "#+TODO: TODO | DONE\n\
+                     \#+GLANCE_DEFAULT_FILTER: tag:work\n\
+                     \#+GLANCE_CAPTURE_TARGET: notes/in.org\n\
+                     \#+GLANCE_STATE_COLORS: light TODO=#7B1FA2\n")
+               [] [("a.org", "* TODO x\n")] $ \dir -> do
+        (cfg, _rows) <- loaded dir
+        files <- readConfigLayers [configDirIn dir]
+        assertEqual "what the store holds is what a fresh read answers"
+                    (treeSettings files) (clTree cfg)
+        assertEqual "and every member of it came back"
+                    ( [("default", "tag:work")], Just "notes/in.org"
+                    , [("light", [("TODO", "#7B1FA2")])] )
+                    ( tsViews (clTree cfg), tsCapture (clTree cfg)
+                    , tsColors (clTree cfg) )
   ]
+
+-- | A write naming EVERY setting 'configSettings' carries.  A member left out
+-- of this is what the sweep above refuses.
+everyPart :: ConfigParts
+everyPart = ConfigParts { cpViews    = [("default", "tag:work")]
+                        , cpColors   = Just [("light", [("TODO", "#7B1FA2")])]
+                        , cpCapture  = Just "notes/in.org"
+                        , cpTemplate = Just "* %?" }
+
+-- | DOC as the tree's own @system.org@, and as one tag's config.  A layer is
+-- what 'configEdits' reads the scope off, so a case picks its side by picking
+-- one of these.
+systemLayer, tagLayer :: Text -> ConfigLayerFile
+systemLayer doc = ConfigLayerFile "system.org" Nothing "d" doc
+tagLayer doc = ConfigLayerFile "tags/book.org" (Just "book") "d" doc
+
+-- | Setting S's own edits over DOC, out of the registry rather than by name.
+partEdits :: ConfigSetting -> Text -> [(Span, Text)]
+partEdits s doc = either (const []) id (csEdits s doc everyPart)
+
+-- | 'everyPart' written into LAYER, the whole write and nothing hand-masked.
+written :: ConfigLayerFile -> Text
+written layer = either (\why -> error ("TestConfig: " <> T.unpack why)) id $ do
+  edits <- configEdits layer Nothing everyPart
+  first (T.pack . show) (applyEdits doc [ Edit sp new | (sp, new) <- edits ])
+  where doc = lfText layer
+
+-- | The lines EDITS put into DOC that were not in it.
+addedLines :: Text -> [(Span, Text)] -> [Text]
+addedLines doc edits = case applyEdits doc [ Edit sp new | (sp, new) <- edits ] of
+  Left why    -> error ("TestConfig: " <> show why)
+  Right after -> [ l | l <- T.lines after, l `notElem` T.lines doc ]
 
 -- | DOC with LINES as its @#+TODO:@ block, spliced the way the route splices
 -- it: 'configEdits' for the spans and the write engine's own 'applyEdits' for
@@ -820,7 +914,7 @@ splicedWith doc lines' want = splicing doc lines' want Nothing
 
 -- | A config naming TARGET as its capture target and nothing else.
 naming :: Text -> ConfigLayers
-naming target = noConfig { clCapture = Just target }
+naming target = noConfig { clTree = noTreeSettings { tsCapture = Just target } }
 
 -- | 'spliced', also setting the capture target to TARGET.
 splicedCapture :: Text -> [Text] -> Maybe Text -> Either Text Text
@@ -829,7 +923,7 @@ splicedCapture doc lines' = splicing doc lines' Nothing
 -- | 'spliced' over both of the system layer's tree-wide lines.
 splicing :: Text -> [Text] -> Maybe Text -> Maybe Text -> Either Text Text
 splicing doc lines' want target = do
-  edits <- configEdits doc (Just lines')
+  edits <- configEdits (systemLayer doc) (Just lines')
              noParts { cpViews = maybe [] (\q -> [("default", q)]) want, cpCapture = target }
   first (T.pack . show) (applyEdits doc [ Edit sp new | (sp, new) <- edits ])
 

@@ -29,6 +29,13 @@ module Glance.Query ( BlobSeed (..)
                     , ConfigLayerFile (..)
                     , ConfigLayers (..)
                     , ConfigParts (..)
+                    , ConfigSetting (..)
+                    , SettingScope (..)
+                    , configSettings
+                    , settingsFor
+                    , TreeSettings (..)
+                    , noTreeSettings
+                    , treeSettings
                     , HeadlineParts (..)
                     , HeadlineRecord (..)
                     , IdCollision (..)
@@ -76,6 +83,7 @@ module Glance.Query ( BlobSeed (..)
                     , savedViews
                     , viewOf
                     , viewQuery
+                    , viewQueryIn
                     , defaultWalk
                     , derivedPath
                     , digestOfText
@@ -155,7 +163,6 @@ module Glance.Query ( BlobSeed (..)
                     , tagRunEntries
                     , tagText
                     , tagged
-                    , clStateColors
                     , stateColorsOf
                     , prioritySlots
                     , stateSlots
@@ -213,8 +220,9 @@ import Data.Org.Config ( ConfigLayerFile (..), ConfigLayers (..), TodoKeywords (
                        , SavedView (..), defaultCaptureFile, defaultFilter
                        , isTodoPragma, savedView, savedViews, stateColorsEdits
                        , stateColorsOf
+                       , TreeSettings (..), noTreeSettings, treeSettings
                        , viewEdits, viewOf
-                       , viewQuery
+                       , viewQuery, viewQueryIn
                        , firstBy, keywordScopes
                        , loadConfigDirs, mergeKeywords, noConfig, noKeywords
                        , readConfigLayers, recognizedKeywords, seedContext
@@ -3026,10 +3034,15 @@ topEntry text = headingStars (T.takeWhile (/= '\n') text) == Just 1
 -- call because they are regions of one file, and four calls would be four
 -- writes under four digests each invalidating the last.
 --
+-- LAYER is the file, and its TAG is the whole of the scope rule: a
+-- 'TreeWide' setting is @system.org@'s alone, so a tag layer's write never
+-- reaches one whatever it named.  The mask is 'configSettings' filtered, so a
+-- member declares its scope once and nothing has to remember it again.
+--
 -- The spans are the file's own lines and its first heading, so the
 -- @#+TITLE:@, the comments and a second heading are bytes this never names.
-configEdits :: Text -> Maybe [Text] -> ConfigParts -> Either Text [(Span, Text)]
-configEdits doc asked parts
+configEdits :: ConfigLayerFile -> Maybe [Text] -> ConfigParts -> Either Text [(Span, Text)]
+configEdits layer asked parts
   | not (null strange) = Left ("not a #+TODO: line: " <> T.intercalate " · " strange)
     -- ABSENT lines leave the block exactly as it stands — the rule every
     -- optional region already follows, and what lets a pin write the filter
@@ -3040,17 +3053,9 @@ configEdits doc asked parts
   | null declared      = Left declaresNothing
   | otherwise          = block lines'
   where
+    doc      = lfText layer
     block ls = (todoLineEdits doc ls <>) <$> partEdits
-    partEdits = (<>) <$> viewLines <*> maybe (Right []) (captureTemplateEdits doc) (cpTemplate parts)
-    -- A view is named by its id, so a name no build carries refuses rather than
-    -- writing a line nothing reads.
-    viewLines = fmap ((<> otherLines) . concat) . traverse one $ cpViews parts
-    otherLines = maybe [] (captureTargetEdits doc) (cpCapture parts)
-              <> maybe [] (stateColorsEdits doc) (cpColors parts)
-    one (vid, want) = case savedView vid of
-      Just v  -> Right (viewEdits v doc want)
-      Nothing -> Left ("no view is called " <> vid <> "; this build has "
-                        <> T.intercalate ", " (map svId savedViews))
+    partEdits = concat <$> traverse (\s -> csEdits s doc parts) (settingsFor layer)
     lines'   = filter (not . T.null . T.strip) (fromMaybe [] asked)
     -- A LINE, and the pragma test is a prefix one: an entry carrying a newline
     -- of its own would pass it and write everything past that newline into the
@@ -3076,6 +3081,59 @@ data ConfigParts = ConfigParts
 -- | A layer write asking for nothing but its cycle.
 noParts :: ConfigParts
 noParts = ConfigParts [] Nothing Nothing Nothing
+
+-- | WHOSE FILE a setting is.  A 'TreeWide' one belongs to the tree and lives in
+-- @system.org@; a 'PerLayer' one is every layer's own.  This is the whole of the
+-- scope rule, and it is declared ONCE per member.
+data SettingScope = TreeWide | PerLayer
+  deriving (Eq, Show)
+
+-- | One region a @POST \/config@ may name besides the @#+TODO:@ block: what the
+-- wire calls it, whose file it is, and the edits writing it into a document.
+--
+-- 'csEdits' answers @Right []@ where PARTS does not name the setting, so
+-- "absent leaves it" is the row's own business and no caller tests for it.
+data ConfigSetting = ConfigSetting
+  { csName  :: !Text          -- ^ the field a write names it by, per @SCHEMA.md@.
+  , csScope :: !SettingScope
+  , csEdits :: !(Text -> ConfigParts -> Either Text [(Span, Text)])
+  }
+
+-- | EVERY setting a config write carries beside the cycle, in the order their
+-- edits are composed.
+--
+-- ONE ROW PER MEMBER and every reader folds this list, which is what closes the
+-- scope hazard: 'settingsFor' takes the tag-layer mask off 'csScope', so a
+-- tree-wide member added here is masked out of tag-layer writes by construction
+-- rather than by a record update in a route somebody has to remember to edit.
+--
+-- ORDER IS DATA.  Two absent pragmas insert at the same offset and
+-- 'Data.Org.Edit.applyEdits' resolves that in list order, so this list decides
+-- which line a file that carried neither ends up with first.
+configSettings :: [ConfigSetting]
+configSettings =
+  [ ConfigSetting "views"    TreeWide viewPartEdits
+  , ConfigSetting "capture"  TreeWide (\doc p -> Right (maybe [] (captureTargetEdits doc) (cpCapture p)))
+  , ConfigSetting "colors"   TreeWide (\doc p -> Right (maybe [] (stateColorsEdits doc) (cpColors p)))
+  , ConfigSetting "template" PerLayer (\doc p -> maybe (Right []) (captureTemplateEdits doc) (cpTemplate p))
+  ]
+
+-- | The settings LAYER's own write may touch: every one where it is
+-- @system.org@, the 'PerLayer' ones alone where it configures a tag.
+settingsFor :: ConfigLayerFile -> [ConfigSetting]
+settingsFor layer
+  | isNothing (lfTag layer) = configSettings
+  | otherwise               = [ s | s <- configSettings, csScope s == PerLayer ]
+
+-- | The @views@ setting's edits: a view is named by its id, so a name no build
+-- carries refuses rather than writing a line nothing reads.
+viewPartEdits :: Text -> ConfigParts -> Either Text [(Span, Text)]
+viewPartEdits doc parts = concat <$> traverse one (cpViews parts)
+  where
+    one (vid, want) = case savedView vid of
+      Just v  -> Right (viewEdits v doc want)
+      Nothing -> Left ("no view is called " <> vid <> "; this build has "
+                        <> T.intercalate ", " (map svId savedViews))
 
 declaresNothing :: Text
 declaresNothing =
