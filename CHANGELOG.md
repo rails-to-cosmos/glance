@@ -11,13 +11,6 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ## Unreleased
 
-### Fixed
-- **A heading carrying a bracketed date is no longer reported as a span
-  violation.** `* Decided [2026-08-11]` tripped the scan's own title check,
-  which compared the slice against a re-render — and a render recomputes a
-  timestamp's weekday, so a source stamp without one never matched itself. The
-  parse and the span were always right; the oracle was too strict.
-
 ## 0.6.0.0 - 2026-08-11
 
 ### Added
@@ -106,6 +99,11 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ### Fixed
 
+- **A heading carrying a bracketed date is no longer reported as a span
+  violation.** `* Decided [2026-08-11]` tripped the scan's own title check,
+  which compared the slice against a re-render — and a render recomputes a
+  timestamp's weekday, so a source stamp without one never matched itself. The
+  parse and the span were always right; the oracle was too strict.
 - **`delete` no longer logs "state cleared" over every row it removes.** The
   log strip is the page's audit surface, and the one destructive command was
   reporting a state change on each file it moved out of the tree.
