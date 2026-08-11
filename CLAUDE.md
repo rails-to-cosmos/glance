@@ -1783,6 +1783,16 @@ measurements and the history of superseded designs live in
   A cursor is owed a LINE rather than an id across the write (`joinLine`,
   `placeOfLine`, `Model.landing`), block ids being positional: the rescan mints
   the row. A child refuses and a blank one writes nothing.
+- AN ITEM'S TOKEN IS ON SCREEN WHILE IT IS TYPED. The box is laid over the drawn
+  row EXACTLY and OPAQUELY, so the lead the row wears — `- `, `1. `, `- [ ] ` —
+  would otherwise show only after `RET`, with the field looking empty. The box
+  carries it, SEEDED ONCE from the DRAWN ROW rather than computed in the shell
+  (the lead is `Scan.itemLead`'s answer and this page spells no org grammar; a
+  second seeding would overwrite the typing), and `commitDocEdit` takes it back
+  off before the write, since Elm composes the line from the STOP. A lead the
+  reader edited away is theirs to have edited away. A box holding nothing but
+  its own token is no item and writes nothing, which is the blank wall asked of
+  what is LEFT after the lead.
 - `SPC` TOGGLES AN ORG CHECKBOX at the stop under point, and `C-c C-c` with no
   element open is the same toggle (org's second meaning of the key). The box is
   the item's FIRST line (`CHECKBOX`: bullet or number, then `[ ]`/`[X]`/`[x]`/
