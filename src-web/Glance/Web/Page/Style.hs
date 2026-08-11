@@ -139,11 +139,14 @@ page head' colours title body = T.unlines
       -- AN EDIT IS INLINE, and this is the whole of what makes it so: the BLOCK
       -- at point stands as tall as what is being typed into it, so the lines
       -- under it MOVE DOWN rather than being covered.  `placeEdit' then sizes
-      -- the box off the block as it always has.  One line when nothing is open,
-      -- so the rule costs a cursor row nothing.  The 2px is the textarea's own
-      -- vertical padding, and the metrics are the FIELD's, whose text has to
-      -- fit inside what this reserves.
-  , "  .de.dat{min-height:calc(var(--g-doc-rows, 1) * var(--g-edit-fs)"
+      -- the box off the block as it always has.
+      --
+      -- ZERO WHEN NOTHING IS OPEN, and that is the whole of what keeps a cursor
+      -- row the height of every other row: the FIELD's metrics are 13px/1.5 and
+      -- the PANE's are 13px/1.6, so a floor of one field-line is 21.5px against
+      -- a row's own 20.8 — three quarters of a pixel taller, which reads as the
+      -- highlighted line sitting a pixel high.  A HIGHLIGHT MOVES NO BOX.
+  , "  .de.dat{min-height:calc(var(--g-doc-rows, 0) * var(--g-edit-fs)"
   , "    * var(--g-edit-lh) + 2px)}"
   -- A FLAG IS DRESSED THE WAY THE TABLE DRESSES ONE, being the same gesture
   -- over the same queue: `--g-bad' IS `--tv-flag', `--g-flag-wash' the strength

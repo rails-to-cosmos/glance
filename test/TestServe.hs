@@ -3540,13 +3540,21 @@ sheetSpec shell =
       -- growth exists for: the block is one line whatever is written.
       insheet "press:n press:+ dpara:one|two|three|four" $
         assertEqual "an added paragraph grows the same way" "4" <=< textAt "dprows"
-      -- AND THE BLOCK GIVES THE ROOM BACK.  What grows is the block at point,
-      -- so a number left standing would hold a document open around an edit
-      -- that is over.
+      -- AND THE BLOCK GIVES THE ROOM BACK, to ZERO rather than to one: the
+      -- field's metrics are 13px/1.5 where the pane's row is 13px/1.6, so a
+      -- floor of one field-line stands a cursor row three quarters of a pixel
+      -- taller than every other row and the highlight reads as sitting high.
+      -- A HIGHLIGHT MOVES NO BOX, so the floor is inert with nothing open.
       insheet "press:n press:Enter dpara:one|two|three press:Escape" $
-        assertEqual "one line again once the edit is gone" "1" <=< textAt "dprows"
+        assertEqual "no floor at all once the edit is gone" "0" <=< textAt "dprows"
       insheet "press:n press:Enter dpara:one|two|three press:Enter" $
-        assertEqual "and a commit gives it back too" "1" <=< textAt "dprows"
+        assertEqual "and a commit gives it back too" "0" <=< textAt "dprows"
+      -- A sheet that never opened an edit never writes the number at all, and
+      -- the STYLESHEET's own `0' fallback is what covers it — which is why the
+      -- fallback is the value it is rather than a spelling of the same thing.
+      insheet "" $
+        assertEqual "a sheet with nothing open never wrote one" ""
+          <=< textAt "dprows"
 
   , testCase "RET opens a paragraph as text, and C-x C-s writes it" $ do
       insheet "press:n press:Enter" $ \answer -> do
@@ -5971,7 +5979,7 @@ editIndentSweep shell = testCase "the paragraph's edit box is the block it cover
   -- ran still stands one line tall.
   block <- need "the block's floor" (between "  .de.dat{" "}" page)
   assertBool ("the block's floor is the line count it was handed: " <> T.unpack block)
-             ("min-height:calc(var(--g-doc-rows, 1)" `T.isInfixOf` block)
+             ("min-height:calc(var(--g-doc-rows, 0)" `T.isInfixOf` block)
   assertEqual "a metric the floor restates instead of reading" []
               [ n | n <- ["13px", "1.5 "], n `T.isInfixOf` block ]
   assertBool "the pane's inset is one name, read by both"

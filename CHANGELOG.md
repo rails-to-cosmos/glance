@@ -12,6 +12,11 @@ section groups a feature arc, and its date is that arc's last commit.
 ## Unreleased
 
 ### Fixed
+- **A highlighted line in the materialize sheet sits where an unhighlighted
+  one does.** The cursor row carried the edit box's floor even with nothing
+  open, and the box's line height is a shade tighter than the pane's, so the
+  highlighted line stood three quarters of a pixel taller than its
+  neighbours and read as offset upward.
 - **A headline whose keyword or priority ends its line no longer eats the line
   under it.** `* TODO` followed by a second headline read as ONE entry titled
   with the second's own line; followed by a property drawer it swallowed the

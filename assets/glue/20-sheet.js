@@ -362,7 +362,7 @@
     const sizeDocEdit = () => el("mdoc").style.setProperty("--g-doc-rows",
       String(dparaing()
         ? Math.max(1, Math.min(DOCROWS, el("dtext").value.split("\n").length))
-        : 1));
+        : 0));
     /** Put a newline in at the caret, which is what the key would have done. */
     function newlineIn(id) {
       const box = el(id), at = box.selectionStart, to = box.selectionEnd;
