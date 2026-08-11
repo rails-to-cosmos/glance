@@ -91,6 +91,8 @@ keyBindings =
       `helps` "flag for archive; d again archives all flagged"
   , bind ["D"]          "org-glance-overview:delete"      (Just "archiveRows")    "table"
       `helps` "archive the flagged; an already-archived row deletes, on a typed word"
+  , bind ["x"]          "dired-do-flagged-delete"         (Just "flaggedDelete")  "table"
+      `helps` "act on the flagged rows, after asking; d flags, D is the quick one"
   , bind ["S-<up>"]     "priority-up"                     (Just "priorityUp")     "table"
       `helps` priorityHelp
   , bind ["S-<down>"]   "priority-down"                   (Just "priorityDown")   "table"
@@ -144,6 +146,7 @@ reservedChords = ["C-l", "C-r", "C-t", "C-w", "C-n", "C-p", "<f5>"]
 onceCommands :: [Text]
 onceCommands = [ "filter-drop-token", "unmark-all", "mark-all"
                , "archive-flag", "org-glance-overview:delete"
+               , "dired-do-flagged-delete"
                , "set-saved-view"
                , "org-glance-overview:open", "org-glance-agenda"
                , "org-glance-overview:relations"

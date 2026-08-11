@@ -221,6 +221,9 @@ const Popups = ((deps) => {
       walk: () => stepIn(tmount, 1),
       missing: lacks("delete flags"),
       none: "org-toggle-tag (no tag)",
+      idle: "dired-do-flagged-delete (no deletions requested)",
+      spared: "dired-do-flagged-delete (left standing)",
+      verb: "remove",
       unflag: "tag-unflag (flag cleared)",
       flag: "tag-flag (d again removes)",
     };

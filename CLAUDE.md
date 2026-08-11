@@ -1381,11 +1381,12 @@ measurements and the history of superseded designs live in
   flag off before it touches a mark, and `U` clears flags with marks. Flags are
   the RENDERER's session state, keyed by id like marks. The pair is
   feature-detected: an asset predating it echoes and writes nothing.
-- ONE `d`/`D`/`u` GESTURE OVER THREE SURFACES — table, property panel, tags popup
-  — and `flagKey` is the whole of it: the cursor read, the two-press rule, the
-  set-or-row choice, the spending of the flags, the feature refusal and the walk
-  after `u`. A surface DECLARES a shape: its mount, its cursor as an id, what
-  "take these" means, what it LOGS, and four PHRASES. WHO SPEAKS belongs to the
+- ONE `d`/`D`/`x`/`u` GESTURE OVER FIVE SURFACES — table, property panel, tags
+  popup, document pane, states table — and `flagKey` is the whole of it: the
+  cursor read, the two-press rule, the set-or-row choice, the spending of the
+  flags, the feature refusal and the walk after `u`. A surface DECLARES a shape:
+  its mount, its cursor as an id, what "take these" means, what it LOGS, and its
+  PHRASES. WHO SPEAKS belongs to the
   caller — the popups say `KEY → phrase`, the table says it through `said`, which
   spells the binding's own command name and brackets the phrase. The CURSOR is
   asked for before the FLAGS: `D` means "take these" and a lone row is a set of
@@ -1394,6 +1395,18 @@ measurements and the history of superseded designs live in
   is a function of what LANDED. `u`'s flag-before-mark stays in `mark`: over the
   popups `u` is the flag key, over the table it is the MARK key preferring a
   flag.
+- `x` IS `dired-do-flagged-delete` AND `D` IS THE QUICK HALF OF THE SAME PAIR.
+  `x` takes the FLAGS ALONE — never the row at point, which is what makes it the
+  deliberate one — and ASKS, naming the count. Nothing flagged is dired's own
+  "no deletions requested" and writes nothing. ONE QUESTION, WEIGHTED TO THE
+  ACT: a take that raises a wall of its own is not asked about twice, so a
+  wholly archived set goes straight to the typed `delete` — the stronger word —
+  and everything else asks for `yes`. The shape says which by declaring
+  `walled`, which only the table does, because it is the only surface whose take
+  can be a permanent delete. `flagPress` is the one door for the sheet's four,
+  so a surface answers `x` by declaring `verb`, `idle` and `spared` and nothing
+  else. In `ONCE`: a held `x` would re-raise its question over a page whose
+  `RET` commits a write.
 - `t`/`C-c C-t` raise a value palette of the shell's OWN, showing the RESOLVER'S
   TRUTH: `GET /keywords?ids=…` answers with the classification chain behind those
   rows, drawn as a table — Source | Active | Inactive, one row per source in

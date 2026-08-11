@@ -11,6 +11,14 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ## Unreleased
 
+### Added
+- **`x` is dired's `dired-do-flagged-delete`,** on the table and on all four of
+  the materialize sheet's flag surfaces. It takes the FLAGGED rows alone —
+  never the row at point, which is what `D` does — and asks first, naming the
+  count. Nothing flagged writes nothing and says so. One question, weighted to
+  what it will do: a set that is wholly archived asks for the typed `delete` it
+  always did, everything else asks for `yes`, and neither asks twice.
+
 ## 0.5.0.0 - 2026-08-11
 
 ### Added

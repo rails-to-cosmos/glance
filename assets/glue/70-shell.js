@@ -155,6 +155,7 @@
                              toggleCheckbox(b);
                            else said(b, "nothing open here"); },
       archiveRows: (b) => flagKey("D", XFLAGS(b), (what) => said(b, what)),
+      flaggedDelete: (b) => flagKey("x", XFLAGS(b), (what) => said(b, what)),
       setState: (b) => overTargets(b, "set state", askState),
       manageTags: (b) => overTargets(b, "tags", askTags),
       capture: (b) => openCapture(b),

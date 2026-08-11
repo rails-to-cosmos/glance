@@ -1839,6 +1839,53 @@ tagKeySpec shell =
       "" "archived:r1,r2 press:d press:n press:d press:D type:delete press:Enter" $ \answer -> do
         assertEqual "one delete over both" [("delete", ["r1", "r2"])] =<< postedOf answer
 
+    -- `x' IS `dired-do-flagged-delete', the deliberate half of the pair `D' is
+    -- the quick half of: the FLAGS alone — never the row at point — and it asks
+    -- first, naming the count.
+  , keyed shell "x takes the flags and asks, naming the count"
+      "" "press:d press:n press:d press:x" $ \answer -> do
+        assertEqual "nothing posted on the press alone" [] =<< namesOf answer
+        assertEqual "the question is up" "on" =<< textAt "prompt" answer
+        assertEqual "naming the act and how many" "archive · 2 flagged"
+          =<< textAt "phead" answer
+
+  , keyed shell "and the word sends it over exactly those rows"
+      "" "press:d press:n press:d press:x type:yes press:Enter" $ \answer -> do
+        assertEqual "one archive, over both flagged rows"
+                    [("archive", ["r1", "r2"])] =<< postedOf answer
+        assertEqual "and the flags are spent" [] =<< textsAt "flagged" answer
+
+  , keyed shell "and anything else leaves them standing"
+      "" "press:d press:n press:d press:x type:no press:Enter" $ \answer -> do
+        assertEqual "nothing posted" [] =<< namesOf answer
+        echoIs "and it says so"
+          "x → dired-do-flagged-delete (left standing)" answer
+        assertEqual "the flags are where they were" ["r1", "r2"]
+          =<< textsAt "flagged" answer
+
+    -- FLAGS ALONE.  `D' falls back to the row at point and `x' does not, which
+    -- is the whole of what makes it the deliberate one.
+  , keyed shell "x with nothing flagged writes nothing and says dired's words"
+      "" "press:x" $ \answer -> do
+        assertEqual "nothing posted" [] =<< namesOf answer
+        assertEqual "and nothing asked" "" =<< textAt "prompt" answer
+        echoIs "" "x → dired-do-flagged-delete (no deletions requested)" answer
+
+    -- ONE QUESTION, WEIGHTED TO THE ACT.  A wholly archived set is the delete
+    -- path, which has a word of its own — so `x' does not ask twice, and what
+    -- it asks for is the stronger word rather than `yes'.
+  , keyed shell "x over a wholly archived set asks for the delete word, once"
+      "" "archived:r1,r2 press:d press:n press:d press:x" $ \answer -> do
+        assertEqual "nothing posted yet" [] =<< namesOf answer
+        assertContains "the question is the delete one" "delete"
+          =<< textAt "phead" answer
+  , keyed shell "and that word deletes, with no second question"
+      "" "archived:r1,r2 press:d press:n press:d press:x type:delete press:Enter" $
+        \answer -> do
+          assertEqual "one delete over both" [("delete", ["r1", "r2"])]
+            =<< postedOf answer
+          assertEqual "and nothing is left asking" "" =<< textAt "prompt" answer
+
   , keyed shell "D is the same handler without the flagging press" "m m :" "press:D" $ \answer -> do
         assertEqual "both rows" [("remove-tag", ["r1", "r2"])] =<< postedOf answer
         assertEqual "and the popup stands" "on" =<< textAt "tagpop" answer
@@ -4093,6 +4140,29 @@ sheetSpec shell =
         assertEqual "the flag is still there" [1] =<< flaggedOf answer
         assertEqual "and nothing was written" ([] :: [Value]) =<< listAt "writes" answer
 
+    -- AND `x' IS THE SAME GESTURE HERE, one surface over: the FLAGS alone, and
+    -- it asks first.  `flagPress' is the one door, so the sheet's four surfaces
+    -- answer it the way the table does without spelling it again.
+  , testCase "x over the document asks before it splices" $ do
+      insheet "press:n press:d press:x" $ \answer -> do
+        assertEqual "nothing written on the press alone" ([] :: [Value])
+          =<< listAt "writes" answer
+        assertEqual "the question is up" "on" =<< textAt "prompt" answer
+        assertEqual "naming the act and how many" "delete · 1 flagged"
+          =<< textAt "phead" answer
+      insheet "press:n press:d press:x type:yes press:Enter" $ \answer ->
+        assertEqual "and the word splices it out"
+                    ["* TODO one\nsecond para\n** two\nchild body\n"]
+          =<< traverse (textAt "body") =<< listAt "writes" answer
+      insheet "press:n press:d press:x type:no press:Enter" $ \answer -> do
+        assertEqual "anything else writes nothing" ([] :: [Value])
+          =<< listAt "writes" answer
+        assertEqual "and the flag stands" [1] =<< flaggedOf answer
+      insheet "press:n press:x" $ \answer -> do
+        assertEqual "nothing flagged is nothing to do" ([] :: [Value])
+          =<< listAt "writes" answer
+        echoIs "" "x → dired-do-flagged-delete (no deletions requested)" answer
+
     -- A HEADLINE is refused: deleting an entry is not what this sheet is for,
     -- and there is no command behind it.  It says so rather than doing nothing.
   , keyed shell "a headline is not deleted from the document, and says so"
@@ -5791,6 +5861,9 @@ atBoot page label check = testCase label (reading check =<< page)
 onceNames :: [T.Text]
 onceNames = [ "filter-drop-token", "unmark-all", "mark-all"
             , "archive-flag", "org-glance-overview:delete"
+              -- A held `x' re-raises its question over a page whose RET commits
+              -- a write, the same hazard the pin has.
+            , "dired-do-flagged-delete"
               -- A held pin re-raises its question per repeat, over a page whose
               -- letters commit a config write.
             , "set-saved-view"
@@ -11390,6 +11463,11 @@ expectedRows =
   , (["D"],          "D",       "org-glance-overview:delete",      Just "archiveRows",    "table",
        Just "archive the flagged; an already-archived row deletes, on a typed word")
     -- Org's own priority keys, and they CYCLE: a ring of three plus none, so a
+    -- dired's OTHER half of the pair: `D' is the quick one and takes the row at
+    -- point where nothing is flagged; `x' takes the FLAGS alone and asks first,
+    -- naming the count.
+  , (["x"],          "x",       "dired-do-flagged-delete",         Just "flaggedDelete",  "table",
+       Just "act on the flagged rows, after asking; d flags, D is the quick one")
     -- press is the answer where a palette would be a list of three to read.
   , (["S-<up>"],     "S-<up>",  "priority-up",                     Just "priorityUp",     "table",
        Just "cycle the priority of the marked rows, or the row at point")

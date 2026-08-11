@@ -345,7 +345,8 @@
 
     // THE TABLE'S OWN CURSOR, PAGING, MARKS AND FLAGS.  They rode into the
     // sheet file with the panel and came back here (docs/proposal-elm-sheet.md).
-    // dired's `d'/`D'/`u' over four surfaces, each declaring a SHAPE — CLAUDE.md (UI).
+    // dired's `d'/`D'/`x'/`u' over five surfaces, each declaring a SHAPE — CLAUDE.md (UI).
+    const YES = "yes";
     function flagKey(k, s, say) {
       const m = s.mount();
       const at = s.at();
@@ -359,6 +360,25 @@
         return;
       }
       if (!flagsOn(m)) { say(s.missing); return; }
+      // `x' IS `dired-do-flagged-delete': the FLAGS alone — never the row at
+      // point, which is what makes it the deliberate half of the pair `D' is
+      // the quick half of — and it ASKS, naming the count.
+      //
+      // ONE QUESTION, WEIGHTED TO THE ACT.  A take that raises a wall of its
+      // own — the table's typed `delete' over a set already archived — is not
+      // asked about twice, and its wall is the stronger of the two anyway.
+      if (k === "x") {
+        if (!flags.length) { say(s.idle); return; }
+        const go = () => {
+          if (can(m, "clearFlags")) m.clearFlags();
+          s.take(flags, (n) => `${n} flagged`);
+        };
+        if (s.walled && s.walled(flags)) { go(); return; }
+        askText(`${s.verb} · ${flags.length} flagged`,
+                `type ${YES} and RET · ESC leaves them`, "",
+                (c) => (c.text.trim().toLowerCase() === YES ? go() : say(s.spared)));
+        return;
+      }
       if (k === "u") {
         m.unflagRow(at);
         s.note(at, false);

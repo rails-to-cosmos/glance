@@ -668,6 +668,9 @@
       walk: () => stepIn(pmount, 1),
       missing: lacks("delete flags"),
       none: "org-delete-property (no row)",
+      idle: "dired-do-flagged-delete (no deletions requested)",
+      spared: "dired-do-flagged-delete (left standing)",
+      verb: "drop",
       unflag: "delete-unflag (flag cleared)",
       flag: "delete-flag (d again deletes)",
       at: () => { const i = patAt(); return i === -1 ? null : prows[i].id; },
@@ -678,13 +681,16 @@
       walk: () => docStep(1),
       missing: "this document has no flags",
       none: "org-delete-element (no element)",
+      idle: "dired-do-flagged-delete (no deletions requested)",
+      spared: "dired-do-flagged-delete (left standing)",
+      verb: "delete",
       unflag: "delete-unflag (flag cleared)",
       flag: "delete-flag (d again deletes)",
       at: () => docCursor().at,
     };
-    // The held-key guard is here: `ONCE' governs dispatch rows, these three live outside.
+    // The held-key guard is here: `ONCE' governs dispatch rows, these four live outside.
     const flagPress = (k, e, shape) => {
-      if (k !== "d" && k !== "D" && k !== "u") return false;
+      if (k !== "d" && k !== "D" && k !== "u" && k !== "x") return false;
       if (!repeating(e)) flagKey(k, shape, keySaid(k));
       return true;
     };
@@ -906,6 +912,11 @@
         noted(id, on ? "marked for deletion" : "unmarked for deletion"),
       missing: lacks("archive flags"),
       none: "no row",
+      idle: "no deletions requested",
+      spared: "left standing",
+      verb: "archive",
+      // Already archived is the delete path, and it asks for a WORD of its own.
+      walled: (ids) => ids.every(archivedRow),
       unflag: "flag cleared",
       flag: "flagged — d again archives",
     });
