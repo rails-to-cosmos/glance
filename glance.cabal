@@ -281,8 +281,10 @@ test-suite glance-test
       TestEdit
       TestExternal
       TestFilter
+      TestGen
       TestIndex
       TestParser
+      TestProperties
       TestQuery
       TestRoundtrip
       TestSelfContained
@@ -305,6 +307,7 @@ test-suite glance-test
   ghc-options: -Wall -Werror=incomplete-patterns -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5
+    , QuickCheck
     , aeson
     , async
     , bytestring

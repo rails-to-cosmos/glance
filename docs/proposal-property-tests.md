@@ -1,6 +1,7 @@
 # Proposal — the parser's laws are universals, so test them as universals
 
-**Status:** proposed · **Date:** 2026-08-11 · **Origin:** user, after a session
+**Status:** DELIVERED 2026-08-11 · see [What shipped](#what-shipped) at the foot
+· **Date:** 2026-08-11 · **Origin:** user, after a session
 where four bugs shipped past 1781 green tests and were caught by looking — an
 edit overlay that covered the document under it (fixed in `cb6db85`), a flag
 drawn in the warning orange, an empty paragraph collapsing to zero height, badge
@@ -554,3 +555,79 @@ mutation group behind `GLANCE_CORPUS`.
 3. **Whether the adversarial pool grows into `TestNegative` or stays in
    `TestGen`.** The negative properties are about documents the parser is
    DOCUMENTED to refuse, and that list is `TestNegative`'s subject already.
+
+## What shipped
+
+`test/TestGen.hs` (the spec, the offset-tracking renderer, the two alphabets,
+the shrinkers, the census), `test/TestProperties.hs` (24 cases in seven groups),
+the `testProperty` shim in `TestDefaults`, one `Spec.hs` entry, and QuickCheck
+2.18.0.0 in `glance.cabal` — resolved from the store, zero fetches. Product LOC:
+**zero**. Suite: **1789 → 1813**, the group standing alone in **0.39 s**, which
+is inside the run-to-run noise of the whole suite and well under the 5 s budget.
+Open decision 1 landed as its DEFAULT half — fixed seed inside `cabal test`,
+unfixed by `GLANCE_QC_SEED`. The `make prop` half and open decision 2's
+corpus-mutation group are NOT delivered.
+
+### Six live findings, each a documented universal the generator falsified
+
+Each is reproduced by the org text beside it and none is fixed here.
+
+1. **A headline whose keyword or priority is the last thing on its line eats the
+   next line.** `todoP` and `priorityP` are `lexemeP`s, whose trailing
+   `MPC.space` crosses the NEWLINE. `* TODO\n* Next\nmore` is ONE headline,
+   titled `* Next`; `* TODO\nSCHEDULED: <2024-01-15 Mon>` reads the planning
+   line as the title and carries no schedule; `* [#A]\n:PROPERTIES:\n:ORG_GLANCE_ID:
+   x1\n:END:` loses the drawer and the id — the same class as the Dutch weekday,
+   which cost 28 blobs their id. `TestNegative` pins `* TODO` at END OF INPUT,
+   where nothing follows to be eaten.
+2. **Trailing horizontal space on a title line detaches the planning line.**
+   `planningP` opens with `MPC.eol` and nothing consumed the spaces, so
+   `* Task  \nSCHEDULED: <2024-01-15 Mon>` carries no schedule and the stamp
+   becomes a top-level element. Same for `* Task :x:  `.
+3. **A blank top entry breaks the tiling.** `* Task\nbody\n* \nmore\n* Last\n`
+   yields extents `[0,12)` and `[20,27)`: the blank entry keeps its extent in
+   `subtreeSpans` and loses its record in `recordsOf`, so `[12,20)` belongs to no
+   row. `CLAUDE.md` says surviving extents tile and consecutive ones meet
+   exactly.
+4. **Decompose → recompose is not byte-identical for an EMPTY drawer.**
+   `* a\n:PROPERTIES:\n:END:\n` comes back `* a\n`. `HeadlineParts` carries no
+   bit for a drawer's presence, so a drawer holding no pair reads as a client
+   that emptied one. A materialize and an unmodified flush delete it.
+5. **…nor for a planning line spelling one keyword twice, or closed by
+   horizontal space, or unterminated at EOF.** `CLOSED: <a> CLOSED: <b>` comes
+   back as `CLOSED: <b>` (the parse is last-wins, the region is the whole line,
+   the recompose writes what survived); `CLOSED: <a>  ` loses the two spaces
+   (`planningText` rebuilds from each entry's raw text plus the line ending, and
+   what trails the last entry is in neither); a file whose last line is an
+   unterminated `CLOSED: <a>` comes back one newline longer.
+6. **A `Restart` repeater signed `TRSMinus` is outside the parser's image and
+   does not round-trip.** `repeaterFormat` spells it `-4d`, which
+   `tsCookieParser` tries as a WARNING first. Unreachable from any org text, so
+   this is the `Timestamp` value space being wider than the parse rather than a
+   defect — stated because the generator has to know it.
+
+Findings 3, 4 and 5 are excluded from the properties they falsify, by a named
+predicate carrying the reason. Findings 1 and 2 are excluded at the generator
+(`TestGen.normEntry`, and trailing space emitted on an entry's LAST line only).
+
+### Where the delivery diverges from the plan above
+
+- **`prop_oneOwnerPerByte` is weaker than proposed.** `regionSpans` is
+  module-private, so the tiling equation is unreachable; what ships is the body's
+  lines being a SUBSEQUENCE of the subtree's, plus the logbook not also being in
+  the body.
+- **The coverage assertion is a deterministic census, not `checkCoverage`.** One
+  400-document sample under a fixed generator seed, with a floor per shape and
+  the whole census printed on failure — an exact count rather than a statistical
+  one, which is what `groundSweep` does. A second census counts both sides of
+  `applyEdits`' acceptance boundary.
+- **Two `applyEdits` properties take sets that are disjoint BY CONSTRUCTION.**
+  Only a fifth of the adversarial sets are legal, and a precondition discarding
+  four cases in five is a property mostly not being run; legality is asserted
+  inside each rather than assumed.
+- **The lens idempotence property compares the logbook with its terminator
+  stripped.** A region that was the file's last line and no longer is must gain
+  one, which is the splice being right.
+- **`subtreeSpans` is reached through `loadFile`,** not directly: it is not
+  exported from `Glance.Query`, so the tiling property reads the records a store
+  would hold and therefore also covers `recordsOf`'s two filters.

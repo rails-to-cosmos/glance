@@ -12,6 +12,18 @@ section groups a feature arc, and its date is that arc's last commit.
 ## Unreleased
 
 ### Added
+- **The span layer's laws are tested as universals.** The suite grows a document
+  generator and 24 property groups over it: a `DocSpec` is rendered to org text
+  while the offsets it lands at are recorded, so the parser's spans are compared
+  against an answer counted by code the parser never ran. What they cover is
+  every sub-span's position, `hsFull` as a fold, subtree extents tiling, the
+  nesting and reparse invariants, `stripSpans` leaving no offset behind,
+  `applyEdits`' acceptance boundary and length algebra, the subtree lens'
+  byte-identity, and a timestamp surviving render then parse under any weekday
+  spelling. The seed is fixed so a red run replays from the commit alone;
+  `GLANCE_QC_SEED=N cabal test` unfixes it. The generator is asserted before
+  anything is read through it — a census over 400 documents that fails when the
+  image goes narrow.
 - **`make mutate` grades the suite.** One rewrite per mutant over one file —
   ten rules across Haskell, JavaScript and Elm — run in a git worktree with its
   own build dir at `-O0`, and a mutant the suite leaves green names an

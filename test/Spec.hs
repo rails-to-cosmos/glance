@@ -7,6 +7,7 @@ import qualified TestExternal as External
 import qualified TestFilter as Filter
 import qualified TestIndex as Index
 import qualified TestParser as Parser
+import qualified TestProperties as Properties
 import qualified TestRoundtrip as Roundtrip
 import qualified TestTimestamp as Timestamp
 import qualified TestContext as Context
@@ -40,6 +41,7 @@ tests = testGroup "Tests"
   , Store.spec
   , Config.spec
   , Desktop.spec
+  , Properties.spec
   ]
 
 main :: IO ()

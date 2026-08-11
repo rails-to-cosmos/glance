@@ -40,6 +40,8 @@ module TestDefaults ( assertContains
                     , systemFileIn
                     , tagFileIn
                     , tagsDirIn
+                    , testProperty
+                    , testPropertyWith
                     , writeLayers
                     , textAt
                     , viewText
@@ -79,7 +81,12 @@ import System.FilePath ((</>))
 import System.IO (hPutStrLn, stderr)
 import System.IO.Error (isAlreadyExistsError)
 import System.Posix.Process (getProcessID)
-import Test.Tasty.HUnit (Assertion, assertBool, assertFailure)
+import Test.Tasty (TestTree)
+import Test.Tasty.HUnit (Assertion, assertBool, assertFailure, testCase)
+import Test.QuickCheck.Random (mkQCGen)
+import Text.Read (readMaybe)
+
+import qualified Test.QuickCheck as QC
 
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
@@ -288,6 +295,47 @@ withCorpusSample label k = do
   where
     sample paths = every (max 1 (length paths `div` 64)) paths
     every n = map snd . filter ((== 0) . (`mod` n) . fst) . zip [0 :: Int ..]
+
+-- Properties
+--
+-- No @tasty-quickcheck@: its whole buy is three CLI flags and a report line, and
+-- it is the one package this suite would have had to FETCH.  QuickCheck itself
+-- is in the store for this compiler, so the property groups resolve offline the
+-- way every other dependency does.
+
+-- | The seed every property run starts from unless @GLANCE_QC_SEED@ names
+-- another.  FIXED so a green run gates a commit and a red one replays from the
+-- commit alone: a random seed makes @cabal test@ a different test each run.
+propertySeed :: Int
+propertySeed = 20260811
+
+-- | Run PROP as one HUnit case over COUNT cases.  A failure prints the seed, the
+-- reason and the SHRUNK counterexample — which is a 'TestGen.DocSpec' and the
+-- org text it rendered to, so a reader can paste one into a file and the other
+-- into the suite.
+testPropertyWith :: QC.Testable p => Int -> String -> p -> TestTree
+testPropertyWith count name p = testCase name $ do
+  seed <- maybe (pure propertySeed) readSeed =<< lookupEnv "GLANCE_QC_SEED"
+  outcome <- QC.quickCheckWithResult (args seed) p
+  case outcome of
+    QC.Success{} -> pure ()
+    QC.Failure{ QC.reason = why, QC.failingTestCase = shrunk } ->
+      assertFailure (unlines (replay seed : why : shrunk))
+    other -> assertFailure (replay seed <> "\n" <> QC.output other)
+  where
+    args seed = QC.stdArgs { QC.replay = Just (mkQCGen seed, 0)
+                           , QC.maxSuccess = count
+                           , QC.maxShrinks = 400
+                           , QC.chatty = False }
+    replay seed = "replay: GLANCE_QC_SEED=" <> show seed
+    readSeed asked = maybe (assertFailure ("GLANCE_QC_SEED is not a number: " <> asked))
+                           pure (readMaybe asked)
+
+-- | 'testPropertyWith' at the count every pure property runs, twice
+-- QuickCheck's own default: the documents are small and the whole group is
+-- under a second.
+testProperty :: QC.Testable p => String -> p -> TestTree
+testProperty = testPropertyWith 200
 
 -- Text assertions
 
