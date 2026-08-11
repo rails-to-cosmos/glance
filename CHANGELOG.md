@@ -11,7 +11,10 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ## Unreleased
 
+## 0.5.0.0 - 2026-08-11
+
 ### Added
+
 - **`M` toggles.** With every row already marked it takes the marks off
   instead of saying the same number twice.
 - **The agenda is `A` rather than `a`.** `a` is free.
@@ -25,35 +28,6 @@ section groups a feature arc, and its date is that arc's last commit.
   or inside a `#+begin_` block; on the headline line it leads the body, and it
   gives a body to an entry that had none. A blank one adds nothing, and a child
   refuses and names `RET`, which opens it.
-
-### Fixed
-- **The paragraph editor grows with what you type,** to ten lines, and the
-  document moves down around it rather than being covered — the edit reads as
-  inline. It was the height of the block it covered, so a second line went out
-  of sight.
-- **A flag in the materialize sheet is dressed the way the table dresses one.**
-  The document pane drew one in the warning orange at a strength of its own,
-  so the same gesture over the same queue looked like two different things.
-  It now takes `--tv-flag`'s hue at the theme's own measured wash, with the
-  renderer's inset left edge — so a flagged row under the cursor still says
-  it is flagged.
-- **Closing the capture form takes `?page=capture` off the URL.** It opened
-  through the shared popup door and closed around it, so the parameter the
-  raise wrote was never taken off: a URL copied afterwards reopened a form the
-  reader had left.
-- **A tree's saved default filter is applied even when the page opens during
-  indexing.** The shell renders while the walk runs, so a page served before it
-  landed carried the built-in `state:*active*` and nothing re-read it — the
-  reader's own view arrived only on a manual refresh, which a native window
-  cannot do.
-- **The link popup's `Type` values wear their badge colours again**, and its
-  `Headline` column is now `Title`.
-- **The materialize sheet's state badge wears the theme's colour again**, and
-  the priority badge now wears its own — it never had one.
-- **Re-opening the sheet draws its document.** Closing it used to take the
-  pane's contents away for the rest of the session.
-
-### Added
 - **`D` over archived rows deletes them, after asking.** A row org has archived
   is one step from gone, so the same key takes the next step: the blob's whole
   directory — its document and the history org-glance keeps beside it — is
@@ -71,564 +45,12 @@ section groups a feature arc, and its date is that arc's last commit.
   the box — a view is the whole answer, not another narrowing. The token expands
   to the view's own query rather than surviving in it, so a view the server
   grows works with no page or renderer change.
-
-### Changed
-- **`q` closes the materialize sheet**, the way it closes the app's window from
-  the table. It stays a letter inside an open edit.
-- **`g` keeps point where the default view still holds the row**, dropping to
-  the first row only when it does not.
-- **In an open paragraph, `RET` commits and `S-RET` inserts a newline.** The
-  region is a value being handed back rather than a buffer being typed into;
-  `C-x C-s` still writes it.
-- **`b` walks the headline's cells leftward**, mirroring `f`, instead of leaving
-  them in one press whatever the column.
-- **The materialize sheet and every small list are drawn by Elm.** The sheet's
-  document pane (`Doc.elm`) owns the structure scanner, the parse, the splice
-  that composes a body back, the two-axis cursor and the grain ladder. One
-  widget (`Listing.elm`) serves the four small lists — the property panel, the
-  link popup, the tags popup and the settings sheet's states table — where each
-  used to be its own table-view mount. The table itself is unchanged and stays
-  the renderer's. Every key, cursor and flag behaves as it did: `n`/`p` and
-  `f`/`b`, `RET` to edit, `SPC` to toggle a checkbox, `+` to add,
-  `d`/`dd`/`D`/`u` to delete. `assets/elm.js` is a committed build input like
-  the vendored renderer; `make elm` refreshes it and needs no installed
-  toolchain, and `make elm-test` runs the scanner's own tests.
-
-### Removed
-- **BREAKING: `?order=` is gone from `/headlines`.** `?order=document` and
-  `?order=scheduled` were the ordering's own parameter, and the ordering is the
-  query's now: **`?q=sort:*none*` is the replacement for `order=document`, and
-  naming nothing is the replacement for `order=scheduled`.** The parameter is
-  REFUSED rather than ignored — any `order=` at all is a 400 naming its
-  replacement — which is exactly why it was spelled out in the first place: one
-  silently dropped would serve the default order and read as a working request.
-  Gone with it are `pageParams`' `ordering` arm, its two words, and the base
-  parameter of `Glance.Web.Sort.sortChainIn`, which now reads
-  `defaultSortChain` itself and is a function of the query alone. Neither the
-  shell nor the agenda ever asked for `order=`, so nothing on the page changes.
-- The status corner is gone whole. `#corner` carried the connection dot (`#dot`
-  with `.live`/`.wait`/`.down`) and the coarse-pointer settings gear (`#gear`,
-  its `display:none` and the 44px rule in the `pointer:coarse` block); swept with
-  them are `const dot`, its four call sites (`socket.onopen`, `socket.onclose`,
-  `indexing`, `start`'s catch), the gear's click handler and the
-  `#corner`/`#corner:hover`/`#dot*`/`#gear` CSS. The socket's state was already
-  said twice over — the stale wash (the whole page fading back once a socket is
-  gone, armed at 400 ms) and the strip's own `ws` lines — so a dot was a third
-  spelling of one fact, and it cost a fixed box, a z-level and a top padding to
-  keep clear of. The indexing state is the strip's `boot info` line alone.
-  Consequences: the body's padding goes `34px 24px 24px` → `24px`, so the table
-  starts where the page does; the z-index bands are THREE rather than four (echo
-  `2`, modal backdrop `100`, sheet `101`, with `3` unused and forbidden by the
-  suite); and the stale-wash exemption list is now the event strip and the key
-  line. KNOWN GAP, worth stating rather than burying: the gear was the coarse
-  pointer's ONLY door to the settings sheet, `,` being untypable there. A touch
-  reader can filter and read; they cannot open the settings, and the page has no
-  other affordance to offer them. The `pointer:coarse` block keeps its other
-  rules — the 44px chip row, its empty-state label, the stacked sheet panes and
-  the 16px fields — and the comment owning the question lives inside that block.
-- Virtual tag keys leave `?q=`. An org tag no longer names a filter key:
-  `course:text` is free text, colon and all, and `tag:course text` is the one
-  spelling — the predicate reads the tags cell, the free text reads the row, and
-  nothing expressible is lost. It kills the worst parity divergence the grammar
-  had: the keys a query could name were the WHOLE STORE's tags here and the
-  LOADED ROWS' tags in `table-view.js`, so one token was a predicate on one side
-  of the wire and free text on the other. It also takes `contact:none` with it,
-  which meant "tagged contact and the row text holding none" and read like the
-  empty-cell rule it was not — a rule now spelled `key:*empty*`, see Changed.
-  Two differences are written down rather than papered over: `tag:` matches its column by SUBSTRING where a tag key matched
-  whole-tag (`tag:glan` finds `:glance:`), and org spells a tags cell `:web:`,
-  so the free text `web:` is still inside every row carrying the tag.
-- The archive exclusion is named through the `tag` column rather than by
-  `archive:` (`Glance.Web.Filter.namesArchive`), the archive tag having been an
-  ordinary virtual key. Any spelling of that predicate counts — negated, quoted,
-  beside other tokens. (The spelling is `tag:*archive*` as of the meta entry
-  under Changed below; it was `tag:archive` when this landed.)
-- `Glance.Web.Filter` sheds the machinery the feature alone consumed: the `Tag`
-  field constructor and its arity, `parseFilter`'s vocabulary parameter,
-  `FilterEnv`'s tag list (`tagsEnv` is now the tag-free `emptyEnv`), and the
-  `tagsOfCell` import. `Glance.Web.Store.storeTags` stays — it is `tag:`'s value
-  domain, the tag palette's vocabulary and `namesArchive`'s "is anything
-  archived" guard.
-- **The settings sheet no longer edits the saved views.** Its general panel
-  carried a filter composer and a select naming which view it stood on; both are
-  gone, and the panel is the capture target and the log height. A query is
-  written where a reader already composes one — the table's own filter, with its
-  completion, its chips and its `DEL` — and `P` is what saves it. Gone with the
-  widget: `#cwhich`, `#cfbox` and its two style rules, the composer mount, the
-  `views` region of the settings sheet's own `/config` write, and the shell's
-  `vrows`/`ViewRow` bookkeeping (the live views are one map keyed by the
-  registry's ids now).
-
-### Changed
-- **`P` asks which saved view the applied query becomes.** It pinned the
-  default and nothing else; it raises the value palette over the saved-view
-  registry now — one entry per view (`default`, `agenda`), its which-key letter
-  marked inside its name, and the query that view holds now beside it — and the
-  letter commits, the way the state palette's does: `P d` pins the default,
-  `P a` the agenda. `ESC` pins nothing. So the
-  agenda `a` applies is set from the table where it is composed, and a view the
-  server grows is offered with nothing on the page naming it. The chip strip's
-  pin button asks the same question. The command is `set-saved-view` (was
-  `set-default-view`), and the echo names the view it landed in:
-  `P → set-saved-view (agenda · tag:work)`.
-- **A saved view can be reset to its built-in.** `-` in that palette is a flag,
-  magit's shape: it toggles, the same list stands under it, and with it armed
-  `d`/`a` put that view's built-in query back instead of pinning. The write
-  takes the tree's line off, and the page re-reads what the built-in then is
-  rather than guessing. A commit closes the palette, so the flag never outlives
-  the question it was set on. Pinning an empty query is the same write and now
-  says so.
-- `DEL` steps out of the value palette wherever no entry claims the key,
-  which is what it already did over the link and tag popups. The state
-  palette is unmoved: its `*empty*` entry claims `DEL` and still commits a null
-  keyword.
-
-### Changed
-- **The theme decides the TODO and priority badge colours.** They were four
-  warm and four cool hues baked into the wire, the same in every theme — and on
-  the light theme's golden cursor row a mid-amber `TODO` pill was unreadable,
-  which is the collision: one file decides the row highlight, another decided
-  the badge. The wire carries a SLOT now (`var(--g-state-a0)`) and the theme
-  declares it, so switching theme repaints the badges with no refetch. The
-  light theme takes the deep end of each family — hues that read as ink over
-  white and over the selection alike — and dark keeps the palette it had.
-- **A tree can name its own colour for a state.**
-  `#+GLANCE_STATE_COLORS: light TODO=#7B1FA2 DONE=#00695C` in `system.org` —
-  the theme first, `KEYWORD=VALUE` pairs after, one line per theme. A keyword
-  named twice takes its last spelling, and a value the tree does not name keeps
-  the theme's own. It costs the wire nothing: a badge's colour is a CSS
-  fallback chain (`var(--g-state-TODO, var(--g-state-a0))`), so the override is
-  a declaration the page emits and the badge picks up — theme switching still
-  repaints with no refetch.
-- **Every theme colour comes from one file per theme.** The palette used to be
-  spread across three places — the page's `--g-*` set, the renderer's `--tv-*`
-  set, and the hand-copied literals plus comments that kept the two in step.
-  `Glance.Web.Theme` now holds a palette of ROLES per theme and emits both
-  namespaces from it, so a role both spell has one value and the table is
-  drawn in the palette the page around it is. Adding a theme is a record in a
-  file beside the default theme's and one registry entry; the stylesheet, the
-  boot script and the theme selector all read that list. Two light values are
-  corrected on the way, the hue held: muted text (3.5:1 → 5.1:1 on white) and
-  the focus accent (2.3:1 → 5.0:1) now clear the contrast floor on the page as
-  they already did in the table.
-- **The sheet's light-theme cursor row matches the table's.** The structured
-  document's selection wash was the theme's golden `#FFD600` where the
-  table's is the renderer's honeydew `#F0FFF0` — two hues for one meaning,
-  side by side. `--g-sel` now copies `--tv-sel` on both themes (dark already
-  agreed at `#373D4F`), so the cursor row reads as the same selection
-  everywhere it appears.
-- **The tag manager wears the band width.** Three short columns — the tag,
-  its coverage, its store-wide count — sat in a sheet-sized box 80% of the
-  viewport wide; the popup now takes `.pop-band`'s 560px and grows with its
-  content to the cap, the state palette's own dress.
-
-- **The `d`/`D`/`u` gesture is ONE implementation over THREE surfaces.** The
-  table joined the property panel and the tags popup on `flagKey`, which now
-  owns the whole gesture: the cursor read, the two-press rule, the set-or-row
-  choice, the spending of the flags before the take, the feature refusal and the
-  walk after `u`. Gone are the table's own `archiveFlag`, the fork inside
-  `archive` choosing between the flagged set and the row at point, and the flag
-  branch inside `mark`. A surface DECLARES a shape — its mount, its cursor as an
-  id, what "take these" means, what it LOGS when a flag moves, its walk, and four
-  phrases — and WHO SPEAKS belongs to the caller rather than to the shape: the
-  popups say `KEY → phrase` out of a listener holding no binding, the table says it
-  through `said`, so `d` and `D` echo `archive-flag` and
-  `org-glance-overview:delete` out of one gesture. Every echo is
-  byte-identical to what it was. Two rules moved and are now uniform: the CURSOR
-  is asked for before the FLAGS (so `D` on a renderer that never had flags takes
-  the row at point on every surface, where the popups used to refuse), and the
-  flags are SPENT inside the gesture rather than by each take. `u`'s
-  flag-before-mark stays in `mark`, named as the table's own asymmetry: over the
-  popups `u` is the flag key, over the table it is the mark key preferring a
-  flag.
-- **An edit overlay names its cells BY KEY.** A shape carries `cells: ["title",
-  "url"]` beside the `cols` list the server declared, and `cellSpan` — pure and
-  order-only — resolves the keys to the leftmost and rightmost indices the
-  placement reads. Replaced a positional pair (`cells: [1, 2]`) with nothing
-  tying it to the list it indexed: reordering `Glance.Query.linkColumns` put the
-  box over the wrong cells, greenly. A key no column carries resolves to nothing
-  and the placement is a NO-OP. The suite drives the resolution as the pure
-  function it is, against the SERVER's own column declaration.
-- **The modal surfaces are one ordered list.** `SURFACES` names the property
-  panel (whose listener registers ahead of the dispatch), then the value
-  palette, the link popup and the tags popup, in the order their listeners are
-  written — rank IS registration order. Three readers where there were three
-  restatements: `typing()` asks whether any is up, `cancel` walks the list for
-  the rung `ESC` belongs to, and a listener asks `covered(NAME)` whether anything
-  above it is up. The five listeners stay, and so does `prompting.raising` —
-  `covered` is one surface declining for another, `raising` is one surface
-  declining the keydown that raised it, and a rank says nothing about a race with
-  one surface in it.
-- **Every route resolves the store's ids ONCE, at its own door.**
-  `Glance.Web.Store` no longer offers anything that takes a `Store` and answers
-  about an id: `storeHeadline` and `storeHeadlines` are gone and `headlinesIn`
-  takes the RESOLVED rows. `storeRecords` resolves the whole store each time it
-  is named (~28 ms over a 10435-row tree), so the old shapes let a route owing
-  two folds pay twice and a fold-per-id spend seconds over a marked set. It is a
-  structural rule now rather than a convention, which retires the
-  `TestSelfContained` grep that guarded `/tags`'s shape by reading its source
-  lines — and the `codeOf` helper with it.
-- **`csOne` folds into `csArgs`.** A command spec's shape check is handed the
-  IDS beside the `args`, because a shape refusal is about the REQUEST rather than
-  about the `args` object alone. Seven of the eight commands ignore the list;
-  `edit-link` owns its own "names one row" message and puts it FIRST, the row
-  count being the coarsest thing wrong with a request. One flag fewer for every
-  entry to answer.
-- `Data.Org.Walk.derivedDirs` names `Data.Org.Index.metaDir` rather than
-  spelling `"meta"` a second time: that module owns the store layout, and a walk
-  declining a directory the index no longer wrote to would be excluding nothing
-  while reading as though it were.
-- After `d`/`D` archives rows out of the view, point lands on the NEXT SURVIVING
-  ROW rather than resetting to row one. dired's rule, and it needed two changes.
-  THE ANCHOR: `anchorFor` takes it at FIRE time, since by the time the rows have
-  gone the gap they left is exactly what a later read cannot see. It scans from
-  POINT — down the page for the first row not leaving, else back up for the
-  nearest one, else nothing at all — and carries `from` (the row point was on),
-  `id`, `at` (the anchor's place among the SURVIVORS, the fallback for the
-  anchor itself vanishing before the landing) and `on` (the page it was taken
-  on). THE DOOR THE ROWS LEAVE BY is the FILTERED REFETCH behind the 250 ms
-  debounce: `archive` puts an UPSERT on the wire — `Store.streamed` emits a
-  delete only for an id absent from the store afterwards, and adding `:ARCHIVE:`
-  leaves the row emitted under the same id — so an UNFILTERED client splices the
-  row straight back in and point does not move at all. `resync`'s repaint is the
-  only other, for a socket that was down while the write landed. All three call
-  `settled`, which ALWAYS SPENDS the anchor and lands it only where something is
-  owed: spending unconditionally is what keeps it describing ONE watch step,
-  where an anchor left armed would let a page turn and somebody else's edit
-  minutes later pull the cursor to a row this write had an opinion about. It
-  declines to land while `from` is still in the view, and on any page but the one
-  the anchor was taken on — `visible()` is ONE PAGE and can say nothing about a
-  row outside it. `spent(mine)` drops the anchor when the answer says `from` was
-  not archived (a refusal, and an archive over a set point is not in), keyed to
-  the anchor it answers for so an earlier archive's answer cannot disarm a later
-  one's, and deciding the anchor before `unmark`, which can throw on an asset
-  carrying half the mark calls. A `commit` and a `remount` drop it outright: an
-  anchor belongs to the view it was taken in.
-  THE CARVE: `fetchRows` takes the landing as an argument and the watch's refetch
-  passes `settled` where a commit passes nothing. A refetch is the view the
-  reader already had arriving again because a file moved, so it is not a new
-  question and lands nothing of its own — the renderer keeps the cursor and only
-  an armed anchor overrides it. Before this, ANY watch event under a filter took
-  a reader back to row one, which is the larger half of what this fixes.
-  `land` grew the fallback index that makes the three landings one function
-  (apply → row one, pop → the drill's row, archive → the anchor), so the
-  first-row rule is now the general rule's default rather than a case beside it.
-  What the anchor buys over the renderer's own `keepSelection` is the case where
-  rows went from ABOVE point too: that keeps the visual PLACE, which is a row
-  further down once they have gone, so it skips one. Its other branches — the
-  up-scan, the empty view, a point row that survives — agree with the anchor
-  exactly and are guaranteed twice, so nothing exercises the up-scan alone.
-  The shell harness grew the socket path to prove it: `frame:upsert=IDS` and
-  `frame:delete=IDS` deliver row frames through `socket.onmessage`, the page's
-  own door, and `unserved:IDS` drops rows out of what `/headlines` answers — an
-  archive being an upsert on the wire and an absence in the answer. The table
-  mount grew `upsertRow`/`deleteRow` and models `keepSelection` verbatim,
-  including its stale visual index, which is what makes the two halves separable
-  at all. Sixteen cases in `TestServe`'s "Shell landing".
-  FOUND HERE, FIXED UNDER Fixed below: a freshly mounted table has NO selection,
-  the renderer's `selectFirstVisible` having one caller and it being the filter
-  box handing over — so `d`, `D` and `RET` on a just-booted page said "no row"
-  until the reader pressed `n`, and the harness answering `getSelection` with
-  row 0 of the page is why the suite never saw it. The boot now takes the apply
-  landing through this same `land`, and the stub models the empty selection.
-- The settings sheet's keywords panel is ONE select over ONE box. It showed a
-  `<textarea>` per config layer, stacked in `#clayers`, and a tree has as many
-  config files as it has tags — the stack was as tall as that number, so the
-  reader scrolled past every layer they were not editing to reach the one they
-  were. It is now one native `<select id="clayer">` over the layers and one
-  `<textarea id="ctext">` holding the SELECTED layer's `#+TODO:` lines verbatim,
-  with `#clab` naming that layer (`system · PATH` / `tag · book · PATH`, plus
-  ` · not created yet` where the digest is empty) and `#clerr` carrying whatever
-  the server last said about a write to it. Order in the select is system first,
-  then the tag layers by `localeCompare` (`byLayer`); `sort` is stable, so two
-  system layers keep the order the server served them in, which is the walk's.
-  The text lives on the LAYER (`crows[i].text`) and the box is a view of
-  `crows[cat]`: `takeLayer()` copies the on-screen box back into its layer and
-  every door calls it first — the select's `change`, `cdirty`, `flushConfig` —
-  so an edit outlives every switch and a switch asks the server nothing. Sync
-  semantics are unmoved: buttonless, `ESC` or the backdrop syncs the layers that
-  moved and closes, a pristine sheet costs no request, `C-x C-s` syncs mid-edit,
-  `conflict` and `error` wait for a keystroke, and it is still one drift-locked
-  `POST /config` per FILE that moved, each awaited, each under its own digest.
-  NEW: a refusal brings its layer with it — `flushConfig` remembers the first
-  refused layer's index and selects it, so the box on screen is the file the
-  message under it describes; every refusal is also a `config error` log line
-  naming `SOURCE · PATH: message`, since only one can be shown. `SECTIONS`'s
-  keywords entry is unchanged (`clayers`, `ceff`, `cfoot`) and its body is still
-  markup the list wraps at boot; `.ctext` grew `height:3.4em` → `7em`, and
-  `#clayer` shares `#themesel`'s select rule.
-- A blob's occurrence history is no longer walked. org-glance snapshots a
-  completed repetition as `.org-glance/data/<id>/occurrences/<STAMP>.org`, an
-  immutable copy carrying the LIVE entry's `ORG_GLANCE_ID`; it sits inside
-  `data`, so keeping `data` kept it, and `isCanonical` ranked it canonical for
-  the same reason the live blob is — `beatsForId` called the pair a tie, walk
-  order decided which one the table showed, and `POST /headline` would have
-  written to whichever won. `Data.Org.Walk.isOccurrence` is the rule and
-  `isDerived` covers it, so the watch declines it through the same predicate a
-  file the walk never collected is declined by, and `isCanonical` excludes it so
-  that under `--include-derived` — which walks it — it loses the id rather than
-  tying for it. The name is asked for anywhere under `data`: a two-character id
-  is unsharded, so no position test covers both layouts, and the cost is that a
-  blob whose sharded remainder spells exactly `occurrences` would be declined
-  too. Zero on disk under `~/sync`, so the corpus counts do not move and the
-  hazard is closed before it is reachable.
-- The link list `o` raises is a READ-ONLY TABLE-VIEW MOUNT, the page's third,
-  where it was a which-key palette. Three columns — `type` as a badge, `title`
-  as the entry's own description, `url` as the target — and the whole surface is
-  `n`/`p` (`j`/`k`, the arrows) to move, `o` to open the link at point, `ESC` to
-  leave. The mount is stated read-only: no marks, no flags, no page, no hint
-  line. The doctrine it lands is a division of labour between the two shapes: a
-  WHICH-KEY palette is for a fixed vocabulary a reader commits from memory (a
-  keyword, a tag), where the letter IS the confirmation; a READ-ONLY MOUNT is for
-  a list that has to be READ before it can be picked from, where letters are
-  noise over the columns carrying the answer. So `t` and `:` keep their letters
-  and the links lose theirs, `/` narrowing with them.
-- `GET /links` gains a `type` per link: the target's SCHEME, lowercased, with
-  the whole `org-glance-*` family folded into `glance`
-  (`Glance.Query.linkType`). `https`, `http`, `mailto`, `id`, `file` and
-  `glance` are the six the corpus spells and the six the popup declares badge
-  hues for — the two a tab can follow warm, the four it cannot cool — and a
-  scheme those six do not name travels under its own name rather than being
-  flattened away — a 300-row sample of ~/sync answers `glance` 427, `https` 286,
-  `file` 68, `http` 18, `elisp` 6, `attachment` 2 and `other` 1, so two types
-  nothing declares came back named. A target with no scheme-shaped word before a `:` is `other`,
-  which is org's internal `[[Title]]` and `[[*Title]]` and a relative path
-  written without `file:`. The honest cost of reading the prefix alone: `[[Meeting:
-  notes]]` reads `meeting`, because the alternative is a registry and then an
-  unlisted scheme would read as prose. `followable` is now that word rather than
-  a regex the page ran over the target a second time.
-- The `tag` COLUMN sorts, case-folded (`Glance.Query.sortedTagsCell`):
-  `:task:nl:finance:` reads `:finance:nl:task:`, so a tags cell is scanned in
-  one order rather than in the author's typing order. Display only. The FILE
-  keeps its spelling — the span is untouched, so materialize and the tag edits
-  splice into the run as written — and so does `hrTags`, which is what
-  `classify` reads and where the order DECIDES which tag's config governs the
-  row. `hrSearch` inherits the sort by construction, `GET /tags` and the tag
-  palette's first-seen union do not, and no predicate changes answer: `tag:x` is
-  a substring of one tag and `tag:*archive*` is membership of the list.
-- The materialize sheet's two panes wear one radius. `#mtext` was 4px against
-  the panel's `.tv-root` 8px; 8px is the page's shared value, which the log strip
-  and the sheet's logbook already wear.
-- **BREAKING: combination is one rule — TOKENS AND, ALTERNATIVES OR.** Every
-  `?q=` token narrows, whether or not another token names its key. `tag:a tag:b`
-  is a row carrying both and `ref:a ref:b` one pointing at both, as before;
-  `state:TODO state:DONE` now asks a cell holding one value to hold two, which is
-  no row, **where it used to answer either state**. The replacement idiom is the
-  new alternation: `state:TODO|DONE`. A predicate's VALUE splits on `|`
-  (`Glance.Web.Filter.alternatives`) and each alternative is read as that key's
-  own value, the results OR'd — uniform over every key and every kind of value,
-  so `tag:work|home` carries either, `scheduled:2026-08|2026-09` is either month,
-  `planned:A|B` is either date cell prefix-matching either, `ref:a|b` points at
-  either, and a starred meta alternates like any other value
-  (`state:*active*|DONE`, `tag:*web*|*archive*`). A negation covers the whole
-  token, so `-tag:a|b` carries neither. **A saved URL or bookmark spelling a
-  same-key OR now answers nothing; rewrite it with `|`.**
-  Empty alternatives are DROPPED — `a|` is `a`, `|a` is `a`, `a||b` is `a|b` —
-  and a value spelled with bars alone is left with none, which narrows nothing:
-  one answer for `key:`, `key:|` and `key:||`. The bar is a PREDICATE's: free
-  text is the text it spells, bar and all, and a predicate's value has had its
-  quotes taken out by the scanner, so a literal bar is free text's alone.
-  `namesArchive` reads the alternatives too, so `tag:*archive*|web` lifts the
-  archive exclusion the way `tag:*archive*` does.
-  What it buys is the arity rule's death: `multiValued` is gone, `compile` is
-  `map inverted` over the terms with no grouping in it, and the `multi: true` the
-  view declares is left saying only what its name says — the cells hold a list,
-  which the whole-tag meta and the renderer's chips read. Parity is kept term for
-  term (`table-view.js`'s `queryMatcher`/`tokenTest`), and the shared
-  `fixtures/parity/filter-query.json` gains the alternation cases.
-- **BREAKING: the empty cell is `key:*empty*`, and `key:none` is a literal
-  value.** The bare word reserved a spelling a cell can hold, and that was
-  exactly its cost: a state keyword `NONE`, a tag `none`, a title reading `none`
-  were unreachable by predicate. The stars carry the meaning now and the word
-  carries none — `state:*empty*` is the stateless row, `state:none` is a keyword
-  spelled `NONE` — on every column key and on `planned`, so the agenda's query
-  is `state:*active* -planned:*empty*`. **A saved URL or bookmark holding
-  `key:none` now reads as an ordinary value and matches whatever holds that
-  text, which is usually nothing.** No alias, no migration: the point is that no
-  bare word is reserved.
-- **BREAKING: the archive exclusion is lifted by `tag:*archive*` alone.**
-  `tag:archive` is the ordinary substring predicate every other tag value gets:
-  it filters, it lifts nothing, and `X-Glance-Archived` still reports what the
-  default view withheld from it — so a tree that uses `archive` for something of
-  its own can filter on the word without being handed the rows it files away.
-  The meta matches the WHOLE tag, where the plain predicate is a substring of
-  the tags cell (`:archived:` answers one and not the other). **A saved
-  `?q=tag:archive` link stops showing archived rows**; add the stars. Over
-  ~/sync at 2026-08-02: `tag:*archive*` serves the 322 archived rows,
-  `tag:archive` serves 0 and reports all 322 withheld.
-- **BREAKING: `state:active` / `state:inactive` are literal keywords.** The bare
-  alias for the two group metas is gone with the rest of the bare words — and it
-  was a parity divergence in its own right, since `table-view.js` never had it
-  and matched those tokens as badge text. `state:*active*` and
-  `state:*inactive*` are unchanged, and they are what the default view, the
-  agenda and the state column's `values` have always spelled.
-- **A starred word on the `tag` column is that whole tag.** `tag:*book*` is the
-  tag `book` where `tag:boo` is any tag holding those letters — the whole-tag
-  reading that left with the virtual tag keys, back as a meta on the one
-  spelling, decided off the cell so the renderer answers it identically.
-  `tag:*archive*` is one instance of it rather than a rule of its own.
-- The state palette's take-the-keyword-off entry is `*empty*` rather than
-  `*clear*`: it takes the state cell to exactly what `state:*empty*` then finds,
-  which is one word for one thing. `DEL` is still its key, the commit is still a
-  null keyword, and the log line is still `state cleared`; the pill now says
-  `C-c C-t → org-glance-overview:todo (*empty* · 1)`.
-- `assets/table-view.js` is resynced from the sibling checkout (`make
-  sync-renderer`), which carries the renderer's half of all of the above —
-  `*empty*` on every key, the whole-entry meta, `*empty*` at the foot of every
-  value domain, a meta taking no sort position — and closes a skew that predated
-  this work: the vendored copy still had the virtual tag keys the server dropped,
-  and lacked `sortBy` and the title-offer tiers.
-- The `tag` column declares `values: ["*archive*"]`, SCHEMA's route for a
-  producer meta, so a renderer can offer it: typing `arch` in the filter box
-  reaches `tag:*archive*` the way `act` reaches `state:*active*`.
-- The settings sheet `,` raises is the page's one place for a preference, in
-  three panels: **general** (the default view and the capture target),
-  **theme**, and **keywords** (the per-layer `#+TODO:` boxes, which were the
-  whole sheet). One list names the headers and what sits under each, so a
-  fourth panel is an entry there; the list order is the tab order. Every sync
-  rule is unmoved — buttonless, `ESC` or the backdrop syncs the layers that
-  moved, `C-x C-s` syncs mid-edit, a conflict waits for a keystroke — and the
-  two general fields still ride the system layer's own write.
-- The theme selector moved out of the status corner and into that sheet's theme
-  panel. Same `auto`/`light`/`dark`, same `localStorage`, same pre-paint boot,
-  and it applies as it is picked without closing the sheet. The corner is now
-  the connection dot alone — a readout with nothing in it to focus, which
-  retires the hand-written `blur()` every control added there used to owe.
-- A view now swaps on its answer: `g`, `a`, `@` and a walk back out of a drill
-  ask for the whole set once and put it up in one mount, so a complete table is
-  no longer replaced by a page of rows and reflowed a moment later. The
-  page-sized first fetch stays where it earns its keep, on the boot.
-- The event log spells its severity in upper case — `14:03:22 INFO cmd …` —
-  which is what a reader scans a screenful of chatter for.
-- Whichever pane of the materialize sheet holds the keys says so on its own
-  frame, so crossing with `TAB` moves one mark rather than losing it.
-- The property panel is a table-view mount, so the renderer draws every list on
-  the page: the rows, the stripe, the cursor and the flag wash are its own, and
-  the panel keeps the model alone. The sheet's edit fields now sit over the row
-  they belong to rather than inside it.
-- `@` asks before it applies: a row nothing refers to leaves the table, the
-  filter and the trail exactly where they were, with one log line saying so.
-- `@` out of an empty filter leaves no crumb — "all rows" already is the empty
-  query, which `DEL` reaches without one.
-- The value palette drops its key-token column: a keyword's committing letter is
-  marked inside the word, bold and underlined in that state's own badge colour.
-- `*clear*` commits on `DEL` instead of claiming a letter, so the whole `a`-`z`
-  pool goes to keywords and a wide cycle keeps the letter the entry used to take.
-- The row's search text is DERIVED from `viewColumns`: a column's cell is now
-  `HeadlineRecord -> Maybe Text`, `rowJSON` encodes it (`Nothing` is the same
-  `null` it always sent, `Just ""` the same `""`), and `recordOf` ties the record
-  through `viewCells` instead of writing the six cells out a second time. What
-  went green before this is an APPEND — a seventh column left the haystack six
-  fields long and every predicate past it reading the wrong field — and it is
-  closed by construction plus a `TestFilter` case quantified over the columns
-  there are. A reorder was already caught, by the layout guard, whose hardcoded
-  list stays as the now-real oracle. Byte-identical over ~/sync: 12594 rows of
-  view JSON unchanged.
-- `Glance.Web.Filter` reads a predicate's CELLS as a set (`fieldCells`): a column
-  is its one cell and `planned` is the two date columns, so `*empty*` is every
-  named cell empty and a value is any of them passing — one arm where the virtual
-  key had a matcher of its own. The whole-tag meta stays keyed by cell index, so
-  `planned` can never reach it.
-- `namesArchive` drops its vocabulary parameter: `/headlines` already asks
-  whether the tree carries the tag, and asking twice was the same conjunct twice
-  (`V && not (V && N)` is `V && not N`). The claim it used to state moved to
-  `TestServe`, over a tree with nothing archived, where it is a fact about the
-  answer rather than about the parser.
-- `POST /command` is ONE table, name to `{argument shape, dated, edits}`:
-  `commandNames` is its keys, `parseCommand` resolves the name before anything
-  else and builds a `Command` out of the entry it found, and the per-name guards
-  are each command's own `csArgs`. The wildcard that made an unknown name
-  `archive` is gone with the case it lived in — the edits are read off the entry,
-  and the one command with no row function is the one that makes a row. Every
-  refusal message is unchanged, verbatim.
-- The HTTP route table declares its METHODS: each entry carries the handler per
-  method and how it spells a 405, `HEAD` aliases `GET` in one place, and the JSON
-  refusal sentence is derived from the entry's own method names. CLAUDE.md's
-  "fixed route table, each entry declaring whether it needs a loaded store and
-  whether it is read-only" is true as written now. The 405 surface is byte-
-  identical over ten method/path pairs.
-- ONE BUTTONLESS SHEET drives both the materialize sheet and the settings sheet:
-  one state word per sheet through one writer, one `C-x C-s` ladder, one
-  ESC/backdrop ladder, one backdrop registration, and the `C-x C-s retry · ESC
-  discard` line spelled once where it had three copies. Each sheet supplies
-  `{dirty, flush, refresh, shut, scope}` and nothing else; `activeSheet()` is
-  total, since neither sheet opens over the other. Behaviour is unchanged — the
-  harness drives both sheets through pristine, dirty, conflict and discard.
-
-### Fixed
-- **Setting a state on a headline that had none now shows in the material
-  sheet.** The `/command` wrote the file and the re-read behind it took the
-  store's copy, which the watch had not refreshed yet — so the pane redrew the
-  entry exactly as it was before the write. The stale-answer drop refuses that
-  reading and the retry behind it brings the real one.
-- **The property panel (and the tags popup) lost the empty leading column.**
-  The renderer's gutter served both the checkbox and the flag's inset edge, so
-  a mount that flags without marking — the panel, the tags popup — paid a
-  blank 3ch column for an edge. The gutter is the checkbox's alone now; the
-  flag's edge rides the row's first cell, and the key column starts flush
-  left. Marking tables are pixel-identical, their first cell being the gutter.
-- **A property just added is a full-height row while it is edited.** A `+` in
-  the panel opened the edit over a row whose two cells were still empty, and
-  an empty cell forms no line box — the row collapsed to its padding and the
-  overlay anchored to its rect squashed with it, springing to size only on
-  RET. The renderer holds the line now (a zero-width space after every empty
-  cell), so the fresh row stands as tall as its neighbours from the first
-  frame.
-- **A cell edit from the sheet no longer poisons its digest.** A `set-title`,
-  state, tag or priority write from the materialize sheet goes through
-  `/command`, whose per-id 200 carries the file's new digest — but the sheet
-  kept the old one until the watch frame re-read it, and that re-read is
-  guarded off under an open edit or the panel's keys. Every subtree commit
-  inside the window — a checkbox, `C-x C-s`, the panel's flush — 409'd at
-  `conflict` for the reader's own landed write. The sheet now re-pins off the
-  command's own answer, the tags popup's documented rule one surface over.
-- **Org links no longer flash raw on a sheet refresh — the links ride the
-  materialize now.** They travelled on a second request (`GET /links` beside
-  `GET /headline`), so every fill had an async gap and the frames in between
-  drew `[[url][desc]]` where the reader had been reading `desc`. The gap is
-  gone structurally: the materialize answer carries the row's whole link scan
-  beside the text it describes — one request instead of two, links atomic
-  with their text, compact from the first frame on every fill — and the
-  element's `o` opens off the held answer without asking the server. `/links`
-  stays as the table popup's and `edit-link`'s route, built by the same
-  `linkJSON` the materialize rider uses.
-- **An element commit no longer reverts the sheet to the store's stale copy.**
-  The re-read a successful commit fires reaches the store before the watch
-  has re-parsed the file, so it answered with the PRE-write subtree — the pane
-  flipped back to what the file just stopped saying, and the stale digest it
-  carried poisoned the sheet's pin, so the NEXT write landed at `conflict`.
-  A body-only edit emits no socket frame, so nothing ever corrected either.
-  The reload now drops any answer whose digest is not the write's own receipt
-  — the model the write was built from stands, redrawn — and retries once for
-  the server's canonical reading after the watch has caught up. Found by the
-  checkbox toggle, whose flip made the revert visible; it guarded every
-  paragraph, table-line and deletion commit the same way.
-
-### Changed
-- **The vendored renderer's stylesheet is one declaration per line**
-  (table-view `cc9dd70`, synced). Same rules and values; a re-layout.
-
-### Added
 - **Every popup has a URL you can send.** A surface on screen writes
   `?page=NAME` beside the query — `&row=ID` where it stands on a row, and the
   panel as the fragment, so the settings sheet on its theme tab is
   `/?q=state%3A*active*&page=config#theme`. Opening the link lands on the row
   and raises the surface once the rows are in hand; closing it takes the
   parameter and the fragment off.
-
-### Fixed
-- **`set-planning` takes `+1y`.** Org spells four units and its parser reads all
-  four, but this one reader hand-wrote three — so `+1y` parsed everywhere and
-  was refused here alone, by a message that did not mention `y` either way.
-  `unitOf` reads `unitChar` backwards, so the parser's units and this reader's
-  are one list, and the refusal sentence is derived from it.
-- **A repeating entry whose date org did not zero-pad now repeats.** `<2026-08-8
-  Sat +2d>` is a timestamp org reads — its parser takes each part as a run of
-  digits — but the shift scanned a fixed ten-character window, missed the date
-  entirely and wrote the stamp back unmoved. The entry reset its keyword and
-  stayed due, forever. The scanner reads the date the way the parser does now.
-
-### Added
 - **Repeating entries repeat.** Completing a row whose `SCHEDULED:` or
   `DEADLINE:` carries an org repeater cookie now shifts the stamp forward and
   resets the keyword to its chain's first active state, in ONE drift-locked
@@ -790,7 +212,6 @@ section groups a feature arc, and its date is that arc's last commit.
   the target file's `FILE#K` ordinal for an inbox line — and the cursor lands on
   it when the watch delivers it. A row the view has not got (a filter that hides
   it, a watch step that has not arrived) leaves point exactly where it stands.
-
 - LINKS ARE WRITEABLE, which is the write boundary the popup was waiting on.
   `GET /links` now carries a per-link `span` — the half-open CHAR range the link
   occupies in the FILE — and the file's `digest`, and `POST /command` implements
@@ -862,7 +283,7 @@ section groups a feature arc, and its date is that arc's last commit.
   time a write logged a line, which is the one thing a keyboard surface must not
   do, and a quiet page now reads the same as a busy one. The figure is a
   `localStorage` preference edited from the settings sheet's GENERAL panel
-  (`#clog`, the third row under `default view` and `capture target`). The
+  (`#clog`, the second row, under `capture target`). The
   stylesheet keeps the arithmetic and declares the default — `#log{ …
   --g-logn:7; height:calc(var(--g-logn) * 1.5em + 2 * 6px + 2 * 1px);
   flex:none … }` — and the knob
@@ -929,8 +350,8 @@ section groups a feature arc, and its date is that arc's last commit.
   one string: the server answers page one in that order, `DEL` walks out of it
   like any other token, and nothing has to be asked of the renderer once the
   rows are up.
-- The tags list on `:` is a MUTABLE MOUNT — the page's fourth table-view mount
-  (`#ttable`), after the table, the property panel and the link popup. Three
+- The tags list on `:` is a MUTABLE LIST (`#ttable`), where the property panel
+  and the link popup are read one way and written another. Three
   columns, declared server-side in `Glance.Query.tagColumns`: the tag, its
   COVERAGE over the rows the command would run over (`all`, or `2/3`), and how
   many rows the whole tree has under it. `GET /tags` grew the third as `counts`,
@@ -966,7 +387,6 @@ section groups a feature arc, and its date is that arc's last commit.
   already carrying `to` loses `from` instead. Both ends take the parser's charset
   wall, a row not carrying `from` costs no edit, and rename-then-rename-back is
   the identity on the bytes.
-
 - The view declares a SORT CHAIN rather than one key (`declaredSort`, over
   `Glance.Query.defaultSortChain` — whose keys are the entry above, state
   leading). SCHEMA.md's `sort` takes an array for exactly this and both
@@ -1090,8 +510,434 @@ section groups a feature arc, and its date is that arc's last commit.
   fetch out past 300 ms or a socket down past 400 ms, and cleared by the answer
   or the reconnect. The status corner, the event log and the key line stay
   bright, being where a reader finds out why.
+- **`make run`, `make run-native`, `make run-wasm`.** All three read `.env`
+  (committed; `GLANCE_DIR`, `GLANCE_PORT`, defaulting to `~/sync/views` and
+  7777). `run` opens the browser flow, `run-native` the WebKitGTK window
+  through its own project file, and `run-wasm` builds the new
+  `glance-wasm-probe` and runs the core inside wasmtime over the tree —
+  walk, parse, rows — with the directory preopened read-only.
+- **`P` pins the applied view as the tree's default.** The query on screen —
+  filter tokens and sort tokens alike — becomes `system.org`'s
+  `#+GLANCE_DEFAULT_FILTER:` line, through the same drift-locked `/config`
+  write the settings sheet rides. The sheet's "default view" field is
+  read-only now: composing a query belongs to the table's own widget, and the
+  field shows what is pinned.
 
 ### Changed
+
+- **`q` closes the materialize sheet**, the way it closes the app's window from
+  the table. It stays a letter inside an open edit.
+- **`g` keeps point where the default view still holds the row**, dropping to
+  the first row only when it does not.
+- **In an open paragraph, `RET` commits and `S-RET` inserts a newline.** The
+  region is a value being handed back rather than a buffer being typed into;
+  `C-x C-s` still writes it.
+- **`b` walks the headline's cells leftward**, mirroring `f`, instead of leaving
+  them in one press whatever the column.
+- **The materialize sheet and every small list are drawn by Elm.** The sheet's
+  document pane (`Doc.elm`) owns the structure scanner, the parse, the splice
+  that composes a body back, the two-axis cursor and the grain ladder. One
+  widget (`Listing.elm`) serves the four small lists — the property panel, the
+  link popup, the tags popup and the settings sheet's states table — where each
+  used to be its own table-view mount. The table itself is unchanged and stays
+  the renderer's. Every key, cursor and flag behaves as it did: `n`/`p` and
+  `f`/`b`, `RET` to edit, `SPC` to toggle a checkbox, `+` to add,
+  `d`/`dd`/`D`/`u` to delete. `assets/elm.js` is a committed build input like
+  the vendored renderer; `make elm` refreshes it and needs no installed
+  toolchain, and `make elm-test` runs the scanner's own tests.
+- **`P` asks which saved view the applied query becomes.** It pinned the
+  default and nothing else; it raises the value palette over the saved-view
+  registry now — one entry per view (`default`, `agenda`, `archive`), its
+  which-key letter
+  marked inside its name, and the query that view holds now beside it — and the
+  letter commits, the way the state palette's does: `P d` pins the default,
+  `P a` the agenda. `ESC` pins nothing. So the
+  agenda `a` applies is set from the table where it is composed, and a view the
+  server grows is offered with nothing on the page naming it. The chip strip's
+  pin button asks the same question. The command is `set-saved-view` (was
+  `set-default-view`), and the echo names the view it landed in:
+  `P → set-saved-view (agenda · tag:work)`.
+- **A saved view can be reset to its built-in.** `-` in that palette is a flag,
+  magit's shape: it toggles, the same list stands under it, and with it armed
+  `d`/`a` put that view's built-in query back instead of pinning. The write
+  takes the tree's line off, and the page re-reads what the built-in then is
+  rather than guessing. A commit closes the palette, so the flag never outlives
+  the question it was set on. Pinning an empty query is the same write and now
+  says so.
+- `DEL` steps out of the value palette wherever no entry claims the key,
+  which is what it already did over the link and tag popups. The state
+  palette is unmoved: its `*empty*` entry claims `DEL` and still commits a null
+  keyword.
+- **The theme decides the TODO and priority badge colours.** They were four
+  warm and four cool hues baked into the wire, the same in every theme — and on
+  the light theme's golden cursor row a mid-amber `TODO` pill was unreadable,
+  which is the collision: one file decides the row highlight, another decided
+  the badge. The wire carries a SLOT now (`var(--g-state-a0)`) and the theme
+  declares it, so switching theme repaints the badges with no refetch. The
+  light theme takes the deep end of each family — hues that read as ink over
+  white and over the selection alike — and dark keeps the palette it had.
+- **A tree can name its own colour for a state.**
+  `#+GLANCE_STATE_COLORS: light TODO=#7B1FA2 DONE=#00695C` in `system.org` —
+  the theme first, `KEYWORD=VALUE` pairs after, one line per theme. A keyword
+  named twice takes its last spelling, and a value the tree does not name keeps
+  the theme's own. It costs the wire nothing: a badge's colour is a CSS
+  fallback chain (`var(--g-state-TODO, var(--g-state-a0))`), so the override is
+  a declaration the page emits and the badge picks up — theme switching still
+  repaints with no refetch.
+- **Every theme colour comes from one file per theme.** The palette used to be
+  spread across three places — the page's `--g-*` set, the renderer's `--tv-*`
+  set, and the hand-copied literals plus comments that kept the two in step.
+  `Glance.Web.Theme` now holds a palette of ROLES per theme and emits both
+  namespaces from it, so a role both spell has one value and the table is
+  drawn in the palette the page around it is. Adding a theme is a record in a
+  file beside the default theme's and one registry entry; the stylesheet, the
+  boot script and the theme selector all read that list. Two light values are
+  corrected on the way, the hue held: muted text (3.5:1 → 5.1:1 on white) and
+  the focus accent (2.3:1 → 5.0:1) now clear the contrast floor on the page as
+  they already did in the table.
+- **The sheet's light-theme cursor row matches the table's.** The structured
+  document's selection wash was the theme's golden `#FFD600` where the
+  table's is the renderer's honeydew `#F0FFF0` — two hues for one meaning,
+  side by side. `--g-sel` now copies `--tv-sel` on both themes (dark already
+  agreed at `#373D4F`), so the cursor row reads as the same selection
+  everywhere it appears.
+- **The tag manager wears the band width.** Three short columns — the tag,
+  its coverage, its store-wide count — sat in a sheet-sized box 80% of the
+  viewport wide; the popup now takes `.pop-band`'s 560px and grows with its
+  content to the cap, the state palette's own dress.
+- **The `d`/`D`/`u` gesture is ONE implementation over THREE surfaces.** The
+  table joined the property panel and the tags popup on `flagKey`, which now
+  owns the whole gesture: the cursor read, the two-press rule, the set-or-row
+  choice, the spending of the flags before the take, the feature refusal and the
+  walk after `u`. Gone are the table's own `archiveFlag`, the fork inside
+  `archive` choosing between the flagged set and the row at point, and the flag
+  branch inside `mark`. A surface DECLARES a shape — its mount, its cursor as an
+  id, what "take these" means, what it LOGS when a flag moves, its walk, and four
+  phrases — and WHO SPEAKS belongs to the caller rather than to the shape: the
+  popups say `KEY → phrase` out of a listener holding no binding, the table says it
+  through `said`, so `d` and `D` echo `archive-flag` and
+  `org-glance-overview:delete` out of one gesture. Every echo is
+  byte-identical to what it was. Two rules moved and are now uniform: the CURSOR
+  is asked for before the FLAGS (so `D` on a renderer that never had flags takes
+  the row at point on every surface, where the popups used to refuse), and the
+  flags are SPENT inside the gesture rather than by each take. `u`'s
+  flag-before-mark stays in `mark`, named as the table's own asymmetry: over the
+  popups `u` is the flag key, over the table it is the mark key preferring a
+  flag.
+- **An edit overlay names its cells BY KEY.** A shape carries `cells: ["title",
+  "url"]` beside the `cols` list the server declared, and `cellSpan` — pure and
+  order-only — resolves the keys to the leftmost and rightmost indices the
+  placement reads. Replaced a positional pair (`cells: [1, 2]`) with nothing
+  tying it to the list it indexed: reordering `Glance.Query.linkColumns` put the
+  box over the wrong cells, greenly. A key no column carries resolves to nothing
+  and the placement is a NO-OP. The suite drives the resolution as the pure
+  function it is, against the SERVER's own column declaration.
+- **The modal surfaces are one ordered list.** `SURFACES` names the property
+  panel (whose listener registers ahead of the dispatch), then the value
+  palette, the link popup and the tags popup, in the order their listeners are
+  written — rank IS registration order. Three readers where there were three
+  restatements: `typing()` asks whether any is up, `cancel` walks the list for
+  the rung `ESC` belongs to, and a listener asks `covered(NAME)` whether anything
+  above it is up. The five listeners stay, and so does `prompting.raising` —
+  `covered` is one surface declining for another, `raising` is one surface
+  declining the keydown that raised it, and a rank says nothing about a race with
+  one surface in it.
+- **Every route resolves the store's ids ONCE, at its own door.**
+  `Glance.Web.Store` no longer offers anything that takes a `Store` and answers
+  about an id: `storeHeadline` and `storeHeadlines` are gone and `headlinesIn`
+  takes the RESOLVED rows. `storeRecords` resolves the whole store each time it
+  is named (~28 ms over a 10435-row tree), so the old shapes let a route owing
+  two folds pay twice and a fold-per-id spend seconds over a marked set. It is a
+  structural rule now rather than a convention, which retires the
+  `TestSelfContained` grep that guarded `/tags`'s shape by reading its source
+  lines — and the `codeOf` helper with it.
+- **`csOne` folds into `csArgs`.** A command spec's shape check is handed the
+  IDS beside the `args`, because a shape refusal is about the REQUEST rather than
+  about the `args` object alone. Seven of the eight commands ignore the list;
+  `edit-link` owns its own "names one row" message and puts it FIRST, the row
+  count being the coarsest thing wrong with a request. One flag fewer for every
+  entry to answer.
+- `Data.Org.Walk.derivedDirs` names `Data.Org.Index.metaDir` rather than
+  spelling `"meta"` a second time: that module owns the store layout, and a walk
+  declining a directory the index no longer wrote to would be excluding nothing
+  while reading as though it were.
+- After `d`/`D` archives rows out of the view, point lands on the NEXT SURVIVING
+  ROW rather than resetting to row one. dired's rule, and it needed two changes.
+  THE ANCHOR: `anchorFor` takes it at FIRE time, since by the time the rows have
+  gone the gap they left is exactly what a later read cannot see. It scans from
+  POINT — down the page for the first row not leaving, else back up for the
+  nearest one, else nothing at all — and carries `from` (the row point was on),
+  `id`, `at` (the anchor's place among the SURVIVORS, the fallback for the
+  anchor itself vanishing before the landing) and `on` (the page it was taken
+  on). THE DOOR THE ROWS LEAVE BY is the FILTERED REFETCH behind the 250 ms
+  debounce: `archive` puts an UPSERT on the wire — `Store.streamed` emits a
+  delete only for an id absent from the store afterwards, and adding `:ARCHIVE:`
+  leaves the row emitted under the same id — so an UNFILTERED client splices the
+  row straight back in and point does not move at all. `resync`'s repaint is the
+  only other, for a socket that was down while the write landed. All three call
+  `settled`, which ALWAYS SPENDS the anchor and lands it only where something is
+  owed: spending unconditionally is what keeps it describing ONE watch step,
+  where an anchor left armed would let a page turn and somebody else's edit
+  minutes later pull the cursor to a row this write had an opinion about. It
+  declines to land while `from` is still in the view, and on any page but the one
+  the anchor was taken on — `visible()` is ONE PAGE and can say nothing about a
+  row outside it. `spent(mine)` drops the anchor when the answer says `from` was
+  not archived (a refusal, and an archive over a set point is not in), keyed to
+  the anchor it answers for so an earlier archive's answer cannot disarm a later
+  one's, and deciding the anchor before `unmark`, which can throw on an asset
+  carrying half the mark calls. A `commit` and a `remount` drop it outright: an
+  anchor belongs to the view it was taken in.
+  THE CARVE: `fetchRows` takes the landing as an argument and the watch's refetch
+  passes `settled` where a commit passes nothing. A refetch is the view the
+  reader already had arriving again because a file moved, so it is not a new
+  question and lands nothing of its own — the renderer keeps the cursor and only
+  an armed anchor overrides it. Before this, ANY watch event under a filter took
+  a reader back to row one, which is the larger half of what this fixes.
+  `land` grew the fallback index that makes the three landings one function
+  (apply → row one, pop → the drill's row, archive → the anchor), so the
+  first-row rule is now the general rule's default rather than a case beside it.
+  What the anchor buys over the renderer's own `keepSelection` is the case where
+  rows went from ABOVE point too: that keeps the visual PLACE, which is a row
+  further down once they have gone, so it skips one. Its other branches — the
+  up-scan, the empty view, a point row that survives — agree with the anchor
+  exactly and are guaranteed twice, so nothing exercises the up-scan alone.
+  The shell harness grew the socket path to prove it: `frame:upsert=IDS` and
+  `frame:delete=IDS` deliver row frames through `socket.onmessage`, the page's
+  own door, and `unserved:IDS` drops rows out of what `/headlines` answers — an
+  archive being an upsert on the wire and an absence in the answer. The table
+  mount grew `upsertRow`/`deleteRow` and models `keepSelection` verbatim,
+  including its stale visual index, which is what makes the two halves separable
+  at all. Sixteen cases in `TestServe`'s "Shell landing".
+  FOUND HERE, FIXED UNDER Fixed below: a freshly mounted table has NO selection,
+  the renderer's `selectFirstVisible` having one caller and it being the filter
+  box handing over — so `d`, `D` and `RET` on a just-booted page said "no row"
+  until the reader pressed `n`, and the harness answering `getSelection` with
+  row 0 of the page is why the suite never saw it. The boot now takes the apply
+  landing through this same `land`, and the stub models the empty selection.
+- The settings sheet's keywords panel is ONE select over ONE box. It showed a
+  `<textarea>` per config layer, stacked in `#clayers`, and a tree has as many
+  config files as it has tags — the stack was as tall as that number, so the
+  reader scrolled past every layer they were not editing to reach the one they
+  were. It is now one native `<select id="clayer">` over the layers and one
+  `<textarea id="ctext">` holding the SELECTED layer's `#+TODO:` lines verbatim,
+  with `#clab` naming that layer (`system · PATH` / `tag · book · PATH`, plus
+  ` · not created yet` where the digest is empty) and `#clerr` carrying whatever
+  the server last said about a write to it. Order in the select is system first,
+  then the tag layers by `localeCompare` (`byLayer`); `sort` is stable, so two
+  system layers keep the order the server served them in, which is the walk's.
+  The text lives on the LAYER (`crows[i].text`) and the box is a view of
+  `crows[cat]`: `takeLayer()` copies the on-screen box back into its layer and
+  every door calls it first — the select's `change`, `cdirty`, `flushConfig` —
+  so an edit outlives every switch and a switch asks the server nothing. Sync
+  semantics are unmoved: buttonless, `ESC` or the backdrop syncs the layers that
+  moved and closes, a pristine sheet costs no request, `C-x C-s` syncs mid-edit,
+  `conflict` and `error` wait for a keystroke, and it is still one drift-locked
+  `POST /config` per FILE that moved, each awaited, each under its own digest.
+  NEW: a refusal brings its layer with it — `flushConfig` remembers the first
+  refused layer's index and selects it, so the box on screen is the file the
+  message under it describes; every refusal is also a `config error` log line
+  naming `SOURCE · PATH: message`, since only one can be shown. `SECTIONS`'s
+  keywords entry is unchanged (`clayers`, `ceff`, `cfoot`) and its body is still
+  markup the list wraps at boot; `.ctext` grew `height:3.4em` → `7em`, and
+  `#clayer` shares `#themesel`'s select rule.
+- A blob's occurrence history is no longer walked. org-glance snapshots a
+  completed repetition as `.org-glance/data/<id>/occurrences/<STAMP>.org`, an
+  immutable copy carrying the LIVE entry's `ORG_GLANCE_ID`; it sits inside
+  `data`, so keeping `data` kept it, and `isCanonical` ranked it canonical for
+  the same reason the live blob is — `beatsForId` called the pair a tie, walk
+  order decided which one the table showed, and `POST /headline` would have
+  written to whichever won. `Data.Org.Walk.isOccurrence` is the rule and
+  `isDerived` covers it, so the watch declines it through the same predicate a
+  file the walk never collected is declined by, and `isCanonical` excludes it so
+  that under `--include-derived` — which walks it — it loses the id rather than
+  tying for it. The name is asked for anywhere under `data`: a two-character id
+  is unsharded, so no position test covers both layouts, and the cost is that a
+  blob whose sharded remainder spells exactly `occurrences` would be declined
+  too. Zero on disk under `~/sync`, so the corpus counts do not move and the
+  hazard is closed before it is reachable.
+- The link list `o` raises is a READ-ONLY LIST, where it was a which-key
+  palette. Three columns — `type` as a badge, `title`
+  as the entry's own description, `url` as the target — and the whole surface is
+  `n`/`p` (`j`/`k`, the arrows) to move, `o` to open the link at point, `ESC` to
+  leave. The mount is stated read-only: no marks, no flags, no page, no hint
+  line. The doctrine it lands is a division of labour between the two shapes: a
+  WHICH-KEY palette is for a fixed vocabulary a reader commits from memory (a
+  keyword, a tag), where the letter IS the confirmation; a READ-ONLY MOUNT is for
+  a list that has to be READ before it can be picked from, where letters are
+  noise over the columns carrying the answer. So `t` and `:` keep their letters
+  and the links lose theirs, `/` narrowing with them.
+- `GET /links` gains a `type` per link: the target's SCHEME, lowercased, with
+  the whole `org-glance-*` family folded into `glance`
+  (`Glance.Query.linkType`). `https`, `http`, `mailto`, `id`, `file` and
+  `glance` are the six the corpus spells and the six the popup declares badge
+  hues for — the two a tab can follow warm, the four it cannot cool — and a
+  scheme those six do not name travels under its own name rather than being
+  flattened away — a 300-row sample of ~/sync answers `glance` 427, `https` 286,
+  `file` 68, `http` 18, `elisp` 6, `attachment` 2 and `other` 1, so two types
+  nothing declares came back named. A target with no scheme-shaped word before a `:` is `other`,
+  which is org's internal `[[Title]]` and `[[*Title]]` and a relative path
+  written without `file:`. The honest cost of reading the prefix alone: `[[Meeting:
+  notes]]` reads `meeting`, because the alternative is a registry and then an
+  unlisted scheme would read as prose. `followable` is now that word rather than
+  a regex the page ran over the target a second time.
+- The `tag` COLUMN sorts, case-folded (`Glance.Query.sortedTagsCell`):
+  `:task:nl:finance:` reads `:finance:nl:task:`, so a tags cell is scanned in
+  one order rather than in the author's typing order. Display only. The FILE
+  keeps its spelling — the span is untouched, so materialize and the tag edits
+  splice into the run as written — and so does `hrTags`, which is what
+  `classify` reads and where the order DECIDES which tag's config governs the
+  row. `hrSearch` inherits the sort by construction, `GET /tags` and the tag
+  palette's first-seen union do not, and no predicate changes answer: `tag:x` is
+  a substring of one tag and `tag:*archive*` is membership of the list.
+- The materialize sheet's two panes wear one radius. `#mtext` was 4px against
+  the panel's `.tv-root` 8px; 8px is the page's shared value, which the log strip
+  and the sheet's logbook already wear.
+- **BREAKING: combination is one rule — TOKENS AND, ALTERNATIVES OR.** Every
+  `?q=` token narrows, whether or not another token names its key. `tag:a tag:b`
+  is a row carrying both and `ref:a ref:b` one pointing at both, as before;
+  `state:TODO state:DONE` now asks a cell holding one value to hold two, which is
+  no row, **where it used to answer either state**. The replacement idiom is the
+  new alternation: `state:TODO|DONE`. A predicate's VALUE splits on `|`
+  (`Glance.Web.Filter.alternatives`) and each alternative is read as that key's
+  own value, the results OR'd — uniform over every key and every kind of value,
+  so `tag:work|home` carries either, `scheduled:2026-08|2026-09` is either month,
+  `planned:A|B` is either date cell prefix-matching either, `ref:a|b` points at
+  either, and a starred meta alternates like any other value
+  (`state:*active*|DONE`, `tag:*web*|*archive*`). A negation covers the whole
+  token, so `-tag:a|b` carries neither. **A saved URL or bookmark spelling a
+  same-key OR now answers nothing; rewrite it with `|`.**
+  Empty alternatives are DROPPED — `a|` is `a`, `|a` is `a`, `a||b` is `a|b` —
+  and a value spelled with bars alone is left with none, which narrows nothing:
+  one answer for `key:`, `key:|` and `key:||`. The bar is a PREDICATE's: free
+  text is the text it spells, bar and all, and a predicate's value has had its
+  quotes taken out by the scanner, so a literal bar is free text's alone.
+  `namesArchive` reads the alternatives too, so `tag:*archive*|web` lifts the
+  archive exclusion the way `tag:*archive*` does.
+  What it buys is the arity rule's death: `multiValued` is gone, `compile` is
+  `map inverted` over the terms with no grouping in it, and the `multi: true` the
+  view declares is left saying only what its name says — the cells hold a list,
+  which the whole-tag meta and the renderer's chips read. Parity is kept term for
+  term (`table-view.js`'s `queryMatcher`/`tokenTest`), and the shared
+  `fixtures/parity/filter-query.json` gains the alternation cases.
+- **BREAKING: the empty cell is `key:*empty*`, and `key:none` is a literal
+  value.** The bare word reserved a spelling a cell can hold, and that was
+  exactly its cost: a state keyword `NONE`, a tag `none`, a title reading `none`
+  were unreachable by predicate. The stars carry the meaning now and the word
+  carries none — `state:*empty*` is the stateless row, `state:none` is a keyword
+  spelled `NONE` — on every column key and on `planned`, so the agenda's query
+  is `state:*active* -planned:*empty*`. **A saved URL or bookmark holding
+  `key:none` now reads as an ordinary value and matches whatever holds that
+  text, which is usually nothing.** No alias, no migration: the point is that no
+  bare word is reserved.
+- **BREAKING: the archive exclusion is lifted by `tag:*archive*` alone.**
+  `tag:archive` is the ordinary substring predicate every other tag value gets:
+  it filters, it lifts nothing, and `X-Glance-Archived` still reports what the
+  default view withheld from it — so a tree that uses `archive` for something of
+  its own can filter on the word without being handed the rows it files away.
+  The meta matches the WHOLE tag, where the plain predicate is a substring of
+  the tags cell (`:archived:` answers one and not the other). **A saved
+  `?q=tag:archive` link stops showing archived rows**; add the stars. Over
+  ~/sync at 2026-08-02: `tag:*archive*` serves the 322 archived rows,
+  `tag:archive` serves 0 and reports all 322 withheld.
+- **BREAKING: `state:active` / `state:inactive` are literal keywords.** The bare
+  alias for the two group metas is gone with the rest of the bare words — and it
+  was a parity divergence in its own right, since `table-view.js` never had it
+  and matched those tokens as badge text. `state:*active*` and
+  `state:*inactive*` are unchanged, and they are what the default view, the
+  agenda and the state column's `values` have always spelled.
+- **A starred word on the `tag` column is that whole tag.** `tag:*book*` is the
+  tag `book` where `tag:boo` is any tag holding those letters — the whole-tag
+  reading that left with the virtual tag keys, back as a meta on the one
+  spelling, decided off the cell so the renderer answers it identically.
+  `tag:*archive*` is one instance of it rather than a rule of its own.
+- The state palette's take-the-keyword-off entry is `*empty*` rather than
+  `*clear*`: it takes the state cell to exactly what `state:*empty*` then finds,
+  which is one word for one thing. `DEL` is still its key, the commit is still a
+  null keyword, and the log line is still `state cleared`; the pill now says
+  `C-c C-t → org-glance-overview:todo (*empty* · 1)`.
+- `assets/table-view.js` is resynced from the sibling checkout (`make
+  sync-renderer`), which carries the renderer's half of all of the above —
+  `*empty*` on every key, the whole-entry meta, `*empty*` at the foot of every
+  value domain, a meta taking no sort position — and closes a skew that predated
+  this work: the vendored copy still had the virtual tag keys the server dropped,
+  and lacked `sortBy` and the title-offer tiers.
+- The `tag` column declares `values: ["*archive*"]`, SCHEMA's route for a
+  producer meta, so a renderer can offer it: typing `arch` in the filter box
+  reaches `tag:*archive*` the way `act` reaches `state:*active*`.
+- The settings sheet `,` raises is the page's one place for a preference, in
+  three panels: **general** (the capture target and the log height),
+  **theme**, and **keywords** (the per-layer `#+TODO:` boxes, which were the
+  whole sheet). One list names the headers and what sits under each, so a
+  fourth panel is an entry there; the list order is the tab order. Every sync
+  rule is unmoved — buttonless, `ESC` or the backdrop syncs the layers that
+  moved, `C-x C-s` syncs mid-edit, a conflict waits for a keystroke — and the
+  two general fields still ride the system layer's own write.
+- The theme selector moved out of the status corner and into that sheet's theme
+  panel. Same `auto`/`light`/`dark`, same `localStorage`, same pre-paint boot,
+  and it applies as it is picked without closing the sheet.
+- A view now swaps on its answer: `g`, `a`, `@` and a walk back out of a drill
+  ask for the whole set once and put it up in one mount, so a complete table is
+  no longer replaced by a page of rows and reflowed a moment later. The
+  page-sized first fetch stays where it earns its keep, on the boot.
+- The event log spells its severity in upper case — `14:03:22 INFO cmd …` —
+  which is what a reader scans a screenful of chatter for.
+- Whichever pane of the materialize sheet holds the keys says so on its own
+  frame, so crossing with `TAB` moves one mark rather than losing it.
+- The property panel is a LIST WIDGET rather than markup of its own: the rows,
+  the stripe, the cursor and the flag wash are drawn for it, and the panel keeps
+  the model alone. The sheet's edit fields now sit over the row
+  they belong to rather than inside it.
+- `@` asks before it applies: a row nothing refers to leaves the table, the
+  filter and the trail exactly where they were, with one log line saying so.
+- `@` out of an empty filter leaves no crumb — "all rows" already is the empty
+  query, which `DEL` reaches without one.
+- The value palette drops its key-token column: a keyword's committing letter is
+  marked inside the word, bold and underlined in that state's own badge colour.
+- The take-the-keyword-off entry commits on `DEL` instead of claiming a letter,
+  so the whole `a`-`z`
+  pool goes to keywords and a wide cycle keeps the letter the entry used to take.
+- The row's search text is DERIVED from `viewColumns`: a column's cell is now
+  `HeadlineRecord -> Maybe Text`, `rowJSON` encodes it (`Nothing` is the same
+  `null` it always sent, `Just ""` the same `""`), and `recordOf` ties the record
+  through `viewCells` instead of writing the six cells out a second time. What
+  went green before this is an APPEND — a seventh column left the haystack six
+  fields long and every predicate past it reading the wrong field — and it is
+  closed by construction plus a `TestFilter` case quantified over the columns
+  there are. A reorder was already caught, by the layout guard, whose hardcoded
+  list stays as the now-real oracle. Byte-identical over ~/sync: 12594 rows of
+  view JSON unchanged.
+- `Glance.Web.Filter` reads a predicate's CELLS as a set (`fieldCells`): a column
+  is its one cell and `planned` is the two date columns, so `*empty*` is every
+  named cell empty and a value is any of them passing — one arm where the virtual
+  key had a matcher of its own. The whole-tag meta stays keyed by cell index, so
+  `planned` can never reach it.
+- `namesArchive` drops its vocabulary parameter: `/headlines` already asks
+  whether the tree carries the tag, and asking twice was the same conjunct twice
+  (`V && not (V && N)` is `V && not N`). The claim it used to state moved to
+  `TestServe`, over a tree with nothing archived, where it is a fact about the
+  answer rather than about the parser.
+- `POST /command` is ONE table, name to `{argument shape, dated, edits}`:
+  `commandNames` is its keys, `parseCommand` resolves the name before anything
+  else and builds a `Command` out of the entry it found, and the per-name guards
+  are each command's own `csArgs`. The wildcard that made an unknown name
+  `archive` is gone with the case it lived in — the edits are read off the entry,
+  and the one command with no row function is the one that makes a row. Every
+  refusal message is unchanged, verbatim.
+- The HTTP route table declares its METHODS: each entry carries the handler per
+  method and how it spells a 405, `HEAD` aliases `GET` in one place, and the JSON
+  refusal sentence is derived from the entry's own method names. CLAUDE.md's
+  "fixed route table, each entry declaring whether it needs a loaded store and
+  whether it is read-only" is true as written now. The 405 surface is byte-
+  identical over ten method/path pairs.
+- ONE BUTTONLESS SHEET drives both the materialize sheet and the settings sheet:
+  one state word per sheet through one writer, one `C-x C-s` ladder, one
+  ESC/backdrop ladder, one backdrop registration, and the `C-x C-s retry · ESC
+  discard` line spelled once where it had three copies. Each sheet supplies
+  `{dirty, flush, refresh, shut, scope}` and nothing else; `activeSheet()` is
+  total, since neither sheet opens over the other. Behaviour is unchanged — the
+  harness drives both sheets through pristine, dirty, conflict and discard.
+- **The vendored renderer's stylesheet is one declaration per line**
+  (table-view `cc9dd70`, synced). Same rules and values; a re-layout.
 - **The shell's script is a real JavaScript file.** 5.2k lines of JS lived as
   a Haskell string list for the sake of nine interpolations; `assets/glue.js`
   is now a file compiled into the binary the way the renderer is, with every
@@ -1100,35 +946,6 @@ section groups a feature arc, and its date is that arc's last commit.
   honest diffs apply to the shell for the first time, and `--assets` gives
   live glue hacking with no rebuild. The migration is byte-proven: the old
   output and the new file differ in exactly the nine known lines.
-
-### Fixed
-- **A linked title shows its description alone.** The material headline drew
-  the raw `[[url][desc]]` as the cell's own text and appended the rendered
-  description beside it, so a browser showed both. Exactly one path writes
-  the cell now; the harness models the browser's reading (own text plus
-  children) so the double can never go green again.
-- **A held key is one press, even when the event lies.** WebKitGTK's
-  auto-repeat can arrive with `repeat` unset, which disarmed every
-  once-per-press guard in the native window — a held `DEL` stripped the whole
-  query, and a held `d` could flag and archive in one press. Repeat is now
-  derived from the missing key release, whatever the event says.
-
-### Added
-- **`make run`, `make run-native`, `make run-wasm`.** All three read `.env`
-  (committed; `GLANCE_DIR`, `GLANCE_PORT`, defaulting to `~/sync/views` and
-  7777). `run` opens the browser flow, `run-native` the WebKitGTK window
-  through its own project file, and `run-wasm` builds the new
-  `glance-wasm-probe` and runs the core inside wasmtime over the tree —
-  walk, parse, rows — with the directory preopened read-only.
-
-### Fixed
-- **The pin actually writes.** Two faults hid each other: the server still
-  required `lines` on `POST /config`, so the pin's request was a 400 — and the
-  shell's fetch resolves refusals, so the pin logged "pinned" while the file
-  never moved. Absent `lines` now leaves the `#+TODO:` block standing, and a
-  refused pin is a thrown error and one config error line.
-
-### Changed
 - **`DEL` takes the sort chip whole.** The chain used to give up one
   tie-breaker per press (`sort:title->priority` → `sort:title`); a chip
   erasing by a different rule than its neighbours made `DEL` a thing to
@@ -1138,24 +955,6 @@ section groups a feature arc, and its date is that arc's last commit.
   included, with no table behind them — replaces the plain field. It opens
   showing the served value, offers the tree's own values, and a composed
   query rides the system layer's drift-locked write.
-
-### Added
-- **`P` pins the applied view as the tree's default.** The query on screen —
-  filter tokens and sort tokens alike — becomes `system.org`'s
-  `#+GLANCE_DEFAULT_FILTER:` line, through the same drift-locked `/config`
-  write the settings sheet rides. The sheet's "default view" field is
-  read-only now: composing a query belongs to the table's own widget, and the
-  field shows what is pinned.
-
-### Fixed
-- **`f` recurses into a nested list.** A deeper item used to ride inside its
-  parent as opaque text, so the grain stopped one rung short. The grain is a
-  LADDER now: an item carrying a nested run is itself a parent — `f` descends
-  one rung, `b` climbs to the immediate owner, `n`/`p` clamp to one parent's
-  run, a flag on any rung deletes its whole range, and the draw shows each
-  rung inside the one above it.
-
-### Changed
 - **The material document walks on two axes.** `n`/`p` step siblings at the
   cursor's grain and never dive — a list, block or table is ONE stop, so
   holding `n` skims the document at reading grain — and `f`/`b` move the grain
@@ -1174,7 +973,177 @@ section groups a feature arc, and its date is that arc's last commit.
   the form up with everything typed, so fixing a line is an edit rather than a
   retype.
 
+### Removed
+
+- **BREAKING: `?order=` is gone from `/headlines`.** `?order=document` and
+  `?order=scheduled` were the ordering's own parameter, and the ordering is the
+  query's now: **`?q=sort:*none*` is the replacement for `order=document`, and
+  naming nothing is the replacement for `order=scheduled`.** The parameter is
+  REFUSED rather than ignored — any `order=` at all is a 400 naming its
+  replacement — which is exactly why it was spelled out in the first place: one
+  silently dropped would serve the default order and read as a working request.
+  Gone with it are `pageParams`' `ordering` arm, its two words, and the base
+  parameter of `Glance.Web.Sort.sortChainIn`, which now reads
+  `defaultSortChain` itself and is a function of the query alone. Neither the
+  shell nor the agenda ever asked for `order=`, so nothing on the page changes.
+- The status corner is gone whole. `#corner` carried the connection dot (`#dot`
+  with `.live`/`.wait`/`.down`) and the coarse-pointer settings gear (`#gear`,
+  its `display:none` and the 44px rule in the `pointer:coarse` block); swept with
+  them are `const dot`, its four call sites (`socket.onopen`, `socket.onclose`,
+  `indexing`, `start`'s catch), the gear's click handler and the
+  `#corner`/`#corner:hover`/`#dot*`/`#gear` CSS. The socket's state was already
+  said twice over — the stale wash (the whole page fading back once a socket is
+  gone, armed at 400 ms) and the strip's own `ws` lines — so a dot was a third
+  spelling of one fact, and it cost a fixed box, a z-level and a top padding to
+  keep clear of. The indexing state is the strip's `boot info` line alone.
+  Consequences: the body's padding goes `34px 24px 24px` → `24px`, so the table
+  starts where the page does; the z-index bands are THREE rather than four (echo
+  `2`, modal backdrop `100`, sheet `101`, with `3` unused and forbidden by the
+  suite); and the stale-wash exemption list is now the event strip and the key
+  line. KNOWN GAP, worth stating rather than burying: the gear was the coarse
+  pointer's ONLY door to the settings sheet, `,` being untypable there. A touch
+  reader can filter and read; they cannot open the settings, and the page has no
+  other affordance to offer them. The `pointer:coarse` block keeps its other
+  rules — the 44px chip row, its empty-state label, the stacked sheet panes and
+  the 16px fields — and the comment owning the question lives inside that block.
+- Virtual tag keys leave `?q=`. An org tag no longer names a filter key:
+  `course:text` is free text, colon and all, and `tag:course text` is the one
+  spelling — the predicate reads the tags cell, the free text reads the row, and
+  nothing expressible is lost. It kills the worst parity divergence the grammar
+  had: the keys a query could name were the WHOLE STORE's tags here and the
+  LOADED ROWS' tags in `table-view.js`, so one token was a predicate on one side
+  of the wire and free text on the other. It also takes `contact:none` with it,
+  which meant "tagged contact and the row text holding none" and read like the
+  empty-cell rule it was not — a rule now spelled `key:*empty*`, see Changed.
+  Two differences are written down rather than papered over: `tag:` matches its column by SUBSTRING where a tag key matched
+  whole-tag (`tag:glan` finds `:glance:`), and org spells a tags cell `:web:`,
+  so the free text `web:` is still inside every row carrying the tag.
+- The archive exclusion is named through the `tag` column rather than by
+  `archive:` (`Glance.Web.Filter.namesArchive`), the archive tag having been an
+  ordinary virtual key. Any spelling of that predicate counts — negated, quoted,
+  beside other tokens. (The spelling is `tag:*archive*` as of the meta entry
+  under Changed below; it was `tag:archive` when this landed.)
+- `Glance.Web.Filter` sheds the machinery the feature alone consumed: the `Tag`
+  field constructor and its arity, `parseFilter`'s vocabulary parameter,
+  `FilterEnv`'s tag list (`tagsEnv` is now the tag-free `emptyEnv`), and the
+  `tagsOfCell` import. `Glance.Web.Store.storeTags` stays — it is `tag:`'s value
+  domain, the tag palette's vocabulary and `namesArchive`'s "is anything
+  archived" guard.
+- **The settings sheet no longer edits the saved views.** Its general panel
+  carried a filter composer and a select naming which view it stood on; both are
+  gone, and the panel is the capture target and the log height. A query is
+  written where a reader already composes one — the table's own filter, with its
+  completion, its chips and its `DEL` — and `P` is what saves it. Gone with the
+  widget: `#cwhich`, `#cfbox` and its two style rules, the composer mount, the
+  `views` region of the settings sheet's own `/config` write, and the shell's
+  `vrows`/`ViewRow` bookkeeping (the live views are one map keyed by the
+  registry's ids now).
+
 ### Fixed
+
+- **The paragraph editor grows with what you type,** to ten lines, and the
+  document moves down around it rather than being covered — the edit reads as
+  inline. It was the height of the block it covered, so a second line went out
+  of sight.
+- **A flag in the materialize sheet is dressed the way the table dresses one.**
+  The document pane drew one in the warning orange at a strength of its own,
+  so the same gesture over the same queue looked like two different things.
+  It now takes `--tv-flag`'s hue at the theme's own measured wash, with the
+  renderer's inset left edge — so a flagged row under the cursor still says
+  it is flagged.
+- **Closing the capture form takes `?page=capture` off the URL.** It opened
+  through the shared popup door and closed around it, so the parameter the
+  raise wrote was never taken off: a URL copied afterwards reopened a form the
+  reader had left.
+- **A tree's saved default filter is applied even when the page opens during
+  indexing.** The shell renders while the walk runs, so a page served before it
+  landed carried the built-in `state:*active*` and nothing re-read it — the
+  reader's own view arrived only on a manual refresh, which a native window
+  cannot do.
+- **The link popup's `Type` values wear their badge colours again**, and its
+  `Headline` column is now `Title`.
+- **The materialize sheet's state badge wears the theme's colour again**, and
+  the priority badge now wears its own — it never had one.
+- **Re-opening the sheet draws its document.** Closing it used to take the
+  pane's contents away for the rest of the session.
+- **Setting a state on a headline that had none now shows in the material
+  sheet.** The `/command` wrote the file and the re-read behind it took the
+  store's copy, which the watch had not refreshed yet — so the pane redrew the
+  entry exactly as it was before the write. The stale-answer drop refuses that
+  reading and the retry behind it brings the real one.
+- **The property panel (and the tags popup) lost the empty leading column.**
+  The renderer's gutter served both the checkbox and the flag's inset edge, so
+  a mount that flags without marking — the panel, the tags popup — paid a
+  blank 3ch column for an edge. The gutter is the checkbox's alone now; the
+  flag's edge rides the row's first cell, and the key column starts flush
+  left. Marking tables are pixel-identical, their first cell being the gutter.
+- **A property just added is a full-height row while it is edited.** A `+` in
+  the panel opened the edit over a row whose two cells were still empty, and
+  an empty cell forms no line box — the row collapsed to its padding and the
+  overlay anchored to its rect squashed with it, springing to size only on
+  RET. The renderer holds the line now (a zero-width space after every empty
+  cell), so the fresh row stands as tall as its neighbours from the first
+  frame.
+- **A cell edit from the sheet no longer poisons its digest.** A `set-title`,
+  state, tag or priority write from the materialize sheet goes through
+  `/command`, whose per-id 200 carries the file's new digest — but the sheet
+  kept the old one until the watch frame re-read it, and that re-read is
+  guarded off under an open edit or the panel's keys. Every subtree commit
+  inside the window — a checkbox, `C-x C-s`, the panel's flush — 409'd at
+  `conflict` for the reader's own landed write. The sheet now re-pins off the
+  command's own answer, the tags popup's documented rule one surface over.
+- **Org links no longer flash raw on a sheet refresh — the links ride the
+  materialize now.** They travelled on a second request (`GET /links` beside
+  `GET /headline`), so every fill had an async gap and the frames in between
+  drew `[[url][desc]]` where the reader had been reading `desc`. The gap is
+  gone structurally: the materialize answer carries the row's whole link scan
+  beside the text it describes — one request instead of two, links atomic
+  with their text, compact from the first frame on every fill — and the
+  element's `o` opens off the held answer without asking the server. `/links`
+  stays as the table popup's and `edit-link`'s route, built by the same
+  `linkJSON` the materialize rider uses.
+- **An element commit no longer reverts the sheet to the store's stale copy.**
+  The re-read a successful commit fires reaches the store before the watch
+  has re-parsed the file, so it answered with the PRE-write subtree — the pane
+  flipped back to what the file just stopped saying, and the stale digest it
+  carried poisoned the sheet's pin, so the NEXT write landed at `conflict`.
+  A body-only edit emits no socket frame, so nothing ever corrected either.
+  The reload now drops any answer whose digest is not the write's own receipt
+  — the model the write was built from stands, redrawn — and retries once for
+  the server's canonical reading after the watch has caught up. Found by the
+  checkbox toggle, whose flip made the revert visible; it guarded every
+  paragraph, table-line and deletion commit the same way.
+- **`set-planning` takes `+1y`.** Org spells four units and its parser reads all
+  four, but this one reader hand-wrote three — so `+1y` parsed everywhere and
+  was refused here alone, by a message that did not mention `y` either way.
+  `unitOf` reads `unitChar` backwards, so the parser's units and this reader's
+  are one list, and the refusal sentence is derived from it.
+- **A repeating entry whose date org did not zero-pad now repeats.** `<2026-08-8
+  Sat +2d>` is a timestamp org reads — its parser takes each part as a run of
+  digits — but the shift scanned a fixed ten-character window, missed the date
+  entirely and wrote the stamp back unmoved. The entry reset its keyword and
+  stayed due, forever. The scanner reads the date the way the parser does now.
+- **A linked title shows its description alone.** The material headline drew
+  the raw `[[url][desc]]` as the cell's own text and appended the rendered
+  description beside it, so a browser showed both. Exactly one path writes
+  the cell now; the harness models the browser's reading (own text plus
+  children) so the double can never go green again.
+- **A held key is one press, even when the event lies.** WebKitGTK's
+  auto-repeat can arrive with `repeat` unset, which disarmed every
+  once-per-press guard in the native window — a held `DEL` stripped the whole
+  query, and a held `d` could flag and archive in one press. Repeat is now
+  derived from the missing key release, whatever the event says.
+- **The pin actually writes.** Two faults hid each other: the server still
+  required `lines` on `POST /config`, so the pin's request was a 400 — and the
+  shell's fetch resolves refusals, so the pin logged "pinned" while the file
+  never moved. Absent `lines` now leaves the `#+TODO:` block standing, and a
+  refused pin is a thrown error and one config error line.
+- **`f` recurses into a nested list.** A deeper item used to ride inside its
+  parent as opaque text, so the grain stopped one rung short. The grain is a
+  LADDER now: an item carrying a nested run is itself a parent — `f` descends
+  one rung, `b` climbs to the immediate owner, `n`/`p` clamp to one parent's
+  run, a flag on any rung deletes its whole range, and the draw shows each
+  rung inside the one above it.
 - **A link listed under two descriptions serves both.** `/links` deduplicated
   by target alone, so one `elisp:` command written under `pnl` and under
   `alpha:grafana` served the first and silently swallowed the second — which

@@ -432,7 +432,7 @@ measurements and the history of superseded designs live in
 - Commands: one route, `POST /command {name, id | ids, args, digests?}`, over ONE
   table — `commands`, name to `{argument shape, dated, edits}`. Eleven
   entries: `set-state`, `set-planning`, `set-title`, `set-priority`, `archive`,
-  `capture`, `add-tag`, `remove-tag`, `rename-tag`, `edit-link`. `rename-tag`
+  `capture`, `add-tag`, `remove-tag`, `rename-tag`, `edit-link`, `delete`. `rename-tag`
   names both ends and is a command rather than a remove plus an add: those two
   edit sets APPLY (`applyEdits` rejects only overlap) and compose to the tag
   spelled onto the title, and the pair would be two writes under two digests.
@@ -753,13 +753,13 @@ measurements and the history of superseded designs live in
   `:asc` unwritten, and its chip door folds every sort token of an applied query
   into it.
 - ONE COLUMN, ONE DIRECTION: a negation, an alternation, a column no view
-  carries, a direction that is neither `asc` nor `desc`, and a column named twice
-  are each a 400 naming the token. `sort:` half-typed orders nothing and refuses
-  nothing. The renderer cannot refuse, so it DROPS the key — a divergence in the
-  loud direction, and the only one where the producer is stricter. SCHEMA.md
-  blesses four of the five and calls the twice-named column "no error on either
-  side", which this side has refused since the tokens landed: a live disagreement
-  one of the two documents owes an edit for.
+  carries, and a direction that is neither `asc` nor `desc` are each a 400 naming
+  the token. A column named TWICE is not one of them — `extend` is a first-wins
+  DEDUP that refuses nothing, which is the renderer's own rule and SCHEMA.md's:
+  a duplicate names an order the chain already has, so nothing a reader could
+  have meant is lost. `sort:` half-typed orders nothing and refuses nothing. The
+  renderer cannot refuse the OTHER four, so it DROPS the key — a divergence in
+  the loud direction, and the only one where the producer is stricter.
 - The view declares a SORT CHAIN and is served in it: `defaultSortChain` is
   state, title, deadline, scheduled, all ascending — state by the badge PALETTE,
   the declared `#+TODO:` cycle, so the table opens in org's order rather than
@@ -1745,8 +1745,8 @@ measurements and the history of superseded designs live in
   take PARAGRAPHS; a headline refuses with a log line. The sheet is one entry in
   `SURFACES`, the fourth `flagKey` surface and the fourth `openEdit` shape pair,
   whose `anchor` is the one thing a shape declares that a mount's does not.
-- THE PANEL IS A TABLE-VIEW MOUNT — the renderer is the app's ONE list widget. A
-  second mount in `#mptable`, columns `key | value`, `palette: true`, no
+- THE PANEL IS A LIST MOUNT — `listing` over `Listing.elm`, the shell's one
+  small-list widget. In `#mptable`, columns `key | value`, `palette: true`, no
   `pageSize`, `actionHints: false`, `flagHelp`, and `flags: true` alone — no
   marks, so NO GUTTER: the renderer's gutter is the CHECKBOX's own (`chrome =
   marks`), and the flag's inset edge rides the row's FIRST cell, so a mount that
@@ -2079,8 +2079,8 @@ measurements and the history of superseded designs live in
   capture target, the log height), THEME (the reader's `auto`/`light`/`dark`
   preference, and the TREE's own state hues) and KEYWORDS (the layer select, its
   two boxes, the union and its note).
-- THE STATES TABLE is the theme panel's own mount, the page's FIFTH and its
-  second MUTABLE one: `tag | state | group | colour`, one row per keyword the
+- THE STATES TABLE is the theme panel's own `listing` mount, the fourth of them
+  and the second MUTABLE one: `tag | state | group | colour`, one row per keyword the
   tree knows. BY LAYER, THEN CYCLE ORDER — `crows`' own order (system first,
   then the tags alphabetically) and inside a layer its `#+TODO:` line left to
   right, actives before the done-like. A word two layers declare is TWO rows: a

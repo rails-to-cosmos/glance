@@ -2620,7 +2620,7 @@ on.
   command's FIRST binding, so the key line reads `n/p rows · f/b cells` and has
   never named an arrow. Same handler either way, so an arrow walking off the
   last cell lands in the whole-row look rather than meeting a wall. The ends are `<` and `>`, with vi's `G` beside `>`; `g`
-  is `apply-default-filter`, `a` is `org-glance-agenda`, `,` is `customize`, `o`
+  is `apply-default-filter`, `A` is `org-glance-agenda`, `,` is `customize`, `o`
   and `!` are `org-glance-overview:open`, `@` is
   `org-glance-overview:relations`,
   `M` is `mark-all`, `d` is `archive-flag` and `D` is
@@ -3745,8 +3745,9 @@ on.
   rather than ignored, which is the reason it was ever spelled out — a parameter
   silently dropped would serve the default order and read as a working request.
   A negation, an alternation, a
-  column no view carries, a direction that is neither `asc` nor `desc` and a
-  column named twice are each this request's 400 naming the token; the renderer
+  column no view carries and a direction that is neither `asc` nor `desc` are
+  each this request's 400 naming the token — a column named TWICE is not, being
+  a first-wins dedup that refuses nothing on either side; the renderer
   has nobody to refuse to and drops the key instead, so the producer is STRICTER
   there — the one divergence in that direction, and deliberate, an order nobody
   can give being worth saying. Evidence: `TestFilter` "Sort tokens", `TestServe`

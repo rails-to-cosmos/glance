@@ -8,7 +8,7 @@ occupies — optimistic lock, temp-plus-rename, every other byte identical.
 Underneath sits =Data.Org=, a megaparsec org-mode grammar where every element
 carries a half-open character span into its document.
 
-- *Author:* Dmitry Akatov · *License:* BSD3 · *Version:* =0.4.0.0= ([[file:CHANGELOG.md][CHANGELOG.md]])
+- *Author:* Dmitry Akatov · *License:* BSD3 · *Version:* =0.5.0.0= ([[file:CHANGELOG.md][CHANGELOG.md]])
 - *Upstream:* https://github.com/rails-to-cosmos/glance
 
 ** Quickstart
@@ -49,6 +49,8 @@ ported term for term; divergences enumerated in [[file:docs/invariants.md][docs/
 | =ref:ROW-ID=                        | rows whose subtree links to that row (=@= drills) |
 | =sort:state->title:desc=            | order by cycle, ties by title reversed       |
 | =sort:*none*=                       | document order, no sort at all               |
+| =columns:State,Title,Tags=          | those columns, in that order                 |
+| =view:agenda=                       | a saved view by NAME, standing for its query |
 
 Written order is precedence; a query naming any =sort:= replaces the default
 chain (state · title · deadline · scheduled, state in the tree's own =#+TODO:=
@@ -67,7 +69,7 @@ the *physical key*, so =т з о л= navigates on a Cyrillic layout.
 | =t= =:= =d d= =D= | state palette · tag popup · flag-then-archive           |
 | =m= =u= =M= =U=   | dired's marks                                           |
 | =o=               | follow the row's links (one opens, several list)        |
-| =+=               | capture · =g= default view · =a= agenda · =P= pin into one |
+| =+=               | capture · =g= default view · =A= agenda · =P= pin into one |
 | =@=               | drill into referring rows; =DEL= walks back             |
 | =/=               | filter palette · =,= settings · =C-x C-s= sync the sheet |
 
@@ -122,6 +124,7 @@ nothing written.
 | =archive=      | ={}=                             | =add-tag ARCHIVE=; idempotent     |
 | =capture=      | ={text, tag?, fields?}=          | a headline, or a store blob       |
 | =edit-link=    | ={span, target, desc?}=          | one link's own range              |
+| =delete=       | ={}=                             | an archived blob, gzipped to =trash/= |
 
 #+begin_src sh
 curl -s -X POST -H 'content-type: application/json' localhost:7777/command \
@@ -153,7 +156,8 @@ written from the table with =P=, which asks which one takes the applied query.
 ** org-glance interop
 
 Reads and writes the same tree Emacs's org-glance does: walks the canonical
-=data/= store, declines the derived =overviews/=, =meta/= and =occurrences/=
+=data/= store, declines the derived =overviews/=, =meta/=, =trash/= and
+=occurrences/=
 (=--include-derived= turns that off), resolves shared ids in the store's
 favour. Every daemon write into a blob appends to =meta/EXTERNAL.jsonl=, which
 =M-x org-glance-graph:refresh-external= folds back. =glance scan= reads
@@ -173,11 +177,17 @@ GLANCE_CORPUS=~/sync cabal test      # plus corpus-sampled groups (they SAY when
 cabal run -v0 glance -- scan ~/sync  # the parser oracle: expect 0 span violations
 make native                          # WebKitGTK window: vendored/ + GIR path, -f native-window
 make sync-renderer                   # refresh assets/table-view.js from ../table-view/web
+make elm                             # rebuild assets/elm.js (reproduces the committed bytes)
+make elm-test                        # the scanner's own tests; fetches, so it is out of cabal test
+make check-glue                      # tsc over the shell's parts
 #+end_src
 
-Standing oracle over =~/sync=, 2026-08-04: 6292 files, 12611 headlines, *0
-span violations*, walk ~10 s. =assets/table-view.js= is a committed build
-input compiled into the binary; =--assets ../table-view/web= serves the
+Standing oracle over =~/sync=, 2026-08-11: 6304 files, 12630 headlines, *0
+span violations*, walk ~10 s. =assets/table-view.js= and =assets/elm.js= are
+committed build inputs compiled into the binary — the renderer, and the Elm
+program the materialize sheet and the small lists are drawn by; neither is
+rebuilt by =cabal build=, so a source change owes its =make= step.
+=--assets ../table-view/web= serves the
 sibling checkout live for renderer hacking. =vendored/= exists because Arch
 ships WebKit2 4.1 typelibs only — =cabal get NAME-VERSION && diff -r= shows
 the whole patch.

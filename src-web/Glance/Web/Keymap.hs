@@ -90,7 +90,7 @@ keyBindings =
   , bind ["d"]          "archive-flag"                    (Just "archiveFlag")    "table"
       `helps` "flag for archive; d again archives all flagged"
   , bind ["D"]          "org-glance-overview:delete"      (Just "archiveRows")    "table"
-      `helps` "archive the flagged rows, or the row at point — never a delete"
+      `helps` "archive the flagged; an already-archived row deletes, on a typed word"
   , bind ["S-<up>"]     "priority-up"                     (Just "priorityUp")     "table"
       `helps` priorityHelp
   , bind ["S-<down>"]   "priority-down"                   (Just "priorityDown")   "table"

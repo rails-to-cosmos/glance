@@ -11384,10 +11384,11 @@ expectedRows =
   -- second does it.  Plain @d@ is never a write on its own.
   , (["d"],          "d",       "archive-flag",                    Just "archiveFlag",    "table",
        Just "flag for archive; d again archives all flagged")
-  -- org-glance's own name for dired's key, and a help line because what it
-  -- does here is narrower than the name: the headline is tagged, never removed.
+  -- org-glance's own name for dired's key, and a help line because the name
+  -- covers TWO steps: a live row is TAGGED, and a row already carrying the tag
+  -- is one step from gone, so the same key takes that step over it.
   , (["D"],          "D",       "org-glance-overview:delete",      Just "archiveRows",    "table",
-       Just "archive the flagged rows, or the row at point \8212 never a delete")
+       Just "archive the flagged; an already-archived row deletes, on a typed word")
     -- Org's own priority keys, and they CYCLE: a ring of three plus none, so a
     -- press is the answer where a palette would be a list of three to read.
   , (["S-<up>"],     "S-<up>",  "priority-up",                     Just "priorityUp",     "table",
