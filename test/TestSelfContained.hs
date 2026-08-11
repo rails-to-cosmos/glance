@@ -73,6 +73,17 @@ spec = testGroup "Self-containment"
       hits <- concat <$> mapM homePaths files
       assertEqual "sources naming an absolute home directory" [] hits
 
+    -- AND `tsc' READS THE SAME SEVEN.  `assets/jsconfig.json' names the parts a
+    -- second time, for a tool that reports clean over whatever it was handed —
+    -- so a part added to the build and forgotten there is checked by nothing,
+    -- which is the shape `checkJs' without `allowJs' already had.
+  , testCase "the type checker reads the parts the build does" $ do
+      conf <- TIO.readFile "assets/jsconfig.json"
+      assertBool "the part list is empty" (length gluePartFiles >= 2)
+      assertEqual "a part the build reads and jsconfig.json does not" []
+                  [ part | part <- gluePartFiles
+                         , not (T.pack ("glue/" <> part) `T.isInfixOf` conf) ]
+
     -- A PROPOSAL'S NAME TELLS ITS STATUS, and the name is the SECOND place that
     -- fact is written — so it is CHECKED rather than kept in step by hand, which
     -- is the failure this repo keeps finding in its own documents.  The status

@@ -19,6 +19,7 @@ module Data.Org.Edit ( Edit (..)
                      , readParsed
                      , snapshotOf
                      , takeSnapshot
+                     , tempSuffix
                      ) where
 
 import Control.Exception (IOException, SomeException, bracketOnError, evaluate, try)
@@ -225,12 +226,22 @@ readBytes path = report <$> (try (BS.readFile path) :: IO (Either IOException BS
   where report = either (Left . Walk.errText) Right
 
 -- | Put BYTES at PATH atomically: a temp in PATH's own directory, renamed over.
+-- | What a half-written document is called, and it is LOAD-BEARING.
+-- 'openBinaryTempFile' splits its template at the LAST dot, so this suffix is
+-- what the leftover's EXTENSION becomes: @notes.org@ names
+-- @notes\<rand\>.glance-tmp@, which 'Data.Org.Walk.isDocument' declines.  Drop
+-- it and the template splits at org's own dot instead — @notes\<rand\>.org@, a
+-- file the walk COLLECTS, PARSES and SERVES AS ROWS if a write is interrupted
+-- between the create and the rename.
+tempSuffix :: String
+tempSuffix = ".glance-tmp"
+
 writeAtomically :: FilePath -> BS.ByteString -> IO (Either EditIOError ())
 writeAtomically path bytes = report <$> attempt
   where
     attempt = try (bracketOnError open discard write) :: IO (Either IOException ())
     open = do createDirectoryIfMissing True (takeDirectory path)
-              openBinaryTempFile (takeDirectory path) (takeFileName path <> ".glance-tmp")
+              openBinaryTempFile (takeDirectory path) (takeFileName path <> tempSuffix)
     write (tmp, h) = do
       BS.hPut h bytes
       hFlush h

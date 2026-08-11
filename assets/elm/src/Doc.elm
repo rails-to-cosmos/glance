@@ -418,7 +418,10 @@ update msg model =
             spoke (moveCol by model)
 
         Flag id ->
-            told { model | flags = id :: List.filter ((/=) id) model.flags }
+            -- OLDEST FIRST, which is the rule for every flag surface: a
+            -- caller firing one command per flag runs them the way the
+            -- reader pressed them.  `Listing' spells it the same way.
+            told { model | flags = List.filter ((/=) id) model.flags ++ [ id ] }
 
         Unflag id ->
             told { model | flags = List.filter ((/=) id) model.flags }

@@ -84,6 +84,11 @@ async function browserPath() {
 const BREAKS = {
   // 1 — the box stands over the document instead of pushing it down (cb6db85).
   "edit-covers": ["1", "#dpara.on{height:220px !important}"],
+  // 5 — the tier stops clamping, which is the defect this case was born from:
+  // `.pop-sheet' drew its padding and border OUTSIDE `--g-pop-max' until the
+  // `box-sizing' pair landed, so a popup stood 30px past its own cap.
+  "pop-clamp": ["5", ".pop-band,.pop-sheet{box-sizing:content-box !important;"
+                   + "height:96vh !important;max-height:96vh !important}"],
   // 1 — the block keeps a one-line floor whatever is typed into it.
   "edit-floor": ["1", ".de.dat{min-height:0 !important}"],
   // 2 — the drawn paragraph collapses to nothing (d7ba44b).

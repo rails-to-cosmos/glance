@@ -3672,7 +3672,7 @@ on.
   all", "and one the reader emptied is the null that takes it off", "the commit
   closes the popup, and the log names both ends", "a link nobody changed costs no
   write", "a click under an open link cannot redirect the write". **test**
-- **`a` is a canned VIEW, not a mode — and the whole view is one string.**
+- **`A` is a canned VIEW, and the whole view is one string.**
   `org-glance-agenda` applies `state:*active* -planned:*empty* sort:scheduled`
   through the door `g` uses — `applyView` writes it into the URL, drops the
   socket, and remounts, so the query is the renderer's chips and a reader can

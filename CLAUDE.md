@@ -1043,7 +1043,7 @@ measurements and the history of superseded designs live in
   cursor moves by, over plain `List String` and `List Row` rather than the
   Model — extensible records (`{ a | rows : … }`) keep every call site as it
   was. `Doc.elm` keeps the Model, the ports, the movement and the view.
-- `make elm-test` RUNS THAT HALF'S OWN TESTS (35 cases,
+- `make elm-test` RUNS THAT HALF'S OWN TESTS (65 cases,
   `assets/elm/tests/ScanTest.elm`) and is OUT of `cabal test` on purpose:
   elm-test fetches `elm-explorations/test` at run time and the Haskell suite
   stays offline. The Haskell suite is still the contract; these ask the rules
@@ -1360,7 +1360,7 @@ measurements and the history of superseded designs live in
   holds under both spellings, plus `org-glance-overview:open` and
   `org-glance-agenda`, which are ruinous held down. `archive-flag` needs it most:
   a surviving repeat would flag a row and archive it from ONE press.
-- Seven keys write without a sheet, all `POST /command`, and WHICH ROWS is per
+- Ten keys write without a sheet, all `POST /command`, and WHICH ROWS is per
   command. `t`/`C-c C-t`, `:` and `C-c C-s`/`C-c C-d` take the MARKED set when
   there is one and the row at point otherwise — dired's rule. `D` and `d` take
   the FLAGGED set instead and never read marks: a mark is what a reader lays down
@@ -1482,8 +1482,8 @@ measurements and the history of superseded designs live in
   `prompting.raising`. ORDER IS LOAD-BEARING FOR EXACTLY ONE PAIR: `+` over the
   tags popup leaves both up, and `momentary()` resolves that tie by list
   position, so swapping them makes the tags listener eat the add-field's letters.
-- `:` raises the TAGS POPUP, the page's FOURTH table-view mount and the only
-  MUTABLE one. A tag over a set of rows is a RECORD — a name, a coverage, a
+- `:` raises the TAGS POPUP, one of the four `listing` mounts and the first
+  MUTABLE one — `#app` is the one TABLE-VIEW mount left. A tag over a set of rows is a RECORD — a name, a coverage, a
   weight — so it takes the link popup's shape rather than the palette's. Columns
   are `tagColumns`: `title` (the tag, keyed the link popup's way — a column keyed
   `tag` would invite the multi-value sampling), `on` (coverage, `all` or `k/n`)
@@ -1526,7 +1526,7 @@ measurements and the history of superseded designs live in
   press, both outcomes alike — forced, since the spans describe a file the write
   has just moved. KNOWN CONSEQUENCE: a row with exactly ONE link is followed
   rather than listed, so that link has no editor.
-- `a` is a canned VIEW: `state:*active* -planned:*empty*
+- `A` is a canned VIEW: `state:*active* -planned:*empty*
   sort:scheduled` through `applyView`, the door `g` uses. No agenda state
   anywhere; `g` is the way home. The order is a token rather than a call behind
   the answer, so the whole view is one string. What arrives through `landed` — a
@@ -2259,6 +2259,18 @@ measurements and the history of superseded designs live in
 
 - `glance.cabal` is hand-maintained; package.yaml/hpack removed — do not
   regenerate.
+- A HALF-WRITTEN DOCUMENT IS NAMED OUT OF THE WALK'S REACH.
+  `Data.Org.Edit.tempSuffix` is load-bearing rather than decoration:
+  `openBinaryTempFile` splits its template at the LAST dot, so the suffix IS the
+  leftover's extension. Without it the split lands on org's own dot and an
+  interrupted write leaves `notes<rand>.org` — a file `isDocument` COLLECTS,
+  PARSES and SERVES AS ROWS. Asserted against `isDocument` rather than against
+  itself, since the string is only interesting for what the walk does with it.
+- AND `assets/jsconfig.json` READS THE PARTS THE BUILD DOES. It names them a
+  second time for `tsc`, which reports clean over whatever it was handed, so a
+  part added to `gluePartFiles` and forgotten there is checked by nothing —
+  `checkJs` without `allowJs` was that bug once already. `TestSelfContained`
+  compares the two.
 - `assets/table-view.js` is a committed BUILD INPUT: in `extra-source-files`,
   read by `Routes`'s `embedFile` splice (`addDependentFile` recompiles on
   change). Refresh it with `make sync-renderer`, never by hand.

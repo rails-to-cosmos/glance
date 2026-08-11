@@ -275,8 +275,7 @@
       if (k === "+") { e.preventDefault(); addState(); return; }
       if (narrowPress(k, smount)) { e.preventDefault(); return; }
       if (flagPress(k, e, SFLAGS)) { e.preventDefault(); return; }
-      const step = k === "n" || k === "j" || k === "<down>" ? 1
-                 : k === "p" || k === "k" || k === "<up>" ? -1 : 0;
+      const step = rowStep(k);
       if (step) { e.preventDefault(); stepIn(smount, step); }
     });
     const hueList = () =>

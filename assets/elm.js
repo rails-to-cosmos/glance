@@ -8158,13 +8158,13 @@ var $author$project$Doc$update = F2(
 					_Utils_update(
 						model,
 						{
-							L: A2(
-								$elm$core$List$cons,
-								id,
+							L: _Utils_ap(
 								A2(
 									$elm$core$List$filter,
 									$elm$core$Basics$neq(id),
-									model.L))
+									model.L),
+								_List_fromArray(
+									[id]))
 						}));
 			case 9:
 				var id = msg.a;

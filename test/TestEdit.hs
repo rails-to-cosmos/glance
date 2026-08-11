@@ -6,6 +6,8 @@ import Data.List (sort, sortOn)
 -- The suite's own 'headlinesOf' is the oracle here; see 'TestDefaults'.
 import Data.Org hiding (headlinesOf)
 import Data.Org.Edit
+import Data.Org.Walk (isDocument)
+import System.FilePath (takeExtension)
 import Data.Text (Text)
 import System.Directory (listDirectory)
 import System.FilePath ((</>))
@@ -154,6 +156,11 @@ assertBytes label want path = do
   assertEqual (label <> ": bytes at " <> path) want found
 
 -- Spec
+
+-- | What `openBinaryTempFile' leaves where a write was interrupted: its template
+-- split at the LAST dot, with its own randomness in the middle.
+leftover :: FilePath
+leftover = "notes.org" <> "8f2c" <> tempSuffix
 
 spec :: TestTree
 spec = testGroup "Edit"
@@ -418,6 +425,19 @@ fileSpec =
         assertEqual "directory contents" ["notes.org"] (sort left)
         mode <- accessMode path
         assertEqual "mode" private mode
+
+    -- AND THE NAME A HALF-WRITTEN ONE WOULD WEAR IS THE POINT OF THE SUFFIX.
+    -- `openBinaryTempFile' splits its template at the LAST dot, so the suffix
+    -- IS the leftover's extension; without it the split lands on org's own dot
+    -- and an interrupted write leaves `notes<rand>.org' — a file the walk
+    -- COLLECTS, PARSES and SERVES AS ROWS.  The case above cannot see this: it
+    -- lists the directory after a write that SUCCEEDED, where there is nothing
+    -- left to name.
+  , testCase "a half-written document is named out of the walk's reach" $ do
+      assertBool ("a leftover the walk would collect: " <> leftover)
+                 (not (isDocument leftover))
+      assertBool "and it is out of reach by its EXTENSION, which is the suffix"
+                 (takeExtension leftover == tempSuffix)
 
   , testCase "a missing file reads as a failure, twice over" $
       withTempDirNamed "missing" $ \dir -> do
