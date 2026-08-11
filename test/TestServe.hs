@@ -54,6 +54,7 @@ import Glance.Query ( ConfigSetting (csName), QueryResult (qrRecords)
 import Glance.Web ( ServeOptions (..), application, bannerLines, bootstrapWanted
                   , defaultPort, viewTitleFor )
 import Glance.Web.Base (gluePartFiles)
+import Glance.Web.Commands (commandNames)
 import Glance.Web.Theme (Theme (..), themes)
 import Glance.Web.Store ( Hub, applyFile, finishLoading, loadStore, newHub
                        , newLoadingHub, publish )
@@ -3879,6 +3880,24 @@ sheetSpec shell =
           assertEqual "nothing written" ([] :: [Value]) =<< listAt "writes" answer
           echoIs "" "RET \8594 org-ctrl-c-ctrl-c (nothing added)" answer
 
+    -- EVERY COMMAND THAT NAMES ROWS OWES A LOG PHRASE, and the join between the
+    -- two tables is checked rather than kept by hand.  `set-state' was the
+    -- FALLBACK, so `delete' — the eleventh command, landed after the join was
+    -- proposed — logged "state cleared" over every file it moved out of the
+    -- tree, in the strip that is this page's own audit surface. The echo pill
+    -- was right, which is what let it stand.
+  , testCase "every command that names rows spells its own log phrase" $ do
+      page <- shell
+      let phraseless = ["capture"]   -- makes a row rather than naming one
+          owed = filter (`notElem` phraseless) commandNames
+          quoted n = "\"" <> n <> "\":"
+          spelled n = quoted n `T.isInfixOf` page
+                        || (n <> ":") `T.isInfixOf` page
+      assertBool ("too few commands swept: " <> show (length owed))
+                 (length owed >= 8)
+      assertEqual "a command whose rows would log another command's phrase" []
+                  [ n | n <- owed, not (spelled n) ]
+
     -- WHAT THE BOX HOLDS IS WHAT IS WRITTEN, and these two are the reports it
     -- was rewritten for.  The lead used to be PREPENDED by the composer, so a
     -- reader who edited the token got BOTH — `- [ ] ' plus their own `- DONE'.
@@ -7605,7 +7624,7 @@ shellGlue =
       , "function hop() {"
       , "const at = ids.findIndex((id) => el(id) === active());"
       , "const VERBED = {"
-      , "const verbed = (name, args, verb) => (VERBED[name] || stated)(args, verb);"
+      , "const verbed = (name, args, verb) => (VERBED[name] || ((_args, v) => v))(args, verb);"
       , "const what = verbed(name, args, verb);"
       -- Exclusivity is walked off the one list rather than restated by hand.
       , "for (const s of SURFACES) if (s.momentary && s.up()) s.off();" ]

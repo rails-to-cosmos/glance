@@ -5,7 +5,10 @@
 -- is adding a row rather than a name in a list, two guards and a case arm.  The
 -- edits themselves are 'Glance.Query''s: a headline's spans belong to the
 -- private sublibrary and this layer cannot see them.
-module Glance.Web.Commands (runCommand) where
+-- `commandNames' rides out for the SUITE, which asks the join between this
+-- table and the shell's own log phrases — a command landing here with no
+-- phrase over there logs another command's sentence.
+module Glance.Web.Commands (commandNames, runCommand) where
 
 import Control.Concurrent.STM (readTVarIO)
 import Control.Monad (join)

@@ -928,9 +928,17 @@
       "rename-tag": (args) => `retagged ${args.from}→${args.to}`,
       "set-planning": (args) =>
         `${args.keyword.toLowerCase()} ${args.date || "cleared"}`,
+      // SPELLED RATHER THAN LEFT TO A FALLBACK, both of them.  `set-state' was
+      // the fallback, so EVERY command without an entry logged "state cleared"
+      // over rows it had done something else to — `delete' said it over each
+      // file it moved out of the tree, in the strip that is this page's audit.
+      "set-state": (args) => (args.keyword ? `→ ${args.keyword}` : "state cleared"),
+      delete: () => "deleted",
     };
-    const stated = (args) => (args.keyword ? `→ ${args.keyword}` : "state cleared");
-    const verbed = (name, args, verb) => (VERBED[name] || stated)(args, verb);
+    // The caller's own word where no entry names one.  A command that NAMES
+    // ROWS owes an entry and the suite asks for it, so this is reached by
+    // nothing the table carries.
+    const verbed = (name, args, verb) => (VERBED[name] || ((_args, v) => v))(args, verb);
     function fire(b, name, ids, args, verb, how, pin) {
       return postCommand({ name, ids, args, digests: pin }).then((answer) => {
         const results = answer.results || [];

@@ -12,6 +12,9 @@ section groups a feature arc, and its date is that arc's last commit.
 ## Unreleased
 
 ### Fixed
+- **`delete` no longer logs "state cleared" over every row it removes.** The
+  log strip is the page's audit surface, and the one destructive command was
+  reporting a state change on each file it moved out of the tree.
 - **A list token you edit is the token that gets written.** Changing the
   drawn `- [ ] ` to `- DONE` wrote both, because the composer prepended the
   token the box was already showing. What the box holds is now what is
