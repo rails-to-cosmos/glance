@@ -12,6 +12,10 @@ section groups a feature arc, and its date is that arc's last commit.
 ## Unreleased
 
 ### Fixed
+- **`+` adds a list item directly below the one you are on,** where it landed
+  at the bottom of the whole run. Org's own `M-RET`: you walked to an item, so
+  the new one belongs under that item rather than somewhere you would walk
+  back up from.
 - **Adding a list item shows the bullet while you type it.** The box sits over
   the drawn row exactly and opaquely, so the `- ` or `- [ ] ` the row wears was
   hidden until `RET` and the field looked empty. It carries the token now, and

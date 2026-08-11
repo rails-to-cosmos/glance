@@ -344,23 +344,28 @@ suite =
             -- AN ITEM JOINS ITS RUN'S BOTTOM, wearing the stop's own prefix.
             -- The typed text is what the READER typed, so the lead appears in
             -- the expectation and never in the argument.
-            , test "an item's joins the END of its own run" <|
+            , test "an item's joins STRICTLY BELOW the stop" <|
                 \_ ->
-                    Expect.equal "* head\n- alpha\n- beta\n- note"
+                    Expect.equal "* head\n- alpha\n- note\n- beta"
                         (Scan.bodyText (inserted "B1" "note" [ "* head", "- alpha", "- beta" ]) [])
-            , test "the run's bottom, never the stop's own line" <|
+
+            -- ORG'S OWN `M-RET': the reader walked to an item and the new one
+            -- belongs under THAT one, never at a bottom they would walk back
+            -- up from.  Two items below it stay where they are.
+            , test "and the run below it is untouched, however long" <|
                 \_ ->
-                    Expect.equal "* head\n- alpha\n- beta\n- gamma\n- note"
+                    Expect.equal "* head\n- alpha\n- note\n- beta\n- gamma"
                         (Scan.bodyText
                             (inserted "B1" "note" [ "* head", "- alpha", "- beta", "- gamma" ])
                             []
                         )
 
-            -- ONE BLANK STAYS INSIDE THE RUN (org's rule, `listRun'), so the
-            -- bottom is past it rather than at it.
-            , test "a blank line inside the run does not end it" <|
+            -- ONE BLANK STAYS INSIDE THE RUN (org's rule, `listRun'), and a
+            -- sibling of the stop goes above it, the blank belonging to what
+            -- follows rather than to the item being joined.
+            , test "a blank line inside the run stays under the new item" <|
                 \_ ->
-                    Expect.equal "* head\n- alpha\n\n- beta\n- note"
+                    Expect.equal "* head\n- alpha\n- note\n\n- beta"
                         (Scan.bodyText (inserted "B1" "note" [ "* head", "- alpha", "", "- beta" ]) [])
 
             -- THE INDENT IS THE CURSOR'S: the nested run's own bottom, two
@@ -383,9 +388,13 @@ suite =
             -- A NUMBER CONTINUES OFF THE LAST ITEM: the stop's own number
             -- spelled at the bottom is a duplicate, which is what makes org
             -- renumber.
-            , test "a numbered run continues its numbering" <|
+            -- THE NUMBER IS THE STOP'S, ONE ON, and the item below keeps the
+            -- one it had — a duplicate, which is org's own `M-RET' answer and
+            -- what `org-list-repair' is for.  Counting from the run's bottom
+            -- would spell a number two items away from where this lands.
+            , test "a numbered item takes the stop's number, one on" <|
                 \_ ->
-                    Expect.equal "* head\n1. alpha\n2. beta\n3. note"
+                    Expect.equal "* head\n1. alpha\n2. note\n2. beta"
                         (Scan.bodyText (inserted "B1" "note" [ "* head", "1. alpha", "2. beta" ]) [])
             , test "and the punctuation is the stop's own" <|
                 \_ ->
@@ -472,13 +481,13 @@ suite =
                     in
                     Expect.equal ( 4, "* head\n- alpha" )
                         ( List.length rows, Scan.bodyText { m | rows = rows } [] )
-            , test "and it stands under the WHOLE list, never between two items" <|
+            , test "and it stands directly under the stop, inside the list" <|
                 \_ ->
                     let
                         m =
                             model [ "* head", "- alpha", "- beta", "", "after" ]
                     in
-                    Expect.equal (Just [ "H", "B0", "B1", "B2", "D", "B3" ])
+                    Expect.equal (Just [ "H", "B0", "B1", "D", "B2", "B3" ])
                         (Maybe.map (List.map .id) (Scan.drafted m "B1"))
             , test "a second ask draws one paragraph rather than two" <|
                 \_ ->
@@ -552,11 +561,11 @@ suite =
                 \_ ->
                     Expect.equal (Just 3)
                         (Scan.joinLine (model [ "* head", "alpha", "", "beta" ]) "B0")
-            -- AN ITEM OWES NO BLANK, so its landing is the run's bottom exactly,
-            -- where a paragraph's is one line past the blank written above it.
-            , test "an item lands on the run's bottom line itself" <|
+            -- AN ITEM OWES NO BLANK, so its landing is the line under the stop
+            -- exactly, where a paragraph's is one past the blank written above.
+            , test "an item lands on the line under the stop" <|
                 \_ ->
-                    Expect.equal (Just 3)
+                    Expect.equal (Just 2)
                         (Scan.joinLine (model [ "* head", "- alpha", "- beta" ]) "B1")
             , test "and under the headline it leads the body with no blank owed" <|
                 \_ ->

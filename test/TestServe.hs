@@ -3731,13 +3731,13 @@ sheetSpec shell =
     -- always was and only the lead is new.
   , testCase "+ on an item draws the item it will be" $ do
       onTable "grain press:Enter press:n press:n press:f press:+" $ \answer -> do
-        assertEqual "drawn at the run's bottom, where it always was"
-                    [ "head", "para", "comp:list", "item", "item", "item", "item"
-                    , "draft:item", "comp:quote", "item", "item", "para", "child" ]
+        assertEqual "drawn STRICTLY BELOW the stop, never at the run's bottom"
+                    [ "head", "para", "comp:list", "item", "item", "draft:item"
+                    , "item", "item", "comp:quote", "item", "item", "para", "child" ]
           =<< map head <$> docOf answer
         assertEqual "wearing the stop's own bullet" ["- "]
           . partsOf "draft:item" =<< docOf answer
-        assertEqual "and the cursor is on it" 7 =<< intAt "dat" answer
+        assertEqual "and the cursor is on it" 5 =<< intAt "dat" answer
         echoIs "the echo names the level, not the structure"
                "+ \8594 org-insert-element (an item at this level)" answer
 
@@ -3787,10 +3787,10 @@ sheetSpec shell =
   , testCase "+ inside a list adds an item at the list's bottom" $
       onTable "grain press:Enter press:n press:n press:f press:+ dpara:note press:Enter" $
         \answer ->
-          assertEqual "past gamma, inside the list, no blank line owed"
-            [ "* TODO one\nlead in\n- alpha\n  more alpha\n  - nested\n\n- beta\n- gamma\n"
-              <> "- note\n\n#+begin_quote\nquoted one\n\nquoted two\n#+end_quote\n\n"
-              <> "tail para\n** two\nchild body\n" ]
+          assertEqual "under alpha and the run nested INSIDE it, never past gamma"
+            [ "* TODO one\nlead in\n- alpha\n  more alpha\n  - nested\n- note\n\n"
+              <> "- beta\n- gamma\n\n#+begin_quote\nquoted one\n\nquoted two\n"
+              <> "#+end_quote\n\ntail para\n** two\nchild body\n" ]
             =<< traverse (textAt "body") =<< listAt "writes" answer
 
     -- ONE RUNG FURTHER, which is the ask itself: the INDENT is the cursor's and
@@ -3843,8 +3843,8 @@ sheetSpec shell =
       onTable "checky press:Enter press:n press:f press:+ dpara:epsilon press:Enter" $
         \answer ->
           assertEqual "an EMPTY box, whatever the stop's own state"
-            [ "* TODO one\n- [ ] alpha\n- [X] beta\n- [-] gamma\n- delta\n"
-              <> "- [ ] epsilon\n** two\nchild body\n" ]
+            [ "* TODO one\n- [ ] alpha\n- [ ] epsilon\n- [X] beta\n- [-] gamma\n"
+              <> "- delta\n** two\nchild body\n" ]
             =<< traverse (textAt "body") =<< listAt "writes" answer
 
     -- AN ITEM'S TOKEN IS ON SCREEN WHILE IT IS TYPED.  The box is laid over the
@@ -3870,8 +3870,8 @@ sheetSpec shell =
       onTable "checky press:Enter press:n press:f press:+ dpara:-_[_]_epsilon press:Enter" $
         \answer ->
           assertEqual "typed after the token"
-            [ "* TODO one\n- [ ] alpha\n- [X] beta\n- [-] gamma\n- delta\n"
-              <> "- [ ] epsilon\n** two\nchild body\n" ]
+            [ "* TODO one\n- [ ] alpha\n- [ ] epsilon\n- [X] beta\n- [-] gamma\n"
+              <> "- delta\n** two\nchild body\n" ]
             =<< traverse (textAt "body") =<< listAt "writes" answer
       -- AND A BOX HOLDING NOTHING BUT ITS OWN TOKEN IS NO ITEM.
       onTable "checky press:Enter press:n press:f press:+ dpara:-_[_]_ press:Enter" $

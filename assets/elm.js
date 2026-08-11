@@ -7708,24 +7708,6 @@ var $author$project$Scan$boxAfter = function (after) {
 		_List_fromArray(
 			['[ ]', '[X]', '[x]', '[-]'])) ? '[ ] ' : '';
 };
-var $author$project$Scan$runOf = F2(
-	function (m, r) {
-		return A2(
-			$elm$core$List$filter,
-			function (s) {
-				return (s.C === 1) && ((s.i === 2) && (_Utils_eq(s.ad, r.ad) && (!_Utils_eq(s.u, $author$project$Scan$draftId))));
-			},
-			m.e);
-	});
-var $author$project$Scan$lastSibling = F2(
-	function (m, r) {
-		return A2(
-			$elm$core$Maybe$withDefault,
-			r,
-			$elm$core$List$head(
-				$elm$core$List$reverse(
-					A2($author$project$Scan$runOf, m, r))));
-	});
 var $author$project$Scan$numberAt = function (line) {
 	var spaces = $elm$core$String$length(line) - $elm$core$String$length(
 		$elm$core$String$trimLeft(line));
@@ -7735,6 +7717,15 @@ var $author$project$Scan$numberAt = function (line) {
 		$author$project$Scan$numberedAt(
 			A2($elm$core$String$dropLeft, spaces, line)));
 };
+var $author$project$Scan$runOf = F2(
+	function (m, r) {
+		return A2(
+			$elm$core$List$filter,
+			function (s) {
+				return (s.C === 1) && ((s.i === 2) && (_Utils_eq(s.ad, r.ad) && (!_Utils_eq(s.u, $author$project$Scan$draftId))));
+			},
+			m.e);
+	});
 var $author$project$Scan$nextBullet = F3(
 	function (m, r, o) {
 		var digits = $elm$core$String$fromList(
@@ -7747,10 +7738,7 @@ var $author$project$Scan$nextBullet = F3(
 		} else {
 			var next = function () {
 				var _v0 = $author$project$Scan$numberAt(
-					A2(
-						$author$project$Scan$at,
-						A2($author$project$Scan$lastSibling, m, r).z,
-						m.V));
+					A2($author$project$Scan$at, r.z, m.V));
 				if (!_v0.$) {
 					var n = _v0.a;
 					return n + 1;
@@ -7822,9 +7810,8 @@ var $author$project$Scan$joinAt = F2(
 					var _v2 = A2($author$project$Scan$itemLead, m, r);
 					if (!_v2.$) {
 						var lead = _v2.a;
-						var last = A2($author$project$Scan$lastSibling, m, r);
 						return $elm$core$Maybe$Just(
-							A4($author$project$Scan$Join, last.u, last.J, lead, last.ad));
+							A4($author$project$Scan$Join, r.u, r.J, lead, r.ad));
 					} else {
 						var up = A2($author$project$Scan$outermost, m, r);
 						return $elm$core$Maybe$Just(

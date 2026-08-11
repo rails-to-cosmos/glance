@@ -1767,9 +1767,14 @@ measurements and the history of superseded designs live in
   before it paints, so `+` opens the box and the state push re-anchors it.
   WHERE it lands is `Scan.joinAt`, and THE GRAIN IS THE SELECTOR: a COMPOSITE's
   rides past the whole structure — one `b` from any item — while a LIST LEAF's
-  joins THE BOTTOM OF ITS OWN RUN as an item wearing the stop's own PREFIX (its
-  indent and bullet, an EMPTY checkbox where the stop has one, the run's next
-  number where it is numbered). A TABLE line and a `#+begin_X` run keep the
+  joins STRICTLY BELOW THE STOP as an item wearing the stop's own PREFIX (its
+  indent and bullet, an EMPTY checkbox where the stop has one, the stop's number
+  one on where it is numbered). ORG'S OWN `M-RET`: the reader walked to an item
+  and the new one belongs under THAT one, never at a run's bottom they would
+  walk back up from. The stop's own `to` already covers the run nested INSIDE
+  it, so a sibling clears its children too, and the item below keeps the number
+  it had — a duplicate, which is org's answer and what `org-list-repair` is
+  for. A TABLE line and a `#+begin_X` run keep the
   composite's landing, a pipe row and a source line being no prefix the page can
   spell — and grown in place org would cut the table or take the prose for
   source, the caution the list is the one exception to because an item's whole

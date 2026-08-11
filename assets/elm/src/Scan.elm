@@ -697,19 +697,22 @@ joinAt m id =
                 Para ->
                     case itemLead m r of
                         Just lead ->
-                            let
-                                last =
-                                    lastSibling m r
-                            in
-                            -- THE OWNER RIDES ALONG, and it has to: a drafted
-                            -- item lands in the MIDDLE of a composite's leaf
-                            -- run, and `Doc.viewKids' walks a composite's kids
-                            -- only while their owner is its own — a draft
-                            -- owning nobody BREAKS that walk, so the leaves
-                            -- past it escape the composite and are drawn a
-                            -- SECOND time as the gap text.  Every byte on
-                            -- screen exactly once is the rule that says so.
-                            Just (Join last.id last.to lead last.owner)
+                            -- STRICTLY BELOW THE STOP, which is org's own
+                            -- `M-RET': the reader walked to an item and the
+                            -- new one belongs under THAT one, never at the
+                            -- bottom of a run they would have to walk back up.
+                            -- The stop's own `to' already covers the run nested
+                            -- INSIDE it, so a sibling clears its children too.
+                            --
+                            -- THE OWNER RIDES ALONG, and it has to: the draft
+                            -- lands in the MIDDLE of a composite's leaf run,
+                            -- and `Doc.viewKids' walks a composite's kids only
+                            -- while their owner is its own — a draft owning
+                            -- nobody BREAKS that walk, so the leaves past it
+                            -- escape the composite and are drawn a SECOND time
+                            -- as the gap text.  Every byte on screen exactly
+                            -- once is the rule that says so.
+                            Just (Join r.id r.to lead r.owner)
 
                         Nothing ->
                             let
@@ -731,14 +734,6 @@ runOf m r =
             s.kind == Para && s.grain == Leaf && s.owner == r.owner && s.id /= draftId
         )
         m.rows
-
-
-{-| Its LAST stop, which is the run's bottom — an item's own \`to' already covers
-the nested run drawn inside it, so the bottom is past those too.
--}
-lastSibling : { a | rows : List Row } -> Row -> Row
-lastSibling m r =
-    Maybe.withDefault r (List.head (List.reverse (runOf m r)))
 
 
 {-| The PREFIX a sibling of the stop opens with, where the run has a grammar to
@@ -786,7 +781,7 @@ nextBullet m r o =
     else
         let
             next =
-                case numberAt (at (lastSibling m r).from m.lines) of
+                case numberAt (at r.from m.lines) of
                     Just n ->
                         n + 1
 
