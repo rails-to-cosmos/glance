@@ -9,3 +9,20 @@
 # EQUIVALENT IS NOT SURVIVED.  A survivor is a claim about the SUITE; an
 # equivalent mutant is a rewrite with no observable difference at all, so it is
 # counted apart and left out of the score.  Putting a real hole here hides it.
+
+# --- src-web/Glance/Web/Filter.hs @ 0d3f71693bfe, graded 2026-08-11 ---------
+#
+# `matchesFilter''s one-test arm is an OPTIMIZATION: `all ($ r) [test]' is
+# `test r', so exchanging the two alternatives is a rewrite with no observable
+# difference.  Order is a fact where the patterns OVERLAP — and here the second
+# arm subsumes the first exactly.
+src-web/Glance/Web/Filter.hs	197	arms	0d3f71693bfe
+#
+# THE `Order' ARM IS UNREACHABLE BY CONSTRUCTION and kept for TOTALITY: `compile'
+# drops every term whose key is a view key (`sort:', `columns:', `view:') before
+# a test is ever built, so no value reaches `valueFor Order' or
+# `keyTest _ _ Order'.  Verified by mutating both and running the whole suite
+# green.  CLAUDE.md keeps the arm on purpose — `valueFor' spells its five, and
+# the catch-all that made `Field' half-enforced is gone.
+src-web/Glance/Web/Filter.hs	229	identity	0d3f71693bfe
+src-web/Glance/Web/Filter.hs	255	bool	0d3f71693bfe

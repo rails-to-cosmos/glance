@@ -26,6 +26,25 @@ sitting and each one poisoning a score rather than a build:
   non-terminating `zero` reached 7.8 GB RSS and filled swap before the timeout
   counted it killed, slowing every neighbouring verdict. The suite is built
   `-rtsopts`, so `+RTS -M2G` is one flag.
+**`Glance.Web.Filter` graded 2026-08-11**, the parity port, 40 of 148 sites:
+**35 killed · 0 invalid · 0 equivalent-by-the-runner · 5 survived = 87%**. Zero
+invalid is the CPP and `arms` fixes above showing.
+
+Of the five survivors, **three are equivalent and two were real holes**, so the
+suite's honest score here is **95%** (35 of 37):
+
+- `:112` a lone `-` sets `seen` — CLAUDE.md states that a bare hyphen is a
+  negated EMPTY term and so empties the table, and nothing asked. Without the
+  flag `flush` emits no token at all, the query is empty, and the table comes
+  back WHOLE: the opposite answer, quietly.
+- `:230` `valueFor Whole` folds — the FREE TEXT arm. The cell side folds at load
+  (`hrSearch` is lowercased), so the query's own fold is the whole of what makes
+  a shouted word match a quiet cell. `Col` and `Planned` were already covered;
+  free text was not.
+- `:197`, `:229`, `:255` are equivalent and now in `mutate.allow` with their
+  reasons: `all ($ r) [test]` is `test r`, and the `Order` arm is UNREACHABLE by
+  construction — `compile` drops every view key before a test is built, verified
+  by mutating both arms and running the whole suite green.
 ## The measurement that decides it
 
 The suite is DENSE and it is DERIVED. 1781 Haskell cases in eighteen groups

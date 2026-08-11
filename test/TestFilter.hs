@@ -76,7 +76,7 @@ spec :: TestTree
 spec = testGroup "Filter"
   [ tokenSpec, predicateSpec, tagsSpec, plannedSpec, substringSpec, sortSpec
   , columnsSpec
-  , archiveSpec, metaSpec
+  , archiveSpec, metaSpec, foldSpec
   , shapeSpec, alternationSpec
   , degenerateSpec
   , targetSpec, refSpec
@@ -690,6 +690,47 @@ withMetaTree = withDocDir "test" "a.org" (T.unlines
 metaMatching :: Text -> IO [Text]
 metaMatching q = withMetaTree $ \records ->
   pure [ hrTitle r | r <- records, matchesFilter (storeEnv records) q r ]
+
+-- | TWO RULES CLAUDE.md STATES AND NOTHING ASKED, both named by a surviving
+-- mutant over `Glance.Web.Filter' (87%, 2026-08-11).
+foldSpec :: TestTree
+foldSpec = testGroup "The folds and the lone hyphen"
+  -- A BARE `-' IS A NEGATED EMPTY TERM, and an empty term matches everything,
+  -- so a lone hyphen EMPTIES the result set.  The `seen' this arm sets is the
+  -- whole of it: without it `flush' emits no token, the query is empty, and the
+  -- table comes back whole — the opposite answer, quietly.
+  [ testCase "a lone hyphen empties the result set" $ do
+      assertEqual "the token it parses to" [(True, "")]
+                  [ (tmNegated t, tmValue t) | t <- parseFilter "-" ]
+      assertEqual "and it matches no row" [] =<< matching "-"
+
+  , testCase "where a bare word matches on its text" $
+      assertEqual "the token is not negated" [(False, "x")]
+                  [ (tmNegated t, tmValue t) | t <- parseFilter "x" ]
+
+    -- VALUES ARE FOLDED ON BOTH SIDES, and FREE TEXT is the arm nothing asked.
+    -- The cell side folds at load (`hrSearch' is lowercased), so the query's own
+    -- fold is the whole of what makes a shouted word match a quiet cell — drop
+    -- it and the word matches nothing, which reads as a query that worked.
+  , testCase "free text is folded, whatever case it is written in" $ do
+      lower <- matching "todo"
+      upper <- matching "TODO"
+      assertEqual "the two spellings answer alike" upper lower
+      assertBool "and they answer at all" (not (null lower))
+
+  , testCase "and its own key spells the same rule" $ do
+      bare <- matching "TODO"
+      keyed <- matching "substring:TODO"
+      assertEqual "`substring:VALUE' is what VALUE alone means" bare keyed
+
+    -- A KEY, though, is case-SENSITIVE on both sides — so a shouted one is not
+    -- a key at all and falls through to the free text it spells.
+  , testCase "a key shouted is no key, and reads as the text it is" $ do
+      keyed <- matching "state:TODO"
+      shouted <- matching "STATE:TODO"
+      assertBool "the key answers" (not (null keyed))
+      assertEqual "and the shouted one is free text nothing carries" [] shouted
+  ]
 
 metaSpec :: TestTree
 metaSpec = testGroup "Starred metas"
