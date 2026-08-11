@@ -12,66 +12,16 @@ section groups a feature arc, and its date is that arc's last commit.
 ## Unreleased
 
 ### Fixed
-- **`delete` no longer logs "state cleared" over every row it removes.** The
-  log strip is the page's audit surface, and the one destructive command was
-  reporting a state change on each file it moved out of the tree.
-- **A list token you edit is the token that gets written.** Changing the
-  drawn `- [ ] ` to `- DONE` wrote both, because the composer prepended the
-  token the box was already showing. What the box holds is now what is
-  written, so a plain `- ` run continues as one too.
-- **`+` adds a list item directly below the one you are on,** where it landed
-  at the bottom of the whole run. Org's own `M-RET`: you walked to an item, so
-  the new one belongs under that item rather than somewhere you would walk
-  back up from.
-- **Adding a list item shows the bullet while you type it.** The box sits over
-  the drawn row exactly and opaquely, so the `- ` or `- [ ] ` the row wears was
-  hidden until `RET` and the field looked empty. It carries the token now, and
-  what goes over the wire is still only what you added.
+- **A heading carrying a bracketed date is no longer reported as a span
+  violation.** `* Decided [2026-08-11]` tripped the scan's own title check,
+  which compared the slice against a re-render — and a render recomputes a
+  timestamp's weekday, so a source stamp without one never matched itself. The
+  parse and the span were always right; the oracle was too strict.
 
-### Fixed
-- **A tag's config file can no longer set a tree-wide setting.** The default
-  view, the agenda and archive views, the capture target and the tree's state
-  hues belong to `system.org`; a settings write aimed at a tag layer that named
-  one used to be stopped by a list kept beside the rule, and a setting missing
-  from that list would have been written into the tag file silently. Which file
-  a setting belongs to is now declared once, with the setting, and the write
-  reads that declaration. What a tag layer does own — its keyword cycle and its
-  capture template — is written exactly as before.
-
-### Changed
-- **`+` in the materialize sheet adds a sibling of the stop, so an item joins
-  the run the cursor stands in.** Standing on a list item, `+` now adds an item
-  at the bottom of that item's own run, wearing its indent and bullet, an empty
-  checkbox where the stop has one, and the run's next number where it is
-  numbered — so `f` into a nested run and `+` writes at the nested indent. The
-  drawn row shows that prefix before a character is typed, and an empty `+`
-  still writes nothing. Standing on the list itself — one `b` away — `+` adds a
-  paragraph past the whole structure as before, and a table line and a
-  `#+begin_X` run keep that landing, neither having a prefix to spell.
-
-- **A write spells no trailing space.** Every text glance composes for a write —
-  a subtree the materialize sheet hands back, a captured entry, the document a
-  tagged capture stores — lands with each line ending at its last non-blank
-  character, however it was typed. Horizontal space INSIDE a line is content and
-  survives: a table's alignment and a source block's indentation are the bytes
-  they were. Line endings survive too, so a CRLF file stays a CRLF file. Bytes
-  outside the region a write touches are untouched as ever, so a file the daemon
-  has not written keeps whatever it holds.
-
-### Fixed
-- **A highlighted line in the materialize sheet sits where an unhighlighted
-  one does.** The cursor row carried the edit box's floor even with nothing
-  open, and the box's line height is a shade tighter than the pane's, so the
-  highlighted line stood three quarters of a pixel taller than its
-  neighbours and read as offset upward.
-- **A headline whose keyword or priority ends its line no longer eats the line
-  under it.** `* TODO` followed by a second headline read as ONE entry titled
-  with the second's own line; followed by a property drawer it swallowed the
-  drawer and the `ORG_GLANCE_ID` inside it, which is how an entry loses the id
-  everything else keys on. Trailing spaces on a title line did the same to the
-  planning line and to the drawer.
+## 0.6.0.0 - 2026-08-11
 
 ### Added
+
 - **`make browser-check` measures the page in a real engine.** A headless
   browser opens the served page over a temp copy of a committed org fixture and
   reads geometry and computed colour back — where a box ENDS UP, which is what
@@ -133,6 +83,63 @@ section groups a feature arc, and its date is that arc's last commit.
   count. Nothing flagged writes nothing and says so. One question, weighted to
   what it will do: a set that is wholly archived asks for the typed `delete` it
   always did, everything else asks for `yes`, and neither asks twice.
+
+### Changed
+
+- **`+` in the materialize sheet adds a sibling of the stop, so an item joins
+  the run the cursor stands in.** Standing on a list item, `+` now adds an item
+  at the bottom of that item's own run, wearing its indent and bullet, an empty
+  checkbox where the stop has one, and the run's next number where it is
+  numbered — so `f` into a nested run and `+` writes at the nested indent. The
+  drawn row shows that prefix before a character is typed, and an empty `+`
+  still writes nothing. Standing on the list itself — one `b` away — `+` adds a
+  paragraph past the whole structure as before, and a table line and a
+  `#+begin_X` run keep that landing, neither having a prefix to spell.
+- **A write spells no trailing space.** Every text glance composes for a write —
+  a subtree the materialize sheet hands back, a captured entry, the document a
+  tagged capture stores — lands with each line ending at its last non-blank
+  character, however it was typed. Horizontal space INSIDE a line is content and
+  survives: a table's alignment and a source block's indentation are the bytes
+  they were. Line endings survive too, so a CRLF file stays a CRLF file. Bytes
+  outside the region a write touches are untouched as ever, so a file the daemon
+  has not written keeps whatever it holds.
+
+### Fixed
+
+- **`delete` no longer logs "state cleared" over every row it removes.** The
+  log strip is the page's audit surface, and the one destructive command was
+  reporting a state change on each file it moved out of the tree.
+- **A list token you edit is the token that gets written.** Changing the
+  drawn `- [ ] ` to `- DONE` wrote both, because the composer prepended the
+  token the box was already showing. What the box holds is now what is
+  written, so a plain `- ` run continues as one too.
+- **`+` adds a list item directly below the one you are on,** where it landed
+  at the bottom of the whole run. Org's own `M-RET`: you walked to an item, so
+  the new one belongs under that item rather than somewhere you would walk
+  back up from.
+- **Adding a list item shows the bullet while you type it.** The box sits over
+  the drawn row exactly and opaquely, so the `- ` or `- [ ] ` the row wears was
+  hidden until `RET` and the field looked empty. It carries the token now, and
+  what goes over the wire is still only what you added.
+- **A tag's config file can no longer set a tree-wide setting.** The default
+  view, the agenda and archive views, the capture target and the tree's state
+  hues belong to `system.org`; a settings write aimed at a tag layer that named
+  one used to be stopped by a list kept beside the rule, and a setting missing
+  from that list would have been written into the tag file silently. Which file
+  a setting belongs to is now declared once, with the setting, and the write
+  reads that declaration. What a tag layer does own — its keyword cycle and its
+  capture template — is written exactly as before.
+- **A highlighted line in the materialize sheet sits where an unhighlighted
+  one does.** The cursor row carried the edit box's floor even with nothing
+  open, and the box's line height is a shade tighter than the pane's, so the
+  highlighted line stood three quarters of a pixel taller than its
+  neighbours and read as offset upward.
+- **A headline whose keyword or priority ends its line no longer eats the line
+  under it.** `* TODO` followed by a second headline read as ONE entry titled
+  with the second's own line; followed by a property drawer it swallowed the
+  drawer and the `ORG_GLANCE_ID` inside it, which is how an entry loses the id
+  everything else keys on. Trailing spaces on a title line did the same to the
+  planning line and to the drawer.
 
 ## 0.5.0.0 - 2026-08-11
 

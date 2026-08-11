@@ -8,7 +8,7 @@ occupies — optimistic lock, temp-plus-rename, every other byte identical.
 Underneath sits =Data.Org=, a megaparsec org-mode grammar where every element
 carries a half-open character span into its document.
 
-- *Author:* Dmitry Akatov · *License:* BSD3 · *Version:* =0.5.0.0= ([[file:CHANGELOG.md][CHANGELOG.md]])
+- *Author:* Dmitry Akatov · *License:* BSD3 · *Version:* =0.6.0.0= ([[file:CHANGELOG.md][CHANGELOG.md]])
 - *Upstream:* https://github.com/rails-to-cosmos/glance
 
 ** Quickstart
@@ -184,7 +184,7 @@ make check-glue                      # tsc over the shell's parts
 make browser                         # Chromium into ~/.cache/ms-playwright, no root
 #+end_src
 
-Standing oracle over =~/sync=, 2026-08-11: 6304 files, 12630 headlines, *0
+Standing oracle over =~/sync=, 2026-08-11: 6302 files, 12634 headlines, *0
 span violations*, walk ~10 s. =assets/table-view.js= and =assets/elm.js= are
 committed build inputs compiled into the binary — the renderer, and the Elm
 program the materialize sheet and the small lists are drawn by; neither is

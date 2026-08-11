@@ -314,6 +314,23 @@ trailingWhitespaceSpec = testGroup "Trailing whitespace"
                   [EHeadline (titled "H") { properties = drawer }]
                   (bareParse defaultContext "* H\n  :PROPERTIES:\n  :K: v  \n  :END:  ")
 
+    -- A TITLE MAY CARRY A TIMESTAMP, and `TextShow' recomputes a weekday — so a
+    -- source stamp with none renders one word longer than the slice it came
+    -- from.  The predicate compares BRACKETED RUNS collapsed, which is
+    -- `timestampSlice''s reasoning one field along: what a render recomputes is
+    -- not what a span is asked about.  Found by the corpus at 0 violations for
+    -- nine days, the moment a note carried `[2026-08-11]' in a heading.
+  , testCase "a title carrying a bracketed date slices back" $ do
+      let slicesBack input = do
+            (elems, _ctx) <- parsedIn "title stamp" input
+            mapM_ (assertSlices input) (headlinesOf elems)
+      slicesBack "* Decided [2026-08-11]\nbody\n"
+      slicesBack "* Decided [2026-08-11 Tue]\nbody\n"
+      slicesBack "* Met <2026-08-11> and <2026-08-12 Wed> both\n"
+      -- And the prose half is still compared word for word: `assertSlices'
+      -- asserts each predicate REFUSES a slice that is not the component.
+      slicesBack "* Plain title\n"
+
   , testCase "spans stop before the trailing space" $ do
       let input = "* Hello  \n* Two"
       case orgParse defaultContext input of
