@@ -27,9 +27,10 @@ section groups a feature arc, and its date is that arc's last commit.
   refuses and names `RET`, which opens it.
 
 ### Fixed
-- **The paragraph editor grows with what you type,** to ten lines. It was the
-  height of the block it covered, so writing a second line into an added
-  paragraph left nine tenths of it out of sight.
+- **The paragraph editor grows with what you type,** to ten lines, and the
+  document moves down around it rather than being covered — the edit reads as
+  inline. It was the height of the block it covered, so a second line went out
+  of sight.
 - **A flag in the materialize sheet is dressed the way the table dresses one.**
   The document pane drew one in the warning orange at a strength of its own,
   so the same gesture over the same queue looked like two different things.
