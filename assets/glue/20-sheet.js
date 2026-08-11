@@ -34,7 +34,7 @@
         dgrain = now.grain; dflags = now.flags; dbody = now.body;
         // Elm pushes a port BEFORE it paints, so what the cursor is scrolled
         // to and what the overlay is laid over are read a turn later.
-        soon(() => { keepInView(docElAt()); placeEdit(); });
+        soon(() => { seedInsert(); keepInView(docElAt()); placeEdit(); });
       });
       dport.docSaid.subscribe((what) => { if (dwrote) { dwrote(what); dwrote = null; } });
       dport.docBody.subscribe(commitDoc);
@@ -207,6 +207,29 @@
      * LEAD is `Scan''s and never reaches the box, so a blank `+' on an item
      * writes no bare bullet.
      */
+    /**
+     * AN ITEM'S TOKEN IS ON SCREEN WHILE IT IS TYPED.  The drawn row wears the
+     * lead — `- ', `1. ', `- [ ] ' — and the box is laid over that row exactly,
+     * opaquely, so a reader typing into it saw an EMPTY field and the bullet
+     * only on `RET'.  The box carries the lead itself now, and `commitDocEdit'
+     * takes it back off before the write: Elm composes the line from the STOP,
+     * so what goes over the wire is what the reader added.
+     *
+     * Seeded from the DRAWN row rather than computed here — the lead is
+     * `Scan.itemLead''s answer and this page spells no org grammar — and once,
+     * since every later state push would otherwise overwrite the typing.
+     */
+    function seedInsert() {
+      if (!dparaing() || !edit.row.add || edit.row.lead !== undefined) return;
+      const drawn = drows.find((r) => r.id === "D");
+      const lead = drawn ? String(drawn.text || "") : "";
+      edit.row.lead = lead;
+      if (!lead) return;
+      const box = el("dtext");
+      box.value = lead;
+      box.setSelectionRange(lead.length, lead.length);
+      sizeDocEdit();
+    }
     function insertHere() {
       const r = docRowAt();
       if (!r) { said(INSERT, "no element"); return; }
@@ -386,10 +409,15 @@
         const add = !!r.add;
         shutEdit(DPARA);
         if (add) {
-          // NO PLACEHOLDERS, EVER: a paragraph with nothing in it is not one,
-          // and no row was ever made, so this writes nothing and says so.
-          if (!text.trim()) { undraft(r); spoke("nothing added"); return; }
-          insertPara(r, text, () => spoke("paragraph added"));
+          // THE LEAD GOES BACK OFF: Elm composes the line from the STOP, so the
+          // wire carries what the reader ADDED.  A lead they edited away is
+          // theirs to have edited away, and what is left is what goes.
+          const lead = r.lead || "";
+          const said_ = text.startsWith(lead) ? text.slice(lead.length) : text;
+          // NO PLACEHOLDERS, EVER: an item with nothing but its own token is
+          // not one, and no row was ever made, so this writes nothing.
+          if (!said_.trim()) { undraft(r); spoke("nothing added"); return; }
+          insertPara(r, said_, () => spoke(lead ? "item added" : "paragraph added"));
           return;
         }
         if (text === r.text) { spoke("paragraph unchanged"); return; }

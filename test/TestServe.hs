@@ -3847,6 +3847,38 @@ sheetSpec shell =
               <> "- [ ] epsilon\n** two\nchild body\n" ]
             =<< traverse (textAt "body") =<< listAt "writes" answer
 
+    -- AN ITEM'S TOKEN IS ON SCREEN WHILE IT IS TYPED.  The box is laid over the
+    -- drawn row exactly and opaquely, so a reader typing into it used to see an
+    -- EMPTY field and the bullet only on `RET' — the row said `- ' underneath
+    -- and nothing showed it.  The box carries the lead now.
+  , testCase "the box opens wearing the token the row was drawn with" $ do
+      onTable "grain press:Enter press:n press:n press:f press:+" $ \answer -> do
+        assertEqual "the bullet is in the field, not only under it" "- "
+          =<< textAt "dtext" answer
+        assertEqual "and the row still wears it too" ["- "]
+          . partsOf "draft:item" =<< docOf answer
+      onTable "checky press:Enter press:n press:f press:+" $
+        assertEqual "a checkbox list opens its box boxed" "- [ ] "
+          <=< textAt "dtext"
+      onTable "grain press:Enter press:n press:+" $
+        assertEqual "and a PARAGRAPH opens empty, owing no token" ""
+          <=< textAt "dtext"
+
+    -- AND THE LEAD GOES BACK OFF ON THE WAY OUT, so a reader who types AFTER
+    -- the token writes what a reader who replaced the field writes.
+  , testCase "what the reader adds is what the wire carries" $ do
+      onTable "checky press:Enter press:n press:f press:+ dpara:-_[_]_epsilon press:Enter" $
+        \answer ->
+          assertEqual "typed after the token"
+            [ "* TODO one\n- [ ] alpha\n- [X] beta\n- [-] gamma\n- delta\n"
+              <> "- [ ] epsilon\n** two\nchild body\n" ]
+            =<< traverse (textAt "body") =<< listAt "writes" answer
+      -- AND A BOX HOLDING NOTHING BUT ITS OWN TOKEN IS NO ITEM.
+      onTable "checky press:Enter press:n press:f press:+ dpara:-_[_]_ press:Enter" $
+        \answer -> do
+          assertEqual "nothing written" ([] :: [Value]) =<< listAt "writes" answer
+          echoIs "" "RET \8594 org-ctrl-c-ctrl-c (nothing added)" answer
+
     -- AND THE BOUNDARY: a TABLE line keeps the composite's landing, a pipe row
     -- being no prefix — its cells sit BETWEEN pipes, so nothing spells one.
   , testCase "a table's line keeps the composite's landing" $

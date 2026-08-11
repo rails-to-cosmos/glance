@@ -12,6 +12,12 @@ section groups a feature arc, and its date is that arc's last commit.
 ## Unreleased
 
 ### Fixed
+- **Adding a list item shows the bullet while you type it.** The box sits over
+  the drawn row exactly and opaquely, so the `- ` or `- [ ] ` the row wears was
+  hidden until `RET` and the field looked empty. It carries the token now, and
+  what goes over the wire is still only what you added.
+
+### Fixed
 - **A tag's config file can no longer set a tree-wide setting.** The default
   view, the agenda and archive views, the capture target and the tree's state
   hues belong to `system.org`; a settings write aimed at a tag layer that named
