@@ -1,0 +1,24 @@
+#+TITLE: Driver notes
+#+TODO: TODO NEXT | DONE CANCELLED
+
+* TODO Measure the box against the line under it            :driver:geometry:
+:PROPERTIES:
+:ORG_GLANCE_ID: drv-box
+:END:
+The first paragraph of this entry, which the driver opens and types into.
+
+A second paragraph, which must move DOWN when the box above it grows.
+
+A third paragraph, so the pane still has something under the fold.
+
+* NEXT Keep the flag one colour on both surfaces                    :driver:
+:PROPERTIES:
+:ORG_GLANCE_ID: drv-flag
+:END:
+One gesture over one queue, so one red.
+
+* DONE Read the palette out of the engine                           :driver:
+:PROPERTIES:
+:ORG_GLANCE_ID: drv-done
+:END:
+A done-like keyword, so the palette has both halves to paint.

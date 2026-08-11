@@ -1,0 +1,13 @@
+#+TITLE: Wide
+#+TODO: TODO NEXT | DONE CANCELLED
+
+* TODO A row whose title runs long enough to press every pane sideways at 360px :driver:wide:overflow:
+:PROPERTIES:
+:ORG_GLANCE_ID: drv-wide
+:END:
+https://example.invalid/a/path/that/never/breaks/and/keeps/going/for/a/while/so/a/pane/with/no/wrap/rule/overflows
+
+An ordinary paragraph after the unbreakable one, carrying
+[[https://example.invalid/second][a second link]] so `?page=links' LISTS rather
+than following: a row with exactly one link is followed, and a followed link is
+a tab this driver never asked for.

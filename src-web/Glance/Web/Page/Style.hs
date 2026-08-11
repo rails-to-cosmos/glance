@@ -295,6 +295,13 @@ page head' colours title body = T.unlines
   , "    flex-direction:column;overflow:hidden}"
   -- POPUP SIZE IS A TIER and no box declares a width or height of its own:
   -- `pop-band' grows with its content to the cap, `pop-sheet' is fixed on both.
+  --
+  -- BORDER-BOX, or the CAP IS NOT ONE: a popup carries its own padding and
+  -- border, and under `content-box' both fall OUTSIDE the height `--g-pop-max'
+  -- names — 30px past it, so `5vh + 90vh + 30px' left the sheet's foot off any
+  -- viewport under 600px tall.  The reset spells this for `body' and `#app,#log'
+  -- and the tiers were left out of it.
+  , "  .pop-band,.pop-sheet{box-sizing:border-box}"
   , "  .pop-band{width:min(560px,100%);max-height:var(--g-pop-max)}"
   , "  .pop-sheet{width:min(80vw,100%);height:var(--g-pop-max)}"
   -- THE WASH is `opacity' and never `filter': any filter makes its element the

@@ -1,4 +1,4 @@
-.PHONY: test native elm elm-test browser browser-path sync-renderer run run-native run-wasm wasm-spike check-glue mutate mutate-list mutate-clean
+.PHONY: test native elm elm-test browser browser-path browser-check sync-renderer run run-native run-wasm wasm-spike check-glue mutate mutate-list mutate-clean
 
 # The run targets' knobs: .env carries them (committed, edit to taste), and
 # the ?= pair means a missing .env still runs against the defaults.
@@ -87,6 +87,33 @@ browser:
 browser-path:
 	@find $(HOME)/.cache/ms-playwright -type f \
 	     \( -name headless_shell -o -name chrome \) 2>/dev/null | head -1
+
+# THE ONE CHECK THAT MEASURES A PIXEL (docs/proposal-browser-driver.md), and it
+# is OUT of `cabal test' for `elm-test's reason one size up: it drives a 150 MB
+# browser, spawns a daemon, writes a temp tree and needs the machine's fonts.
+# The Haskell suite stays offline and stays the contract; every geometry rule it
+# asserts is asserted as CSS SOURCE TEXT, and where a declaration LANDS is what
+# this target reads.
+#
+# IT SKIPS LOUDLY, the idiom `elm-test' and `bootedPage' already use: a check
+# that passes having asserted nothing is the failure mode this repo names, so a
+# machine with no node and no browser says which and exits 0.
+#
+#   make browser-check                    every case
+#   make browser-check ONLY=flag          the cases whose name carries it
+#   make browser-check BREAK=edit-covers  one rule taken out of the page, to
+#                                         WATCH the case for it go red
+browser-check:
+	@command -v node >/dev/null 2>&1 \
+	  || { echo "browser-check: no node on PATH -- SKIPPED"; exit 0; }
+	@bin="$$($(MAKE) -s browser-path)"; \
+	if [ -z "$$bin" ]; then \
+	  echo "browser-check: no browser under ~/.cache/ms-playwright -- SKIPPED (run \`make browser')"; \
+	  exit 0; \
+	fi; \
+	cabal build -v0 exe:glance && \
+	CHROME="$$bin" GLANCE_BIN="$$(cabal list-bin -v0 exe:glance)" \
+	  ONLY="$(ONLY)" BREAK="$(BREAK)" KEEP="$(KEEP)" node test/browser/drive.mjs
 
 sync-renderer:
 	@if [ ! -f "$(RENDERER)" ]; then \

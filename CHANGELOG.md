@@ -45,6 +45,24 @@ section groups a feature arc, and its date is that arc's last commit.
   planning line and to the drawer.
 
 ### Added
+- **`make browser-check` measures the page in a real engine.** A headless
+  browser opens the served page over a temp copy of a committed org fixture and
+  reads geometry and computed colour back — where a box ENDS UP, which is what
+  no test here could ask before. Eight cases, each named after a display bug
+  that shipped green: an open edit pushes the line under it down instead of
+  covering it, a paragraph drawn before it is written still owns a line, a flag
+  paints one red on the table and in the document pane, no surface scrolls
+  sideways or down at 360, 800 or 1400 pixels wide, a popup clamps inside the
+  viewport, one keyword paints one hue in the table and the sheet, a paragraph
+  sits under the title text, and the cursor is a ground drawn only where the
+  keys are. It is OUT of `cabal test` for `make elm-test`'s reason — it needs a
+  browser, a daemon and the machine's fonts — and SKIPS LOUDLY, saying which is
+  missing, so a machine with neither changes nothing. `make browser` installs
+  the browser; nothing is downloaded by the check itself. `BREAK=name` takes one
+  rule out of the page to watch the case for it go red, and `ONLY=text` runs a
+  subset. The daemon and the browser are torn down on success and on failure
+  alike; a red run leaves its screenshots and the tree it served, named in the
+  report.
 - **`/` narrows every small list.** The link popup, the tags popup, the
   materialize sheet's property panel and the settings sheet's states table each
   take a filter field at the head of their own list — one program, so the key

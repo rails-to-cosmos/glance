@@ -1,6 +1,8 @@
 # Proposal — a real browser drives the page, so geometry is measured
 
-**Status:** proposed; TOOLCHAIN SETTLED AND MEASURED 2026-08-11 · **Date:** 2026-08-11 · **Origin:** user, after a session
+**Status:** LANDED 2026-08-11 as `make browser-check`, eight cases, one of them
+red against a defect it found on its first run (see "What landed") ·
+**Date:** 2026-08-11 · **Origin:** user, after a session
 where the paragraph editor grew to ten lines and COVERED the nine lines under
 it with 1781 tests green — found by looking, fixed in `cb6db85` — and three
 more display bugs were caught the same way the same day.
@@ -144,8 +146,8 @@ later is one adapter behind six names. Same rule as the transport surface in
   carrying its own `ORG_GLANCE_ID` so the driver addresses rows by a STABLE id
   and never computes a `FILE#K` ordinal.
 
-**The daemon.** `make browser-test` builds and resolves the binary with
-`cabal list-bin glance` — `run-wasm`'s own shape in the Makefile — and hands
+**The daemon.** `make browser-check` builds and resolves the binary with
+`cabal list-bin exe:glance` — `run-wasm`'s own shape in the Makefile — and hands
 it to node as `$GLANCE_BIN`, so the driver's readiness poll never waits on a
 compile. The driver COPIES `test/browser/tree/` to `mktemp -d` and serves the
 copy: the cases commit paragraph edits and set states, and the repo's fixtures
@@ -208,15 +210,19 @@ and changes nothing — the shape `elm-test` uses and `bootedPage` uses
 having asserted nothing is the failure mode this repo already names.
 
 ```make
-# THE ONE CHECK THAT MEASURES, and it is OUT of `cabal test' for elm-test's
-# reason one size up: it downloads a browser, spawns a daemon and needs fonts.
-# The suite stays offline; this target says what it needs and skips.
-browser-test:
-	@command -v npx >/dev/null 2>&1 || { echo "browser-test: no npx on PATH -- skipped"; exit 0; }
-	@npx --yes playwright@1.62.1 install chromium
-	@cabal build -v0 glance
-	@GLANCE_BIN="$$(cabal list-bin glance)" node test/browser/drive.mjs
+# THE ONE CHECK THAT MEASURES A PIXEL, and it is OUT of `cabal test' for
+# elm-test's reason one size up: it drives a browser, spawns a daemon and needs
+# fonts.  The suite stays offline; this target says what it needs and skips.
+browser-check:
+	@command -v node >/dev/null 2>&1 || { echo "browser-check: no node on PATH -- SKIPPED"; exit 0; }
+	@bin="$$($(MAKE) -s browser-path)"; \
+	if [ -z "$$bin" ]; then echo "browser-check: no browser ... -- SKIPPED"; exit 0; fi; \
+	cabal build -v0 exe:glance && \
+	CHROME="$$bin" GLANCE_BIN="$$(cabal list-bin -v0 exe:glance)" node test/browser/drive.mjs
 ```
+
+The install stays `make browser`'s: this target never downloads, so a run with
+no browser skips instead of pulling 150 MB into a check.
 
 ## The first assertions
 
@@ -361,21 +367,80 @@ measures it); the tags flush to the far edge on a headline with no title
 scroll-margin band is three of the pane's own lines; `@media (pointer:coarse)`
 under an emulated touch viewport.
 
+## What landed
+
+`make browser-check`, eight cases, **6.9 s** of driver on a warm browser
+(14.4 s including `cabal build -v0 exe:glance`). The design above stands; three
+things it did not say are now in the driver.
+
+**THE FIRST RUN FOUND A DEFECT, and it is the popup-clamp case's.** `.pop-sheet`
+declares `height:var(--g-pop-max)` and NOTHING gives the box
+`box-sizing:border-box` — the reset spells it for `body` and `#app,#log` alone
+— so `#sheet` draws its own 14px padding and 1px border OUTSIDE the cap and
+stands **30px taller than it was told to**: at a 480px-tall viewport it runs
+`24px..486px` against a cap that computes to `432px`. `5vh + 90vh + 30px >
+100vh` wherever the viewport is under **600px** tall, which puts the sheet's
+foot off screen on a split window and on any phone in landscape. The fix is one
+line in `Glance.Web.Page.Style` — `.pop-band,.pop-sheet{box-sizing:border-box}`
+— and is outside the run that found it.
+
+**So a case may be `known`, and a `known` case is NOT AN XFAIL.** It carries the
+sentence naming the defect, it prints its reading like any other case, and a
+`known` case that GOES GREEN is counted as a FAILURE — "the known defect is
+gone, take `known` off". So the field retires itself the day somebody fixes the
+rule, and it cannot be used to silence a case that merely broke.
+
+**And no case ships unfalsified: `BREAK=name` takes ONE rule out of the served
+page** with a stylesheet injected at document start, each entry naming the case
+it must turn red. `make browser-check BREAK=edit-covers` is the proof, and eight
+breaks cover the eight cases. Nothing in `src*/` or `assets/` moves to see a
+case fail, which is what makes the proof cheap enough to keep running.
+
+The readings, on this machine, at 1400×900 in the default dark theme:
+
+| # | case | what it measured |
+|---|---|---|
+| 1 | an open edit moves the line under it down | box `23.5px → 199px` for ten lines, the line under it from `184.3px` to `359.8px` |
+| 2 | a drawn paragraph still owns a line | the drawn row `23.5px`, `.d-draft` alone `22.8px`, one line `20.8px` |
+| 3 | one flag red on both surfaces | `--g-bad` and `--tv-flag` both `rgb(231, 76, 60)`; the pane's edge `rgb(231, 76, 60) 3px 0px 0px 0px inset` |
+| 4 | the page never scrolls | `0/0` sideways/down over 5 surfaces × 3 widths (360, 800, 1400) |
+| 5 | a popup clamps inside the viewport | **KNOWN RED**: `#sheet` runs `24px..486px` of a `480px` viewport |
+| 6 | one keyword, two surfaces, one hue | `TODO` paints `rgb(224, 175, 104)` in the table and in the sheet, against the page's own `rgb(255, 255, 255)` |
+| 7 | a paragraph sits under the title text | stars `151px`, title `211.8px`, paragraph box `151px`, its text `172.6px` |
+| 8 | the cursor is a ground, and only where the keys are | `rgb(55, 61, 79)` against `rgba(0, 0, 0, 0)`; `rgba(0, 0, 0, 0)` once `TAB` takes the keys |
+
+Cases 6, 7 and 8 are wave two brought forward: each cost ~15 lines because the
+driver was already standing, which is the marginal cost the estimate claimed.
+
+Two departures from the sketch, both about honesty of the reading:
+
+- **Case 2 takes TWO readings.** `+` leaves the draft AT POINT and `.de.dat`
+  carries a floor of its own while an edit is open, so the real row alone cannot
+  say which rule held it up. A PROBE wearing `.de.d-para.d-draft` without `.dat`
+  is appended beside it and measured, which attributes the height to
+  `.d-draft` itself.
+- **Case 4 waits for each surface BY ITS OWN CONTAINER** (`#modal`, `#config`,
+  `#tags`, `#links`). A surface that never rose would have the sweep measure the
+  table three times over and report `ok`.
+
 ## Files
 
 `test/browser/drive.mjs` (new), `test/browser/cases.mjs` (new),
 `test/browser/tree/*.org` (new, three files), `Makefile` (one target),
-`CHANGELOG.md` (one line), `CLAUDE.md` (one Build bullet naming the target and
-its skip rule), `docs/invariants.md` (the four rules above move off **none**).
+`CHANGELOG.md` (one line). STILL OWED: a `CLAUDE.md` Build bullet naming the
+target and its skip rule, and `docs/invariants.md` moving the rules the eight
+cases now hold off **none**.
 
 Nothing in `src*/`, `app/` or `assets/` changes. The shipped binary is
 byte-identical.
 
 ## LOC estimate
 
-+200 driver, +140 cases (five), +30 fixture org, +8 Makefile, +6 docs ≈ **+385
-new lines, 0 changed**. Marginal cost of case N+1: 10–20 lines, and no new
-machinery — every case is `goto`, `until`, `press`, `eval`, `assert`.
+As landed: **+404 driver, +362 cases (eight), +55 fixture org, +26 Makefile**
+= 847 new lines, 0 changed outside the Makefile. Marginal cost of case N+1
+stays 10–20 lines and no new machinery — every case is `goto`, `until`,
+`press`, `type`, `eval`, `assert` — plus one `BREAKS` entry, which is the line
+that keeps it falsifiable.
 
 ## What it will NOT catch
 
@@ -444,8 +509,10 @@ machinery — every case is `goto`, `until`, `press`, `eval`, `assert`.
    `xdg-open` — Firefox here. Making the driven engine the SHIPPED engine costs
    building `WebKitWebDriver`, and the answer changes if the native window
    becomes the primary host. **A human takes this one.**
-2. Whether `make browser-test` gates a commit or is a sweep run by hand. Wave
-   one is by hand; a gate needs the flake budget spent first.
+2. Whether `make browser-check` gates a commit or is a sweep run by hand. Wave
+   one is by hand; a gate needs the flake budget spent first. What a gate would
+   also need is the `known` case FIXED — a gate carrying a permanent expected
+   red is a gate nobody reads.
 3. Whether the driver ever grows screenshot BASELINES. The recommendation is
    no: a baseline is a second artifact to keep true and headless font rendering
    moves it. Screenshots stay a FAILURE ARTIFACT.
