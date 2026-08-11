@@ -3785,7 +3785,7 @@ sheetSpec shell =
     -- the reader inside the list, so what joins is an ITEM at the bottom of the
     -- run they are standing in, wearing that stop's own prefix.
   , testCase "+ inside a list adds an item at the list's bottom" $
-      onTable "grain press:Enter press:n press:n press:f press:+ dpara:note press:Enter" $
+      onTable "grain press:Enter press:n press:n press:f press:+ dpara:-_note press:Enter" $
         \answer ->
           assertEqual "under alpha and the run nested INSIDE it, never past gamma"
             [ "* TODO one\nlead in\n- alpha\n  more alpha\n  - nested\n- note\n\n"
@@ -3813,7 +3813,7 @@ sheetSpec shell =
                     [-1, -1, -1, 2, 3, 3, 2, 2, -1, 8, 8, -1, -1]
           =<< flaggedAt "downers" answer
       onTable ("grain press:Enter press:n press:n press:f press:f press:+"
-               <> " dpara:note press:Enter") $ \answer ->
+               <> " dpara:__-_note press:Enter") $ \answer ->
         assertEqual "two spaces in, above the blank the outer run keeps"
           [ "* TODO one\nlead in\n- alpha\n  more alpha\n  - nested\n  - note\n\n"
             <> "- beta\n- gamma\n\n#+begin_quote\nquoted one\n\nquoted two\n"
@@ -3840,7 +3840,7 @@ sheetSpec shell =
     -- What it buys is the cookie — `[2/4]' counts boxes, so a box-less item
     -- joining a list of tasks moves the denominator's meaning.
   , testCase "a checkbox item's new sibling comes along boxed and empty" $
-      onTable "checky press:Enter press:n press:f press:+ dpara:epsilon press:Enter" $
+      onTable "checky press:Enter press:n press:f press:+ dpara:-_[_]_epsilon press:Enter" $
         \answer ->
           assertEqual "an EMPTY box, whatever the stop's own state"
             [ "* TODO one\n- [ ] alpha\n- [ ] epsilon\n- [X] beta\n- [-] gamma\n"
@@ -3878,6 +3878,29 @@ sheetSpec shell =
         \answer -> do
           assertEqual "nothing written" ([] :: [Value]) =<< listAt "writes" answer
           echoIs "" "RET \8594 org-ctrl-c-ctrl-c (nothing added)" answer
+
+    -- WHAT THE BOX HOLDS IS WHAT IS WRITTEN, and these two are the reports it
+    -- was rewritten for.  The lead used to be PREPENDED by the composer, so a
+    -- reader who edited the token got BOTH — `- [ ] ' plus their own `- DONE'.
+  , testCase "a token the reader edits is the token that is written" $ do
+      onTable "checky press:Enter press:n press:f press:+ dpara:-_DONE_ship_it press:Enter" $
+        \answer ->
+          assertEqual "their line, and no second token in front of it"
+            [ "* TODO one\n- [ ] alpha\n- DONE ship it\n- [X] beta\n- [-] gamma\n"
+              <> "- delta\n** two\nchild body\n" ]
+            =<< traverse (textAt "body") =<< listAt "writes" answer
+      -- AND A PLAIN `-' RUN CONTINUES AS ONE, which is the same rule read the
+      -- other way: the box opens wearing `- ' and that is what goes.
+      onTable "grain press:Enter press:n press:n press:f press:+" $
+        assertEqual "the plain run's own token, drawn before a key is struck"
+          "- " <=< textAt "dtext"
+      onTable "grain press:Enter press:n press:n press:f press:+ dpara:-_note press:Enter" $
+        \answer ->
+          assertEqual "and written as the item it was drawn as"
+            [ "* TODO one\nlead in\n- alpha\n  more alpha\n  - nested\n- note\n\n"
+              <> "- beta\n- gamma\n\n#+begin_quote\nquoted one\n\nquoted two\n"
+              <> "#+end_quote\n\ntail para\n** two\nchild body\n" ]
+            =<< traverse (textAt "body") =<< listAt "writes" answer
 
     -- AND THE BOUNDARY: a TABLE line keeps the composite's landing, a pipe row
     -- being no prefix — its cells sit BETWEEN pipes, so nothing spells one.

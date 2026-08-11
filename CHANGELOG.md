@@ -12,6 +12,10 @@ section groups a feature arc, and its date is that arc's last commit.
 ## Unreleased
 
 ### Fixed
+- **A list token you edit is the token that gets written.** Changing the
+  drawn `- [ ] ` to `- DONE` wrote both, because the composer prepended the
+  token the box was already showing. What the box holds is now what is
+  written, so a plain `- ` run continues as one too.
 - **`+` adds a list item directly below the one you are on,** where it landed
   at the bottom of the whole run. Org's own `M-RET`: you walked to an item, so
   the new one belongs under that item rather than somewhere you would walk

@@ -96,8 +96,29 @@ inserted id written lines =
     let
         m =
             model lines
+
+        -- WHAT THE SHELL DOES: `+' draws the row and SEEDS THE BOX with its
+        -- lead, the reader types after it, and the whole line goes back.  So
+        -- the argument here is what the READER typed and the lead is taken
+        -- from the draw, which is where the page takes it from too.
+        lead =
+            case Scan.drafted m id of
+                Just rows ->
+                    List.foldr
+                        (\r acc ->
+                            if r.id == Scan.draftId then
+                                r.text
+
+                            else
+                                acc
+                        )
+                        ""
+                        rows
+
+                Nothing ->
+                    ""
     in
-    { m | rows = Maybe.withDefault m.rows (Scan.insertion m id written) }
+    { m | rows = Maybe.withDefault m.rows (Scan.insertion m id (lead ++ written)) }
 
 
 suite : Test

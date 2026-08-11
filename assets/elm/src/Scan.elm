@@ -808,7 +808,7 @@ not moved off its `was' and no write any other gesture composes can carry it out
 -}
 drafted : { a | rows : List Row, lines : List String } -> String -> Maybe (List Row)
 drafted m id =
-    Maybe.map (\j -> joined m j.under (draftRow j "")) (joinAt m id)
+    Maybe.map (\j -> joined m j.under (draftRow j j.lead)) (joinAt m id)
 
 
 {-| ROWS with that paragraph filled with TEXT, which is the write.
@@ -883,9 +883,15 @@ apart lines line written =
            )
 
 
-{-| THE LEAD IS THE ROW'S \`was', which is one fact with two readers: a draft
-whose text IS its lead has not moved, so the splice passes it over, and a `was'
-that is not empty is what tells the splice an ITEM owes no blank lines.
+{-| The row a draft stands in, wearing TEXT exactly.
+
+WHAT THE BOX HOLDS IS WHAT IS WRITTEN. The lead is drawn into the box the moment
+`+' is pressed, so it arrives back as part of the line and this prepends
+NOTHING: a reader who edits `- [ ] ' into `- DONE' gets `- DONE', where a
+prepend would have made it `- [ ] - DONE'. `was' stays the LEAD, which is what
+keeps an untouched draft out of `bodyText' and an item off `apart''s blank-line
+rule — one fact with two readers.
+
 -}
 draftRow : Join -> String -> Row
 draftRow j text =
@@ -902,7 +908,7 @@ draftRow j text =
         , owner = j.owner
         , from = j.line
         , to = j.line
-        , text = j.lead ++ riding (String.length j.lead) text
+        , text = riding (String.length j.lead) text
         , was = j.lead
     }
 

@@ -7687,12 +7687,10 @@ var $author$project$Scan$draftRow = F2(
 				u: $author$project$Scan$draftId,
 				C: 1,
 				ad: j.ad,
-				as: _Utils_ap(
-					j.ao,
-					A2(
-						$author$project$Scan$riding,
-						$elm$core$String$length(j.ao),
-						text)),
+				as: A2(
+					$author$project$Scan$riding,
+					$elm$core$String$length(j.ao),
+					text),
 				J: j.U,
 				ag: j.ao
 			});
@@ -7883,7 +7881,7 @@ var $author$project$Scan$drafted = F2(
 					$author$project$Scan$joined,
 					m,
 					j.aW,
-					A2($author$project$Scan$draftRow, j, ''));
+					A2($author$project$Scan$draftRow, j, j.ao));
 			},
 			A2($author$project$Scan$joinAt, m, id));
 	});

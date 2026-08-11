@@ -409,15 +409,15 @@
         const add = !!r.add;
         shutEdit(DPARA);
         if (add) {
-          // THE LEAD GOES BACK OFF: Elm composes the line from the STOP, so the
-          // wire carries what the reader ADDED.  A lead they edited away is
-          // theirs to have edited away, and what is left is what goes.
+          // WHAT THE BOX HOLDS IS WHAT IS WRITTEN.  The lead was drawn into
+          // the box when `+' was pressed, so the line goes out WHOLE and Elm
+          // prepends nothing — a reader who edits `- [ ] ' into `- DONE' gets
+          // `- DONE' rather than both.
           const lead = r.lead || "";
-          const said_ = text.startsWith(lead) ? text.slice(lead.length) : text;
-          // NO PLACEHOLDERS, EVER: an item with nothing but its own token is
-          // not one, and no row was ever made, so this writes nothing.
-          if (!said_.trim()) { undraft(r); spoke("nothing added"); return; }
-          insertPara(r, said_, () => spoke(lead ? "item added" : "paragraph added"));
+          // NO PLACEHOLDERS, EVER: a line that is still only its own token is
+          // no item, and no row was ever made, so this writes nothing.
+          if (!text.trim() || text === lead) { undraft(r); spoke("nothing added"); return; }
+          insertPara(r, text, () => spoke(lead ? "item added" : "paragraph added"));
           return;
         }
         if (text === r.text) { spoke("paragraph unchanged"); return; }
