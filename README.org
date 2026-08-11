@@ -181,6 +181,7 @@ make sync-renderer                   # refresh assets/table-view.js from ../tabl
 make elm                             # rebuild assets/elm.js (reproduces the committed bytes)
 make elm-test                        # the scanner's own tests; fetches, so it is out of cabal test
 make check-glue                      # tsc over the shell's parts
+make browser                         # Chromium into ~/.cache/ms-playwright, no root
 #+end_src
 
 Standing oracle over =~/sync=, 2026-08-11: 6304 files, 12630 headlines, *0

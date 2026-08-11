@@ -1,4 +1,4 @@
-.PHONY: test native elm elm-test sync-renderer run run-native run-wasm wasm-spike check-glue
+.PHONY: test native elm elm-test browser browser-path sync-renderer run run-native run-wasm wasm-spike check-glue
 
 # The run targets' knobs: .env carries them (committed, edit to taste), and
 # the ?= pair means a missing .env still runs against the defaults.
@@ -37,6 +37,25 @@ elm-test:
 	@if command -v npx >/dev/null 2>&1; then \
 	  cd assets/elm && npx --yes -p elm -p elm-test elm-test; \
 	else echo "elm-test: no npx on PATH -- skipped"; fi
+
+# THE BROWSER THIS PROJECT MEASURES GEOMETRY WITH.  Installed by playwright as
+# a pure DOWNLOADER -- no import, no `node_modules', no lockfile, the same
+# ephemeral `npx --yes' the elm and tsc targets use -- into ~/.cache/ms-playwright,
+# outside the repo.  NO ROOT: this machine packages no chromium and the one
+# browser it has (firefox) would not start a remote agent in three tries.
+# Idempotent: playwright skips a version it already holds.
+browser:
+	@if command -v npx >/dev/null 2>&1; then \
+	  npx --yes playwright@1.62.1 install chromium; \
+	  echo "browser: $$($(MAKE) -s browser-path)"; \
+	else echo "browser: no npx on PATH -- nothing installed"; fi
+
+# Where it landed, for a driver to exec.  The headless shell where there is one,
+# the full browser otherwise; empty and silent when neither is installed, so a
+# caller can test for it rather than parse an error.
+browser-path:
+	@find $(HOME)/.cache/ms-playwright -type f \
+	     \( -name headless_shell -o -name chrome \) 2>/dev/null | head -1
 
 sync-renderer:
 	@if [ ! -f "$(RENDERER)" ]; then \

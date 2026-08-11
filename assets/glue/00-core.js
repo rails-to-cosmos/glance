@@ -346,7 +346,9 @@
     // THE TABLE'S OWN CURSOR, PAGING, MARKS AND FLAGS.  They rode into the
     // sheet file with the panel and came back here (docs/proposal-elm-sheet.md).
     // dired's `d'/`D'/`x'/`u' over five surfaces, each declaring a SHAPE — CLAUDE.md (UI).
-    const YES = "yes";
+    // SHOWN uppercase, since a wall should read as one, and MATCHED folded —
+    // what a reader types to get past it is their own business.
+    const YES = "YES";
     function flagKey(k, s, say) {
       const m = s.mount();
       const at = s.at();
@@ -376,7 +378,7 @@
         if (s.walled && s.walled(flags)) { go(); return; }
         askText(`${s.verb} · ${flags.length} flagged`,
                 `type ${YES} and RET · ESC leaves them`, "",
-                (c) => (c.text.trim().toLowerCase() === YES ? go() : say(s.spared)));
+                (c) => (c.text.trim().toUpperCase() === YES ? go() : say(s.spared)));
         return;
       }
       if (k === "u") {

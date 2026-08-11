@@ -1812,6 +1812,14 @@ tagKeySpec shell =
         assertEqual "nothing posted on the press alone" [] =<< namesOf answer
         assertEqual "the question is up" "on" =<< textAt "prompt" answer
         assertContains "naming what it will do" "delete" =<< textAt "phead" answer
+        -- THE WORD IS SHOWN UPPERCASE, a wall reading as one, and MATCHED
+        -- FOLDED — what a reader types to get past it is their own business.
+        assertContains "and the word to type is spelled as the wall it is"
+                       "type DELETE and RET" =<< textAt "pfoot" answer
+
+  , keyed shell "and either spelling of it gets past"
+      "" "archived:r1 press:D type:DELETE press:Enter" $ \answer ->
+        assertEqual "the shouted one" [("delete", ["r1"])] =<< postedOf answer
 
   , keyed shell "and the word is what sends it"
       "" "archived:r1 press:D type:delete press:Enter" $ \answer -> do

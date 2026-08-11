@@ -1,10 +1,27 @@
 # Proposal — a real browser drives the page, so geometry is measured
 
-**Status:** proposed · **Date:** 2026-08-11 · **Origin:** user, after a session
+**Status:** proposed; TOOLCHAIN SETTLED AND MEASURED 2026-08-11 · **Date:** 2026-08-11 · **Origin:** user, after a session
 where the paragraph editor grew to ten lines and COVERED the nine lines under
 it with 1781 tests green — found by looking, fixed in `cb6db85` — and three
 more display bugs were caught the same way the same day.
 
+**The toolchain half is no longer a question.** `make browser` installs Chrome
+for Testing 151.0.7922.34 through playwright as a pure DOWNLOADER — no import,
+no `node_modules`, no lockfile — into `~/.cache/ms-playwright`, and needs NO
+ROOT, which is what makes it available on a machine that packages no chromium.
+`make browser-path` answers where it landed, empty and silent when it is
+absent, so a driver tests for it rather than parsing an error.
+
+The zero-dependency client was proven end to end against it in a spike: node's
+global `WebSocket` onto `/json/version`'s `webSocketDebuggerUrl`,
+`Target.createTarget` + `attachToTarget` with `flatten`, then
+`Runtime.evaluate` returning BOTH halves this proposal exists for — a real
+`getBoundingClientRect` (`height: 37` off a 37px element) and a real
+`getComputedStyle` (`37px`). So the remaining work is the CASES, not the
+transport.
+
+What is still open is below, unchanged: WHICH ENGINE IS THE CONTRACT. Blink is
+what installed here; WebKitGTK is what `make native` ships.
 ## The measurement that decides it
 
 **Nothing in this repo renders anything.** The suite is 1781 Haskell cases

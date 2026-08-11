@@ -891,12 +891,12 @@
     // for a word rather than a letter: a palette entry commits on a keystroke,
     // and this is not a keystroke's worth of decision.  Anything but the word
     // writes nothing and says so.
-    const DELETE_WORD = "delete";
+    const DELETE_WORD = "DELETE";
     function confirmDelete(b, ids, how) {
       askText(`delete · ${rowsWord(ids.length)} permanently`,
               `type ${DELETE_WORD} and RET · ESC leaves them`, "",
               (c) => {
-                if (c.text.trim().toLowerCase() !== DELETE_WORD) {
+                if (c.text.trim().toUpperCase() !== DELETE_WORD) {
                   said(b, "not deleted");
                   return;
                 }
