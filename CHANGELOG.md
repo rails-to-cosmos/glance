@@ -22,6 +22,16 @@ section groups a feature arc, and its date is that arc's last commit.
   capture template — is written exactly as before.
 
 ### Changed
+- **`+` in the materialize sheet adds a sibling of the stop, so an item joins
+  the run the cursor stands in.** Standing on a list item, `+` now adds an item
+  at the bottom of that item's own run, wearing its indent and bullet, an empty
+  checkbox where the stop has one, and the run's next number where it is
+  numbered — so `f` into a nested run and `+` writes at the nested indent. The
+  drawn row shows that prefix before a character is typed, and an empty `+`
+  still writes nothing. Standing on the list itself — one `b` away — `+` adds a
+  paragraph past the whole structure as before, and a table line and a
+  `#+begin_X` run keep that landing, neither having a prefix to spell.
+
 - **A write spells no trailing space.** Every text glance composes for a write —
   a subtree the materialize sheet hands back, a captured entry, the document a
   tagged capture stores — lands with each line ending at its last non-blank

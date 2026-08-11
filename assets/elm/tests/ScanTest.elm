@@ -341,19 +341,77 @@ suite =
                     Expect.equal "* head\nfirst\n"
                         (Scan.bodyText (inserted "H" "first" [ "* head", "" ]) [])
 
-            -- A LEAF'S RIDES ITS OUTERMOST OWNER.  Grown in place, org closes
-            -- the list, cuts the table, or takes the prose for source.
-            , test "a list item's rides the whole list, which stays one list" <|
+            -- AN ITEM JOINS ITS RUN'S BOTTOM, wearing the stop's own prefix.
+            -- The typed text is what the READER typed, so the lead appears in
+            -- the expectation and never in the argument.
+            , test "an item's joins the END of its own run" <|
+                \_ ->
+                    Expect.equal "* head\n- alpha\n- beta\n- note"
+                        (Scan.bodyText (inserted "B1" "note" [ "* head", "- alpha", "- beta" ]) [])
+            , test "the run's bottom, never the stop's own line" <|
+                \_ ->
+                    Expect.equal "* head\n- alpha\n- beta\n- gamma\n- note"
+                        (Scan.bodyText
+                            (inserted "B1" "note" [ "* head", "- alpha", "- beta", "- gamma" ])
+                            []
+                        )
+
+            -- ONE BLANK STAYS INSIDE THE RUN (org's rule, `listRun'), so the
+            -- bottom is past it rather than at it.
+            , test "a blank line inside the run does not end it" <|
+                \_ ->
+                    Expect.equal "* head\n- alpha\n\n- beta\n- note"
+                        (Scan.bodyText (inserted "B1" "note" [ "* head", "- alpha", "", "- beta" ]) [])
+
+            -- THE INDENT IS THE CURSOR'S: the nested run's own bottom, two
+            -- spaces in.
+            , test "a nested item's joins the NESTED run, at the stop's indent" <|
+                \_ ->
+                    Expect.equal "* head\n- alpha\n  - deep\n  - note\n- beta"
+                        (Scan.bodyText
+                            (inserted "B2" "note" [ "* head", "- alpha", "  - deep", "- beta" ])
+                            []
+                        )
+
+            -- AND AN OUTER ITEM'S BOTTOM IS PAST ITS OWN NESTED RUN, `joined'
+            -- walking everything the last sibling owns.
+            , test "an item carrying a nested run keeps it above the new sibling" <|
+                \_ ->
+                    Expect.equal "* head\n- alpha\n  - deep\n- note"
+                        (Scan.bodyText (inserted "B1" "note" [ "* head", "- alpha", "  - deep" ]) [])
+
+            -- A NUMBER CONTINUES OFF THE LAST ITEM: the stop's own number
+            -- spelled at the bottom is a duplicate, which is what makes org
+            -- renumber.
+            , test "a numbered run continues its numbering" <|
+                \_ ->
+                    Expect.equal "* head\n1. alpha\n2. beta\n3. note"
+                        (Scan.bodyText (inserted "B1" "note" [ "* head", "1. alpha", "2. beta" ]) [])
+            , test "and the punctuation is the stop's own" <|
+                \_ ->
+                    Expect.equal "* head\n1) alpha\n2) note"
+                        (Scan.bodyText (inserted "B1" "note" [ "* head", "1) alpha" ]) [])
+
+            -- A CHECKBOX COMES ALONG EMPTY, org's own `org-insert-item'.
+            , test "a checkbox item's sibling wears an empty box" <|
+                \_ ->
+                    Expect.equal "* head\n- [X] alpha\n- [ ] note"
+                        (Scan.bodyText (inserted "B1" "note" [ "* head", "- [X] alpha" ]) [])
+
+            -- THE OLD LANDING IS ONE `b' AWAY, and these are the bytes it wrote
+            -- from the leaf before the grain decided.
+            , test "the COMPOSITE still lands a paragraph past the whole list" <|
                 \_ ->
                     Expect.equal "* head\n- alpha\n- beta\n\nnote\n\nafter"
                         (Scan.bodyText
-                            (inserted "B2" "note" [ "* head", "- alpha", "- beta", "", "after" ])
+                            (inserted "B0" "note" [ "* head", "- alpha", "- beta", "", "after" ])
                             []
                         )
-            , test "a nested item's climbs past its own item to the list" <|
-                \_ ->
-                    Expect.equal "* head\n- alpha\n  - deep\n\nnote"
-                        (Scan.bodyText (inserted "B2" "note" [ "* head", "- alpha", "  - deep" ]) [])
+
+            -- A TABLE LINE AND A BLOCK RUN KEEP THE COMPOSITE'S LANDING: a pipe
+            -- row's cells sit BETWEEN pipes and a source line's grammar is X's,
+            -- so neither is a PREFIX this page can spell — and grown in place,
+            -- org would cut the table or take the prose for source.
             , test "a table's line rides the table, which stays whole" <|
                 \_ ->
                     Expect.equal "* head\n| a |\n| b |\n\nnote\n\nafter"
@@ -402,6 +460,18 @@ suite =
                     in
                     Expect.equal ( 4, "* head\nalpha\n\nbeta" )
                         ( List.length rows, Scan.bodyText { m | rows = rows } [] )
+            , test "the drawn item writes nothing at all either" <|
+                \_ ->
+                    -- Its text IS its `was', which is what makes the lead free.
+                    let
+                        m =
+                            model [ "* head", "- alpha" ]
+
+                        rows =
+                            Maybe.withDefault m.rows (Scan.drafted m "B1")
+                    in
+                    Expect.equal ( 4, "* head\n- alpha" )
+                        ( List.length rows, Scan.bodyText { m | rows = rows } [] )
             , test "and it stands under the WHOLE list, never between two items" <|
                 \_ ->
                     let
@@ -440,11 +510,54 @@ suite =
         -- WHERE THE CURSOR IS OWED after the write: block ids are POSITIONAL,
         -- so the row an insert makes has no id until the rescan mints one and
         -- the LINE it starts at is what names it instead.
+        -- TWO FAULTS THE TEXT SUITE COULD NOT SEE, both found by driving a real
+        -- browser over a nested run.  Each is stated here as the rule it broke.
+        , describe "a drafted item is a leaf of the run it joins"
+            [ test "it owns what its siblings own, so the composite still draws it" <|
+                \_ ->
+                    let
+                        m =
+                            model [ "* head", "- alpha", "  - nested", "- beta" ]
+
+                        drawn =
+                            Maybe.withDefault [] (Scan.drafted m "B2")
+
+                        held =
+                            List.map (\r -> ( r.id, r.owner ))
+                                (List.filter (\r -> r.id == Scan.draftId) drawn)
+                    in
+                    -- `Doc.viewKids' walks a composite's kids while their owner
+                    -- is its own; a draft owning NOBODY breaks that walk and the
+                    -- leaves past it are drawn a second time as the gap text.
+                    Expect.equal [ ( "D", Just "B1" ) ] held
+            , test "and a multi-line item rides inside itself" <|
+                \_ ->
+                    -- A continuation at column 1 closes the run: org reads it as
+                    -- a paragraph, so the reader's ONE item became two things.
+                    Expect.equal "* head\n- alpha\n- one\n  two"
+                        (Scan.bodyText
+                            (inserted "B1" "one\ntwo" [ "* head", "- alpha" ])
+                            []
+                        )
+            , test "where a paragraph keeps its blank lines and no indent" <|
+                \_ ->
+                    Expect.equal "* head\npara\n\none\ntwo"
+                        (Scan.bodyText
+                            (inserted "B0" "one\ntwo" [ "* head", "para" ])
+                            []
+                        )
+            ]
         , describe "the landing — a line, since no id names the new row yet"
             [ test "under a paragraph the text lands a blank on" <|
                 \_ ->
                     Expect.equal (Just 3)
                         (Scan.joinLine (model [ "* head", "alpha", "", "beta" ]) "B0")
+            -- AN ITEM OWES NO BLANK, so its landing is the run's bottom exactly,
+            -- where a paragraph's is one line past the blank written above it.
+            , test "an item lands on the run's bottom line itself" <|
+                \_ ->
+                    Expect.equal (Just 3)
+                        (Scan.joinLine (model [ "* head", "- alpha", "- beta" ]) "B1")
             , test "and under the headline it leads the body with no blank owed" <|
                 \_ ->
                     Expect.equal (Just 1)

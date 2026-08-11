@@ -1,6 +1,6 @@
 # Proposal — `+` adds a SIBLING of the stop, so an item joins the run the cursor stands in
 
-**Status:** proposed · **Date:** 2026-08-11 · **Origin:** user — "`+` doesn't take
+**Status:** IMPLEMENTED 2026-08-11 · **Date:** 2026-08-11 · **Origin:** user — "`+` doesn't take
 into account the current indentation level of cursor (which user modifies via
 `f`/`b`) … `+` should be indentation-aware in lists and add an item in the last
 bottom position of current indented block."
@@ -567,6 +567,30 @@ Elm's answer.
 - **REVISING A STATED RULE, in the open**: `docs/proposal-generalize-capabilities.md`
   re-validated its own pattern and recorded that it had GROWN. This one says
   which sentence changes and why the reason behind it no longer covers the case.
+
+## As built (2026-08-11)
+
+Every expected string above held against the scanner — the nine ScanTest
+expectations, the two revised ones, and all six `grainBody`/`checkyBody`/
+`tabledBody` bodies — with no hand-computed byte corrected.
+
+Three things the plan did not say:
+
+- **`joinAt` and `drafted` widened to `{ a | rows, lines }`.** `itemLead` reads
+  the stop's own LINE, so the record the landing is asked of carries the lines
+  now. `Doc.Model` and `ScanTest.model` both already have them, so no call site
+  moved.
+- **`Opener` grows `bullet` through one token**, since `numberedAt` answers the
+  DIGITS and the punctuation is the character behind them. `gapAfter` is the
+  horizontal run, one space where the line ends at the token.
+- **One more existing case revised than the plan named.** The leaf half of
+  `TestServe.hs`'s "+ draws the empty paragraph, and point goes to it" asserted
+  exactly T1's rows and `dat` under the comment "A LEAF'S stands past the WHOLE
+  list" — the superseded rule. It folded into T1, which asserts those two plus
+  the lead and the echo.
+
+Open decision 1 is taken as recommended: a `#+begin_X` run keeps the composite's
+landing. Decisions 2 and 3 stand where the plan left them.
 
 ## Open decisions
 

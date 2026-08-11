@@ -3717,20 +3717,29 @@ sheetSpec shell =
     -- THE PARAGRAPH IS DRAWN BEFORE IT IS WRITTEN, so the reader fills a line
     -- of their own rather than the one they were standing on.  The row is
     -- zero-width and empty, which `bodyText' passes over.
-  , testCase "+ draws the empty paragraph, and point goes to it" $ do
+  , testCase "+ draws the empty paragraph, and point goes to it" $
       insheet "press:n press:+" $ \answer -> do
         assertEqual "a line of its own, under the one point stood on"
                     ["head", "para", "draft:para", "para", "child"]
           =<< map head <$> docOf answer
         assertEqual "holding nothing" [""] . partsOf "draft:para" =<< docOf answer
         assertEqual "and the cursor is on it" 2 =<< intAt "dat" answer
-      -- A LEAF'S stands past the WHOLE list, where its paragraph will go.
+
+    -- AND AN ITEM IS DRAWN AS THE ITEM IT WILL BE: the row wears the LEAD, so
+    -- the line the reader is about to fill reads as a sibling of the stop.  A
+    -- top-level item's run ends where the list does, so the DRAWING is where it
+    -- always was and only the lead is new.
+  , testCase "+ on an item draws the item it will be" $ do
       onTable "grain press:Enter press:n press:n press:f press:+" $ \answer -> do
-        assertEqual "never between two items"
+        assertEqual "drawn at the run's bottom, where it always was"
                     [ "head", "para", "comp:list", "item", "item", "item", "item"
-                    , "draft:para", "comp:quote", "item", "item", "para", "child" ]
+                    , "draft:item", "comp:quote", "item", "item", "para", "child" ]
           =<< map head <$> docOf answer
+        assertEqual "wearing the stop's own bullet" ["- "]
+          . partsOf "draft:item" =<< docOf answer
         assertEqual "and the cursor is on it" 7 =<< intAt "dat" answer
+        echoIs "the echo names the level, not the structure"
+               "+ \8594 org-insert-element (an item at this level)" answer
 
   , testCase "and ESC leaves behind what it found, point included" $
       insheet "press:n press:+ dpara:typed press:Escape" $ \answer -> do
@@ -3772,20 +3781,81 @@ sheetSpec shell =
           ["* TODO one\nopener\n\nfirst para\n\nsecond para\n** two\nchild body\n"]
           =<< traverse (textAt "body") =<< listAt "writes" answer
 
-    -- A LEAF'S PARAGRAPH RIDES ITS OUTERMOST OWNER.  Grown in place, org
-    -- closes the list, cuts the table in half, or takes the prose for source —
-    -- one rule for three traps, and `Scan.insertion' is where it lives.
-  , testCase "+ inside a list lands under the WHOLE list" $ do
+    -- `+' ADDS A SIBLING OF THE STOP, and THE GRAIN IS THE SELECTOR: `f' put
+    -- the reader inside the list, so what joins is an ITEM at the bottom of the
+    -- run they are standing in, wearing that stop's own prefix.
+  , testCase "+ inside a list adds an item at the list's bottom" $
       onTable "grain press:Enter press:n press:n press:f press:+ dpara:note press:Enter" $
+        \answer ->
+          assertEqual "past gamma, inside the list, no blank line owed"
+            [ "* TODO one\nlead in\n- alpha\n  more alpha\n  - nested\n\n- beta\n- gamma\n"
+              <> "- note\n\n#+begin_quote\nquoted one\n\nquoted two\n#+end_quote\n\n"
+              <> "tail para\n** two\nchild body\n" ]
+            =<< traverse (textAt "body") =<< listAt "writes" answer
+
+    -- ONE RUNG FURTHER, which is the ask itself: the INDENT is the cursor's and
+    -- the LINE is the nested run's own bottom.
+  , testCase "+ on a nested item joins the NESTED run, at its own indent" $ do
+      onTable "grain press:Enter press:n press:n press:f press:f press:+" $ \answer -> do
+        assertEqual "drawn under the nested item, inside alpha"
+                    [ "head", "para", "comp:list", "item", "item", "draft:item"
+                    , "item", "item", "comp:quote", "item", "item", "para", "child" ]
+          =<< map head <$> docOf answer
+        assertEqual "wearing the nested indent" ["  - "]
+          . partsOf "draft:item" =<< docOf answer
+        assertEqual "and the cursor is on it" 5 =<< intAt "dat" answer
+        -- EVERY BYTE ON SCREEN EXACTLY ONCE, which a draft owning nobody broke:
+        -- `viewKids' walks a composite's kids while their owner is its own, so
+        -- a draft in the MIDDLE of a run ended the walk and the leaves past it
+        -- were drawn AGAIN as the composite's gap text.  `downers' is the
+        -- reading that sees it; the flat `.de' walk cannot.
+        assertEqual "the leaves past it are still the composite's own"
+                    [-1, -1, -1, 2, 3, 3, 2, 2, -1, 8, 8, -1, -1]
+          =<< flaggedAt "downers" answer
+      onTable ("grain press:Enter press:n press:n press:f press:f press:+"
+               <> " dpara:note press:Enter") $ \answer ->
+        assertEqual "two spaces in, above the blank the outer run keeps"
+          [ "* TODO one\nlead in\n- alpha\n  more alpha\n  - nested\n  - note\n\n"
+            <> "- beta\n- gamma\n\n#+begin_quote\nquoted one\n\nquoted two\n"
+            <> "#+end_quote\n\ntail para\n** two\nchild body\n" ]
+          =<< traverse (textAt "body") =<< listAt "writes" answer
+
+    -- AND THE OLD LANDING IS ONE `b' AWAY: over the COMPOSITE, `+' lands a
+    -- paragraph past the whole structure, which is the bytes it wrote from the
+    -- leaf before the grain decided.
+  , testCase "the composite still lands a paragraph past the whole list" $ do
+      onTable "grain press:Enter press:n press:n press:+ dpara:note press:Enter" $
         \answer ->
           assertEqual "past the last item, never between two"
             [ "* TODO one\nlead in\n- alpha\n  more alpha\n  - nested\n\n- beta\n- gamma\n\n"
               <> "note\n\n#+begin_quote\nquoted one\n\nquoted two\n#+end_quote\n\n"
               <> "tail para\n** two\nchild body\n" ]
             =<< traverse (textAt "body") =<< listAt "writes" answer
-      onTable "grain press:Enter press:n press:n press:f press:+" $
-        echoIs "and the echo names the structure, not the item"
+      onTable "grain press:Enter press:n press:n press:+" $
+        echoIs "and the echo is the structure's, as it was"
                "+ \8594 org-insert-element (after the list)"
+
+    -- A CHECKBOX COMES ALONG EMPTY, org's own `org-insert-item': the box is
+    -- part of what the line OPENS with, so it falls out of the prefix rule.
+    -- What it buys is the cookie — `[2/4]' counts boxes, so a box-less item
+    -- joining a list of tasks moves the denominator's meaning.
+  , testCase "a checkbox item's new sibling comes along boxed and empty" $
+      onTable "checky press:Enter press:n press:f press:+ dpara:epsilon press:Enter" $
+        \answer ->
+          assertEqual "an EMPTY box, whatever the stop's own state"
+            [ "* TODO one\n- [ ] alpha\n- [X] beta\n- [-] gamma\n- delta\n"
+              <> "- [ ] epsilon\n** two\nchild body\n" ]
+            =<< traverse (textAt "body") =<< listAt "writes" answer
+
+    -- AND THE BOUNDARY: a TABLE line keeps the composite's landing, a pipe row
+    -- being no prefix — its cells sit BETWEEN pipes, so nothing spells one.
+  , testCase "a table's line keeps the composite's landing" $
+      onTable "tabled press:Enter press:n press:n press:f press:+ dpara:note press:Enter" $
+        \answer ->
+          assertEqual "a pipe row is no prefix, so the paragraph goes past the table"
+            [ "* TODO one\nlead in\n| a | b |\n|---+---|\n| 1 | 2 |\n| 3 | 4 |\n\n"
+              <> "note\n\n- alpha\n- beta\n\ntail para\n** two\nchild body\n" ]
+            =<< traverse (textAt "body") =<< listAt "writes" answer
 
   , testCase "+ inside a block lands under #+end_, never in the source" $ do
       onTable ("grain press:Enter press:n press:n press:n press:f press:+"
@@ -3819,6 +3889,15 @@ sheetSpec shell =
         assertEqual "and the pane is the document it was"
                     ["first para", "second para"] . partsOf "para" =<< docOf answer
         echoIs "" "ESC \8594 keyboard-quit (element unchanged)" answer
+
+    -- AND THE LEAD IS WHAT MAKES THAT LOAD-BEARING RATHER THAN TIDY: the wall
+    -- reads the TEXTAREA, which holds what the reader TYPED, and the lead never
+    -- reaches it — so `+' then `RET' on an item writes no bare bullet.
+  , testCase "an empty + on an item writes no bare bullet" $
+      onTable "grain press:Enter press:n press:n press:f press:+ press:Enter" $
+        \answer -> do
+          assertEqual "nothing written" [] =<< textsAt "wroteAt" answer
+          echoIs "" "RET \8594 org-ctrl-c-ctrl-c (nothing added)" answer
 
     -- MOVEMENT IS TWO AXES, the table's habit read into the document.  A list
     -- and a `#+begin_'/`#+end_' block each take TWO KINDS OF STOP over the same

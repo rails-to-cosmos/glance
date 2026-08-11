@@ -1755,19 +1755,29 @@ measurements and the history of superseded designs live in
   command yet. A CHILD's cells are read-only in v1 — no row id, so no `/command`
   addresses it — while its planning, drawer, paragraphs and children are all
   editable through the lens that materialized it.
-- `+` ADDS A PARAGRAPH, one of what the surface holds, as it does in the panel.
+- `+` ADDS A SIBLING OF THE STOP, one of what the surface holds, as it does in
+  the panel.
   THE ROW IS DRAWN BEFORE IT IS WRITTEN and point goes to it, so the box is laid
   over a line of the reader's own rather than over the one they stood on, and
-  point is still on that paragraph when the write lands. The drawn row is
-  ZERO-WIDTH and empty (`Scan.draftId`), which `bodyText` passes over because
+  point is still on that row when the write lands. The drawn row is
+  ZERO-WIDTH (`Scan.draftId`), which `bodyText` passes over because
   its text has not moved off its `was`, so nothing is owed until it is filled
   and `ESC` leaves behind what it found — the STOP is NAMED rather than counted
   back to, a leaf's row standing past its whole composite. Elm pushes state
   before it paints, so `+` opens the box and the state push re-anchors it.
-  WHERE it lands is `Scan.joinAt`: a LEAF's rides its OUTERMOST owner, since org
-  would close the list, cut the table or take the prose for source; the
-  HEADLINE's leads the body at line 1. THE SEPARATOR IS THE SPLICE'S, never the
-  text's — a zero-width range ADDS lines rather than replacing any, so
+  WHERE it lands is `Scan.joinAt`, and THE GRAIN IS THE SELECTOR: a COMPOSITE's
+  rides past the whole structure — one `b` from any item — while a LIST LEAF's
+  joins THE BOTTOM OF ITS OWN RUN as an item wearing the stop's own PREFIX (its
+  indent and bullet, an EMPTY checkbox where the stop has one, the run's next
+  number where it is numbered). A TABLE line and a `#+begin_X` run keep the
+  composite's landing, a pipe row and a source line being no prefix the page can
+  spell — and grown in place org would cut the table or take the prose for
+  source, the caution the list is the one exception to because an item's whole
+  grammar IS a prefix. The HEADLINE's leads the body at line 1. THE LEAD IS THE
+  DRAFT'S `was`, so the drawn row is still un-moved and still writes nothing,
+  and a row wearing one owes `apart` no blank lines. THE SEPARATOR IS THE
+  SPLICE'S, never the text's — a zero-width range ADDS lines rather than
+  replacing any, so
   `Scan.apart` reads BOTH neighbours at splice time and what is drawn stays
   content. Line 0 is the entry's own line, the one place no blank is owed above.
   A cursor is owed a LINE rather than an id across the write (`joinLine`,

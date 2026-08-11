@@ -188,19 +188,24 @@
     }
     const INSERT = docBinding("org-insert-element", "+");
     const dOwner = (r) => (r && r.owner ? docRowById(r.owner) : null);
-    /** WHERE a paragraph would land, in the reader's own words. */
+    /** WHERE a sibling of the stop would land, in the reader's own words. */
     function insertWord(r) {
       if (r.kind === "head") return "at the top";
       let top = r;
       for (let up = dOwner(top); up; up = dOwner(top)) top = up;
+      // A LIST LEAF joins its own run, so the word is the LEVEL's rather than
+      // the structure's — `Scan.itemLead''s condition, said out loud.
+      if (r.grain === "leaf" && top.name === "list") return "an item at this level";
       return top === r && r.grain !== "composite"
         ? "after this paragraph"
         : `after the ${top.name || "block"}`;
     }
     /**
-     * `+' ADDS A PARAGRAPH under the stop, in the widget `RET' edits one with.
-     * NOTHING joins the model: the row is this snapshot until `RET' grows the
-     * carrier, so `ESC' undoes it by having nothing to undo.
+     * `+' ADDS A SIBLING of the stop, in the widget `RET' edits a paragraph
+     * with.  NOTHING joins the model: the row is this snapshot until `RET'
+     * grows the carrier, so `ESC' undoes it by having nothing to undo.  The
+     * LEAD is `Scan''s and never reaches the box, so a blank `+' on an item
+     * writes no bare bullet.
      */
     function insertHere() {
       const r = docRowAt();

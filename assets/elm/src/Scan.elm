@@ -80,8 +80,11 @@ blank =
 -- `1.`/`1)`, `+`, and an INDENTED `*` — a `* ` at column 1 is a headline.
 
 
+{-| An item's opener: how far in it sits, and what it OPENS WITH — the token
+plus the horizontal run behind it, which is the prefix `+' spells a sibling with.
+-}
 type alias Opener =
-    { indent : Int }
+    { indent : Int, bullet : String }
 
 
 listOpener : String -> Maybe Opener
@@ -93,7 +96,7 @@ listOpener line =
         rest =
             String.dropLeft spaces line
 
-        bulletAt =
+        tokenAt =
             if String.startsWith "- " rest || rest == "-" then
                 Just "-"
 
@@ -104,9 +107,17 @@ listOpener line =
                 Just "*"
 
             else
-                numberedAt rest
+                -- `numberedAt' answers the DIGITS; the punctuation is the
+                -- character behind them, and both are the token.
+                Maybe.map
+                    (\d -> d ++ String.slice (String.length d) (String.length d + 1) rest)
+                    (numberedAt rest)
+
+        opened token =
+            Opener spaces
+                (token ++ gapAfter (String.dropLeft (String.length token) rest))
     in
-    case bulletAt of
+    case tokenAt of
         Nothing ->
             Nothing
 
@@ -116,10 +127,28 @@ listOpener line =
                 Nothing
 
             else
-                Just (Opener spaces)
+                Just (opened "*")
 
-        Just _ ->
-            Just (Opener spaces)
+        Just token ->
+            Just (opened token)
+
+
+{-| The horizontal run a token is followed by, ONE SPACE where the line ends at
+the token — `-' alone opens an item, and a sibling of it owes a space.
+-}
+gapAfter : String -> String
+gapAfter after =
+    let
+        run =
+            String.toList after
+                |> takeWhileList (\c -> c == ' ' || c == '\t')
+                |> String.fromList
+    in
+    if String.isEmpty run then
+        " "
+
+    else
+        run
 
 
 {-| `1.` or `1)` followed by a space or the line's end.
@@ -148,6 +177,17 @@ numberedAt rest =
 
     else
         Nothing
+
+
+{-| The NUMBER a numbered item opens with, off its whole line.
+-}
+numberAt : String -> Maybe Int
+numberAt line =
+    let
+        spaces =
+            String.length line - String.length (String.trimLeft line)
+    in
+    Maybe.andThen String.toInt (numberedAt (String.dropLeft spaces line))
 
 
 takeWhileList : (a -> Bool) -> List a -> List a
@@ -579,11 +619,14 @@ bodyText m gone =
 
             else if r.text /= r.was then
                 List.take r.from out
-                    ++ (if r.from == r.to then
-                            -- AN INSERTION, and the blanks that keep it a
-                            -- paragraph of its own are the SPLICE's rather than
-                            -- the text's: a zero-width range ADDS lines instead
-                            -- of replacing any, and what is drawn is content.
+                    ++ (if r.was == "" then
+                            -- AN INSERTION WEARING NO LEAD, and the blanks that
+                            -- keep it a paragraph of its own are the SPLICE's
+                            -- rather than the text's: a zero-width range ADDS
+                            -- lines instead of replacing any, and what is drawn
+                            -- is content.  A row wearing a LEAD is an ITEM and
+                            -- owes none — a blank above it would put the run's
+                            -- own separator in front of a sibling.
                             apart out r.from (String.split "\n" r.text)
 
                         else
@@ -600,10 +643,11 @@ bodyText m gone =
 
 -- THE INSERT
 --
--- A paragraph is DRAWN before it is written: `+' puts a ZERO-WIDTH row in under
--- the structure the stop rides, holding nothing, and `bodyText' passes it over
--- because its text has not moved off its `was'. So the reader sees the line
--- they are about to fill, and not a byte is owed until they fill it.
+-- `+' ADDS A SIBLING OF THE STOP, and a sibling is a LEAD plus the reader's own
+-- text. It is DRAWN before it is written: a ZERO-WIDTH row goes in wearing the
+-- lead alone, and `bodyText' passes it over because its text has not moved off
+-- its `was'. So the reader sees the line they are about to fill as the item it
+-- will be, and not a byte is owed until they fill it.
 
 
 {-| The row a paragraph waits in before it says anything.
@@ -613,17 +657,30 @@ draftId =
     "D"
 
 
-{-| WHERE a paragraph joins: the row it goes in under, the BODY LINE it takes,
-and whether a blank line is owed ABOVE it.
+{-| WHERE a sibling joins: the row it goes in under, the BODY LINE it takes, and
+the LEAD it opens wearing before a character is typed.
+-}
+type alias Join =
+    { under : String
+    , line : Int
+    , lead : String
+    , owner : Maybe String
+    }
 
-A LEAF's rides its OUTERMOST owner — grown in place, org would close the list,
-cut the table or take the prose for source. The HEADLINE's leads the body at
-line 1, under the line the entry wears, which is the one place nothing is owed
-above. 'Nothing' for a CHILD, whose bytes are outside this window, and for an
-id no row wears.
+
+{-| WHERE `+' joins, and THE GRAIN IS THE SELECTOR.
+
+A LIST LEAF's joins THE BOTTOM OF ITS OWN RUN as an item wearing the stop's own
+PREFIX. A COMPOSITE's rides past the whole structure, and so does a leaf of a
+TABLE or a `#+begin_X' — a pipe row's cells sit between pipes and a source line's
+grammar is X's, so neither is a prefix this page can spell, and grown in place
+org would cut the table or take the prose for source. The HEADLINE's leads the
+body at line 1, under the line the entry wears, which is the one place nothing is
+owed above. 'Nothing' for a CHILD, whose bytes are outside this window, and for
+an id no row wears.
 
 -}
-joinAt : { a | rows : List Row } -> String -> Maybe ( String, Int )
+joinAt : { a | rows : List Row, lines : List String } -> String -> Maybe Join
 joinAt m id =
     case rowById m id of
         Nothing ->
@@ -635,23 +692,128 @@ joinAt m id =
                     Nothing
 
                 Head ->
-                    Just ( r.id, 1 )
+                    Just (Join r.id 1 "" Nothing)
 
                 Para ->
-                    let
-                        up =
-                            outermost m r
-                    in
-                    Just ( up.id, up.to )
+                    case itemLead m r of
+                        Just lead ->
+                            let
+                                last =
+                                    lastSibling m r
+                            in
+                            -- THE OWNER RIDES ALONG, and it has to: a drafted
+                            -- item lands in the MIDDLE of a composite's leaf
+                            -- run, and `Doc.viewKids' walks a composite's kids
+                            -- only while their owner is its own — a draft
+                            -- owning nobody BREAKS that walk, so the leaves
+                            -- past it escape the composite and are drawn a
+                            -- SECOND time as the gap text.  Every byte on
+                            -- screen exactly once is the rule that says so.
+                            Just (Join last.id last.to lead last.owner)
+
+                        Nothing ->
+                            let
+                                up =
+                                    outermost m r
+                            in
+                            Just (Join up.id up.to "" Nothing)
+
+
+{-| The RUN a stop stands in: the leaves sharing its owner, in document order.
+-}
+runOf : { a | rows : List Row } -> Row -> List Row
+runOf m r =
+    -- A DRAFT ALREADY STANDING IS NO SIBLING. It is a leaf of this very run now,
+    -- so counting it would land the next join UNDER A ROW `joined' is about to
+    -- take out — and the write would splice nothing at all.
+    List.filter
+        (\s ->
+            s.kind == Para && s.grain == Leaf && s.owner == r.owner && s.id /= draftId
+        )
+        m.rows
+
+
+{-| Its LAST stop, which is the run's bottom — an item's own \`to' already covers
+the nested run drawn inside it, so the bottom is past those too.
+-}
+lastSibling : { a | rows : List Row } -> Row -> Row
+lastSibling m r =
+    Maybe.withDefault r (List.head (List.reverse (runOf m r)))
+
+
+{-| The PREFIX a sibling of the stop opens with, where the run has a grammar to
+spell one: the stop is a LEAF and the structure it rides is a LIST.
+-}
+itemLead : { a | rows : List Row, lines : List String } -> Row -> Maybe String
+itemLead m r =
+    if r.grain == Leaf && (outermost m r).name == Just "list" then
+        Maybe.map (leadFrom m r) (listOpener (at r.from m.lines))
+
+    else
+        Nothing
+
+
+{-| INDENT AND BULLET ARE THE STOP'S OWN, the reader having chosen it with \`f',
+and an EMPTY box joins where the stop wears one — org's own \`org-insert-item',
+which is what keeps a `[2/4]' cookie counting the same kind of thing.
+-}
+leadFrom : { a | rows : List Row, lines : List String } -> Row -> Opener -> String
+leadFrom m r o =
+    let
+        line =
+            at r.from m.lines
+
+        after =
+            String.dropLeft (o.indent + String.length o.bullet) line
+    in
+    String.left o.indent line ++ nextBullet m r o ++ boxAfter after
+
+
+{-| The stop's own bullet, except where the run is NUMBERED: there the number
+continues off the run's LAST item, the stop's own number spelled at the bottom
+being a duplicate, and only the punctuation is the stop's. A run whose last item
+is not numbered takes its LENGTH plus one.
+-}
+nextBullet : { a | rows : List Row, lines : List String } -> Row -> Opener -> String
+nextBullet m r o =
+    let
+        digits =
+            String.fromList (takeWhileList Char.isDigit (String.toList o.bullet))
+    in
+    if String.isEmpty digits then
+        o.bullet
+
+    else
+        let
+            next =
+                case numberAt (at (lastSibling m r).from m.lines) of
+                    Just n ->
+                        n + 1
+
+                    Nothing ->
+                        List.length (runOf m r) + 1
+        in
+        String.fromInt next ++ String.dropLeft (String.length digits) o.bullet
+
+
+{-| An EMPTY box where what follows the bullet is one, whatever state it is in.
+-}
+boxAfter : String -> String
+boxAfter after =
+    if List.member (String.left 3 after) [ "[ ]", "[X]", "[x]", "[-]" ] then
+        "[ ] "
+
+    else
+        ""
 
 
 {-| ROWS with an EMPTY paragraph drawn in under the stop ID, for \`+' to open a
-box over. It is zero-width and holds nothing, so no write any other gesture
-composes can carry it out.
+box over. It is zero-width and holds its LEAD and nothing else, so its text has
+not moved off its `was' and no write any other gesture composes can carry it out.
 -}
-drafted : { a | rows : List Row } -> String -> Maybe (List Row)
+drafted : { a | rows : List Row, lines : List String } -> String -> Maybe (List Row)
 drafted m id =
-    Maybe.map (\( under, line ) -> joined m under (draftRow line "")) (joinAt m id)
+    Maybe.map (\j -> joined m j.under (draftRow j "")) (joinAt m id)
 
 
 {-| ROWS with that paragraph filled with TEXT, which is the write.
@@ -667,7 +829,7 @@ insertion :
     -> String
     -> Maybe (List Row)
 insertion m id text =
-    Maybe.map (\( under, line ) -> joined m under (draftRow line text)) (joinAt m id)
+    Maybe.map (\j -> joined m j.under (draftRow j text)) (joinAt m id)
 
 
 {-| The FIRST LINE the paragraph joined under ID would take, for a cursor that
@@ -677,12 +839,15 @@ id names it until the body comes back.
 joinLine : { a | rows : List Row, lines : List String } -> String -> Maybe Int
 joinLine m id =
     Maybe.map
-        (\( _, line ) ->
-            if line > 1 && not (isBlank (at (line - 1) m.lines)) then
-                line + 1
+        (\j ->
+            -- An ITEM owes no blank above, so its landing is the run's bottom
+            -- exactly, where a paragraph's is one line past the blank written
+            -- over it.
+            if j.lead == "" && j.line > 1 && not (isBlank (at (j.line - 1) m.lines)) then
+                j.line + 1
 
             else
-                line
+                j.line
         )
         (joinAt m id)
 
@@ -723,16 +888,43 @@ apart lines line written =
            )
 
 
-draftRow : Int -> String -> Row
-draftRow line text =
+{-| THE LEAD IS THE ROW'S \`was', which is one fact with two readers: a draft
+whose text IS its lead has not moved, so the splice passes it over, and a `was'
+that is not empty is what tells the splice an ITEM owes no blank lines.
+-}
+draftRow : Join -> String -> Row
+draftRow j text =
     { blank
         | id = draftId
         , kind = Para
-        , grain = Element
-        , from = line
-        , to = line
-        , text = text
+        , grain =
+            case j.owner of
+                Just _ ->
+                    Leaf
+
+                Nothing ->
+                    Element
+        , owner = j.owner
+        , from = j.line
+        , to = j.line
+        , text = j.lead ++ riding (String.length j.lead) text
+        , was = j.lead
     }
+
+
+{-| TEXT with every line but the first indented by N, so a multi-line item stays
+ONE item: a continuation at column 1 closes the run in org and reads back as a
+paragraph, where a line opening in space RIDES INSIDE the item above it. An
+empty LEAD indents nothing, a paragraph owing its neighbours blank lines rather
+than an indent.
+-}
+riding : Int -> String -> String
+riding n text =
+    if n == 0 then
+        text
+
+    else
+        String.join ("\n" ++ String.repeat n " ") (String.split "\n" text)
 
 
 {-| ROWS with ROW put in after UNDER and everything UNDER owns — past a list's
