@@ -257,6 +257,11 @@
     document.addEventListener("keydown", (e) => {
       if (!settings || momentary() || !smount || !showing("theme")) return;
       const k = keyName(e);
+      // The narrow's field holds the letters while it has the focus.
+      if (narrowTyping(smount)) {
+        if (narrowPress(k, smount)) e.preventDefault();
+        return;
+      }
       if (sediting()) {
         if (k === "TAB" || k === "S-TAB") { e.preventDefault(); hop(); }
         else if (k === "RET" && !repeating(e)) { e.preventDefault(); commitState(); }
@@ -268,6 +273,7 @@
         return;
       }
       if (k === "+") { e.preventDefault(); addState(); return; }
+      if (narrowPress(k, smount)) { e.preventDefault(); return; }
       if (flagPress(k, e, SFLAGS)) { e.preventDefault(); return; }
       const step = k === "n" || k === "j" || k === "<down>" ? 1
                  : k === "p" || k === "k" || k === "<up>" ? -1 : 0;
@@ -405,6 +411,7 @@
     }
     function shutSettings() {
       el("config").className = ""; settings = false; crows = []; cat = 0;
+      unnarrow(smount);
       soon(remembered);
       configSheet.state = "synced";
       if (typing()) active().blur();

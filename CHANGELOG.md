@@ -11,6 +11,16 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ## Unreleased
 
+### Changed
+- **A write spells no trailing space.** Every text glance composes for a write —
+  a subtree the materialize sheet hands back, a captured entry, the document a
+  tagged capture stores — lands with each line ending at its last non-blank
+  character, however it was typed. Horizontal space INSIDE a line is content and
+  survives: a table's alignment and a source block's indentation are the bytes
+  they were. Line endings survive too, so a CRLF file stays a CRLF file. Bytes
+  outside the region a write touches are untouched as ever, so a file the daemon
+  has not written keeps whatever it holds.
+
 ### Fixed
 - **A highlighted line in the materialize sheet sits where an unhighlighted
   one does.** The cursor row carried the edit box's floor even with nothing
@@ -25,6 +35,19 @@ section groups a feature arc, and its date is that arc's last commit.
   planning line and to the drawer.
 
 ### Added
+- **`/` narrows every small list.** The link popup, the tags popup, the
+  materialize sheet's property panel and the settings sheet's states table each
+  take a filter field at the head of their own list — one program, so the key
+  reaches all four. Matching is substring, case-folded, over the cells the list
+  draws, with no grammar: a bar, a colon and a leading `-` are the characters
+  they spell. The cursor keeps its row where the narrow spares it and lands on
+  the first match where it does not. While the field holds the keys the
+  surface's own bindings are the reader's typing — `RET` leaves the field with
+  the narrow standing, `C-n`/`C-p` and the arrows step rows, `DEL` erases a
+  character. `ESC` clears the narrow before it closes the surface, and `DEL`
+  over a popup does the same. Flags survive a narrow, as they do under the
+  table's own filter, so a row the field is hiding is still in the set `D`
+  takes. A surface that closes takes its narrow with it.
 - **The span layer's laws are tested as universals.** The suite grows a document
   generator and 24 property groups over it: a `DocSpec` is rendered to org text
   while the offsets it lands at are recorded, so the parser's spans are compared

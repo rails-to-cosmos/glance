@@ -72,6 +72,7 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , clStateColors, configEdits, viewQuery
                     , headlineParts, keywordSources, linkShown, linkType
                     , planningKeywords, readConfigLayers, readsAsTimestamp
+                    , untrailed
                     , recomposedSubtree
                     , ownBodyLines, sortedForViewWith
                     , subtreeEntries, subtreeEntryAt, subtreeLinks
@@ -672,8 +673,12 @@ prepare raw r = case parseCommit raw of
 
 -- | The subtree ASKED for, over R: the raw text as given, or the client's parts
 -- composed back into one — with the server's own put back beside them.
+--
+-- 'untrailed' EITHER WAY.  The composed shape is trimmed where it is composed;
+-- the raw shape is a whole document the client hands back, so the trim is owed
+-- here or `C-c '' is the one door a trailing run still gets in through.
 committed :: HeadlineRecord -> Commitment -> Text
-committed _r (WholeSubtree org)         = org
+committed _r (WholeSubtree org)         = untrailed org
 committed r  (SplitSubtree body ps pln) =
   recomposedSubtree r (HeadlineParts body ps pln "")
 

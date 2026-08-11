@@ -6,7 +6,7 @@
 const Popups = ((deps) => {
     const { CFG, again, askFrom, cancelEdit, echo, el, failed, fire, foldTag, listing,
             openEdit, remembered, rowsWord, said, selectedId, shortly, shutEdit,
-            sole, soon, stepIn, tagFrom, unlogged } = deps;
+            sole, soon, stepIn, tagFrom, unlogged, unnarrow } = deps;
     const editNow = deps.editNow;
     // The link and tags popups.  Full rules live in CLAUDE.md.
     const LCOLS = CFG.lcols;
@@ -27,7 +27,7 @@ const Popups = ((deps) => {
       m.setRows(lrows.map((r) => ({ id: r.id,
         cells: { type: r.link.type, title: r.link.desc, url: r.link.target } })));
       showPopup("links", "l", `open · ${links.length} links`,
-                "RET edits · o opens it · ESC leaves");
+                "RET edits · o opens it · / narrows · ESC leaves");
       opening = b;
       if (lrows.length) m.select(lrows[0].id);
     }
@@ -43,8 +43,11 @@ const Popups = ((deps) => {
       el(id).className = "on";
       soon(remembered);
     }
+    // A NARROW BELONGS TO THE QUESTION IT WAS TYPED OVER, so it goes with the
+    // popup: the next raise is another row's links, or another set's tags.
     function shutLinks() {
       shutPopup("links", LROW);
+      unnarrow(lmount);
       opening = null; lfor = null; lpin = "";
     }
     function pointedRow() {
@@ -113,7 +116,7 @@ const Popups = ((deps) => {
       const tags = tagUnion();
       m.setRows(tags.map(tagRow));
       el("tfoot").textContent = tags.length
-        ? "RET renames · d flags · D removes · + adds · ESC leaves"
+        ? "RET renames · d flags · D removes · + adds · / narrows · ESC leaves"
         : "nothing tagged here · + adds one · ESC leaves";
       if (at && tags.indexOf(at) !== -1) m.select(at);
     }
@@ -130,6 +133,7 @@ const Popups = ((deps) => {
     }
     function shutTags() {
       shutPopup("tags", TROW);
+      unnarrow(tmount);
       tagging = null; ttargets = [];
     }
     const tagAt = () => {
@@ -243,7 +247,7 @@ const Popups = ((deps) => {
              shutPopup, shutTags, TFLAGS };
 })({ CFG, again, askFrom, cancelEdit, echo, el, failed, fire, foldTag, listing,
      openEdit, remembered, rowsWord, said, selectedId, shortly, shutEdit,
-     sole, soon, stepIn, tagFrom, unlogged,
+     sole, soon, stepIn, tagFrom, unlogged, unnarrow,
      editNow: () => edit });
 const { openedBy, linkMount, tagMount, addFlow, cancelLinkEdit, cancelRename, commitLink, landing, lediting,
         linking, managing, openLinkEdit, openRename, pointedLink,

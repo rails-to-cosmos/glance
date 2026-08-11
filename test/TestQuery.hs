@@ -509,11 +509,32 @@ lensSpec = testGroup "Subtree lens"
     ]
 
   , testGroup "recompose"
-    [ testCase "decompose then recompose is the subtree, byte for byte" $
+      -- BYTE FOR BYTE UP TO THE LINE END, which is the whole of what a write
+      -- spells differently: everything else about a subtree nobody edited comes
+      -- back as the file wrote it.
+    [ testCase "decompose then recompose is the subtree, its line ends trimmed" $
         mapM_ roundTrips [ drawered, planned, unicoded, oddly, indented, crlf
                          , logged, childLogged, permuted, stamped
                          , T.unlines ["* TODO Bare", "body"]
                          , "* Ends at the drawer\n:PROPERTIES:\n:A: 1\n:END:" ]
+
+      -- A WRITE SPELLS NO TRAILING SPACE, over the three regions at once: the
+      -- body's own line, a property line nobody touched, and the logbook the
+      -- server preserves.  The CRLF case is the trap — a strip that took the
+      -- carriage return would leave the file spelling its endings two ways.
+    , testCase "no line a recompose writes ends in horizontal space" $
+        mapM_ trimsEveryLine
+          [ "* TODO Trails   \n:PROPERTIES:\n:A: one \t\n:END:\nbody \nmore\t\n"
+          , "* TODO Trails  \r\n:PROPERTIES:\r\n:A: one \r\n:END:\r\nbody \r\n"
+          , logged ]
+
+      -- INSIDE a line is content: a src block's indentation and a table's
+      -- alignment are horizontal space no reader typed by accident, and neither
+      -- is reachable from the end of a line.
+    , testCase "horizontal space inside a line is left alone" $
+        withParts (T.unlines ["* TODO Kept", "| a | b |", "#+begin_src", "    indented", "#+end_src"]) $ \r ->
+          assertEqual "the interior spacing is the file's"
+                      (subtreeText r) (recomposedSubtree r (headlineParts r))
 
       -- The three keywords permute freely on their line, so a round trip that
       -- reordered them would be a spurious hunk on every scheduled headline.
@@ -523,13 +544,18 @@ lensSpec = testGroup "Subtree lens"
                          "CLOSED: [2026-07-30 Thu] SCHEDULED: <2026-08-01 Sat>"
                          (recomposedSubtree r (headlineParts r))
 
+      -- The line's own spacing survives and its TRAILING run does not, which is
+      -- one fixture holding both halves of the rule.
     , testCase "a property nobody touched keeps its own line, odd spacing and all" $
         withParts oddly $ \r -> do
           let parts = headlineParts r
               back = recomposedSubtree r parts
           assertContains "the crooked line is the file's own" ":A:one" back
           assertContains "and the empty one too" ":B:\n" back
-          assertContains "and the padded one" ":C:   three   \n" back
+          assertContains "and the padded one keeps the pad it opens with"
+                         ":C:   three\n" back
+          assertBool "and loses the one it closed with"
+                     (not (":C:   three   " `T.isInfixOf` back))
 
     , testCase "an edited property is rendered canonically, under the drawer's indent" $
         withParts indented $ \r -> do
@@ -719,7 +745,27 @@ lensSpec = testGroup "Subtree lens"
     roundTrips doc = withParts doc $ \r -> do
       let parts = headlineParts r
       assertEqual ("round trip of " <> show doc)
-                  (subtreeText r) (recomposedSubtree r parts)
+                  (asWritten (subtreeText r)) (recomposedSubtree r parts)
+
+    trimsEveryLine doc = withParts doc $ \r -> do
+      let back = recomposedSubtree r (headlineParts r)
+      assertEqual ("no line of " <> show doc <> " trails")
+                  [] [ l | l <- T.splitOn "\n" back, l /= asWritten l ]
+      assertEqual "and the line endings are the file's"
+                  (T.count "\r\n" (subtreeText r)) (T.count "\r\n" back)
+
+-- | TEXT as a write spells it: each line's trailing horizontal run off, its
+-- terminator kept.
+--
+-- An INDEPENDENT spelling of the rule 'recomposedSubtree' enforces rather than
+-- the export of it, this suite's own idiom: a trim that took the carriage return
+-- with the spaces, or missed the last line for want of a newline, passes over
+-- there and fails here.
+asWritten :: Text -> Text
+asWritten = T.intercalate "\n" . map line . T.splitOn "\n"
+  where line l = case T.stripSuffix "\r" l of
+          Just body -> T.dropWhileEnd (`elem` (" \t" :: String)) body <> "\r"
+          Nothing   -> T.dropWhileEnd (`elem` (" \t" :: String)) l
 
 -- | The drawer TEXT holds, line by line and stripped — what a drawer says,
 -- where the byte-level cases say how it is written.
@@ -2812,6 +2858,23 @@ captureSpec = testGroup "Capture"
           assertBool "an org file's last line is ended"
                      (either (const False) (T.isSuffixOf "\n")
                              (blobDocument (BlobSeed "book" "i-1" "[s]") "* milk"))
+
+        -- A WRITE SPELLS NO TRAILING SPACE, and a blob is the case with no
+        -- untouched bytes to weigh it against: the file is composed whole out of
+        -- the template, so a template line closing with a run writes one line
+        -- shorter.  The TAG lands ahead of the run it is trimmed with, since
+        -- 'titleLineEnd' is past the tags and short of the space behind them.
+      , testCase "a template's trailing runs do not reach the file" $
+          assertEqual "every line ends at its last word"
+                      (Right (T.unlines [ "* milk :book:"
+                                        , ":PROPERTIES:"
+                                        , ":ORG_GLANCE_ID: i-1"
+                                        , ":ORG_GLANCE_CREATION_TIME: [s]"
+                                        , ":END:"
+                                        , "a note"
+                                        , "    indented survives" ]))
+                      (blobDocument (BlobSeed "book" "i-1" "[s]")
+                                    "* milk  \na note \t\n    indented survives  \n")
       ]
 
   , testGroup "Where a blob sits"

@@ -54,6 +54,8 @@
 //                 to whatever the consumer wired into `onPin'
 //   type:TEXT     TEXT typed into the value palette's field, which narrows it —
 //                 `/' has to have put the palette in that mode first
+//   narrow:TEXT   TEXT typed into whichever small list `/' has narrowed — one
+//                 list holds the keys at a time, so no host is named
 //   tname:TEXT    TEXT typed into the tags popup's rename overlay, which `RET'
 //                 has to have opened over the tag at point first
 //   ktag:TEXT     TEXT typed into the capture form's tag field, `+' having
@@ -1520,7 +1522,11 @@ const typed = (box, text) => {
   // what a key splicing at the caret then reads.
   box.selectionStart = text.length;
   box.selectionEnd = text.length;
-  box.fire("input", { target: box });
+  // A REAL EVENT, because a real listener calls back into it: Elm's `onInput'
+  // is a `stopPropagationOn', so an object carrying the target alone throws
+  // where a browser's event answers.
+  box.fire("input", { target: box,
+                      stopPropagation: () => {}, preventDefault: () => {} });
 };
 /**
  * Type into one of the document's two edit overlays.  A closed one has no
@@ -1661,6 +1667,15 @@ const listFlagged = (host) => listEls(host).filter((tr) => wears(tr, "tv-flagged
   .map((tr) => tr.getAttribute("data-id"));
 const listHint = (host) =>
   (field(host).querySelector(".tv-hint") || { textContent: "" }).textContent;
+/** THE FOUR SMALL LISTS, by the element each hangs under — every one of them a
+ * `listing' mount, so `/' narrows each and this reads them all the same way. */
+const LISTS = ["ltable", "ttable", "mptable", "cstates"];
+/** The narrow's own field, which the LIST draws and only while one is open. */
+const narrowIn = (host) => field(host).querySelector("input.tv-filter");
+/** Which lists are narrowed and to what, in the order above: a list with no
+ * field is not here at all, so "no narrow anywhere" reads as the empty list. */
+const narrows = () => LISTS.map((h) => [h, narrowIn(h)])
+  .filter(([, box]) => box).map(([h, box]) => [h, String(box.value)]);
 const listCols = (host) =>
   field(host).querySelectorAll("thead .tv-hn").map((h) => h.textContent);
 const panel = () => listCells("mptable");
@@ -1675,6 +1690,10 @@ const FOCUSABLE = ["mtext", "dtin", "dtext", "ltitle", "lurl", "tname",
                    "pinput", "ktag", "ktext"];
 const focused = () => {
   if (!active) return "";
+  // A small list's narrow field, named by the list it belongs to: it is drawn
+  // by the program that holds the rows, so it carries no id of its own.
+  const list = LISTS.find((h) => narrowIn(h) === active);
+  if (list) return `narrow:${list}`;
   // The panel's two fields carry the row they are laid over, since the overlay
   // is ONE pair over whichever row the panel's cursor is on.
   const which = active === field("pkey") ? "pkey"
@@ -1933,6 +1952,14 @@ const ACTIONS = {
     const box = field("pinput");
     box.value = text;
     box.fire("input", { target: box });
+  },
+  // Typing into whichever small list is narrowed, which `/' has to have opened:
+  // one list holds the keys at a time, so no host is owed.  A script typing with
+  // no field up is typing into nothing on a real page — say so.
+  narrow: (text) => {
+    const host = LISTS.find((h) => narrowIn(h));
+    if (!host) throw new Error("no list is narrowed: press / first");
+    typed(narrowIn(host), String(text).replace(/_/g, " "));
   },
   // Typing into the tags popup's rename overlay, which is one field over the tag
   // at point.  A closed overlay has no field, so a script that types without
@@ -2335,6 +2362,9 @@ const settle = async () => {
     // The columns it draws, and the line naming the flag keys.  Both empty
     // until a sheet opens: the program is built on the first materialize.
     pcols: listCols("mptable"), pflagHelp: listHint("mptable"),
+    // Which small lists carry a narrow, and what each is holding — one entry
+    // per list with a field up, none at all where no reader pressed `/'.
+    narrows: narrows(),
     focus: focused(),
     // Every POST the syncs sent, and which SUBTREE each was aimed at — the row,
     // or an entry inside it — beside every subtree a GET asked for.

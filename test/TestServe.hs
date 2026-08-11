@@ -460,7 +460,8 @@ spec = withResource ((<>) <$> (body <$> get assetsDir "/")
     , moveSpec shell, sortKeySpec shell, markSpec shell, landingSpec shell
     , commandKeySpec shell, promptKeySpec shell, whichKeySpec shell
     , cellSpanSpec shell, tagKeySpec shell
-    , openKeySpec shell, agendaSpec shell, drillSpec shell, logSpec shell
+    , openKeySpec shell, narrowSpec shell, agendaSpec shell, drillSpec shell
+    , logSpec shell
     , sheetSpec shell
     , settingsSpec shell
     , touchSpec shell
@@ -1741,7 +1742,7 @@ tagKeySpec shell =
         assertEqual "one row per tag" [["web", "all", "40"]] =<< pairsAt "ttags" answer
         assertEqual "the cursor lands on the first" 0 =<< intAt "tat" answer
         assertEqual "and the foot names every key that works"
-                    "RET renames · d flags · D removes · + adds · ESC leaves"
+                    "RET renames · d flags · D removes · + adds · / narrows · ESC leaves"
           =<< textAt "tfoot" answer
 
     -- MUTABLE, and the flag gesture is what says so.  There is no mark column
@@ -2416,7 +2417,7 @@ openKeySpec shell =
           =<< pairsAt "llinks" answer
         assertEqual "the cursor lands on the first" 0 =<< intAt "lat" answer
         assertEqual "and the foot names the three keys that work"
-                    "RET edits · o opens it · ESC leaves" =<< textAt "lfoot" answer
+                    "RET edits · o opens it · / narrows · ESC leaves" =<< textAt "lfoot" answer
 
     -- READ-ONLY: nothing here writes, so there is no flag hint to draw and no
     -- gesture the popup would answer with one.
@@ -2648,6 +2649,134 @@ openKeySpec shell =
               if opens then pure () else
                 assertEqual "and the refusal names the target"
                   (Just ("link type not implemented: " <> target)) =<< lastLog answer
+  ]
+
+-- | @\/@: the narrow every small list takes.
+--
+-- ONE PROGRAM, FOUR MOUNTS, so the gesture is asserted over two of them — the
+-- link popup, which is read-only, and the sheet's property panel, which writes
+-- — plus the tags popup where a narrow matches nothing at all.  What is being
+-- read is the LIST's own field: it is drawn by the program that holds the rows,
+-- so a mount that never went up has none.
+narrowSpec :: IO T.Text -> TestTree
+narrowSpec shell =
+  overBoot shell "o" "press:/" $ \opened ->
+  overBoot shell "o" "press:/ narrow:second" $ \narrowed ->
+  testGroup "Shell narrow"
+  [ atBoot opened "/ opens a field over the list and takes the keys" $ \answer -> do
+        assertEqual "the link popup's list carries it, holding nothing yet"
+                    [["ltable", ""]] =<< pairsAt "narrows" answer
+        assertEqual "and it is what the letters go to now"
+                    "narrow:ltable" =<< textAt "focus" answer
+        assertEqual "nothing is narrowed away by an empty one" 3
+          . length =<< pairsAt "llinks" answer
+        echoIs "the pill names the table's own command, one list in"
+               "/ → filter-rows" answer
+
+    -- SUBSTRING, CASE-FOLDED, over the cells the list DRAWS — the producer's
+    -- own rule for free text, and no grammar of any kind.
+  , atBoot narrowed "it narrows to the rows the text is in, folded" $ \answer -> do
+        assertEqual "the one whose title spells it"
+          [["https", "Second reference", "https://two.example/b"]]
+          =<< pairsAt "llinks" answer
+        assertEqual "and the cursor is on it" 0 =<< intAt "lat" answer
+
+    -- The field holds the LETTERS while it has the focus, so every key the
+    -- popup binds is the reader's typing until `RET' gives them back.
+  , keyed shell "the popup's own keys are suspended under the field"
+      "o" "press:/ narrow:second press:o press:d press:q" $ \answer -> do
+        assertEqual "no tab was opened" [] =<< openedOf answer
+        assertEqual "nothing was flagged" [] =<< textsAt "lflagged" answer
+        assertEqual "the popup is still up" "on" =<< textAt "popup" answer
+        assertEqual "and the narrow is still the reader's"
+                    [["ltable", "second"]] =<< pairsAt "narrows" answer
+
+  , keyed shell "RET leaves the field with the narrow standing"
+      "o" "press:/ narrow:second press:Enter" $ \answer -> do
+        assertEqual "the field has given the keys back" "" =<< textAt "focus" answer
+        assertEqual "the rows stay narrowed"
+                    [["ltable", "second"]] =<< pairsAt "narrows" answer
+        echoIs "and the pill counts what is left"
+               "RET → filter-rows (1 of 3)" answer
+
+  , keyed shell "and the keys come back to the rows that survived"
+      "o" "press:/ narrow:second press:Enter press:o" $ \answer ->
+        assertEqual "`o' opens the match rather than the row `/' was pressed on"
+          [("https://two.example/b", "_blank", "noopener")] =<< openedOf answer
+
+    -- ESC IS A LADDER: the narrow is a rung under the popup, so the first press
+    -- clears it and the second steps out.
+  , keyed shell "ESC clears the narrow and leaves the popup up"
+      "o" "press:/ narrow:second press:Escape" $ \answer -> do
+        assertEqual "no field is left" [] =<< pairsAt "narrows" answer
+        assertEqual "every row is back" 3 . length =<< pairsAt "llinks" answer
+        assertEqual "the popup stands" "on" =<< textAt "popup" answer
+        echoIs "and the pill says what was cleared"
+               "ESC → keyboard-quit (narrow cleared)" answer
+
+  , keyed shell "and the press after it steps out"
+      "o" "press:/ narrow:second press:Escape press:Escape" $
+        assertEqual "the popup is down" "" <=< textAt "popup"
+
+    -- `DEL' is the same ladder, since it is already the popup's step-out key.
+  , keyed shell "DEL clears the narrow before it closes the popup"
+      "o" "press:/ narrow:second press:Enter press:Backspace" $ \answer -> do
+        assertEqual "the narrow went" [] =<< pairsAt "narrows" answer
+        assertEqual "the popup stands" "on" =<< textAt "popup" answer
+
+    -- Under the FIELD it is the field's own erase, which is the one place the
+    -- ladder does not reach: a character is being taken back.
+  , keyed shell "DEL inside the field erases rather than steps out"
+      "o" "press:/ narrow:second press:Backspace" $ \answer -> do
+        assertEqual "the popup is untouched" "on" =<< textAt "popup" answer
+        assertEqual "and the field still holds the keys"
+                    "narrow:ltable" =<< textAt "focus" answer
+
+    -- A NARROW BELONGS TO THE QUESTION IT WAS TYPED OVER: the next raise is
+    -- another row's links.
+  , keyed shell "a popup that closes takes its narrow with it"
+      "o" "press:/ narrow:second press:Enter press:q press:o" $ \answer -> do
+        assertEqual "the field is gone" [] =<< pairsAt "narrows" answer
+        assertEqual "and the list came back whole" 3 . length
+          =<< pairsAt "llinks" answer
+
+    -- THE SECOND MOUNT: the sheet's property panel, which writes.
+  , keyed shell "the sheet's property panel narrows the same way"
+      "Enter" "press:Tab press:/ narrow:eff" $ \answer -> do
+        assertEqual "the one row spelling it" [["EFFORT", "0:30"]]
+          =<< pairsAt "props" answer
+        assertEqual "the cursor is on it" 0 =<< intAt "pat" answer
+        assertEqual "and the panel's field is the one holding the keys"
+                    "narrow:mptable" =<< textAt "focus" answer
+
+    -- FLAGS ARE ID-KEYED AND SURVIVE A NARROW, exactly as they do under the
+    -- table's own filter: a row the narrow is hiding is still in the set `D'
+    -- takes.
+  , keyed shell "a flag laid before the narrow is still taken by D"
+      "Enter" "press:Tab press:d press:/ narrow:eff press:Enter press:D press:Escape" $
+        \answer -> do
+          panelIsAt "the flagged planning row was cleared behind the narrow" ""
+                    [["EFFORT", "0:30"]] answer
+          assertEqual "and the flag was spent" [] =<< textsAt "pflagged" answer
+
+    -- AND THE FOURTH MOUNT, the settings sheet's states table: one program, so
+    -- the gesture arrived there with nothing written for it.
+  , keyed shell "the states table narrows too, over the cells it draws"
+      "," "ctab:theme press:/ narrow:read" $ \answer -> do
+        assertEqual "the two states spelling it, in the layer's own order"
+                    ["tag:book|READING|active|", "tag:book|READ|inactive|"]
+          =<< textsAt "chues" answer
+        assertEqual "and it is the states table's own field"
+                    [["cstates", "read"]] =<< pairsAt "narrows" answer
+
+    -- A NARROW MATCHING NOTHING has no cursor to offer, and the surface says so
+    -- rather than acting on a row nobody can see.
+  , keyed shell "a narrow that matches nothing leaves no row to act on"
+      "" "press:: press:/ narrow:zzz press:Enter press:d" $ \answer -> do
+        assertEqual "no rows are drawn" [] =<< pairsAt "ttags" answer
+        assertEqual "nothing was flagged" [] =<< textsAt "tflagged" answer
+        echoIs "and the key says there is no tag under it"
+               "d → org-toggle-tag (no tag)" answer
   ]
 
 -- | The @span@ an @edit-link@ body carries, as the pair of offsets it is.
@@ -6949,7 +7078,7 @@ shellGlue =
       -- synchronous.
       , "pmount = listing(\"mptable\", PCOLS, \"d/D delete · u unflag\", \"mprops\");"
       , "const repaint = (at) => mounted().setRows(prowsOf(), at);"
-      , "      ports.listState.subscribe((now) => Object.assign(seen, now));"
+      , "        Object.assign(seen, now);"
       , "const prowsOf = () =>"
       , "function addProperty() {"
       , "else if (k === \"+\") addProperty();"
@@ -8535,6 +8664,30 @@ commitSpec = testGroup "POST /headline"
         fresh <- textAt "digest" =<< decoded r
         expected <- digestOnDisk path
         assertEqual "the reported digest is the file's" expected fresh
+
+    -- A WRITE SPELLS NO TRAILING SPACE, asserted where the bytes land rather
+    -- than on the text a route composes: the two-pane sheet is where a reader's
+    -- typing arrives, so the run comes off between the textarea and the file.
+    -- The neighbours are the other half — the write is still surgical, so
+    -- nothing outside the subtree is re-spelled however it is spelled, and the
+    -- hidden property the drawer carries survives the trim like any other line.
+  , testCase "a committed subtree lands with its line ends trimmed" $
+      withCommitted $ \a path v -> do
+        body <- textAt "body" v
+        digest <- textAt "digest" v
+        props <- pairsAt "properties" v
+        before <- document path
+        let edited = T.replace "body of first" "body of first  \ntyped over  \t" body
+        assertOk =<< postTo a (headlinePath "first") (splitBody edited props digest)
+        after <- document path
+        assertContains "the line the reader typed is trimmed" "\nbody of first\n" after
+        assertContains "and so is the one behind it" "\ntyped over\n" after
+        assertContains "the hidden property is where it was"
+                       ":PROPERTIES:\n:ORG_GLANCE_ID: first\n:END:\n" after
+        assertBool "no line of the file trails"
+                   (not (any (\l -> l /= T.stripEnd l) (T.lines after)))
+        assertEqual "the file is otherwise the one it was"
+                    before (T.replace "typed over\n" "" after)
 
     -- A CHILD IS WRITTEN THE WAY THE ROW IS: the same route under a `child=',
     -- splicing that entry's OWN extent and pinning the same file digest.  What

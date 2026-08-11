@@ -4,8 +4,9 @@ port module Listing exposing (main)
 link popup, the tags popup and the settings sheet's states table.
 
 Each is a list of RECORDS under declared columns, with a cursor, optional delete
-flags and a click that selects — which is the whole widget. What a row MEANS
-stays with the shell, as it always did: this draws them and says where point is.
+flags, a click that selects and a `/` narrow over the cells it draws — which is
+the whole widget. What a row MEANS stays with the shell, as it always did: this
+draws them and says where point is.
 
 The one list that is NOT here is the table at `#app`. That one is the renderer's
 own job — hundreds of virtualized rows, filtering, sorting, marks and the crumb
@@ -20,9 +21,9 @@ its own.
 -}
 
 import Browser
-import Html exposing (Html, div, span, table, tbody, td, text, th, thead, tr)
-import Html.Attributes exposing (attribute, class, style)
-import Html.Events exposing (onClick)
+import Html exposing (Html, div, input, span, table, tbody, td, text, th, thead, tr)
+import Html.Attributes exposing (attribute, class, placeholder, style, type_, value)
+import Html.Events exposing (onClick, onInput)
 import Json.Decode as D
 import Json.Encode as E
 import Scan
@@ -50,6 +51,7 @@ type alias Model =
     , at : Int
     , flags : List String
     , hint : String
+    , narrow : Maybe String
     }
 
 
@@ -60,6 +62,7 @@ type Msg
     | Flag String
     | Unflag String
     | ClearFlags
+    | Narrow (Maybe String)
     | Clicked String
     | Ignore
 
@@ -68,18 +71,54 @@ type Msg
 -- UPDATE
 
 
-placeOf : Model -> String -> Int
-placeOf m id =
-    List.indexedMap (\i r -> ( i, r.id )) m.rows
+{-| SUBSTRING, CASE-FOLDED, over the cells this list DRAWS — the producer's own
+rule for free text (`substring:`, CLAUDE.md), and no grammar of any kind: a bar,
+a colon and a leading `-` are the characters they spell. The cells are joined by
+the unit separator `hrSearch` joins them with, so a match never spans two.
+-}
+holds : String -> Model -> Row -> Bool
+holds want m r =
+    String.contains (String.toLower want)
+        (String.toLower
+            (String.join "\u{001F}" (List.map (\c -> cellOf r c.key) m.cols))
+        )
+
+
+{-| The rows on screen. A narrow nobody opened is every row, and an OPEN one
+holding nothing is too — the field is up and has narrowed nothing yet.
+-}
+shown : Model -> List Row
+shown m =
+    case m.narrow of
+        Nothing ->
+            m.rows
+
+        Just want ->
+            List.filter (holds want m) m.rows
+
+
+placeIn : Model -> String -> Maybe Int
+placeIn m id =
+    shown m
+        |> List.indexedMap (\i r -> ( i, r.id ))
         |> List.filter (\( _, rid ) -> rid == id)
         |> List.head
         |> Maybe.map Tuple.first
-        |> Maybe.withDefault m.at
+
+
+placeOf : Model -> String -> Int
+placeOf m id =
+    Maybe.withDefault m.at (placeIn m id)
+
+
+idAt : Model -> String
+idAt m =
+    Maybe.withDefault "" (Maybe.map .id (Scan.nth m.at (shown m)))
 
 
 clamp : Model -> Model
 clamp m =
-    { m | at = max 0 (min (List.length m.rows - 1) m.at) }
+    { m | at = max 0 (min (List.length (shown m) - 1) m.at) }
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -120,6 +159,19 @@ update msg model =
         ClearFlags ->
             told { model | flags = [] }
 
+        -- THE CURSOR LANDS ON THE FIRST MATCH where the narrow takes its row
+        -- away, and stays on it where it survives. The FLAGS are id-keyed and
+        -- untouched, as they are under the table's own filter.
+        Narrow want ->
+            let
+                held =
+                    idAt model
+
+                next =
+                    { model | narrow = want }
+            in
+            told (clamp { next | at = Maybe.withDefault 0 (placeIn next held) })
+
         -- A click SELECTS and says so: what a surface does about it is its own.
         Clicked id ->
             let
@@ -156,12 +208,14 @@ stateJSON : Model -> E.Value
 stateJSON m =
     E.object
         [ ( "at", E.int m.at )
-        , ( "id"
-          , E.string
-                (Maybe.withDefault "" (Maybe.map .id (Scan.nth m.at m.rows)))
-          )
-        , ( "ids", E.list E.string (List.map .id m.rows) )
+        , ( "id", E.string (idAt m) )
+        , ( "ids", E.list E.string (List.map .id (shown m)) )
         , ( "flags", E.list E.string m.flags )
+
+        -- What the narrow is holding, `null` where no field is up, and how many
+        -- rows it is narrowing: the shell says `N of M` and reads neither list.
+        , ( "narrow", Maybe.withDefault E.null (Maybe.map E.string m.narrow) )
+        , ( "all", E.int (List.length m.rows) )
         ]
 
 
@@ -225,6 +279,9 @@ msgD =
 
                     "clearFlags" ->
                         D.succeed ClearFlags
+
+                    "narrow" ->
+                        D.map Narrow (D.field "text" (D.nullable D.string))
 
                     _ ->
                         D.succeed Ignore
@@ -323,28 +380,58 @@ head c =
         ]
 
 
+{-| THE FIELD IS THE LIST'S OWN, one line at its head, and it is drawn only
+while a narrow is open — a list nobody narrowed carries no filter chrome, which
+is the renderer's own palette rule. The dress is the renderer's too, class for
+class, so this is the box a reader already knows from the table.
+-}
+bar : Model -> List (Html Msg)
+bar m =
+    case m.narrow of
+        Nothing ->
+            []
+
+        Just want ->
+            [ div [ class "tv-chips" ]
+                [ div [ class "tv-filter-wrap" ]
+                    [ input
+                        [ class "tv-filter"
+                        , type_ "search"
+                        , attribute "spellcheck" "false"
+                        , placeholder "narrow"
+                        , value want
+                        , onInput (Narrow << Just)
+                        ]
+                        []
+                    ]
+                ]
+            ]
+
+
 view : Model -> Html Msg
 view m =
     div [ class "tv-root tv-pal" ]
-        [ div [ class "tv-scroll" ]
-            [ table [ class "tv-table" ]
-                [ thead [] [ tr [] (List.map head m.cols) ]
-                , tbody [] (List.indexedMap (viewRow m) m.rows)
-                ]
-            , div
-                [ class "tv-empty"
-                , style "display"
-                    (if List.isEmpty m.rows then
-                        ""
+        (bar m
+            ++ [ div [ class "tv-scroll" ]
+                    [ table [ class "tv-table" ]
+                        [ thead [] [ tr [] (List.map head m.cols) ]
+                        , tbody [] (List.indexedMap (viewRow m) (shown m))
+                        ]
+                    , div
+                        [ class "tv-empty"
+                        , style "display"
+                            (if List.isEmpty (shown m) then
+                                ""
 
-                     else
-                        "none"
-                    )
-                ]
-                [ text "no rows" ]
-            ]
-        , div [ class "tv-hint" ] [ text m.hint ]
-        ]
+                             else
+                                "none"
+                            )
+                        ]
+                        [ text "no rows" ]
+                    ]
+               , div [ class "tv-hint" ] [ text m.hint ]
+               ]
+        )
 
 
 
@@ -371,7 +458,7 @@ main =
                     ( cols, hint ) =
                         Result.withDefault ( [], "" ) (D.decodeValue flagsD raw)
                 in
-                ( Model cols [] 0 [] hint, Cmd.none )
+                ( Model cols [] 0 [] hint Nothing, Cmd.none )
         , update = update
         , view = view
         , subscriptions =

@@ -283,17 +283,22 @@ editSpec = testGroup "applyEdits"
 
 -- The subtree lens
 
--- | Decompose → recompose is byte-identical, over region PRESENCE (three
--- independent bits), region STYLE (indentation × line ending × ordering) and a
--- body the client has changed — the last being the half that exercises the
--- subtraction the region indices are computed by.  Twelve fixtures under one
--- @testCase@ is the whole of it today.
+-- | Decompose → recompose is byte-identical UP TO THE LINE END, over region
+-- PRESENCE (three independent bits), region STYLE (indentation × line ending ×
+-- ordering) and a body the client has changed — the last being the half that
+-- exercises the subtraction the region indices are computed by.  Twelve
+-- fixtures under one @testCase@ is the whole of it today.
+--
+-- The law used to be plain identity and the trailing space the generator draws
+-- ('esTrail', 'esHeadTrail') is what narrowed it: a write spells no trailing
+-- space, so a subtree carrying one comes back one run shorter and one carrying
+-- none comes back byte for byte, which is the same statement.
 lensSpec :: TestTree
 lensSpec = testGroup "Subtree lens"
-  [ testPropertyWith 60 "decompose then recompose is byte-identical" $ \ds ->
+  [ testPropertyWith 60 "decompose then recompose is the subtree, its line ends trimmed" $ \ds ->
       let r = render ds
       in  lensRepresentable ds ==> ioProperty (withLoaded r (\_doc recs -> conjoin
-            [ recomposedSubtree q (headlineParts q) === subtreeText q | q <- recs ]))
+            [ recomposedSubtree q (headlineParts q) === asWritten (subtreeText q) | q <- recs ]))
 
   , testPropertyWith 60 "the body's lines are the subtree's, minus the regions" $ \ds ->
       let r = render ds
@@ -428,11 +433,29 @@ ownsEachByte r = counterexample (show (subtreeText r, hpBody parts)) $
                       || not (T.strip (hpLogbook parts) `T.isInfixOf` hpBody parts)))
   where parts = headlineParts r
 
--- | PARTS with the logbook's terminator off.  A region that was the file's LAST
--- line and no longer is must GAIN one, which is the splice being right rather
--- than wrong; nothing else about a region may move.
+-- | PARTS as a write leaves them: line ends trimmed, and the logbook's
+-- terminator off.  A region that was the file's LAST line and no longer is must
+-- GAIN one, which is the splice being right rather than wrong; a trailing run a
+-- write took is the rule rather than a move; nothing else may shift.
+--
+-- The two pair lists need neither: a planning span is the timestamp alone and a
+-- property's value is stripped as it is read, so no trailing run reaches them.
 settled :: HeadlineParts -> HeadlineParts
-settled parts = parts { hpLogbook = T.stripEnd (hpLogbook parts) }
+settled parts = parts { hpBody    = asWritten (hpBody parts)
+                      , hpLogbook = T.stripEnd (asWritten (hpLogbook parts)) }
+
+-- | TEXT as a write spells it: each line's trailing horizontal run off, its
+-- terminator kept.
+--
+-- An INDEPENDENT spelling of the rule 'recomposedSubtree' enforces rather than
+-- the export of it: a trim that took the carriage return along with the spaces
+-- passes over there and fails here, and the generator draws CRLF documents.
+asWritten :: Text -> Text
+asWritten = T.intercalate "\n" . map line . T.splitOn "\n"
+  where line l = case T.stripSuffix "\r" l of
+          Just body -> T.dropWhileEnd horizontal body <> "\r"
+          Nothing   -> T.dropWhileEnd horizontal l
+        horizontal c = c == ' ' || c == '\t'
 
 subsequence :: Eq a => [a] -> [a] -> Bool
 subsequence [] _ = True

@@ -495,8 +495,22 @@
       // and HOST survives as the container an overlay is anchored inside.
       const ports = Elm.Listing.init({ node: part(el(host), "div", ""),
                                        flags: { cols, hint: hint || "" } }).ports;
-      const seen = { at: -1, id: "", ids: [], flags: [] };
-      ports.listState.subscribe((now) => Object.assign(seen, now));
+      const seen = { at: -1, id: "", ids: [], flags: [], narrow: null, all: 0 };
+      // The narrow's field is the LIST's own, drawn by the program that holds
+      // the rows — there is no page markup for it and no second box to keep in
+      // step.  `#app''s is the renderer's; this one wears the same classes.
+      /** @returns {(HTMLInputElement & HTMLElement) | null} */
+      const narrowBox = () =>
+        /** @type {any} */ (el(host).querySelector("input.tv-filter"));
+      let owed = false;
+      ports.listState.subscribe((now) => {
+        Object.assign(seen, now);
+        // ELM PUSHES ITS STATE BEFORE IT PAINTS, so the field it has just drawn
+        // is reachable a turn later — the document pane's own rule.
+        if (!owed || seen.narrow === null) return;
+        owed = false;
+        soon(() => { const b = narrowBox(); if (b) b.focus(); });
+      });
       // Caught in the CAPTURE phase, so the scroller inside PANE need not be named.
       if (pane) el(pane).addEventListener("scroll", placeEdit, true);
       // SEEDED WITH WHAT IS BEING SENT.  A port round trip costs a macrotask, and
@@ -522,7 +536,71 @@
         },
         select: (id) => { landed(id); send({ kind: "select", id }); },
         getSelection: () => ({ id: seen.id || null }),
+        // THE NARROW IS THE LIST'S OWN STATE, seeded here for the same reason
+        // the cursor is: `/' is answered in the turn it was pressed in.
+        narrowing: () => seen.narrow,
+        narrowBox,
+        counted: () => ({ shown: seen.ids.length, all: seen.all }),
+        openNarrow: () => {
+          seen.narrow = seen.narrow || "";
+          owed = true;
+          send({ kind: "narrow", text: seen.narrow });
+        },
+        shutNarrow: () => {
+          const b = narrowBox();
+          if (b) b.blur();
+          seen.narrow = null;
+          send({ kind: "narrow", text: null });
+        },
       };
+    }
+    /**
+     * `/' NARROWS A SMALL LIST, one gesture over every `listing' mount — the
+     * link popup, the tags popup, the sheet's property panel and the settings
+     * sheet's states table (CLAUDE.md, UI).
+     */
+    const narrows = (m) => can(m, "openNarrow", "shutNarrow", "narrowing");
+    const narrowed = (m) => narrows(m) && m.narrowing() !== null;
+    // WHO HOLDS THE LETTERS: the field, or the surface the list is in.
+    const narrowTyping = (m) => narrowed(m) && active() === m.narrowBox();
+    const narrowBinding = (k) => ({ seq: k, command: "filter-rows" });
+    /** Take the narrow off, silently: a narrow belongs to the list it was typed
+     * over, so a surface that closes takes its own with it. */
+    const unnarrow = (m) => { if (narrowed(m)) m.shutNarrow(); };
+    /** And with a word for it, which is what ESC and DEL owe a reader. */
+    const widen = (m, k) => {
+      if (!narrowed(m)) return false;
+      m.shutNarrow();
+      keySaid(k)("keyboard-quit (narrow cleared)");
+      return true;
+    };
+    /**
+     * The press over M, and whether it was spent.  `/' opens the field over the
+     * rows at hand, or re-enters one already typed.
+     *
+     * WHILE THE FIELD HOLDS THE KEYS THE LETTERS ARE THE READER'S — every
+     * binding the surface has is suspended and exactly four keys are claimed:
+     * `RET' leaves the field with the narrow standing, `C-n'/`C-p' and the
+     * vertical arrows step rows.  `DEL' is the field's own erase, and `ESC'
+     * reaches the keymap, where clearing the narrow is a rung of its own.
+     */
+    function narrowPress(k, m) {
+      if (!narrows(m)) return false;
+      if (!narrowTyping(m)) {
+        if (k !== "/") return false;
+        m.openNarrow();
+        said(narrowBinding(k), "");
+        return true;
+      }
+      const step = k === "C-n" || k === "<down>" ? 1
+                 : k === "C-p" || k === "<up>" ? -1 : 0;
+      if (step) { stepIn(m, step); return true; }
+      if (k !== "RET") return false;
+      const box = m.narrowBox();
+      if (box) box.blur();
+      const n = m.counted();
+      said(narrowBinding(k), `${n.shown} of ${n.all}`);
+      return true;
     }
     const PCOLS = [ { key: "key", header: "Key" },
                     { key: "value", header: "Value" } ];
@@ -543,8 +621,10 @@
       prows = PLANNING.map((key) =>
         ({ id: `PLN:${key}`, key, val: held.get(key) || "", fixed: true }))
         .concat(list.map((p) => ({ id: `P${pseq++}`, key: p[0], val: p[1], fixed: false })));
-      // `setRows\' keeps flags deliberately, so a new drawer must ask for the drop.
+      // `setRows\' keeps flags and the narrow deliberately, so a new drawer must
+      // ask for both to go: it is another entry's, and another question.
       mounted().clearFlags();
+      unnarrow(pmount);
       repaint(prows[0].id);
     }
     const patAt = () => prows.findIndex((r) => r.id === selectedId(pmount));
@@ -610,6 +690,12 @@
       if (!editing || raw || momentary()) return;
       const k = keyName(e), crossing = k === "TAB" || k === "S-TAB";
       if (!k) return;
+      // The panel's narrow field holds the letters while it has the focus, so
+      // every binding below — `q' included — is typing until it gives them back.
+      if (narrowTyping(pmount)) {
+        if (narrowPress(k, pmount)) e.preventDefault();
+        return;
+      }
       // OVER THE OPEN TEXTAREA `RET' COMMITS, org's `C-c C-c' by another name,
       // and `S-RET' is the newline — the region is a value being handed back
       // rather than a buffer being typed into.  Everything else is the
@@ -642,7 +728,7 @@
         else if (k === "RET") once(openRow);
         else if (k === "+") addProperty();
         else if (rowStep(k)) stepIn(pmount, rowStep(k));
-        else if (!flagPress(k, e, PFLAGS)) return;
+        else if (!(narrowPress(k, pmount) || flagPress(k, e, PFLAGS))) return;
       } else if (crossing) enterPanel();
       else {
         const step = rowStep(k), depth = grainStep(k);

@@ -607,12 +607,29 @@ measurements and the history of superseded designs live in
   400 and a `body` owes both lists beside it. The regions are the planning LINE,
   the headline's OWN property drawer and its OWN logbook; every other byte is the
   body's — a child's drawer is body text. Every cut is by whole lines.
-  Decompose → recompose is byte-identical.
+  Decompose → recompose is byte-identical UP TO TRAILING SPACE, and on a subtree
+  already carrying none the two statements are one.
+- A WRITE SPELLS NO TRAILING SPACE. Every text this repo COMPOSES for a write
+  leaves through `Glance.Query.untrailed`, which takes the horizontal run off the
+  end of each line and steps over the terminator — a `stripEnd` would take a CRLF
+  line's `\r` with the spaces and leave the file spelling its endings two ways.
+  THREE COMPOSERS: `recomposedSubtree`, `blobDocument` and `captureEdits`, the
+  last of which the rule ENFORCES rather than applies, `captureText` and
+  `titleText` already stripping their one line. ONLY THE LINE END — horizontal
+  space INSIDE a line is content (a table's alignment, a src block's indent) and
+  none of it is reachable from the end. `POST /headline`'s RAW `{org}` shape is a
+  FOURTH door — the server composes nothing there, the client hands a whole
+  document back, so `committed` trims it or `C-c '` is the one way in.
+  Deliberately OUT: `Data.Org.Edit`, which is content-agnostic BY LAW and
+  rewrites no line it was not handed; and the config layer's `#+TODO:` and
+  template regions, a file being edited as its own lines.
 - Two of the four parts are SERVER-PRESERVED and a client neither sees nor sends
   them: `hiddenProperties` (`ORG_GLANCE_ID` — the row id a rename would break —
   and `ORG_GLANCE_CREATION_TIME`) and the whole logbook. `headlineParts` drops
   them, `recomposedSubtree` re-injects their original lines verbatim, and
-  extending the list is one edit.
+  extending the list is one edit. VERBATIM UP TO THE LINE END, the trim being
+  total over the composed subtree: a preserved line keeps every byte that means
+  anything, and no reader has to know which half of a drawer was trimmed.
 - Properties: an untouched pair goes back as the LINE it arrived on, verbatim;
   only an edited or added one renders `:KEY: value`, under the drawer's own
   indentation; a dropped one is not written and an empty list removes the drawer
@@ -958,9 +975,27 @@ measurements and the history of superseded designs live in
 - THE SHELL'S SMALL LISTS ARE ONE ELM PROGRAM, `assets/elm/src/Listing.elm`,
   mounted FOUR times: the sheet's property panel, the link popup, the tags popup
   and the settings sheet's states table. Each is a list of RECORDS under declared
-  columns with a cursor, optional delete flags and a click that selects — which
-  is the whole widget. What a row MEANS stays with the surface, so every one of
-  them keeps its own rows, as three of the four always did.
+  columns with a cursor, optional delete flags, a click that selects and a `/`
+  narrow — which is the whole widget. What a row MEANS stays with the surface, so
+  every one of them keeps its own rows, as three of the four always did.
+- AND `/` NARROWS ANY OF THEM, one program so one gesture: `filter-rows`, the
+  table's own command one list in, the way `q` is `quit-window` one window in.
+  THE FIELD IS THE LIST'S OWN — drawn by the program that holds the rows, at the
+  head of its box, in the renderer's `.tv-chips`/`.tv-filter` dress, and only
+  while a narrow is open, so a list nobody narrowed carries no filter chrome.
+  Matching is `substring:`'s rule verbatim — case-FOLDED, over the cells the
+  list DRAWS, joined by the `\x1f` `hrSearch` joins them with — and NO GRAMMAR:
+  a bar, a colon and a leading `-` are the characters they spell. The cursor
+  KEEPS its row where the narrow spares it and lands on the FIRST MATCH where it
+  does not; an empty answer leaves no row, and every key that wants one says so.
+  WHILE THE FIELD HOLDS THE KEYS the surface's own bindings are suspended — `o`,
+  `d`, `+` and `q` are letters being typed — and exactly four are claimed: `RET`
+  leaves the field with the narrow standing, `C-n`/`C-p` and the vertical arrows
+  step rows. `DEL` is the field's own erase there. FLAGS ARE ID-KEYED AND SURVIVE
+  A NARROW, as they do under the table's filter, so a row the field is hiding is
+  still in the set `D` takes. A narrow belongs to the question it was typed over:
+  a surface that closes, and a panel handed another entry's drawer, takes its own
+  with it.
 - THE ONE LIST THAT IS NOT ELM'S is the table at `#app`. That is the renderer's
   own job — hundreds of virtualized rows, filtering, sorting, marks and the crumb
   trail — and the doctrine line "the renderer is the app's ONE list widget" is
@@ -972,7 +1007,9 @@ measurements and the history of superseded designs live in
   of it, so a sixth surface writes none of them again.
 - `listing(host, cols, hint, pane)` HANDS BACK THE SHAPE ALREADY ASKED FOR —
   `getSelection`, `selectStep`, `flagRow`, `unflagRow`, `getFlagged`,
-  `clearFlags`, `setRows`, `el` — so `flagKey`, `stepIn` and `selectedId` never
+  `clearFlags`, `setRows`, `el`, plus the narrow's four (`openNarrow`,
+  `shutNarrow`, `narrowing`, `narrowBox`) and `counted` for what a press reports
+  — so `flagKey`, `stepIn` and `selectedId` never
   learned that a mount became a program. `dmount` one pane over is the same idea
   over a `Set`.
 - FLAGS COME BACK IN THE ORDER THEY WERE LAID DOWN, oldest first, never in row
@@ -1848,7 +1885,11 @@ measurements and the history of superseded designs live in
 - AND `DEL` CLOSES A POPUP WITH NO INNER LADDER: over the LINK and TAG popups the
   popup IS the last structure standing, so `DEL` steps out where `ESC` does. The
   guard is the edit sub-mode — `DEL` inside an open rename or link edit stays the
-  FIELD's character erase. OVER THE VALUE PALETTE the rule is the ENTRIES': a
+  FIELD's character erase, and so does one inside an open narrow. A NARROW IS A
+  RUNG: where one stands, `DEL` and `ESC` clear it and the press after steps out.
+  ESC's ladder is THREE RUNGS PER SURFACE, innermost first — the open edit, the
+  narrow, the surface — and `q` is `quit-window` rather than a rung, so it closes
+  a narrowed popup outright. OVER THE VALUE PALETTE the rule is the ENTRIES': a
   letter palette where nothing CLAIMS the key steps out the same way, and the
   STATE palette keeps its landed meaning because `*empty*` claims it (`DEL`
   commits a null keyword) — a value is what that surface exists to hand back. In

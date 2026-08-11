@@ -7,6 +7,8 @@
      * @property {() => void} [off]    close it; absent means ESC falls through.
      * @property {() => boolean} [edit] is an edit open INSIDE it.
      * @property {() => void} [shut]   close that edit and leave the surface up.
+     * @property {() => boolean} [narrow] is a `/' narrow open INSIDE its list.
+     * @property {() => void} [wide]   clear that narrow and leave the surface up.
      * @property {(id?: string|null) => void} [open]  raise it from `?page='.
      * @property {boolean} [rowed]     it needs a row, so its URL carries one.
      * @property {() => string} [panel] the panel it is showing, as the fragment.
@@ -20,14 +22,18 @@
       // has already landed on — `targets()' and `focusedId()' answer for it.
       { name: "links", momentary: true, up: linking, off: shutLinks,
         edit: lediting, shut: cancelLinkEdit, rowed: true,
+        narrow: () => narrowed(linkMount()), wide: () => widen(linkMount(), "ESC"),
         open: () => HANDLERS.openLinks(RESTORED) },
       { name: "tags", momentary: true, up: managing, off: shutTags,
         edit: renaming, shut: cancelRename, rowed: true,
+        narrow: () => narrowed(tagMount()), wide: () => widen(tagMount(), "ESC"),
         open: () => overTargets(RESTORED, "tags", askTags) },
       { name: "sheet", up: docHolds, edit: sheetOpen, shut: cancelSheetEdit,
+        narrow: () => narrowed(pmount), wide: () => widen(pmount, "ESC"),
         rowed: true, open: (id) => materialize(id) },
       { name: "config", up: () => settings, edit: sediting,
         shut: () => shutEdit(SROW), open: () => openSettings(),
+        narrow: () => narrowed(smount), wide: () => widen(smount, "ESC"),
         panel: () => (SECTIONS[ctab] || {}).title },
     ];
     // What a restored surface echoes as: no key was pressed, so `said' is given
@@ -175,9 +181,12 @@
         if (host) { host.postMessage("quit"); return; }
         append("cmd", "info", "q quits the native window; a browser tab closes itself");
       },
+      // THREE RUNGS PER SURFACE, innermost first: the open edit, the narrow its
+      // list is under, then the surface itself.
       cancel: () => {
         for (const s of SURFACES) {
           if (s.edit && s.edit()) { s.shut(); return; }
+          if (s.up() && s.narrow && s.narrow()) { s.wide(); return; }
           if (s.off && s.up()) { s.off(); return; }
         }
         if (activeSheet()) leaveSheet();
@@ -270,16 +279,27 @@
         if (momentary() !== name || e.defaultPrevented) return;
         const k = keyName(e);
         if (!k) return;
+        // The narrow's field holds the letters while it has the focus, so `o',
+        // `d' and `+' are typing until it gives them back.
+        if (narrowTyping(mount())) {
+          if (narrowPress(k, mount())) e.preventDefault();
+          return;
+        }
         if (o.editing()) { if (!o.editKeys(k, e)) return; }
         else {
           const step = rowStep(k);
           if (step) stepIn(mount(), step);
           else if (k === "DEL" || k === "q") {
-            const surface = SURFACES.find((s) => s.name === name);
-            if (surface && surface.off) surface.off();
-            keySaid(k)("keyboard-quit");
+            // A NARROW IS A RUNG UNDER THE POPUP, so `DEL' — which erases the
+            // last structure standing — clears one before it steps out.  `q' is
+            // `quit-window' and leaves whatever the list was narrowed to.
+            if (k !== "DEL" || !widen(mount(), k)) {
+              const surface = SURFACES.find((s) => s.name === name);
+              if (surface && surface.off) surface.off();
+              keySaid(k)("keyboard-quit");
+            }
           }
-          else if (!o.keys(k, e)) return;
+          else if (!(narrowPress(k, mount()) || o.keys(k, e))) return;
         }
         e.preventDefault();
       });

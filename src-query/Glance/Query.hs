@@ -113,6 +113,7 @@ module Glance.Query ( BlobSeed (..)
                     , readConfigLayers
                     , readsAsTimestamp
                     , recognizedKeywords
+                    , untrailed
                     , recomposedSubtree
                     , refSpellings
                     , refTargetOf
@@ -1341,8 +1342,15 @@ regionsOf r = (subtree, entries, planAt, drawAt, logAt)
 -- already carried is written as the text it already was, where it already was;
 -- anything else is rendered.  The hidden properties and the logbook are taken
 -- off R and are never rendered at all.
+--
+-- The answer is 'untrailed', which narrows every "verbatim" above to VERBATIM UP
+-- TO THE LINE END: a preserved line — a logbook's, a hidden property's, a pair
+-- nobody edited — keeps every byte that means anything, and a body the reader
+-- typed into arrives here already spelled the way it will be stored.  So no line
+-- of a subtree this server writes ends in horizontal space, whichever region it
+-- came out of, and there is no rule about which half of a drawer was trimmed.
 recomposedSubtree :: HeadlineRecord -> HeadlineParts -> Text
-recomposedSubtree r parts = spliceRegions (hpBody parts) regions
+recomposedSubtree r parts = untrailed (spliceRegions (hpBody parts) regions)
   where
     (subtree, entries, planAt, drawAt, logAt) = regionsOf r
     -- Which line of the BODY each region goes back on: the line it sat on in the
@@ -1678,6 +1686,28 @@ lineStart t at = T.length (fst (T.breakOnEnd "\n" (T.take at t)))
 -- | The horizontal space LINE opens with.
 indentOf :: Text -> Text
 indentOf = T.takeWhile horizontal
+
+-- | TEXT with the horizontal run ending each of its lines taken off.
+--
+-- A WRITE SPELLS NO TRAILING SPACE.  Every text this library composes for a
+-- write leaves through here, so what lands in a file ends each line at its last
+-- non-blank character however the reader typed it.
+--
+-- ONLY THE LINE END.  Horizontal space INSIDE a line is content — a table's
+-- alignment, a source block's indentation, the spacing between two planning
+-- entries — and none of it is reachable from the end of a line.
+--
+-- The TERMINATOR is stepped over rather than stripped: a @T.stripEnd@ would take
+-- the @\\r@ of a CRLF line along with the spaces in front of it and leave the
+-- file spelling its endings two ways.
+untrailed :: Text -> Text
+untrailed = T.concat . map trim . linesWith
+  where
+    trim line = case ends line of
+      Just (body, end) -> T.dropWhileEnd horizontal body <> end
+      Nothing          -> T.dropWhileEnd horizontal line
+    ends line = listToMaybe [ (body, end) | end <- ["\r\n", "\n"]
+                                          , Just body <- [T.stripSuffix end line] ]
 
 -- | Is C horizontal space — the run a command deletes with a keyword, and the
 -- run a line is indented by?  Org's own distinction: a newline ends a line and
@@ -2703,10 +2733,15 @@ captureStamp = zonedStamp TimestampInactive
 -- The drawer sits at column 1 like the stars: org's unindented layout, and what
 -- the parser reads back with no rule about indentation.  Its lines end the way
 -- the target's own do ('eolOf'), so a capture into a CRLF file leaves one.
+--
+-- The entry is 'untrailed' like every composed text, which here is the rule being
+-- ENFORCED rather than applied: 'captureText' strips and both drawer values are
+-- non-blank, so nothing this spells could carry a trailing run in the first
+-- place.  A line growing one later is caught by construction.
 captureEdits :: Text -> Text -> Text -> Either Text [(Span, Text)]
 captureEdits doc stamp text = written <$> captureText text
   where
-    written typed = [(insertAt (T.length doc), openingFor doc eol <> entry typed)]
+    written typed = [(insertAt (T.length doc), openingFor doc eol <> untrailed (entry typed))]
     eol   = eolOf doc
     entry typed = T.concat [ line <> eol
                            | line <- [ "* " <> typed
@@ -2913,6 +2948,12 @@ data BlobSeed = BlobSeed
 -- is written whole under the PLANNING LINE, which is where the parser reads it
 -- back.  Both properties are written whatever the template said: a template
 -- spelling @ORG_GLANCE_ID@ would claim an identity the store hands out.
+--
+-- The document is 'untrailed' AFTER the splice, so every offset below is
+-- measured in the text the template spells and the trim is one pass over the
+-- answer.  A blob is a file this write composes WHOLE — there are no untouched
+-- bytes to keep — so the template's own trailing runs come off with the rest, and
+-- the headline wearing the template verbatim is verbatim up to the line end.
 blobDocument :: BlobSeed -> Text -> Either Text Text
 blobDocument seed given = case firstHeadlineOf elems of
   Nothing -> Left "this capture template expands to no headline, so there is no entry to store"
@@ -2924,7 +2965,7 @@ blobDocument seed given = case firstHeadlineOf elems of
     -- offset below is measured in the text that gets written.
     entry = given <> openingFor given eol
     (elems, _ctx, _err) = orgParse defaultContext entry
-    spliced hs = either (Left . refused) Right
+    spliced hs = either (Left . refused) (Right . untrailed)
                         (Edit.applyEdits entry [ Edit.Edit sp new | (sp, new) <- edits hs ])
     edits hs = addTagEditsIn (cellOf (hsTags hs)) (bsTag seed) hs <> drawerEdits hs
     refused err = "this capture template does not splice: " <> T.pack (show err)
