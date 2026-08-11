@@ -26,13 +26,13 @@
 -- * a headline with no title but with tags — @* :a:b:@ hands the colons to the
 --   TITLE, org spelling tags only after one (@blankEntry@'s own note);
 --
--- * a headline with no title but with a keyword or a priority — @todoP@ and
---   @priorityP@ are 'lexemeP's, whose trailing @space@ crosses the NEWLINE, so
---   the line under it is read as the title.  Reported, not modelled.
+-- A HEADLINE WITH NO TITLE BUT WITH A KEYWORD OR A PRIORITY IS DRAWN, and was
+-- not until the parser stopped letting one eat the line under it: 'lexemeP'
+-- takes horizontal space now, so @* TODO@ ends where its line does.  The
+-- exclusion that used to sit here is what this case is the guard for.
 --
--- Trailing horizontal space is emitted on an entry's LAST line only, for the
--- same reason: after a title or a planning line it detaches whatever the next
--- line was going to be.  Also reported.
+-- Trailing horizontal space likewise goes on ANY line, a title's included: it
+-- detached the planning line under it until @planningP@ skipped it.
 module TestGen ( Broken (..)
                , DocSpec (..)
                , Eol (..)
@@ -113,6 +113,7 @@ data EntrySpec = EntrySpec
   , esLogbook    :: !(Maybe [Text])
   , esBody       :: ![Text]                    -- ^ whole lines.
   , esIndent     :: !Int                       -- ^ the drawer's own indentation.
+  , esHeadTrail  :: !Int                       -- ^ horizontal space closing the TITLE line.
   , esTrail      :: !Int                       -- ^ horizontal space closing the entry's LAST line.
   , esGap        :: !Int                       -- ^ blank lines before the next entry.
   } deriving (Eq, Show)
@@ -207,6 +208,9 @@ entryE eol e = do
     []   -> pure Nothing
     tags -> do emit_ " "
                Just <$> emit (":" <> T.intercalate ":" tags <> ":")
+  -- CLOSING THE TITLE LINE, which detached the planning line under it until
+  -- `planningP' skipped it.  After the tags, so neither span covers it.
+  emit_ (T.replicate (esHeadTrail e) " ")
   plan <- planningE eol (esPlanning e)
   drawSp <- drawerE eol ind (esProperties e)
   logbookE eol ind (esLogbook e)
@@ -410,6 +414,7 @@ genEntry words' tags keywords = do
   body <- resize 3 (listOf (T.unwords <$> resize 3 (listOf1 (elements words'))))
   indentN <- frequency [(3, pure 0), (1, pure 2)]
   trail <- frequency [(4, pure 0), (1, choose (1, 2))]
+  headTrail <- frequency [(4, pure 0), (1, choose (1, 2))]
   gap <- frequency [(3, pure 0), (2, choose (1, 2))]
   pure (normEntry EntrySpec { esLevel = level
                             , esTodo = todo
@@ -421,6 +426,7 @@ genEntry words' tags keywords = do
                             , esLogbook = logbook
                             , esBody = body
                             , esIndent = indentN
+                            , esHeadTrail = headTrail
                             , esTrail = trail
                             , esGap = gap })
 
@@ -505,7 +511,7 @@ shuffled xs = do
 -- every entry a shrink proposes.  Both clauses are the module header's.
 normEntry :: EntrySpec -> EntrySpec
 normEntry e
-  | null (esTitle e) = e { esTags = [], esTodo = Nothing, esPriority = Nothing }
+  | null (esTitle e) = e { esTags = [] }
   | otherwise        = e
 
 -- Shrinking
@@ -542,6 +548,7 @@ shrinkEntry e = map normEntry . filter (/= e) $ concat
   , [ e { esTitle = map (const "a") (esTitle e) } | any (/= "a") (esTitle e) ]
   , [ e { esLevel = l } | l <- [1 .. esLevel e - 1] ]
   , [ e { esIndent = 0 } | esIndent e > 0 ]
+  , [ e { esHeadTrail = 0 } | esHeadTrail e > 0 ]
   , [ e { esTrail = 0 } | esTrail e > 0 ]
   , [ e { esGap = 0 } | esGap e > 0 ]
   ]
@@ -661,6 +668,7 @@ entryShapes e = concat
   , [ "body"                  | not (null (esBody e)) ]
   , [ "gap"                   | esGap e > 0 ]
   , [ "trailing space"        | esTrail e > 0 ]
+  , [ "title line trailing"   | esHeadTrail e > 0 ]
   ]
   where keys = map fst (esPlanning e)
 

@@ -11,6 +11,14 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ## Unreleased
 
+### Fixed
+- **A headline whose keyword or priority ends its line no longer eats the line
+  under it.** `* TODO` followed by a second headline read as ONE entry titled
+  with the second's own line; followed by a property drawer it swallowed the
+  drawer and the `ORG_GLANCE_ID` inside it, which is how an entry loses the id
+  everything else keys on. Trailing spaces on a title line did the same to the
+  planning line and to the drawer.
+
 ### Added
 - **The span layer's laws are tested as universals.** The suite grows a document
   generator and 24 property groups over it: a `DocSpec` is rendered to org text

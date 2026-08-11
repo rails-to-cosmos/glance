@@ -65,8 +65,13 @@ spannedP p = do
   e <- MP.getOffset
   pure (Spanned (Span s e) x)
 
+-- | P, spanning it alone, then the horizontal space behind it.  NEVER
+-- 'MPC.space', for 'indentP''s reason one part along: a keyword or a priority
+-- that ENDS ITS LINE would eat the newline and take the line under it as its
+-- own — the next headline as a title, a planning line as a title, a drawer as
+-- loose text with the id inside it.
 lexemeP :: StatefulParser a -> StatefulParser (Spanned a)
-lexemeP p = spannedP p <* MPC.space
+lexemeP p = spannedP p <* MPC.hspace
 
 -- | Span from the first to the last of SPANS; Nothing when empty.  Forced at
 -- every step: a thunk chain here would outlive the document it points into.
@@ -190,7 +195,7 @@ noPlanning = Planning Nothing Nothing Nothing
 -- keyword keeps its LAST timestamp.  A failed entry backtracks over the hspace
 -- it skipped: the top loop needs whitespace between elements.
 planningP :: StatefulParser Planning
-planningP = foldl' assign noPlanning <$> (MPC.eol *> some (try entryP))
+planningP = foldl' assign noPlanning <$> (MPC.hspace *> MPC.eol *> some (try entryP))
   where entryP = do
           kw <- MPC.hspace *> choice [k <$ MPC.string (planningText k) | k <- [minBound ..]]
           ts <- MPC.hspace1 *> spannedP (parse :: StatefulParser Timestamp)
@@ -221,7 +226,7 @@ propertyKeyP = Keyword . T.toUpper . T.pack
 
 -- | A property drawer; the span runs from the drawer line to just past ":END:".
 propertiesP :: StatefulParser (Spanned Properties)
-propertiesP = MPC.eol *> spannedP drawer
+propertiesP = MPC.hspace *> MPC.eol *> spannedP drawer
   where drawer = do
           _ <- MPC.hspace *> MPC.string ":PROPERTIES:" <* MPC.hspace <* MPC.eol
           ps <- MP.manyTill (MPC.hspace *> (parse :: StatefulParser Property) <* MPC.hspace <* MPC.eol)

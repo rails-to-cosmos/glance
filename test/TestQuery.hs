@@ -1530,6 +1530,14 @@ withRecord doc k = withDoc "command" "one.org" doc one
   where one [r] = k r
         one rs  = assertFailure ("expected one headline, got " <> show (length rs))
 
+-- | Run K over the FIRST of the records DOC parses to, for a case whose point
+-- is what the headline BELOW is: a keyword at the end of its line keeps the
+-- newline, and the way to say so is a document with a line under it.
+withFirstRecord :: Text -> (HeadlineRecord -> Assertion) -> Assertion
+withFirstRecord doc k = withDoc "command" "one.org" doc one
+  where one (r:_) = k r
+        one []    = assertFailure "expected a headline, got none"
+
 -- | WHAT: DOC with @set-state KEYWORD@ applied to its one headline is WANTED.
 -- Under 'noConfig', so the chain the legality check reads is the file's own
 -- @#+TODO:@ over org's built-in cycle and nothing else.
@@ -1644,9 +1652,19 @@ commandSpec = testGroup "Commands"
 
       -- Horizontal only: a keyword at the end of its line keeps the newline
       -- that ends it, or the headline would swallow the line below.
+      -- TWO headlines, which is the assertion: the first ends at its newline
+      -- and the second is its own row.  This read as ONE until the parser
+      -- stopped letting a trailing keyword eat the line under it.
     , testCase "a keyword ending its line keeps the newline" $
-        setStateIs "cleared at eol" (keyworded "* NEXT\n* NEXT Second\n") Nothing
-                                    (keyworded "* \n* NEXT Second\n")
+        let doc = keyworded "* NEXT\n* NEXT Second\n" in
+        withFirstRecord doc $ \r ->
+          case setStateEdits noConfig Nothing r of
+            Left why      -> assertFailure ("cleared at eol: refused: " <> T.unpack why)
+            Right splices -> assertEqual "cleared at eol"
+                               (keyworded "* \n* NEXT Second\n") (splice doc splices)
+    , testCase "and the line under it is a headline of its own" $
+        withDoc "command" "one.org" (keyworded "* NEXT\n* NEXT Second\n") $ \rs ->
+          assertEqual "two rows" 2 (length rs)
 
     , testCase "clearing a headline that has no keyword costs no edit" $
         withRecord "* Plain\n" $ \r ->
