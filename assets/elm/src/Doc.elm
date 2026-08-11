@@ -264,7 +264,9 @@ broader m =
             else if r.grain == Leaf then
                 case Maybe.map (placeOf m) r.owner of
                     Nothing ->
-                        ( m, "grain-broader (at the element grain)" )
+                        ( { m | at = placeOf m "H", col = Nothing, grain = "element" }
+                        , "grain-broader (the headline)"
+                        )
 
                     Just i ->
                         let
@@ -295,8 +297,18 @@ broader m =
                         , "grain-broader (" ++ word ++ ")"
                         )
 
+            else if r.kind == Head then
+                ( m, "grain-broader (the whole entry)" )
+
             else
-                ( m, "grain-broader (at the element grain)" )
+                -- REVERSED EXPAND-REGION, and this is its widest step: out of
+                -- the cells, out of a leaf to its owner, and out of an element
+                -- to THE ENTRY'S OWN LINE, which is what the whole subtree
+                -- hangs off.  `b' climbing to a refusal was a rung with nothing
+                -- above it.
+                ( { m | at = placeOf m "H", col = Nothing, grain = "element" }
+                , "grain-broader (the headline)"
+                )
 
 
 

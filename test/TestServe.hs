@@ -3771,8 +3771,34 @@ sheetSpec shell =
         assertEqual "nothing finer than a childless leaf" (5, -1) =<< pointOf answer
         echoIs "and the key says so" "f → grain-finer (at the finest)" answer
       onTable "grain press:Enter press:b" $ \answer -> do
-        assertEqual "the element grain is the floor" (0, -1) =<< pointOf answer
-        echoIs "b never closes" "b → grain-broader (at the element grain)" answer
+        assertEqual "the entry's own line is the floor" (0, -1) =<< pointOf answer
+        echoIs "b never closes" "b → grain-broader (the whole entry)" answer
+
+    -- REVERSED EXPAND-REGION, and this is its widest step: `b' out of an
+    -- element goes to THE ENTRY'S OWN LINE, which the whole subtree hangs off.
+    -- It used to refuse there — a rung with nothing above it.
+  , testCase "b out of an element marks the whole headline" $ do
+      onTable "grain press:Enter press:n press:b" $ \answer -> do
+        assertEqual "up from the lead paragraph" (0, -1) =<< pointOf answer
+        echoIs "" "b → grain-broader (the headline)" answer
+      -- From INSIDE a list it is two rungs: the item to its list, the list to
+      -- the headline, so nothing is skipped on the way out.
+      onTable "grain press:Enter press:n press:n press:f press:b press:b" $ \answer ->
+        assertEqual "the item, its list, then the entry" (0, -1) =<< pointOf answer
+
+    -- THREE DIALECTS, ONE AXIS: `l'/`h' and the horizontal arrows are ALIASES
+    -- of `f'/`b' rather than a second axis of their own.
+  , testCase "l/h and the horizontal arrows are f/b" $ do
+      onTable "grain press:Enter press:n press:n press:l" $ \answer -> do
+        assertEqual "l dives like f" (3, -1) =<< pointOf answer
+        echoIs "and speaks as the key pressed" "l → grain-finer (list 1/3)" answer
+      onTable "grain press:Enter press:n press:n press:ArrowRight" $
+        assertEqual "and so does the right arrow" (3, -1) <=< pointOf
+      onTable "grain press:Enter press:n press:h" $ \answer -> do
+        assertEqual "h climbs like b" (0, -1) =<< pointOf answer
+        echoIs "" "h → grain-broader (the headline)" answer
+      onTable "grain press:Enter press:n press:ArrowLeft" $
+        assertEqual "and so does the left arrow" (0, -1) <=< pointOf
 
     -- AND AN ORG TABLE IS THAT SAME SHAPE, which is the whole of what it is: a
     -- run of `|' lines is ONE COARSE STOP and then its rows, drawn inline in the

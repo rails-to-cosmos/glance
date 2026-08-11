@@ -62,13 +62,15 @@
     /** The stops as the model has them, and where point stands among them. */
     const docRowAt = () => drows[dat] || null;
     // MOVEMENT IS TWO AXES (docs/design-rhymes.md): siblings, then the grain.
-    const colStep = (k) => (k === "<right>" || k === "l" ? 1
-                          : k === "<left>" || k === "h" ? -1 : 0);
-    const grainStep = (k) => (k === "f" ? 1 : k === "b" ? -1 : 0);
+    // THREE DIALECTS, ONE AXIS: emacs, vim and the arrows are ALIASES rather
+    // than variants, so `l'/`h' and the horizontal arrows are `f'/`b' — the
+    // grain ladder, which already falls through to the cell walk where the stop
+    // has cells.  One axis with three spellings, where there were two axes.
+    const grainStep = (k) => (k === "f" || k === "l" || k === "<right>" ? 1
+                            : k === "b" || k === "h" || k === "<left>" ? -1 : 0);
     const docStep = (step) => dsend({ kind: "step", by: step });
     const docFiner = (k) => dsay(k, { kind: "finer" });
     const docBroader = (k) => dsay(k, { kind: "broader" });
-    const moveDocCol = (k, step) => dsay(k, { kind: "col", by: step });
     function openHere() {
       const r = docRowAt(), b = docBinding("org-glance-overview:open");
       const at = spanOf(r);
@@ -643,11 +645,10 @@
         else if (!flagPress(k, e, PFLAGS)) return;
       } else if (crossing) enterPanel();
       else {
-        const step = rowStep(k), side = colStep(k), depth = grainStep(k);
+        const step = rowStep(k), depth = grainStep(k);
         if (step) docStep(step);
         else if (depth > 0) docFiner(k);
         else if (depth < 0) docBroader(k);
-        else if (side) moveDocCol(k, side);
         else if (k === "RET") once(docEnter);
         else if (k === "DEL") once(docUp);
         else if (k === "S-<up>" || k === "S-<down>")
