@@ -1,6 +1,6 @@
 # Proposal — the starred metas, as a list
 
-**Status:** DONE 2026-08-10 · **Date:** 2026-08-04
+**Status:** done — DONE 2026-08-10 · **Date:** 2026-08-04
 
 `docs/design-rhymes.md:66-69` names a family: "**Stars mean meta.** `*active*`,
 `*inactive*`, `*empty*`, `*archive*`, `*none*` — a starred word is reserved

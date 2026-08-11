@@ -442,7 +442,7 @@ between open close haystack
 
 spec :: TestTree
 -- The fixture is the page PLUS the script it names: before the extraction
--- (docs/proposal-glue-extraction.md) the glue was inline and every text sweep
+-- (docs/proposal-glue-extraction.done.md) the glue was inline and every text sweep
 -- read one universe, so the fixture restores exactly that universe — the
 -- served page with the embedded asset's bytes behind it.
 spec = withResource ((<>) <$> (body <$> get assetsDir "/")
@@ -11839,7 +11839,7 @@ keymapOf shell = traverse row =<< listAt "rows" =<< blobOf shell
                     <*> maybeTextAt "help" v
 
 -- | The shell's inline glue, on its own — what a syntax check is run over.
--- | The shell's script is a FILE now (docs/proposal-glue-extraction.md): the
+-- | The shell's script is a FILE now (docs/proposal-glue-extraction.done.md): the
 -- page names it in a src tag and the bytes are the committed asset's, so the
 -- sweeps read the source of the embed rather than scraping served HTML.  The
 -- page argument stays so every caller still proves it served a shell first.

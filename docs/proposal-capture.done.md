@@ -1,6 +1,6 @@
 # Proposal — capture as org-glance does it
 
-**Status:** delivered 2026-08-04 · **Date:** 2026-08-03
+**Status:** done — delivered 2026-08-04 · **Date:** 2026-08-03
 
 Delivered as proposed, with the three open decisions taken: the cursor
 lands on the new row (and stays where it is when the view has not got

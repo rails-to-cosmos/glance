@@ -1,6 +1,6 @@
 # Proposal — org-console-web
 
-**Status:** draft, rev 2 — Emacs-free core; deterministic automation · **Date:** 2026-07-30
+**Status:** draft — draft, rev 2 — Emacs-free core; deterministic automation · **Date:** 2026-07-30
 
 Glance grows from a batch org parser into the **backend of a browser-rendered,
 browser-driven org runtime**: org files stay canonical, glance reads them,

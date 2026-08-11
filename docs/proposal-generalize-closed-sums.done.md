@@ -1,6 +1,6 @@
 # Proposal — make the closed sums actually closed
 
-**Status:** DONE 2026-08-10 · **Date:** 2026-08-04
+**Status:** done — DONE 2026-08-10 · **Date:** 2026-08-04
 
 Four modules spell every constructor of a sum with no catch-all, and say in
 their own comments that this is what makes the obligation enforceable.  Two more

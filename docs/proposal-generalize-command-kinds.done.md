@@ -1,6 +1,6 @@
 # Proposal — a command's KIND, rather than a Maybe and two string tests
 
-**Status:** DONE 2026-08-10 · **Date:** 2026-08-10 · **Found by:** /generalizer over
+**Status:** done — DONE 2026-08-10 · **Date:** 2026-08-10 · **Found by:** /generalizer over
 `e1ba099..6412f4a` (the `delete` command)
 
 ## Pattern
@@ -93,7 +93,7 @@ nothing then dispatches on it.
   MEASURED on implementing, by adding a fourth constructor: **six sites**, not
   the three estimated. They are `-Wincomplete-patterns` WARNINGS rather than
   errors, there being no `-Werror` in any stanza — which is exactly what
-  `docs/proposal-generalize-closed-sums.md` asks for, and this finding now
+  `docs/proposal-generalize-closed-sums.done.md` asks for, and this finding now
   depends on it for the guarantee to be a wall rather than a log line.
 
 ## Risk
@@ -108,6 +108,6 @@ is the check.
 The repo already does this and says why: `Data.Org.Types:184-187` keeps
 `Element`'s sum closed with no catch-all so that a fifth constructor is named
 by the compiler at three sites, and `Glance.Web.Store.frameJSON`
-(`Store.hs:448-452`) does the same for `Frame`. `docs/proposal-generalize-closed-sums.md`
+(`Store.hs:448-452`) does the same for `Frame`. `docs/proposal-generalize-closed-sums.done.md`
 argues for closing the two sums that still carry catch-alls; this is the same
 argument one step earlier — a sum that has not been written down yet.

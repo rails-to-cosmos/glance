@@ -1,8 +1,8 @@
 # Proposal — the materialize sheet in Elm
 
-**Status:** steps 1–4 DONE (both panes are Elm); step 5 not taken · **Date:** 2026-08-09 · **Origin:** user, asking whether
+**Status:** partial — steps 1–4 DONE (both panes are Elm); step 5 not taken · **Date:** 2026-08-09 · **Origin:** user, asking whether
 the split glue is ready for Elm · **Depends on:**
-`docs/proposal-widget-files.md`, whose step B split the shell and whose step C
+`docs/proposal-widget-files.partial.md`, whose step B split the shell and whose step C
 made the sheet one component
 
 ## A correction this plan is built on

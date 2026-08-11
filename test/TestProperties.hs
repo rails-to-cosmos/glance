@@ -143,7 +143,7 @@ answerSpec = testGroup "Spans, against the offsets they were written at"
     -- Subtree extents TILE, computed over EVERY headline though only top
     -- entries keep records.  A BLANK top entry is left out of this ON PURPOSE:
     -- it keeps its extent and loses its record, and the survivors then do NOT
-    -- meet — see the delivery note in docs/proposal-property-tests.md.
+    -- meet — see the delivery note in docs/proposal-property-tests.done.md.
   , testPropertyWith 60 "top entries tile the document, and meet exactly" $ \ds ->
       let r = render ds
           want = [ sp | (e, sp) <- zip (rdEntries r)

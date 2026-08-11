@@ -1,6 +1,6 @@
 # Proposal — recurring tasks
 
-**Status:** proposed · **Date:** 2026-08-08
+**Status:** partial — proposed · **Date:** 2026-08-08
 
 Repeating entries are the one org feature this daemon parses whole and
 cannot act on: marking a repeating row DONE stops the repeat dead.  Take

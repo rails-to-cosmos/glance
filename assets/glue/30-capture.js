@@ -1,5 +1,5 @@
 // THE CAPTURE FORM AND THE VALUE PALETTE, behind an argument list
-// (docs/proposal-widget-files.md, step C).  What it takes from the shell and
+// (docs/proposal-widget-files.partial.md, step C).  What it takes from the shell and
 // the sheet -- the applied query, the view's columns, the entry on show, and
 // where point is owed after a capture -- arrives as accessors, since a handle
 // cannot carry a `let'.
@@ -9,7 +9,7 @@ const Capture = ((deps) => {
             said, shown, targetOf, targets } = deps;
     const { queryNow, colsNow, entryNow, arrivingNow, setArriving } = deps;
     // THE FORM'S OWN STATE, which the step-B seam had left in the sheet's file
-    // (docs/proposal-widget-files.md): it is up or it is not, and shutting it
+    // (docs/proposal-widget-files.partial.md): it is up or it is not, and shutting it
     // empties the fields the form itself drew.
     let capping = null;   // the capture form's state while it is up
     const capUp = () => !!capping;

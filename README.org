@@ -197,6 +197,6 @@ the whole patch.
 ** Docs
 
 - [[file:CLAUDE.md][CLAUDE.md]] / [[file:docs/invariants.md][docs/invariants.md]] — the rules the code silently enforces, brief and full.
-- [[file:docs/proposal-org-console-web.md][proposal-org-console-web.md]] / [[file:docs/plan-org-console-web.md][plan-org-console-web.md]] — why, and the steps.
+- [[file:docs/proposal-org-console-web.draft.md][proposal-org-console-web.md]] / [[file:docs/plan-org-console-web.md][plan-org-console-web.md]] — why, and the steps.
 - [[file:docs/design-rhymes.md][design-rhymes.md]] — the shapes this UI repeats on purpose.
 - [[file:CHANGELOG.md][CHANGELOG.md]] — what each cut carries.

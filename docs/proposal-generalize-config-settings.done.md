@@ -1,6 +1,6 @@
 # Proposal — one registry for config-layer settings
 
-**Status:** DELIVERED 2026-08-11 · **Date:** 2026-08-04 · **Source:**
+**Status:** done — DELIVERED 2026-08-11 · **Date:** 2026-08-04 · **Source:**
 generalizer sweep over the capture-v2 territory
 
 ## What landed

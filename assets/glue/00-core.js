@@ -46,7 +46,7 @@
     const el = (id) =>
       /** @type {any} */ (document.getElementById(id));
     // THE FLOOR'S OWN HELPERS, moved down from the panel where they had settled
-    // (docs/proposal-widget-files.md, step C).  Each reads `echo', `append' or
+    // (docs/proposal-widget-files.partial.md, step C).  Each reads `echo', `append' or
     // the renderer handle and nothing of the panel's, and living ABOVE the parts
     // that need them is what made those parts unwrappable: a `const' declared
     // later is a TDZ error in an eagerly built dependency object.
@@ -344,7 +344,7 @@
       postJSON(at(id, child), { ...asked, digest }, extra);
 
     // THE TABLE'S OWN CURSOR, PAGING, MARKS AND FLAGS.  They rode into the
-    // sheet file with the panel and came back here (docs/proposal-elm-sheet.md).
+    // sheet file with the panel and came back here (docs/proposal-elm-sheet.partial.md).
     // dired's `d'/`D'/`x'/`u' over five surfaces, each declaring a SHAPE — CLAUDE.md (UI).
     // SHOWN uppercase, since a wall should read as one, and MATCHED folded —
     // what a reader types to get past it is their own business.

@@ -1,5 +1,5 @@
 // KEY NAMING AND THE ECHO PILL, the shell's first widget behind an argument
-// list (docs/proposal-widget-files.md, step C).  It takes `el' and nothing
+// list (docs/proposal-widget-files.partial.md, step C).  It takes `el' and nothing
 // else, so what it may reach is stated rather than inherited from the script
 // scope every other part still shares.
 const Keys = ((el) => {

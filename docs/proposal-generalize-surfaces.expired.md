@@ -1,6 +1,6 @@
 # Proposal — one surface list, many readers
 
-**Status:** EXPIRED 2026-08-10 · **Date:** 2026-08-04
+**Status:** expired — EXPIRED 2026-08-10 · **Date:** 2026-08-04
 
 Doctrine names `SURFACES` in the same breath as `viewColumns` and
 `keywordScopes` — "the order is spelled once and every consumer reads it"

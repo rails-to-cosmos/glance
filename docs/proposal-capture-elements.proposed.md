@@ -2,13 +2,13 @@
 
 **Status:** proposed · **Date:** 2026-08-08
 
-Successor to [docs/proposal-capture.md](proposal-capture.md), delivered
+Successor to [docs/proposal-capture.done.md](proposal-capture.md), delivered
 2026-08-04, which asked WHERE a capture goes and answered it.  This asks
 WHAT a capture can say, and answers fixme 11 and 12 together — one
 question from two sides.  Element meanings are the org manual's own, off
 [Template expansion](https://orgmode.org/manual/Template-expansion.html).
-Siblings: `docs/proposal-generalize-ask-kinds.md` (stage 2 is its fourth
-caller) and `docs/proposal-generalize-capture-shapes.md`.
+Siblings: `docs/proposal-generalize-ask-kinds.proposed.md` (stage 2 is its fourth
+caller) and `docs/proposal-generalize-capture-shapes.proposed.md`.
 
 ## What ships today
 

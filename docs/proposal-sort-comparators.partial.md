@@ -1,6 +1,6 @@
 # Proposal — configurable sort comparators
 
-**Status:** A delivered (#67, 2026-08-04); B/C/D still brainstorm ·
+**Status:** partial — A delivered (#67, 2026-08-04); B/C/D still brainstorm ·
 **Date:** 2026-08-02, revised 2026-08-04
 
 How should a reader configure *how* a column compares, beyond *whether* it

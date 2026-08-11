@@ -1,5 +1,5 @@
 // THE MATERIALIZE SHEET: two panes over one subtree, and one flush carrying
-// both — CLAUDE.md (UI), docs/proposal-widget-files.md.
+// both — CLAUDE.md (UI), docs/proposal-widget-files.partial.md.
     let editing = null;
     let base = "", baseProps = null, raw = false;
     // THE DOCUMENT PANE IS AN ELM PROGRAM (`assets/elm/src/Doc.elm').  The

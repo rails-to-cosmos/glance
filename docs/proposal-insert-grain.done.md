@@ -1,6 +1,6 @@
 # Proposal — `+` adds a SIBLING of the stop, so an item joins the run the cursor stands in
 
-**Status:** IMPLEMENTED 2026-08-11 · **Date:** 2026-08-11 · **Origin:** user — "`+` doesn't take
+**Status:** done — IMPLEMENTED 2026-08-11 · **Date:** 2026-08-11 · **Origin:** user — "`+` doesn't take
 into account the current indentation level of cursor (which user modifies via
 `f`/`b`) … `+` should be indentation-aware in lists and add an item in the last
 bottom position of current indented block."
@@ -492,7 +492,7 @@ written. A tabled case joins them, over `tabledBody`
 Where the drawn lead SITS on screen — a drafted item at two spaces should line
 up with the run it joins, and the harness returns zeros from every
 `getBoundingClientRect` (`shell-harness.js:1289`). That is
-`docs/proposal-browser-driver.md`'s class, and one case there would cover it.
+`docs/proposal-browser-driver.done.md`'s class, and one case there would cover it.
 
 ## Files
 
@@ -564,7 +564,7 @@ Elm's answer.
   untouched around it.
 - **THE OLD BEHAVIOUR STAYS REACHABLE** is `priority`'s: it left the default
   sort chain and stayed reachable as `sort:priority`, rather than being removed.
-- **REVISING A STATED RULE, in the open**: `docs/proposal-generalize-capabilities.md`
+- **REVISING A STATED RULE, in the open**: `docs/proposal-generalize-capabilities.done.md`
   re-validated its own pattern and recorded that it had GROWN. This one says
   which sentence changes and why the reason behind it no longer covers the case.
 

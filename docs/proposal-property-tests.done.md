@@ -1,6 +1,6 @@
 # Proposal — the parser's laws are universals, so test them as universals
 
-**Status:** DELIVERED 2026-08-11 · see [What shipped](#what-shipped) at the foot
+**Status:** done — DELIVERED 2026-08-11 · see [What shipped](#what-shipped) at the foot
 · **Date:** 2026-08-11 · **Origin:** user, after a session
 where four bugs shipped past 1781 green tests and were caught by looking — an
 edit overlay that covered the document under it (fixed in `cb6db85`), a flag

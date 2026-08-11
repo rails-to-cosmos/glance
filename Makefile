@@ -38,7 +38,7 @@ elm-test:
 	  cd assets/elm && npx --yes -p elm -p elm-test elm-test; \
 	else echo "elm-test: no npx on PATH -- skipped"; fi
 
-# THE SUITE'S OWN GRADE (docs/proposal-mutation-runner.md).  One rewrite per
+# THE SUITE'S OWN GRADE (docs/proposal-mutation-runner.done.md).  One rewrite per
 # mutant over one file, in a git worktree with its own --builddir at -O0; a
 # mutant the suite leaves green names an assertion nobody wrote.  OUT of
 # `cabal test' for `elm-test's reason one size up: a check whose unit is MINUTES
@@ -88,7 +88,7 @@ browser-path:
 	@find $(HOME)/.cache/ms-playwright -type f \
 	     \( -name headless_shell -o -name chrome \) 2>/dev/null | head -1
 
-# THE ONE CHECK THAT MEASURES A PIXEL (docs/proposal-browser-driver.md), and it
+# THE ONE CHECK THAT MEASURES A PIXEL (docs/proposal-browser-driver.done.md), and it
 # is OUT of `cabal test' for `elm-test's reason one size up: it drives a 150 MB
 # browser, spawns a daemon, writes a temp tree and needs the machine's fonts.
 # The Haskell suite stays offline and stays the contract; every geometry rule it
@@ -143,7 +143,7 @@ native:
 	HASKELL_GI_GIR_SEARCH_PATH=$(CURDIR)/vendored/gir \
 	  cabal build $(NATIVE_BUILD) all
 
-# The WASM spike (docs/proposal-native-ports.md, host 4): the core compiled by
+# The WASM spike (docs/proposal-native-ports.draft.md, host 4): the core compiled by
 # the ghc-wasm-meta toolchain, glance-internal alone -- the deliverable is the
 # CATALOG of what compiles, not a working module yet.  Needs ~/.ghc-wasm on the
 # machine (the bootstrap script installs it); says so when it is not.
@@ -183,7 +183,7 @@ run-wasm:
 	fi
 
 # The shell's own checker, table-view's discipline over assets/glue/*.js
-# (docs/proposal-glue-extraction.md): tsc --checkJs under assets/jsconfig.json.
+# (docs/proposal-glue-extraction.done.md): tsc --checkJs under assets/jsconfig.json.
 # Zero errors is the standing state; a finding here is a finding.
 check-glue:
 	@if command -v npx >/dev/null 2>&1; then \

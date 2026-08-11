@@ -314,7 +314,7 @@ measurements and the history of superseded designs live in
   `Store.storeRecords`, `Store.storeResult`, `Store.resolvedRows`, so the store
   equals the load it stands in for and the stream equals both.
 
-## Architecture (docs/proposal-org-console-web.md, docs/plan-org-console-web.md)
+## Architecture (docs/proposal-org-console-web.draft.md, docs/plan-org-console-web.md)
 
 - Org files are the single source of truth; no second authoritative store.
 - Write-back = surgical span replacement, optimistic lock, atomic temp+rename;
@@ -953,7 +953,7 @@ measurements and the history of superseded designs live in
   sweeps every `.hs` under `src*/` and `app/` for `/home/`, and asserts what it
   swept first so an empty sweep cannot pass.
 - AND A WRAPPED WIDGET TAKES ITS DEPENDENCIES: step C of
-  docs/proposal-widget-files.md, one widget at a time. `05-keys.js` is the
+  docs/proposal-widget-files.partial.md, one widget at a time. `05-keys.js` is the
   first — `const Keys = ((el) => { … return {…} })(el)`, its body at the same
   indentation it always had, so wrapping costs no re-indentation and consumers
   destructure the handle and keep their spelling. THE ARGUMENT LIST DOCUMENTS
@@ -2297,6 +2297,15 @@ measurements and the history of superseded designs live in
   would put two packages claiming `GI.Gtk` in one plan. cabal's package hash
   counts resolved pkg-config VERSIONS, so a distribution upgrade re-keys every gi
   package and `make native` regenerates them.
+- A PROPOSAL'S NAME TELLS ITS STATUS: `docs/proposal-<slug>.<status>.md`, one of
+  `proposed`, `partial`, `done`, `expired`, `draft`. The name is the SECOND place
+  that fact is written, so `TestSelfContained` CHECKS it against the file's own
+  `**Status:**` line rather than trusting two copies to stay in step — the line
+  LEADS with the token, which makes the comparison a string equality with no
+  table of prose spellings between them. A status change is a `git mv` plus the
+  line, and the suite says so when only one of the two moves. THE COST, taken
+  deliberately: a rename breaks every link to the old path, and past commit
+  messages keep citing it.
 - Every implemented feature earns a `CHANGELOG.md` entry under `Unreleased`,
   written as user-visible behaviour (Added/Changed/Fixed, one line per feature);
   a coherent feature set cutting promotes `Unreleased` to a dated version and

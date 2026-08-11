@@ -18,10 +18,11 @@
 -- be re-asserting the type checker.
 module TestSelfContained (spec) where
 
-import Control.Monad (filterM, forM_)
+import Control.Monad (filterM, forM, forM_)
 import Data.List (isPrefixOf, (\\))
+import Data.Maybe (listToMaybe)
 import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
-import System.FilePath (takeExtension, (</>))
+import System.FilePath (dropExtension, takeExtension, (</>))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
 import Glance.Web.Base (gluePartFiles)
@@ -72,6 +73,27 @@ spec = testGroup "Self-containment"
       hits <- concat <$> mapM homePaths files
       assertEqual "sources naming an absolute home directory" [] hits
 
+    -- A PROPOSAL'S NAME TELLS ITS STATUS, and the name is the SECOND place that
+    -- fact is written — so it is CHECKED rather than kept in step by hand, which
+    -- is the failure this repo keeps finding in its own documents.  The status
+    -- line LEADS with the token so the comparison is a string equality and no
+    -- table of prose spellings sits between the two.  The sweep says what it
+    -- swept, since an empty docs directory would otherwise pass.
+  , testCase "every proposal's name is the status it declares" $ do
+      names <- filter ("proposal-" `isPrefixOf`) <$> listDirectory "docs"
+      assertBool ("too few proposals swept: " <> show (length names)) (length names >= 20)
+      wrong <- fmap concat . forM names $ \name -> do
+        body <- TIO.readFile ("docs" </> name)
+        let declared = case T.lines body of
+              ls -> listToMaybe
+                      [ T.takeWhile (/= ' ') rest
+                      | l <- ls, Just rest <- [T.stripPrefix "**Status:** " l] ]
+            named = case reverse (T.splitOn "." (T.pack (dropExtension name))) of
+              (st:_) -> Just st
+              []     -> Nothing
+        pure [ (name, declared, named) | declared /= named ]
+      assertEqual "a proposal whose name and status disagree" [] wrong
+
     -- ONE SOURCE FOR THE SHELL.  The parts are what the build reads and what a
     -- served directory concatenates, so a whole `glue.js' beside them would be
     -- a second copy to keep in step.
@@ -94,7 +116,7 @@ spec = testGroup "Self-containment"
     -- denylist over the names that MATTER is exact.  What matters is the state
     -- a widget must not reach around its arguments for.
     --
-    -- `docs/proposal-widget-files.md' step C.  A part joins by being wrapped
+    -- `docs/proposal-widget-files.partial.md' step C.  A part joins by being wrapped
     -- and listed here, one widget at a time.
   , testCase "a wrapped widget reaches around its arguments for nothing" $
       forM_ wrappedWidgets $ \(part, forbidden) -> do

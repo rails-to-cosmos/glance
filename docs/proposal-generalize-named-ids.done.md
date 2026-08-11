@@ -1,6 +1,6 @@
 # Proposal — the ids a command named, resolved once
 
-**Status:** DONE 2026-08-10 · **Date:** 2026-08-10 · **Found by:** /generalizer over
+**Status:** done — DONE 2026-08-10 · **Date:** 2026-08-10 · **Found by:** /generalizer over
 `e1ba099..6412f4a` (the `delete` command)
 
 ## Pattern

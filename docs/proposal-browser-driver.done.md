@@ -1,6 +1,6 @@
 # Proposal — a real browser drives the page, so geometry is measured
 
-**Status:** LANDED 2026-08-11 as `make browser-check`, eight cases, one of them
+**Status:** done — LANDED 2026-08-11 as `make browser-check`, eight cases, one of them
 red against a defect it found on its first run (see "What landed") ·
 **Date:** 2026-08-11 · **Origin:** user, after a session
 where the paragraph editor grew to ten lines and COVERED the nine lines under
@@ -133,7 +133,7 @@ it: **settle on the CONDITION with a cap, never on a duration** (CLAUDE.md's
 The driver talks to the page through six calls — `goto`, `eval`, `until`,
 `press`, `size`, `shot` — so swapping the CDP client for playwright or BiDi
 later is one adapter behind six names. Same rule as the transport surface in
-`docs/proposal-native-ports.md`.
+`docs/proposal-native-ports.draft.md`.
 
 ## The design
 

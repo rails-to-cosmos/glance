@@ -1,6 +1,6 @@
 # Proposal — one door for the renderer's optional capabilities
 
-**Status:** DONE 2026-08-10 · **Date:** 2026-08-05 · **Source:** generalizer round 3
+**Status:** done — DONE 2026-08-10 · **Date:** 2026-08-05 · **Source:** generalizer round 3
 (hand-run) over the pin/composer/ladder day
 
 **Re-validated 2026-08-10:** HOLDS, and had GROWN — the widget split took

@@ -1,5 +1,5 @@
 // THE LINK AND TAGS POPUPS, and the popup chrome both wear
-// (docs/proposal-widget-files.md, step C).  Twenty-two of its dependencies are
+// (docs/proposal-widget-files.partial.md, step C).  Twenty-two of its dependencies are
 // `const'/`function' and destructure safely; `edit' is a `let' the panel
 // reassigns, so it arrives as the ACCESSOR `editNow' -- a destructured `let' is
 // a copy of whatever it held at boot.

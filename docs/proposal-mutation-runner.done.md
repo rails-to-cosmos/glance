@@ -1,6 +1,6 @@
 # Proposal — mutation testing as a scripted step
 
-**Status:** DELIVERED 2026-08-11 · **Date:** 2026-08-11 · **Origin:** user, after a session
+**Status:** done — DELIVERED 2026-08-11 · **Date:** 2026-08-11 · **Origin:** user, after a session
 where ~10 hand-run mutations over a green 1781-case suite found two real holes,
 and four bugs shipped past that same green suite because nobody thought to
 mutate the thing they lived in.

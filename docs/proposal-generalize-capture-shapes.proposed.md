@@ -72,7 +72,7 @@ capture groups re-pin through the sum's arms.
 
 ## When
 
-**Not yet.** Two members, no third proposed (docs/proposal-capture.md is
+**Not yet.** Two members, no third proposed (docs/proposal-capture.done.md is
 delivered and names none). This is a cost recorded so the third member's
 author finds the design ready rather than re-deriving it; pre-paying now buys
 nothing and adds a sum with two constructors.

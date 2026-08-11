@@ -1,6 +1,6 @@
 # Proposal — grain navigation in the material document
 
-**Status:** delivered 2026-08-04, as specified (both flagged calls taken:
+**Status:** done — delivered 2026-08-04, as specified (both flagged calls taken:
 `f` at the finest refuses with an echo; `b` at the floor is a no-op, never a
 close) · **Origin:** user design session
 
