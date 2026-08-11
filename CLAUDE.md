@@ -1610,8 +1610,13 @@ measurements and the history of superseded designs live in
   the GRAIN — a LADDER: a list item carrying a nested run is itself a parent, `f`
   descends one rung (refusing with an echo at the finest), `b` climbs one to the
   IMMEDIATE owner by id and back to the whole line in one press whatever the
-  column, a no-op with an echo at the element grain, NEVER a close. `l`/`h` and
-  the horizontal arrows stay the within-grain cell walk. `RET` is pure edit at
+  column, NEVER a close. `l`/`h` and the horizontal arrows are ALIASES of
+  `f`/`b` rather than a second axis: THREE DIALECTS, ONE AXIS — emacs, vim and
+  the arrows reach one handler, and the ladder already falls through to the cell
+  walk where the stop has cells. `b` OUT OF AN ELEMENT IS THE WIDEST RUNG,
+  reversed expand-region: out of the cells, out of a leaf to its owner, out of
+  an element to THE ENTRY'S OWN LINE, which the whole subtree hangs off. It
+  refused there once — a rung with nothing above it. `RET` is pure edit at
   either grain, `DEL` stays the sheet's ladder, `d` flags whatever the stop is.
   `grain` names the kind: `element`, `composite`, `leaf`.
 - ONE GRAIN SPEAKS FOR A RANGE. A composite and its leaves cover the same lines,
