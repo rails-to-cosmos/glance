@@ -1,0 +1,296 @@
+#!/usr/bin/env bash
+# THE MUTATION RUNNER — docs/proposal-mutation-runner.md.  It grades the SUITE,
+# never the product: a rewrite that leaves the suite green names an assertion
+# nobody wrote.
+#
+#   tools/mutate TARGET=src/Data/Org/Edit.hs [SAMPLE=40] [REV=HEAD]
+#
+# Knobs, all environment or `make'-style arguments:
+#   TARGET    the one file to mutate.  ONE TARGET PER INVOCATION: the cold build
+#             is paid once, so a target is a sitting.
+#   SAMPLE    how many mutants (default 40, 0 = every site).  Seeded by the
+#             TARGET'S OWN BLOB DIGEST, so a re-run over an unchanged file
+#             repeats the same mutants and an EDITED file draws a different set
+#             — which is how the remainder gets covered over weeks.
+#   REV       the revision mutated (default HEAD).  The runner measures what is
+#             COMMITTED; the working tree is never read and never written.
+#   SCRATCH   where the worktree and the build dir live (default
+#             $TMPDIR/glance-mutate).
+#   KEEP      1 leaves the scratch worktree warm for the next invocation, which
+#             skips the ~2 min cold build.  Default 0 removes it.
+#   LIST      1 prints the sites and exits, no build, no suite.
+#   JSON      where the machine-readable report goes (default under SCRATCH).
+#   ALLOW     the known-equivalent list (default tools/mutate.allow).
+#
+# ISOLATION IS A GIT WORKTREE plus its own --builddir, and it buys three things
+# an in-place `git checkout --' loop does not: the developer's dist-newstyle is
+# untouched so an ordinary `cabal test' can run alongside; an interrupted run
+# CANNOT leave a mutant in the working tree; and the postcondition is checkable
+# — `git diff --quiet' after every mutant, and a run that fails it stops.
+#
+# -O0 IS THE WHOLE REASON THIS IS AFFORDABLE.  A body change at the bottom of
+# the module graph re-keys its .hi through cross-module unfoldings and puts the
+# package back through GHC: 4:36 a mutant at -O2 against 22 s at -O0, and the
+# suite is green at both, so the level buys a 12x speedup and costs no verdict.
+
+set -euo pipefail
+
+for arg in "$@"; do
+  case "$arg" in
+    *=*) export "${arg?}" ;;
+    *)   echo "mutate: arguments are NAME=VALUE" >&2; exit 2 ;;
+  esac
+done
+
+ROOT=$(git rev-parse --show-toplevel)
+TOOLS="$ROOT/tools"
+TARGET=${TARGET:-}
+SAMPLE=${SAMPLE:-40}
+REV=${REV:-HEAD}
+KEEP=${KEEP:-0}
+LIST=${LIST:-0}
+SCRATCH=${SCRATCH:-${TMPDIR:-/tmp}/glance-mutate}
+ALLOW=${ALLOW:-$TOOLS/mutate.allow}
+TIMEOUT_FACTOR=${TIMEOUT_FACTOR:-3}
+
+[ -n "$TARGET" ] || { echo "mutate: TARGET= is required, e.g. TARGET=src/Data/Org/Edit.hs" >&2; exit 2; }
+git -C "$ROOT" cat-file -e "$REV:$TARGET" 2>/dev/null \
+  || { echo "mutate: $REV does not carry $TARGET" >&2; exit 2; }
+
+WT="$SCRATCH/wt"
+D0="$SCRATCH/dist"
+ELM="$SCRATCH/elm"
+LOG="$SCRATCH/last.log"
+SLUG=$(echo "$TARGET" | tr '/.' '--')
+JSON=${JSON:-$SCRATCH/report-$SLUG.json}
+RESULTS="$SCRATCH/results.tsv"
+
+case "$TARGET" in
+  assets/elm/*.elm) KIND=elm ;;
+  *.hs|*.js)        KIND=hs  ;;   # a glue part reaches the suite through the TH splice
+  *) echo "mutate: $TARGET is neither a .hs, a .js under assets/glue nor an .elm under assets/elm" >&2; exit 2 ;;
+esac
+
+mkdir -p "$SCRATCH"
+
+# --- the worktree ----------------------------------------------------------
+
+if [ -d "$WT/.git" ] || [ -f "$WT/.git" ]; then
+  git -C "$WT" reset --hard --quiet "$REV"
+  git -C "$WT" clean -qfd -e dist -e elm-stuff
+else
+  rm -rf "$WT"
+  git -C "$ROOT" worktree add --detach --quiet "$WT" "$REV"
+fi
+
+# THE MUTATED FILE is the worktree's for hs/js and the elm COPY's for elm:
+# elm-test writes elm-stuff beside the source it compiles, and a build cache
+# inside the worktree would fight the `git diff --quiet' postcondition.
+if [ "$KIND" = elm ]; then
+  rm -rf "$ELM"
+  cp -r "$WT/assets/elm" "$ELM"
+  MUT="$ELM/${TARGET#assets/elm/}"
+  cp "$MUT" "$SCRATCH/pristine"
+else
+  MUT="$WT/$TARGET"
+fi
+
+cleanup() {
+  local rc=$?
+  revert || true
+  if [ "$KEEP" != 1 ]; then
+    rm -rf "$ELM"
+    git -C "$ROOT" worktree remove --force "$WT" >/dev/null 2>&1 || rm -rf "$WT"
+    git -C "$ROOT" worktree prune >/dev/null 2>&1 || true
+    rm -rf "$SCRATCH/dist" "$SCRATCH/pristine"
+  fi
+  exit $rc
+}
+
+revert() {
+  if [ "$KIND" = elm ]; then
+    cp "$SCRATCH/pristine" "$MUT"
+  else
+    git -C "$WT" checkout --quiet -- "$TARGET"
+  fi
+}
+
+# THE POSTCONDITION, asked after every mutant: the file is back and nothing else
+# moved.  A run that cannot say this stops rather than reporting.
+verify_clean() {
+  if [ "$KIND" = elm ]; then
+    cmp -s "$SCRATCH/pristine" "$MUT" || { echo "mutate: $MUT did not revert" >&2; exit 1; }
+  else
+    git -C "$WT" diff --quiet || { echo "mutate: the worktree did not revert" >&2; exit 1; }
+  fi
+}
+
+trap cleanup EXIT INT TERM
+
+# --- the sites -------------------------------------------------------------
+
+SITES="$SCRATCH/sites.tsv"
+"$TOOLS/mutate-sites" sites "$TOOLS/mutate.rules" "$MUT" > "$SITES"
+TOTAL=$(wc -l < "$SITES")
+[ "$TOTAL" -gt 0 ] || { echo "mutate: no site in $TARGET — the table reaches nothing here" >&2; exit 1; }
+
+DIGEST=$(git -C "$ROOT" rev-parse "$REV:$TARGET")
+
+PICKED="$SCRATCH/picked.tsv"
+if [ "$SAMPLE" -gt 0 ] && [ "$TOTAL" -gt "$SAMPLE" ]; then
+  # `awk NR<=' rather than `head': head closes the pipe and SIGPIPEs sort, which
+  # under `pipefail' ends the run before it has said anything.
+  perl -MDigest::MD5=md5_hex -ne 'BEGIN { $s = shift @ARGV } chomp; print md5_hex("$s\0$_"), "\t$_\n"' \
+       "$DIGEST" "$SITES" | sort -k1,1 | awk -v n="$SAMPLE" 'NR<=n' | cut -f2- \
+     | sort -t"$(printf '\t')" -k1,1n > "$PICKED"
+else
+  cp "$SITES" "$PICKED"
+fi
+PICKED_N=$(wc -l < "$PICKED")
+
+if [ "$LIST" = 1 ]; then
+  printf '%s @ %s — %d sites, %d picked\n' "$TARGET" "${DIGEST:0:12}" "$TOTAL" "$PICKED_N"
+  awk -F'\t' '{printf "  %s:%s:%s  rule=%-10s %s\n", "'"$TARGET"'", $3, $4, $5, $6}' "$PICKED"
+  exit 0
+fi
+
+# --- the suite -------------------------------------------------------------
+#
+# TWO COMMANDS, not one, and that is what tells INVALID from KILLED: a build
+# that fails is a mutant that does not typecheck, a test run that fails is a
+# mutant the suite caught.  One command would leave the runner grepping GHC's
+# output for the difference.
+
+TMO=600
+
+run_suite() {   # -> green | red | invalid | timeout
+  local rc
+  if [ "$KIND" = elm ]; then
+    set +e
+    ( cd "$ELM" && timeout "$TMO" npx --yes -p elm -p elm-test elm-test ) > "$LOG" 2>&1
+    rc=$?
+    set -e
+    [ "$rc" = 0 ]   && { echo green;   return; }
+    [ "$rc" = 124 ] && { echo timeout; return; }
+    grep -q '^Failed:' "$LOG" && { echo red; return; }
+    echo invalid
+    return
+  fi
+  set +e
+  ( cd "$WT" && timeout "$TMO" cabal build --builddir="$D0" --disable-optimization glance-test ) > "$LOG" 2>&1
+  rc=$?
+  set -e
+  [ "$rc" = 124 ] && { echo timeout; return; }
+  [ "$rc" = 0 ]   || { echo invalid; return; }
+  set +e
+  ( cd "$WT" && timeout "$TMO" cabal test --builddir="$D0" --disable-optimization ) >> "$LOG" 2>&1
+  rc=$?
+  set -e
+  [ "$rc" = 0 ]   && { echo green;   return; }
+  [ "$rc" = 124 ] && { echo timeout; return; }
+  echo red
+}
+
+# --- the baseline ----------------------------------------------------------
+#
+# A BASELINE RUN COMES FIRST and a red baseline reports nothing, the way
+# TestDefaults.withCorpusSample refuses to pass over a missing corpus.
+
+printf 'mutate: %s @ %s — %d sites, %d mutants, rev %s\n' \
+  "$TARGET" "${DIGEST:0:12}" "$TOTAL" "$PICKED_N" "$(git -C "$ROOT" rev-parse --short "$REV")"
+printf 'mutate: baseline (cold build included) …\n'
+
+T0=$(date +%s)
+BASE=$(run_suite)
+BASE_WALL=$(( $(date +%s) - T0 ))
+if [ "$BASE" != green ]; then
+  echo "mutate: THE BASELINE IS NOT GREEN ($BASE) — nothing is reported off it." >&2
+  tail -40 "$LOG" >&2
+  exit 1
+fi
+printf 'mutate: baseline green in %ds\n\n' "$BASE_WALL"
+
+# Warm wall, which is what a mutant costs: re-run once with nothing changed.
+T0=$(date +%s)
+run_suite > /dev/null
+WARM=$(( $(date +%s) - T0 ))
+[ "$WARM" -gt 0 ] || WARM=1
+TMO=$(( WARM * TIMEOUT_FACTOR + 30 ))
+printf 'mutate: warm suite %ds, timeout %ds a mutant (a timeout IS a kill)\n\n' "$WARM" "$TMO"
+
+# --- the loop --------------------------------------------------------------
+
+: > "$RESULTS"
+K=0; I=0; S=0; E=0
+N=0
+while IFS=$'\t' read -r start end line col rule ctx before after; do
+  N=$((N + 1))
+  printf '  [%d/%d] %s:%s rule=%-10s %-22s ' "$N" "$PICKED_N" "$TARGET" "$line" "$rule" "$ctx"
+  "$TOOLS/mutate-sites" apply "$MUT" "$start" "$end" "$before" "$after"
+  T0=$(date +%s)
+  VERDICT=$(run_suite)
+  WALL=$(( $(date +%s) - T0 ))
+  revert
+  verify_clean
+  case "$VERDICT" in
+    red)     STATE=KILLED  ; K=$((K + 1)) ;;
+    timeout) STATE=KILLED  ; K=$((K + 1)) ;;
+    invalid) STATE=INVALID ; I=$((I + 1)) ;;
+    green)
+      if [ -f "$ALLOW" ] && grep -qF "$(printf '%s\t%s\t%s\t%s' "$TARGET" "$line" "$rule" "${DIGEST:0:12}")" "$ALLOW"; then
+        STATE=EQUIVALENT ; E=$((E + 1))
+      else
+        STATE=SURVIVED   ; S=$((S + 1))
+      fi ;;
+    *) echo "mutate: unreadable verdict <$VERDICT>" >&2; exit 1 ;;
+  esac
+  printf '%-11s %ds\n' "$STATE" "$WALL"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$STATE" "$line" "$col" "$rule" "$ctx" "$WALL" "$before" "$after" "$VERDICT" >> "$RESULTS"
+done < "$PICKED"
+
+# --- the report ------------------------------------------------------------
+
+printf '\n'
+if [ "$S" -gt 0 ]; then
+  awk -F'\t' -v t="$TARGET" '
+    $1 == "SURVIVED" {
+      printf "SURVIVED  %s:%s:%s  rule=%s  %s\n", t, $2, $3, $4, $5;
+      printf "          -  %s\n", trim($7);
+      printf "          +  %s\n", trim($8);
+      printf "          suite: green in %ss\n", $6;
+    }
+    function trim(s) { gsub(/\\n/, " ⏎ ", s); return length(s) > 96 ? substr(s, 1, 93) "…" : s }
+  ' "$RESULTS"
+  printf '\n'
+fi
+
+SCORED=$(( K + S ))
+SCORE=0
+[ "$SCORED" -gt 0 ] && SCORE=$(( K * 100 / SCORED ))
+printf '%d mutants: %d killed · %d invalid · %d equivalent · %d SURVIVED\n' \
+  "$PICKED_N" "$K" "$I" "$E" "$S"
+printf 'mutation score %d%% (killed / (killed + survived); invalid and equivalent are out of it)\n' "$SCORE"
+[ "$S" -gt 0 ] && printf '\nto call one equivalent, append to %s:\n%s\n' "$ALLOW" \
+  "$(awk -F'\t' -v t="$TARGET" -v d="${DIGEST:0:12}" '$1=="SURVIVED"{printf "  %s\t%s\t%s\t%s\n", t, $2, $4, d}' "$RESULTS")"
+
+perl -e '
+  my ($target, $rev, $digest, $picked, $total, $k, $i, $s, $e, $score, $base, $warm, $res) = @ARGV;
+  sub j { my $x = shift; $x =~ s/(["\\])/\\$1/g; $x =~ s/\n/\\n/g; $x =~ s/\t/\\t/g; return "\"$x\"" }
+  open my $fh, "<", $res or die $!;
+  my @rows;
+  while (<$fh>) {
+    chomp;
+    my ($state, $line, $col, $rule, $ctx, $wall, $before, $after, $verdict) = split /\t/, $_, 9;
+    push @rows, sprintf(q({"state":%s,"line":%d,"col":%d,"rule":%s,"context":%s,"wall":%d,"before":%s,"after":%s}),
+                        j($state), $line, $col, j($rule), j($ctx), $wall, j($before), j($after));
+  }
+  printf qq({"target":%s,"rev":%s,"digest":%s,"sites":%d,"mutants":%d,"baseline_s":%d,"warm_s":%d,)
+        . qq("killed":%d,"invalid":%d,"equivalent":%d,"survived":%d,"score":%d,"mutants_detail":[%s]}\n),
+    j($target), j($rev), j($digest), $total, $picked, $base, $warm, $k, $i, $e, $s, $score, join(",", @rows);
+' "$TARGET" "$(git -C "$ROOT" rev-parse "$REV")" "$DIGEST" "$PICKED_N" "$TOTAL" \
+  "$K" "$I" "$E" "$S" "$SCORE" "$BASE_WALL" "$WARM" "$RESULTS" > "$JSON"
+printf '\njson: %s\n' "$JSON"
+
+[ "$K" -gt 0 ] || { echo "mutate: 0 killed — a rewrite that kills nothing is a rewrite that is not being applied." >&2; exit 1; }
+exit 0

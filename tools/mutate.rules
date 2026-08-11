@@ -1,0 +1,63 @@
+# THE REWRITE TABLE, and it is DATA — one row per rewrite, the house answer for
+# `gluePartFiles' applied one file over (docs/proposal-mutation-runner.md, open
+# decision 4).  Rule eleven is one row here; a language joins by widening a
+# `langs' field.
+#
+# TSV, four fields: rule <TAB> langs <TAB> kind:needle <TAB> replacement.
+#   langs   comma list of hs, js, elm, or * for all three.
+#   kind    tok  — an operator token, bounded by the LANGUAGE'S operator charset,
+#                  so `<' never matches inside `<=', `<-', `<>' or `<$>'.
+#           word — an identifier, bounded by \b.
+#           re   — a raw perl regex.  LOOKAROUNDS ONLY, no capture groups: the
+#                  replacement is a literal string, so a row cannot grow a
+#                  program of its own.
+#   replacement is taken verbatim; an empty fourth field deletes the match.
+#
+# The four STRUCTURAL rules — zero, guard, arms, body — are not rows: each needs
+# the masker's own reading of where a literal, a guard or a binding ends, and a
+# regex cannot say it.  They live in tools/mutate-sites.
+
+rel	hs,elm	tok:<=	<
+rel	hs,elm	tok:<	<=
+rel	hs,elm	tok:>=	>
+rel	hs,elm	tok:>	>=
+rel	js	tok:<=	<
+rel	js	tok:<	<=
+rel	js	tok:>=	>
+rel	js	tok:>	>=
+
+eq	hs,elm	tok:==	/=
+eq	hs,elm	tok:/=	==
+eq	js	tok:===	!==
+eq	js	tok:!==	===
+eq	js	tok:==	!=
+eq	js	tok:!=	==
+
+bool	hs,elm	word:True	False
+bool	hs,elm	word:False	True
+bool	js	word:true	false
+bool	js	word:false	true
+
+logic	hs,elm	tok:&&	||
+logic	hs,elm	tok:||	&&
+logic	js	tok:&&	||
+logic	js	tok:||	&&
+
+off-by-one	*	re:\+ 1(?![\w.])	+ 0
+off-by-one	*	re:- 1(?![\w.])	+ 1
+off-by-one	*	re:(?<![\w.])1 \+	0 +
+
+identity	hs	re:(?<![.\w])reverse\b	id
+identity	hs	re:(?<![.\w])nub\b	id
+identity	hs	re:\bsortOn\s+\S+	id
+identity	hs	re:\bsortBy\s+\S+	id
+identity	hs	re:\bT\.strip\b	id
+identity	hs	re:\bT\.toLower\b	id
+identity	hs	re:\bT\.copy\b	id
+identity	js	re:\.trim\(\)
+identity	js	re:\.sort\([^()]*\)
+identity	js	re:\.toLowerCase\(\)
+identity	elm	re:\bList\.reverse\b	identity
+identity	elm	re:\bList\.sortBy\s+\S+	identity
+identity	elm	re:\bString\.trim\b	identity
+identity	elm	re:\bString\.toLower\b	identity

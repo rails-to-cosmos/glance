@@ -12,6 +12,18 @@ section groups a feature arc, and its date is that arc's last commit.
 ## Unreleased
 
 ### Added
+- **`make mutate` grades the suite.** One rewrite per mutant over one file —
+  ten rules across Haskell, JavaScript and Elm — run in a git worktree with its
+  own build dir at `-O0`, and a mutant the suite leaves green names an
+  assertion nobody wrote. `make mutate TARGET=path` is a sitting: the cold build
+  is paid once, `SAMPLE=N` draws N sites seeded by the target's own blob digest
+  so an unchanged file repeats its mutants and an edited one draws a different
+  set, and `make mutate-list TARGET=path` prices a target without building
+  anything. It reads the committed revision and never writes the working tree.
+  The report names each survivor with its rule, its before and its after, and
+  tallies killed / invalid / equivalent / survived with a mutation score. Out of
+  `cabal test` for `make elm-test`'s reason one size up: a check whose unit is
+  minutes lives behind its own target.
 - **`x` is dired's `dired-do-flagged-delete`,** on the table and on all four of
   the materialize sheet's flag surfaces. It takes the FLAGGED rows alone —
   never the row at point, which is what `D` does — and asks first, naming the

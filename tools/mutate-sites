@@ -1,0 +1,472 @@
+#!/usr/bin/env perl
+# THE SITE GENERATOR AND THE SUBSTITUTION, one file so the two cannot disagree
+# about what a site is.  A SITE IS A HALF-OPEN CHAR RANGE plus the bytes that
+# stand there and the bytes that replace them, which is the repo's own span
+# discipline read one layer out.
+#
+#   mutate-sites sites RULES FILE   -> one TSV row per site, on stdout
+#   mutate-sites apply FILE START END BEFORE AFTER
+#                                   -> in-place substitution, VERIFYING BEFORE
+#
+# The apply half re-reads BEFORE off the file and refuses when it differs, so a
+# stale site list can never write bytes nobody predicted.
+#
+# COMMENTS AND STRING LITERALS ARE MASKED before any rule is asked.  A rewrite
+# inside a comment is a survivor by construction and says nothing; the mask is
+# what keeps the report signal.  The masker is also the only reader that knows
+# where a string literal ENDS, which is why `zero' is its rule rather than a row.
+#
+# TSV row: start end line col rule context before after
+# BEFORE and AFTER are escaped (\\ \t \n \r), so a row is one line whatever it
+# carries.
+
+use strict;
+use warnings;
+
+sub usage {
+  die "usage: mutate-sites sites RULES FILE | mutate-sites apply FILE START END BEFORE AFTER\n";
+}
+
+sub slurp {
+  my ($path) = @_;
+  open my $fh, '<:raw', $path or die "mutate-sites: cannot read $path: $!\n";
+  local $/;
+  my $s = <$fh>;
+  close $fh;
+  return defined $s ? $s : '';
+}
+
+sub esc { my ($s) = @_; $s =~ s/\\/\\\\/g; $s =~ s/\t/\\t/g; $s =~ s/\n/\\n/g; $s =~ s/\r/\\r/g; $s }
+sub unesc {
+  my ($s) = @_;
+  my $out = '';
+  while ($s =~ /\G(\\\\|\\t|\\n|\\r|.)/gs) {
+    my $c = $1;
+    $out .= $c eq '\\\\' ? "\\" : $c eq '\\t' ? "\t" : $c eq '\\n' ? "\n" : $c eq '\\r' ? "\r" : $c;
+  }
+  return $out;
+}
+
+sub lang_of {
+  my ($path) = @_;
+  return 'hs'  if $path =~ /\.hs$/;
+  return 'elm' if $path =~ /\.elm$/;
+  return 'js'  if $path =~ /\.(?:js|mjs)$/;
+  die "mutate-sites: no rules for $path — .hs, .elm and .js are the languages\n";
+}
+
+# --- masking ---------------------------------------------------------------
+#
+# Answers CODE — the source with every comment and literal masked, newlines and
+# LENGTHS kept, so an offset into CODE is the same offset into the source — and
+# LITS, the string-literal ranges `zero' rewrites.
+
+# A COMMENT MASKS TO SPACE AND A LITERAL DOES NOT.  A literal is a TOKEN, and
+# spaces where one stood let a boundary regex cross it: masked to blanks,
+# `| x == "a" = e' reads as a guard ending at `==', and the negation goes out
+# half-written.  \x01 is non-space and non-word, so `\s+' and `\b' stop at it
+# exactly where the quote stood, and no rule can match inside one.
+sub blank_into {
+  my ($code, $src, $a, $b, $fill) = @_;
+  $fill = ' ' unless defined $fill;
+  for my $k ($a .. $b - 1) {
+    substr($$code, $k, 1) = $fill unless substr($src, $k, 1) eq "\n";
+  }
+}
+
+sub eat_string {           # a "…" literal, backslash-escaped, ended by the line
+  my ($src, $i, $n) = @_;
+  my $j = $i + 1;
+  while ($j < $n) {
+    my $d = substr($src, $j, 1);
+    last if $d eq '"' || $d eq "\n";
+    if ($d eq "\\") { $j += 2; next }
+    $j++;
+  }
+  $j++ if $j < $n && substr($src, $j, 1) eq '"';
+  return $j;
+}
+
+sub mask_haskellish {      # hs and elm: `--' to eol, nested {- -}, "…", '…'
+  my ($src, $elm) = @_;
+  my $code = $src;
+  my (@lits);
+  my $n = length $src;
+  my $i = 0;
+  while ($i < $n) {
+    my $c = substr($src, $i, 1);
+    if ($elm && substr($src, $i, 3) eq '"""') {
+      my $j = index($src, '"""', $i + 3);
+      $j = $j < 0 ? $n : $j + 3;
+      push @lits, [$i, $j];
+      blank_into(\$code, $src, $i, $j, "\x01"); $i = $j; next;
+    }
+    if ($c eq '"') {
+      my $j = eat_string($src, $i, $n);
+      push @lits, [$i, $j];
+      blank_into(\$code, $src, $i, $j, "\x01"); $i = $j; next;
+    }
+    # A `'' after an identifier character is a PRIME, which is a name's own byte.
+    if ($c eq "'" && ($i == 0 || substr($src, $i - 1, 1) !~ /[\w']/)
+        && substr($src, $i) =~ /\A'(?:\\.|[^\\'])'/) {
+      my $j = $i + length($&);
+      blank_into(\$code, $src, $i, $j, "\x01"); $i = $j; next;
+    }
+    if (substr($src, $i, 2) eq '{-') {
+      my ($depth, $j) = (1, $i + 2);
+      while ($j < $n && $depth > 0) {
+        if    (substr($src, $j, 2) eq '{-') { $depth++; $j += 2 }
+        elsif (substr($src, $j, 2) eq '-}') { $depth--; $j += 2 }
+        else                                { $j++ }
+      }
+      blank_into(\$code, $src, $i, $j); $i = $j; next;
+    }
+    # `--' opens a comment only where the operator run is all dashes: `-->' is
+    # an operator and `--|' is not a comment either.
+    if (substr($src, $i, 2) eq '--'
+        && ($i == 0 || substr($src, $i - 1, 1) !~ m{[-!#\$%&*+./<=>?\@\\^|~:]})) {
+      my ($j) = $i;
+      $j++ while $j < $n && substr($src, $j, 1) eq '-';
+      if ($j >= $n || substr($src, $j, 1) !~ m{[!#\$%&*+./<=>?\@\\^|~:]}) {
+        my $eol = index($src, "\n", $i);
+        $eol = $n if $eol < 0;
+        blank_into(\$code, $src, $i, $eol); $i = $eol; next;
+      }
+    }
+    $i++;
+  }
+  return ($code, \@lits);
+}
+
+sub mask_js {              # `//' to eol, /* */, '…' "…" `…`
+  my ($src) = @_;
+  my $code = $src;
+  my @lits;
+  my $n = length $src;
+  my $i = 0;
+  while ($i < $n) {
+    my $c = substr($src, $i, 1);
+    if (substr($src, $i, 2) eq '//') {
+      my $eol = index($src, "\n", $i); $eol = $n if $eol < 0;
+      blank_into(\$code, $src, $i, $eol); $i = $eol; next;
+    }
+    if (substr($src, $i, 2) eq '/*') {
+      my $j = index($src, '*/', $i + 2);
+      $j = $j < 0 ? $n : $j + 2;
+      blank_into(\$code, $src, $i, $j); $i = $j; next;
+    }
+    if ($c eq '"' || $c eq "'" || $c eq '`') {
+      my $j = $i + 1;
+      while ($j < $n) {
+        my $d = substr($src, $j, 1);
+        last if $d eq $c;
+        last if $d eq "\n" && $c ne '`';
+        if ($d eq "\\") { $j += 2; next }
+        $j++;
+      }
+      $j++ if $j < $n && substr($src, $j, 1) eq $c;
+      push @lits, [$i, $j];
+      blank_into(\$code, $src, $i, $j, "\x01"); $i = $j; next;
+    }
+    $i++;
+  }
+  return ($code, \@lits);
+}
+
+# --- context ---------------------------------------------------------------
+#
+# The name a reader needs to place a site: the nearest binding at column 1
+# above it.  Report chrome, never read back.
+
+sub contexts {
+  my ($code, $lang) = @_;
+  my @at;
+  my $pos = 0;
+  for my $line (split /(?<=\n)/, $code) {
+    my $name = '';
+    if ($lang eq 'js') {
+      $name = $1 if $line =~ /^\s*(?:async\s+)?function\s+(\w+)/
+                 || $line =~ /^\s*(?:const|let|var)\s+(\w+)\s*=/
+                 || $line =~ /^\s*(\w+)\s*[:(]/;
+    } else {
+      $name = $1 if $line =~ /^([a-z]\w*)\b/;
+    }
+    push @at, [$pos, $name] if $name ne '';
+    $pos += length $line;
+  }
+  return \@at;
+}
+
+sub context_at {
+  my ($at, $off) = @_;
+  my $name = '';
+  for my $e (@$at) { last if $e->[0] > $off; $name = $e->[1] }
+  return $name;
+}
+
+# --- the run ---------------------------------------------------------------
+
+my @SITES;
+my ($SRC, $CODE, $LITS, $LANG, $CTX);
+
+sub site {
+  my ($start, $end, $rule, $after) = @_;
+  my $before = substr($SRC, $start, $end - $start);
+  return if $before eq $after;
+  push @SITES, [$start, $end, $rule, $before, $after];
+}
+
+sub read_rules {
+  my ($path, $lang) = @_;
+  my @rows;
+  open my $fh, '<', $path or die "mutate-sites: cannot read $path: $!\n";
+  while (my $line = <$fh>) {
+    chomp $line;
+    next if $line =~ /^\s*(?:#|$)/;
+    my ($rule, $langs, $needle, $after) = split /\t/, $line, 4;
+    die "mutate-sites: malformed rule row: $line\n" unless defined $needle;
+    $after = '' unless defined $after;
+    next unless $langs eq '*' || grep { $_ eq $lang } split /,/, $langs;
+    push @rows, [$rule, $needle, $after];
+  }
+  close $fh;
+  return \@rows;
+}
+
+# An operator token is bounded by the LANGUAGE'S operator charset, which is the
+# lexer's own rule: `<' inside `<$>' is not the token `<'.
+my %OPCHARS = ( hs  => q{-!#\$%&*+./<=>?\@\\\\^|~:},
+                elm => q{-!#\$%&*+./<=>?\@\\\\^|~:},
+                js  => q{-!%&*+/<=>|^~?:=} );
+
+sub table_sites {
+  my ($rows) = @_;
+  my $op = $OPCHARS{$LANG};
+  for my $row (@$rows) {
+    my ($rule, $needle, $after) = @$row;
+    my $re;
+    if    ($needle =~ /^tok:(.*)$/s)  { my $t = quotemeta($1); $re = qr/(?<![$op])$t(?![$op])/ }
+    elsif ($needle =~ /^word:(.*)$/s) { my $t = quotemeta($1); $re = qr/\b$t\b/ }
+    elsif ($needle =~ /^re:(.*)$/s)   { $re = qr/$1/ }
+    else { die "mutate-sites: rule $rule: kind must be tok:, word: or re:\n" }
+    while ($CODE =~ /$re/g) { site($-[0], $+[0], $rule, $after) }
+  }
+}
+
+# `zero' — a literal loses what it says.  The STRING half is the masker's own
+# reading; the NUMERIC half is a regex over code, and a literal already zero is
+# no rewrite.
+sub zero_sites {
+  for my $lit (@$LITS) {
+    my ($a, $b) = @$lit;
+    next if $b - $a <= 2;
+    site($a, $b, 'zero', '""');
+  }
+  while ($CODE =~ /(?<![\w.])\d+(?:\.\d+)?(?![\w.])/g) {
+    my $lit = $&;
+    next if $lit =~ /^0(?:\.0+)?$/;
+    site($-[0], $+[0], 'zero', '0');
+  }
+}
+
+# `guard' — the condition is negated where it stands.  Haskell takes the guard
+# bar; the other two take `if'.  A guard carrying a comma, a pattern bind or a
+# `let' is a BINDING rather than a condition and is left alone.
+#
+# THE OFFSETS ARE THE MASK'S AND THE TEXT IS THE SOURCE'S: a condition read off
+# CODE would come back with its own string literals blanked to spaces.
+sub guard_sites {
+  if ($LANG eq 'hs') {
+    my $pos = 0;
+    for my $line (split /(?<=\n)/, $CODE) {
+      # The FIRST bar on the line, nothing barred ahead of it, so `||' is no
+      # opener and a guard trailing a case pattern is still one.
+      if ($line =~ /^([^|\n]*\|\s+)(?!otherwise\b)(\S.*?)(\s+(?:=|->)(?:\s|$))/) {
+        my ($a, $b) = ($pos + $-[2], $pos + $+[2]);
+        my $cond = substr($SRC, $a, $b - $a);
+        site($a, $b, 'guard', "not ($cond)") unless $2 =~ /,|<-|\blet\b/;
+      }
+      $pos += length $line;
+    }
+  } elsif ($LANG eq 'elm') {
+    while ($CODE =~ /\bif\b[ \t]+(\S[^\n]*?)[ \t]+\bthen\b/g) {
+      my ($a, $b) = ($-[1], $+[1]);
+      site($a, $b, 'guard', 'not (' . substr($SRC, $a, $b - $a) . ')');
+    }
+  } else {
+    my $n = length $CODE;
+    while ($CODE =~ /\bif\s*\(/g) {
+      my ($open, $depth) = ($+[0] - 1, 0);
+      my $j = $open;
+      while ($j < $n) {
+        my $c = substr($CODE, $j, 1);
+        $depth++ if $c eq '(';
+        $depth-- if $c eq ')';
+        last if $depth == 0 && $c eq ')';
+        $j++;
+      }
+      next if $j >= $n;
+      my $cond = substr($SRC, $open + 1, $j - $open - 1);
+      site($open + 1, $j, 'guard', "!($cond)");
+    }
+  }
+}
+
+# `arms' — two adjacent single-line alternatives exchanged, so the FIRST match
+# wins somewhere else.  Both lines must sit at one indentation and neither may
+# carry a signature's own arrow.
+#
+# TWO REFUSALS, and each names a class the exchange says NOTHING about, both
+# measured on src/Data/Org/Trash.hs:
+#
+#   DISJOINT CONSTRUCTORS ARE EQUIVALENT BY CONSTRUCTION.  `Left'/`Right' and
+#   `Dir'/`Regular' match no value in common, so their order is not a fact and
+#   the swap is a rewrite with no observable difference at all.  Order is a fact
+#   where the patterns OVERLAP — a catch-all, a guard, a literal — which is
+#   where this rule is left pointing.
+#
+#   A LAYOUT-OPENING RHS IS INVALID BY CONSTRUCTION.  `Just d -> do' owns the
+#   indented block under it; carry the line up and the block belongs to the arm
+#   above, which is a parse error every time.
+sub arms_sites {
+  return if $LANG eq 'js';   # an if/else exchange is a block move, not a line one
+  my @lines;
+  my $pos = 0;
+  for my $line (split /(?<=\n)/, $CODE) { push @lines, [$pos, $line]; $pos += length $line }
+  for my $k (0 .. $#lines - 1) {
+    my ($p1, $l1) = @{$lines[$k]};
+    my ($p2, $l2) = @{$lines[$k + 1]};
+    next unless $l1 =~ /^(\s+)(\S.*?)\s->\s(\S.*)\n$/;
+    my ($indent, $pat1, $rhs1) = ($1, $2, $3);
+    next unless $l2 =~ /^\Q$indent\E(\S.*?)\s->\s(\S.*)\n$/;
+    my ($pat2, $rhs2) = ($1, $2);
+    next if $l1 =~ /::|\\\s/ || $l2 =~ /::|\\\s/;
+    next if "$rhs1$rhs2" =~ /\b(?:do|of|where|let)\s*$/m;
+    next if $pat1 !~ /\|/ && $pat2 !~ /\|/
+         && $pat1 =~ /^([A-Z]\w*)\b/ && $pat2 =~ /^([A-Z]\w*)\b/
+         && substr($pat1, 0, index("$pat1 ", ' ')) ne substr($pat2, 0, index("$pat2 ", ' '));
+    my ($r1, $r2) = (substr($SRC, $p1, length $l1), substr($SRC, $p2, length $l2));
+    site($p1, $p2 + length $l2, 'arms', $r2 . $r1);
+  }
+}
+
+# `body' — a whole binding replaced by its result type's zero.  The coarsest
+# rule and the most informative: a survivor names a function nothing depends on
+# the answer of.  Haskell alone, since it is the signature that says the zero.
+my %ZERO = ( 'Bool' => 'False', 'Int' => '0', 'Integer' => '0', 'Double' => '0',
+             'Text' => 'mempty', 'String' => 'mempty', 'FilePath' => 'mempty' );
+
+sub result_zero {
+  my ($ty) = @_;
+  $ty =~ s/^\s+|\s+$//g;
+  return '[]'      if $ty =~ /^\[/;
+  return 'Nothing' if $ty =~ /^Maybe\b/;
+  return 'mempty'  if $ty =~ /^(?:Set|Map)\b/;
+  return $ZERO{$ty};
+}
+
+sub split_top {            # split TEXT on `->' at bracket depth 0
+  my ($text) = @_;
+  my @parts;
+  my $depth = 0;
+  my $last  = 0;
+  for (my $i = 0; $i < length $text; $i++) {
+    my $c = substr($text, $i, 1);
+    $depth++ if $c eq '(' || $c eq '[';
+    $depth-- if $c eq ')' || $c eq ']';
+    if ($depth == 0 && substr($text, $i, 2) eq '->') {
+      push @parts, substr($text, $last, $i - $last);
+      $i++; $last = $i + 1;
+    }
+  }
+  push @parts, substr($text, $last);
+  return @parts;
+}
+
+sub body_sites {
+  return unless $LANG eq 'hs';
+  my @lines;
+  my $pos = 0;
+  for my $line (split /(?<=\n)/, $CODE) { push @lines, [$pos, $line]; $pos += length $line }
+  for my $k (0 .. $#lines) {
+    my ($sigpos, $sig) = @{$lines[$k]};
+    next unless $sig =~ /^([a-z]\w*)\s*::/;
+    my $name = $1;
+    # The signature runs to the next line opening at column 1.
+    my $text = $sig;
+    my $j = $k + 1;
+    $j++, $text .= $lines[$j - 1][1] while $j <= $#lines && $lines[$j][1] =~ /^\s/;
+    $text =~ s/^[a-z]\w*\s*:://;
+    $text =~ s/\bforall\b[^.]*\.//;
+    $text = $1 if $text =~ /^.*=>(.*)$/s;   # the LAST context, so the args start after it
+    my @parts = split_top($text);
+    my $zero = result_zero(pop @parts);
+    next unless defined $zero;
+    my $arity = scalar @parts;
+    # The equations: from the first line opening with the name to the last line
+    # before the next column-1 opener.
+    my $first = $j;
+    $first++ while $first <= $#lines && $lines[$first][1] !~ /^\Q$name\E(?![\w'])/;
+    next if $first > $#lines;
+    # EVERY EQUATION, not the first: a gutted head with the rest left standing
+    # would leave the others as dead alternatives and the mutant unreadable.
+    my $end = $first + 1;
+    $end++ while $end <= $#lines
+              && $lines[$end][1] =~ /^(?:\s|$)|^\Q$name\E(?![\w'])/;
+    $end-- while $end - 1 > $first && $lines[$end - 1][1] =~ /^\s*$/;
+    my $start = $lines[$first][0];
+    my $stop  = $end > $#lines ? length($SRC) : $lines[$end][0];
+    my $args  = $arity ? ' ' . join(' ', ('_') x $arity) : '';
+    site($start, $stop, 'body', "$name$args = $zero\n");
+  }
+}
+
+sub cmd_sites {
+  my ($rules, $file) = @_;
+  usage() unless defined $file;
+  $LANG = lang_of($file);
+  $SRC  = slurp($file);
+  ($CODE, $LITS) = $LANG eq 'js' ? mask_js($SRC) : mask_haskellish($SRC, $LANG eq 'elm');
+  $CTX  = contexts($CODE, $LANG);
+  table_sites(read_rules($rules, $LANG));
+  zero_sites();
+  guard_sites();
+  arms_sites();
+  body_sites();
+
+  # Line and column off the offsets, one pass, so a site carries where a reader
+  # would look for it.
+  my @starts = (0);
+  while ($SRC =~ /\n/g) { push @starts, $+[0] }
+  my %seen;
+  for my $s (sort { $a->[0] <=> $b->[0] || $a->[2] cmp $b->[2] || $a->[4] cmp $b->[4] } @SITES) {
+    my ($start, $end, $rule, $before, $after) = @$s;
+    next if $seen{"$start:$end:$rule:$after"}++;
+    my ($lo, $hi) = (0, $#starts);
+    while ($lo < $hi) { my $mid = int(($lo + $hi + 1) / 2); $starts[$mid] <= $start ? ($lo = $mid) : ($hi = $mid - 1) }
+    printf "%d\t%d\t%d\t%d\t%s\t%s\t%s\t%s\n",
+      $start, $end, $lo + 1, $start - $starts[$lo] + 1, $rule,
+      context_at($CTX, $start), esc($before), esc($after);
+  }
+}
+
+sub cmd_apply {
+  my ($file, $start, $end, $before, $after) = @_;
+  usage() unless defined $after;
+  $before = unesc($before);
+  $after  = unesc($after);
+  my $src = slurp($file);
+  my $here = substr($src, $start, $end - $start);
+  die "mutate-sites: $file:$start expected <$before>, found <$here>\n" unless $here eq $before;
+  substr($src, $start, $end - $start) = $after;
+  open my $fh, '>:raw', $file or die "mutate-sites: cannot write $file: $!\n";
+  print $fh $src;
+  close $fh;
+}
+
+# THE DISPATCH IS LAST: perl runs a file-scope `my' assignment in order, so a
+# call from the top would ask the rule tables before they exist.
+my $mode = shift // usage();
+if    ($mode eq 'sites') { cmd_sites(@ARGV) }
+elsif ($mode eq 'apply') { cmd_apply(@ARGV) }
+else                     { usage() }

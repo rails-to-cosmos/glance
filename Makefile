@@ -1,4 +1,4 @@
-.PHONY: test native elm elm-test browser browser-path sync-renderer run run-native run-wasm wasm-spike check-glue
+.PHONY: test native elm elm-test browser browser-path sync-renderer run run-native run-wasm wasm-spike check-glue mutate mutate-list mutate-clean
 
 # The run targets' knobs: .env carries them (committed, edit to taste), and
 # the ?= pair means a missing .env still runs against the defaults.
@@ -37,6 +37,37 @@ elm-test:
 	@if command -v npx >/dev/null 2>&1; then \
 	  cd assets/elm && npx --yes -p elm -p elm-test elm-test; \
 	else echo "elm-test: no npx on PATH -- skipped"; fi
+
+# THE SUITE'S OWN GRADE (docs/proposal-mutation-runner.md).  One rewrite per
+# mutant over one file, in a git worktree with its own --builddir at -O0; a
+# mutant the suite leaves green names an assertion nobody wrote.  OUT of
+# `cabal test' for `elm-test's reason one size up: a check whose unit is MINUTES
+# lives behind its own target.  ~30 s a Haskell mutant, ~3 s an Elm one, so a
+# 40-mutant sitting is ~20 min.
+#
+# ONE TARGET PER INVOCATION -- the cold build is paid once, so a target is a
+# sitting.  SAMPLE=0 takes every site; SAMPLE=N draws N seeded by the target's
+# own blob digest, so an unchanged file repeats its mutants and an EDITED one
+# draws a different set.  It reads the COMMITTED revision (REV=, default HEAD)
+# and never writes the working tree.
+#
+#   make mutate TARGET=src/Data/Org/Edit.hs
+#   make mutate TARGET=assets/elm/src/Scan.elm SAMPLE=0
+#   make mutate-list TARGET=src-web/Glance/Web/Filter.hs
+mutate:
+	@tools/mutate TARGET=$(TARGET) $(if $(SAMPLE),SAMPLE=$(SAMPLE),) $(if $(REV),REV=$(REV),) $(if $(KEEP),KEEP=$(KEEP),)
+
+# The sites alone -- no worktree kept, no build, no suite.  What a target costs
+# before spending the sitting on it.
+mutate-list:
+	@tools/mutate TARGET=$(TARGET) LIST=1 $(if $(SAMPLE),SAMPLE=$(SAMPLE),)
+
+# `KEEP=1' leaves the worktree and its build dir warm for the next sitting;
+# this is how they go.
+mutate-clean:
+	@rm -rf $(if $(SCRATCH),$(SCRATCH),$${TMPDIR:-/tmp}/glance-mutate)
+	@git worktree prune
+	@echo "mutate-clean: scratch removed"
 
 # THE BROWSER THIS PROJECT MEASURES GEOMETRY WITH.  Installed by playwright as
 # a pure DOWNLOADER -- no import, no `node_modules', no lockfile, the same

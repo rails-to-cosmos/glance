@@ -1,6 +1,6 @@
 # Proposal — mutation testing as a scripted step
 
-**Status:** proposed · **Date:** 2026-08-11 · **Origin:** user, after a session
+**Status:** DELIVERED 2026-08-11 · **Date:** 2026-08-11 · **Origin:** user, after a session
 where ~10 hand-run mutations over a green 1781-case suite found two real holes,
 and four bugs shipped past that same green suite because nobody thought to
 mutate the thing they lived in.
@@ -284,3 +284,105 @@ mode is under 15 min, which is a figure someone will actually run.
 4. Whether the rule table lives in the runner or in a data file the runner reads.
    ORDER IS DATA is already the house answer for `gluePartFiles`; the same
    argument applies here and costs one file.
+
+---
+
+## Delivered — 2026-08-11
+
+`tools/mutate` (the driver), `tools/mutate-sites` (the site generator and the
+verified substitution), `tools/mutate.rules` (the table, as data — open decision
+4 resolved that way), `tools/mutate.allow` (empty), `make mutate` /
+`make mutate-list` / `make mutate-clean`. 842 lines in `tools/` plus 31 of
+`Makefile`, none of them shipped — against the estimate of ≈230, and the
+overrun is one thing: the estimate budgeted a `perl -0pi` substitution and the
+runner needs a LEXER. Masking, the four structural rules and the site model
+that carries them are ~450 of the 842; the driver is 296 and the table is 63,
+which is roughly what was costed.
+
+### What was built against what was proposed
+
+- **Isolation** as specified: `git worktree add --detach` at REV plus its own
+  `--builddir`, `--disable-optimization` rather than `--ghc-options=-O0` so no
+  flag-order argument decides the level. The runner mutates the COMMITTED
+  revision and never reads or writes the working tree.
+- **Classification** is BUILD-then-TEST as two commands, which is what tells
+  INVALID from KILLED without grepping GHC's output for the difference. A
+  timeout is a kill, at 3x the measured WARM suite wall.
+- **Sampling** seeded by the target's blob digest, as proposed.
+- **Masking**, which the proposal does not mention and the runner cannot work
+  without: comments and literals are blanked before any rule is asked, or every
+  Haddock paragraph is a survivor. A LITERAL masks to `\x01` rather than to
+  space — masked to blanks, `| x == "a" = e` reads as a guard ending at `==`
+  and the negation goes out half-written. That bug was live and the first Elm
+  run found it as a pile of INVALIDs.
+- **Ten rules, six delivered as data and three as code.** `arms` is Haskell and
+  Elm (a JS if/else exchange is a block move, not a line one); `body` is
+  Haskell alone, since it is the type signature that names the zero. `body` for
+  Elm and `arms` for JS are the honest gap.
+- **`DIFF=1` is NOT built.** One target per invocation is; the diff-scoped mode
+  is not.
+- **"Groups that touch it" is NOT built.** The report names the site, the rule,
+  the before and the after; which test groups executed the line needs coverage
+  instrumentation and is a different tool.
+
+### The first runs, measured
+
+| target | sites | mutants | killed | invalid | survived | score | wall |
+|---|---|---|---|---|---|---|---|
+| `assets/elm/src/Scan.elm` | 230 | 230 (all) | 167 | 0 | 63 | **72%** | 23 min |
+| `src/Data/Org/Trash.hs` | 13 | 13 (all) | 12 | 0 | 1 | **92%** | 16 min |
+
+Cost per mutant: 2–5 s Elm, 60–90 s Haskell under a competing build (the
+proposal measured 22–33 s uncontended). Cold build once per invocation: 152 s,
+against the proposal's 1:53.6.
+
+`arms` WAS THE INSTRUMENT'S OWN DEFECT, and the first Trash run is what found
+it. Swapping two case alternatives whose patterns are DISJOINT CONSTRUCTORS
+(`Left`/`Right`, `Dir`/`Regular`) is a rewrite with no observable difference at
+all — 2 of that run's 3 survivors and 2 of its 2 invalids were that one class.
+The rule now refuses a distinct-constructor pair and a layout-opening RHS, and
+what it is left pointing at is the case where order IS a fact: a catch-all, a
+guard, a literal. Trash.hs went 17 sites to 13, 2 invalid to 0, and 80% to 92%
+with no test touched — the run BEFORE the fix is the evidence the fix is right,
+which is a measuring instrument measured by its own first reading.
+
+### What the runs found
+
+`src/Data/Org/Trash.hs`, ONE survivor over the four exported functions, and
+seven tests kill everything else — the highest consequence-per-test ratio in
+the repo is also its best-asserted file:
+
+- `:77` `zero` — the refusal message for a trash destination that already
+  exists reads back as `""`. The refusal itself is asserted; the WORDING is not,
+  and it is what a `/command` 400 body says. `test/TestExternal.hs`'s
+  second-deletion case should read the message.
+
+`assets/elm/src/Scan.elm`, 63 survivors in four clusters:
+
+- **`String.trim` → `identity` in `closes` (:191) and `isBlank` (:201).** No
+  case has a `#+end_x` line with trailing whitespace, and none has a
+  whitespace-only line standing in for a blank one. Org treats both as what
+  they look like, and `ScanTest.elm` pins "a block closing by NAME" and "org's
+  one-blank-line rule" without either. TWO CASES CLOSE BOTH.
+- **`bodyText`'s splice (:565, :572).** `List.reverse` → `identity` survives,
+  so no case deletes or edits TWO paragraphs at once — and the reverse is the
+  whole reason a splice does not shift the next one's indices. The `spare`
+  boundary (`r.to < List.length out - 1`) survives four ways, so deleting the
+  LAST paragraph, whose blank line is the file's own last, is untested. This is
+  the rule the proposal picked the target for.
+- **`numberedAt` (:143–145) and `listOpener`'s bare bullets (:98–103).** `"."`,
+  `")"` and the `||` between them all survive: nothing tests `1)` numbering.
+  Nothing tests a bullet with no text after it either.
+- **The reading tail, `placeOf`/`shown`/`cellCount`/`kidsOf`/`kindWord`
+  (:806–846), 12 survivors and no assertion between them.** `ScanTest.elm` asks
+  the scanner and the splice; these answer the echo's words and the pane's cell
+  counts, and the Haskell harness reaches them only through what the pane draws.
+
+### Open decision 1 stays open
+
+Does a survivor block, or does it join the backlog? Nothing here gates: the
+runner is out of `cabal test`, `make mutate` is run by hand, and its exit code
+is 0 with survivors standing (it fails only on a red baseline, a worktree that
+did not revert, and 0 killed). The 64 survivors above are a backlog entry next
+to `docs/invariants.md`'s `**none**` rows, which is the cheaper of the two arms
+and the one this delivery took by default rather than by argument.

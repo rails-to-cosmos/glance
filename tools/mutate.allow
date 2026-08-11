@@ -1,0 +1,11 @@
+# KNOWN-EQUIVALENT SITES, one per line, and each one is a claim a human made.
+#
+# TSV: file <TAB> line <TAB> rule <TAB> digest — DIGEST is the target's blob
+# digest at the revision the claim was made against, first 12 chars, which is
+# what makes an entry EXPIRE: edit the file and the digest moves, so the entry
+# stops silencing a line that has since changed and the survivor is reported
+# again.  `tools/mutate' prints the exact rows to paste under every survivor.
+#
+# EQUIVALENT IS NOT SURVIVED.  A survivor is a claim about the SUITE; an
+# equivalent mutant is a rewrite with no observable difference at all, so it is
+# counted apart and left out of the score.  Putting a real hole here hides it.
