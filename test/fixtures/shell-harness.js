@@ -2242,7 +2242,7 @@ const settle = async () => {
     dparaopen: field("dpara").className === "on",
     // How many lines tall the box has grown to, which is a NUMBER the shell
     // writes and the stylesheet does the arithmetic on.
-    dprows: field("dpara").style.getPropertyValue("--g-doc-rows"),
+    dprows: field("mdoc").style.getPropertyValue("--g-doc-rows"),
     dtin: field("dtin").value,
     dtext: field("dtext").value,
     // The sheet's crumb strip: one entry per step of the descent, the LAST

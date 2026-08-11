@@ -136,6 +136,15 @@ page head' colours title body = T.unlines
   , "    padding:1px var(--g-doc-pad);border-radius:4px;white-space:pre-wrap;"
   , "    overflow-wrap:anywhere}"
   , "  #mdoc.on .de.dat{background:var(--g-sel);color:var(--g-fg)}"
+      -- AN EDIT IS INLINE, and this is the whole of what makes it so: the BLOCK
+      -- at point stands as tall as what is being typed into it, so the lines
+      -- under it MOVE DOWN rather than being covered.  `placeEdit' then sizes
+      -- the box off the block as it always has.  One line when nothing is open,
+      -- so the rule costs a cursor row nothing.  The 2px is the textarea's own
+      -- vertical padding, and the metrics are the FIELD's, whose text has to
+      -- fit inside what this reserves.
+  , "  .de.dat{min-height:calc(var(--g-doc-rows, 1) * var(--g-edit-fs)"
+  , "    * var(--g-edit-lh) + 2px)}"
   -- A FLAG IS DRESSED THE WAY THE TABLE DRESSES ONE, being the same gesture
   -- over the same queue: `--g-bad' IS `--tv-flag', `--g-flag-wash' the strength
   -- its themes measured, and the INSET EDGE its second channel.  The background
@@ -175,14 +184,7 @@ page head' colours title body = T.unlines
   , "  #chues{position:relative}"
   , "  #cstates{overflow:auto;max-height:40vh}"
       -- `left:0' is the PADDING box, so these read the pane's own inset.
-      -- AND IT GROWS WITH WHAT IS TYPED.  `placeEdit' sizes the box to the
-      -- BLOCK it covers, which for a paragraph being added is one line; the
-      -- shell writes the line count as a NUMBER and the arithmetic is here,
-      -- so a page whose glue never ran still opens at one line.  The 2px is
-      -- the textarea's own vertical padding.
-  , "  #dpara{left:var(--g-doc-padx);right:var(--g-doc-padx);"
-  , "    min-height:calc(var(--g-doc-rows, 1) * var(--g-edit-fs) * var(--g-edit-lh)"
-  , "      + 2px)}"
+  , "  #dpara{left:var(--g-doc-padx);right:var(--g-doc-padx)}"
   , "  #dtitle.on,#pedit.on,#sedit.on,#tedit.on,#ledit.on{display:flex;align-items:center}"
   , "  #dpara.on{display:flex}"
   , "  #pedit input,#sedit input,#tedit input,#ledit input,#dpara textarea{"

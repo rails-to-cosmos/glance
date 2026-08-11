@@ -263,6 +263,8 @@
       el(edit.o.box).className = "";
       for (const id of edit.o.fields) el(id).blur();
       edit = null;
+      // The block goes back to its own height, the edit that grew it being over.
+      sizeDocEdit();
     }
     const cancelEdit = (what, ...shapes) => {
       for (const o of shapes) shutEdit(o);
@@ -349,14 +351,18 @@
     const docHolds = () => editing !== null;
     const paraBinding = docBinding("org-ctrl-c-ctrl-c", "RET");
     const quitBinding = docBinding("quit-window", "q");
-    // AT MOST N LINES.  The box is sized to the BLOCK it covers, which for a
-    // paragraph being added is one line, so what is TYPED has to grow it — a
-    // reader writing three lines must see three.  The cap keeps the document
-    // under it readable; the arithmetic is the stylesheet's, which is handed a
-    // NUMBER, so a page whose glue never ran still opens at one line.
+    // AT MOST N LINES, AND THE BLOCK IS WHAT GROWS.  The box has never had a
+    // size of its own — `placeEdit' takes the block's — so what is TYPED grows
+    // the BLOCK and the box follows, which is what makes an edit read as inline
+    // rather than as something laid over the document: the lines under it move
+    // down instead of being covered.  The number goes on the PANE and the row
+    // at point reads it, one property inherited by both; the arithmetic is the
+    // stylesheet's, so a page whose glue never ran still stands one line tall.
     const DOCROWS = 10;   // the knob, and the only place the cap is spelled
-    const sizeDocEdit = () => el("dpara").style.setProperty("--g-doc-rows",
-      String(Math.max(1, Math.min(DOCROWS, el("dtext").value.split("\n").length))));
+    const sizeDocEdit = () => el("mdoc").style.setProperty("--g-doc-rows",
+      String(dparaing()
+        ? Math.max(1, Math.min(DOCROWS, el("dtext").value.split("\n").length))
+        : 1));
     /** Put a newline in at the caret, which is what the key would have done. */
     function newlineIn(id) {
       const box = el(id), at = box.selectionStart, to = box.selectionEnd;

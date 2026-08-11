@@ -1806,16 +1806,20 @@ measurements and the history of superseded designs live in
   white) and accent `#4CB5F5` → `#31769F` (2.3:1 → 5.0:1), the hue held — muted
   text is read and a focus frame is looked for. The sheet keeps exactly one
   variable of its own, `--dk-mono` (Hack first).
-- AN EDIT BOX IS THE BLOCK IT COVERS, and grows past it only for what is TYPED.
-  `placeEdit` sizes it to the block, which for a paragraph being ADDED is one
-  line, so the shell writes the typed line count onto `#dpara` as a NUMBER
-  (`--g-doc-rows`) and the stylesheet holds the arithmetic off `--g-edit-fs`/
-  `--g-edit-lh` — the metrics the field itself reads, so neither restates the
-  other. The CAP is `DOCROWS`, spelled in the shell and nowhere else, since what
-  is written is already capped; ten, so the document under it stays readable.
-  Three doors change the text and each re-sizes: the fill, `S-RET`'s splice at
-  the caret, and the field's own `input`. A page whose glue never ran opens at
-  one line.
+- AN EDIT BOX IS THE BLOCK IT COVERS and has no size of its own, so AN EDIT IS
+  INLINE: what grows with the typing is the BLOCK at point, and the lines under
+  it move down rather than being covered. The shell writes the typed line count
+  onto `#mdoc` as a NUMBER (`--g-doc-rows`, inherited by the rows and the box
+  alike, both being its children) and `.de.dat` takes its floor from it; the
+  arithmetic is the stylesheet's, off the `--g-edit-fs`/`--g-edit-lh` the FIELD
+  reads as its own font, so neither restates the other and the text always fits
+  what the block reserved. `placeEdit` then sizes the box off the block as it
+  always has. The CAP is `DOCROWS`, spelled in the shell and nowhere else, since
+  what is written is already capped; ten, so the document under it stays
+  readable. FOUR doors move it: the fill, `S-RET`'s splice at the caret, the
+  field's own `input`, and `shutEdit` — which gives the room back, a number left
+  standing holding a document open around an edit that is over. A page whose
+  glue never ran stands one line tall.
 - `DEL` IN THE TABLE IS A LADDER, and the rhyme is the backspace's: ERASE THE
   LAST STRUCTURE STANDING. A MARKED SET is one, so while marks exist `DEL` clears
   them and stops — the MARKS alone, since a flag is the archive queue and a

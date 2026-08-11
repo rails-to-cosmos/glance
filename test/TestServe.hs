@@ -3485,6 +3485,13 @@ sheetSpec shell =
       -- growth exists for: the block is one line whatever is written.
       insheet "press:n press:+ dpara:one|two|three|four" $
         assertEqual "an added paragraph grows the same way" "4" <=< textAt "dprows"
+      -- AND THE BLOCK GIVES THE ROOM BACK.  What grows is the block at point,
+      -- so a number left standing would hold a document open around an edit
+      -- that is over.
+      insheet "press:n press:Enter dpara:one|two|three press:Escape" $
+        assertEqual "one line again once the edit is gone" "1" <=< textAt "dprows"
+      insheet "press:n press:Enter dpara:one|two|three press:Enter" $
+        assertEqual "and a commit gives it back too" "1" <=< textAt "dprows"
 
   , testCase "RET opens a paragraph as text, and C-x C-s writes it" $ do
       insheet "press:n press:Enter" $ \answer -> do
@@ -5857,9 +5864,9 @@ editIndentSweep shell = testCase "the paragraph's edit box is the block it cover
              ("padding:1px var(--g-doc-pad)" `T.isInfixOf` box)
   assertBool ("the box takes the block's wrap: " <> T.unpack box)
              ("overflow-wrap:anywhere" `T.isInfixOf` box)
-  -- And nothing of its own that would move the text or draw a line.  A FIXED
-  -- floor included: `placeEdit' sizes the box off the block, and the one floor
-  -- it may have is the DERIVED one below.
+  -- And nothing of its own that would move the text or draw a line — a floor of
+  -- its own included, since `placeEdit' sizes the box off the block and the
+  -- BLOCK is what an edit grows.
   mapM_ (\decl -> assertBool ("the box declares " <> T.unpack decl <> ": " <> T.unpack box)
                              (decl `T.isInfixOf` box))
         ["width:100%", "margin:0", "border:none", "resize:none"]
@@ -5873,18 +5880,19 @@ editIndentSweep shell = testCase "the paragraph's edit box is the block it cover
   -- scroll offset back out of the vertical.  A bare delta put the box 10px left
   -- and 1px high over `#mdoc', and walked it further on every scroll.
   span' <- need "the paragraph overlay's span" (between "  #dpara{" "}" page)
-  assertBool "the paragraph overlay spans the pane's content box"
-             ("left:var(--g-doc-padx);right:var(--g-doc-padx)" `T.isInfixOf` span')
-  -- AND IT GROWS WITH WHAT IS TYPED, the one thing it may stand taller than the
-  -- block for: `placeEdit' sizes it to the block, and a paragraph being ADDED
-  -- covers ONE line while the reader writes ten.  The floor is DERIVED from a
+  assertEqual "the paragraph overlay spans the pane's content box"
+              "left:var(--g-doc-padx);right:var(--g-doc-padx)" span'
+  -- AND THE EDIT IS INLINE: what grows with the typing is the BLOCK, so the
+  -- lines under it move down rather than being covered, and the box is still
+  -- the block's size and nothing of its own.  The floor is DERIVED from a
   -- number the shell writes — the cap is spelled in the shell and nowhere else
   -- — and the metrics are READ rather than restated, so a page whose glue never
-  -- ran still opens the box at one line.
-  assertBool ("the box's floor is the line count it was handed: " <> T.unpack span')
-             ("min-height:calc(var(--g-doc-rows, 1)" `T.isInfixOf` span')
+  -- ran still stands one line tall.
+  block <- need "the block's floor" (between "  .de.dat{" "}" page)
+  assertBool ("the block's floor is the line count it was handed: " <> T.unpack block)
+             ("min-height:calc(var(--g-doc-rows, 1)" `T.isInfixOf` block)
   assertEqual "a metric the floor restates instead of reading" []
-              [ n | n <- ["13px", "1.5 "], n `T.isInfixOf` span' ]
+              [ n | n <- ["13px", "1.5 "], n `T.isInfixOf` block ]
   assertBool "the pane's inset is one name, read by both"
              ("padding:var(--g-doc-pady) var(--g-doc-padx)" `T.isInfixOf` page)
   assertBool "the placement takes the pane's border and scroll back out"
