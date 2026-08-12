@@ -1,4 +1,4 @@
-.PHONY: test native elm elm-test browser browser-path browser-check sync-renderer run run-native run-wasm wasm-spike check-glue mutate mutate-list mutate-clean
+.PHONY: test native elm elm-test browser browser-path browser-check interop sync-renderer run run-native run-wasm wasm-spike check-glue mutate mutate-list mutate-clean
 
 # The run targets' knobs: .env carries them (committed, edit to taste), and
 # the ?= pair means a missing .env still runs against the defaults.
@@ -114,6 +114,53 @@ browser-check:
 	cabal build -v0 exe:glance && \
 	CHROME="$$bin" GLANCE_BIN="$$(cabal list-bin -v0 exe:glance)" \
 	  ONLY="$(ONLY)" BREAK="$(BREAK)" KEEP="$(KEEP)" node test/browser/drive.mjs
+
+# THE ONE CHECK THAT RUNS THE PEER (docs/proposal-interop-check.done.md), and it
+# is OUT of `cabal test' for `browser-check's reason: it needs Emacs, a sibling
+# org-glance checkout with its dependencies installed, and a daemon over a temp
+# store.  The Haskell suite stays offline and stays the contract; what this
+# target asks is the one thing neither suite can — that the bytes one program
+# writes are the bytes the other reads.
+#
+# IT SKIPS LOUDLY, the idiom `elm-test' and `browser-check' already use: a check
+# that passes having asserted nothing is the failure mode this repo names, so a
+# machine with no node, no Emacs or no peer says WHICH and exits 0.
+#
+# HOST EMACS IS THE DEFAULT because the peer is a sibling checkout like
+# ../table-view and a run costs ~20 s; `EMACS_RUN=podman' is the pinned path,
+# building org-glance's OWN Containerfile through its OWN podman-build target
+# rather than a second image described here.
+#
+#   make interop                       every case, host Emacs
+#   make interop EMACS_RUN=podman      the same, on the pinned Emacs
+#   make interop BREAK=no-put          one harness step removed, to WATCH the
+#                                      case for it go red
+OG_HOME ?= $(CURDIR)/../org-glance
+OG_EMACS_VERSION ?= 29.1
+
+# ONE RECIPE LINE, because make gives each line its own shell and a skip has to
+# end the TARGET rather than the line it was decided on.
+interop:
+	@command -v node >/dev/null 2>&1 \
+	  || { echo "interop: no node on PATH -- SKIPPED"; exit 0; }; \
+	test -d "$(OG_HOME)/src/data" \
+	  || { echo "interop: no org-glance checkout at $(OG_HOME) -- SKIPPED (set OG_HOME=)"; exit 0; }; \
+	ls -d $(OG_HOME)/.eask/*/elpa >/dev/null 2>&1 \
+	  || { echo "interop: no dependencies under $(OG_HOME)/.eask -- SKIPPED (run \`eask install-deps' there)"; exit 0; }; \
+	if [ "$(EMACS_RUN)" = "podman" ]; then \
+	  command -v podman >/dev/null 2>&1 \
+	    || { echo "interop: no podman on PATH -- SKIPPED"; exit 0; }; \
+	  $(MAKE) -C "$(OG_HOME)" podman-build EMACS_VERSION=$(OG_EMACS_VERSION) \
+	    || { echo "interop: org-glance's own podman-build failed -- its image, its target"; exit 1; }; \
+	else \
+	  command -v emacs >/dev/null 2>&1 \
+	    || { echo "interop: no emacs on PATH -- SKIPPED"; exit 0; }; \
+	fi; \
+	cabal build -v0 exe:glance && \
+	GLANCE_BIN="$$(cabal list-bin -v0 exe:glance)" \
+	  OG_HOME="$(OG_HOME)" EMACS_RUN="$(EMACS_RUN)" \
+	  OG_IMAGE="org-glance-test:emacs-$(OG_EMACS_VERSION)" \
+	  BREAK="$(BREAK)" KEEP="$(KEEP)" node test/interop/drive.mjs
 
 sync-renderer:
 	@if [ ! -f "$(RENDERER)" ]; then \

@@ -231,6 +231,41 @@ measurements and the history of superseded designs live in
   stderr. A green run without those lines is unverified on the corpus half. A
   variable naming a missing directory fails loudly, as does a run that samples
   nothing.
+- THE PEER IS RUN, and `make interop` is the only check that runs it
+  (docs/proposal-interop-check.done.md). Each side pins the EXTERNAL.jsonl
+  format twice, independently and by hand — a golden string here,
+  `test-external.el`'s hand-spelled `format` there — so renaming a field leaves
+  BOTH suites green. This target feeds one to the other: `test/interop/og.el`
+  is org-glance's LIVE `src/` under `emacs -Q -batch` (never `.eask/elpa`'s
+  installed copy, `load-prefer-newer` on), `test/interop/drive.mjs` is the
+  daemon plus one `?bootstrap=off` socket, and ONE temp store carries both.
+  THE ELISP ONLY REPORTS — it prints what Emacs says and the DRIVER compares,
+  so a step cannot agree with itself. HOST EMACS IS THE DEFAULT;
+  `EMACS_RUN=podman` reuses org-glance's OWN Containerfile through its OWN
+  `podman-build`, with the store bind-mounted at ITS OWN PATH so a compared
+  path string means one thing on both sides of the mount. OUT of `cabal test`
+  for `browser-check`'s reason, and it SKIPS LOUDLY naming which of node,
+  Emacs, the checkout or its deps is missing.
+- THE ORDER IS THE STORY, so there is no `ONLY`: the twelve cases share one
+  store and each asks about the state the one before it left. A failure is
+  reported and the run continues — the FIRST red line is the one to read.
+  `BREAK=name` takes ONE HARNESS step out and names the case that must go red,
+  which proves an assertion reads what the OTHER program did.
+- WHAT IT COVERS THAT NOTHING ELSE DOES: `watchOrgTree` has one call site in
+  the repo and ZERO in `test/`. Sever its inotify callback and all 1857 Haskell
+  tests stay green, because every pipeline case calls `drain`/`settle` directly
+  and every browser-originated write reaches the table through its own nudge —
+  `browser-sees-emacs` is the case that goes red. Likewise `Data.Org.Index` is
+  otherwise read only over MANIFESTs `TestIndex` hand-wrote; here it folds one
+  org-glance produced.
+- TWO CASES PIN HOLES RATHER THAN BLESSING THEM. Create and delete are the two
+  blob-lifecycle events the notification file does not carry: a TAGGED CAPTURE
+  mints an id `refresh-external` skips as unknown, and `delete` splices no
+  spans so it reaches no write door and writes no line, leaving a live record
+  pointing at bytes in the trash. Both are asserted AS THEY ARE TODAY, so
+  closing either turns its case red and names the decision. One line of
+  glance's own instrument reports both: `unmatched 1 unindexed blobs, 1 records
+  without blobs`.
 
 ## Walk
 

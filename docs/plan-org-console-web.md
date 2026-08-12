@@ -708,11 +708,24 @@ Exit:
       "POST /headline" for the raw path and "a file that moved refuses its rows
       while the others land" for the command path, where the moved file's rows
       error and the untouched file's land in the same request.
-- [ ] Round-trip demo: toggle TODO in browser → Emacs `auto-revert` shows it;
-      edit in Emacs → browser row updates. Both directions. Half of it is done:
-      the browser→file→watch→row leg is live-verified below. The Emacs leg is
-      S5's and has been since, but the two have not been demonstrated in one
-      sitting.
+- [x] Round-trip demo: toggle TODO in browser → Emacs `auto-revert` shows it;
+      edit in Emacs → browser row updates. Both directions. Actual, and it is a
+      TARGET rather than a sitting: `make interop`
+      (docs/proposal-interop-check.done.md) stands up ONE org-glance store,
+      lets Emacs seed it and the daemon serve it, and runs twelve cases both
+      ways. Browser→Emacs is stronger than `auto-revert` — a `POST /command
+      set-state` over a blob leaves the notification line org-glance's own
+      `--read-external` parses, out of the file its own `external-path` names,
+      and `refresh-external` folds it into the WAL, so the entry is a RECORD in
+      Emacs rather than a re-read buffer. Emacs→browser is org-glance's own
+      `put-content` reaching an open `?bootstrap=off` socket as `upsert-row` in
+      **142 ms**, measured from the clock Emacs read once its rename had landed,
+      beside S5's 105–107 ms for a plain editor write. 12/12, 21.3 s wall, host
+      Emacs 30.2 against org-glance `4e644e9`. The leg that had never been
+      tested is the Emacs one: `watchOrgTree` has one call site in the repo and
+      zero in `test/`, and severing its inotify callback leaves all 1857 Haskell
+      tests green while `browser-sees-emacs` goes red — which is how that case
+      was proven to bite.
 - [~] Capture appends an entry to the inbox file. The COMMAND landed
       (2026-08-02, below): `+` raises a one-line prompt, `POST /command capture
       {text}` appends `* <text>` plus an `:ORG_GLANCE_CREATION_TIME:` drawer at
@@ -899,6 +912,40 @@ run never wrote to the corpus.
 
 Suite: 301 → **378 tests** at the engine. The bars the engine alone could not
 close are answered by the command layer above.
+
+**The round trip closed M4 (2026-08-12), and it is a target rather than a
+sitting.** `make interop` (docs/proposal-interop-check.done.md) is the first
+check in this repo that runs the PEER: `test/interop/og.el` drives org-glance's
+live sources under `emacs -Q -batch`, `test/interop/drive.mjs` drives the
+daemon, and both work over ONE store in a temp directory that is removed on
+success and on failure alike. Twelve cases, each closing a contract claim
+neither project's suite had ever asked, since each side pins the format twice
+independently and by hand: the path both compute for one id; the bytes
+org-glance's reader takes out of the file its own accessor names; the fold, the
+emptying, the kept inode and the second append; a keyword only a tag's
+`#+TODO:` declares surviving as a STATE; every other file in `meta/`
+byte-identical after a glance write; `glance scan` reporting 0 rows disagree
+over a store org-glance actually wrote, which is the whole index-reading side
+proven against the real writer rather than against `TestIndex`'s hand-written
+MANIFEST; and the `archived` value org-glance serializes reading back through
+glance's `(eq t VALUE)` flag.
+
+**Two cases PIN holes rather than blessing them.** Create and delete are the
+two blob-lifecycle events the notification file does not carry — a tagged
+capture through glance mints an id `refresh-external` skips as *unknown or
+deleted*, and a delete splices no spans so it writes no line at all, leaving a
+live record pointing at bytes now in the trash. One line of glance's own
+instrument names both: `unmatched 1 unindexed blobs, 1 records without blobs`.
+Closing either turns its case red, which is the point.
+
+**And the target found the coverage hole it was aimed at.** Replacing
+`Watch.hs`'s `note = nudge opts hub . FS.eventPath` with `const (pure ())` —
+inotify events registered and delivered nowhere — leaves **all 1857 Haskell
+tests passing**, because every pipeline case calls `drain` or `settle` directly
+and every browser-originated write reaches the table through its own explicit
+nudge. What dies is the entire Emacs→browser direction, silently and
+one-directionally, and `browser-sees-emacs` is what says so. The suite's own
+count is unmoved: nothing here is a Haskell test and nothing here runs offline.
 
 ## S9 — Automation extension
 

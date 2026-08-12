@@ -11,6 +11,32 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ## Unreleased
 
+### Added
+
+- **`make interop` runs glance and Emacs against ONE org-glance store, in both
+  directions.** Emacs seeds a store, the daemon serves it, and twelve cases ask
+  the one question neither project's own suite can: that the bytes one program
+  writes are the bytes the other reads. Browser to Emacs — a `set-state` over a
+  blob leaves a notification line org-glance's own reader parses, out of the
+  file its own accessor names, and `refresh-external` folds it into the WAL; the
+  file is then emptied, kept, and appended to again; a keyword only a tag's
+  `#+TODO:` cycle declares comes back as a state rather than as title text; a
+  glance write leaves every other file in `meta/` byte-identical. Emacs to
+  browser — org-glance writing a blob of its own reaches an open socket as an
+  `upsert-row` frame in 142 ms, with no notification file involved at all. And
+  at rest — `glance scan` over a store org-glance actually wrote reports zero
+  rows disagreeing, zero unmatched blobs or records, and zero span violations,
+  which is the whole index-reading side proven against the real writer instead
+  of against hand-written fixtures. Two cases PIN known contract holes rather
+  than blessing them: a browser capture mints an id Emacs's fold skips, and a
+  browser delete leaves a live record pointing at bytes that have moved to the
+  trash. It is OUT of `cabal test` for `make browser-check`'s reason — it needs
+  Emacs, a sibling org-glance checkout and a daemon — and SKIPS LOUDLY, naming
+  which is missing. Host Emacs is the default; `EMACS_RUN=podman` runs the same
+  cases on org-glance's own pinned image. `BREAK=name` takes one harness step
+  out to watch the case for it go red. The daemon and the temp store are torn
+  down on success and on failure alike.
+
 ## 0.6.0.0 - 2026-08-11
 
 ### Added
