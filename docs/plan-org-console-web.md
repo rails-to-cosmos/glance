@@ -645,6 +645,24 @@ window is closed has no way to re-open it short of another `desktop` run. And
 `--app` ties the good window to chromium-family browsers, which is the argument
 stage 2 will be made with.
 
+## What is left after M4 (2026-08-12)
+
+M0, M1 and M4 are closed and S5.5/S5.6/desktop stage 1 landed beside them. The
+three sections below are the whole of what remains planned, and none of them is
+started. They are written here as FUTURE STEPS rather than as work in flight,
+each with what a year of building the table has changed about it:
+
+- **S6 — M2, the graph.** The edge data landed as a side effect of the drill:
+  `hrLinks` is on every record and `ref:ROWID` is already the in-edges of one
+  row. What is missing is the whole-store shape and a renderer for it.
+- **S7 — M3, the protocol and the tiers.** The surface the loopback bind is
+  standing in for has grown by roughly threefold since this was written, and
+  one of the things behind it now moves files.
+- **S9 — the automation extension.** Rests on S7's automate tier, so it cannot
+  start first.
+
+The gate ordering is unchanged: S7 before S9, S6 independent of both.
+
 ## S6 — M2: graph + mindmap (parallel with S5, after S2)
 
 Assemble the `fgl` graph, `GET /graph` → graph JSON, cytoscape page. Graph
@@ -657,10 +675,17 @@ in-edges of a row, and `@` drills through them (the drill section below). What
 S6 adds is the WHOLE-STORE shape — a graph object rather than a predicate. That
 is the node set, the edges resolved and deduplicated across it, the answer as
 one document rather than one query per row, and a renderer for it. The
-normalization rule is settled and does not want revisiting; `RefKind` — telling
-a visit from an overview from a material — is where the wiring is still open,
-since `refTargetOf` currently answers Maybe-a-row-id and drops which protocol
-said so.
+normalization rule is settled and does not want revisiting.
+
+**`RefKind` is a type S6 would INTRODUCE.** Earlier text here called its wiring
+"still open", which read as though the type existed and was unconsumed; it is
+in no module of this repo (`grep -rn RefKind src* test` is empty).
+`refTargetOf` answers `Maybe Text` — a row id or nothing — and drops which
+protocol said so, so telling a visit from an overview from a material is new
+work at the point where the protocol prefix is stripped
+(`Glance.Query.refPrefixes`). What that buys is edge KINDS in the graph, which
+is the only consumer that has ever wanted them: `ref:` is one predicate and
+does not distinguish them.
 
 Exit:
 - [ ] Golden test: fixture corpus with known refs → exact expected node and
@@ -676,6 +701,20 @@ Exit:
 
 `PROTOCOL.md`: handshake with version, capability registration, view stream,
 commands, events — and three tiers behind auth: read, write, automate.
+
+**What the loopback bind is standing in for has grown.** When this was written
+the write surface was one route. It is now three — `POST /headline` replaces a
+subtree, `POST /command` runs eleven commands, `POST /config` rewrites a
+layer's `#+TODO:` block, its capture template and the tree-wide settings lines
+— over an HTTP table of ten named routes plus the asset route and the socket. Two of those writes are qualitatively past "edit a headline":
+`capture` CREATES a file under the store, and `delete` MOVES a blob directory
+into the trash. So the tier split is more load-bearing than it looked: read vs
+write is no longer the whole question, and `delete` is the case that argues an
+automate tier should not simply inherit write.
+
+Nothing here is a live exposure — the daemon binds 127.0.0.1 and this repo's
+invariant keeps it there until the tiers land — and the note exists so the
+tier design is drawn against today's surface rather than against M1's.
 
 Exit:
 - [ ] Unauthenticated connection gets read tier only; write and automate
@@ -951,6 +990,15 @@ count is unmoved: nothing here is a Haskell test and nothing here runs offline.
 
 WebExtension speaking the automate tier; scripts are deterministic data
 (command sequences), reviewed before they hold the session.
+
+**Gated on S7 and unstarted.** The automate tier is where a script's authority
+comes from, so this cannot begin before the tiers exist. Two things the
+intervening year settled in its favour: the command vocabulary a script would
+speak is already the ONE table `Glance.Web.Commands.commands` declares, eleven
+entries with a shape guard each, so "a script is a command sequence" needs no
+second vocabulary; and every write already answers per id with its own digest,
+which is what makes a replay comparable. What it inherits from S7's note above
+is that `delete` is in that table.
 
 Exit:
 - [ ] One real workflow end-to-end: org command → script → extension acts in
