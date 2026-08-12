@@ -21,6 +21,8 @@ definition / relations* — where relations is the leg that is not yet a verb.
    uses. This is the verb the census says is missing.
 8. **The link rewrite is one entry in a global `glance migrate --dry-run`**,
    which migrates schemas generally rather than links alone.
+9. **The logbook records references** — `Referred to` and `Referred by` lines
+   naming the headline link with its kind, as the pair had before.
 
 ## What the corpus says
 
