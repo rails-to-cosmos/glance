@@ -1,5 +1,13 @@
 * Glance
 
+Org-mode projections: the org files are the source of truth, and everything
+else is a projection of them. Glance is one
+of two front ends over one set of bytes — Emacs's
+[[https://github.com/rails-to-cosmos/org-glance][org-glance]] for editing and
+history, this for the table, the filter and the keyboard; neither is
+authoritative, each notifies the other through =meta/EXTERNAL.jsonl=, and
+=make interop= runs the two against one store to keep them honest.
+
 Serves an org tree as a keyboard-driven table in a browser tab and writes back
 into the files by span splice. Org files stay the single source of truth: one
 walk into an in-memory projection, a websocket streaming every change as the

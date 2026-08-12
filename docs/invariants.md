@@ -1,5 +1,12 @@
 # Invariants
 
+Org-mode projections: the org files are the source of truth, and everything
+else is a projection of them. Most of what follows says how: the store, the
+index and every view are rebuildable from the text; a write is a span splice back into it; an entry is named by
+`ORG_GLANCE_ID` across files, moves and both programs; and the two front ends
+over those bytes — Emacs's org-glance, this browser table — each notify the
+other, neither holding the truth.
+
 Rules the repo enforces, with evidence and failure modes. Compact index:
 [../CLAUDE.md](../CLAUDE.md). Confidence: **test** = a test fails if violated ·
 **corpus** = only `glance scan` catches it · **comment** = stated in a haddock,

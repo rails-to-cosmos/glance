@@ -2,7 +2,21 @@ cabal-version: 3.0
 
 name:           glance
 version:        0.6.0.0
-description:    Please see the README on GitHub at <https://github.com/rails-to-cosmos/glance#readme>
+synopsis:       A browser front end for org-mode files: a keyboard-driven table that writes back by span splice
+description:    Org-mode projections: the org files are the source of truth, and
+                everything else is a projection of them.
+                Glance serves an org tree as a keyboard-driven table in a browser
+                tab and writes back into the files by span splice, under an
+                optimistic lock and leaving every other byte identical.  The
+                in-memory store, the index and every view are rebuildable from
+                the text.
+                .
+                One of two front ends over one set of bytes: Emacs's org-glance
+                for editing and history, this for the table, the filter and the
+                keyboard, each notifying the other through EXTERNAL.jsonl.
+                .
+                Please see the README on GitHub at <https://github.com/rails-to-cosmos/glance#readme>
+category:       Text, Web
 homepage:       https://github.com/rails-to-cosmos/glance#readme
 bug-reports:    https://github.com/rails-to-cosmos/glance/issues
 author:         Dmitry Akatov

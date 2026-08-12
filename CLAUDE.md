@@ -1,5 +1,14 @@
 # glance — invariants
 
+ORG FILES ARE THE DATABASE, and everything else is a projection: the in-memory
+store, the index and org-glance's overviews are each rebuildable from the text,
+and every write goes back into the files. AN ENTRY IS ADDRESSABLE —
+`ORG_GLANCE_ID` names a headline across files, moves, rewrites and two programs
+— which is what `ref:`, the eleven commands, the trash and the interop contract
+are keyed by. TWO FRONT ENDS, ONE SET OF BYTES: Emacs for editing and history,
+this browser table for the filter and the keyboard, neither authoritative, each
+notifying the other through `EXTERNAL.jsonl` and held honest by `make interop`.
+
 Rules the code silently enforces. Violating one is a bug even when the suite
 stays green. Terse on purpose: the RULE and what breaks without it. Evidence,
 measurements and the history of superseded designs live in
