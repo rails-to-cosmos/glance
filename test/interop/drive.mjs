@@ -105,6 +105,19 @@ const BREAKS = {
 
 // ------------------------------------------------------------- the two sides
 
+/**
+ * The peer's own HEAD, short.  A CONTRACT is asserted against a VERSION of the
+ * other program, and the report is the only place that fact can be read — so a
+ * case that goes red after the peer moved says which peer it was measured on.
+ * The checkout stays a sibling rather than a submodule: the deps beside it are
+ * eask's and a pin would not bring them, and both repos move in one sitting.
+ */
+function peerHead(ogHome) {
+  const r = spawnSync("git", ["-C", ogHome, "describe", "--always", "--dirty"],
+                      { encoding: "utf8" });
+  return (r.stdout || "").trim() || "unknown";
+}
+
 /** Run ARGV, returning {code, out, err}; never throws on a non-zero exit. */
 function run(argv, env) {
   const r = spawnSync(argv[0], argv.slice(1), {
@@ -263,7 +276,8 @@ async function main() {
     // ------------------------------------------------------ seed, then serve
     const seeded = emacs(runner, root, "seed",
       { ITAG: TAG, IALPHA: ALPHA, IBETA: BETA });
-    console.log(`interop: ${mode} emacs, store ${seeded.store}\n`);
+    console.log(`interop: ${mode} emacs, org-glance ${peerHead(ogHome)}, `
+      + `store ${seeded.store}\n`);
 
     daemon = spawn(bin, ["serve", "--dir", root, "--port", String(port)],
                    { stdio: ["ignore", "pipe", "pipe"] });
