@@ -1,4 +1,4 @@
-.PHONY: test native elm elm-test browser browser-path browser-check interop sync-renderer run run-native run-wasm wasm-spike check-glue mutate mutate-list mutate-clean
+.PHONY: test typecheck native elm elm-test browser browser-path browser-check interop sync-renderer run run-native run-wasm wasm-spike check-glue mutate mutate-list mutate-clean
 
 # The run targets' knobs: .env carries them (committed, edit to taste), and
 # the ?= pair means a missing .env still runs against the defaults.
@@ -6,8 +6,33 @@
 GLANCE_DIR ?= ~/sync/views
 GLANCE_PORT ?= 7777
 
+# EVERY SUITE THAT RUNS OFF THIS TREE ALONE.  `cabal test' is the contract and
+# stays first, so the first red line is a Haskell one where there is one; the
+# Elm scanner's 65 cases sit behind their own target for the network reason
+# (see `elm-test') and are run by nobody else, which is what put them here.
+# `$(MAKE)' rather than a copy of the recipe: the skip rule lives once.
+#
+# OUT, and each for its own reason: `browser-check' needs a chromium on the
+# machine, `interop' needs Emacs and the peer checkout, `mutate' is measured in
+# minutes.  Those three are sittings; this one is the gate.
 test:
 	cabal test
+	@$(MAKE) --no-print-directory elm-test
+
+# THE THREE LANGUAGES, ASKED THE SAME QUESTION.  A tree typechecks when the
+# Haskell builds, the shell's JS passes tsc, and the Elm compiles -- the browser
+# half is two languages and neither is reached by `cabal build'.
+#
+# Elm's compiler IS its typechecker, so this runs it at `--output=/dev/null':
+# committed `assets/elm.js' is a build INPUT and only `make elm' may rewrite it,
+# a typecheck that moved it being a typecheck with a diff.
+typecheck:
+	cabal build all
+	@$(MAKE) --no-print-directory check-glue
+	@if command -v npx >/dev/null 2>&1; then \
+	  cd assets/elm && npx --yes elm make src/Listing.elm src/Doc.elm \
+	    --output=/dev/null && echo "typecheck: elm clean"; \
+	else echo "typecheck: no npx on PATH -- elm skipped"; fi
 
 # The renderer is vendored at assets/table-view.js and compiled into the binary,
 # so a `glance' started anywhere serves the same page and no path off this repo

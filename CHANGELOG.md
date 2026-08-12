@@ -13,6 +13,17 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ### Added
 
+- **`make test` runs the Elm scanner's suite too, and `make typecheck` asks all
+  three languages at once.** `make test` is now every suite that runs off this
+  tree alone: `cabal test` first, so the first red line is a Haskell one where
+  there is one, then `make elm-test`'s 65 cases, which sat behind their own
+  target for the network reason and were run by nobody else. `make typecheck`
+  is new — `cabal build all`, then `make check-glue`'s tsc over the shell, then
+  the Elm compiler at `--output=/dev/null`, since Elm's compiler is its
+  typechecker and the committed `assets/elm.js` is a build input only `make
+  elm` may rewrite. Both skip loudly where npx is missing. `browser-check`,
+  `interop` and `mutate` stay out: a chromium, an Emacs plus the peer checkout,
+  and a runtime measured in minutes.
 - **`make interop` runs glance and Emacs against ONE org-glance store, in both
   directions.** Emacs seeds a store, the daemon serves it, and twelve cases ask
   the one question neither project's own suite can: that the bytes one program
