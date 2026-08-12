@@ -13,8 +13,9 @@
 // still evidence — but the FIRST red line is the one to read.
 //
 // ZERO DEPENDENCIES: node's global fetch and WebSocket, `emacs -Q -batch', and
-// the daemon.  Teardown is a `finally' and it is the target's life — a leaked
-// daemon or a temp store on a red run is what gets a check deleted.
+// the daemon.  Teardown is ONE function reached by the normal exit, by a thrown
+// case and by a signal alike, and it is the target's life — a leaked daemon or
+// a temp store on a red run is what gets a check deleted.
 //
 //   GLANCE_BIN   the daemon to serve with       (else `cabal list-bin')
 //   OG_HOME      the org-glance checkout        (else ../org-glance)
@@ -101,6 +102,8 @@ const BREAKS = {
   "wrong-id": "blob-path-agrees",
   // Something writes the WAL behind glance's back.
   "meta-moved": "meta-untouched",
+  // The tombstone line is left standing, so the record it names stays live.
+  "no-delete-fold": "delete-tombstones-the-record",
 };
 
 // ------------------------------------------------------------- the two sides
@@ -248,13 +251,45 @@ async function main() {
   const image = process.env.OG_IMAGE || "org-glance-test:emacs-29.1";
   const runner = emacsRunner(mode, ogHome, image);
 
-  const root = await mkdtemp(join(tmpdir(), "glance-interop-"));
-  const store = join(root, ".org-glance");
+  // THE PORT IS TAKEN BEFORE THE STORE IS MADE, so nothing that can throw sits
+  // between the temp directory and the `try' whose teardown removes it.
   const port = await freePort();
   const base = `http://127.0.0.1:${port}`;
+  const root = await mkdtemp(join(tmpdir(), "glance-interop-"));
+  const store = join(root, ".org-glance");
   const results = [];
   let daemon = null, ws = null, daemonSaid = "";
   const started = Date.now();
+
+  /**
+   * TEARDOWN IS ONE PATH AND EVERY EXIT REACHES IT.  A `finally' covers the
+   * normal end and a thrown case and covers no signal at all, which is how a
+   * run piped through `head' left `glance serve' holding a temp store for
+   * hours.  So this is both the `finally' body and the signal handler, and it
+   * runs AT MOST ONCE: the first caller keeps the promise and every later one
+   * awaits that same promise, since a SIGINT can land while the normal path is
+   * already inside `rm'.
+   */
+  let torn = null;
+  const teardown = () => (torn ??= (async () => {
+    if (ws) { try { ws.close(); } catch { /* already gone */ } }
+    if (daemon) await end(daemon);
+    if (!keep) await rm(root, { recursive: true, force: true }).catch(() => {});
+  })());
+
+  // A SIGNAL IS AN EXIT LIKE ANY OTHER.  `head' closing the pipe is the case
+  // that got here, and node reports THAT as an EPIPE on stdout rather than as a
+  // signal — an unhandled one is an uncaught exception, which ends the process
+  // with the `finally' unrun — so it is wired beside the two.  Each leaves by
+  // the conventional 128+N.  Nothing is printed on the way out: the pipe this
+  // was reached through may be the thing that is gone.
+  const bye = (code) => {
+    const leave = () => process.exit(code);
+    teardown().then(leave, leave);
+  };
+  process.once("SIGINT", () => bye(130));
+  process.once("SIGTERM", () => bye(143));
+  process.stdout.on("error", (e) => { if (e.code === "EPIPE") bye(141); });
 
   /** Record one case.  FN returns the lines the report prints under it. */
   const step = async (name, claim, fn) => {
@@ -456,12 +491,14 @@ async function main() {
               scanLine(lines, "unmatched")];
     });
 
-    // ---------------------------------------------------------- the two holes
-    // PINNED AS THEY STAND.  Each of these asserts what the contract does TODAY,
-    // and each is a hole the reader named: create and delete are the two
-    // blob-lifecycle events the notification file does not carry.  Close either
-    // one and the case here goes red, which is the point — it names the
-    // decision rather than letting it drift.
+    // ------------------------------------------- the lifecycle at both ends
+    // Create and delete were the two blob-lifecycle events the notification
+    // file did not carry.  DELETE IS CLOSED — a third field, `"tombstone":true',
+    // and the case below reads the record org-glance dropped for it.  CREATE IS
+    // STILL A HOLE and is pinned AS IT STANDS: a fresh id names no record, so
+    // the fold has nothing to replace and drops the line.  Closing it turns its
+    // case red, which is the point — it names the decision rather than letting
+    // it drift.
 
     await step("HOLE: a tagged capture never reaches the WAL", "CLAIM 17", async () => {
       const made = await command(base, { name: "capture",
@@ -480,34 +517,49 @@ async function main() {
               `org-glance said: ${fold.$said || "(nothing)"}`];
     });
 
-    await step("HOLE: a delete leaves the record pointing at nothing", "CLAIM 18", async () => {
+    await step("delete-tombstones-the-record", "CLAIM 18", async () => {
       const armed = await command(base, { name: "archive", ids: [BETA], args: {} });
       eq(armed.results[0].ok, true, "the archive that a delete is the step after");
       eq(emacs(runner, root, "refresh").n, 1, "the archive folded");
       const gone = await command(base, { name: "delete", ids: [BETA], args: {} });
       eq(gone.results[0].ok, true, "the delete");
-      // NO notification: `delete' splices no spans, so it never reaches the one
-      // door that writes a line.
+      // THE THIRD FIELD, and it is the whole of what a delete adds to the wire:
+      // the frozen two fields, then `"tombstone":true' before the brace.
+      const raw = await readFile(join(store, "meta", "EXTERNAL.jsonl"), "utf8");
+      ok(new RegExp(`^\\{"id":"${BETA}","at":"\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\dZ"`
+                    + `,"tombstone":true\\}\\n$`).test(raw),
+         `the frozen delete line: ${JSON.stringify(raw)}`);
+      // And this is org-glance READING those bytes, through its own accessor.
       const seen = emacs(runner, root, "read-external");
-      eq(seen.bytes, 0, "the notification file after a delete");
-      eq(emacs(runner, root, "refresh").n, 0, "the entries a delete folds");
+      eq(Array.from(seen.ids), [BETA], "the ids org-glance takes out of the delete line");
+      eq(Array.from(seen.kinds), ["tombstone"], "the kind org-glance reads the line as");
+      const folded = taken("no-delete-fold") ? { n: 0 } : emacs(runner, root, "refresh");
+      eq(folded.n, 1, "the entries a delete folds");
+      const spent = emacs(runner, root, "read-external");
+      eq(spent.bytes, 0, "the notification file after the fold");
       const field = emacs(runner, root, "field", { IID: BETA });
-      eq(field.live, true, "whether org-glance still holds a record for it");
+      eq(field.live, false, "whether org-glance still holds a live record for it");
+      eq(field.tombstone, true, "whether org-glance holds a tombstone for it");
       eq(emacs(runner, root, "content", { IID: BETA }).exists, false,
-         "whether the blob the record names is still there");
+         "whether the blob the record named is still there");
+      // A TOMBSTONED ID LEAVES THE FOLD (`Data.Org.Index.recordOf' answers
+      // `Nothing' on it), so it can no longer be a record without a blob — and
+      // glance reads back the tombstone org-glance wrote because glance asked.
       const lines = scan(bin, root);
       eq(scanLine(lines, "unmatched"),
-         "unmatched 1 unindexed blobs, 1 records without blobs",
-         "what glance's own instrument says about the pair of holes");
-      return [`the record for ${BETA} is live and its blob is gone`,
+         "unmatched 1 unindexed blobs, 0 records without blobs",
+         "what glance's own instrument says with the delete leg closed");
+      ok(scanLine(lines, "records").includes("1 tombstones"),
+         `the tombstones glance's fold reads: ${scanLine(lines, "records")}`);
+      return [`${BETA} is tombstoned in the WAL and its blob is in the trash`,
+              `line: ${raw.trim()}`,
+              scanLine(lines, "records"),
               scanLine(lines, "unmatched")
-                + "  (the capture is the unindexed blob, the delete the recordless record)"];
+                + "  (the unindexed blob is the capture hole, still open)"];
     });
 
   } finally {
-    if (ws) ws.close();
-    if (daemon) await end(daemon);
-    if (!keep) await rm(root, { recursive: true, force: true }).catch(() => {});
+    await teardown();
   }
 
   // ---------------------------------------------------------------- report

@@ -1,12 +1,14 @@
--- | The note this daemon leaves org-glance when it writes a stored blob:
--- @\<store\>\/.org-glance\/meta\/EXTERNAL.jsonl@.
+-- | The note this daemon leaves org-glance when it writes or deletes a stored
+-- blob: @\<store\>\/.org-glance\/meta\/EXTERNAL.jsonl@.
 --
--- Two layers, and the split is deliberate.  The DOOR cases go through
--- 'Glance.Query.replaceSpans', the one function every write in this program
--- leaves through, so they state the rule once for all four of its callers.  The
+-- Two layers, and the split is deliberate.  The DOOR cases go through the two
+-- functions that move a blob's bytes — 'Glance.Query.replaceSpans', which every
+-- write leaves through, and 'Data.Org.Trash.trashBlob', which the one delete
+-- does — so they state each rule once for all of that door's callers.  The
 -- ROUTE cases then drive the real HTTP surface — a structured command, a
--- materialize commit, a capture — to show that those callers really are that
--- function's callers, and that the door is therefore where the rule can live.
+-- materialize commit, a capture, a delete — to show that those callers really
+-- are those functions' callers, and that the doors are therefore where the
+-- rules can live.
 module TestExternal (spec) where
 
 import Control.Concurrent.Async (mapConcurrently_)
@@ -34,7 +36,7 @@ import qualified Data.Time as Time
 
 import Data.Org.External ( Completion (..), blobIdOf, completionLine, completionsFile
                          , completionsPathOf, externalFile, externalLine
-                         , externalPathOf, noteCompletion )
+                         , externalPathOf, noteCompletion, tombstoneLine )
 import Data.Maybe (fromJust)
 import Data.Org.Index (metaDir)
 import Data.Org.Trash (trashBlob, trashPathFor)
@@ -86,6 +88,17 @@ notedIds dir = map idOf <$> noteLines dir
   where idOf line = maybe ("MALFORMED: " <> TE.decodeUtf8 line) (T.takeWhile (/= '"'))
                           (T.stripPrefix "{\"id\":\"" (TE.decodeUtf8 line))
 
+-- | Each line's @id@ paired with whether that line is a TOMBSTONE, in file
+-- order.
+--
+-- A tombstone opens exactly as a plain line does, so 'notedIds' cannot tell the
+-- two apart and telling them apart is its own reader.  Read by literal for
+-- 'notedIds'' reason: the field order is the frozen contract, and a JSON decode
+-- here would bless whatever order the writer happened to emit.
+notedShapes :: FilePath -> IO [(Text, Bool)]
+notedShapes dir = zip <$> notedIds dir <*> (map tombstoned <$> noteLines dir)
+  where tombstoned = BC.isSuffixOf ",\"tombstone\":true}"
+
 -- | The span NEEDLE occupies in TEXT, which is how these cases name an edit.
 spanOf :: Text -> Text -> Span
 spanOf text needle = Span at (at + T.length needle)
@@ -102,6 +115,17 @@ splice path from to = do
 -- | Fail unless a write landed.
 landed :: Either WriteFailure Text -> Assertion
 landed = either (assertFailure . ("the write was refused: " <>) . show) (const (pure ()))
+
+-- | Delete PATH's blob out of ROOT through the move door, failing the case
+-- where the move does not land.
+trashed :: FilePath -> FilePath -> Assertion
+trashed root path =
+  either (assertFailure . ("the delete was refused: " <>) . T.unpack) (const (pure ()))
+    =<< trashBlob root path
+
+-- | Fail unless a delete was refused.
+refusedMove :: Either Text FilePath -> Assertion
+refusedMove = either (const (pure ())) (assertFailure . ("the delete landed at " <>))
 
 -- The door
 
@@ -189,6 +213,72 @@ doorSpec = testGroup "The write door"
         assertBool "created" =<< doesFileExist (notePath dir)
   ]
 
+-- The move door
+
+-- | A DELETE IS THE OTHER DOOR: it splices no spans, so it reaches
+-- 'Glance.Query.replaceSpans' never and takes its own note on
+-- 'Data.Org.Trash.trashBlob''s success branch.  Every case here is about the
+-- line; what the move does with the bytes is @Trash@'s own group below.
+moveSpec :: TestTree
+moveSpec = testGroup "The move door"
+  [ testCase "a deleted blob appends one line, and it is the tombstone" $
+      withStore $ \dir -> do
+        path <- blobIn dir "abcdef" (entry "abcdef" "DONE")
+        trashed dir path
+        assertEqual "one tombstone, naming the blob's id" [("abcdef", True)]
+          =<< notedShapes dir
+
+    -- NO ID, NO LINE, the write's own rule: a blob claiming none names no
+    -- record, so there is nothing to tell org-glance to drop.
+  , testCase "a blob claiming no id is deleted in silence" $
+      withStore $ \dir -> do
+        path <- blobIn dir "abcdef" "* DONE Anonymous\n"
+        trashed dir path
+        assertEqual "nothing noted" [] =<< noteLines dir
+        assertBool "and no file made" . not =<< doesFileExist (notePath dir)
+
+    -- ONE FILE CARRIES BOTH SHAPES, in the order the two acts happened, so a
+    -- reader folding it left to right refreshes the record and then drops it.
+  , testCase "a write then a delete leaves two lines in that order" $
+      withStore $ \dir -> do
+        path <- blobIn dir "abcdef" (entry "abcdef" "TODO")
+        splice path "TODO" "DONE"
+        trashed dir path
+        assertEqual "the write, then the delete"
+                    [("abcdef", False), ("abcdef", True)] =<< notedShapes dir
+
+    -- ONLY A BLOB, and the gate is the PATH's — the same one the write note
+    -- asks, so a document that is not a blob has no record to drop either.
+  , testCase "a document that is not a blob is refused and notes nothing" $
+      withStore $ \dir -> do
+        let path = dir </> "notes.org"
+        TIO.writeFile path (entry "abcdef" "DONE")
+        refusedMove =<< trashBlob dir path
+        assertEqual "nothing noted" [] =<< noteLines dir
+
+    -- A SECOND DELETION OF ONE ID is refused, and a tombstone on a refusal
+    -- would tell org-glance to drop a record whose document is still here.
+  , testCase "a second deletion of one id is refused and notes nothing more" $
+      withStore $ \dir -> do
+        path <- blobIn dir "abcdef" (entry "abcdef" "DONE")
+        trashed dir path
+        _ <- blobIn dir "abcdef" (entry "abcdef" "DONE")
+        refusedMove =<< trashBlob dir path
+        assertEqual "the first delete's line, and no other" [("abcdef", True)]
+          =<< notedShapes dir
+        assertEqual "the second is still in the tree" True =<< doesFileExist path
+
+    -- The line is keyed off the PATH deleted, the way a write's is, so a nested
+    -- store's delete lands in the nested store's own meta directory.
+  , testCase "a nested store's delete is noted in its own meta directory" $
+      withStore $ \dir -> do
+        let inner = storeRootIn dir </> "data" </> "ab" </> "cd"
+        path <- blobIn inner "a792f0" (entry "a792f0" "DONE")
+        trashed inner path
+        assertEqual "the inner store has it" [("a792f0", True)] =<< notedShapes inner
+        assertEqual "and the outer one has nothing" [] =<< noteLines dir
+  ]
+
 -- The line
 
 formatSpec :: TestTree
@@ -209,6 +299,22 @@ formatSpec = testGroup "The line, as frozen"
       assertEqual "truncated"
                   "{\"id\":\"i\",\"at\":\"2026-08-03T04:21:07Z\"}\n"
                   (externalLine "i" (Time.addUTCTime 0.75 (stamp "2026-08-03T04:21:07")))
+
+    -- THE DELETE'S LINE IS THE WRITE'S PLUS ONE FIELD, in that order, and the
+    -- third is a literal: `true' is its only legal value, so absence is how a
+    -- plain write is spelled and there is no `"tombstone":false' to read.
+  , testCase "a tombstone is those two fields plus a third" $
+      assertEqual "golden"
+                  "{\"id\":\"abcdef\",\"at\":\"2026-08-03T04:21:07Z\",\"tombstone\":true}\n"
+                  (tombstoneLine "abcdef" (stamp "2026-08-03T04:21:07"))
+
+    -- ONE SPELLING OF THE PREFIX: the two renderers share it, so a tombstone is
+    -- byte for byte the plain line with the field spliced before the brace.
+  , testCase "and its first two fields are the plain line's, byte for byte" $
+      assertEqual "the plain line with one field spliced before the brace"
+        (fmap (<> ",\"tombstone\":true}\n")
+              (BC.stripSuffix "}\n" (externalLine "a\"b" (stamp "2026-08-03T04:21:07"))))
+        (Just (tombstoneLine "a\"b" (stamp "2026-08-03T04:21:07")))
 
   , testCase "the entry is the first headline, and a child's id is not it" $ do
       assertEqual "first" (Just "abcdef") (blobIdOf (entry "abcdef" "TODO"))
@@ -330,6 +436,15 @@ routeSpec = testGroup "The routes that write"
         a <- serverOver dir
         assertOk =<< postTo a "/command" (capture "Fresh")
         assertEqual "nothing noted" [] =<< noteLines dir
+
+    -- The fourth route, and the one that leaves the other shape: `delete'
+    -- splices no spans, so its line comes off the move door instead.
+  , testCase "POST /command delete leaves a tombstone" $
+      withStore $ \dir -> do
+        _ <- blobIn dir "abcdef" (entryAs "abcdef" "DONE Entry :archive:")
+        a <- serverOver dir
+        assertOk =<< postTo a "/command" (command "delete" ["abcdef"] (object []))
+        assertEqual "noted, and as a tombstone" [("abcdef", True)] =<< notedShapes dir
   ]
 
 -- | A server over DIR, loaded the way @glance serve@ loads one.  No @--assets@:
@@ -339,7 +454,8 @@ serverOver dir = fst <$> serverAt Nothing dir
 
 spec :: TestTree
 spec = testGroup "External"
-  [doorSpec, formatSpec, pathSpec, appendSpec, routeSpec, completionSpec, trashSpec]
+  [ doorSpec, moveSpec, formatSpec, pathSpec, appendSpec, routeSpec
+  , completionSpec, trashSpec ]
 
 -- | DELETION IS A MOVE, never an unlink.  A blob is the canonical document and
 -- the index is its projection, so the one destructive command this daemon has

@@ -13,6 +13,14 @@
 -- @.gz@ would keep it out of 'Data.Org.Walk.isDocument' anyway, but resting on
 -- that would make the rule an accident of how the bytes are stored rather than
 -- a fact about the directory.
+--
+-- AND THIS IS A DOOR org-glance IS NOTED THROUGH, the second of two.
+-- 'Glance.Query.replaceSpans' is the one every write leaves by and takes
+-- 'Data.Org.External.noteExternalWrite' on its success branch; a delete splices
+-- no spans and reaches it never, so the move takes
+-- 'Data.Org.External.noteExternalDelete' on its own.  Both notes are keyed by
+-- the PATH that moved, which is why they sit at the two doors that move bytes
+-- rather than in the routes above them.
 module Data.Org.Trash ( trashDirIn
                       , trashPathFor
                       , trashBlob
@@ -25,11 +33,14 @@ import System.Directory ( createDirectoryIfMissing, doesDirectoryExist, doesFile
 import System.FilePath ((</>), makeRelative, splitDirectories, takeDirectory)
 
 import Data.Org.Blob (storeRootIn)
+import Data.Org.External (noteExternalDelete)
 import Data.Org.Walk (Entry (..), entryOf, isBlob, trashDir)
 
 import qualified Codec.Compression.GZip as GZip
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 
 -- | The trash directory of the store at ROOT.  Beside @data@ and @meta@ rather
 -- than inside one: what is in it is no longer data, and 'Data.Org.Index' reads
@@ -68,6 +79,12 @@ trashPathFor root path
 -- tree, never one in neither place.  A destination that already exists is a
 -- second deletion of the same id — the first one's bytes are what is kept, and
 -- saying so is better than overwriting them.
+--
+-- THE TOMBSTONE RIDES SUCCESS AND ITS ID IS READ AHEAD OF IT.  Every 'Left'
+-- here leaves the blob in the live tree, so a line on one of them would tell
+-- org-glance to drop a record whose document is still there; and the id lives
+-- in the document the removal takes away, so it is read while the bytes are
+-- still here and spent afterwards.
 trashBlob :: FilePath -> FilePath -> IO (Either Text FilePath)
 trashBlob root path = case trashPathFor root path of
   Nothing   -> pure (Left (T.pack path <> " is not a blob: only a blob is deleted"))
@@ -78,12 +95,14 @@ trashBlob root path = case trashPathFor root path of
       else do
         let blobDir = takeDirectory path
             mirror  = takeDirectory dest
+        doc <- documentAt path
         moved <- try (do here <- filesUnder blobDir
                          mapM_ (keep blobDir mirror) here
                          removeDirectoryRecursive blobDir)
-        pure $ case moved :: Either IOException () of
-          Left err -> Left (T.pack (show err))
-          Right () -> Right dest
+        case moved :: Either IOException () of
+          Left err -> pure (Left (T.pack (show err)))
+          Right () -> do mapM_ (noteExternalDelete path) doc
+                         pure (Right dest)
   where
     -- ONE FILE OF THE BLOB, under the mirror of its own directory: a stamp in
     -- @occurrences\/@ lands at @occurrences\/\<STAMP\>.org.gz@, so what comes
@@ -92,6 +111,17 @@ trashBlob root path = case trashPathFor root path of
       let dest = to </> makeRelative from file <> ".gz"
       createDirectoryIfMissing True (takeDirectory dest)
       BL.readFile file >>= BL.writeFile dest . GZip.compress
+
+-- | PATH's text, or 'Nothing' where it cannot be read or does not decode.
+--
+-- The note it feeds is a hint, so an unreadable document costs the line and
+-- nothing else — the deletion itself reads bytes it never decodes.
+documentAt :: FilePath -> IO (Maybe Text)
+documentAt path = do
+  raw <- try (BS.readFile path) :: IO (Either IOException BS.ByteString)
+  pure $ case raw of
+    Left _unreadable -> Nothing
+    Right bytes      -> either (const Nothing) Just (TE.decodeUtf8' bytes)
 
 -- | Every regular file under DIR, at any depth.  A blob is @data.org@ plus
 -- whatever history org-glance keeps beside it, and the whole directory goes.

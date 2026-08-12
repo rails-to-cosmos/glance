@@ -97,6 +97,18 @@ it where it is like everything else here."
               :archived (if (org-glance-headline-metadata:archived? meta) t :false)
               :tags (vconcat (org-glance-headline-metadata:tags meta)))))))
 
+(defun og-external-entry (entry)
+  "One `--read-external' entry as an (ID . KIND-NAME) cons, either peer's shape.
+A peer that reads the third field answers an (ID . KIND) cons per id; one that
+predates it answers the bare id string, which is `edit' -- such a reader has no
+tombstone to tell apart, so every line it yields is a re-derivation hint.  This
+harness asserts the FILE stays readable across that boundary and is held to the
+same standard, or the step dies with a type error where the target promises to
+skip loudly."
+  (if (consp entry)
+      (cons (car entry) (symbol-name (cdr entry)))
+    (cons entry "edit")))
+
 (defun og-main ()
   "Run the step `ICMD' names."
   (let* ((cmd (og-env "ICMD")))
@@ -128,12 +140,18 @@ it where it is like everything else here."
                          :external (org-glance-graph:external-path graph))))))
 
       ;; The notification file as org-glance READS it -- ids in file order,
-      ;; and the raw text beside them.  No fold: this only reports.
+      ;; the KIND it read each one as beside them, and the raw text.  No fold:
+      ;; this only reports.  `og-external-entry' normalizes whichever shape the
+      ;; peer answers, so the two vectors are that list split -- `ids' stays
+      ;; what it always was and `kinds' is the third field's whole visible
+      ;; effect on this side, reading "edit" throughout against a peer that
+      ;; cannot see the field.
       ("read-external"
        (og-unfolding
          (let* ((graph (og-graph))
                 (path (org-glance-graph:external-path graph))
-                (read (org-glance-graph--read-external graph)))
+                (read (org-glance-graph--read-external graph))
+                (entries (mapcar #'og-external-entry (cdr read))))
            (og-say (list :exists (if (file-exists-p path) t :false)
                          :bytes (if (file-exists-p path)
                                     (file-attribute-size (file-attributes path))
@@ -143,7 +161,8 @@ it where it is like everything else here."
                                                   (file-attributes path)))
                                   "")
                          :text (car read)
-                         :ids (vconcat (cdr read)))))))
+                         :ids (vconcat (mapcar #'car entries))
+                         :kinds (vconcat (mapcar #'cdr entries)))))))
 
       ;; The fold itself, unthrottled.
       ("refresh"

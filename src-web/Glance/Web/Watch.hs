@@ -13,8 +13,10 @@
 --
 -- Not every path arrives from inotify.  fsnotify arms a newly created directory
 -- without traversing INTO it, so a file under one is unwatched for as long as
--- the daemon runs.  Every write route therefore leaves through 'writeSpans',
--- which queues the path it wrote; 'nudge' is the queue's only door.
+-- the daemon runs.  Every route that SPLICES therefore leaves through
+-- 'writeSpans', which queues the path it wrote, and @delete@ — which moves a
+-- blob directory and splices nothing — queues its own; 'nudge' is the queue's
+-- only door.
 module Glance.Web.Watch
   ( debounceDelay
   , drain

@@ -1,23 +1,44 @@
--- | The note this daemon leaves when it writes one of org-glance's blobs:
--- @\<store\>\/.org-glance\/meta\/EXTERNAL.jsonl@.
+-- | The note this daemon leaves when it writes or deletes one of org-glance's
+-- blobs: @\<store\>\/.org-glance\/meta\/EXTERNAL.jsonl@.
 --
 -- WHY THERE IS ONE.  A blob is the canonical document and org-glance's index is
 -- its projection, derived and written by Emacs alone.  This daemon edits the
 -- blob and not the index, so every browser edit leaves the index a record
 -- behind — the drift the instrument counts.  Here the two sides meet: the
--- writer names the ids it moved, and @M-x org-glance-graph:refresh-external@
--- re-derives a record for each and takes those lines off.
+-- writer names the ids it moved and says of each whether the blob is still
+-- there, and @M-x org-glance-graph:refresh-external@ re-derives a record for
+-- every id whose blob survived, tombstones the rest, and takes those lines off.
 --
--- THE CONTRACT, frozen.  One JSON object per line, newline-terminated, two
--- fields in this order:
+-- THE CONTRACT, frozen.  One JSON object per line, newline-terminated.  A write
+-- is two fields in this order:
 --
 -- > {"id":"e3b0c442-…","at":"2026-08-03T04:21:07Z"}
 --
--- @id@ is the written blob's FIRST headline's @ORG_GLANCE_ID@, read the way
--- 'Data.Org.Index.blobEntryOf' reads it, so a line names the record that will
--- replace it; @at@ is the server clock in UTC, and nothing acts on it.  APPEND
--- ONLY: this side never truncates, never rewrites, and touches no file under
--- @meta@ but its own two ('externalFile' and 'completionsFile').
+-- and a DELETE is those two plus a third, in this order:
+--
+-- > {"id":"e3b0c442-…","at":"2026-08-03T04:21:07Z","tombstone":true}
+--
+-- @id@ is the blob's FIRST headline's @ORG_GLANCE_ID@, read the way
+-- 'Data.Org.Index.blobEntryOf' reads it, so a line names the record it speaks
+-- for; @at@ is the server clock in UTC, and nothing acts on it.  APPEND ONLY:
+-- this side never truncates, never rewrites, and touches no file under @meta@
+-- but its own two ('externalFile' and 'completionsFile').
+--
+-- @tombstone@ appears on a delete alone and its value is only JSON @true@.
+-- There is no @"tombstone":false@ — absence IS the plain line, so each fact has
+-- one spelling, and it is the spelling the READER of this file takes as a
+-- delete: org-glance's @(eq t …)@ test, the stricter of the two readers these
+-- repos carry ('Data.Org.Index.recordOf' reads the WAL's own key with
+-- @truthy@).  The word is org-glance's own: its WAL record spells
+-- @:tombstone t@ and 'Data.Org.Index' already reads it, so a second vocabulary
+-- would be a second thing to keep in step.
+--
+-- COMPATIBILITY BOTH WAYS, which is why the delete is a third field rather than
+-- a new @op@ vocabulary.  A NEW glance against an OLD org-glance degrades to
+-- exactly today's behaviour: @--read-external@ reads @id@ alone and ignores
+-- what it does not know, so the id is read, the blob it names is gone, and the
+-- line is skipped as "no stored blob" and dropped.  An OLD glance against a NEW
+-- org-glance never writes the field, so nothing changes.
 --
 -- THE CRASH RULE.  The reader appends every re-derived record BEFORE shortening
 -- this file, so a crash between the two costs a repeated refresh and nothing
@@ -26,10 +47,14 @@
 -- two steps be unsynchronised; the reader drops exactly the prefix it read, so
 -- a line appended mid-refresh survives.
 --
--- WHAT IS NOT PROMISED.  A line is a HINT that a blob moved.  The append is
--- best effort and a failure is swallowed: the blob is already on disk and the
--- answer the caller is about to send describes THAT write.  A lost line costs
--- drift the instrument reports and the next edit of the same id repairs.
+-- WHAT IS NOT PROMISED.  A plain line is a HINT that a blob moved; a tombstone
+-- says the blob is GONE, so the record is to be dropped rather than re-derived
+-- — the one line here that is not a re-derivation hint.  The append is best
+-- effort and a failure is swallowed either way: the blob is already written, or
+-- already in the trash, and the answer the caller is about to send describes
+-- THAT act.  A lost line costs drift the instrument reports; a lost write note
+-- the next edit of the same id repairs, and a lost tombstone leaves the record
+-- live, which is the state before any of this existed.
 module Data.Org.External ( Completion (..)
                          , blobIdOf
                          , completionLine
@@ -39,7 +64,9 @@ module Data.Org.External ( Completion (..)
                          , externalLine
                          , externalPathOf
                          , noteCompletion
+                         , noteExternalDelete
                          , noteExternalWrite
+                         , tombstoneLine
                          ) where
 
 import Control.Exception (IOException, bracket, try)
@@ -65,8 +92,11 @@ import Data.Org.Walk (isBlob, orgGlanceRoot)
 externalFile :: FilePath
 externalFile = "EXTERNAL.jsonl"
 
--- | Where a write to PATH is to be noted, or 'Nothing' where it is not to be
--- noted at all.
+-- | Where a write to PATH, or its deletion, is to be noted — or 'Nothing' where
+-- neither is to be noted at all.
+--
+-- Purely textual over the path, which is what lets a delete ask it after
+-- 'Data.Org.Trash.trashBlob' has taken the bytes away.
 --
 -- A blob and nothing else.  'Data.Org.Walk.isBlob' is @data.org@ inside the
 -- canonical store, which is the one file per entry org-glance keys by
@@ -122,13 +152,29 @@ noteCompletion :: FilePath -> Completion -> IO ()
 noteCompletion root c =
   completionsPathOf root >>= mapM_ (\note -> appendNote note (completionLine c))
 
--- | The line naming IDENT, written AT.  Hand-assembled rather than encoded from
--- an object, so the field ORDER is the contract's; only the values go through
--- the JSON encoder, which is where the escaping has to happen.
-externalLine :: Text -> Time.UTCTime -> BS.ByteString
-externalLine ident at =
-  BL.toStrict ("{\"id\":" <> encode ident <> ",\"at\":" <> encode (stamp at) <> "}\n")
+-- | The frozen two fields naming IDENT AT, with EXTRA behind them.
+-- Hand-assembled rather than encoded from an object, so the field ORDER is the
+-- contract's; only the values go through the JSON encoder, which is where the
+-- escaping has to happen.
+--
+-- ONE SPELLING OF THE PREFIX, which is what makes the delete's line the write's
+-- line plus a field rather than a second copy free to drift from it.
+noteLine :: [BL.ByteString] -> Text -> Time.UTCTime -> BS.ByteString
+noteLine extra ident at = BL.toStrict
+  ("{\"id\":" <> encode ident <> ",\"at\":" <> encode (stamp at) <> mconcat extra <> "}\n")
   where stamp = spelled "%Y-%m-%dT%H:%M:%SZ"
+
+-- | The line saying IDENT's blob moved AT, and its record is to be re-derived.
+externalLine :: Text -> Time.UTCTime -> BS.ByteString
+externalLine = noteLine []
+
+-- | The line saying IDENT's blob went AT, and its record is to be dropped.
+--
+-- @true@ is a LITERAL rather than an encoded value: it is the field's only
+-- legal spelling, so nothing here can emit the @false@ the contract does not
+-- have.
+tombstoneLine :: Text -> Time.UTCTime -> BS.ByteString
+tombstoneLine = noteLine [",\"tombstone\":true"]
 
 -- | The @ORG_GLANCE_ID@ of DOC's first headline, which is the entry a blob
 -- holds.  FIRST rather than first-with-an-id, for 'Data.Org.Index.blobEntryOf's
@@ -155,8 +201,28 @@ blobIdOf doc = firstHeadlineOf elems >>= identity
 -- have happened, and failing the caller's answer over a hint would report a
 -- write that landed as a write that did not.
 noteExternalWrite :: FilePath -> Text -> IO ()
-noteExternalWrite path written = case (externalPathOf path, blobIdOf written) of
-  (Just note, Just ident) -> appendNote note (externalLine ident)
+noteExternalWrite = noteBlob externalLine
+
+-- | Note that PATH's blob is gone, DELETED being the document it held.
+--
+-- DELETED is the document as it stood BEFORE the move: 'Data.Org.Trash.trashBlob'
+-- takes the whole blob directory out of the live tree, so afterwards there is
+-- nothing left to read an id from.
+--
+-- NO ID, NO LINE, which is 'noteExternalWrite''s own rule and has the same
+-- consequence read the other way: a blob claiming no @ORG_GLANCE_ID@ names no
+-- record, so its record stays live — the state before any of this existed.
+noteExternalDelete :: FilePath -> Text -> IO ()
+noteExternalDelete = noteBlob tombstoneLine
+
+-- | Append the line RENDER spells for DOC's entry to PATH's store, or nothing.
+--
+-- TWO GATES AND ONE PLACE FOR BOTH: the path must be a blob under a store, and
+-- its first headline must claim an id.  A write and a delete differ in the line
+-- alone, so neither can come to answer a gate the other does not.
+noteBlob :: (Text -> Time.UTCTime -> BS.ByteString) -> FilePath -> Text -> IO ()
+noteBlob render path doc = case (externalPathOf path, blobIdOf doc) of
+  (Just note, Just ident) -> appendNote note (render ident)
   _noBlobOrNoId           -> pure ()
 
 -- | Put the line RENDER spells at the end of NOTE, best effort, under one clock

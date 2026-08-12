@@ -160,8 +160,9 @@ Reads and writes the same tree Emacs's org-glance does: walks the canonical
 =data/= store, declines the derived =overviews/=, =meta/=, =trash/= and
 =occurrences/=
 (=--include-derived= turns that off), resolves shared ids in the store's
-favour. Every daemon write into a blob appends to =meta/EXTERNAL.jsonl=, which
-=M-x org-glance-graph:refresh-external= folds back. =glance scan= reads
+favour. Every daemon write into a blob appends to =meta/EXTERNAL.jsonl=, and a
+delete appends the same line wearing ="tombstone":true=; =M-x
+org-glance-graph:refresh-external= folds both back. =glance scan= reads
 org-glance's index read-only and reports drift. Details: [[file:docs/invariants.md][docs/invariants.md]]
 (Scan, Walk).
 

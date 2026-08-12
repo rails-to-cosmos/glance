@@ -174,13 +174,21 @@ spec = testGroup "Self-containment"
                ["sync-renderer:", "../table-view/web/table-view.js", "assets/table-view.js"]
                makefile
 
-    -- THE WRITE DOOR IS ONE FUNCTION.  Every write this daemon makes leaves
+    -- THE SPLICE DOOR IS ONE FUNCTION.  Every write that SPLICES SPANS leaves
     -- through 'Glance.Web.Watch.writeSpans', which queues the path it just wrote
     -- — a blob's shard is created and never watched, so a route splicing through
     -- 'Glance.Query.replaceSpans' itself would write the file correctly and
     -- deliver nothing until a restart.  Nothing in the types says so and the
     -- import is one line, which is why the rule is swept for rather than relied
     -- on.  Comments are exempt: four of them name the function to explain it.
+    --
+    -- WHAT THIS SWEEPS is 'Glance.Query.replaceSpans' call sites under
+    -- @src-web\/@, which is the splice door and the whole of it.  It is NOT
+    -- every way this daemon moves bytes: @delete@ splices no spans and MOVES a
+    -- blob directory through 'Data.Org.Trash.trashBlob', which lives outside
+    -- @src-web\/@ and so is outside this sweep by construction rather than by
+    -- oversight.  That second door carries its own note and its own rule; see
+    -- "ONE DOOR PER WAY BYTES MOVE" in docs/invariants.md.
   , testCase "replaceSpans is spliced through the watch and nowhere else" $ do
       files <- filter ("src-web/" `isPrefixOf`) <$> haskellSources
       assertBool ("too few web sources swept: " <> show (length files)) (length files >= 12)

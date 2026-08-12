@@ -112,7 +112,7 @@ data RowWrite = RowWrite
   , rwNote  :: !(Maybe (Text, Text))  -- ^ the state landed on, and its next occurrence.
   }
 
--- | The plain answer: spans, nothing recorded.  Nine of the ten commands.
+-- | The plain answer: spans, nothing recorded.  Nine of the eleven commands.
 plain :: [(Span, Text)] -> Either Text RowWrite
 plain edits = Right (RowWrite edits Nothing)
 
@@ -138,8 +138,8 @@ data Asked = Asked
 -- 'csArgs' is handed the IDS beside the @args@ because a shape refusal is about
 -- the request rather than the @args@ object alone: @edit-link@ carries a span,
 -- which means nothing to a second row and a different range in each file, so
--- "one row" is part of what its SHAPE owes.  Nine of the ten entries ignore the
--- list — a rule only one command has, kept out of a flag every entry would
+-- "one row" is part of what its SHAPE owes.  Ten of the eleven entries ignore
+-- the list — a rule only one command has, kept out of a flag every entry would
 -- answer.
 data CommandSpec = CommandSpec
   { csArgs  :: [Text] -> Args -> Maybe Text
@@ -159,7 +159,7 @@ data CommandSpec = CommandSpec
 -- agreeing by nobody's enforcement.
 data CommandKind
   = Splices RowEdits
-    -- ^ edits each named row in place; the eight that write spans.
+    -- ^ edits each named row in place; the nine that write spans.
   | Makes
     -- ^ MAKES a row rather than naming one: @capture@, the one that owes no ids.
   | Moves
@@ -242,7 +242,7 @@ commands =
   ]
   where
     -- A shape that has nothing to say about HOW MANY rows were named, which is
-    -- nine of the ten.
+    -- ten of the eleven.
     overIds = const
     -- `set-state', with org's repeat folded in: a row that repeats shifts its
     -- stamp and resets its keyword in one set, and anything else takes the
@@ -379,6 +379,12 @@ runCommand opts hub request = withBody request $ \raw -> do
 -- The path is NUDGED on success: this is the write door's sixth site and the
 -- only one that splices no spans, so it queues the path itself or the row would
 -- sit in the table until a restart.
+--
+-- AND THE TOMBSTONE IS NOT NUDGED'S NEIGHBOUR HERE.  Splicing no spans also
+-- means reaching no 'Glance.Query.replaceSpans', so the line telling org-glance
+-- to drop the record rides 'Glance.Query.trashBlob''s own success branch, where
+-- the document is still readable and the path the note is keyed by is in hand.
+-- This route asks for the move and spells no JSON.
 deleteRows :: ServeOptions -> Hub -> Store -> Command -> IO Response
 deleteRows opts hub st cmd =
   jsonResponse status200 . pure . ("results" .=) <$> mapM (either pure taken) (namedRows st cmd)

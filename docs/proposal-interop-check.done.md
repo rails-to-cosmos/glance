@@ -2,7 +2,8 @@
 
 **Status:** done — LANDED 2026-08-12 as `make interop`, twelve cases, both
 directions, one of them seen red against the daemon's own inotify wiring with
-all 1857 Haskell tests green (see "What landed") ·
+the whole Haskell suite green (1857 when the experiment was run, 1867 today —
+see "What landed") ·
 **Date:** 2026-08-12 · **Origin:** M4 box 3 of
 [plan-org-console-web.md](plan-org-console-web.md) — "round-trip demo,
 browser↔Emacs" — the last unchecked box of the write-back milestone.
@@ -33,9 +34,10 @@ inferred from reading the code and asserted nowhere.
 
 And the Emacs→browser direction rests entirely on `watchOrgTree`, which has
 **one call site in the repo and zero in `test/`**. Every pipeline test calls
-`drain` or `settle` directly. Sever the inotify callback and 1857 tests, 65
-elm-test cases, `check-glue` and `browser-check` are all still green — which
-this proposal's target is what found.
+`drain` or `settle` directly. Sever the inotify callback and the whole Haskell
+suite (1857 when this was measured, 1867 today), 65 elm-test cases,
+`check-glue` and `browser-check` are all still green — which this proposal's
+target is what found.
 
 ## The shape
 
@@ -88,25 +90,39 @@ NEITHER*:
 | `archive-flag-round-trips` | 14 | the `archived` value org-glance serializes reads as glance's `(eq t VALUE)` flag |
 | `scan-agrees-with-the-writer` | 15 | `glance scan` over a real org-glance store: 0 rows disagree, 0 unmatched either way, 0 span violations |
 | `HOLE: a tagged capture never reaches the WAL` | 17 | PINNED |
-| `HOLE: a delete leaves the record pointing at nothing` | 18 | PINNED |
+| `delete-tombstones-the-record` | 18 | a browser delete appends `"tombstone":true`; org-glance reads the kind, drops the record, and glance's own fold reads the tombstone back |
 
-**The last two PIN today's behaviour.** Create and delete are the two
-blob-lifecycle events the notification file does not carry: a browser capture
-mints an id org-glance's fold skips as *unknown or deleted*, and a browser
-delete writes no line at all, leaving a live record pointing at bytes that are
-in the trash. Both cases assert TODAY's behaviour, so closing either one turns
-its case red — which names the decision rather than letting it drift. One line
-of glance's own instrument reports both at once:
+**The delete leg closed on 2026-08-12; the create leg is still pinned.** Create
+and delete were the two blob-lifecycle events the notification file did not
+carry. A delete now appends the plain line plus a third field — out of
+`Data.Org.Trash.trashBlob`'s success branch, the other door bytes move by, since
+a delete splices no spans and reaches `replaceSpans` never — and
+`refresh-external` folds it as the tombstone `graph:delete` would write. What is
+left is the browser capture, which mints an id org-glance's fold skips as
+*unknown or deleted*; its case asserts TODAY's behaviour, so closing it turns
+that case red and names the decision rather than letting it drift. One line of
+glance's own instrument reports both halves at once:
 
-    unmatched 1 unindexed blobs, 1 records without blobs
+    unmatched 1 unindexed blobs, 0 records without blobs
+
+The zero is `Data.Org.Index`'s fold rather than a count that happened to move: a
+tombstoned id leaves the fold, so it can no longer be a record without a blob.
+
+**The version skew is safe in both directions**, which is why the delete is a
+third FIELD rather than a new `op` vocabulary. A NEW glance against an OLD
+org-glance degrades to exactly the old behaviour — `--read-external` reads `id`
+alone and ignores keys it does not know, so the id is read, the blob it names is
+gone, and the line is skipped as *no stored blob*. An OLD glance against a NEW
+org-glance writes the field never, so nothing changes.
 
 ## Seeing it fail
 
 **`BREAK=name` takes ONE step out of the HARNESS** and names the case that
 must go red — `browser-check`'s idiom, and it proves the assertions read what
-the OTHER program did rather than what this one set up. Five knobs:
-`no-write`, `no-refresh`, `no-put`, `wrong-id`, `meta-moved`. Each was run and
-each turned its own case red first.
+the OTHER program did rather than what this one set up. Six knobs:
+`no-write`, `no-refresh`, `no-put`, `wrong-id`, `meta-moved`, and
+`no-delete-fold`, which leaves the tombstone line standing so the record it
+names stays live. Each was run and each turned its own case red first.
 
 **And the daemon itself was broken once**, which is the reading that matters.
 `src-web/Glance/Web/Watch.hs`'s
@@ -118,7 +134,8 @@ where note = nudge opts hub . FS.eventPath
 replaced by `const (pure ())` — inotify events registered and delivered
 nowhere — and reverted afterwards. With it broken:
 
-- `cabal test` — **All 1857 tests passed**
+- `cabal test` — **All 1857 tests passed** (the suite's count on the day; it is
+  1867 today, and the experiment has not been re-run at that count)
 - `make interop` — `not ok — browser-sees-emacs [CLAIM 19]`,
   *waited 10000ms for the watch to deliver org-glance's own write as a row*
 
@@ -156,14 +173,18 @@ sits beside S5's own 105–107 ms for a plain editor write.
 
 ## What org-glance owes, if anything
 
-Nothing, for this target to pass. The two holes are the only findings, and
-both are decisions rather than defects:
+Nothing, for this target to pass. Two holes were the only findings, both
+decisions rather than defects, and one has since been taken:
 
 1. **A tagged capture through glance is invisible to Emacs** until something
    calls `graph:add` for it. Either side could close it — an adopt-unknown
-   path in `refresh-external`, or a distinct notification from glance.
-2. **A delete through glance leaves the record live.** `deleteRows` splices no
-   spans, so it never reaches the one door that writes a line; a tombstone
-   notification would be a second line kind.
-
-Both are reported to that repo rather than changed here.
+   path in `refresh-external`, or a distinct notification from glance. OPEN,
+   and pinned by its own case.
+2. **A delete through glance left the record live.** TAKEN on 2026-08-12, by
+   both repos in one sitting: glance appends `"tombstone":true` beside the
+   frozen two fields, and `refresh-external` folds that line into the tombstone
+   `graph:delete` would write. The word is org-glance's own WAL spelling, and
+   the field only ever carries JSON `true` — absence is the plain line, and
+   `true` is what the peer's own `(eq t …)` reader takes as a delete, that being
+   the stricter of the two readers (`Index.recordOf` reads the WAL's key with
+   `truthy`).

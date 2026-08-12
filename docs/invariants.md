@@ -1353,8 +1353,9 @@ on.
   projection of it. This daemon edits blobs and does not write that index, so a
   browser edit leaves the index one record behind — which is exactly the drift
   the instrument above counts. The file is where the two sides meet: this side
-  names the ids it moved, Emacs re-derives a record for each and shortens the
-  file.
+  names the ids it moved and says of each whether the blob is still there, Emacs
+  re-derives a record for every id whose blob survived and tombstones the rest,
+  then shortens the file.
 
   THE LINE. One JSON object per line, newline-terminated, two fields in this
   order: `{"id":"…","at":"2026-08-03T04:21:07Z"}`. `id` is the `ORG_GLANCE_ID`
@@ -1365,6 +1366,64 @@ on.
   Values go through the JSON encoder and the KEYS do not, which is what fixes
   the order without leaving an id unescaped.
 
+  AND A DELETE IS THAT LINE PLUS A THIRD FIELD, in this order:
+  `{"id":"…","at":"…","tombstone":true}`. It says the blob is GONE and the
+  record is to be dropped rather than re-derived — the one line here that is not
+  a re-derivation hint. The field appears on a delete alone and carries JSON
+  `true` alone: there is no `"tombstone":false`, absence being the plain line, so
+  each fact has ONE spelling, which is the WRITER's whole rule. `true` is a
+  literal `Data.Org.External.noteLine` splices behind the frozen prefix, never an
+  encoded value, so the two shapes cannot drift apart and nothing here can emit
+  the `false` the contract does not have. The WORD is org-glance's own: its WAL
+  record spells `:tombstone t` and `Data.Org.Index` already reads it, so a second
+  vocabulary would be a second thing to keep in step.
+
+  TWO FILES, TWO READERS, AND THEY DO NOT AGREE — which is why the writer emits
+  the literal. This repo reads org-glance's WAL (`headlines.jsonl`) in
+  `Data.Org.Index.recordOf`, which tests the `tombstone` key with `truthy` —
+  elisp non-nil, where `{}` alone is false — so the STRING `"tombstone":"true"`
+  drops a record on THIS side. `Data.Org.Index.flagOf` is the strict
+  `(eq t VALUE)` and `archived` is its only caller; it does not decide
+  tombstones. The peer reads EXTERNAL.jsonl in `org-glance-graph--read-external`,
+  which is the strict test — `(eq t (plist-get object :tombstone))` — and its
+  `external-refresh-deletes-on-json-true-alone` pins `false` and the string
+  `"true"` as ordinary WRITES. So the two readers differ, the peer's is the
+  narrower, and JSON `true` is the one spelling both take as a delete. A writer
+  that encoded a Haskell `Bool` would be one refactor away from a `false` this
+  side would still call a delete.
+
+  COMPATIBILITY BOTH WAYS, which is why the delete is a third FIELD rather than
+  a new `op` vocabulary. A NEW glance against an OLD org-glance degrades to
+  exactly the behaviour before any of this: `--read-external` reads `id` alone
+  and ignores keys it does not know, so the id is read, `get-content` finds no
+  blob, and the line is skipped as *no stored blob* and dropped. An OLD glance
+  against a NEW org-glance writes the field never, so nothing changes. Both
+  directions are stated in `Data.Org.External`'s commentary and in the peer's
+  `org-glance-graph.el`, one copy each.
+
+  WHAT IS ASSERTED, and how far it reaches. `TestExternal` pins
+  the BYTES this side writes, golden and by hand. `make interop`'s
+  `delete-tombstones-the-record` runs the peer's own reader over those bytes —
+  the peer at its CURRENT checkout, so it exercises the new reader and says
+  nothing about an old one. The peer's own
+  `external-refresh-ignores-an-unknown-key` is the closest standing test and it
+  pins the RULE rather than this field: a key that reader does not know is inert
+  and its line folds as a write, which is what a field invented later rests on.
+  No test in either repo runs an old reader over a tombstone, and none is
+  invented here to claim otherwise.
+
+  SO THE OLD-READER DIRECTION WAS CHECKED BY HAND, once, against a checkout of
+  the peer at `4e644e9` — its last commit before the tombstone read — over a
+  store org-glance had seeded, with beta's blob directory removed and one
+  tombstone line in place. The result, verbatim: the id is read
+  (`--read-external` yields it like any other), `get-content` finds no blob, and
+  the fold prints `org-glance: refresh-external skips
+  bbbb1111-… (no stored blob)`, returns 0 and truncates the file to 0 bytes; the
+  record stays live. That is exactly the pre-change state — a delete costing the
+  index nothing — which is what "degrades to the old behaviour" means. Checked by
+  hand and untested: a re-check is a checkout of that commit and the four steps
+  above, and nothing goes red on its own if this stops being true.
+
   WHICH WRITES. `Data.Org.Walk.isBlob` — `data.org` inside the canonical store —
   and no other file. An ordinary document, a config layer, an overview, a blob's
   occurrence history and another `.org` sitting beside a blob all have no record
@@ -1372,16 +1431,44 @@ on.
   the blob sits under (`Data.Org.Walk.orgGlanceRoot`, innermost wins), so a tree
   holding several stores notes each write in its own.
 
-  ONE DOOR. The note is taken in `Glance.Query.replaceSpans` and nowhere else,
-  because that is the one function every write in this program leaves through —
-  the FIVE write sites (`captureInbox`, `captureBlob`, `writeOne`, `commit`,
-  `writeLayer`) reach it through `Glance.Web.Watch.writeSpans`, which adds the
-  nudge and nothing else, and `Data.Org.Edit.editFile` has no other caller. So a
-  command over several rows of ONE blob is one `editFile` and therefore one
-  line: the id names the entry rather than the edit. It costs one parse of the text
-  just written, and it cannot fail the write — by the time it runs the rename
-  has happened, so every IO error there is swallowed. A refused write (drift, a
-  rejected batch) notes nothing, having written nothing.
+  ONE DOOR PER WAY BYTES MOVE, and there are two. A SPLICE is
+  `Glance.Query.replaceSpans` and nowhere else, because that is the one function
+  every write in this program leaves through — the FIVE write sites
+  (`captureInbox`, `captureBlob`, `writeOne`, `commit`, `writeLayer`) reach it
+  through `Glance.Web.Watch.writeSpans`, which adds the nudge and nothing else,
+  and `Data.Org.Edit.editFile` has no other caller. So a command over several
+  rows of ONE blob is one `editFile` and therefore one line: the id names the
+  entry rather than the edit. A MOVE is `Data.Org.Trash.trashBlob`, which
+  `delete` reaches instead: it splices no spans, so no amount of care at the
+  splice door would ever have covered it. `Glance.Web.Commands.deleteRows` asks
+  for the move and spells no JSON of its own.
+
+  The two doors share `Data.Org.External.noteBlob`, so the two GATES — a blob
+  under a store, an id in its first headline — are stated once for both and
+  neither can come to answer one the other does not. They differ in the line
+  alone. `trashBlob` reads the document BEFORE the copy-and-remove, the id living
+  in the very bytes the move takes away, and spends it on the `Right` branch:
+  every `Left` leaves the blob in the live tree, and a tombstone there would tell
+  org-glance to drop a record whose document is still on disk.
+
+  A note costs one parse of the text in hand, and it cannot fail the act it
+  reports — by the time either runs the rename or the removal has happened, so
+  every IO error is swallowed. A refused write (drift, a rejected batch) and a
+  refused delete (not a blob, the trash already holding that id) note nothing,
+  having moved nothing.
+
+  KNOWN LIMIT — ONE BLOB GETS ONE TOMBSTONE, however many entries it holds.
+  `Data.Org.Trash.trashBlob` moves the whole blob DIRECTORY, and
+  `Data.Org.External.noteBlob` keys its line off the FIRST headline's
+  `ORG_GLANCE_ID` (`blobIdOf`, `Data.Org.Index.blobEntryOf`'s own rule). So a
+  blob carrying a SECOND top-level entry has that entry's bytes taken with the
+  rest while its record stays live — precisely the drift the tombstone exists to
+  close, left standing for every id the line does not name. It is reachable by a
+  HAND-WRITTEN blob alone: `capture` writes one entry and `captureText` refuses a
+  text carrying a newline, so no blob this daemon mints has a second top-level
+  entry. Stated as the limit it is rather than fixed — the fix is one line per
+  top-level id, which nothing has asked for, and the shape it would serve is one
+  org-glance does not produce either.
 
   APPEND-ONLY, and it has to be `O_APPEND` with ONE `write(2)`
   (`Data.Org.External.appendLine`). A `Handle` in `AppendMode` remembers the
@@ -1397,21 +1484,47 @@ on.
   the difference. Idempotent by construction, which is what lets the two steps
   be unsynchronised. Emacs drops exactly the prefix it read rather than writing
   the file empty, so a line this daemon appends mid-refresh survives to the next
-  one. Evidence: `TestExternal` — the door, the golden line, the path rules,
-  append-only including the concurrent case, and the three write routes.
-  **test**
+  one. A TOMBSTONE is exempt from that rule and needs no exemption: a repeated
+  fold of one finds the id already tombstoned and appends nothing.
+
+  THE FOLD'S OWN TWO HAZARDS ARE THE PEER'S, PINNED THERE. Both are properties
+  of how Emacs reads and truncates this file, so neither is reachable from a
+  line this side spells and neither is restated here: a two-reader truncate race
+  (two Emacsen folding at once, wanting a lock ACROSS Emacsen — a change to the
+  fold's design rather than to any line of it), and resurrection through an open
+  material buffer (the tombstone arm touches no buffer, so a later save writes a
+  live record back over the tombstone). The second stands on purpose: a fold runs
+  in the BACKGROUND, and `org-glance-material:delete`'s consent-when-dirty guard
+  exists because discarding a dirty buffer needs a human — doing that silently
+  during a background fold is worse than a resurrected record, which one more
+  delete undoes. Both are written up with their probe evidence in the peer's
+  `src/data/org-glance-graph.el` commentary, one copy, kept beside the code they
+  describe. What they cost THIS side is visible in the instrument: a resurrected
+  blob is counted as an unindexed blob by `glance scan`. **peer, pinned**
+
+  Evidence:
+  `TestExternal` — both doors, both golden lines, the path rules, append-only
+  including the concurrent case, and the four write routes (`POST /command` and
+  `POST /headline` note the blob they wrote, a capture into the inbox notes
+  nothing, and `delete` leaves the tombstone); plus `make
+  interop`, where the peer's own reader and fold run over these bytes. **test +
+  peer**
 - **The command layer is one route, and its unit of work is a FILE.**
-  `POST /command` takes `{name, id | ids, args, digests?}` and implements ten
+  `POST /command` takes `{name, id | ids, args, digests?}` and implements eleven
   names — `set-state {"keyword": KW | null}`,
   `set-planning {"keyword": "SCHEDULED" | "DEADLINE", "date": TEXT | null}`,
   `set-title {"title": …}`, `set-priority {"priority": LETTER | null}`,
   `archive {}`, `capture {"text": …, "tag": … | absent, "fields": {…} | absent}`,
   `add-tag {"tag": …}`,
-  `remove-tag {"tag": …}`, `rename-tag {"from": …, "to": …}` and
-  `edit-link {"span": [S, E], "target": …, "desc": … | null}`. The ids it is
+  `remove-tag {"tag": …}`, `rename-tag {"from": …, "to": …}`,
+  `edit-link {"span": [S, E], "target": …, "desc": … | null}` and `delete {}`.
+  The ids it is
   given are grouped by the file their rows came from, and each file is written
   ONCE — one `Glance.Query.replaceSpans` call carrying every span that file
-  owes, under that file's own pinned digest. So a marked set of five rows in
+  owes, under that file's own pinned digest. `delete` is the exception and the
+  one command that splices no spans: it MOVES a whole blob directory
+  (`Data.Org.Trash.trashBlob`) instead, so it reaches `replaceSpans` never and
+  leaves its note on the move door. So a marked set of five rows in
   two files is two writes, each of them atomic: `Data.Org.Edit.applyEdits`
   validates the whole batch before a byte is written and `editFile` renames
   once, so a file takes all of its edits or none. Two rows of one file MUST land

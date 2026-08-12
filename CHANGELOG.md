@@ -13,6 +13,25 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ### Added
 
+- **A browser delete now tells Emacs, so the record leaves with the bytes.**
+  Deleting a row moves its blob to the trash and appends one line to
+  `<store>/.org-glance/meta/EXTERNAL.jsonl`: the two fields every write already
+  spells, plus a third, `"tombstone":true`. `M-x
+  org-glance-graph:refresh-external` folds that line into the tombstone
+  `graph:delete` writes, so the index drops the record instead of keeping it
+  live over bytes that have moved. A delete splices no spans and so never
+  reached the door every other write leaves by; the note rides the move itself
+  instead. The field is on a delete alone and carries JSON `true` alone —
+  absence is the plain line, so each fact has one spelling — and the word is
+  org-glance's own WAL spelling, so neither side learned a second vocabulary.
+  The version skew is safe both ways: a new glance against an older org-glance
+  degrades to exactly the old behaviour, that reader taking the `id` and
+  ignoring keys it does not know, and an older glance against a new org-glance
+  writes no tombstones at all. `make interop` reads the whole leg back — the
+  bytes glance wrote, the kind Emacs's own reader took them as, the record Emacs
+  dropped, and glance's index fold seeing the tombstone Emacs wrote — and its
+  instrument line is now `unmatched 1 unindexed blobs, 0 records without blobs`.
+  The one left is the tagged capture, which is still pinned as a hole.
 - **`make test` runs the Elm scanner's suite too, and `make typecheck` asks all
   three languages at once.** `make test` is now every suite that runs off this
   tree alone: `cabal test` first, so the first red line is a Haskell one where
@@ -38,15 +57,21 @@ section groups a feature arc, and its date is that arc's last commit.
   at rest — `glance scan` over a store org-glance actually wrote reports zero
   rows disagreeing, zero unmatched blobs or records, and zero span violations,
   which is the whole index-reading side proven against the real writer instead
-  of against hand-written fixtures. Two cases PIN known contract holes rather
-  than blessing them: a browser capture mints an id Emacs's fold skips, and a
-  browser delete leaves a live record pointing at bytes that have moved to the
-  trash. It is OUT of `cabal test` for `make browser-check`'s reason — it needs
-  Emacs, a sibling org-glance checkout and a daemon — and SKIPS LOUDLY, naming
-  which is missing. Host Emacs is the default; `EMACS_RUN=podman` runs the same
-  cases on org-glance's own pinned image. `BREAK=name` takes one harness step
-  out to watch the case for it go red. The daemon and the temp store are torn
-  down on success and on failure alike.
+  of against hand-written fixtures. One case PINS a known contract hole rather
+  than blessing it: a browser capture mints an id Emacs's fold skips. Deletion
+  was the second such hole and is closed above, read back end to end by the
+  twelfth case. It is OUT of `cabal test` for `make browser-check`'s reason — it
+  needs Emacs, a sibling org-glance checkout and a daemon — and SKIPS LOUDLY,
+  naming which is missing. Host Emacs is the default; `EMACS_RUN=podman` runs
+  the same cases on org-glance's own pinned image. `BREAK=name` takes one
+  harness step out to watch the case for it go red. The Emacs half reads either
+  shape the peer's `--read-external` answers — a bare id, or an `(ID . KIND)`
+  cons — so an org-glance predating the third field makes the target skip
+  loudly instead of dying on a type error.
+  The daemon and the temp store are torn down on success,
+  on failure and on a signal alike: teardown is one function the normal exit and
+  `SIGINT`/`SIGTERM`/`EPIPE` all reach, so a run piped into `head` no longer
+  leaves a daemon serving a temp store.
 
 ## 0.6.0.0 - 2026-08-11
 

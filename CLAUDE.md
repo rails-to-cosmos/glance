@@ -168,9 +168,12 @@ measurements and the history of superseded designs live in
   them apart ran `repeatOn` — and so `keywordSources` — twice a row for one
   write. Nine commands answer through `plain`, which is the spans and nothing
   recorded. The line goes out from `writeOne`'s success branch, where
-  `noteExternalWrite` sits one layer down in `replaceSpans`: the two notes are
-  at two layers because they are keyed differently — a blob's off the PATH
-  written, a completion off the SERVED ROOT, which no write door carries.
+  `noteExternalWrite` sits one layer down in `replaceSpans`: the notes are at
+  two layers because they are keyed differently — a blob's off the PATH the
+  bytes moved at, a completion off the SERVED ROOT, which no write door carries.
+  The blob's key has TWO doors under it, since bytes move two ways: `replaceSpans`
+  splices and `Data.Org.Trash.trashBlob` moves, and `delete` reaches only the
+  second.
 - `delete` IS THE ONE DESTRUCTIVE COMMAND and the SECOND with no row function.
   A spec declares its `CommandKind` — `Splices`/`Makes`/`Moves` — so the
   dispatch is ONE TOTAL CASE and the id wall asks `namesRows` rather than
@@ -184,7 +187,10 @@ measurements and the history of superseded designs live in
   BLOB. It NAMES ROWS like every command but `capture` — the id wall reads the
   NAME rather than "has edits", which `delete` would otherwise slip through. The
   path is nudged on success: the write door's sixth site and the only one that
-  splices no spans.
+  splices no spans — which is also where its NOTE parts company with the nudge.
+  Reaching no `replaceSpans`, the line telling org-glance to drop the record
+  rides `Data.Org.Trash.trashBlob`'s own success branch instead, and
+  `Glance.Web.Commands` asks for the move and spells no JSON.
 - DELETION IS A MOVE, never an unlink (`Data.Org.Trash`). A blob is the
   canonical document and the index is its projection, so the destructive
   command takes the bytes OUT of the live tree and keeps them: gzipped under
@@ -201,18 +207,50 @@ measurements and the history of superseded designs live in
   `trash` is on the walk's DENYLIST rather than resting on the `.gz`: a deleted
   row must not come back as a live one, and that is a fact about the directory
   rather than about how the bytes are stored.
-- The drift FIX is a one-file contract: every successful write to a BLOB
-  (`isBlob` — `data.org` in the canonical store) appends `{"id","at"}` to
-  `meta/EXTERNAL.jsonl` — the blob's FIRST headline's `ORG_GLANCE_ID`, no id no
-  line, one `editFile` one line. The note rides `replaceSpans`' success branch,
-  which the five write sites reach through `Watch.writeSpans`.
+  KNOWN LIMIT — ONE BLOB, ONE TOMBSTONE, however many entries it holds.
+  `trashBlob` moves the whole directory and `noteBlob` keys the line off the
+  FIRST headline's `ORG_GLANCE_ID`, so a blob carrying a SECOND top-level entry
+  loses its bytes with the rest and keeps its record: the very drift the
+  tombstone closes, left open for the entries the line does not name. Reachable
+  by a hand-written blob alone — `capture` writes one entry and `captureText`'s
+  one-headline wall is what keeps it that way — so the shape the daemon produces
+  never has it. The fix is a line per top-level id, and nothing asks for it yet.
+- The drift FIX is a one-file contract and it carries BOTH ends of a blob's
+  life. Every successful write to a BLOB (`isBlob` — `data.org` in the canonical
+  store) appends `{"id","at"}` to `meta/EXTERNAL.jsonl`, and every successful
+  DELETE appends those two fields plus `"tombstone":true` — the blob's FIRST
+  headline's `ORG_GLANCE_ID`, no id no line, one `editFile` one line. TWO DOORS,
+  one per way bytes move: the write note rides `replaceSpans`' success branch,
+  which the five write sites reach through `Watch.writeSpans`; the delete note
+  rides `Data.Org.Trash.trashBlob`'s. `noteBlob` states the two gates — a blob
+  under a store, an id in its first headline — once for both, so neither can
+  come to answer a gate the other does not, and `trashBlob` reads the id BEFORE
+  the move, the document being what the move takes away.
+  KEYS ARE HAND-ASSEMBLED so the field order is frozen and only VALUES go
+  through the encoder; `true` is a literal `noteLine` splices in, so nothing here
+  can emit a `"tombstone":false`. There is none: absence IS the plain line, so
+  each fact has ONE spelling, which is the WRITER's whole rule. The word is
+  org-glance's own WAL spelling (`:tombstone t`), which `Data.Org.Index` already
+  reads, so there is no second vocabulary.
+  TWO FILES, TWO READERS, AND THEY DIVERGE — write for the stricter. Glance's
+  WAL reader is `Index.recordOf`, which tests `tombstone` with `truthy`, so the
+  STRING `"tombstone":"true"` drops a record there; elisp's `(eq t VALUE)` is
+  `Index.flagOf`, and `archived` is its only caller. The peer's EXTERNAL.jsonl
+  reader is the strict one — JSON `true` alone, its own
+  `external-refresh-deletes-on-json-true-alone` pinning the string as an
+  ordinary write. So `true` is a LITERAL here rather than an encoded value: it
+  is the one spelling both readers agree on.
   `Data.Org.External` owns format/path/append, by `openFd` append + one
   `fdWriteBuf` — `BS.appendFile` measurably LOSES lines under concurrency. The
   daemon appends only, never truncates, and touches no `meta/` file but its own
   two (`EXTERNAL.jsonl` and `COMPLETIONS.jsonl`).
-  Emacs's `refresh-external` adopts each id via `graph:insert` (never
-  `put-content` — blobs are read, not rewritten) and shortens the file by the
+  Emacs's `refresh-external` re-derives each written id via `graph:insert` (never
+  `put-content` — blobs are read, not rewritten), appends a tombstone for each
+  deleted one under `graph:delete`'s own guard, and shortens the file by the
   PREFIX IT READ; a crash between = a repeated refresh, no-op by construction.
+  Its reader answers one `(ID . KIND)` per id, each at its FIRST sighting
+  carrying its LAST sighting's kind, so a write and a delete of one id inside one
+  window fold as the delete.
 - Corpus check: `cabal run -v0 glance -- scan ~/sync` — expect 0 span
   violations, ~12.6k headlines, ~10 s walk.
 - THE HARNESS SETTLES ON THE PAGE'S SCHEDULE, never on the clock. Every
@@ -252,20 +290,32 @@ measurements and the history of superseded designs live in
   `BREAK=name` takes ONE HARNESS step out and names the case that must go red,
   which proves an assertion reads what the OTHER program did.
 - WHAT IT COVERS THAT NOTHING ELSE DOES: `watchOrgTree` has one call site in
-  the repo and ZERO in `test/`. Sever its inotify callback and all 1857 Haskell
-  tests stay green, because every pipeline case calls `drain`/`settle` directly
+  the repo and ZERO in `test/`. Sever its inotify callback and the whole Haskell
+  suite stays green (1857 when that was run, 1867 today), because every pipeline
+  case calls `drain`/`settle` directly
   and every browser-originated write reaches the table through its own nudge —
   `browser-sees-emacs` is the case that goes red. Likewise `Data.Org.Index` is
   otherwise read only over MANIFESTs `TestIndex` hand-wrote; here it folds one
   org-glance produced.
-- TWO CASES PIN HOLES RATHER THAN BLESSING THEM. Create and delete are the two
-  blob-lifecycle events the notification file does not carry: a TAGGED CAPTURE
-  mints an id `refresh-external` skips as unknown, and `delete` splices no
-  spans so it reaches no write door and writes no line, leaving a live record
-  pointing at bytes in the trash. Both are asserted AS THEY ARE TODAY, so
-  closing either turns its case red and names the decision. One line of
-  glance's own instrument reports both: `unmatched 1 unindexed blobs, 1 records
-  without blobs`.
+- ONE CASE PINS A HOLE RATHER THAN BLESSING IT, where there were two. Create and
+  delete were the two blob-lifecycle events the notification file did not carry.
+  DELETE IS CLOSED: `delete-tombstones-the-record` reads the tombstone line
+  glance wrote, the KIND org-glance's own reader took it as, and the record
+  org-glance dropped for it, its blob gone from the tree. A TAGGED CAPTURE is
+  still the hole — it mints an id `refresh-external` skips as unknown, so the
+  line is spent on nothing — and it is asserted AS IT IS TODAY, so closing it
+  turns its case red and names the decision. One line of glance's own instrument
+  reports both halves: `unmatched 1 unindexed blobs, 0 records without blobs`,
+  the zero being `Data.Org.Index`'s own fold, where a tombstoned id leaves and so
+  can no longer be a record without a blob.
+- THE CONTRACT SKEWS SAFELY IN BOTH DIRECTIONS, which is why a delete is a third
+  FIELD rather than a new `op` vocabulary. A NEW glance against an OLD
+  org-glance degrades to exactly the old behaviour: `--read-external` reads `id`
+  alone and ignores keys it does not know, so the id is read, the blob it names
+  is gone, and the line is skipped as "no stored blob" and dropped. An OLD
+  glance against a NEW org-glance writes the field never, so nothing changes.
+  Both directions are stated in `Data.Org.External`'s commentary and in the
+  peer's `org-glance-graph.el`, one copy each.
 
 ## Walk
 

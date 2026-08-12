@@ -9509,28 +9509,42 @@ deleteCommandSpec = testGroup "POST /command delete"
         assertEqual "byte for byte" archivedBlob . TE.decodeUtf8 . BL.toStrict
           . GZip.decompress =<< BL.readFile kept
 
+    -- AND ONE EXTERNAL.jsonl LINE NAMING IT, in the delete's own shape: the
+    -- record org-glance holds points at bytes that are now in the trash, so the
+    -- line says DROP rather than re-derive.
+  , testCase "and it leaves one tombstone naming the row" $
+      withDeletable $ \a root _archived _live _shared -> do
+        assertOk =<< postTo a "/command" (command "delete" ["gone"] (object []))
+        noted <- noteLinesIn root
+        assertEqual "one line" 1 (length noted)
+        assertContains "naming the row" "\"id\":\"gone\"" (head noted)
+        assertContains "and saying it is gone" ",\"tombstone\":true}" (head noted)
+
     -- ARCHIVING IS THE STEP BEFORE THIS ONE, so a live entry cannot be reached
     -- by asking twice as fast.  The wall is the SERVER's as much as the shell's.
   , testCase "a row that is not archived is refused, and stands" $
-      withDeletable $ \a _root _archived live _shared -> do
+      withDeletable $ \a root _archived live _shared -> do
         r <- ok =<< postTo a "/command" (command "delete" ["here"] (object []))
         assertEqual "refused" [("here", False)] =<< outcomesOf r
         assertContains "naming the step it owes" "not archived" =<< errorOf r
         assertEqual "and the blob stands" True =<< doesFileExist live
+        assertEqual "so nothing is noted" [] =<< noteLinesIn root
 
     -- A SHARED ORG FILE IS MANY ROWS' DOCUMENT, and moving it would take the
     -- others with it.  Archived or not, only a blob is deleted.
   , testCase "an archived row in a shared file is refused, and stands" $
-      withDeletable $ \a _root _archived _live shared -> do
+      withDeletable $ \a root _archived _live shared -> do
         r <- ok =<< postTo a "/command" (command "delete" ["shared"] (object []))
         assertEqual "refused" [("shared", False)] =<< outcomesOf r
         assertContains "naming what it deletes" "blob" =<< errorOf r
         assertEqual "and the file stands" True =<< doesFileExist shared
+        assertEqual "so nothing is noted" [] =<< noteLinesIn root
 
   , testCase "an id the store does not hold is refused like any other" $
-      withDeletable $ \a _root _archived _live _shared -> do
+      withDeletable $ \a root _archived _live _shared -> do
         r <- ok =<< postTo a "/command" (command "delete" ["nope"] (object []))
         assertEqual "refused" [("nope", False)] =<< outcomesOf r
+        assertEqual "so nothing is noted" [] =<< noteLinesIn root
 
     -- It NAMES ROWS, which `capture' alone does not: its edits are `Nothing'
     -- because it moves a file, and the id wall reads the name rather than that.
@@ -9540,6 +9554,17 @@ deleteCommandSpec = testGroup "POST /command delete"
         assertEqual "400" 400 (status r)
         assertContains "asks for them" "names rows" (body r)
   ]
+
+-- | The lines ROOT's store holds in @meta\/EXTERNAL.jsonl@, none where the file
+-- is not there.
+--
+-- THE FORMAT IS @TestExternal@'s SUBJECT; what these cases ask is whether the
+-- route left a line at all, and which of the two shapes it is.
+noteLinesIn :: FilePath -> IO [T.Text]
+noteLinesIn root = do
+  there <- doesFileExist note
+  if there then T.lines <$> document note else pure []
+  where note = storeRootIn root </> "meta" </> "EXTERNAL.jsonl"
 
 -- | A tree with the three shapes @delete@ tells apart: an archived blob, a live
 -- blob, and an archived row in a file other rows share.  K is handed the ROOT,

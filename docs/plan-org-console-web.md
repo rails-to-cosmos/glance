@@ -762,9 +762,9 @@ Exit:
       beside S5's 105–107 ms for a plain editor write. 12/12, 21.3 s wall, host
       Emacs 30.2 against org-glance `4e644e9`. The leg that had never been
       tested is the Emacs one: `watchOrgTree` has one call site in the repo and
-      zero in `test/`, and severing its inotify callback leaves all 1857 Haskell
-      tests green while `browser-sees-emacs` goes red — which is how that case
-      was proven to bite.
+      zero in `test/`, and severing its inotify callback leaves the whole
+      Haskell suite green (1857 when this was run, 1867 today) while
+      `browser-sees-emacs` goes red — which is how that case was proven to bite.
 - [~] Capture appends an entry to the inbox file. The COMMAND landed
       (2026-08-02, below): `+` raises a one-line prompt, `POST /command capture
       {text}` appends `* <text>` plus an `:ORG_GLANCE_CREATION_TIME:` drawer at
@@ -969,18 +969,25 @@ proven against the real writer rather than against `TestIndex`'s hand-written
 MANIFEST; and the `archived` value org-glance serializes reading back through
 glance's `(eq t VALUE)` flag.
 
-**Two cases PIN holes rather than blessing them.** Create and delete are the
-two blob-lifecycle events the notification file does not carry — a tagged
-capture through glance mints an id `refresh-external` skips as *unknown or
-deleted*, and a delete splices no spans so it writes no line at all, leaving a
-live record pointing at bytes now in the trash. One line of glance's own
-instrument names both: `unmatched 1 unindexed blobs, 1 records without blobs`.
-Closing either turns its case red, which is the point.
+**One case PINS a hole rather than blessing it, where there were two.** Create
+and delete were the two blob-lifecycle events the notification file did not
+carry. **The delete leg closed (2026-08-12):** a delete appends the write line
+plus a third field, `"tombstone":true`, out of `Data.Org.Trash.trashBlob`'s own
+success branch — the second door bytes move by, since a delete splices no spans
+and reaches `replaceSpans` never — and org-glance folds it as the tombstone
+`graph:delete` would write. `delete-tombstones-the-record` reads all three of
+those: the bytes, the kind org-glance's reader took them as, and the record it
+dropped. What is still a hole is the tagged capture, which mints an id
+`refresh-external` skips as *unknown or deleted*; closing it turns its case red,
+which is the point. One line of glance's own instrument names both halves:
+`unmatched 1 unindexed blobs, 0 records without blobs`, the zero being the
+tombstoned id leaving `Data.Org.Index`'s fold.
 
 **And the target found the coverage hole it was aimed at.** Replacing
 `Watch.hs`'s `note = nudge opts hub . FS.eventPath` with `const (pure ())` —
-inotify events registered and delivered nowhere — leaves **all 1857 Haskell
-tests passing**, because every pipeline case calls `drain` or `settle` directly
+inotify events registered and delivered nowhere — leaves **the whole Haskell
+suite passing** (1857 when this was run, 1867 today), because every pipeline
+case calls `drain` or `settle` directly
 and every browser-originated write reaches the table through its own explicit
 nudge. What dies is the entire Emacs→browser direction, silently and
 one-directionally, and `browser-sees-emacs` is what says so. The suite's own
