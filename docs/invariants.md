@@ -1490,24 +1490,26 @@ on.
   record equal to the one already there, and the latest-per-id fold cannot tell
   the difference. Idempotent by construction, which is what lets the two steps
   be unsynchronised. Emacs drops exactly the prefix it read rather than writing
-  the file empty, so a line this daemon appends mid-refresh survives to the next
-  one. A TOMBSTONE is exempt from that rule and needs no exemption: a repeated
-  fold of one finds the id already tombstoned and appends nothing.
+  the file empty, and only while the file still STARTS WITH it — a
+  compare-and-swap, so a fold that finds the prefix gone writes nothing and a
+  line this daemon appends mid-refresh survives whichever way. A TOMBSTONE is
+  exempt from that rule and needs no exemption: a repeated fold of one finds the
+  id already tombstoned and appends nothing.
 
-  THE FOLD'S OWN TWO HAZARDS ARE THE PEER'S, PINNED THERE. Both are properties
-  of how Emacs reads and truncates this file, so neither is reachable from a
-  line this side spells and neither is restated here: a two-reader truncate race
-  (two Emacsen folding at once, wanting a lock ACROSS Emacsen — a change to the
-  fold's design rather than to any line of it), and resurrection through an open
-  material buffer (the tombstone arm touches no buffer, so a later save writes a
-  live record back over the tombstone). The second stands on purpose: a fold runs
-  in the BACKGROUND, and `org-glance-material:delete`'s consent-when-dirty guard
-  exists because discarding a dirty buffer needs a human — doing that silently
-  during a background fold is worse than a resurrected record, which one more
-  delete undoes. Both are written up with their probe evidence in the peer's
-  `src/data/org-glance-graph.el` commentary, one copy, kept beside the code they
-  describe. What they cost THIS side is visible in the instrument: a resurrected
-  blob is counted as an unindexed blob by `glance scan`. **peer, pinned**
+  THE FOLD'S OWN HAZARD IS THE PEER'S, PINNED THERE. It is a property of how
+  Emacs reads this file, so it is reachable from no line this side spells and is
+  not restated here: resurrection through an open material buffer (the tombstone
+  arm touches no buffer, so a later save writes a live record back over the
+  tombstone). It stands on purpose: a fold runs in the BACKGROUND, and
+  `org-glance-material:delete`'s consent-when-dirty guard exists because
+  discarding a dirty buffer needs a human — doing that silently during a
+  background fold is worse than a resurrected record, which one more delete
+  undoes. The two-reader truncate race beside it is CLOSED, by the
+  compare-and-swap above (the peer's invariant 34). Written up with its probe
+  evidence in the peer's `src/data/org-glance-graph.el` commentary, one copy,
+  kept beside the code it describes. What it costs THIS side is visible in the
+  instrument: a resurrected blob is counted as an unindexed blob by `glance
+  scan`. **peer, pinned**
 
   Evidence:
   `TestExternal` — both doors, both golden lines, the path rules, append-only

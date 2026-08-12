@@ -256,7 +256,9 @@ measurements and the history of superseded designs live in
   Emacs's `refresh-external` re-derives each written id via `graph:insert` (never
   `put-content` — blobs are read, not rewritten), appends a tombstone for each
   deleted one under `graph:delete`'s own guard, and shortens the file by the
-  PREFIX IT READ; a crash between = a repeated refresh, no-op by construction.
+  PREFIX IT READ while the file still starts with it — a compare-and-swap, so
+  two Emacsen folding one store need no lock and neither eats the other's lines.
+  A crash between append and shorten = a repeated refresh, no-op by construction.
   Its reader answers one `(ID . KIND)` per id, each at its FIRST sighting
   carrying its LAST sighting's kind, so a write and a delete of one id inside one
   window fold as the delete.

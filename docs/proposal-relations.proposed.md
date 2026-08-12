@@ -16,6 +16,11 @@ definition / relations* — where relations is the leg that is not yet a verb.
 5. **Shape queries land in glance** — two-hop, paths, orphans, `GET /graph`.
 6. **The kind keeps the peer's `?kind=` spelling** — `glance:ID?kind=SLUG`.
    Only the scheme moves.
+7. **`@` in the materialize sheet makes a reference** — a popup completing over
+   headlines, then an optional kind completing over the kinds the tree already
+   uses. This is the verb the census says is missing.
+8. **The link rewrite is one entry in a global `glance migrate --dry-run`**,
+   which migrates schemas generally rather than links alone.
 
 ## What the corpus says
 
@@ -110,6 +115,137 @@ one grammar is spelled once across two programs, where a second spelling would
 be a second thing to keep in step. `refTargetOf` cuts the target at the first
 `?` — org ids are UUIDs, so no target carries one of its own.
 
+### `@` in the sheet makes a reference — the verb
+
+`@` over the materialize sheet's document pane inserts a reference, mirroring
+the peer's own double binding of the same key: `org-glance-overview:relations`
+in the overview, which is glance's table today, and `org-glance-material:refer`
+in the material buffer, which is this. One key, two surfaces, the same split
+the peer already made.
+
+**The popup is the capture form's shape**, which is the closest thing already
+built: a field with the tree's vocabulary narrowing under it, at most eight
+rows, `C-n`/`C-p` and the arrows walking a highlight, `RET` taking it.
+
+1. **the headline** — narrowed over the store, addressable rows only;
+2. **the kind**, optional — narrowed over the kinds the tree already uses,
+   free text accepted so a new kind costs no configuration.
+
+`RET` moves forward and commits at the last field; an empty kind is a plain
+mention; `ESC` cancels through `SURFACES` like every other momentary surface.
+
+**One endpoint.** `GET /refer?q=TEXT[&kind=SLUG][&limit=N]` answers
+`{rows: [{id, title, insert}], kinds: [{kind, rows}]}`.
+
+- `q` is narrowed by `Glance.Web.Filter`'s own `compile` over `hrSearch` — the
+  same grammar the table takes, so there is no second matcher.
+- **Addressable rows only.** A row with no `ORG_GLANCE_ID` cannot be linked to,
+  so the 42% wall is expressed as a filter rather than as a refusal a reader
+  meets after choosing. The row the sheet stands on is dropped too: a row is
+  not its own reference.
+- `kinds` is the store-wide vocabulary with a row count each, the shape `/tags`
+  already answers in, folded off `refKind` once `RefKind` lands. This is why
+  the verb is staged after stage 1.
+- `insert` is **composed server-side** under the current `kind`, so the page
+  still spells no bracket grammar and the peer's slug rule is applied where it
+  is already implemented. Changing the kind re-fetches, which the completion is
+  doing anyway, so `insert` is never stale.
+
+**Where the link lands — two modes, and both already exist.**
+
+- **A paragraph edit is open:** insert at the caret. The reader is writing the
+  sentence that explains the reference, which is where a reference belongs.
+- **No edit open:** `+`'s own path — `Scan.joinAt` picks the landing by grain,
+  a zero-width draft row is drawn, and the box is seeded with `insert` instead
+  of an item lead. The reader types prose around it and `RET` commits.
+
+**So the write path is untouched.** The commit is the sheet's existing
+drift-locked `POST /headline {body, properties, planning, digest}` — 409 on
+drift, `untrailed`, one owner per byte. A box still holding only its seed
+writes nothing, which is `+`'s rule unchanged. **No twelfth command is owed**:
+placement is what makes a headless `add-link` hard, and the sheet is the one
+surface with a point.
+
+**Refusals.** No addressable match is one `cmd info` line. Over the property
+panel or a child headline, `@` refuses and names the pane. Target existence
+needs no wall — it was picked out of the store.
+
+**Echo.** `@ → org-glance-material:refer (Wrike MDE Team · author)`, the kind
+omitted where there is none.
+
+**Tests.** `/refer` narrows exactly as `/headlines?q=` does over one fixture; a
+row with no `ORG_GLANCE_ID` never appears; the sheet's own row never appears;
+`insert` **reparses** to the id and description it names, which is `spelling`'s
+own reparse-and-compare idiom. In the harness: `@` raises the picker, a pick
+seeds the draft, `RET` fires exactly one `POST /headline`, a seed-only box
+fires none. In `make interop`: an edge written here decodes through
+`org-glance--link-edge` to the `(target . kind)` it names.
+
+### The logbook records references — `Referred to` / `Referred by`
+
+The pair had this before (`9343e54:lib/core/relations.el`), spelled
+`Related to` / `Referred from`, one line each carrying state, category, the
+link and an inactive timestamp:
+
+```org
+- Related to *TODO* =contact= [[org-glance-visit:ID][Eva Malenova]] on [2026-01-02 Thu]
+```
+
+Restored under the new names and carrying the kind:
+
+```org
+:LOGBOOK:
+- Referred to =author= [[glance:7db7af20-…?kind=author][Eva Malenova]] on [2026-08-12 Wed]
+- Referred by =roasted-by= [[glance:1c9f0a42-…?kind=roasted-by][Kávový klub]] on [2026-08-09 Sun]
+:END:
+```
+
+**The two directions are different kinds of fact, and that decides everything
+below.** `Referred to` is an **event**: the reader made this reference, on that
+day, and the timestamp means something. `Referred by` is a **query result**
+about the rest of the tree, which no event in this entry produced.
+
+So:
+
+- **`Referred to` is written when the reference is made** — the `@` gesture
+  appends its line in the same `POST /headline` that writes the link, one file,
+  one atomic write, nothing deferred.
+- **`Referred by` is regenerated, never transactional.** Writing it at edge
+  time would make `@` touch **two** files — the source and the target — and
+  there is no cross-file transaction here by design. It is refreshed by a pass
+  (`glance migrate --only backrefs`, dry run by default like every other
+  entry), folding the reverse index from stage 4 and rewriting each entry's
+  block wholesale.
+
+**The block is derived and says so.** Regenerated whole rather than merged, so
+a stale line is corrected by the next pass instead of accumulating. A reader
+editing it by hand loses the edit at the next run, which is the honest contract
+for a derived region and is worth stating in the drawer itself.
+
+**What this costs, plainly.** glance's logbook is read-only today —
+`headlineParts` drops it, `recomposedSubtree` re-injects its lines **verbatim**,
+and the sheet shows it muted, out of Tab, out of `dirty()`, never sent. Writing
+into it makes the daemon a logbook writer for the first time, so the
+server-preserved rule narrows from *the whole logbook* to *every logbook line
+except this block*. That is a real invariant change and it is the price of
+having the fact in the file rather than only on screen.
+
+**And `Referred by` is stale by construction.** It describes other files;
+nothing this entry does keeps it true. The regeneration pass is what bounds the
+staleness, and between passes the file is wrong in a way the reader cannot see.
+The alternative that costs no bytes is to draw both strips in the sheet from
+the reverse index at render time — always correct, never stale, and invisible
+to Emacs and to `grep`. **Which one is wanted is the open decision**: the file
+(visible everywhere, stale between passes) or the view (always right, only in
+glance). Everything above assumes the file, as asked.
+
+**A drawer of its own is the other shape.** Org's `LOGBOOK` is where
+`org-log-into-drawer` puts state changes, notes and clock lines, so a
+regenerated block shares a drawer with lines Emacs writes and a reader typed.
+`Referred to` genuinely belongs there — it is a log entry. `Referred by` is the
+one that would sit more honestly in `:GLANCE_RELATIONS:`, regenerated wholesale
+with nothing of anyone else's inside it.
+
 ### Resolution: id only
 
 ```haskell
@@ -135,16 +271,61 @@ aliases that never stop being read**. One list entry each. A corpus written
 over years keeps resolving with no migration run at all, which is what makes
 the migration optional rather than a flag day.
 
-### The migration, and why it is separate
+### `glance migrate` — one command, a registry of schemas
 
-Rewriting ~4435 links in the user's real tree is a change to their files, so it
-is its own staged step with its own review: a `glance migrate-links --dry-run`
-printing every rewrite, then the same command writing through the ordinary
-`Data.Org.Edit` splice — optimistic lock, temp-plus-rename, every other byte
-identical. It is reversible by `git` in a tree under version control and by the
-trash in one that is not.
+Rewriting ~4435 links in the user's real tree is a change to the source of
+truth, so it is its own step with its own review. It is also **not the only
+schema this tree will outgrow**, so the link rewrite is one entry in a general
+command rather than a command of its own.
 
-**It is not required for anything else here to land.**
+```
+glance migrate [--only NAME] [--write] <roots>
+```
+
+**Dry run is the default.** A bulk rewrite over the source of truth is the one
+place in this repo where the safe mode should need no flag; `--write` applies.
+The report is `scan`'s shape — per migration, the files it would touch and the
+sites inside them, then a total.
+
+**A migration is a registry row**, the idiom `commands`, `configSettings` and
+`savedViews` already use — one list, many readers, so a new migration is one
+entry rather than an edit in four places:
+
+| field | |
+|---|---|
+| name | what `--only` takes and what the report prints |
+| what it looks for | a predicate over a parsed document |
+| the edits | a span edit set per file |
+| what it says | one line per site, for the dry run |
+
+Every migration writes through `Data.Org.Edit` — optimistic lock,
+temp-plus-rename, every other byte identical — so a migration inherits the
+surgical property rather than restating it, and no migration may rewrite a line
+it was not handed. One file is one atomic write; there is no cross-file
+transaction, exactly as `/command` has none.
+
+**Two rules every entry owes**, and the suite quantifies over the registry the
+way `TestConfig` does over `configSettings`:
+
+- **idempotence** — running twice changes nothing the second time, so an
+  interrupted run is resumed by running again;
+- **a fixture** — a document before and after, plus the dry-run line it prints.
+
+**The first entries:**
+
+| name | rewrites |
+|---|---|
+| `links` | the four old protocols to `glance:`, `?kind=` preserved — a pure prefix swap |
+
+**Candidates the corpus already suggests**, each its own decision and none of
+them owed by this proposal: the four superseded `ORG_GLANCE_ID` generations the
+corpus carries, `#+SEQ_TODO:`/`#+TYP_TODO:` to `#+TODO:` (the parser already
+folds them and re-renders the modern spelling), and the 11 links whose target
+is the literal string `nil`.
+
+It is reversible by `git` in a tree under version control, and **it is not
+required for anything else here to land** — the aliases make the link
+migration optional forever.
 
 ### The peer's half
 
@@ -197,18 +378,15 @@ Each stage is independently shippable and independently revertible.
 | 3 | **`glance:` canonical, four aliases read forever**                                              | no corpus change, no peer change yet                                 |
 | 4 | **Reverse index + in-degree on the wire**                                                       | prerequisite for 6                                                   |
 | 5 | **The peer writes `glance:`; interop case pins the round trip**                                 | two-repo, gated on 3                                                 |
+| 5b| **`@` in the sheet, `GET /refer`** — the verb                                                   | gated on 1 for the kind vocabulary; the only item that moves 0.34 edges per row |
 | 6 | **`GET /graph`, scoped by `?q=`**                                                               | M2, and it is what 4 was for                                         |
-| — | **`migrate-links`, dry-run first**                                                              | optional forever; rewrites the user's files                          |
+| — | **`glance migrate`, dry run by default**                                                        | optional forever; rewrites the source of truth                       |
 
-Stages 1 and 2 are a day and pay immediately. Stage 6 is the milestone.
+Stages 1 and 2 are a day and pay immediately. Stage 5b is the one a reader
+notices. Stage 6 is the milestone.
 
 ## What this does not buy
 
-- **A verb.** Nothing here lets a reader *make* a link, and **0 of 3524** edges
-  in the corpus could have been made from glance. That is a separate proposal
-  (`@` over the document pane, a `/refer` picker, the link composed
-  server-side) and it is the only item on any list that can move 0.34 edges per
-  row. Everything in this document makes existing edges better understood.
 - **Direction on the wire.** `ref:` stays incoming, the link popup outgoing.
   The peer draws `> kind` / `< kind` for a mutual pair; glance will not.
 - **Deleting an edge.** Still "edit the text around it."
