@@ -22,7 +22,7 @@ src-web/Glance/Web/Filter.hs	197	arms	0d3f71693bfe
 # drops every term whose key is a view key (`sort:', `columns:', `view:') before
 # a test is ever built, so no value reaches `valueFor Order' or
 # `keyTest _ _ Order'.  Verified by mutating both and running the whole suite
-# green.  CLAUDE.md keeps the arm on purpose — `valueFor' spells its five, and
+# green.  AGENTS.hs keeps the arm on purpose — `valueFor' spells its five, and
 # the catch-all that made `Field' half-enforced is gone.
 src-web/Glance/Web/Filter.hs	229	identity	0d3f71693bfe
 src-web/Glance/Web/Filter.hs	255	bool	0d3f71693bfe

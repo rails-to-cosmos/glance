@@ -1,7 +1,7 @@
 -- | The WASM probe: the core run INSIDE a WASI runtime over a real tree —
 -- walk, parse, count — which is the engine half of the daemon-in-the-page
--- milestone (docs/proposal-native-ports.draft.md, host 4) proven end to end before
--- any JSFFI design.
+-- milestone (docs/proposals/2026-08-05-native-ports.draft.md, host 4) proven
+-- end to end before any JSFFI design.
 --
 -- Serial on purpose: WASI has one thread, and 'loadDirFilesSerially' is the
 -- pool-free spelling of the same load the daemon runs.  The output is the

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# THE MUTATION RUNNER — docs/proposal-mutation-runner.md.  It grades the SUITE,
-# never the product: a rewrite that leaves the suite green names an assertion
-# nobody wrote.
+# THE MUTATION RUNNER — docs/proposals/2026-08-11-mutation-runner.done.md.  It
+# grades the SUITE, never the product: a rewrite that leaves the suite green
+# names an assertion nobody wrote.
 #
 #   tools/mutate TARGET=src/Data/Org/Edit.hs [SAMPLE=40] [REV=HEAD]
 #

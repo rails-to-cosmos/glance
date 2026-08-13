@@ -1,4 +1,4 @@
-.PHONY: test typecheck native elm elm-test browser browser-path browser-check interop sync-renderer run run-native run-wasm wasm-spike check-glue mutate mutate-list mutate-clean
+.PHONY: test typecheck loc native elm elm-test browser browser-path browser-check interop sync-renderer run run-native run-wasm wasm-spike check-glue mutate mutate-list mutate-clean
 
 # The run targets' knobs: .env carries them (committed, edit to taste), and
 # the ?= pair means a missing .env still runs against the defaults.
@@ -8,8 +8,10 @@ GLANCE_PORT ?= 7777
 
 # EVERY SUITE THAT RUNS OFF THIS TREE ALONE.  `cabal test' is the contract and
 # stays first, so the first red line is a Haskell one where there is one; the
-# Elm scanner's 65 cases sit behind their own target for the network reason
+# Elm scanner's cases sit behind their own target for the network reason
 # (see `elm-test') and are run by nobody else, which is what put them here.
+# HOW MANY THERE ARE IS ASKED OF `assets/elm/tests/ScanTest.elm' and written
+# down nowhere: a count in prose is a count that drifts.
 # `$(MAKE)' rather than a copy of the recipe: the skip rule lives once.
 #
 # OUT, and each for its own reason: `browser-check' needs a chromium on the
@@ -33,6 +35,11 @@ typecheck:
 	  cd assets/elm && npx --yes elm make src/Listing.elm src/Doc.elm \
 	    --output=/dev/null && echo "typecheck: elm clean"; \
 	else echo "typecheck: no npx on PATH -- elm skipped"; fi
+
+# WHAT THE REPOSITORY IS MADE OF, by `git ls-files' so the ignores are git's.
+# Vendored and generated files are counted apart from the authored total.
+loc:
+	@tools/loc
 
 # The renderer is vendored at assets/table-view.js and compiled into the binary,
 # so a `glance' started anywhere serves the same page and no path off this repo
@@ -63,12 +70,12 @@ elm-test:
 	  cd assets/elm && npx --yes -p elm -p elm-test elm-test; \
 	else echo "elm-test: no npx on PATH -- skipped"; fi
 
-# THE SUITE'S OWN GRADE (docs/proposal-mutation-runner.done.md).  One rewrite per
-# mutant over one file, in a git worktree with its own --builddir at -O0; a
-# mutant the suite leaves green names an assertion nobody wrote.  OUT of
-# `cabal test' for `elm-test's reason one size up: a check whose unit is MINUTES
-# lives behind its own target.  ~30 s a Haskell mutant, ~3 s an Elm one, so a
-# 40-mutant sitting is ~20 min.
+# THE SUITE'S OWN GRADE (docs/proposals/2026-08-11-mutation-runner.done.md).
+# One rewrite per mutant over one file, in a git worktree with its own
+# --builddir at -O0; a mutant the suite leaves green names an assertion nobody
+# wrote.  OUT of `cabal test' for `elm-test's reason one size up: a check whose
+# unit is MINUTES lives behind its own target.  ~30 s a Haskell mutant, ~3 s an
+# Elm one, so a 40-mutant sitting is ~20 min.
 #
 # ONE TARGET PER INVOCATION -- the cold build is paid once, so a target is a
 # sitting.  SAMPLE=0 takes every site; SAMPLE=N draws N seeded by the target's
@@ -113,9 +120,10 @@ browser-path:
 	@find $(HOME)/.cache/ms-playwright -type f \
 	     \( -name headless_shell -o -name chrome \) 2>/dev/null | head -1
 
-# THE ONE CHECK THAT MEASURES A PIXEL (docs/proposal-browser-driver.done.md), and it
-# is OUT of `cabal test' for `elm-test's reason one size up: it drives a 150 MB
-# browser, spawns a daemon, writes a temp tree and needs the machine's fonts.
+# THE ONE CHECK THAT MEASURES A PIXEL
+# (docs/proposals/2026-08-11-browser-driver.done.md), and it is OUT of
+# `cabal test' for `elm-test's reason one size up: it drives a 150 MB browser,
+# spawns a daemon, writes a temp tree and needs the machine's fonts.
 # The Haskell suite stays offline and stays the contract; every geometry rule it
 # asserts is asserted as CSS SOURCE TEXT, and where a declaration LANDS is what
 # this target reads.
@@ -140,8 +148,9 @@ browser-check:
 	CHROME="$$bin" GLANCE_BIN="$$(cabal list-bin -v0 exe:glance)" \
 	  ONLY="$(ONLY)" BREAK="$(BREAK)" KEEP="$(KEEP)" node test/browser/drive.mjs
 
-# THE ONE CHECK THAT RUNS THE PEER (docs/proposal-interop-check.done.md), and it
-# is OUT of `cabal test' for `browser-check's reason: it needs Emacs, a sibling
+# THE ONE CHECK THAT RUNS THE PEER
+# (docs/proposals/2026-08-12-interop-check.done.md), and it is OUT of
+# `cabal test' for `browser-check's reason: it needs Emacs, a sibling
 # org-glance checkout with its dependencies installed, and a daemon over a temp
 # store.  The Haskell suite stays offline and stays the contract; what this
 # target asks is the one thing neither suite can — that the bytes one program
@@ -215,10 +224,11 @@ native:
 	HASKELL_GI_GIR_SEARCH_PATH=$(CURDIR)/vendored/gir \
 	  cabal build $(NATIVE_BUILD) all
 
-# The WASM spike (docs/proposal-native-ports.draft.md, host 4): the core compiled by
-# the ghc-wasm-meta toolchain, glance-internal alone -- the deliverable is the
-# CATALOG of what compiles, not a working module yet.  Needs ~/.ghc-wasm on the
-# machine (the bootstrap script installs it); says so when it is not.
+# The WASM spike (docs/proposals/2026-08-05-native-ports.draft.md, host 4): the
+# core compiled by the ghc-wasm-meta toolchain, glance-internal alone -- the
+# deliverable is the CATALOG of what compiles, not a working module yet.  Needs
+# ~/.ghc-wasm on the machine (the bootstrap script installs it); says so when it
+# is not.
 wasm-spike:
 	@if [ ! -x "$$HOME/.ghc-wasm/wasm32-wasi-ghc/bin/wasm32-wasi-ghc" ]; then \
 	  echo "wasm-spike: no toolchain at ~/.ghc-wasm -- run ghc-wasm-meta's bootstrap first"; \
@@ -255,8 +265,9 @@ run-wasm:
 	fi
 
 # The shell's own checker, table-view's discipline over assets/glue/*.js
-# (docs/proposal-glue-extraction.done.md): tsc --checkJs under assets/jsconfig.json.
-# Zero errors is the standing state; a finding here is a finding.
+# (docs/proposals/2026-08-05-glue-extraction.done.md): tsc --checkJs under
+# assets/jsconfig.json.  Zero errors is the standing state; a finding here is a
+# finding.
 check-glue:
 	@if command -v npx >/dev/null 2>&1; then \
 	  npx --yes -p typescript tsc -p assets/jsconfig.json --pretty false && \

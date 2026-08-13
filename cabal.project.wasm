@@ -1,4 +1,5 @@
--- The WASM spike's project file (docs/proposal-native-ports.md, host 4).
+-- The WASM spike's project file
+-- (docs/proposals/2026-08-05-native-ports.draft.md, host 4).
 --
 -- Scope is the CORE alone: glance-internal first, the public library after it
 -- compiles.  glance-web, the CLI and the native window stay out — the page
