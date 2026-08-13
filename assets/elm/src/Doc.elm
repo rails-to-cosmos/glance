@@ -26,14 +26,15 @@ import Scan
         , Kind(..)
         , Row
         , blank
-        , blocksIn
         , bodyText
+        , caretIn
         , cellCount
         , cut
         , draftId
         , drafted
         , insertion
         , joinLine
+        , joinWord
         , kidsOf
         , kindWord
         , nth
@@ -359,8 +360,8 @@ type Msg
     | ClearFlags
     | Delete (List String)
     | Edit String String
-    | Draft String
-    | Insert String String
+    | Draft String (Maybe Int)
+    | Insert String (Maybe Int) String
     | Undraft String
     | Ignore
 
@@ -464,29 +465,31 @@ update msg model =
         -- line of their own rather than the one they were standing on.  The row
         -- is zero-width and empty, which `bodyText' passes over, and the cursor
         -- goes to it: the box is laid over whatever `dat' names.
-        Draft id ->
-            case drafted model id of
-                Just rows ->
-                    told { model | rows = rows, at = placeOf { model | rows = rows } draftId, col = Nothing }
+        Draft id caret ->
+            case ( drafted model id caret, joinWord model id caret ) of
+                ( Just rows, Just word ) ->
+                    -- THE WORD IS THE MODEL'S, said with the draw: which region
+                    -- the caret stands in is `Scan''s answer and the shell
+                    -- echoes it.
+                    spoke
+                        ( { model | rows = rows, at = placeOf { model | rows = rows } draftId, col = Nothing }
+                        , word
+                        )
 
-                Nothing ->
-                    ( model
-                    , docSaid (E.string "org-insert-element (nothing here takes a paragraph)")
-                    )
+                _ ->
+                    ( model, docSaid (E.string "nothing here takes a paragraph") )
 
         -- And the same row filled, which IS the write: zero-width, so the
         -- splice already written puts the lines in rather than replacing any.
         -- The cursor stays where it is — on the paragraph just made — and the
         -- LINE it starts at is what the rescan will be asked to land on.
-        Insert id written ->
-            case ( insertion model id written, joinLine model id ) of
+        Insert id caret written ->
+            case ( insertion model id caret written, joinLine model id caret ) of
                 ( Just rows, line ) ->
                     composed { model | rows = rows, landing = line }
 
                 ( Nothing, _ ) ->
-                    ( model
-                    , docSaid (E.string "org-insert-element (nothing here takes a paragraph)")
-                    )
+                    ( model, docSaid (E.string "nothing here takes a paragraph") )
 
         -- ESC, and an empty commit: what it leaves behind is what it found,
         -- point included — the STOP is named rather than a place counted back
@@ -602,6 +605,13 @@ stateJSON m =
         , ( "flags", E.list E.string m.flags )
         , ( "lines", E.int (List.length m.lines) )
 
+        -- WHERE POINT GOES in the marker a draft was drawn wearing, which is
+        -- this side's answer like the marker itself: the shell seeds its box
+        -- with both and spells no org grammar of its own.
+        , ( "caret"
+          , E.int (caretIn (Maybe.withDefault "" (Maybe.map .text (rowById m draftId))))
+          )
+
         -- The body as it stands, so a flush that follows no edit still has one.
         , ( "body", E.string (bodyText m []) )
         ]
@@ -667,6 +677,17 @@ kidD =
         (D.field "cells" (D.list cellD))
 
 
+{-| THE LINE THE CARET STOOD ON, and a NUMBER is the whole of what the shell
+sends: WHICH REGION holds that line is asked here, and the region says both what
+the new stop opens with and where it goes. ABSENT is `+' pressed with no box open
+and so no caret to read, where the sibling rides past the whole structure — which
+line 0 is not, being a line a reader stood on.
+-}
+caretD : D.Decoder (Maybe Int)
+caretD =
+    D.maybe (D.field "at" D.int)
+
+
 msgD : D.Decoder Msg
 msgD =
     D.field "kind" D.string
@@ -713,10 +734,13 @@ msgD =
                         D.map2 Edit (D.field "id" D.string) (D.field "text" D.string)
 
                     "insert" ->
-                        D.map2 Insert (D.field "id" D.string) (D.field "text" D.string)
+                        D.map3 Insert
+                            (D.field "id" D.string)
+                            caretD
+                            (D.field "text" D.string)
 
                     "draft" ->
-                        D.map Draft (D.field "id" D.string)
+                        D.map2 Draft (D.field "id" D.string) caretD
 
                     "undraft" ->
                         D.map Undraft (D.field "id" D.string)

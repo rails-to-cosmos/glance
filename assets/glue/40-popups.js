@@ -1,14 +1,14 @@
 // THE LINK AND TAGS POPUPS, and the popup chrome both wear
-// (docs/proposal-widget-files.partial.md, step C).  Twenty-two of its dependencies are
-// `const'/`function' and destructure safely; `edit' is a `let' the panel
-// reassigns, so it arrives as the ACCESSOR `editNow' -- a destructured `let' is
-// a copy of whatever it held at boot.
+// (docs/proposals/2026-08-08-widget-files.partial.md, step C).  Twenty-two of
+// its dependencies are `const'/`function' and destructure safely; `edit' is a
+// `let' the panel reassigns, so it arrives as the ACCESSOR `editNow' -- a
+// destructured `let' is a copy of whatever it held at boot.
 const Popups = ((deps) => {
     const { CFG, again, askFrom, cancelEdit, echo, el, failed, fire, foldTag, listing,
             openEdit, remembered, rowsWord, said, selectedId, shortly, shutEdit,
             sole, soon, stepIn, tagFrom, unlogged, unnarrow } = deps;
     const editNow = deps.editNow;
-    // The link and tags popups.  Full rules live in CLAUDE.md.
+    // The link and tags popups.  Full rules live in AGENTS.hs.
     const LCOLS = CFG.lcols;
     let lmount = null, lrows = [], opening = null, lfor = null, lpin = "";
     const linking = () => !!opening;

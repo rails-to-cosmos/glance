@@ -1,12 +1,12 @@
 // THE DRIVER — a real engine measures the page, because nothing else in this
-// repo renders anything (docs/proposal-browser-driver.md).  ONE WIDGET, ONE
-// FILE: browser launch, CDP client, daemon lifecycle, the six-call page handle
-// and the report.  ZERO DEPENDENCIES — node's global WebSocket onto Chrome's
-// `/json/version', which is the whole transport.
+// repo renders anything (docs/proposals/2026-08-11-browser-driver.done.md).
+// ONE WIDGET, ONE FILE: browser launch, CDP client, daemon lifecycle, the
+// six-call page handle and the report.  ZERO DEPENDENCIES — node's global
+// WebSocket onto Chrome's `/json/version', which is the whole transport.
 //
 // TEARDOWN IS A `finally' AND IT IS THE TARGET'S LIFE: a leaked daemon or a
 // hung browser on a red run is what gets a check deleted.  Every wait is a
-// CONDITION with a cap, never a duration (CLAUDE.md's `until:stale=off' rule).
+// CONDITION with a cap, never a duration (AGENTS.hs's `until:stale=off' rule).
 //
 //   GLANCE_BIN   the daemon to serve with          (else `cabal list-bin')
 //   CHROME       the browser binary to drive       (else ~/.cache/ms-playwright)

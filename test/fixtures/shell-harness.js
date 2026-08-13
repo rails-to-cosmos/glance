@@ -561,7 +561,7 @@ globalThis.fetch = (url, init) => {
     // server picked and the digest that file carries now.
     if (sent.name === "capture")
       return refusing
-        ? answer(400, { error: "#+GLANCE_CAPTURE_TARGET: /x.org is an absolute path" })
+        ? answer(400, { error: "inbox.org changed on disk" })
         : answer(200, { ok: true, file: captureTarget, digest: "d1", id: capturedId });
     return answer(200, {
       results: (sent.ids || []).map((id) =>
@@ -1224,7 +1224,8 @@ const make = (tag) => {
     readOnly: false, disabled: false, selectedIndex: -1,
     style: styleOf(), dataset: {}, attrs: {},
     parentNode: null, childNodes: [],
-    scrollTop: 0, clientHeight: 0, scrollHeight: 0, clientTop: 0, clientLeft: 0,
+    scrollTop: 0, scrollLeft: 0,
+    clientHeight: 0, scrollHeight: 0, clientTop: 0, clientLeft: 0,
     // A field's caret, which the template box reads to splice a code in at.
     selectionStart: 0, selectionEnd: 0,
     setSelectionRange(from, to) { this.selectionStart = from; this.selectionEnd = to; },
@@ -1451,7 +1452,9 @@ eval(fs.readFileSync(dir + "/shell.js", "utf8"));
 // sequence like `C-c C-t' is two of these and needs no other notation here.
 // `S-' is the shift held with it — `S-Tab' is the crossing back out of the
 // sheet's property panel, which the page tells from `Tab' by the modifier
-// alone.
+// alone.  `M-' is the meta the page reads off `altKey', and it is `M-RET''s
+// whole difference from `S-RET': one puts a newline in the open box and the
+// other commits it.
 //
 // A `%CODE' tail is the PHYSICAL key under the character, which is the one
 // thing a layout changes: `т%KeyN' is the key a Latin layout writes `n' on,
@@ -1469,15 +1472,16 @@ const press = (name, repeating, held) => {
   const cut = name.indexOf("%"), tailed = cut > 0 && cut < name.length - 1;
   const code = tailed ? name.slice(cut + 1) : undefined;
   const spelled = tailed ? name.slice(0, cut) : name;
-  const ctrl = spelled.startsWith("C-"), shift = spelled.startsWith("S-");
+  const ctrl = spelled.startsWith("C-"), shift = spelled.startsWith("S-"),
+        alt = spelled.startsWith("M-");
   // Acts split on whitespace, so the space BAR is spelled `Space' here and
   // cooked to the " " a browser actually sends — the glue never learns a
   // key name no browser speaks.
-  const bare = ctrl || shift ? spelled.slice(2) : spelled;
+  const bare = ctrl || shift || alt ? spelled.slice(2) : spelled;
   const event = {
     key: bare === "Space" ? " " : bare,
     code,
-    ctrlKey: ctrl, altKey: false, metaKey: false, shiftKey: shift,
+    ctrlKey: ctrl, altKey: alt, metaKey: false, shiftKey: shift,
     repeat: !!repeating, target: active || docBody,
     // The DOM's own record of "a listener has handled this", which the later
     // listeners on one document read to stay off a key an earlier one took.
@@ -2272,6 +2276,9 @@ const settle = async () => {
     dprows: field("mdoc").style.getPropertyValue("--g-doc-rows"),
     dtin: field("dtin").value,
     dtext: field("dtext").value,
+    // And WHERE POINT STANDS in it, which a seeded marker decides: at the end
+    // of a lead, inside the first cell of a table row.
+    dcaret: field("dtext").selectionStart,
     // The sheet's crumb strip: one entry per step of the descent, the LAST
     // wearing the full-ink class that says where the reader stands.  Read as
     // the parts it drew rather than as one string, since the bar is a row of

@@ -1,6 +1,5 @@
-    // The settings sheet: panels, config layers, state hues.  Rules in CLAUDE.md.
+    // The settings sheet: panels, config layers, state hues.  Rules in AGENTS.hs.
     const SECTIONS = [
-      { title: "general", parts: ["cgen"] },
       { title: "theme", parts: ["ctheme"],
         enter: () => { if (srows.length) repaintStates(null); } },
       { title: "keywords", parts: ["clayers", "ceff", "cfoot"],
@@ -82,7 +81,6 @@
       config().then((b) => {
         if (!settings) return;   // an ESC arrived while the layers were out
         drawLayers(b);
-        el("clog").value = logPref.get();
         cnote("synced");
         el("config").className = "on";
         // A URL naming a panel opens on it.
@@ -92,7 +90,7 @@
           if (at !== -1) pickTab(at);
         }
         soon(remembered);
-        el("ctarget").focus();
+        el("themesel").focus();
       }).catch((e) => {
         settings = false;
         append("config", "error", `settings failed: ${e.message}`);
@@ -108,10 +106,6 @@
         o.value = String(i);
       });
       showLayer(0);
-      const cap = el("ctarget");
-      cap.value = b.capture || "";
-      const sys = crows.find((r) => r.tag === null);
-      sys.cap = cap; sys.capBase = cap.value;
       const kw = b.keywords || {};
       el("ceff").textContent =
         `${(kw.active || []).join(" ")} | ${(kw.inactive || []).join(" ")}`;
@@ -293,8 +287,6 @@
      * @property {string} err        what the server last said about a write.
      * @property {string} tpl        its capture template as served.
      * @property {string} tplBase
-     * @property {HTMLInputElement|null} cap  the capture-target field, system only.
-     * @property {string|null} capBase
      * @property {{active: string[], inactive: string[]}} kw  the same lines PARSED.
      */
     /**
@@ -306,7 +298,6 @@
       base: (layer.lines || []).join("\n"),
       text: (layer.lines || []).join("\n"), err: "",
       tpl: layer.template || "", tplBase: layer.template || "",
-      cap: null, capBase: null,
       kw: { active: ((layer.keywords || {}).active || []).slice(),
             inactive: ((layer.keywords || {}).inactive || []).slice() },
     });
@@ -384,10 +375,6 @@
       { key: "template", on: () => true,
         now: (r) => r.tpl, was: (r) => r.tplBase, send: (r) => r.tpl,
         kept: (r, was) => { r.tplBase = was; } },
-      { key: "capture", on: (r) => r.cap !== null,
-        now: (r) => (r.cap ? r.cap.value : ""), was: (r) => String(r.capBase),
-        send: (r) => (r.cap ? r.cap.value : ""),
-        kept: (r, was) => { r.capBase = was; } },
       { key: "colors", on: (r) => r.tag === null,
         now: () => JSON.stringify(hues), was: () => huesBase,
         send: () => hueList(), kept: (_r, was) => { huesBase = was; } },
@@ -683,13 +670,6 @@
     const setLogLines = (n) =>
       el("log").style.setProperty("--g-logn", String(n));
     setLogLines(logLines(logPref.get()) || LOG.def);
-    el("clog").addEventListener("input", (e) => {
-      const n = logLines(targetOf(e).value);
-      if (n === null) return;
-      logPref.set(String(targetOf(e).value).trim());
-      setLogLines(n);
-      echo(`log: ${n} lines`);
-    });
 
     function hints() {
       const seq = (command) => {

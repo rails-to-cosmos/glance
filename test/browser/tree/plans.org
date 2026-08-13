@@ -10,6 +10,8 @@ The entry the sheet opens when a case needs a planning line.
 
 - a list item, so the pane has a composite stop
 - a second item under it
+- [ ] кириллическая задача, достаточно длинная чтобы перенестись на вторую строку в панели
+- [X] выполненная кириллическая задача
 
 * TODO [#A] A priority the badge column paints                        :plan:
 :PROPERTIES:

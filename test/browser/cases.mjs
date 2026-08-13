@@ -175,7 +175,7 @@ export default [
             `the pane's edge is "${pane.edge}"`];
   } },
 
-// CLAUDE.md: "The page never scrolls: body is 100vh, overflow:hidden ... the
+// AGENTS.hs: "The page never scrolls: body is 100vh, overflow:hidden ... the
 // key line is flex:none and scrolls sideways" — the KEY LINE is the one
 // sideways scroller and is exempt; the reading is the DOCUMENT's scroller.
 // Every surface opens by its OWN URL (SURFACES / bootPage), so this sweep keeps
@@ -294,7 +294,7 @@ export default [
 
 // AND CONTENT SITS UNDER THE TITLE TEXT: a paragraph starts at the head's own
 // title column rather than at its stars, the width DERIVED from `dstars' and
-// written onto `#mdoc' as a NUMBER (CLAUDE.md, UI).  PADDING rather than a
+// written onto `#mdoc' as a NUMBER (AGENTS.hs).  PADDING rather than a
 // margin — a margin would take the selection wash off the left of the line —
 // which is a rule about where two boxes' LEFT EDGES sit, and nothing measured
 // either.
@@ -323,7 +323,7 @@ export default [
       + `paragraph box at ${px(seen.paraLeft)} and its text at ${px(seen.paraText)}`];
   } },
 
-// EVERY SELECTION IN THE PANE IS A GROUND, never a line (CLAUDE.md, UI).
+// EVERY SELECTION IN THE PANE IS A GROUND, never a line (AGENTS.hs).
 // `groundSweep' cuts the four rules out of the SERVED TEXT and greps them for
 // `border'/`outline'/`text-decoration'/`box-shadow'; what the cursor row
 // actually PAINTS — a ground that differs from the row above it — is a
@@ -356,5 +356,130 @@ export default [
     assert(gone === seen.off,
       `the pane that lost the keys still paints its cursor ${gone} against ${seen.off}`);
     return [`cursor ${seen.on} against ${seen.off}; with the keys away it paints ${gone}`];
+  } },
+
+// A LEAF IS ONE LINE OF THE FIELD THAT COVERS IT.  `.de' pads every stop by
+// 1px and a composite's leaves each spent it AGAIN inside it, so the drawn
+// lines walked 2px per leaf away from the textarea's uniform line box: measured
+// 0/2/4/6 over four items, and a sixteen-line list stood a line and a half out
+// by its foot.  The OUTER boxes agreed throughout — the field is sized to the
+// row — which is why every case that compared them stayed green.
+{ name: "a composite's drawn lines sit on the same grid as the field over it",
+  async run(p, base) {
+    await sheet(p, base, "drv-plan");
+    await p.press("n"); await p.press("n");      // onto the whole-list composite
+    await p.press("RET");
+    await p.until(() => document.getElementById("dpara").classList.contains("on"),
+                  "the edit to open over the list");
+    const s = await p.eval(() => {
+      const at = document.querySelector("#mdoc .de.dat");
+      const t = document.getElementById("dtext");
+      const line = parseFloat(getComputedStyle(at).lineHeight);
+      const top = at.getBoundingClientRect().top;
+      const leaves = [...at.querySelectorAll(".de")].map((e, i) => ({
+        i, cls: e.className,
+        drawn: +(e.getBoundingClientRect().top - top).toFixed(1),
+        pad: getComputedStyle(e).paddingTop,
+        h: +e.getBoundingClientRect().height.toFixed(1),
+      }));
+      return { line, h: at.getBoundingClientRect().height, leaves,
+               atPad: getComputedStyle(at).paddingTop,
+               fieldH: t.getBoundingClientRect().height, scrollH: t.scrollHeight,
+               text: t.value.split("\n").length };
+    });
+    const out = [`line ${s.line}px, row h${s.h}, field h${s.fieldH} scroll${s.scrollH}, `
+      + `${s.text} text lines, row padTop ${s.atPad}`];
+    let uniform = parseFloat(s.atPad);
+    for (const l of s.leaves) {
+      const drift = +(l.drawn - uniform).toFixed(1);
+      out.push(`  leaf${l.i} drawn@${l.drawn} uniform@${uniform.toFixed(1)} `
+        + `drift ${drift} (h${l.h} padTop${l.pad})`);
+      assert(Math.abs(drift) <= 0.5,
+        `leaf ${l.i} is drawn at ${l.drawn} where the field's line ${l.i} sits at `
+        + `${uniform.toFixed(1)} — ${drift}px out, and it accumulates per leaf`);
+      assert(Math.abs(l.h % s.line) <= 0.5,
+        `leaf ${l.i} stands ${l.h}px, off the ${s.line}px line box by `
+        + `${(l.h % s.line).toFixed(1)}px, so every leaf under it is pushed down`);
+      uniform += Math.round(l.h / s.line) * s.line;
+    }
+    return out;
+  } },
+
+// AN EDIT BOX IS THE BLOCK IT COVERS, and nothing measured the two TOGETHER:
+// the drawn row's own geometry is pinned above and the ground rules are swept
+// out of the served text, but no case compared `#dpara' to the `.de.dat' it is
+// laid over.  Both padding cases matter — `.d-para' and the whole-list
+// composite carry the title indent, every `.d-item' carries none — and so does
+// a CYRILLIC item that WRAPS, the width at which a line breaks being the one
+// thing a font can move under this rule.
+{ name: "the open box covers its row edge to edge, at the row's own metrics",
+  async run(p, base) {
+    const read = () => {
+      const one = (e) => {
+        const r = e.getBoundingClientRect(), c = getComputedStyle(e);
+        return { cls: e.className || e.id, left: Math.round(r.left * 10) / 10,
+                 w: Math.round(r.width * 10) / 10, h: Math.round(r.height * 10) / 10,
+                 padL: c.paddingLeft, padR: c.paddingRight,
+                 font: c.fontSize + "/" + c.lineHeight, fam: c.fontFamily.slice(0, 24),
+                 bg: c.backgroundColor };
+      };
+      const dat = [...document.querySelectorAll("#mdoc .dat")].map(one);
+      const b = document.getElementById("dpara");
+      const t = document.getElementById("dtext");
+      return { dat, box: b.classList.contains("on") ? one(b) : null,
+               field: b.classList.contains("on")
+                 ? { ...one(t), bar: t.offsetWidth - t.clientWidth,
+                     scrollH: t.scrollHeight, clientH: t.clientHeight } : null };
+    };
+    await sheet(p, base, "drv-plan");
+    const out = [];
+    // The PADDED stops first: a paragraph and the whole-list composite both
+    // carry the title indent, where every leaf carries none.
+    const walk = ["n", "n", "f", "n", "n", "n"];
+    for (let i = 0; i < walk.length; i += 1) {
+      await p.press(walk[i]);
+      await p.press("RET");
+      await p.until(() => document.getElementById("dpara").classList.contains("on"),
+                    "the edit to open");
+      // `placeEdit' sizes the box a turn after the raise, off the row: waiting
+      // for the two to AGREE is waiting for it to have run, which is what the
+      // readings below are about. An unsized box is one line tall over however
+      // many the row has, and its field then wraps inside a scrollbar.
+      await p.until(() => {
+        const b = document.getElementById("dpara").getBoundingClientRect();
+        const at = document.querySelector("#mdoc .de.dat");
+        return at && b.height > 0
+          && Math.abs(b.height - at.getBoundingClientRect().height) < 1;
+      }, "the box to be placed over its row");
+      const s = await p.eval(read);
+      const row = s.dat[s.dat.length - 1];
+      out.push(`leaf ${i} ${row.cls}`);
+      out.push(`  row   x${row.left} w${row.w} h${row.h} padL${row.padL} ${row.font}`);
+      out.push(`  box   x${s.box.left} w${s.box.w} h${s.box.h}`);
+      out.push(`  field x${s.field.left} w${s.field.w} h${s.field.h} padL${s.field.padL} `
+        + `${s.field.font} bar${s.field.bar} scroll${s.field.scrollH}/${s.field.clientH}`);
+      const note = `${row.cls}: row x${row.left} w${row.w} h${row.h} `
+        + `pad${row.padL} ${row.font} / box x${s.box.left} w${s.box.w} h${s.box.h} `
+        + `/ field pad${s.field.padL} ${s.field.font} bar${s.field.bar}`;
+      out.push(`  ${note}`);
+      assert(Math.abs(s.box.left - row.left) <= 1 && Math.abs(s.box.w - row.w) <= 1,
+        `the box does not cover its row — ${note}`);
+      assert(s.field.font === row.font,
+        `the field renders in another metric than its row — ${note}`);
+      assert(s.field.padL === row.padL,
+        `the field is inset unlike its row, so its text sits elsewhere — ${note}`);
+      // A SCROLLBAR THAT TAKES LAYOUT WIDTH WRAPS THE FIELD NARROWER than the
+      // div it covers, so the same bytes take more lines inside the box than
+      // under it.  Chromium overlays its own and measures 0 here.
+      assert(s.field.bar === 0,
+        `the field carries a ${s.field.bar}px scrollbar, so it wraps narrower `
+        + `than the row it covers — ${note}`);
+      assert(Math.abs(s.box.h - row.h) <= 1,
+        `the box stands ${s.box.h}px over a ${row.h}px row — ${note}`);
+      await p.press("ESC");
+      await p.until(() => !document.getElementById("dpara").classList.contains("on"),
+                    "the edit to close");
+    }
+    return out;
   } },
 ];

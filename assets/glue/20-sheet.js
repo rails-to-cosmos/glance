@@ -1,10 +1,11 @@
 // THE MATERIALIZE SHEET: two panes over one subtree, and one flush carrying
-// both — CLAUDE.md (UI), docs/proposal-widget-files.partial.md.
+// both — AGENTS.hs,
+// docs/proposals/2026-08-08-widget-files.partial.md.
     let editing = null;
     let base = "", baseProps = null, raw = false;
     // THE DOCUMENT PANE IS AN ELM PROGRAM (`assets/elm/src/Doc.elm').  The
     // MIRROR below is a macrotask behind it, which every reader here survives by
-    // running at the top of a key handler — CLAUDE.md (UI).
+    // running at the top of a key handler — AGENTS.hs.
     const DCELLS = CFG.dcells;
     let drows = [], dat = 0, dcol = null, dgrain = "element";
     let dflags = [], dbody = "", dlinks = [];
@@ -34,7 +35,7 @@
         dgrain = now.grain; dflags = now.flags; dbody = now.body;
         // Elm pushes a port BEFORE it paints, so what the cursor is scrolled
         // to and what the overlay is laid over are read a turn later.
-        soon(() => { seedInsert(); keepInView(docElAt()); placeEdit(); });
+        soon(() => { seedInsert(now.caret); keepInView(docElAt()); placeEdit(); });
       });
       dport.docSaid.subscribe((what) => { if (dwrote) { dwrote(what); dwrote = null; } });
       dport.docBody.subscribe(commitDoc);
@@ -51,7 +52,7 @@
       if (row && typeof row.scrollIntoView === "function")
         row.scrollIntoView({ block: "nearest" });
     }
-    // OFFSETS ARE IN CHARACTERS (docs/invariants.md); JS counts UTF-16 units.
+    // OFFSETS ARE IN CHARACTERS (AGENTS.hs); JS counts UTF-16 units.
     const clen = (s) => Array.from(String(s)).length;
     // The three regions the lens lifts out sit ABOVE the paragraphs, so a body
     // offset past the title line is displaced by ONE constant.
@@ -187,19 +188,8 @@
       editPara(r, r.text.replace(CHECKBOX, `$1[${now}]`), () => said(b, `[${now}]`));
     }
     const INSERT = docBinding("org-insert-element", "+");
-    const dOwner = (r) => (r && r.owner ? docRowById(r.owner) : null);
-    /** WHERE a sibling of the stop would land, in the reader's own words. */
-    function insertWord(r) {
-      if (r.kind === "head") return "at the top";
-      let top = r;
-      for (let up = dOwner(top); up; up = dOwner(top)) top = up;
-      // A LIST LEAF joins its own run, so the word is the LEVEL's rather than
-      // the structure's — `Scan.itemLead''s condition, said out loud.
-      if (r.grain === "leaf" && top.name === "list") return "an item at this level";
-      return top === r && r.grain !== "composite"
-        ? "after this paragraph"
-        : `after the ${top.name || "block"}`;
-    }
+    // The same command one key over: `S-RET' is `+' with the commit in front.
+    const NEXT = docBinding("org-insert-element", "S-RET");
     /**
      * `+' ADDS A SIBLING of the stop, in the widget `RET' edits a paragraph
      * with.  NOTHING joins the model: the row is this snapshot until `RET'
@@ -208,48 +198,68 @@
      * writes no bare bullet.
      */
     /**
-     * AN ITEM'S TOKEN IS ON SCREEN WHILE IT IS TYPED.  The drawn row wears the
-     * lead — `- ', `1. ', `- [ ] ' — and the box is laid over that row exactly,
-     * opaquely, so a reader typing into it saw an EMPTY field and the bullet
-     * only on `RET'.  The box carries the lead itself now, and `commitDocEdit'
-     * takes it back off before the write: Elm composes the line from the STOP,
-     * so what goes over the wire is what the reader added.
+     * A REGION'S MARKER IS ON SCREEN WHILE IT IS TYPED.  The drawn row wears it
+     * — `- ', `1. ', `- [ ] ', `|   |   |' — and the box is laid over that row
+     * exactly, opaquely, so a reader typing into it saw an EMPTY field and the
+     * bullet only on `RET'.  The box carries the marker itself now, and what
+     * goes over the wire is the WHOLE line the reader hands back.
      *
-     * Seeded from the DRAWN row rather than computed here — the lead is
-     * `Scan.itemLead''s answer and this page spells no org grammar — and once,
+     * Seeded from the DRAWN row rather than computed here — the marker is
+     * `Scan.markerFor''s answer and this page spells no org grammar — and once,
      * since every later state push would otherwise overwrite the typing.
+     *
+     * AND SO IS WHERE POINT LANDS IN IT: at the end of a lead, INSIDE the first
+     * cell of a table row, which closes with a pipe a reader typing past would
+     * turn into a column of its own.
      */
-    function seedInsert() {
+    function seedInsert(caret) {
       if (!dparaing() || !edit.row.add || edit.row.lead !== undefined) return;
       const drawn = drows.find((r) => r.id === "D");
       const lead = drawn ? String(drawn.text || "") : "";
       edit.row.lead = lead;
       if (!lead) return;
       const box = el("dtext");
+      const at = caret == null ? lead.length : caret;
       box.value = lead;
-      box.setSelectionRange(lead.length, lead.length);
+      box.setSelectionRange(at, at);
       sizeDocEdit();
     }
-    function insertHere() {
+    function insertHere(at) {
       const r = docRowAt();
       if (!r) { said(INSERT, "no element"); return; }
       if (r.kind === "child")
         { said(INSERT, "a child's body is its own — RET opens it"); return; }
-      said(INSERT, insertWord(r));
+      const off = at == null ? null : at;
+      // WHERE it lands is said by the MODEL, with the draw: which region a
+      // caret stands in is `Scan''s answer, and a reading of it here called a
+      // table row inside a list item "an item at this level".
+      dwrote = (what) => said(INSERT, what);
       // THE ROW IS DRAWN FIRST and the cursor goes to it, so the box is laid
       // over a line of the reader's own rather than over the one they stood
       // on.  Elm pushes its state a turn later and `placeEdit' runs again
       // there, which is what moves the box onto the paragraph just drawn.
-      dsend({ kind: "draft", id: r.id });
-      openEdit(DPARA, { id: r.id, text: "", add: true });
+      //
+      // AT rides along to the write as well as to the draw: `Scan' asks which
+      // REGION holds that line a second time there, and two answers would
+      // indent a multi-line item's continuations under a bullet it never wore
+      // — and land the write on a line the draw never drew.
+      //
+      // ABSENT is a caret nobody read, which `Scan' rides past the whole
+      // structure with.  Line 0 is a line, so the field is left off rather
+      // than sent as one.
+      dsend(off === null ? { kind: "draft", id: r.id }
+                         : { kind: "draft", id: r.id, at: off });
+      openEdit(DPARA, { id: r.id, text: "", add: true, at: off });
     }
     /** Put TEXT in under ROW, and commit whichever answer Elm sends back. */
     const insertPara = (r, text, done) => {
       // TWO ANSWERS, ONE ASK — a body to write, or a word instead of one — so
       // each one-shot disarms the other and neither outlives the press.
       dcommit = () => { dwrote = null; done(); };
-      dwrote = (what) => { dcommit = null; keySaid("+")(what); };
-      dsend({ kind: "insert", id: r.id, text });
+      dwrote = (what) => { dcommit = null; said(INSERT, what); };
+      const m = { kind: "insert", id: r.id, text };
+      if (r.at != null) m.at = r.at;
+      dsend(m);
     };
     // THE STORE LAGS THE WRITE: the watch is a debounce away, so an answer
     // under any digest but the 200's own is dropped and retried once.  Taking
@@ -325,6 +335,19 @@
       // content, so a bordered, scrolling pane owes `clientTop' + `scrollTop'.
       s.top = `${a.top - b.top - pane.clientTop + pane.scrollTop}px`;
       s.height = `${a.height}px`;
+      // THE BOX IS THE BLOCK IT COVERS ON EVERY EDGE, so the ground it paints
+      // is the row's own.  An ITEM's box opens at its OWNER's content edge —
+      // `.d-item' carries no horizontal padding, the nesting being the org
+      // source's own spaces — where the pane's inset ran the highlight to the
+      // beginning of the line.  Reading the row is what covers `.d-item' and
+      // `.d-para' with one rule; the stylesheet's span is the fallback for a
+      // page that measured nothing.
+      if (o.block) {
+        s.left = `${a.left - b.left - pane.clientLeft + pane.scrollLeft}px`;
+        s.width = `${a.width}px`;
+        inset(el(o.fields[0]), tr);
+        return;
+      }
       if (o.tight) {
         const e = o.edge && o.edge();
         const stop = e && typeof e.getBoundingClientRect === "function"
@@ -341,6 +364,30 @@
       const l = from.getBoundingClientRect(), rt = to.getBoundingClientRect();
       s.left = `${l.left - b.left}px`;
       s.width = `${rt.right - l.left}px`;
+    }
+    /**
+     * FIELD padded the way ROW is, so the text does not move when the box goes
+     * over it: the box starts where the row's BORDER box does, and the inset
+     * between that edge and the text is the row's own declaration.  A page
+     * with no layout engine reads nothing and keeps the stylesheet's.
+     *
+     * MEASURED ONCE PER ROW.  `placeEdit' runs on every typed character, on
+     * every scroll and on every state push, and `getComputedStyle' there forces
+     * a style recalc each time; a row's padding cannot move under an open box,
+     * so the answer stands until the anchor ELEMENT is replaced — which Elm's
+     * vdom is free to do, and is why the ROW is the key: one open edit can
+     * outlive the element it was laid over.
+     */
+    let insetRow = null, insetPad = "";
+    function inset(field, row) {
+      if (insetRow !== row) {
+        const c = typeof getComputedStyle === "function" ? getComputedStyle(row) : null;
+        if (!c || !c.paddingLeft) return;
+        insetRow = row;
+        insetPad =
+          `${c.paddingTop} ${c.paddingRight} ${c.paddingBottom} ${c.paddingLeft}`;
+      }
+      if (field.style.padding !== insetPad) field.style.padding = insetPad;
     }
     // A declaration rather than a `const', so a direct `eval' leaks it.
     function cellSpan(keys, cols) {
@@ -369,7 +416,7 @@
     };
     const DPARA = {
       box: "dpara", pane: "mdoc", fields: ["dtext"],
-      mount: () => null, anchor: docElAt,
+      mount: () => null, anchor: docElAt, block: true,
       fill: (r) => { el("dtext").value = r.text; sizeDocEdit(); },
       focus: () => el("dtext").focus(),
     };
@@ -400,8 +447,31 @@
       box.setSelectionRange(at + 1, at + 1);
       sizeDocEdit();
     }
-    function commitDocEdit(b) {
+    /** The line the caret stands on in BOX, counted in newlines ahead of it. */
+    const caretLine = (id) => {
+      const box = el(id);
+      return box.value.slice(0, box.selectionStart).split("\n").length - 1;
+    };
+    /**
+     * Commit the open edit, and with AT put another stop in under it.
+     *
+     * AT is `S-RET''s whole difference from `RET': the write goes out the
+     * same door, and what follows it is `+' over the row the commit landed on
+     * — so an item begets an item, a paragraph a paragraph, and the grain
+     * picks the lead.  `soon' because Elm pushes its state before it paints
+     * and the next stop has to be read off the rescan rather than off the
+     * model the commit was built from.  A write that lands nothing opens
+     * nothing: a box holding only its own token is no item, and chaining
+     * there would spend a press on a row the reader never made.
+     *
+     * It is the CARET'S LINE inside the box and the asking-for-another flag at
+     * once, line 0 being a line: the next stop wears the prefix of the line the
+     * press was made on, which is the only thing a multi-line stop can mean.
+     * Read at the press, the box being gone by the time this is over.
+     */
+    function commitDocEdit(b, at) {
       const spoke = (what) => (b ? said(b, what) : echo(`RET → ${what}`));
+      const more = () => { if (at != null) soon(() => insertHere(at)); };
       if (!edit) return;
       const r = edit.row;
       if (edit.o === DPARA) {
@@ -417,11 +487,14 @@
           // NO PLACEHOLDERS, EVER: a line that is still only its own token is
           // no item, and no row was ever made, so this writes nothing.
           if (!text.trim() || text === lead) { undraft(r); spoke("nothing added"); return; }
-          insertPara(r, text, () => spoke(lead ? "item added" : "paragraph added"));
+          insertPara(r, text, () => {
+            spoke(lead ? "item added" : "paragraph added");
+            more();
+          });
           return;
         }
-        if (text === r.text) { spoke("paragraph unchanged"); return; }
-        editPara(r, text, () => spoke("paragraph written"));
+        if (text === r.text) { spoke("paragraph unchanged"); more(); return; }
+        editPara(r, text, () => { spoke("paragraph written"); more(); });
         return;
       }
       const val = el("dtin").value;
@@ -522,7 +595,7 @@
     const checkboxHere = () => checkboxAt(drows[dat]);
     // THE SHELL'S SMALL LISTS ARE ONE ELM PROGRAM (`assets/elm/src/Listing.elm'),
     // one instance per surface, handing back the shape `flagKey', `stepIn' and
-    // `selectedId' already ask for — CLAUDE.md (UI).
+    // `selectedId' already ask for — AGENTS.hs.
     function listing(host, cols, hint, pane) {
       // `Browser.element\' REPLACES the node it is given, so it takes a child
       // and HOST survives as the container an overlay is anchored inside.
@@ -590,7 +663,7 @@
     /**
      * `/' NARROWS A SMALL LIST, one gesture over every `listing' mount — the
      * link popup, the tags popup, the sheet's property panel and the settings
-     * sheet's states table (CLAUDE.md, UI).
+     * sheet's states table (AGENTS.hs).
      */
     const narrows = (m) => can(m, "openNarrow", "shutNarrow", "narrowing");
     const narrowed = (m) => narrows(m) && m.narrowing() !== null;
@@ -717,7 +790,7 @@
       const also = cleared.map((r) => r.key).join(", ");
       echo(`D → org-delete-property (${how(ids.length)}${also ? ` · ${also} cleared` : ""})`);
     }
-    // Registers AHEAD of the dispatch, so it sees a key first — CLAUDE.md (UI).
+    // Registers AHEAD of the dispatch, so it sees a key first — AGENTS.hs.
     document.addEventListener("keydown", (e) => {
       // Without the guard the sheet claims the letter a palette was raised to read.
       if (!editing || raw || momentary()) return;
@@ -729,14 +802,21 @@
         if (narrowPress(k, pmount)) e.preventDefault();
         return;
       }
-      // OVER THE OPEN TEXTAREA `RET' COMMITS, org's `C-c C-c' by another name,
-      // and `S-RET' is the newline — the region is a value being handed back
-      // rather than a buffer being typed into.  Everything else is the
-      // textarea's, and ESC still restores.
       const once = (act) => { if (!repeating(e)) act(); };
+      // OVER THE OPEN TEXTAREA `RET' COMMITS, org's `C-c C-c' by another name
+      // — the region is a value being handed back rather than a buffer being
+      // typed into.  `S-RET' commits and asks for ANOTHER, and `M-RET' is the
+      // newline.  One rule across the kinds: `S-RET' hands back a SIBLING of
+      // whatever is open, so at a leaf it is the newline with the stop's own
+      // lead attached — an item, a table row, a source line.  The bare newline
+      // keeps `M-RET' for the whole-composite edit, where a sibling would be
+      // another table rather than another row.  Everything else is the
+      // textarea's, and ESC still restores.
       if (dparaing()) {
         if (k === "RET") { e.preventDefault(); once(() => commitDocEdit(paraBinding)); }
-        else if (k === "S-RET") { e.preventDefault(); newlineIn("dtext"); }
+        else if (k === "S-RET")
+          { e.preventDefault(); once(() => commitDocEdit(NEXT, caretLine("dtext"))); }
+        else if (k === "M-RET") { e.preventDefault(); newlineIn("dtext"); }
         return;
       }
       // `q' IS `quit-window' ONE WINDOW IN: over the table it closes the app's,
@@ -777,7 +857,14 @@
         else if (k === ":") once(() => atElement(tagsHere));
         else if (k === "SPC")
           once(() => toggleCheckbox(docBinding("org-toggle-checkbox", "SPC")));
-        else if (k === "+") once(insertHere);
+        // `S-RET' IS `+' WHEREVER IT IS PRESSED.  With an edit open it commits
+        // first and puts the next stop in behind the write; with none it is
+        // the insert alone, so one key means ANOTHER ONE OF THESE at either
+        // grain and in either state.  `M-RET' is org's own `org-insert-item'
+        // and joins them here, the newline it spells inside a box being a key
+        // there is no box to press it in.  None of the three reads a caret
+        // out here, so the sibling rides past the whole structure.
+        else if (k === "+" || k === "S-RET" || k === "M-RET") once(insertHere);
         else if (!flagPress(k, e, DFLAGS)) return;
       }
       e.preventDefault();
@@ -817,7 +904,7 @@
     const asked = () => raw
       ? { org: el("mtext").value }
       : { body: dbody, properties: props(), planning: planning() };
-    // ONE BUTTONLESS SHEET, twice over: each sheet supplies the verbs — CLAUDE.md (UI).
+    // ONE BUTTONLESS SHEET, twice over: each sheet supplies the verbs — AGENTS.hs.
     const RETRY = " — C-x C-s retry · ESC discard";
     const WORDS = { synced: "synced", syncing: "syncing…",
       conflict: "conflict — C-x C-s overwrite · ESC discard",

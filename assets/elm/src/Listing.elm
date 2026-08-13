@@ -72,7 +72,7 @@ type Msg
 
 
 {-| SUBSTRING, CASE-FOLDED, over the cells this list DRAWS — the producer's own
-rule for free text (`substring:`, CLAUDE.md), and no grammar of any kind: a bar,
+rule for free text (`substring:`, AGENTS.hs), and no grammar of any kind: a bar,
 a colon and a leading `-` are the characters they spell. The cells are joined by
 the unit separator `hrSearch` joins them with, so a match never spans two.
 -}

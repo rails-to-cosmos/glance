@@ -1,5 +1,5 @@
     // `open' is the name a shared URL raises; ROWED means the surface owes a
-    // row with it.  The value palette declares neither — CLAUDE.md (UI).
+    // row with it.  The value palette declares neither — AGENTS.hs.
     /** @typedef {object} Surface
      * @property {string} name         what `momentary()' answers with.
      * @property {boolean} [momentary] raised over the sheet rather than beside it.

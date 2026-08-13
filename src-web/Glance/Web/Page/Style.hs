@@ -46,8 +46,10 @@ page head' colours title body = T.unlines
   , "    --g-doc-padx:10px;--g-doc-pady:8px;"
   , "    --g-doc-fs:13px;--g-doc-lh:1.6;"
   , "    --g-doc-off:calc(3 * var(--g-doc-fs) * var(--g-doc-lh));"
-      -- The EDIT BOX's own metrics, declared once: the field reads them as
-      -- its font, and the box reads them to stand N lines tall.
+      -- THE POPUP FIELDS' metrics, declared once and read as their font.  The
+      -- document's box is NOT among them: `#dpara textarea' takes `font:inherit'
+      -- off the pane, so the pane's own pair is the one source there — for what
+      -- the field renders in and for the floor the block stands at alike.
   , "    --g-edit-fs:13px;--g-edit-lh:1.5;"
   , "    --g-pop-top:5vh;--g-pop-pad:24px;"
   , "    --g-pop-max:min(90vh,"
@@ -141,13 +143,15 @@ page head' colours title body = T.unlines
       -- under it MOVE DOWN rather than being covered.  `placeEdit' then sizes
       -- the box off the block as it always has.
       --
+      -- IN THE PANE'S OWN LINE BOX, which is the field's: `#dpara textarea'
+      -- takes `font:inherit' off `#mdoc', so a floor counted in any other
+      -- metric is a floor the typing does not fit — at `--g-edit-lh' the field
+      -- was 1.3px a line short and scrolled under point by the fourth.
+      --
       -- ZERO WHEN NOTHING IS OPEN, and that is the whole of what keeps a cursor
-      -- row the height of every other row: the FIELD's metrics are 13px/1.5 and
-      -- the PANE's are 13px/1.6, so a floor of one field-line is 21.5px against
-      -- a row's own 20.8 — three quarters of a pixel taller, which reads as the
-      -- highlighted line sitting a pixel high.  A HIGHLIGHT MOVES NO BOX.
-  , "  .de.dat{min-height:calc(var(--g-doc-rows, 0) * var(--g-edit-fs)"
-  , "    * var(--g-edit-lh) + 2px)}"
+      -- row the height of every other row.  A HIGHLIGHT MOVES NO BOX.
+  , "  .de.dat{min-height:calc(var(--g-doc-rows, 0) * var(--g-doc-fs)"
+  , "    * var(--g-doc-lh))}"
   -- A FLAG IS DRESSED THE WAY THE TABLE DRESSES ONE, being the same gesture
   -- over the same queue: `--g-bad' IS `--tv-flag', `--g-flag-wash' the strength
   -- its themes measured, and the INSET EDGE its second channel.  The background
@@ -161,7 +165,11 @@ page head' colours title body = T.unlines
   -- PADDING, never a margin: a margin takes the selection wash off the line.
   , "  .d-para,.d-comp{margin:.5em 0;"
   , "    padding-left:calc(var(--g-doc-pad) + var(--g-doc-indent, 2) * 1ch)}"
-  , "  .d-comp{padding-top:0;padding-bottom:0}"
+  -- A LEAF IS ONE LINE OF THE FIELD THAT COVERS IT.  `.de' pads every stop by
+  -- 1px, which a composite's leaves each spend AGAIN inside it: the drawn lines
+  -- then walk 2px per leaf away from the textarea's uniform line box, and an
+  -- edit over a sixteen-line list stood a line and a half out by its foot.
+  , "  .d-comp,.d-comp .de{padding-top:0;padding-bottom:0}"
   -- A PARAGRAPH DRAWN BEFORE IT IS WRITTEN still owns a line: the row `+' puts
   -- in holds nothing, and `:empty' cannot find it — Elm emits an empty text
   -- node — so the height is declared rather than tested for.
@@ -186,18 +194,26 @@ page head' colours title body = T.unlines
   , "  #pedit,#sedit{left:0;right:0}"
   , "  #chues{position:relative}"
   , "  #cstates{overflow:auto;max-height:40vh}"
-      -- `left:0' is the PADDING box, so these read the pane's own inset.
+      -- `left:0' is the PADDING box, so these read the pane's own inset.  THE
+      -- FALLBACK, for a page that measured nothing: `placeEdit' puts the box on
+      -- the ROW's own left and width, since an item's box opens at its owner's
+      -- content edge and the pane's inset would run the ground to the line's
+      -- beginning.
   , "  #dpara{left:var(--g-doc-padx);right:var(--g-doc-padx)}"
   , "  #dtitle.on,#pedit.on,#sedit.on,#tedit.on,#ledit.on{display:flex;align-items:center}"
   , "  #dpara.on{display:flex}"
-  , "  #pedit input,#sedit input,#tedit input,#ledit input,#dpara textarea{"
+  , "  #pedit input,#sedit input,#tedit input,#ledit input{"
   , "    font:var(--g-edit-fs)/var(--g-edit-lh) var(--dk-mono);"
   , "    padding:5px 12px;border:none;border-bottom:1px solid transparent;"
   , "    background:transparent;color:var(--g-fg);min-width:0}"
   , "  #dtin{flex:1;font:inherit;padding:0;border:none;"
   , "    background:transparent;color:var(--g-fg);min-width:0}"
       -- Read the block's declarations, never copy them — a literal drifts.
+      -- THE POPUP FIELDS' METRICS ARE NOT AMONG THEM: this box takes the PANE's
+      -- pair through `font:inherit', so naming it above as well left two rules
+      -- of equal specificity disagreeing and SOURCE ORDER settling it.
   , "  #dpara textarea{flex:1;resize:none;border:none;margin:0;font:inherit;"
+  , "    background:transparent;color:var(--g-fg);min-width:0;"
   , "    width:100%;overflow-wrap:anywhere;padding:1px var(--g-doc-pad);"
   , "    padding-left:calc(var(--g-doc-pad) + var(--g-doc-indent, 2) * 1ch)}"
   , "  #pedit input:focus,#sedit input:focus,#tedit input:focus,"
